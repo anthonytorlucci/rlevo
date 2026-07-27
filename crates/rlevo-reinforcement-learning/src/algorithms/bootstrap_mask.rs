@@ -178,6 +178,15 @@ pub(crate) struct MaskEnv<A> {
     state: MaskState,
     period: usize,
     end_status: EpisodeStatus,
+    /// Total [`Environment::step`] calls since construction. Deliberately
+    /// **not** reset by `reset()` — `state.steps` already restarts each
+    /// episode, and a NaN-injection index must address a step of the *run*, not
+    /// of the current episode.
+    calls: usize,
+    /// Value of `calls` (1-based) whose `step` returns a `NaN` reward instead
+    /// of `1.0`. `None` — the default — keeps every reward finite. See
+    /// [`with_nan_reward_at`](Self::with_nan_reward_at).
+    nan_reward_at: Option<usize>,
     _action: PhantomData<A>,
 }
 
@@ -188,8 +197,23 @@ impl<A> MaskEnv<A> {
             state: MaskState { steps: 0 },
             period,
             end_status,
+            calls: 0,
+            nan_reward_at: None,
             _action: PhantomData,
         }
+    }
+
+    /// Makes the `step`th call to [`Environment::step`] return a `NaN` reward
+    /// (1-based, counted from construction; the counter does not reset with the
+    /// episode).
+    ///
+    /// Models the misbehaving environment ADR 0065 exists for — a division by
+    /// zero or an exploding dynamics term that emits one non-finite reward in
+    /// an otherwise healthy run. Off by default so every other fixture user
+    /// keeps its all-finite reward stream.
+    pub(crate) const fn with_nan_reward_at(mut self, step: usize) -> Self {
+        self.nan_reward_at = Some(step);
+        self
     }
 
     fn observation(state: MaskState) -> MaskObservation {
@@ -233,14 +257,20 @@ impl<A: Action<1> + Clone> Environment<1, 1, 1> for MaskEnv<A> {
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state.steps += 1;
+        self.calls += 1;
         let status = if self.state.steps.is_multiple_of(self.period) {
             self.end_status
         } else {
             EpisodeStatus::Running
         };
+        let reward = if self.nan_reward_at == Some(self.calls) {
+            f32::NAN
+        } else {
+            1.0
+        };
         Ok(SnapshotBase {
             observation: self.observe(&action, &self.state),
-            reward: ScalarReward::new(1.0),
+            reward: ScalarReward::new(reward),
             status,
             metadata: None,
         })

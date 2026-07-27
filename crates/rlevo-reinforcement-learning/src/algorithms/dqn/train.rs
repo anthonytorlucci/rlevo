@@ -126,6 +126,14 @@ where
         );
         agent.on_env_step();
 
+        // DELIBERATE: `reward_f32` is accumulated raw, *including* a non-finite
+        // value that `remember` just refused to store (ADR 0065, #352). Do not
+        // "fix" this to skip a NaN. A NaN episode return is a true statement
+        // about a run whose environment emitted NaN, and it is a second
+        // surfacing channel that does not share the guard's decade warn
+        // schedule — a run whose first drop was logged 100 000 steps ago still
+        // reports a NaN score for every affected episode. Sanitising here would
+        // hide the environment's defect behind a plausible-looking number.
         episode_reward += reward_f32;
         episode_steps += 1;
 
@@ -283,6 +291,66 @@ mod tests {
         assert!(
             flags.iter().all(|f| !f),
             "truncation must not zero the bootstrap; got {flags:?}"
+        );
+    }
+
+    /// The regression test for issue #352: a single non-finite reward emitted
+    /// mid-run must never reach the replay buffer.
+    ///
+    /// Nothing caught the original defect because no test had ever asserted
+    /// anything about buffer *contents*. The cross-crate suites assert
+    /// `*_produces_finite_rewards` — the *environment's* output, i.e. the input
+    /// side of this very boundary — and the reproducibility suites assert
+    /// same-seed self-consistency, which a deterministic `NaN` satisfies
+    /// perfectly. This asserts the output side.
+    #[test]
+    fn test_train_drops_a_nonfinite_reward_without_panicking() {
+        /// The one step (1-based, from construction) whose reward is `NaN`.
+        const NAN_STEP: usize = 4;
+
+        let device = Default::default();
+        let config = DqnTrainingConfig {
+            learning_starts: 1_000_000,
+            replay_buffer_capacity: 64,
+            ..DqnTrainingConfig::default()
+        };
+        let net = FlatNet::<TestBackend>::new(ACTIONS, &device);
+        let mut agent = DqnAgent::<
+            TestBackend,
+            FlatNet<TestBackend>,
+            MaskObservation,
+            MaskDiscreteAction,
+            1,
+            2,
+        >::new(net, config, device)
+        .expect("default config is valid");
+        let mut env =
+            DiscreteMaskEnv::new(PERIOD, EpisodeStatus::Truncated).with_nan_reward_at(NAN_STEP);
+        let mut rng = StdRng::seed_from_u64(7);
+
+        // (a) rules.md §4: never panic in response to user-supplied runtime
+        // data. An environment's reward is exactly that.
+        train(&mut agent, &mut env, &mut rng, STEPS, 0)
+            .expect("a NaN reward must not fail or panic the training loop");
+
+        // (b) the drop is counted and visible through the public accessor.
+        assert_eq!(
+            agent.dropped_transitions(),
+            1,
+            "exactly one of the {STEPS} steps emitted a non-finite reward"
+        );
+
+        // (c) the invariant that actually matters: nothing non-finite is
+        // resident in the buffer, so no minibatch can ever be poisoned.
+        let rewards = agent.replay_rewards();
+        assert_eq!(
+            rewards.len(),
+            STEPS - 1,
+            "every step but the poisoned one must have been stored; got {rewards:?}"
+        );
+        assert!(
+            rewards.iter().all(|r| r.is_finite()),
+            "no non-finite reward may be resident in the replay buffer; got {rewards:?}"
         );
     }
 }

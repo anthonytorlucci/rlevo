@@ -3,8 +3,11 @@
 //! Hosts [`Slot`], the network-ownership newtype every agent uses to hold a
 //! trainable network across a Burn optimizer step; [`FiniteLossGuard`], the
 //! non-finite-loss skip-and-warn guard every learn step consults before
-//! `backward()` (ADR 0056, issue #318); and [`LogWatermark`], the
-//! progress-logging trigger shared by the on-policy training loops.
+//! `backward()` (ADR 0056, issue #318); [`FiniteRewardGuard`], the
+//! non-finite-reward drop-and-warn guard every off-policy `remember` consults
+//! before pushing into the replay buffer (ADR 0065, issue #352); and
+//! [`LogWatermark`], the progress-logging trigger shared by the on-policy
+//! training loops.
 //!
 //! # Why a `Slot` exists
 //!
@@ -546,6 +549,117 @@ impl FiniteLossGuard {
     }
 }
 
+/// Non-finite-reward drop-and-warn guard for the `remember` ingestion site of
+/// one off-policy agent (ADR 0065, issue #352).
+///
+/// [`FiniteLossGuard`] keeps a `NaN` *loss* out of the weights, but it does
+/// nothing about a `NaN` *reward*: an environment that emits one puts it in the
+/// FIFO replay buffer, where it survives until capacity eviction. Every
+/// minibatch that happens to resample that transition produces a non-finite
+/// loss, which the loss guard then correctly skips — so the run silently loses
+/// gradient updates for as long as the poisoned transition is resident, and
+/// because the loss guard's `warn!` is one-shot, only the very first skip is
+/// ever logged. The weights stay clean (that is ADR 0056's job); what is lost is
+/// throughput, and what is never surfaced is the root cause.
+///
+/// [`admit`](Self::admit) closes that at the ingestion boundary: `remember`
+/// takes an already-erased `f32`, so this is the one chokepoint every reward
+/// type in the workspace passes through, whatever [`Reward`] impl produced it.
+/// A non-finite value is **discarded, not stored** — the transition never enters
+/// the buffer, so no later minibatch can be poisoned by it.
+///
+/// # Why a decade schedule and not a one-shot latch
+///
+/// [`FiniteLossGuard`] latches its warning once, and that is right for a
+/// *skipped gradient step*: the failure is self-healing, the next minibatch can
+/// recover, and repeating the line adds nothing. A *dropped transition* is
+/// different — it is unbounded data loss, and its magnitude is the operational
+/// fact the caller needs. "One `NaN` in a 1M-step run" and "37% of transitions
+/// never entered the buffer" are entirely different situations that a single
+/// latched line cannot distinguish.
+///
+/// So the warning escalates by decades — it fires at the 1st, 10th, 100th,
+/// 1000th, … drop, carrying the running total. That bounds log volume at ~7
+/// lines over any realistic run (a 10M-drop run emits 8) while making a
+/// persistent source impossible to mistake for an isolated blip.
+///
+/// One guard instance owns one ingestion site, mirroring the one-guard-per-loss
+/// site rule above.
+///
+/// [`Reward`]: rlevo_core::base::Reward
+pub(crate) struct FiniteRewardGuard {
+    /// Running count of transitions discarded for a non-finite reward.
+    dropped: u64,
+    /// Next value of `dropped` at which a `warn!` is due: 1, 10, 100, 1000, ….
+    /// Schedules the `warn!` only — never the drop.
+    next_warn_at: u64,
+    /// Static site label (e.g. `"dqn/remember"`) used in the warning's
+    /// structured `site` field and message.
+    label: &'static str,
+}
+
+impl FiniteRewardGuard {
+    /// Creates a guard for the ingestion site named `label` (e.g.
+    /// `"dqn/remember"`), with its first warning due on the first drop.
+    pub(crate) const fn new(label: &'static str) -> Self {
+        Self {
+            dropped: 0,
+            next_warn_at: 1,
+            label,
+        }
+    }
+
+    /// Returns `true` if `reward` is finite — the caller proceeds to push the
+    /// transition into the replay buffer. Returns `false` if non-finite
+    /// (NaN/±Inf) — the caller MUST return without pushing. Emits a
+    /// `tracing::warn!` on the 1st, 10th, 100th, … rejection.
+    ///
+    /// CRITICAL: the rejection (returning `false`) fires on EVERY non-finite
+    /// occurrence; only the `warn!` is scheduled. Never gate the return value
+    /// on `next_warn_at` or on `dropped` — an environment that emits `NaN`
+    /// every step must be kept out of the buffer every step, exactly as ADR
+    /// 0056 §3 requires of the loss skip. Silencing the log is a cosmetic
+    /// concern; admitting one poisoned transition costs every minibatch that
+    /// later resamples it.
+    pub(crate) fn admit(&mut self, reward: f32) -> bool {
+        if reward.is_finite() {
+            return true;
+        }
+        self.dropped += 1;
+        if self.dropped >= self.next_warn_at {
+            self.next_warn_at = self.next_warn_at.saturating_mul(10);
+            tracing::warn!(
+                reward = reward,
+                dropped = self.dropped,
+                site = self.label,
+                "Non-finite reward ({reward}) at {} — the transition was \
+                 DISCARDED, not stored, so it can never poison a minibatch \
+                 (Burn propagates NaN silently rather than panicking). \
+                 {} transition(s) dropped so far; this warning repeats at 1, \
+                 10, 100, … drops. The environment emitted a non-finite \
+                 reward: check for a division by zero, an unbounded \
+                 accumulator, or an exploding physics/dynamics term in its \
+                 reward function. A persistent source means the buffer may \
+                 never reach `batch_size`, in which case training silently \
+                 never starts.",
+                self.label,
+                self.dropped,
+            );
+        }
+        false
+    }
+
+    /// Number of transitions discarded so far for a non-finite reward.
+    ///
+    /// Not test-gated: `remember` is public API driven directly from outside
+    /// this crate (integration tests, benches, hand-rolled training loops), so
+    /// a caller needs a programmatic way to discover that its data was dropped
+    /// rather than having to scrape log output.
+    pub(crate) const fn dropped(&self) -> u64 {
+        self.dropped
+    }
+}
+
 /// Periodic progress-logging trigger for a loop that advances in strides.
 ///
 /// Decides whether a training loop should emit its periodic `tracing` progress
@@ -646,6 +760,7 @@ mod tests {
     use super::*;
 
     use std::panic::AssertUnwindSafe;
+    use std::sync::{Arc, Mutex};
 
     use burn::backend::{Autodiff, Flex};
     use burn::module::Module;
@@ -1416,5 +1531,232 @@ mod tests {
             guard.check(2.0),
             "a healthy loss after a latched failure must proceed again"
         );
+    }
+
+    // -------- FiniteRewardGuard --------
+
+    #[test]
+    fn finite_reward_guard_admits_finite_values() {
+        let mut guard = FiniteRewardGuard::new("test/remember");
+        for good in [0.0_f32, -0.0, 1.5, -3.25, f32::MIN, f32::MAX] {
+            assert!(
+                guard.admit(good),
+                "a finite reward ({good}) must be admitted to the buffer"
+            );
+        }
+        assert_eq!(
+            guard.dropped(),
+            0,
+            "no finite reward may increment the dropped-transition counter"
+        );
+    }
+
+    #[test]
+    fn finite_reward_guard_rejects_non_finite_values() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut guard = FiniteRewardGuard::new("test/remember");
+            assert!(
+                !guard.admit(bad),
+                "a non-finite reward ({bad}) must be rejected (dropped)"
+            );
+            assert_eq!(guard.dropped(), 1, "the rejection of {bad} must be counted");
+        }
+    }
+
+    #[test]
+    fn finite_reward_guard_rejection_is_not_latched() {
+        // ADR 0065: the drop must fire on EVERY non-finite occurrence — only
+        // the `warn!` is scheduled. Gating the return value on the warn
+        // schedule would admit nine of every ten poisoned transitions, which
+        // is strictly worse than no guard at all (it would look fixed).
+        let mut guard = FiniteRewardGuard::new("test/remember");
+        for i in 1..=10_u64 {
+            assert!(
+                !guard.admit(f32::NAN),
+                "NaN #{i} must STILL be rejected — the drop is never latched"
+            );
+            assert_eq!(guard.dropped(), i, "every rejection must be counted");
+        }
+        assert!(
+            guard.admit(1.0),
+            "a finite reward after a run of drops must be admitted again"
+        );
+        assert_eq!(
+            guard.dropped(),
+            10,
+            "admitting a finite reward must not disturb the drop count"
+        );
+    }
+
+    /// The decade schedule is asserted on the **emitted `tracing` events**, not
+    /// on a test-only counter: the schedule *is* the log output, so observing
+    /// the real events is the only assertion a "simplify the schedule" mutation
+    /// cannot pass vacuously. The capture harness is the one from
+    /// `ppo::policies::gaussian` — see the note there on why this crate
+    /// hand-rolls a `Subscriber` instead of taking a dev-dependency.
+    #[test]
+    fn finite_reward_guard_warns_on_the_decade_schedule() {
+        // Drop counts at which a WARN is expected, over 100 consecutive drops.
+        let expected_at = [1_u64, 10, 100];
+
+        let events = capture_warnings(|| {
+            let mut guard = FiniteRewardGuard::new("test/remember");
+            for _ in 0..100 {
+                assert!(!guard.admit(f32::NAN), "every NaN is dropped");
+            }
+            assert_eq!(guard.dropped(), 100, "all 100 drops are counted");
+        });
+
+        let fired_at: Vec<u64> = events.iter().filter_map(|e| e.dropped).collect();
+        assert_eq!(
+            fired_at, expected_at,
+            "the WARN must fire at exactly drops 1, 10 and 100 and nowhere in \
+             between; captured events: {events:?}"
+        );
+        assert_eq!(
+            events.len(),
+            expected_at.len(),
+            "every captured WARN must carry a `dropped` field; got {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .all(|e| e.site.as_deref() == Some("test/remember")),
+            "every WARN must name its ingestion site; got {events:?}"
+        );
+        let first = events[0]
+            .message
+            .as_deref()
+            .expect("the first WARN carries a message");
+        assert!(
+            first.contains("DISCARDED"),
+            "the message must tell the operator the transition was not stored; \
+             got {first}"
+        );
+    }
+
+    #[test]
+    fn finite_reward_guard_emits_no_warning_for_finite_rewards() {
+        let events = capture_warnings(|| {
+            let mut guard = FiniteRewardGuard::new("test/remember");
+            for good in [0.0_f32, -0.0, 1.5, f32::MIN, f32::MAX] {
+                assert!(guard.admit(good), "finite rewards are admitted");
+            }
+        });
+        assert!(
+            events.is_empty(),
+            "a healthy stream of rewards must emit no WARN at all; got {events:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // `tracing` capture harness
+    //
+    // Mirrors `ppo::policies::gaussian`'s: the schedule under test is a
+    // property of the emitted events, and a latch/counter-only assertion
+    // cannot distinguish "fires at 1, 10, 100" from "fires every time" once
+    // the counter itself is the thing being asserted on. Hand-rolled rather
+    // than pulled in as a dev-dependency: `tracing` is already a direct
+    // dependency of this crate, and `with_default` plus a seven-method
+    // `Subscriber` is all that is needed (rules §8).
+    // -----------------------------------------------------------------
+
+    /// The fields of one captured `tracing` event that the warnings are
+    /// asserted on.
+    #[derive(Debug, Clone, Default)]
+    struct CapturedEvent {
+        level: Option<tracing::Level>,
+        /// The structured `dropped` field: the running drop total.
+        dropped: Option<u64>,
+        /// The structured `site` field, e.g. `"test/remember"`.
+        site: Option<String>,
+        /// The rendered human-readable message.
+        message: Option<String>,
+    }
+
+    /// Pulls the asserted fields out of an event's payload.
+    struct FieldVisitor<'a>(&'a mut CapturedEvent);
+
+    impl tracing::field::Visit for FieldVisitor<'_> {
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            if field.name() == "site" {
+                self.0.site = Some(value.to_owned());
+            }
+        }
+
+        fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+            if field.name() == "dropped" {
+                self.0.dropped = Some(value);
+            }
+        }
+
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            let rendered = format!("{value:?}");
+            match field.name() {
+                "message" => self.0.message = Some(rendered),
+                // Only reached if `site` ever stops being a `&'static str`;
+                // strip the `Debug` quotes so assertions stay stable either way.
+                "site" => self.0.site = Some(rendered.trim_matches('"').to_owned()),
+                _ => {}
+            }
+        }
+    }
+
+    /// Minimal `Subscriber` that records every event it is handed.
+    #[derive(Debug, Default)]
+    struct CaptureSubscriber {
+        events: Arc<Mutex<Vec<CapturedEvent>>>,
+    }
+
+    impl tracing::Subscriber for CaptureSubscriber {
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            // No spans are opened by the code under test; a constant id
+            // satisfies the contract without any bookkeeping.
+            tracing::span::Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut captured = CapturedEvent {
+                level: Some(*event.metadata().level()),
+                ..CapturedEvent::default()
+            };
+            event.record(&mut FieldVisitor(&mut captured));
+            self.events
+                .lock()
+                .expect("capture mutex is never poisoned")
+                .push(captured);
+        }
+
+        fn enter(&self, _span: &tracing::span::Id) {}
+
+        fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    /// Runs `f` with a capturing subscriber installed on this thread and
+    /// returns the `WARN`-level events it emitted, in order.
+    ///
+    /// `with_default` is thread-local, so this is safe under the parallel test
+    /// runner: a concurrently running test cannot observe or pollute these
+    /// events.
+    fn capture_warnings(f: impl FnOnce()) -> Vec<CapturedEvent> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = CaptureSubscriber {
+            events: Arc::clone(&events),
+        };
+        tracing::subscriber::with_default(subscriber, f);
+        let captured = events.lock().expect("capture mutex is never poisoned");
+        captured
+            .iter()
+            .filter(|e| e.level == Some(tracing::Level::WARN))
+            .cloned()
+            .collect()
     }
 }

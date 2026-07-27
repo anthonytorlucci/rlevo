@@ -112,6 +112,80 @@ arithmetic where the \\(\gamma^k\\) factors live. The two bounds split the labou
 cleanly: the monoid accumulates, the scalar conversion meters out the discount
 and feeds the value network.
 
+## A reward must be finite
+
+The monoid contract above says nothing about *magnitude* — `Add` and `zero()`
+are happy to fold `NaN` or `±∞` into a return exactly as readily as `1.0`. We
+deliberately keep it that way at the type level: `ScalarReward::new` performs
+no validation, and the wrapped `f32` is `pub` by design (`ScalarReward(0.5)`
+is a legitimate, common construction inside an environment's `step`). A
+validating constructor sitting next to a public field would be theatre —
+nothing stops the struct-literal path around it — so we do not pretend to
+close the hole where it cannot actually be closed.
+
+Instead we close it where the check can be complete: at the boundary where
+every reward, regardless of which `Reward` impl produced it, has already
+collapsed to a plain `f32`. The six off-policy agents — DQN, C51, QR-DQN,
+DDPG, TD3, and SAC — each check the incoming reward at the top of `remember`,
+before it reaches the replay buffer. If it is not finite, the transition is
+simply **not stored**; the call is a no-op. Nothing else about the step is
+skipped — the environment step counter, ε-decay, and the target-network
+update cadence all advance exactly as if the transition had been admitted.
+Only the buffer's contents change.
+
+You have three independent ways to notice this happened, and it is worth
+knowing why there are three rather than one:
+
+- **`agent.dropped_transitions() -> u64`** is a running count you can poll
+  directly, on all six agents.
+- **A `tracing` warning that escalates rather than latches.** It fires at the
+  1st, 10th, 100th, 1000th drop (and onward by powers of ten), each time
+  reporting the running total. A single line logged once and then silenced
+  cannot tell you whether you are looking at one stray `NaN` in a million
+  steps — statistically inert — or a third of your transitions never making
+  it into the buffer, which makes the run's results meaningless. Those two
+  situations call for different responses from you, so the signal has to
+  carry magnitude, not just occurrence.
+- **The episode return itself goes `NaN`.** This is deliberate, not a gap we
+  missed. The accumulator adds the non-finite reward in unconditionally, so
+  that episode's reported return, and the rolling average behind it, come out
+  `NaN`. An episode return is a scientific measurement of what the agent
+  actually earned; quietly excluding one step from it would report a number
+  the agent never earned. So a `NaN` in your reward curve is telling you the
+  truth, and the drop counter tells you how widespread the cause is.
+
+Why bother, given that a `NaN` reward cannot actually corrupt your weights
+today — a companion internal guard already refuses to run `backward()` on a
+non-finite loss, on every occurrence? Because without this guard, the
+poisoned transition would sit in the FIFO replay buffer until capacity
+eviction pushed it out, and *every* minibatch that happened to resample it
+would have its gradient update silently skipped by the loss guard — a
+steady, invisible drain on training throughput while the logs otherwise look
+healthy. Dropping the transition at ingestion removes the source instead of
+repeatedly absorbing the symptom downstream.
+
+In practice, a non-finite reward almost always means a bug in *your* reward
+function — a division by a quantity that reached zero, a `log` of zero or a
+negative number, a physics term that overflowed `f32`, or a reward computed
+from a state that is itself diverging. The guard is a safety net that makes
+that bug visible; it does not fix it, and a run with a non-zero
+`dropped_transitions()` count should be treated as suspect, not merely noisy.
+
+One caveat worth carrying with you: if non-finite rewards correlate with the
+states your policy actually visits — plausible if the agent's own actions are
+driving the environment into a divergent regime — then dropping them removes
+a *non-random* slice of experience, and the replay buffer stops representing
+the state distribution you think it does. That is precisely why the count is
+exposed rather than only logged: a low, flat count is background noise; a
+high or growing one means the data you are training on is no longer what you
+believe it is.
+
+> **Scope.** This guard covers the six off-policy agents' replay ingestion.
+> The PPO/PPG on-policy rollout buffer has the same hole and is **not**
+> protected by it — a `NaN` reward there propagates through the entire GAE
+> recursion rather than being dropped, a materially different failure mode
+> tracked as a separate piece of work.
+
 ## How a reward leaves the environment
 
 A reward never travels alone — it rides out of every step inside a `Snapshot`,
@@ -272,6 +346,11 @@ impl.
   environments use.
 - Rewards leave each step inside a **`Snapshot`**, whose `RewardType` associated
   type pins the abstract trait to a concrete one.
+- **A non-finite reward is dropped, not stored.** The six off-policy agents
+  reject `NaN`/`±∞` at `remember`, before it reaches the buffer — surfaced
+  through `dropped_transitions()`, a decade-scheduled `warn!`, and a
+  deliberately poisoned episode return; the on-policy PPO/PPG rollout is not
+  covered by this guard.
 - **`EpisodeStatus`** keeps `Terminated` and `Truncated` separate so value
   targets bootstrap correctly — a type-level guard against a classic RL bug.
 - **PEB in GAE.** A truncation bootstraps the delta but still cuts the

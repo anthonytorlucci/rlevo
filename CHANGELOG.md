@@ -1451,6 +1451,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`dropped_transitions()` on all six off-policy agents** (ADR 0065, part of
+  the #352 fix above). Returns how many transitions `remember` discarded for
+  carrying a non-finite reward. Public rather than test-only because
+  `remember` is public API driven directly from outside the crate (the
+  cross-crate integration tests and the benches all call it), so a caller
+  hand-driving the agent would otherwise have data silently dropped with no
+  programmatic way to detect it. A non-zero count means those environment
+  steps never entered the buffer.
+
 - **A replay-strategy seam — `replay::ReplayStrategy<T>` — with uniform and
   prioritized implementations, and opt-in prioritized replay for the
   value-based agents** (ADR 0050, ADR 0051, resolves #188). `UniformReplay`
@@ -1544,6 +1553,46 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   signature and `PolyakError` are unchanged.
 
 **Fixed**
+
+- **A non-finite reward from the environment was stored in the replay buffer
+  unchecked, where it silently cost every future minibatch that resampled it —
+  it is now dropped at ingestion, counted, and warned on an escalating
+  schedule** (ADR 0065, resolves #352). All six off-policy agents' `remember`
+  pushed the caller's `f32` straight into the buffer with no finiteness
+  contract anywhere between the environment and the Bellman target. The
+  defect's *shape* is not what the issue reported: ADR 0056's `FiniteLossGuard`
+  already stops a NaN reward from reaching `backward()`, so weights and the
+  target network are **not** corrupted. What remained is quieter and lasts
+  longer — the poisoned transition sits in the FIFO buffer until capacity
+  eviction, and every minibatch that resamples it produces a non-finite loss
+  whose update 0056 skips. Because that guard's `warn!` is a one-shot latch,
+  only the *first* such skip is ever logged, so the run bleeds training steps
+  while reporting nothing, and the reward that caused it is never surfaced at
+  all.
+
+  Nothing caught this because no test has ever asserted anything about replay
+  buffer *contents*. The cross-crate suite asserts `*_produces_finite_rewards`
+  — the *environment's* output, which is the input side of this very boundary —
+  and the reproducibility tests assert same-seed self-consistency, which a
+  deterministic NaN satisfies perfectly.
+
+  The issue named four agents; there are **six**. C51 (`c51_agent.rs`) and
+  QR-DQN (`qrdqn_agent.rs`) were added later by copying an unguarded
+  `remember` and had the identical hole, which is why the guard is one shared
+  `FiniteRewardGuard` with a test in each of the six files rather than six
+  inline checks. A non-finite reward's transition is not pushed; the drop
+  fires on **every** occurrence and is never latched, while the warning
+  escalates at 1, 10, 100, … drops carrying the running total — a dropped
+  transition is unbounded data loss, so unlike 0056's self-limiting skip the
+  operator needs the magnitude, not just the fact.
+
+  Deliberately unchanged, so they are not later "fixed": `remember`'s
+  signature (fallibility is #317's), `ScalarReward::new` (a core check cannot
+  close the hole — `Reward` is a trait and an environment may ship a type that
+  never touches `ScalarReward`), and the episode-return accumulator, which
+  still adds the NaN because an episode return is the primary scientific
+  measurement and omitting a step from it would report a return the agent
+  never earned.
 
 - **PPO's `log_std` clamp warning latched once per *head*, so a second bound
   crossing on another action dimension was silent — it now latches once per

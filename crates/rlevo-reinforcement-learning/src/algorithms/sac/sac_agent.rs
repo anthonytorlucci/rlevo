@@ -35,7 +35,7 @@ use crate::algorithms::sac::sac_model::{ContinuousQ, SquashedGaussianPolicy};
 #[cfg(test)]
 use crate::algorithms::shared::param_checksum;
 use crate::algorithms::shared::{
-    FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, assert_bounds_match_components,
+    FiniteLossGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA, assert_bounds_match_components,
 };
 use crate::utils::{PolyakError, compute_target_q_values};
 
@@ -216,6 +216,10 @@ pub struct SacAgent<
     critic_2_guard: FiniteLossGuard,
     /// Non-finite-loss guard for the actor loss site, latching independently.
     actor_guard: FiniteLossGuard,
+    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
+    /// #352). Drops the transition on every occurrence; the `warn!` escalates
+    /// by decades.
+    reward_guard: FiniteRewardGuard,
     _action: PhantomData<A>,
 }
 
@@ -340,6 +344,7 @@ where
             critic_1_guard: FiniteLossGuard::new("sac/critic_1"),
             critic_2_guard: FiniteLossGuard::new("sac/critic_2"),
             actor_guard: FiniteLossGuard::new("sac/actor"),
+            reward_guard: FiniteRewardGuard::new("sac/remember"),
             _action: PhantomData,
         })
     }
@@ -456,7 +461,22 @@ where
     /// [`Transition::terminated`]: crate::replay::Transition::terminated
     /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
     /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+    ///
+    /// # Behavior
+    ///
+    /// A non-finite `reward` (`NaN` or `±Inf`) is **discarded, not stored**:
+    /// the transition never enters the replay buffer and the call is otherwise
+    /// a no-op. Storing it would let every minibatch that later resampled it
+    /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
+    /// costing gradient updates for as long as the poisoned transition stayed
+    /// resident (ADR 0065, issue #352). A `tracing::warn!` fires on the 1st,
+    /// 10th, 100th, … drop; use
+    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
+    /// programmatically.
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
+        if !self.reward_guard.admit(reward) {
+            return;
+        }
         self.buffer.push(ContinuousTransition {
             obs,
             action: action.as_slice().to_vec(),
@@ -464,6 +484,22 @@ where
             next_obs,
             terminated,
         });
+    }
+
+    /// Number of transitions [`remember`](Self::remember) discarded because
+    /// their reward was non-finite.
+    ///
+    /// A non-zero count means those environment steps **never entered the
+    /// replay buffer** and can never be sampled — the agent learned nothing
+    /// from them. Watch it to detect a misbehaving environment (a division by
+    /// zero, an unbounded accumulator, an exploding dynamics term in its reward
+    /// function): the guard keeps the poison out of the buffer, but only the
+    /// caller knows whether the resulting data loss invalidates the run. A
+    /// persistently rising count also explains a buffer that never reaches
+    /// `batch_size`, i.e. training that silently never starts.
+    #[must_use]
+    pub const fn dropped_transitions(&self) -> u64 {
+        self.reward_guard.dropped()
     }
 
     /// Test-only view of the Bellman bootstrap masks currently held in the
@@ -1246,5 +1282,59 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ---- ADR 0065 / #352: non-finite reward is dropped at ingestion ----
+    //
+    // Every off-policy agent needs its OWN copy of this test. The defect had
+    // six sites, not the four the issue named, precisely because C51 and
+    // QR-DQN were added by copying an unguarded `remember` and no shared test
+    // noticed. A per-file test is what makes agent #7's author notice.
+
+    #[test]
+    fn sac_remember_drops_a_nonfinite_reward() {
+        let device = Default::default();
+        let config = SacTrainingConfigBuilder::new()
+            .build()
+            .expect("valid config");
+        let mut agent = GuardAgent::new(
+            TinySacActor::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent");
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+
+        agent.remember(
+            make_obs(0.0, 1.0),
+            &action,
+            f32::NAN,
+            make_obs(0.1, 0.9),
+            false,
+        );
+        assert_eq!(
+            agent.buffer_len(),
+            0,
+            "a NaN-reward transition must never enter the replay buffer"
+        );
+        assert_eq!(
+            agent.dropped_transitions(),
+            1,
+            "the drop must be visible to the caller through the public counter"
+        );
+
+        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        assert_eq!(
+            agent.buffer_len(),
+            1,
+            "the drop must not latch: the next finite reward is still stored"
+        );
+        assert_eq!(
+            agent.dropped_transitions(),
+            1,
+            "a finite reward must not increment the drop counter"
+        );
     }
 }
