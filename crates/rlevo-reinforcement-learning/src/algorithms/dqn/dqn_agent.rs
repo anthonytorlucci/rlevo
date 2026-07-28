@@ -561,6 +561,33 @@ where
     /// finite, valid-looking action anyway (see
     /// [`act_greedy`](Self::act_greedy)). Discard the affected episode's return
     /// rather than trusting it, and fix the observation source.
+    ///
+    /// # Comparability across algorithms
+    ///
+    /// This count is comparable **within** an algorithm family across runs. It
+    /// is **not** comparable between the discrete and the continuous family
+    /// during the early exploration / warm-up period, because the two families
+    /// place the guard on opposite sides of their random-action branch.
+    ///
+    /// - **Discrete** (`dqn`, `c51`, `qrdqn`) — the guard sits *inside* the
+    ///   ε-explore branch, and the greedy branch delegates to `act_greedy`,
+    ///   which guards itself. So **every** `act` call is counted, including the
+    ///   whole early period where `epsilon_start = 1.0` means every action is
+    ///   random and `obs` is read *only* to run this check.
+    /// - **Continuous** (`ddpg`, `td3`, `sac`) — the guard sits *after* the
+    ///   `learning_starts` warm-up early return, which draws a uniform random
+    ///   action without ever reading `obs`. So while `step < learning_starts`
+    ///   (and `training == true`) the count moves on **zero** calls.
+    ///
+    /// Both placements are correct for their own path — there is no
+    /// observation read to attribute in the continuous warm-up branch — so this
+    /// is a reporting caveat, not a defect. The practical consequence: a DQN
+    /// run and a comparably configured SAC run over the same environment will
+    /// report very different counts across their opening steps for reasons of
+    /// guard placement, not environment health. Compare like with like, and
+    /// note that the continuous family's `remember`-side
+    /// [`dropped_observations`](Self::dropped_observations) *does* cover the
+    /// warm-up steps.
     #[must_use]
     pub fn degenerate_action_selections(&self) -> u64 {
         self.act_obs_guard.count()

@@ -654,6 +654,33 @@ where
     /// action, and no loss guard, Q-value check, or action-validity check will
     /// ever fire on it. Treat a non-zero count as invalidating the affected
     /// episode's return, and fix the observation source.
+    ///
+    /// # Comparability across algorithms
+    ///
+    /// This count is comparable **within** an algorithm family across runs. It
+    /// is **not** comparable between the discrete and the continuous family
+    /// during the early exploration / warm-up period, because the two families
+    /// place the guard on opposite sides of their random-action branch.
+    ///
+    /// - **Discrete** (`dqn`, `c51`, `qrdqn`) — the guard sits *inside* the
+    ///   ε-explore branch, and the greedy branch delegates to `act_greedy`,
+    ///   which guards itself. So **every** `act` call is counted, including the
+    ///   whole early period where `epsilon_start = 1.0` means every action is
+    ///   random and `obs` is read *only* to run this check.
+    /// - **Continuous** (`ddpg`, `td3`, `sac`) — the guard sits *after* the
+    ///   `learning_starts` warm-up early return, which draws a uniform random
+    ///   action without ever reading `obs`. So while `step < learning_starts`
+    ///   (and `training == true`) the count moves on **zero** calls.
+    ///
+    /// Both placements are correct for their own path — there is no
+    /// observation read to attribute in the continuous warm-up branch — so this
+    /// is a reporting caveat, not a defect. The practical consequence: a DQN
+    /// run and a comparably configured SAC run over the same environment will
+    /// report very different counts across their opening steps for reasons of
+    /// guard placement, not environment health. Compare like with like, and
+    /// note that the continuous family's `remember`-side
+    /// [`dropped_observations`](Self::dropped_observations) *does* cover the
+    /// warm-up steps.
     #[must_use]
     pub fn degenerate_action_selections(&self) -> u64 {
         self.act_obs_guard.count()
@@ -1591,6 +1618,52 @@ mod tests {
             agent.degenerate_action_selections(),
             1,
             "a finite observation must not increment the act counter"
+        );
+    }
+
+    /// `act_with` is a **second, independent** entry point — it runs against a
+    /// snapshotted inner actor and shares `act`'s counter, but not its code
+    /// path. ADR 0065's copy-paste finding (two of six `remember` sites went
+    /// missing behind coverage that never reached them) applies verbatim here:
+    /// without this test, deleting the guard line from `act_with` is invisible.
+    ///
+    /// Same decision under test as [`act`]: count, warn, and **return the
+    /// action anyway** (ADR 0067 §Decision 4).
+    #[test]
+    fn td3_act_with_counts_a_nonfinite_obs_and_still_returns_an_action() {
+        let agent = obs_guard_agent();
+        let net = agent.inference_net();
+
+        let action = agent.act_with(&net, &make_obs(f32::NAN, 1.0));
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            1,
+            "`act_with` is its own site and must count a NaN observation"
+        );
+        assert_eq!(
+            action.as_slice().len(),
+            1,
+            "the action must still be returned: ADR 0067 §Decision 4 substitutes nothing"
+        );
+
+        let action = agent.act_with(&net, &make_obs(0.1, f32::NEG_INFINITY));
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            2,
+            "the count must not latch: a second ±Inf row increments again"
+        );
+        assert_eq!(
+            action.as_slice().len(),
+            1,
+            "an action still comes back on the second degenerate row"
+        );
+
+        // A healthy row through the same entry point must leave the counter put.
+        let _ = agent.act_with(&net, &make_obs(0.2, 0.8));
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            2,
+            "a finite observation must not increment the `act_with` counter"
         );
     }
 }
