@@ -31,7 +31,8 @@ use crate::algorithms::c51::loss::{
 use crate::algorithms::c51::projection::project_distribution;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::shared::{
-    FiniteLossGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss,
+    FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
+    reduce_weighted_loss,
 };
 use crate::utils::PolyakError;
 
@@ -141,6 +142,24 @@ where
     /// #352). Drops the transition on every occurrence; the `warn!` escalates
     /// by decades.
     reward_guard: FiniteRewardGuard,
+    /// Non-finite-**observation** guard for the `remember` ingestion site (ADR
+    /// 0067, #1043). Drops the transition on every occurrence — `obs` and
+    /// `next_obs` are checked together, so one guard covers both rows. Distinct
+    /// from `reward_guard`, and its counter is not a subset of that one: see
+    /// [`dropped_observations`](Self::dropped_observations).
+    obs_guard: FiniteObsGuard,
+    /// Non-finite-observation guard for the three action-selection sites (ADR
+    /// 0067 §Decision 4). **Detect and report only**: it counts and warns, and
+    /// the action is returned unchanged. See
+    /// [`degenerate_action_selections`](Self::degenerate_action_selections).
+    act_obs_guard: FiniteObsGuard,
+    /// Reusable host buffer backing `remember`'s finiteness check.
+    ///
+    /// `remember` takes `&mut self`, so the ingestion path — the hot one, once
+    /// per environment step — stages its rows into an owned buffer and settles
+    /// to zero allocations. The three `act` sites take `&self` and cannot share
+    /// it; see the comment in [`act_greedy`](Self::act_greedy).
+    obs_scratch: Vec<f32>,
     _action: PhantomData<A>,
 }
 
@@ -213,6 +232,9 @@ where
             stats,
             loss_guard: FiniteLossGuard::new("c51/loss"),
             reward_guard: FiniteRewardGuard::new("c51/remember"),
+            obs_guard: FiniteObsGuard::ingestion("c51/remember"),
+            act_obs_guard: FiniteObsGuard::act("c51/act"),
+            obs_scratch: Vec::new(),
             _action: PhantomData,
         })
     }
@@ -299,8 +321,24 @@ where
 
     /// ε-greedy action selection using the expected value of the predicted
     /// return distribution.
+    ///
+    /// # Non-finite observations
+    ///
+    /// Counted and warned about, never substituted — see
+    /// [`act_greedy`](Self::act_greedy) for the full reasoning and
+    /// [`degenerate_action_selections`](Self::degenerate_action_selections) for
+    /// the counter.
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> A {
         if self.exploration.should_explore(rng) {
+            // Guarded here rather than once at the top of the function: the
+            // greedy path below delegates to `act_greedy`, which guards itself,
+            // so a top-of-function check would count that branch twice. The
+            // explore branch never reaches `act_greedy`, and it still needs
+            // counting — the returned action does not come from the network, but
+            // the step is just as unattributable, because the *next* observation
+            // it produces comes from an environment already emitting NaN.
+            let mut scratch = Vec::new();
+            self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
             return A::from_index(rng.random_range(0..A::ACTION_COUNT));
         }
         self.act_greedy(obs)
@@ -312,12 +350,47 @@ where
     /// Unlike [`act`](Self::act) this never explores, so it is the policy to
     /// use for evaluation: it reflects what the network has learned without the
     /// ε-greedy exploration noise that floors at `epsilon_end`.
+    ///
+    /// # Non-finite observations
+    ///
+    /// A `NaN`/`±Inf` observation is **counted and warned about; the action is
+    /// returned unchanged** (ADR 0067 §Decision 4). Do not "improve" this into a
+    /// substitution or a fallback action, and do not delete the check as
+    /// redundant — it is the *only* thing in the system that can observe this
+    /// failure, for two reasons that are both counter-intuitive:
+    ///
+    /// 1. On the `flex` (CPU) backend `relu` maps `NaN` to `0.0`. A ReLU-fronted
+    ///    network fed a **fully** non-finite observation therefore emits a
+    ///    finite, in-domain, `is_valid() == true` action from a bias-only output
+    ///    row — measured on DQN, the one-NaN and all-NaN Q rows are
+    ///    bit-identical. There is no NaN downstream: `FiniteLossGuard` cannot
+    ///    fire, a Q-value check cannot fire, an action check cannot fire.
+    /// 2. Sharper, and specific to argmax-over-Q agents: on `flex`, `argmax`
+    ///    over a **partly** NaN row returns the index of the *first NaN*, not the
+    ///    finite max (`[1, NaN, 3, 2] -> 1`). The same row returns the correct
+    ///    index on `wgpu`. So the discrete failure is CPU-specific and
+    ///    invisible — and CPU is the backend CI runs.
+    ///
+    /// The `argmax` behaviour itself is issue #1050 and is deliberately **not**
+    /// fixed here; this guard only makes it attributable.
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn act_greedy(&self, obs: &O) -> A {
+        // Function-local scratch, deliberately: `act_greedy` takes `&self` and
+        // so cannot use the `obs_scratch` field `remember` uses. Sharing one
+        // buffer through a `RefCell` or a `Mutex` is NOT the fix — agents must
+        // stay `Sync` for the evolution layer's parallel evaluation, and a
+        // `RefCell` would forfeit exactly that. The known, accepted cost is one
+        // `Vec` allocation per call, and only for f32 feature-vector
+        // observations (<= 24 elements anywhere in this workspace): the four
+        // integer-backed image observation types override `row_is_finite` and
+        // never touch `scratch`, so for them this `Vec` is never allocated into
+        // (ADR 0067 §Decision 2).
+        let mut scratch = Vec::new();
+        self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
         let logits: Tensor<B, 3> = self.policy().forward(batched); // (1, A, N)
@@ -355,6 +428,11 @@ where
     /// non-autodiff backend via [`inference_net`](Self::inference_net) and
     /// reuses the [`inference_support`](Self::inference_support) tensor, which
     /// is dramatically cheaper for repeated single-observation inference.
+    ///
+    /// # Non-finite observations
+    ///
+    /// Counted and warned about, never substituted — see
+    /// [`act_greedy`](Self::act_greedy).
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
     // sign; where an index round-trips through f32 it stays far below the 2^24
@@ -366,6 +444,11 @@ where
         support: &Tensor<B::InnerBackend, 1>,
         obs: &O,
     ) -> A {
+        // Function-local scratch for the same `&self` / `Sync` reason as
+        // `act_greedy`; same per-call allocation cost, same zero cost for the
+        // integer-backed observation types.
+        let mut scratch = Vec::new();
+        self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
         let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
         let logits: Tensor<B::InnerBackend, 3> = M::forward_inner(net, batched); // (1, A, N)
@@ -402,8 +485,22 @@ where
     /// 10th, 100th, … drop; use
     /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
     /// programmatically.
+    ///
+    /// A non-finite **observation** — a `NaN` or `±Inf` anywhere in the host row
+    /// of *either* `obs` or `next_obs` — is discarded on the same terms, and
+    /// counted separately by
+    /// [`dropped_observations`](Self::dropped_observations) (ADR 0067, issue
+    /// #1043).
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if !self.reward_guard.admit(reward) {
+            return;
+        }
+        // Ordering is load-bearing and is documented on both counters: the
+        // reward guard runs first and returns early, so a transition that is
+        // bad in both ways increments `dropped_transitions` only.
+        let rows_finite = obs.row_is_finite(&mut self.obs_scratch)
+            && next_obs.row_is_finite(&mut self.obs_scratch);
+        if !self.obs_guard.admit(rows_finite) {
             return;
         }
         self.buffer.push(DiscreteTransition {
@@ -426,9 +523,66 @@ where
     /// caller knows whether the resulting data loss invalidates the run. A
     /// persistently rising count also explains a buffer that never reaches
     /// `batch_size`, i.e. training that silently never starts.
+    ///
+    /// # Relationship to [`dropped_observations`](Self::dropped_observations)
+    ///
+    /// The two counters are disjoint, and **neither is the total** on its own.
+    /// The reward check runs *first* in [`remember`](Self::remember) and returns
+    /// early, so a transition carrying both a non-finite reward and a non-finite
+    /// observation increments only this counter. Every dropped transition
+    /// increments exactly one of the two, so their sum is the total — but they
+    /// will legitimately disagree, and neither can be read as the other's
+    /// superset (ADR 0067 §Consequences).
     #[must_use]
     pub const fn dropped_transitions(&self) -> u64 {
         self.reward_guard.dropped()
+    }
+
+    /// Number of transitions [`remember`](Self::remember) discarded because
+    /// `obs` or `next_obs` carried a non-finite value.
+    ///
+    /// A non-zero count means those environment steps **never entered the
+    /// replay buffer** and can never be sampled. Watch it to detect a
+    /// misbehaving environment — a `NaN` observation is the signature of an
+    /// exploding physics/dynamics term or a division by zero in the state
+    /// update, which is precisely the failure mode of the rapier/box2d family.
+    /// Under prioritized replay the drop is worth more than it looks: a poisoned
+    /// row that *did* enter would yield a `NaN` TD error, have its priority
+    /// writeback rejected, and stay pinned at the running maximum forever — so
+    /// it would be resampled more often than average and never decay.
+    ///
+    /// Not test-gated: [`remember`](Self::remember) is public API driven from
+    /// outside this crate (integration tests, benches, hand-rolled training
+    /// loops), so a caller needs a programmatic way to discover that its data
+    /// was dropped rather than having to scrape log output.
+    ///
+    /// # Relationship to [`dropped_transitions`](Self::dropped_transitions)
+    ///
+    /// See that accessor: the reward guard runs first and returns early, so a
+    /// transition that is bad in *both* ways is counted there and **not** here.
+    /// The two counters will disagree; that is by design, not a defect.
+    #[must_use]
+    pub fn dropped_observations(&self) -> u64 {
+        self.obs_guard.count()
+    }
+
+    /// Number of action selections made from a non-finite observation.
+    ///
+    /// The counterpart to [`dropped_observations`](Self::dropped_observations)
+    /// on the [`act`](Self::act) / [`act_greedy`](Self::act_greedy) /
+    /// [`act_greedy_with`](Self::act_greedy_with) path, and **not** a drop
+    /// count: per ADR 0067 §Decision 4 the action was computed, returned to the
+    /// caller, and left unchanged. Substituting a plausible in-domain action
+    /// would be the same class of failure this counter exists to surface.
+    ///
+    /// A non-zero count means every affected step is *unattributable*: on the
+    /// CPU backend the network silently erased the observation and returned a
+    /// finite, valid-looking action anyway (see
+    /// [`act_greedy`](Self::act_greedy)). Discard the affected episode's return
+    /// rather than trusting it, and fix the observation source.
+    #[must_use]
+    pub fn degenerate_action_selections(&self) -> u64 {
+        self.act_obs_guard.count()
     }
 
     /// Test-only view of the Bellman bootstrap masks currently held in the
@@ -1313,6 +1467,150 @@ mod tests {
             agent.dropped_transitions(),
             1,
             "a finite reward must not increment the drop counter"
+        );
+    }
+
+    // ---- ADR 0067 / #1043: non-finite observation ----
+    //
+    // Per-file, for the same reason as the ADR 0065 block above: six sites, and
+    // a shared test would not notice a `remember` copied without its guard.
+
+    /// A deliberately NaN-emitting observation.
+    ///
+    /// `TestObs`'s `write_host_row` copies its array verbatim, so this row
+    /// reaches `row_is_finite` with the `NaN` intact — the check is on the host
+    /// row, *before* `to_tensor`, which is the only place the failure is
+    /// visible at all.
+    fn nan_obs() -> TestObs {
+        TestObs([f32::NAN, 0.0])
+    }
+
+    fn obs_guard_agent() -> TestAgent {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let config = C51TrainingConfigBuilder::new()
+            .num_atoms(TEST_ATOMS)
+            .v_min(-1.0)
+            .v_max(1.0)
+            .build()
+            .expect("valid test config");
+        C51Agent::new(TestNet::<Be>::init(&device), config, device).expect("agent constructs")
+    }
+
+    #[test]
+    fn c51_remember_drops_a_nonfinite_obs() {
+        let mut agent = obs_guard_agent();
+
+        agent.remember(nan_obs(), &TestAction(0), 1.0, TestObs([1.0, 0.0]), false);
+        assert_eq!(
+            agent.buffer_len(),
+            0,
+            "a NaN-observation transition must never enter the replay buffer"
+        );
+        assert_eq!(
+            agent.dropped_observations(),
+            1,
+            "the drop must be visible to the caller through the public counter"
+        );
+        assert_eq!(
+            agent.dropped_transitions(),
+            0,
+            "the reward was finite: the reward counter must not move"
+        );
+
+        agent.remember(TestObs([0.0, 0.0]), &TestAction(1), 1.0, nan_obs(), false);
+        assert_eq!(
+            agent.buffer_len(),
+            0,
+            "a NaN `next_obs` is checked too — it is the Bellman bootstrap input"
+        );
+        assert_eq!(agent.dropped_observations(), 2, "both rows are guarded");
+
+        agent.remember(
+            TestObs([1.0, 0.0]),
+            &TestAction(1),
+            1.0,
+            TestObs([2.0, 0.0]),
+            false,
+        );
+        assert_eq!(
+            agent.buffer_len(),
+            1,
+            "the drop must not latch: the next finite transition is still stored"
+        );
+        assert_eq!(
+            agent.dropped_observations(),
+            2,
+            "a finite observation must not increment the drop counter"
+        );
+    }
+
+    /// Pins the documented ordering: the reward guard runs first and returns
+    /// early, so a doubly-bad transition is counted once, on the reward side.
+    /// Both accessors' rustdoc states this; this test is what keeps it true.
+    #[test]
+    fn c51_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
+        let mut agent = obs_guard_agent();
+
+        agent.remember(nan_obs(), &TestAction(0), f32::NAN, nan_obs(), false);
+
+        assert_eq!(agent.buffer_len(), 0, "the transition must not be stored");
+        assert_eq!(
+            agent.dropped_transitions(),
+            1,
+            "the reward guard runs first and returns early"
+        );
+        assert_eq!(
+            agent.dropped_observations(),
+            0,
+            "the observation guard is never reached, so the two counters \
+             legitimately disagree — the documented ordering (ADR 0067)"
+        );
+    }
+
+    /// The decision under test is that the agent does **not** substitute: the
+    /// counter moves and an action still comes back, at all three `act` sites.
+    #[test]
+    fn c51_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
+        let agent = obs_guard_agent();
+        let mut rng = StdRng::seed_from_u64(7);
+
+        let action = agent.act(&nan_obs(), &mut rng);
+        assert!(
+            action.is_valid(),
+            "ADR 0067 §Decision 4: the action is returned unchanged, not substituted"
+        );
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            1,
+            "`act` must count the degenerate selection on either ε-branch"
+        );
+
+        let action = agent.act_greedy(&nan_obs());
+        assert!(action.is_valid(), "act_greedy must still return an action");
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            2,
+            "`act_greedy` is its own site and must count"
+        );
+
+        let net = agent.inference_net();
+        let support = agent.inference_support();
+        let action = agent.act_greedy_with(&net, &support, &nan_obs());
+        assert!(
+            action.is_valid(),
+            "act_greedy_with must still return an action"
+        );
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            3,
+            "`act_greedy_with` is its own site and must count"
+        );
+
+        agent.act_greedy(&TestObs([0.5, -0.5]));
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            3,
+            "a finite observation must not increment the counter"
         );
     }
 }

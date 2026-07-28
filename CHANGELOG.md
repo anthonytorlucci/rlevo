@@ -237,6 +237,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`HostRow::row_is_finite`, a provided method for detecting non-finite rows**
+  (ADR 0067, resolves #1043). Every observation reaching an agent was passed to
+  the network unchecked. The method is *provided*, so all 42 existing `HostRow`
+  implementors compile unchanged; it takes a `scratch: &mut Vec<f32>` rather
+  than allocating internally, because an f32-backed image observation would
+  otherwise cost a ~110 KB allocation on every environment step and widening
+  the signature afterwards would break every impl.
+
+  The predicate is a branchless `u32::max` reduction over the IEEE-754 exponent
+  field, not `iter().all(f32::is_finite)`, and the difference is not stylistic.
+  `0x7F80_0000` is the largest value the masked field can take, so the
+  reduction equals it exactly when some element is non-finite; because `max` is
+  associative, LLVM lowers it to a horizontal reduction. `Iterator::all` must
+  short-circuit and cannot be lowered that way — measured at ~9 GB/s against a
+  ~62 GB/s memcpy, eight times the cost of the write it rides — and its timing
+  depends on *where* the poison sits, which quietly confounds any
+  clean-versus-poisoned benchmark control.
+
+  The four integer-backed observation types (`PixelObservation`,
+  `CarRacingObservation`, `GridObservation`, `GoToDoorObservation`) override it
+  to `true`, since `u8 -> f32` cannot produce a non-finite value. Each override
+  carries a compile-time witness (`let _: &[u8] = &self.pixels;`) so that
+  re-backing one of them with `f32` fails to compile at the site whose
+  reasoning it invalidates, rather than silently turning the override into a
+  lie. The witness must stay a concrete type ascription: written as an
+  `Into<f32>` bound it would keep compiling forever, because
+  `impl<T> From<T> for T` gives `f32: Into<f32>`.
 - **Kind-level tests for `config::in_range`'s rejection of non-finite values**
   (resolves #335). `in_range` is written as `got >= lo && got <= hi`, so `NaN`
   fails both comparisons and lands in the `Err` branch — behaviour its rustdoc
@@ -1554,6 +1581,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **A non-finite observation entered the replay buffer and was fed to the
+  network, and on the CPU backend nothing downstream could ever detect it**
+  (ADR 0067, resolves #1043). ADR 0065 closed reward finiteness at `remember`;
+  the observations passing through the same call, in the same struct literal,
+  were still unvalidated across all six off-policy agents. `remember` now drops
+  and counts a transition whose `obs` or `next_obs` is non-finite, exposing
+  `dropped_observations()`, and the action-selection path reports and counts
+  through `degenerate_action_selections()` without substituting an action.
+
+  The reason existing tests could not have caught this is the whole point of
+  the fix. The issue predicted a NaN observation would produce a NaN action.
+  Measured, that only happens on wgpu/Metal. On `flex` — the backend CI runs —
+  `relu` *rescues* NaN to `0.0`, so a fully non-finite observation yields a
+  finite, in-bounds, `is_valid() == true` action from a bias-only Q row; the
+  one-NaN and all-NaN rows come out bit-identical, because the first ReLU
+  erased the observation entirely. There is no NaN left anywhere downstream,
+  so ADR 0056's `FiniteLossGuard` cannot fire, a Q-value check cannot fire, and
+  an action check cannot fire. Only a check on the observation itself, before
+  it becomes a tensor, can observe this at all. For discrete agents there is a
+  second silent path: `argmax` over a *partly* NaN row returns the index of the
+  first NaN rather than the finite maximum on flex, while wgpu returns the
+  correct index — so the same input is silently wrong on CPU and correct on GPU.
+
+  The guard runs at `remember` and not at batch staging. Issue #1043 assumed
+  the check could ride the existing `write_host_row` traversal at near-zero
+  cost; benchmarking refuted that, because `remember` stores the typed
+  observation and never flattens, so there is no traversal there to ride.
+
+  `act` deliberately does **not** substitute a fallback action. A plausible
+  in-domain substitute is the same failure this entry describes — a
+  legal-looking action that makes a broken run appear healthy — so the guard's
+  value there is attribution, not correction.
 - **The C51 projection produced a clean, plausible, and wrong target
   distribution on a GPU backend where the host backend failed loudly, because
   `Tensor::clamp`'s NaN behaviour differs between them** (ADR 0066, resolves

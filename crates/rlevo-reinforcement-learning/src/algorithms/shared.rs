@@ -757,9 +757,6 @@ impl FiniteRewardGuard {
 /// The two roles are deliberately *not* interchangeable. They count different
 /// events, and an instance is created for exactly one of them (ADR 0067
 /// §Decision 3 and §Decision 4).
-// TODO(#1043): the six agents' `remember` / `act` sites are wired in ADR 0067
-// Phase B; until then this enum has no non-test constructor.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ObsGuardRole {
     /// A replay-ingestion site (`"dqn/remember"`, …). The caller **drops** the
@@ -814,9 +811,6 @@ pub(crate) enum ObsGuardRole {
 /// runs first at `remember` and returns early. The two counters will therefore
 /// disagree, and neither is the total number of dropped transitions on its own
 /// (ADR 0067 §Consequences).
-// TODO(#1043): the six agents' `remember` / `act` sites are wired in ADR 0067
-// Phase B; this type is exercised only by its own unit tests until then.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct FiniteObsGuard {
     /// Running count of events observed at this site. Its meaning is fixed by
@@ -833,9 +827,6 @@ pub(crate) struct FiniteObsGuard {
     role: ObsGuardRole,
 }
 
-// TODO(#1043): every method below is called from the agents in ADR 0067
-// Phase B; until that lands they have unit-test callers only.
-#[allow(dead_code)]
 impl FiniteObsGuard {
     /// Creates a guard for the **replay-ingestion** site named `label` (e.g.
     /// `"dqn/remember"`), with its first warning due on the first drop.
