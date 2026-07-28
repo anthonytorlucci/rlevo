@@ -29,8 +29,8 @@ use crate::algorithms::ddpg::exploration::GaussianNoise;
 #[cfg(test)]
 use crate::algorithms::shared::param_checksum;
 use crate::algorithms::shared::{
-    FiniteLossGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA, action_bound_tensors,
-    assert_bounds_match_components, clip_to_action_bounds,
+    FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
+    action_bound_tensors, assert_bounds_match_components, clip_to_action_bounds,
 };
 use crate::utils::{PolyakError, compute_target_q_values};
 
@@ -182,6 +182,22 @@ pub struct DdpgAgent<
     /// #352). Drops the transition on every occurrence; the `warn!` escalates
     /// by decades.
     reward_guard: FiniteRewardGuard,
+    /// Non-finite-**observation** guard for the `remember` ingestion site (ADR
+    /// 0067, #1043). Drops the transition on every occurrence; the `warn!`
+    /// escalates by decades. Runs *after* [`Self::reward_guard`], which returns
+    /// early — so the two counters are not additive (see
+    /// [`dropped_observations`](Self::dropped_observations)).
+    obs_guard: FiniteObsGuard,
+    /// Non-finite-observation guard for the action-selection sites
+    /// ([`act`](Self::act), [`act_with`](Self::act_with)). Detect-and-report
+    /// only: it counts and warns, and the action is returned unchanged (ADR
+    /// 0067 §Decision 4).
+    act_obs_guard: FiniteObsGuard,
+    /// Reusable host staging buffer for the ingestion-side row-finiteness
+    /// check. `remember` takes `&mut self`, so it can own one buffer and
+    /// amortize the allocation across calls; the `&self` action-selection path
+    /// cannot, and pays a per-call `Vec` instead — see [`act`](Self::act).
+    obs_scratch: Vec<f32>,
     _action: PhantomData<A>,
 }
 
@@ -287,6 +303,9 @@ where
             critic_guard: FiniteLossGuard::new("ddpg/critic"),
             actor_guard: FiniteLossGuard::new("ddpg/actor"),
             reward_guard: FiniteRewardGuard::new("ddpg/remember"),
+            obs_guard: FiniteObsGuard::ingestion("ddpg/remember"),
+            act_obs_guard: FiniteObsGuard::act("ddpg/act"),
+            obs_scratch: Vec::new(),
             _action: PhantomData,
         })
     }
@@ -318,6 +337,55 @@ where
     /// clips to the action bounds. The unnoised policy mean is emitted when
     /// `training == false`.
     ///
+    /// # Behavior on a non-finite observation
+    ///
+    /// The observation row is checked for finiteness before it reaches the
+    /// actor. A `NaN` / `±Inf` row is **counted and warned about, and the
+    /// action is returned unchanged** — nothing is substituted, no fallback is
+    /// returned, and the clamping is not altered (ADR 0067 §Decision 4). Read
+    /// the count with
+    /// [`degenerate_action_selections`](Self::degenerate_action_selections).
+    ///
+    /// The warm-up branch is deliberately outside the check: it never reads
+    /// `obs`, so no action was selected *from* a poisoned observation there.
+    /// The step is still caught at [`remember`](Self::remember).
+    ///
+    /// # Why this is the only place the failure is observable
+    ///
+    /// The continuous failure mode is **backend-split**, and both halves are
+    /// bad in different ways. Measured on Pendulum/DDPG:
+    ///
+    /// - **wgpu / Metal** — a non-finite observation yields `raw_actor =
+    ///   [NaN]`, and the `NaN` survives the clamp, so the returned action's
+    ///   `is_valid()` is `false`.
+    /// - **flex (CPU)** — `relu` rescues `NaN` to `0.0`, so the actor emits a
+    ///   finite, plausible, in-bounds torque (measured `0.08646313`) from a
+    ///   **fully** `NaN` observation, with `is_valid() == true`. Nothing
+    ///   downstream can see it: the loss is finite, so
+    ///   `FiniteLossGuard` cannot fire, and an action-validity check cannot
+    ///   fire either. CI has no GPU, so CI only ever sees this half.
+    ///
+    /// # The clamp here is host `f32::clamp`, and must stay that way
+    ///
+    /// Every continuous act-path clip in this crate is
+    /// [`f32::clamp`] over a `&[f32]` already read back from the actor — **not**
+    /// `Tensor::clamp`. `f32::clamp(NaN, lo, hi)` propagates `NaN`, and does so
+    /// identically on every backend, so ADR 0066's `clamp_preserving_nan` does
+    /// **not** apply here and must not be introduced. Moving this clip into
+    /// tensor space would *import* the C51 defect: wgpu's `Tensor::clamp`
+    /// rescues `NaN` to the lower bound, which would turn the one backend that
+    /// still reports this failure into one that produces a plausible in-domain
+    /// torque with `is_valid()` back to `true`.
+    ///
+    /// # The action type validates nothing on this path
+    ///
+    /// The action is built with
+    /// [`ContinuousAction::from_slice`](rlevo_core::action::ContinuousAction::from_slice),
+    /// which is unchecked by contract, so an action type's own `NaN` rejection
+    /// is bypassed here (`PendulumAction::new` rejects `NaN`; no agent calls
+    /// it). ADR 0067 records that as deliberately out of scope — do not read
+    /// the returned `A` as having been validated.
+    ///
     /// # Panics
     ///
     /// Panics if the actor slot is poisoned — see
@@ -331,6 +399,16 @@ where
                 .collect();
             return A::from_slice(&sample);
         }
+
+        // `&self` (agents must stay `Sync` — the evolution layer evaluates them
+        // in parallel), so the staging buffer cannot be a field and must not be
+        // a shared `RefCell` / `Mutex`. Cost of the deliberate alternative: one
+        // `Vec<f32>` allocation per call, and only for f32 feature-vector
+        // observations (≤24 elements in this workspace). The four integer-backed
+        // observation types override `row_is_finite` without touching `scratch`,
+        // so this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
+        let mut scratch: Vec<f32> = Vec::new();
+        self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
@@ -371,12 +449,25 @@ where
     /// mean) but runs on the non-autodiff backend via
     /// [`inference_net`](Self::inference_net), avoiding the per-call autodiff
     /// graph construction that [`act`](Self::act) incurs.
+    ///
+    /// # Behavior on a non-finite observation
+    ///
+    /// Identical to [`act`](Self::act), and sharing its counter: the row is
+    /// checked, a non-finite row is counted and warned about, and the action is
+    /// returned **unchanged**. See [`act`](Self::act) for why nothing is
+    /// substituted, why the backends disagree, and why the clamp below must
+    /// stay a host [`f32::clamp`].
+    ///
     /// # Panics
     ///
     /// Panics if the actor's output tensor is not `f32`, or if it yields fewer
     /// than `A::COMPONENTS` values. Both indicate the supplied `net` does not
     /// match the action type this agent was built for.
     pub fn act_with(&self, net: &Actor::InnerModule, obs: &O) -> A {
+        // Function-local for the same `&self` / `Sync` reason as `act`.
+        let mut scratch: Vec<f32> = Vec::new();
+        self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
+
         let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
         let raw: Tensor<B::InnerBackend, DAB> = Actor::forward_inner(net, batched);
@@ -414,8 +505,27 @@ where
     /// 10th, 100th, … drop; use
     /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
     /// programmatically.
+    ///
+    /// A non-finite **observation** — on either `obs` or `next_obs` — is
+    /// discarded the same way, with its own counter
+    /// ([`dropped_observations`](Self::dropped_observations)) and its own
+    /// decade-scheduled `warn!` (ADR 0067, issue #1043). The reward check runs
+    /// **first** and returns early, so a transition that is bad in both ways
+    /// increments only `dropped_transitions`.
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if !self.reward_guard.admit(reward) {
+            return;
+        }
+        // Ordering is load-bearing and documented on both accessors: the reward
+        // guard above already returned, so this counter never sees a
+        // both-bad transition.
+        //
+        // `&mut self` here, so the staging buffer is the agent-owned field and
+        // the check costs no allocation after the first call. `&&`
+        // short-circuits: a poisoned `obs` skips staging `next_obs` entirely.
+        let rows_finite = obs.row_is_finite(&mut self.obs_scratch)
+            && next_obs.row_is_finite(&mut self.obs_scratch);
+        if !self.obs_guard.admit(rows_finite) {
             return;
         }
         self.buffer.push(ContinuousTransition {
@@ -438,9 +548,90 @@ where
     /// caller knows whether the resulting data loss invalidates the run. A
     /// persistently rising count also explains a buffer that never reaches
     /// `batch_size`, i.e. training that silently never starts.
+    ///
+    /// # Not additive with [`dropped_observations`](Self::dropped_observations)
+    ///
+    /// The reward check runs **first** in [`remember`](Self::remember) and
+    /// returns early, so a transition carrying both a non-finite reward and a
+    /// non-finite observation increments **only this** counter. The two will
+    /// legitimately disagree; neither is the total number of dropped
+    /// transitions on its own, and their **sum** is that total (ADR 0067
+    /// §Consequences).
     #[must_use]
     pub const fn dropped_transitions(&self) -> u64 {
         self.reward_guard.dropped()
+    }
+
+    /// Number of transitions [`remember`](Self::remember) discarded because
+    /// `obs` or `next_obs` carried a non-finite value (`NaN` / `±Inf`).
+    ///
+    /// A non-zero count means those environment steps **never entered the
+    /// replay buffer** and can never be sampled. The usual source is the
+    /// environment's own state update — a division by zero, an unbounded
+    /// accumulator, or an exploding physics/dynamics term — which for the
+    /// continuous agents is the whole rapier/box2d family. As with
+    /// [`dropped_transitions`](Self::dropped_transitions), a persistently
+    /// rising count explains a buffer that never reaches `batch_size`, i.e.
+    /// training that silently never starts.
+    ///
+    /// Not test-gated: `remember` is public API driven directly from outside
+    /// this crate (integration tests, benches, hand-rolled training loops), so
+    /// a caller needs a programmatic way to discover that its data was dropped
+    /// rather than having to scrape log output.
+    ///
+    /// # Not additive with [`dropped_transitions`](Self::dropped_transitions)
+    ///
+    /// The reward guard runs **first** and returns early, so a transition that
+    /// is bad in both ways increments only `dropped_transitions` and **not**
+    /// this counter. Expect the two to disagree; each drop increments exactly
+    /// one of them, so their **sum** is the total number of dropped
+    /// transitions and neither is that total on its own (ADR 0067
+    /// §Consequences).
+    #[must_use]
+    pub fn dropped_observations(&self) -> u64 {
+        self.obs_guard.count()
+    }
+
+    /// Number of actions [`act`](Self::act) / [`act_with`](Self::act_with)
+    /// returned from a **non-finite observation**.
+    ///
+    /// This is not a drop count: per ADR 0067 §Decision 4 the action was
+    /// selected, clamped, and returned to the caller unchanged. Every step it
+    /// counts is unattributable — on the CPU backend the network erased the
+    /// observation and returned a finite, in-bounds, `is_valid() == true`
+    /// action, and no loss guard, Q-value check, or action-validity check will
+    /// ever fire on it. Treat a non-zero count as invalidating the affected
+    /// episode's return, and fix the observation source.
+    ///
+    /// # Comparability across algorithms
+    ///
+    /// This count is comparable **within** an algorithm family across runs. It
+    /// is **not** comparable between the discrete and the continuous family
+    /// during the early exploration / warm-up period, because the two families
+    /// place the guard on opposite sides of their random-action branch.
+    ///
+    /// - **Discrete** (`dqn`, `c51`, `qrdqn`) — the guard sits *inside* the
+    ///   ε-explore branch, and the greedy branch delegates to `act_greedy`,
+    ///   which guards itself. So **every** `act` call is counted, including the
+    ///   whole early period where `epsilon_start = 1.0` means every action is
+    ///   random and `obs` is read *only* to run this check.
+    /// - **Continuous** (`ddpg`, `td3`, `sac`) — the guard sits *after* the
+    ///   `learning_starts` warm-up early return, which draws a uniform random
+    ///   action without ever reading `obs`. So while `step < learning_starts`
+    ///   (and `training == true`) the count moves on **zero** calls.
+    ///
+    /// Both placements are correct for their own path — there is no
+    /// observation read to attribute in the continuous warm-up branch — so this
+    /// is a reporting caveat, not a defect. The practical consequence: a DQN
+    /// run and a comparably configured SAC run over the same environment will
+    /// report very different counts across their opening steps for reasons of
+    /// guard placement, not environment health. Compare like with like, and
+    /// note that the continuous family's `remember`-side
+    /// [`dropped_observations`](Self::dropped_observations) *does* cover the
+    /// warm-up steps.
+    #[must_use]
+    pub fn degenerate_action_selections(&self) -> u64 {
+        self.act_obs_guard.count()
     }
 
     /// Test-only view of the Bellman bootstrap masks currently held in the
@@ -1092,6 +1283,212 @@ mod tests {
             agent.dropped_transitions(),
             1,
             "a finite reward must not increment the drop counter"
+        );
+    }
+
+    // ---- ADR 0067 / #1043: non-finite observation ----
+    //
+    // Same per-file rule as the reward test above: each agent carries its own
+    // copy rather than trusting one shared test to stand in for three call
+    // sites. `MaskObservation` is the deliberately NaN-emitting observation
+    // type here — its `write_host_row` copies its `[f32; 2]` payload verbatim,
+    // so `make_obs(f32::NAN, _)` puts a real NaN in the staged row.
+
+    /// A fresh agent with capacity to spare, for the observation-guard tests.
+    fn obs_guard_agent() -> GuardAgent {
+        let device = Default::default();
+        let config = DdpgTrainingConfigBuilder::new()
+            .replay_buffer_capacity(64)
+            .build()
+            .expect("valid config");
+        GuardAgent::new(
+            TinyActor::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent")
+    }
+
+    #[test]
+    fn ddpg_remember_drops_a_nonfinite_obs() {
+        let mut agent = obs_guard_agent();
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+
+        agent.remember(
+            make_obs(f32::NAN, 1.0),
+            &action,
+            0.5,
+            make_obs(0.1, 0.9),
+            false,
+        );
+        assert_eq!(
+            agent.buffer_len(),
+            0,
+            "a transition whose `obs` carries NaN must never enter the replay buffer"
+        );
+        assert_eq!(
+            agent.dropped_observations(),
+            1,
+            "the drop must be visible through the public observation counter"
+        );
+        assert_eq!(
+            agent.dropped_transitions(),
+            0,
+            "the reward was finite: the reward counter must not move"
+        );
+
+        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        assert_eq!(
+            agent.buffer_len(),
+            1,
+            "the drop must not latch: the next finite transition is still stored"
+        );
+        assert_eq!(
+            agent.dropped_observations(),
+            1,
+            "a finite observation must not increment the drop counter"
+        );
+    }
+
+    #[test]
+    fn ddpg_remember_drops_a_nonfinite_next_obs() {
+        let mut agent = obs_guard_agent();
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+
+        agent.remember(
+            make_obs(0.0, 1.0),
+            &action,
+            0.5,
+            make_obs(0.1, f32::INFINITY),
+            false,
+        );
+        assert_eq!(
+            agent.buffer_len(),
+            0,
+            "a transition whose `next_obs` carries ±Inf must never enter the replay buffer"
+        );
+        assert_eq!(
+            agent.dropped_observations(),
+            1,
+            "the `next_obs` drop must be visible through the public counter"
+        );
+
+        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        assert_eq!(
+            agent.buffer_len(),
+            1,
+            "the drop must not latch: the next finite transition is still stored"
+        );
+        assert_eq!(
+            agent.dropped_observations(),
+            1,
+            "a finite `next_obs` must not increment the drop counter"
+        );
+    }
+
+    /// ADR 0067 §Consequences: the reward guard runs first and returns early,
+    /// so a transition that is bad in *both* ways increments only
+    /// `dropped_transitions`. This test pins that ordering — it is the reason
+    /// the two counters legitimately disagree, and both accessors document it.
+    #[test]
+    fn ddpg_remember_both_bad_counts_only_the_reward_drop() {
+        let mut agent = obs_guard_agent();
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+
+        agent.remember(
+            make_obs(f32::NAN, 1.0),
+            &action,
+            f32::NAN,
+            make_obs(f32::NAN, 0.9),
+            false,
+        );
+        assert_eq!(agent.buffer_len(), 0, "the transition must be dropped");
+        assert_eq!(
+            agent.dropped_transitions(),
+            1,
+            "the reward guard runs first and must own this drop"
+        );
+        assert_eq!(
+            agent.dropped_observations(),
+            0,
+            "the reward guard returned early: the observation guard must not \
+             also count the same transition"
+        );
+    }
+
+    /// ADR 0067 §Decision 4: `act` detects and reports, and **returns the
+    /// action anyway**. Not substituting is the decision under test, so the
+    /// assertion that an action comes back is as load-bearing as the counter.
+    #[test]
+    fn ddpg_act_counts_a_nonfinite_obs_and_still_returns_an_action() {
+        let agent = obs_guard_agent();
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let action = agent.act(&make_obs(f32::NAN, 1.0), false, &mut rng);
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            1,
+            "a non-finite observation at `act` must be counted"
+        );
+        assert_eq!(
+            action.as_slice().len(),
+            1,
+            "the action must still be returned: ADR 0067 §Decision 4 substitutes nothing"
+        );
+
+        // Non-latching, and a healthy observation is not counted.
+        let _ = agent.act(&make_obs(0.2, 0.8), false, &mut rng);
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            1,
+            "a finite observation must not increment the act counter"
+        );
+    }
+
+    /// `act_with` is a **second, independent** entry point — it runs against a
+    /// snapshotted inner actor and shares `act`'s counter, but not its code
+    /// path. ADR 0065's copy-paste finding (two of six `remember` sites went
+    /// missing behind coverage that never reached them) applies verbatim here:
+    /// without this test, deleting the guard line from `act_with` is invisible.
+    ///
+    /// Same decision under test as [`act`]: count, warn, and **return the
+    /// action anyway** (ADR 0067 §Decision 4).
+    #[test]
+    fn ddpg_act_with_counts_a_nonfinite_obs_and_still_returns_an_action() {
+        let agent = obs_guard_agent();
+        let net = agent.inference_net();
+
+        let action = agent.act_with(&net, &make_obs(f32::NAN, 1.0));
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            1,
+            "`act_with` is its own site and must count a NaN observation"
+        );
+        assert_eq!(
+            action.as_slice().len(),
+            1,
+            "the action must still be returned: ADR 0067 §Decision 4 substitutes nothing"
+        );
+
+        let action = agent.act_with(&net, &make_obs(0.1, f32::NEG_INFINITY));
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            2,
+            "the count must not latch: a second ±Inf row increments again"
+        );
+        assert_eq!(
+            action.as_slice().len(),
+            1,
+            "an action still comes back on the second degenerate row"
+        );
+
+        // A healthy row through the same entry point must leave the counter put.
+        let _ = agent.act_with(&net, &make_obs(0.2, 0.8));
+        assert_eq!(
+            agent.degenerate_action_selections(),
+            2,
+            "a finite observation must not increment the `act_with` counter"
         );
     }
 }

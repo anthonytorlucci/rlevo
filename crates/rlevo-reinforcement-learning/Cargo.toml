@@ -22,7 +22,14 @@ rlevo-core = { path = "../rlevo-core", version = "0.3.1" }
 [dev-dependencies]
 approx = { workspace = true }
 criterion = { workspace = true }
-rlevo-environments = { path = "../rlevo-environments", version = "0.3.1", default-features = false }
+# `box2d` is on for the dev cone only: `benches/obs_guard_bench.rs` (issue
+# #1043) measures the observation-finiteness guard against the two shapes the
+# issue names -- `LunarLanderObservation` (8 floats) and `CarRacingObservation`
+# (96x96x3) -- and both live behind that feature. No production dependency of
+# this crate changes.
+rlevo-environments = { path = "../rlevo-environments", version = "0.3.1", default-features = false, features = [
+    "box2d",
+] }
 
 # Render LaTeX in docs (e.g. the cartpole physics) via KaTeX on docs.rs.
 # The header must live inside this crate's own directory — docs.rs builds
@@ -81,6 +88,11 @@ harness = false
 [[bench]]
 name = "learn_step_bench"
 path = "benches/learn_step_bench.rs"
+harness = false
+
+[[bench]]
+name = "obs_guard_bench"
+path = "benches/obs_guard_bench.rs"
 harness = false
 
 [lints]
