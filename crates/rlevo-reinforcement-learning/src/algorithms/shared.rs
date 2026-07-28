@@ -7,8 +7,10 @@
 //! every learn step consults before `backward()` (ADR 0056, issue #318);
 //! [`FiniteRewardGuard`], the non-finite-reward drop-and-warn guard every
 //! off-policy `remember` consults before pushing into the replay buffer
-//! (ADR 0065, issue #352); and [`LogWatermark`], the progress-logging trigger
-//! shared by the on-policy training loops.
+//! (ADR 0065, issue #352); [`FiniteObsGuard`], its observation-side
+//! counterpart, which drops and counts at `remember` and detects and reports at
+//! `act` (ADR 0067, issue #1043); and [`LogWatermark`], the progress-logging
+//! trigger shared by the on-policy training loops.
 //!
 //! # Why a `Slot` exists
 //!
@@ -63,6 +65,8 @@
 //! terminal for that agent.
 //!
 //! [`Optimizer::step`]: burn::optim::Optimizer::step
+
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use burn::module::AutodiffModule;
 use burn::optim::{GradientsParams, LearningRate, Optimizer};
@@ -744,6 +748,249 @@ impl FiniteRewardGuard {
     /// rather than having to scrape log output.
     pub(crate) const fn dropped(&self) -> u64 {
         self.dropped
+    }
+}
+
+/// Which seam a [`FiniteObsGuard`] instance sits on, and therefore what its
+/// counter counts and what its warning tells the operator to do.
+///
+/// The two roles are deliberately *not* interchangeable. They count different
+/// events, and an instance is created for exactly one of them (ADR 0067
+/// §Decision 3 and §Decision 4).
+// TODO(#1043): the six agents' `remember` / `act` sites are wired in ADR 0067
+// Phase B; until then this enum has no non-test constructor.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObsGuardRole {
+    /// A replay-ingestion site (`"dqn/remember"`, …). The caller **drops** the
+    /// transition when the guard rejects, so the counter is *transitions
+    /// dropped*.
+    Ingestion,
+    /// An action-selection site (`"dqn/act"`, …). Per ADR 0067 §Decision 4 the
+    /// caller **proceeds** — it does not substitute an action — so the counter
+    /// is *degenerate action selections observed*, not a drop count.
+    Act,
+}
+
+/// Non-finite-**observation** guard: drop-and-count at replay ingestion,
+/// detect-and-report at action selection (ADR 0067, issue #1043).
+///
+/// The counterpart to [`FiniteRewardGuard`], and deliberately the same shape:
+/// a running count, an unlatched decade `warn!` schedule, a `&'static str` site
+/// label, one instance per site. It differs in what it inspects — the
+/// observation *row*, via [`HostRow::row_is_finite`] — and in how it is shared.
+///
+/// [`HostRow::row_is_finite`]: rlevo_core::base::HostRow::row_is_finite
+///
+/// # Why this cannot be caught anywhere else
+///
+/// On the CPU (`flex`) backend `relu` maps `NaN` to `0.0`. Driven through a
+/// real agent, a **fully non-finite** observation therefore yields a finite,
+/// in-domain, `is_valid() == true` action — with a `q_row` bit-identical to
+/// the all-`NaN` case, because the first `relu` zeroed everything and the
+/// output is bias-only. The observation has been *erased*, not corrupted.
+///
+/// [`FiniteLossGuard`] cannot see this: the loss is finite. A Q-value check
+/// cannot see it: the Q row is finite. An action check cannot see it:
+/// [`Action::is_valid`] returns `true`. Only a check on the observation itself,
+/// **before** `to_tensor`, can ever observe this failure — and it is the case
+/// CI reaches, because CI has no GPU.
+///
+/// [`Action::is_valid`]: rlevo_core::base::Action::is_valid
+///
+/// # Why atomics and `&self`
+///
+/// `act_greedy(&self, ..)` and `act_greedy_with(&self, ..)` take `&self`, and
+/// agents must stay `Sync` because the evolution layer evaluates them in
+/// parallel. A `Cell` would break `Sync`; a `&mut self` guard method could not
+/// be called from `act_greedy` at all. So the state is [`AtomicU64`] with
+/// `Relaxed` ordering: nothing here orders any other memory, and the only
+/// requirement is that each call observes a distinct running total.
+///
+/// # Relationship to [`FiniteRewardGuard`]'s counter
+///
+/// A transition that carries **both** a non-finite reward and a non-finite
+/// observation increments only [`FiniteRewardGuard::dropped`]: the reward guard
+/// runs first at `remember` and returns early. The two counters will therefore
+/// disagree, and neither is the total number of dropped transitions on its own
+/// (ADR 0067 §Consequences).
+// TODO(#1043): the six agents' `remember` / `act` sites are wired in ADR 0067
+// Phase B; this type is exercised only by its own unit tests until then.
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) struct FiniteObsGuard {
+    /// Running count of events observed at this site. Its meaning is fixed by
+    /// [`role`](Self::role): transitions dropped, or degenerate action
+    /// selections observed.
+    count: AtomicU64,
+    /// Next value of `count` at which a `warn!` is due: 1, 10, 100, 1000, ….
+    /// Schedules the `warn!` only — never the rejection, and never the count.
+    next_warn_at: AtomicU64,
+    /// Static site label (e.g. `"dqn/remember"` or `"dqn/act"`) used in the
+    /// warning's structured `site` field and message.
+    label: &'static str,
+    /// Which seam this instance guards; selects the warning text.
+    role: ObsGuardRole,
+}
+
+// TODO(#1043): every method below is called from the agents in ADR 0067
+// Phase B; until that lands they have unit-test callers only.
+#[allow(dead_code)]
+impl FiniteObsGuard {
+    /// Creates a guard for the **replay-ingestion** site named `label` (e.g.
+    /// `"dqn/remember"`), with its first warning due on the first drop.
+    ///
+    /// Use with [`admit`](Self::admit).
+    pub(crate) const fn ingestion(label: &'static str) -> Self {
+        Self::new(label, ObsGuardRole::Ingestion)
+    }
+
+    /// Creates a guard for the **action-selection** site named `label` (e.g.
+    /// `"dqn/act"`), with its first warning due on the first occurrence.
+    ///
+    /// Use with [`report`](Self::report).
+    pub(crate) const fn act(label: &'static str) -> Self {
+        Self::new(label, ObsGuardRole::Act)
+    }
+
+    const fn new(label: &'static str, role: ObsGuardRole) -> Self {
+        Self {
+            count: AtomicU64::new(0),
+            next_warn_at: AtomicU64::new(1),
+            label,
+            role,
+        }
+    }
+
+    /// Ingestion seam. Returns `true` if the observation row is finite — the
+    /// caller proceeds to push the transition into the replay buffer. Returns
+    /// `false` if the row carries a `NaN` or `±Inf` — the caller MUST return
+    /// without pushing. Emits a `tracing::warn!` on the 1st, 10th, 100th, …
+    /// rejection.
+    ///
+    /// `row_is_finite` is the already-evaluated predicate — typically
+    /// `obs.row_is_finite(&mut scratch) && next_obs.row_is_finite(&mut scratch)`
+    /// — so this type stays free of `HostRow` bounds and one call covers both
+    /// rows of a transition.
+    ///
+    /// CRITICAL: the rejection (returning `false`) fires on EVERY non-finite
+    /// occurrence; only the `warn!` is scheduled. Never gate the return value
+    /// on `next_warn_at` or on the count — a sensor or integrator that emits a
+    /// `NaN` every step must be kept out of the buffer every step. Admitting
+    /// nine of every ten poisoned rows would be strictly worse than no guard,
+    /// because the run would look fixed.
+    pub(crate) fn admit(&self, row_is_finite: bool) -> bool {
+        debug_assert_eq!(
+            self.role,
+            ObsGuardRole::Ingestion,
+            "`admit` is the ingestion seam; an `act`-role guard must use `report`"
+        );
+        if row_is_finite {
+            return true;
+        }
+        self.record();
+        false
+    }
+
+    /// `act` seam. Records that an action was selected from a non-finite
+    /// observation row, and warns on the 1st, 10th, 100th, … occurrence.
+    ///
+    /// Returns nothing, on purpose. Per ADR 0067 §Decision 4 the caller does
+    /// **not** substitute an action: substituting a plausible in-domain action
+    /// is the same class of failure this guard exists to surface — a
+    /// legal-looking action that makes a broken run appear healthy. The value
+    /// here is *attribution*, and there is no value to return that a call site
+    /// could act on without reintroducing the harm.
+    ///
+    /// CRITICAL: the count increments on EVERY occurrence; only the `warn!` is
+    /// scheduled.
+    pub(crate) fn report(&self, row_is_finite: bool) {
+        debug_assert_eq!(
+            self.role,
+            ObsGuardRole::Act,
+            "`report` is the act seam; an ingestion-role guard must use `admit`"
+        );
+        if row_is_finite {
+            return;
+        }
+        self.record();
+    }
+
+    /// Counts one occurrence and emits the decade-scheduled warning.
+    ///
+    /// The count is incremented unconditionally; the `compare_exchange` decides
+    /// only whether *this* call is the one that emits the line, so a decade
+    /// boundary cannot be logged twice when two threads cross it together.
+    fn record(&self) {
+        let count = self.count.fetch_add(1, Ordering::Relaxed) + 1;
+        let due = self.next_warn_at.load(Ordering::Relaxed);
+        if count < due
+            || self
+                .next_warn_at
+                .compare_exchange(
+                    due,
+                    due.saturating_mul(10),
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_err()
+        {
+            return;
+        }
+        match self.role {
+            ObsGuardRole::Ingestion => tracing::warn!(
+                dropped = count,
+                site = self.label,
+                "Non-finite observation at {} — the transition was DISCARDED, \
+                 not stored, so it can never poison a minibatch (Burn \
+                 propagates NaN silently rather than panicking). {} \
+                 transition(s) dropped so far; this warning repeats at 1, 10, \
+                 100, … drops. The environment emitted an observation \
+                 containing NaN or ±Inf: check for a division by zero, an \
+                 unbounded accumulator, or an exploding physics/dynamics term \
+                 in its state update. A persistent source means the buffer may \
+                 never reach `batch_size`, in which case training silently \
+                 never starts. Under prioritized replay a poisoned row that DID \
+                 enter would pin its own priority at the running maximum and \
+                 never decay, so it would be resampled more often than average.",
+                self.label,
+                count,
+            ),
+            ObsGuardRole::Act => tracing::warn!(
+                dropped = count,
+                site = self.label,
+                "Non-finite observation at {} — an action WAS selected from it \
+                 and has already been returned to the caller. That action is \
+                 MEANINGLESS despite looking fine: on the CPU backend `relu` \
+                 maps NaN to 0.0, so the network erased the observation and \
+                 produced a finite, in-domain, `is_valid() == true` action from \
+                 it. There is no NaN downstream to find — no loss guard, no \
+                 Q-value check and no action validity check will ever fire on \
+                 this. {} degenerate action selection(s) observed so far; this \
+                 warning repeats at 1, 10, 100, … occurrences. Treat every step \
+                 since the first as unattributable: discard the affected \
+                 episode's return, and fix the observation source (a division \
+                 by zero, an unbounded accumulator, or an exploding \
+                 physics/dynamics term in the environment's state update).",
+                self.label,
+                count,
+            ),
+        }
+    }
+
+    /// Number of events counted so far at this site.
+    ///
+    /// Its meaning depends on the role this guard was constructed with:
+    /// transitions **dropped** for an [`ingestion`](Self::ingestion) guard,
+    /// degenerate action selections **observed** (and proceeded with) for an
+    /// [`act`](Self::act) guard.
+    ///
+    /// Not test-gated: `remember` and `act` are public API driven directly from
+    /// outside this crate (integration tests, benches, hand-rolled training
+    /// loops), so a caller needs a programmatic way to discover that its data
+    /// was dropped rather than having to scrape log output.
+    pub(crate) fn count(&self) -> u64 {
+        self.count.load(Ordering::Relaxed)
     }
 }
 
@@ -1867,6 +2114,200 @@ mod tests {
         assert!(
             events.is_empty(),
             "a healthy stream of rewards must emit no WARN at all; got {events:?}"
+        );
+    }
+
+    // -------- FiniteObsGuard --------
+
+    #[test]
+    fn finite_obs_guard_admits_finite_rows() {
+        let guard = FiniteObsGuard::ingestion("test/remember");
+        for _ in 0..5 {
+            assert!(
+                guard.admit(true),
+                "a transition whose rows are finite must be admitted to the buffer"
+            );
+        }
+        assert_eq!(
+            guard.count(),
+            0,
+            "no finite observation may increment the dropped-transition counter"
+        );
+    }
+
+    #[test]
+    fn finite_obs_guard_rejects_non_finite_rows() {
+        let guard = FiniteObsGuard::ingestion("test/remember");
+        assert!(
+            !guard.admit(false),
+            "a transition with a non-finite observation row must be rejected (dropped)"
+        );
+        assert_eq!(guard.count(), 1, "the rejection must be counted");
+    }
+
+    #[test]
+    fn finite_obs_guard_rejection_is_not_latched() {
+        // ADR 0067 mirrors 0065 here: the drop must fire on EVERY non-finite
+        // occurrence — only the `warn!` is scheduled. Gating the return value
+        // on the warn schedule would admit nine of every ten poisoned
+        // transitions, which is strictly worse than no guard at all (it would
+        // look fixed).
+        let guard = FiniteObsGuard::ingestion("test/remember");
+        for i in 1..=10_u64 {
+            assert!(
+                !guard.admit(false),
+                "non-finite row #{i} must STILL be rejected — the drop is never latched"
+            );
+            assert_eq!(guard.count(), i, "every rejection must be counted");
+        }
+        assert!(
+            guard.admit(true),
+            "a finite observation after a run of drops must be admitted again"
+        );
+        assert_eq!(
+            guard.count(),
+            10,
+            "admitting a finite observation must not disturb the drop count"
+        );
+    }
+
+    #[test]
+    fn finite_obs_guard_act_role_counts_every_occurrence() {
+        // ADR 0067 §Decision 4: `report` returns nothing — the caller proceeds
+        // with the action it already computed — but the count is still exact.
+        let guard = FiniteObsGuard::act("test/act");
+        for i in 1..=10_u64 {
+            guard.report(false);
+            assert_eq!(
+                guard.count(),
+                i,
+                "every degenerate action selection must be counted"
+            );
+        }
+        guard.report(true);
+        assert_eq!(
+            guard.count(),
+            10,
+            "a finite observation must not increment the act counter"
+        );
+    }
+
+    /// The decade schedule is asserted on the **emitted `tracing` events**, for
+    /// the same reason as [`finite_reward_guard_warns_on_the_decade_schedule`]:
+    /// the schedule *is* the log output, so observing the real events is the
+    /// only assertion a "simplify the schedule" mutation cannot pass vacuously.
+    #[test]
+    fn finite_obs_guard_warns_on_the_decade_schedule() {
+        let expected_at = [1_u64, 10, 100];
+
+        let events = capture_warnings(|| {
+            let guard = FiniteObsGuard::ingestion("test/remember");
+            for _ in 0..100 {
+                assert!(!guard.admit(false), "every non-finite row is dropped");
+            }
+            assert_eq!(guard.count(), 100, "all 100 drops are counted");
+        });
+
+        let fired_at: Vec<u64> = events.iter().filter_map(|e| e.dropped).collect();
+        assert_eq!(
+            fired_at, expected_at,
+            "the WARN must fire at exactly drops 1, 10 and 100 and nowhere in \
+             between; captured events: {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .all(|e| e.site.as_deref() == Some("test/remember")),
+            "every WARN must name its ingestion site; got {events:?}"
+        );
+        let first = events[0]
+            .message
+            .as_deref()
+            .expect("the first WARN carries a message");
+        assert!(
+            first.contains("DISCARDED"),
+            "the ingestion message must tell the operator the transition was \
+             not stored; got {first}"
+        );
+    }
+
+    /// The `act`-site warning must carry ADR 0067's central, counter-intuitive
+    /// finding: the action already returned looks completely valid and is
+    /// nonetheless meaningless, and nothing downstream will ever flag it.
+    #[test]
+    fn finite_obs_guard_act_warning_says_the_action_is_meaningless() {
+        let events = capture_warnings(|| {
+            let guard = FiniteObsGuard::act("test/act");
+            for _ in 0..10 {
+                guard.report(false);
+            }
+        });
+
+        let fired_at: Vec<u64> = events.iter().filter_map(|e| e.dropped).collect();
+        assert_eq!(
+            fired_at,
+            vec![1_u64, 10],
+            "the act-site WARN follows the same decade schedule; got {events:?}"
+        );
+        let first = events[0]
+            .message
+            .as_deref()
+            .expect("the first WARN carries a message");
+        assert!(
+            first.contains("MEANINGLESS"),
+            "the operator must be told the action just taken is meaningless \
+             despite looking fine; got {first}"
+        );
+        assert!(
+            first.contains("no loss guard"),
+            "the operator must be told no downstream guard will ever fire on \
+             this; got {first}"
+        );
+    }
+
+    #[test]
+    fn finite_obs_guard_emits_no_warning_for_finite_rows() {
+        let events = capture_warnings(|| {
+            let ingestion = FiniteObsGuard::ingestion("test/remember");
+            let act = FiniteObsGuard::act("test/act");
+            for _ in 0..5 {
+                assert!(ingestion.admit(true), "finite rows are admitted");
+                act.report(true);
+            }
+        });
+        assert!(
+            events.is_empty(),
+            "a healthy stream of observations must emit no WARN at all; got {events:?}"
+        );
+    }
+
+    /// The guard takes `&self` so that `act_greedy(&self, ..)` can call it and
+    /// agents stay `Sync` for the evolution layer's parallel evaluation. This
+    /// pins that property: it fails to compile, not at runtime, if the guard
+    /// ever regains interior mutability that is not thread-safe.
+    #[test]
+    fn finite_obs_guard_is_sync_and_shareable() {
+        fn assert_sync<T: Sync + Send>() {}
+        assert_sync::<FiniteObsGuard>();
+
+        let guard = Arc::new(FiniteObsGuard::ingestion("test/remember"));
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let guard = Arc::clone(&guard);
+                std::thread::spawn(move || {
+                    for _ in 0..250 {
+                        assert!(!guard.admit(false), "every non-finite row is dropped");
+                    }
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("worker thread must not panic");
+        }
+        assert_eq!(
+            guard.count(),
+            1000,
+            "concurrent drops must all be counted exactly once"
         );
     }
 

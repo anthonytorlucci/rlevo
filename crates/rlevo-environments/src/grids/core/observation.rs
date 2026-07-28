@@ -184,6 +184,25 @@ impl HostRow<3> for GridObservation {
             }
         }
     }
+
+    /// Always `true`: this row is structurally incapable of carrying a
+    /// non-finite value (ADR 0067 §Decision 2).
+    ///
+    /// This override is *both* a structural assertion and a performance
+    /// decision: the default body would materialize all
+    /// `VIEW_SIZE * VIEW_SIZE * OBS_CHANNELS` values as `f32` on every call to
+    /// prove something the payload type already guarantees.
+    fn row_is_finite(&self, _scratch: &mut Vec<f32>) -> bool {
+        // Compile-time witness for the structural claim below. If the payload
+        // type ever changes, THIS LINE fails to compile and the override must
+        // be re-derived, not re-asserted. The ascription names the full nested
+        // array, so a change to the element type, the channel count, or the
+        // view extent all break it.
+        let _: &[[[u8; OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE] = &self.view;
+        // `u8 -> f32` is total: no element of this row can be NaN or ±Inf.
+        // `agent_direction` is not written into the row at all.
+        true
+    }
 }
 
 impl<B: Backend> TensorConvertible<3, B> for GridObservation {

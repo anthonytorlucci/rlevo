@@ -264,6 +264,93 @@ pub trait HostRow<const R: usize> {
     /// [`to_tensor`]: TensorConvertible::to_tensor
     /// [`stack_to_tensor`]: crate::base::stack_to_tensor
     fn write_host_row(&self, buf: &mut Vec<f32>);
+
+    /// Returns `true` if every value this type writes into a row is finite —
+    /// i.e. the row contains no `NaN` and no `±Inf`.
+    ///
+    /// This is a statement about the **row**, not about the domain value: it
+    /// asks whether the `f32` payload [`write_host_row`] produces is safe to
+    /// upload. A caller uses it as an admission predicate at a data-ingestion
+    /// boundary (ADR 0067): a replay buffer drops a transition whose
+    /// observation row is non-finite, because a poisoned row cannot be
+    /// detected downstream — on the CPU backend `relu` maps `NaN` to `0.0`, so
+    /// the network yields a finite, in-domain, `is_valid()` action from an
+    /// erased observation and no loss, Q-value, or action check ever fires.
+    ///
+    /// # Arguments
+    ///
+    /// - `scratch`: caller-owned staging buffer. The default body **clears** it,
+    ///   writes one row into it, and leaves the row there. Reusing one buffer
+    ///   across calls is the whole point of the parameter: without it the
+    ///   default body would allocate on every env step (~110 KB for an
+    ///   f32-backed image observation). Its contents afterwards are an
+    ///   implementation detail — an override may not touch it at all.
+    ///
+    /// # Overriding
+    ///
+    /// Override this **only** for a type whose row is structurally incapable of
+    /// being non-finite (an integer-backed payload: `u8 -> f32` is total). Such
+    /// an override returns `true` without materializing the row, which is both
+    /// an assertion and a load-bearing performance decision — the default body
+    /// would convert 27 648 bytes to `f32` every env step for a 96×96×3 frame.
+    ///
+    /// An override **must** carry a compile-time witness for its structural
+    /// claim — a concrete type ascription against the payload field, e.g.
+    /// `let _: &[u8] = &self.pixels;` — so that changing the payload type
+    /// breaks the build rather than the guarantee. The witness must not be
+    /// spelled via `f32::from` or an `Into<f32>` bound: `impl<T> From<T> for T`
+    /// means `f32: Into<f32>`, so those keep compiling after an `f32` refactor
+    /// and guarantee nothing.
+    ///
+    /// [`write_host_row`]: HostRow::write_host_row
+    #[must_use]
+    fn row_is_finite(&self, scratch: &mut Vec<f32>) -> bool {
+        scratch.clear();
+        self.write_host_row(scratch);
+        row_slice_is_finite(scratch)
+    }
+}
+
+/// Branchless finiteness test over a staged `f32` row: `true` if no element is
+/// `NaN` or `±Inf`.
+///
+/// # Why this spelling, and why not `iter().all(f32::is_finite)`
+///
+/// **Do not "simplify" this to `buf.iter().all(|v| v.is_finite())`.** That
+/// rewrite is the single most likely future regression here, and it is a real
+/// one: measured at ~9 GB/s against a ~62 GB/s memcpy on an M2 Pro — 8× the
+/// cost of the write it rides — because [`Iterator::all`] must short-circuit
+/// and therefore cannot lower to a horizontal SIMD reduction. It is also
+/// *data-dependent*: how long it runs depends on where the first non-finite
+/// element sits, which confounds any benchmark control. (ADR 0067 §Decision 1.)
+///
+/// # Derivation
+///
+/// 1. An IEEE-754 `binary32` value is non-finite (`NaN` or `±Inf`) **iff** its
+///    8-bit exponent field is all ones.
+/// 2. `v.to_bits() & 0x7F80_0000` masks each element down to exactly that
+///    field, clearing the sign bit and the mantissa. Clearing the **sign** is
+///    load-bearing: `-NaN` and `-Inf` must reduce identically to their positive
+///    counterparts.
+/// 3. `0x7F80_0000` is the **maximum** value the masked field can take, so a
+///    `u32::max` reduction over every element equals `0x7F80_0000` **iff** at
+///    least one element is non-finite.
+/// 4. `max` is associative and commutative and never short-circuits, so LLVM
+///    lowers the fold to a horizontal vector reduction, restoring ~1× fusion
+///    with the write that produced the buffer.
+///
+/// An empty row has no non-finite element, and the fold's `0` identity yields
+/// `true` — which is the correct answer.
+/// Deliberately **not** `pub`: `rlevo-core` is a contract crate (rules §1), and
+/// this is the body of a provided trait method, not a new public surface.
+#[must_use]
+fn row_slice_is_finite(buf: &[f32]) -> bool {
+    /// IEEE-754 `binary32` exponent-field mask: sign and mantissa cleared.
+    const EXPONENT_MASK: u32 = 0x7F80_0000;
+
+    buf.iter()
+        .fold(0u32, |acc, &v| acc.max(v.to_bits() & EXPONENT_MASK))
+        != EXPONENT_MASK
 }
 
 /// Bidirectional conversion between a domain type and a Burn tensor.
@@ -1088,5 +1175,209 @@ mod tests {
             .into_vec::<f32>()
             .expect("f32 host read of a tensor this test just built");
         assert_eq!(derived_v, manual_v);
+    }
+
+    // ===== `row_is_finite` / `row_slice_is_finite` =====
+
+    /// The reference implementation the branchless reduction must agree with.
+    ///
+    /// This is deliberately the spelling ADR 0067 §Decision 1 forbids in
+    /// production (short-circuiting, ~8× the cost, data-dependent): here it is
+    /// the *oracle*, and having it in the test file is what makes the
+    /// production reduction checkable rather than merely asserted.
+    fn oracle_is_finite(buf: &[f32]) -> bool {
+        buf.iter().all(|v| v.is_finite())
+    }
+
+    /// Every f32 shape that has ever been a footgun in this predicate.
+    ///
+    /// `-NAN` and `f32::from_bits(0xFFC0_0000)` are the load-bearing entries:
+    /// a mask that failed to clear the sign bit would answer them wrong.
+    fn finiteness_corpus() -> Vec<f32> {
+        vec![
+            f32::NAN,
+            -f32::NAN,
+            f32::from_bits(0xFFC0_0000), // an explicitly negative quiet NaN
+            f32::from_bits(0x7FC0_0001), // a positive NaN with a set mantissa bit
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            0.0,
+            -0.0,
+            f32::from_bits(1), // smallest positive subnormal
+            -f32::from_bits(1),
+            f32::MIN_POSITIVE,
+            f32::MAX,
+            f32::MIN,
+            1.0,
+            -1.0,
+            1e-30,
+            1e30,
+        ]
+    }
+
+    /// The branchless exponent-field reduction must agree with
+    /// `iter().all(is_finite)` on every element of the corpus, at every
+    /// position of a row, and on the empty row.
+    #[test]
+    fn test_row_slice_is_finite_matches_all_is_finite_oracle() {
+        assert_eq!(
+            row_slice_is_finite(&[]),
+            oracle_is_finite(&[]),
+            "an empty row has no non-finite element, so it must read as finite"
+        );
+
+        let clean = [1.0_f32, -2.5, 0.0, 3.75, -0.125];
+        assert!(
+            row_slice_is_finite(&clean),
+            "a clean row must be accepted: {clean:?}"
+        );
+
+        for poison in finiteness_corpus() {
+            // Single-element row: the degenerate case where the poisoned
+            // element is simultaneously first, last and only.
+            let single = [poison];
+            assert_eq!(
+                row_slice_is_finite(&single),
+                oracle_is_finite(&single),
+                "single-element row disagreed with the oracle for {poison} \
+                 (bits {:#010x})",
+                poison.to_bits()
+            );
+
+            // First, middle and last position of a row that is otherwise
+            // clean. `all` short-circuits at the first bad element and the
+            // reduction does not, so all three positions must be covered.
+            for position in [0, clean.len() / 2, clean.len() - 1] {
+                let mut row = clean;
+                row[position] = poison;
+                assert_eq!(
+                    row_slice_is_finite(&row),
+                    oracle_is_finite(&row),
+                    "row poisoned at index {position} with {poison} (bits \
+                     {:#010x}) disagreed with the oracle: {row:?}",
+                    poison.to_bits()
+                );
+            }
+        }
+    }
+
+    /// A negative NaN must be rejected. Called out on its own because it is the
+    /// exact failure a mask that forgets to clear the sign bit produces, and
+    /// that failure is invisible in a corpus of positive NaNs.
+    #[test]
+    fn test_row_slice_is_finite_rejects_negative_nan() {
+        for bad in [
+            -f32::NAN,
+            f32::from_bits(0xFFC0_0000),
+            f32::NEG_INFINITY,
+            f32::from_bits(0xFF80_0000), // -Inf by bit pattern
+        ] {
+            assert!(
+                bad.is_sign_negative(),
+                "this test only means anything for sign-negative values; \
+                 {bad} is not one"
+            );
+            assert!(
+                !row_slice_is_finite(&[1.0, bad, 2.0]),
+                "a sign-negative non-finite value ({bad}, bits {:#010x}) must \
+                 be rejected — the exponent mask has to clear the sign bit",
+                bad.to_bits()
+            );
+        }
+    }
+
+    /// A row of every corpus value at once is non-finite, and the same row with
+    /// the non-finite entries removed is finite.
+    #[test]
+    fn test_row_slice_is_finite_on_mixed_rows() {
+        let all = finiteness_corpus();
+        assert_eq!(
+            row_slice_is_finite(&all),
+            oracle_is_finite(&all),
+            "the full corpus as one row disagreed with the oracle"
+        );
+        assert!(
+            !row_slice_is_finite(&all),
+            "the corpus contains NaN and ±Inf, so it must not read as finite"
+        );
+
+        let finite_only: Vec<f32> = all.into_iter().filter(|v| v.is_finite()).collect();
+        assert!(
+            row_slice_is_finite(&finite_only),
+            "the corpus with every non-finite entry removed must read as finite"
+        );
+    }
+
+    /// Fixed-width row used to exercise the *provided* `row_is_finite` body
+    /// (staging via `write_host_row`), as opposed to the raw slice predicate.
+    #[derive(Debug, Clone)]
+    struct TestFiniteRow([f32; 4]);
+
+    impl HostRow<1> for TestFiniteRow {
+        fn row_shape() -> [usize; 1] {
+            [4]
+        }
+
+        fn write_host_row(&self, buf: &mut Vec<f32>) {
+            buf.extend_from_slice(&self.0);
+        }
+    }
+
+    /// The default body must agree with the oracle applied to the row that
+    /// `write_host_row` actually produces.
+    #[test]
+    fn test_host_row_row_is_finite_default_body() {
+        let mut scratch = Vec::new();
+
+        let clean = TestFiniteRow([1.0, -2.0, 0.0, 4.5]);
+        assert!(
+            clean.row_is_finite(&mut scratch),
+            "a clean row must be admitted by the default body"
+        );
+
+        for poison in finiteness_corpus() {
+            for position in 0..4 {
+                let mut values = [1.0_f32, -2.0, 0.0, 4.5];
+                values[position] = poison;
+                let row = TestFiniteRow(values);
+                assert_eq!(
+                    row.row_is_finite(&mut scratch),
+                    oracle_is_finite(&values),
+                    "the default body disagreed with the oracle for {poison} \
+                     at index {position}"
+                );
+            }
+        }
+    }
+
+    /// The default body must `clear` the scratch buffer first: a leftover
+    /// `NaN` from a previous, unrelated staging call must not condemn a clean
+    /// row (nor a leftover clean row rescue a poisoned one).
+    #[test]
+    fn test_host_row_row_is_finite_clears_scratch() {
+        let mut scratch = vec![f32::NAN, f32::INFINITY, -1.0];
+        let clean = TestFiniteRow([1.0, -2.0, 0.0, 4.5]);
+        assert!(
+            clean.row_is_finite(&mut scratch),
+            "stale non-finite values left in `scratch` must be cleared, not \
+             counted against the row under test"
+        );
+        assert_eq!(
+            scratch.len(),
+            4,
+            "after the call `scratch` holds exactly the staged row"
+        );
+        assert_eq!(
+            scratch,
+            vec![1.0_f32, -2.0, 0.0, 4.5],
+            "the staged row must be the one `write_host_row` produces"
+        );
+
+        let poisoned = TestFiniteRow([1.0, f32::NAN, 0.0, 4.5]);
+        assert!(
+            !poisoned.row_is_finite(&mut scratch),
+            "a clean buffer left over from the previous call must not rescue a \
+             poisoned row"
+        );
     }
 }

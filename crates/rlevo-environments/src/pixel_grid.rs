@@ -325,6 +325,23 @@ impl HostRow<3> for PixelObservation {
         // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
         buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));
     }
+
+    /// Always `true`: this row is structurally incapable of carrying a
+    /// non-finite value (ADR 0067 §Decision 2).
+    ///
+    /// This override is *both* a structural assertion and a performance
+    /// decision, and the performance half is load-bearing: the default body
+    /// would materialize `PIXEL_COUNT` `f32` from `u8` on every call, at every
+    /// env step, to prove something the payload type already guarantees.
+    fn row_is_finite(&self, _scratch: &mut Vec<f32>) -> bool {
+        // Compile-time witness for the structural claim below. If the payload
+        // type ever changes, THIS LINE fails to compile and the override must
+        // be re-derived, not re-asserted.
+        let _: &[u8] = &self.pixels;
+        // `u8 -> f32` (and a divide by a finite non-zero constant) is total:
+        // no element of this row can be NaN or ±Inf.
+        true
+    }
 }
 
 impl<B: Backend> TensorConvertible<3, B> for PixelObservation {
