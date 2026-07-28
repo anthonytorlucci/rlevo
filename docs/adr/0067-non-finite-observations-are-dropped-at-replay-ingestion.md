@@ -1,6 +1,6 @@
 ---
 project: rlevo
-status: draft
+status: active
 type: decision
 date: 2026-07-28
 tags: [adr, decision, numerical-stability, nan, observation, replay, hostrow, dqn, c51, qrdqn, sac, ddpg, td3, issue-1043]
@@ -10,7 +10,7 @@ tags: [adr, decision, numerical-stability, nan, observation, replay, hostrow, dq
 
 ## Status
 
-**Proposed (2026-07-28).** Resolves issue #1043. **Counterpart to ADR 0065**,
+**Accepted (2026-07-28).** Resolves issue #1043. **Counterpart to ADR 0065**,
 which deliberately deferred observation finiteness by number (0065 §Out of
 scope: "left for a separate issue (**#1043**)"). Supersedes nothing; nothing in
 0065's §Decision is reversed. Two sentences of 0065's §Out of scope are
