@@ -78,6 +78,8 @@
 //! assert_eq!(err.field, "v_max");
 //! ```
 
+use crate::bounds::Bounds;
+
 /// A configuration (or hyperparameter-bearing) type that can check its own
 /// invariants before it is used to construct anything.
 ///
@@ -445,6 +447,54 @@ pub fn distinct(
     }
 }
 
+/// Rejects a [`Bounds`] whose endpoints coincide (`lo == hi`) or are infinite.
+///
+/// A [`Bounds`] field discharges the **ordering** half of a
+/// `config::ordered(C, f, lo, hi)` pair — an inverted range is unrepresentable
+/// (ADR 0027 §2) — but *not* the **strictness** half: [`ordered`] is a strict
+/// `<` and therefore also rejected `lo == hi`, whereas [`Bounds`] deliberately
+/// permits a degenerate single point so that clamping to a constant stays
+/// expressible. This helper is how a config re-asserts the strictness it lost
+/// when the field became a [`Bounds`] — e.g. a `log_std: Bounds` whose zero
+/// width would silently collapse σ to a constant (ADR 0054 §3).
+///
+/// Reach for it only where zero width is genuinely a misconfiguration. A field
+/// for which `lo == hi` is meaningful keeps the plain [`Bounds`] invariant and
+/// does not call this.
+///
+/// # Errors
+///
+/// Returns [`ConstraintKind::NotFinite`] when either endpoint is `±∞` (`lo` is
+/// checked first), and [`ConstraintKind::DegenerateInterval`] when the range has
+/// zero width. (`NaN` is already unrepresentable in a [`Bounds`].)
+///
+/// # The naming wart
+///
+/// A helper called "nondegenerate" also rejects `±∞` endpoints. That is
+/// inherited from [`distinct`]'s finiteness guard, and it is intended: per ADR
+/// 0060 a config *value* must be finite, and a `Bounds` **field** of a config is
+/// a value, not the schema-level bound of [`in_range`]. A deliberately one-sided
+/// infinite range — `HealthyCheck::z_range` in `rlevo-environments`, `[0.7, ∞)`
+/// — simply does not use this helper; it relies on the [`Bounds`] invariant
+/// alone.
+pub fn nondegenerate_bounds(
+    config: &'static str,
+    field: &'static str,
+    b: Bounds,
+) -> Result<(), ConfigError> {
+    // Delegates to `distinct` rather than testing `b.span() > 0.0`. A span test
+    // would accept `Bounds::new(-20.0, f32::INFINITY)` — its span is `inf`,
+    // which *is* `> 0.0` — and no downstream check (e.g. in
+    // `SquashedGaussianPolicyHeadConfig::validate`) would catch that, so the
+    // "obvious simplification" reintroduces exactly the loosening this helper
+    // exists to prevent. Delegating also keeps the `clippy::float_cmp`
+    // explanation in one place (it is why `distinct` is spelled
+    // `(a - b).abs() > 0.0` rather than `a != b`) and preserves the error
+    // semantics byte-for-byte: same `DegenerateInterval { value: lo }`, same
+    // `field`.
+    distinct(config, field, f64::from(b.lo()), f64::from(b.hi()))
+}
+
 /// Rejects a zero count / size / capacity.
 ///
 /// # Errors
@@ -490,8 +540,8 @@ pub fn at_least(
 #[cfg(test)]
 mod tests {
     use super::{
-        ConfigError, ConstraintKind, Validate, Violations, at_least, distinct, in_range, nonzero,
-        ordered, positive,
+        Bounds, ConfigError, ConstraintKind, Validate, Violations, at_least, distinct, in_range,
+        nondegenerate_bounds, nonzero, ordered, positive,
     };
 
     const C: &str = "TestConfig";
@@ -716,6 +766,53 @@ mod tests {
                      DegenerateInterval, got {other:?}"
                 ),
             }
+        }
+    }
+
+    #[test]
+    fn nondegenerate_bounds_accepts_positive_span() {
+        assert!(
+            nondegenerate_bounds(C, "log_std", Bounds::new(-20.0, 2.0)).is_ok(),
+            "a positive-width range is the ordinary accepted case"
+        );
+    }
+
+    #[test]
+    fn nondegenerate_bounds_rejects_zero_width() {
+        let err = nondegenerate_bounds(C, "log_std", Bounds::new(2.0, 2.0)).unwrap_err();
+        assert_eq!(err.config, C, "the error must name the failing config");
+        assert_eq!(err.field, "log_std", "the error must name the field");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::DegenerateInterval { value: 2.0 },
+            "a zero-width `Bounds` is a degenerate interval reporting `lo`"
+        );
+    }
+
+    /// Pins the delegate-to-[`distinct`] decision. `Bounds` permits an infinite
+    /// endpoint, and `Bounds::new(-20.0, f32::INFINITY).span()` is `inf`, which
+    /// *is* `> 0.0` — so a `span()`-based "simplification" of this helper would
+    /// accept these and this test would fail.
+    #[test]
+    fn nondegenerate_bounds_rejects_infinite_endpoint() {
+        for b in [
+            Bounds::new(-20.0, f32::INFINITY),
+            Bounds::new(f32::NEG_INFINITY, 2.0),
+            Bounds::new(f32::NEG_INFINITY, f32::INFINITY),
+        ] {
+            let err = nondegenerate_bounds(C, "log_std", b).unwrap_err();
+            assert_eq!(err.field, "log_std");
+            // `lo` is checked first, so it is the reported offender unless it is
+            // itself finite.
+            let expected = f64::from(if b.lo().is_finite() { b.hi() } else { b.lo() });
+            assert_eq!(
+                err.kind,
+                ConstraintKind::NotFinite { got: expected },
+                "[{}, {}] must be rejected as NotFinite, not accepted for its \
+                 infinite span",
+                b.lo(),
+                b.hi()
+            );
         }
     }
 

@@ -60,7 +60,65 @@ use serde::{Deserialize, Serialize};
 /// `Deserialize` routes through [`try_new`] via [`TryFrom`], so a range loaded
 /// from a file cannot deserialize into an invalid `Bounds`.
 ///
+/// # When zero width is not acceptable
+///
+/// A `Bounds` field discharges the **ordering** half of a
+/// `config::ordered(C, field, lo, hi)` pair — an inverted range is
+/// unrepresentable by construction — but **not** the **strictness** half.
+/// [`config::ordered`] is a strict `<`, so it also rejected the degenerate
+/// `lo == hi` case that `Bounds` deliberately permits (see the module header
+/// above and ADR 0027 §2).
+///
+/// The consequence is a quiet one: replacing a `config::ordered` line with a
+/// `Bounds` field reads as a pure refactor — the type now guarantees ordering,
+/// so the check is deleted — while loosening validation by exactly one case. If
+/// a zero-width range is a misconfiguration for that field, the config's
+/// [`Validate`](crate::config::Validate) impl must re-assert it with
+/// [`config::nondegenerate_bounds`].
+///
+/// The real precedent is a `log σ` range: zero width collapses σ to a constant,
+/// which trains and reports finite numbers while silently pinning the policy's
+/// scale. That is why both Gaussian policy-head configs in
+/// `rlevo-reinforcement-learning` carry the check (ADR 0054 §3).
+///
+/// A zero-width range is **often legitimate**, though — clamping or sampling to
+/// a fixed constant is well-defined — so this is a per-field judgement, not a
+/// change to `Bounds`'s invariant. Most `Bounds` fields in the workspace
+/// correctly need no such check. ADR 0068 records where the strictness check is
+/// enforced mechanically (a guard test scoped to
+/// `rlevo-reinforcement-learning`) versus by convention (everywhere else).
+///
+/// [`config::nondegenerate_bounds`] is *stronger* than "nonzero span": it
+/// delegates to [`config::distinct`], which requires finite operands, so it also
+/// rejects an infinite endpoint. A field whose legitimate domain includes a
+/// one-sided infinite range does not use it.
+///
+/// ```
+/// use rlevo_core::bounds::Bounds;
+/// use rlevo_core::config::{self, ConstraintKind};
+///
+/// // A positive-span range is accepted.
+/// let log_std = Bounds::new(-20.0, 2.0);
+/// assert!(config::nondegenerate_bounds("MyPolicyHeadConfig", "log_std", log_std).is_ok());
+///
+/// // A zero-width range is rejected — the strictness `config::ordered` had.
+/// let pinned = Bounds::new(-1.0, -1.0);
+/// let err = config::nondegenerate_bounds("MyPolicyHeadConfig", "log_std", pinned)
+///     .expect_err("a zero-width log-sigma range must be rejected");
+/// assert_eq!(err.field, "log_std");
+/// assert_eq!(err.kind, ConstraintKind::DegenerateInterval { value: -1.0 });
+///
+/// // And so is an infinite endpoint, inherited from `config::distinct`.
+/// let unbounded = Bounds::new(-20.0, f32::INFINITY);
+/// let err = config::nondegenerate_bounds("MyPolicyHeadConfig", "log_std", unbounded)
+///     .expect_err("an infinite endpoint is not a config value");
+/// assert!(matches!(err.kind, ConstraintKind::NotFinite { .. }));
+/// ```
+///
 /// [`try_new`]: Self::try_new
+/// [`config::ordered`]: crate::config::ordered
+/// [`config::distinct`]: crate::config::distinct
+/// [`config::nondegenerate_bounds`]: crate::config::nondegenerate_bounds
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "(f32, f32)", into = "(f32, f32)")]
 pub struct Bounds {

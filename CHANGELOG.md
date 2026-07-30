@@ -284,6 +284,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   control-flow switch rather than a plain coefficient: `NaN > 0.0` is `false`,
   so a `NaN` `tau` would silently select pure hard-sync mode instead of
   erroring.
+- **`config::nondegenerate_bounds`, a named spelling for the strictness a
+  `Bounds` field does not carry** (ADR 0068, resolves #387). Migrating a
+  `config::ordered(C, field, lo, hi)` pair to a single `Bounds` field discharges
+  the *ordering* half of that check — inverted is unrepresentable (ADR 0027) —
+  but not the *strictness* half: `ordered` is a strict `<` and rejected
+  `lo == hi`, while `Bounds` deliberately permits the degenerate zero-width
+  range. So every such migration reads as a pure refactor while loosening
+  validation by exactly one case, and nothing marked the choice at the call
+  site.
+
+  *Why no test caught it.* A zero-width range is *legitimate* for 30 of the
+  workspace's 32 `Bounds` fields — clamping or sampling to a constant is
+  well-defined — so there was no invariant to assert generally. The two fields
+  where it is a misconfiguration are both a policy head's `log σ`, where zero
+  width collapses σ to a constant that still trains and still reports finite
+  numbers. It was caught once, on SAC, only because PPO happened to be a
+  sibling to diff against; the next migration would have had no sibling.
+
+  The helper delegates to `config::distinct` rather than testing
+  `bounds.span() > 0.0`, and that is load-bearing: a span check accepts
+  `Bounds::new(-20.0, f32::INFINITY)` (span is `inf`, which is `> 0.0`) and the
+  SAC head has no downstream span check to catch it — the obvious
+  simplification would reintroduce a loosening of exactly the kind being fixed.
+  A unit test pins this, so the shortcut fails CI. Enforcement is deliberately
+  asymmetric: a mechanical guard test covers `rlevo-reinforcement-learning`,
+  where both strictness-needing fields live, while `rlevo-evolution` and
+  `rlevo-environments` keep convention, since zero width is correct for
+  essentially every `Bounds` field there.
 
 **Changed**
 

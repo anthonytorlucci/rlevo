@@ -120,12 +120,7 @@ impl Validate for SquashedGaussianPolicyHeadConfig {
         // `log_std` head still receives gradient through the mean path — but
         // the policy is state-independently deterministic in scale, which is
         // silent misconfiguration rather than a usable setting.
-        config::distinct(
-            C,
-            "log_std",
-            f64::from(self.log_std.lo()),
-            f64::from(self.log_std.hi()),
-        )?;
+        config::nondegenerate_bounds(C, "log_std", self.log_std)?;
         config::positive(C, "action_scale", f64::from(self.action_scale))?;
         Ok(())
     }
@@ -376,7 +371,7 @@ mod tests {
     /// for every observation, pinning σ to a constant and flattening the
     /// entropy term the temperature is tuned against. The old strict-`<`
     /// `config::ordered` rejected this as a side effect; the explicit
-    /// `config::distinct` check preserves it.
+    /// `config::nondegenerate_bounds` check preserves it.
     #[test]
     fn validate_rejects_equal_log_std_bounds() {
         let cfg = SquashedGaussianPolicyHeadConfig {
