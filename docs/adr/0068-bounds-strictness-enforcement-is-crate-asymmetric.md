@@ -1,6 +1,6 @@
 ---
 project: rlevo
-status: draft
+status: active
 type: decision
 date: 2026-07-30
 tags: [adr, decision, bounds, config, validation, rlevo-core, rlevo-reinforcement-learning, log-std, guard-test, issue-387]
@@ -10,7 +10,7 @@ tags: [adr, decision, bounds, config, validation, rlevo-core, rlevo-reinforcemen
 
 ## Status
 
-**Proposed (2026-07-30).** Resolves issue #387 ("migrating an ordered scalar
+**Accepted (2026-07-30).** Resolves issue #387 ("migrating an ordered scalar
 pair to a `Bounds` field silently drops the strictness half of the old check").
 
 **Supersedes nothing.** It refines ADR [0027](0027-bounds-newtype-for-closed-ranges.md)
