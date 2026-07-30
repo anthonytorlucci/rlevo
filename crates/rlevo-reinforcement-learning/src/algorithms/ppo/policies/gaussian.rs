@@ -281,12 +281,7 @@ impl Validate for TanhGaussianPolicyHeadConfig {
         // parameter, so pinning it to a constant freezes sigma — and its
         // gradient — from step 0 with no path back (see the module docs). That
         // is the trap door, entered deliberately at construction.
-        config::distinct(
-            C,
-            "log_std",
-            f64::from(self.log_std.lo()),
-            f64::from(self.log_std.hi()),
-        )?;
+        config::nondegenerate_bounds(C, "log_std", self.log_std)?;
         // The *absolute* floor, checked before the span because the span check
         // says nothing about either bound's magnitude: `(-120, -100)` is
         // ordered and spans only 20, yet `exp(-110)` is exactly 0.0 in f32, so
@@ -966,7 +961,7 @@ mod tests {
     /// well-defined), but PPO does not: `log_std` is a single shared parameter,
     /// so a zero-width range freezes σ *and its gradient* from step 0 with no
     /// path back. The old strict-`<` `config::ordered` rejected this as a side
-    /// effect; the explicit `config::distinct` check preserves it.
+    /// effect; the explicit `config::nondegenerate_bounds` check preserves it.
     #[test]
     fn validate_rejects_equal_log_std_bounds() {
         let cfg = TanhGaussianPolicyHeadConfig {
