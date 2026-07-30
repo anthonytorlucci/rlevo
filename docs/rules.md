@@ -324,6 +324,22 @@ whole-config validation — see below.
   contract: call `validate()?` on the decoded value and propagate the `Err`.
   ~22 configs derive `Deserialize` plainly, so a decoder will otherwise accept
   values `validate()` rejects (ADR 0055 §Consequences).
+- **Migrating a `config::ordered(C, field, lo, hi)` pair to a single `Bounds`
+  field discharges the *ordering* half of that check, not the *strictness*
+  half.** `config::ordered` is a strict `<` and rejects `lo == hi`; `Bounds`
+  deliberately permits the degenerate zero-width range (ADR 0027 §2). Where
+  zero width is a misconfiguration, spell the strict case as
+  `config::nondegenerate_bounds(C, field, bounds)`.
+- **Enforcement of that strictness is deliberately asymmetric by crate (ADR
+  0068).** In `rlevo-reinforcement-learning` it is test-enforced by
+  `crates/rlevo-reinforcement-learning/tests/bounds_strictness_guard.rs`, a
+  mechanical guard in the shape of `rng_seeding_guards.rs`. In
+  `rlevo-evolution` and `rlevo-environments` it is review-enforced convention
+  — zero width is legitimate for nearly every `Bounds` field there. The one
+  place it bites is mitigated with a `debug_assert!` in `default_for`
+  (`local_search/simulated_annealing.rs`, `local_search/random_restart.rs`):
+  a zero-width `bounds` would silently derive `step_size` / `perturbation` as
+  `0.0`, leaving the search unable to move.
 
 ---
 
