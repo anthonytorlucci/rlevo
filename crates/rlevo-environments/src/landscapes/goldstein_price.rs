@@ -1,8 +1,8 @@
 //! Goldstein-Price function — a 2-D benchmark with a six-order-of-magnitude range.
 //!
-//! ```text
-//! f(x₁,x₂) = [1 + (x₁+x₂+1)²·(19 − 14x₁ + 3x₁² − 14x₂ + 6x₁x₂ + 3x₂²)]
-//!          × [30 + (2x₁−3x₂)²·(18 − 32x₁ + 12x₁² + 48x₂ − 36x₁x₂ + 27x₂²)]
+//! ```math
+//! f(x_1,x_2) = \left[1 + (x_1+x_2+1)^2 (19 - 14x_1 + 3x_1^2 - 14x_2 + 6x_1x_2 + 3x_2^2)\right]
+//!            \times \left[30 + (2x_1-3x_2)^2 (18 - 32x_1 + 12x_1^2 + 48x_2 - 36x_1x_2 + 27x_2^2)\right]
 //! ```
 //! Global minimum `f* = 3` (not `0`) at `(0, −1)`. Four local minima populate
 //! the domain and the value ranges over `[3, ~1.3×10⁶]`, which makes the raw

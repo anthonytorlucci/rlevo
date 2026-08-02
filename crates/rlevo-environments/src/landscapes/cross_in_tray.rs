@@ -1,7 +1,8 @@
 //! Cross-in-Tray function — a non-smooth 2-D benchmark with four equal minima.
 //!
-//! ```text
-//! f(x₁,x₂) = −0.0001·(|sin(x₁)·sin(x₂)·exp(|100 − √(x₁²+x₂²)/π|)| + 1)^0.1
+//! ```math
+//! f(x_1,x_2) = -0.0001 \left(\left|\sin(x_1)\sin(x_2)
+//!            \exp\left(\left|100 - \frac{\sqrt{x_1^2+x_2^2}}{\pi}\right|\right)\right| + 1\right)^{0.1}
 //! ```
 //! Global minimum `f* ≈ −2.062611870822739` at the four sign combinations of
 //! `(±1.349406608602084, ±1.349406608602084)`. The absolute value applied to the

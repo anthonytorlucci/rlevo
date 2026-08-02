@@ -36,8 +36,8 @@
 //! selected rows in which the parents take packed configuration `c` and gene `v`
 //! takes bit `x ∈ {0, 1}`, and `N(c) = N(c, 0) + N(c, 1)`:
 //!
-//! ```text
-//! score(v, Pa) = Σ_c Σ_x  N(c, x) · ln( N(c, x) / N(c) )  −  (ln(n) / 2) · 2^q
+//! ```math
+//! \text{score}(v, Pa) = \sum_c \sum_x N(c, x) \cdot \ln\left( \frac{N(c, x)}{N(c)} \right) - \frac{\ln(n)}{2} \cdot 2^q
 //! ```
 //!
 //! The log-likelihood term rewards parents that make `v` more predictable; the

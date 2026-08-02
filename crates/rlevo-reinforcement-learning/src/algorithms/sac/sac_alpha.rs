@@ -2,9 +2,10 @@
 //!
 //! SAC's auto-tuning dual is a one-parameter optimisation:
 //!
-//! ```text
-//! L(log α) = −(log α · (log π(a|s) + H̄)).mean()
-//! ∂L/∂(log α) = −(log π.mean() + H̄)
+//! ```math
+//! L(\log \alpha) = -\big(\log \alpha \cdot (\log \pi(a|s) + \bar{H})\big).\text{mean}()
+//! \qquad
+//! \frac{\partial L}{\partial (\log \alpha)} = -\big(\overline{\log \pi} + \bar{H}\big)
 //! ```
 //!
 //! We don't need Burn's autodiff to take this gradient — it's a closed-form
@@ -21,8 +22,8 @@
 //! The canonical dual is Haarnoja et al., *Soft Actor-Critic Algorithms and
 //! Applications* (arXiv:1812.05905), Eq. 18:
 //!
-//! ```text
-//! J(α) = E_{a∼π}[ −α log π(a|s) − α H̄ ]
+//! ```math
+//! J(\alpha) = \mathbb{E}_{a \sim \pi}\big[-\alpha \log \pi(a|s) - \alpha \bar{H}\big]
 //! ```
 //!
 //! with the target entropy `H̄ = −dim(A)`, the default heuristic from that

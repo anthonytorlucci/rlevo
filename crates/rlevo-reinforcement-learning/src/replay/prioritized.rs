@@ -72,10 +72,11 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// decreasing in `P`, the minibatch maximum is attained at the minimum sampled
 /// probability, and the ratio collapses:
 ///
-/// ```text
-///     w_i        (1/N · 1/P_i)^β       ( P_min )^β       ( m_min )^β
-///  ---------  =  ----------------  =   ( ----- )     =   ( ----- )
-///  max_j w_j     (1/N · 1/P_min)^β     (  P_i  )         (  m_i  )
+/// ```math
+/// \frac{w_i}{\max_j w_j} =
+/// \frac{(1/N \cdot 1/P_i)^\beta}{(1/N \cdot 1/P_{min})^\beta} =
+/// \left(\frac{P_{min}}{P_i}\right)^{\!\beta} =
+/// \left(\frac{m_{min}}{m_i}\right)^{\!\beta}
 /// ```
 ///
 /// where `m = p^α` is the unnormalized mass. Both `N` and `p_total` cancel

@@ -1,14 +1,14 @@
 //! Generalized Penalized Function No.01 (Yao 1999, f14) — sinusoidal lattice
 //! with quartic boundary penalties.
 //!
-//! ```text
-//! f(x) = (π/n)·{ 10·sin²(π·y_1)
-//!               + Σ_{i=1}^{n-1} (y_i−1)²·[1 + 10·sin²(π·y_{i+1})]
-//!               + (y_n−1)² }
-//!        + Σ_{i=1}^{n} u(x_i)
+//! ```math
+//! f(x) = \frac{\pi}{n} \left\{ 10 \sin^2(\pi y_1)
+//!               + \sum_{i=1}^{n-1} (y_i-1)^2 \left[1 + 10 \sin^2(\pi y_{i+1})\right]
+//!               + (y_n-1)^2 \right\}
+//!        + \sum_{i=1}^{n} u(x_i)
 //! ```
-//! where `y_i = 1 + (x_i + 1)/4` and the penalty
-//! `u(x) = 100·(x−10)⁴` for `x > 10`, `100·(−x−10)⁴` for `x < −10`, else `0`.
+//! where `$y_i = 1 + (x_i + 1)/4$` and the penalty
+//! `$u(x) = 100(x-10)^4$` for `x > 10`, `$100(-x-10)^4$` for `x < −10`, else `0`.
 //!
 //! Global minimum at `x_i = −1` (which maps to `y_i = 1`, zeroing every
 //! sinusoidal term) where `f(x*) = 0`. Evaluated over `[-50, 50]^n` with the

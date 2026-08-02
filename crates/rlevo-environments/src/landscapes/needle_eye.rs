@@ -1,8 +1,11 @@
 //! Needle-Eye function — extreme-precision failure-demonstration benchmark.
 //!
-//! ```text
-//! f(x) = 1                                       if |x_i| < 1e-4 for all i
-//!      = Σ (100 + |x_i|) · 1[|x_i| > 1e-4]        otherwise
+//! ```math
+//! f(x) =
+//! \begin{cases}
+//!   1 & \text{if } |x_i| < 10^{-4} \text{ for all } i \\
+//!   \sum_i (100 + |x_i|) \cdot \mathbb{1}[|x_i| > 10^{-4}] & \text{otherwise}
+//! \end{cases}
 //! ```
 //! Global minimum `f* = 1` on a hypercube of side `2×10⁻⁴` centred at the
 //! origin. Outside that needle the value is `≥ 100`. Piecewise constant and

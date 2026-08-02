@@ -130,8 +130,8 @@
 //! `x - 6`… i.e. column `c` is visible only if `x - c <= 6`. The cue sits at
 //! `x = 1` and the fork column is `size - 2`, so Invariant M requires
 //!
-//! ```text
-//! (size - 2) - 6 > 1   ⇒   size > 9   ⇒   size >= 11   (size is odd)
+//! ```math
+//! (\text{size} - 2) - 6 > 1 \implies \text{size} > 9 \implies \text{size} \geq 11 \quad (\text{size is odd})
 //! ```
 //!
 //! **`MIN_SIZE == 11` is a consequence of Invariant M, not a magic number.**

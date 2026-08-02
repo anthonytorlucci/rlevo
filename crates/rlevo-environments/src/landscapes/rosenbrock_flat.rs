@@ -1,7 +1,7 @@
 //! Generalized Modified Rosenbrock No.01 — the flat-ground bent knife-edge.
 //!
-//! ```text
-//! f(x) = Σ_{i=1}^{n-1} [100·|x_{i+1} − x_i²| + (1 − x_i)²]
+//! ```math
+//! f(x) = \sum_{i=1}^{n-1} \left[100 |x_{i+1} - x_i^2| + (1 - x_i)^2\right]
 //! ```
 //! Global minimum `f* = 0` at `x = (1, …, 1)`. Replacing the smooth square of
 //! standard Rosenbrock with an absolute value turns the parabolic valley into a

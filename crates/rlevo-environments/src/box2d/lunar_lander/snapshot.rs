@@ -13,9 +13,9 @@ use super::observation::LunarLanderObservation;
 /// potential of the state observed at this step, as computed by
 /// `LunarLanderCore::shaping`:
 ///
-/// ```text
-/// Φ(obs) = -100·dist_to_helipad - 100·speed - 100·|angle|
-///          + 10·leg1_contact + 10·leg2_contact
+/// ```math
+/// \Phi(\text{obs}) = -100 \cdot \text{dist\_to\_helipad} - 100 \cdot \text{speed} - 100 \cdot |\text{angle}|
+///   + 10 \cdot \text{leg1\_contact} + 10 \cdot \text{leg2\_contact}
 /// ```
 ///
 /// It is **not** the shaping *reward*. In the potential-based reward-shaping
@@ -29,8 +29,8 @@ use super::observation::LunarLanderObservation;
 ///
 /// The quantity that actually enters `reward` is the potential difference
 ///
-/// ```text
-/// F(t) = Φ(t) − Φ(t−1)
+/// ```math
+/// F(t) = \Phi(t) - \Phi(t-1)
 /// ```
 ///
 /// (implicit γ = 1 — the standard episodic/undiscounted instantiation; cf.

@@ -206,14 +206,16 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
 /// Given pre-computed `(μ, log σ)` tensors of shape `(batch, action_dim)`
 /// and a noise tensor `ε` of the same shape, computes:
 ///
-/// ```text
-/// z          = μ + exp(log σ) · ε                  (reparameterization)
-/// log π(z)   = log N(z | μ, σ²) − log|det J_tanh|  (Jacobian-corrected)
-/// a          = action_scale · tanh(z) + action_bias  (squashed action)
+/// ```math
+/// \begin{aligned}
+/// z &= \mu + \exp(\log \sigma) \cdot \varepsilon &&\text{(reparameterization)} \\
+/// \log \pi(z) &= \log \mathcal{N}(z \mid \mu, \sigma^2) - \log|\det J_{\tanh}| &&\text{(Jacobian-corrected)} \\
+/// a &= \text{action\_scale} \cdot \tanh(z) + \text{action\_bias} &&\text{(squashed action)}
+/// \end{aligned}
 /// ```
 ///
-/// The Jacobian term `log(1 − tanh²(z))` is evaluated as
-/// `2·(ln 2 − z − softplus(−2z))` for numerical stability near saturation.
+/// The Jacobian term `$\log(1 - \tanh^2(z))$` is evaluated as
+/// `$2 \cdot (\ln 2 - z - \text{softplus}(-2z))$` for numerical stability near saturation.
 /// The `log|action_scale|` contribution is subtracted once per action
 /// dimension to account for the scale of the squashed sample.
 ///

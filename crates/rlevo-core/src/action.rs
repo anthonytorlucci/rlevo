@@ -95,9 +95,9 @@ use std::fmt::Debug;
 /// # Type Safety
 ///
 /// Implementations should ensure bidirectional conversion between indices and actions:
-/// ```text
-/// ∀ i ∈ [0, ACTION_COUNT): i == from_index(i).to_index()
-/// ∀ a: Action: a == from_index(a.to_index())
+/// ```math
+/// \forall i \in [0, \text{ACTION\_COUNT}): i = \text{from\_index}(i).\text{to\_index}()
+/// \forall a: \text{Action}: a = \text{from\_index}(a.\text{to\_index}())
 /// ```
 ///
 /// # Performance
@@ -182,8 +182,8 @@ pub trait DiscreteAction<const R: usize>: Action<R> {
 /// can have a different cardinality, defined by [`shape()`](Action::shape).
 ///
 /// The total number of action combinations is the product of all dimension sizes:
-/// ```text
-/// total_actions = ∏ shape()[i]
+/// ```math
+/// \text{total\_actions} = \prod_i \text{shape}()[i]
 /// ```
 ///
 /// # Caution: Combinatorial Explosion

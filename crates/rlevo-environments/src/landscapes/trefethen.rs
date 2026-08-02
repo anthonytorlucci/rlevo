@@ -1,8 +1,8 @@
 //! Trefethen's function — a 2-D benchmark with five incommensurate frequencies.
 //!
-//! ```text
-//! f(x₁,x₂) = e^{sin(50·x₁)} + sin(60·e^{x₂}) + sin(70·sin(x₁))
-//!          + sin(sin(80·x₂)) − sin(10·(x₁+x₂)) + (x₁² + x₂²)/4
+//! ```math
+//! f(x_1,x_2) = e^{\sin(50 x_1)} + \sin(60 e^{x_2}) + \sin(70 \sin(x_1))
+//!            + \sin(\sin(80 x_2)) - \sin(10(x_1+x_2)) + \frac{x_1^2 + x_2^2}{4}
 //! ```
 //! Global minimum `f* ≈ −3.306_868_647_475_23` at `(−0.024403, 0.210612)`. The
 //! frequencies `{50, 60, 70, 80, 10}` share no ratio, so there is no periodic

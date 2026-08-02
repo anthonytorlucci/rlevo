@@ -42,8 +42,8 @@ fn unit_uniform_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 /// For each gene position `i`, the child's value is drawn uniformly from the
 /// extended interval
 ///
-/// ```text
-/// U(min(a_i, b_i) − α·|a_i − b_i|,  max(a_i, b_i) + α·|a_i − b_i|)
+/// ```math
+/// U\left(\min(a_i, b_i) - \alpha \cdot |a_i - b_i|,\ \max(a_i, b_i) + \alpha \cdot |a_i - b_i|\right)
 /// ```
 ///
 /// When `α = 0` the child lies strictly within the parents' bounding box.

@@ -1,8 +1,8 @@
 //! Branin RCOS function No.01 — a 2-D benchmark with three equal global minima.
 //!
-//! ```text
-//! f(x₁,x₂) = (x₂ − 5.1·x₁²/(4π²) + 5·x₁/π − 6)²
-//!          + 10·(1 − 1/(8π))·cos(x₁) + 10
+//! ```math
+//! f(x_1,x_2) = \left(x_2 - \frac{5.1 x_1^2}{4\pi^2} + \frac{5 x_1}{\pi} - 6\right)^2
+//!            + 10\left(1 - \frac{1}{8\pi}\right)\cos(x_1) + 10
 //! ```
 //! Global minimum `f* = 10/(8π) ≈ 0.397887357729738` attained at three points
 //! that are **not** related by symmetry: `(−π, 12.275)`, `(π, 2.275)`,

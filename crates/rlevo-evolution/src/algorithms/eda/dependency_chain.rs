@@ -336,9 +336,11 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
     /// subsequent dimension is sampled from the conditional Gaussian given its
     /// parent's sampled value:
     ///
-    /// ```text
-    /// μ_cond = μ_c + r · (σ_c / σ_p) · (x_parent − μ_p)
-    /// σ_cond = σ_c · √(1 − r²)
+    /// ```math
+    /// \mu_{\text{cond}} = \mu_c + r \cdot \frac{\sigma_c}{\sigma_p} \cdot (x_{\text{parent}} - \mu_p)
+    /// ```
+    /// ```math
+    /// \sigma_{\text{cond}} = \sigma_c \cdot \sqrt{1 - r^2}
     /// ```
     ///
     /// All randomness is drawn from `rng` (host RNG only; never

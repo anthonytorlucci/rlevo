@@ -10,8 +10,8 @@
 //! For each sample in the batch, each atom `z_i` of the next-state
 //! distribution is shifted by the Bellman backup:
 //!
-//! ```text
-//! Tz_i = clamp(r + γ · (1 − terminated) · z_i, v_min, v_max)
+//! ```math
+//! Tz_i = \text{clamp}(r + \gamma \cdot (1 - \text{terminated}) \cdot z_i,\; v_{min},\; v_{max})
 //! ```
 //!
 //! `Tz_i` generally falls between two atoms of the *fixed* support. The

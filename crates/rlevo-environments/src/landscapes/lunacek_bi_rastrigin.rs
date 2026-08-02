@@ -4,12 +4,12 @@
 //! as f24 but adds orthogonal rotation and ill-conditioning transforms on top of
 //! this body; those are intentionally omitted here.
 //!
-//! ```text
-//! f(x) = min[ Σ(x_i − μ₁)²,  d·n + s·Σ(x_i − μ₂)² ]
-//!        + 10·Σ{ 1 − cos[2π(x_i − μ₁)] }
+//! ```math
+//! f(x) = \min\left[ \sum_i (x_i - \mu_1)^2,\; d n + s \sum_i (x_i - \mu_2)^2 \right]
+//!        + 10 \sum_i \left\{ 1 - \cos[2\pi (x_i - \mu_1)] \right\}
 //! ```
-//! with `μ₁ = 2.5`, `d = 1`, `s = 1 − 1/(2√(n+20) − 8.2)`, and
-//! `μ₂ = −√((μ₁² − d)/s)`. Global minimum `f* = 0` at `x_i = μ₁ = 2.5`.
+//! with `$\mu_1 = 2.5$`, `$d = 1$`, `$s = 1 - 1/(2\sqrt{n+20} - 8.2)$`, and
+//! `$\mu_2 = -\sqrt{(\mu_1^2 - d)/s}$`. Global minimum `f* = 0` at `x_i = μ₁ = 2.5`.
 //!
 //! The function pairs two Sphere funnels — a narrow global one at `μ₁` and a
 //! wide deceptive one at `μ₂` that occupies most of the search volume — with a

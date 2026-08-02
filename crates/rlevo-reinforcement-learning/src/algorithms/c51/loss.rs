@@ -62,12 +62,13 @@ const KL_LOG_FLOOR: f32 = 1e-30;
 /// prioritizes transitions by the **KL loss** instead ("since this is what the
 /// algorithm is minimizing", verbatim), and
 ///
-/// ```text
-/// D_KL(t ‖ p) = Σ_i t_i · log(t_i / p_i) = CE − H(t),   H(t) = −Σ_i t_i · log t_i
+/// ```math
+/// D_{KL}(t \parallel p) = \sum_i t_i \cdot \log(t_i / p_i) = CE - H(t),
+/// \qquad H(t) = -\sum_i t_i \cdot \log t_i
 /// ```
 ///
 /// The two differ by the **target entropy** `H(t)`. `H(t)` is constant with
-/// respect to the network parameters θ, so it vanishes from the gradient — the
+/// respect to the network parameters `$\theta$`, so it vanishes from the gradient — the
 /// loss can stay CE with no change to training. But `H(t)` **varies from sample
 /// to sample**, so using CE as the replay priority ranks transitions
 /// differently from KL. This function subtracts `H(t)` explicitly, computing

@@ -1,8 +1,8 @@
 //! Eggholder function — a deceptive benchmark with a boundary-pinned optimum.
 //!
-//! ```text
-//! f(x) = Σ_{i=1}^{n-1} [ −x_i·sin(√|x_i − x_{i+1} − 47|)
-//!                        − (x_{i+1}+47)·sin(√|0.5·x_i + x_{i+1} + 47|) ]
+//! ```math
+//! f(x) = \sum_{i=1}^{n-1} \left[ -x_i \sin\left(\sqrt{|x_i - x_{i+1} - 47|}\right)
+//!                        - (x_{i+1}+47) \sin\left(\sqrt{|0.5 x_i + x_{i+1} + 47|}\right) \right]
 //! ```
 //! Global minimum `f* ≈ −959.6407` at `(512, 404.2318)` for `n = 2`. The optimum
 //! is **pinned to the domain boundary** (`x₁* = 512` is not an interior critical
@@ -15,7 +15,7 @@
 //! # Provenance of the n-dimensional form
 //!
 //! The **canonical Eggholder is 2-D only**; the `n`-dimensional adjacent-pair
-//! generalization implemented here (the `Σ_{i=1}^{n-1}` over `windows(2)` above)
+//! generalization implemented here (the `$\sum_{i=1}^{n-1}$` over `windows(2)` above)
 //! is a *lower-confidence extension* relative to the peer-reviewed sources behind
 //! the other landscapes in this module. Its traceable citation is S. Mishra
 //! (2006), *"Some New Test Functions for Global Optimization and Performance of
