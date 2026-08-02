@@ -168,7 +168,7 @@ to `Environment::step`/`EnvironmentError`.
 
 ## References
 
-- Cassandra, Kaelbling & Littman (1994); Smith & Simmons (2004); Kalman (1960) — the
+- Cassandra, Kaelbling & Littman (1994); Smith & Simmons (2004); Kalman (1963) — the
   canonical POMDP benchmarks surveyed in
   canonical-modality-changing-pomdp-benchmarks.
 - image-observation-over-compact-state-spec — governing spec.

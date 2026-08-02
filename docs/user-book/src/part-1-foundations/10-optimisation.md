@@ -202,7 +202,7 @@ checked against the terrain.
 > Lunch theorem is Wolpert and Macready (1997), *IEEE Transactions on
 > Evolutionary Computation* [[Wolpert and Macready, 1997]](#bibliography); Simon
 > (2013) [[Simon, 2013]](#bibliography) discusses it with worked examples in
-> Appendix B.1, p. 614.
+> Appendix B (No Free Lunch Theorem and Performance Testing).
 
 <a name="bibliography"></a>
 *References on this page are collected in the [Bibliography](../bibliography.md).*

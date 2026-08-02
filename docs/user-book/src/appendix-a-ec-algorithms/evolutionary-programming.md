@@ -33,7 +33,8 @@ plays `tournament_q` randomly drawn opponents. An individual wins a bout if its
 fitness is strictly **higher** than its opponent's. The μ individuals with the most
 wins survive; ties are broken to higher fitness. Higher `tournament_q` increases
 selection pressure toward better individuals; lower values preserve more
-diversity. The default `tournament_q = 10` is the value from Fogel (1995).
+diversity. The default `tournament_q = 10` is a commonly cited value in the EP
+literature (Fogel-era tournament selection).
 
 **σ self-adaptation.** EP uses the *same* self-adaptation mechanism as the
 [multi-parent ES variants](evolution-strategies.md#log-normal-sigma-adaptation),

@@ -93,7 +93,7 @@ pub fn approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<
 ///
 /// This is the *pre-update* / naive KL estimator `$\text{mean}(-\log r)$`, reported
 /// alongside the k3 estimator from [`approx_kl`]. Together they bracket the
-/// true KL and help diagnose PPO step size (Huang et al. 2022, detail #16).
+/// true KL and help diagnose PPO step size (Huang et al. 2022, detail #12).
 /// Unlike k3 it can be negative for a finite sample.
 pub fn old_approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<B, 1>) -> f32 {
     let log_ratio = new_log_probs - old_log_probs;

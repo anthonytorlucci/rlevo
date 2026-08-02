@@ -177,8 +177,8 @@ example therefore compares the full-refit trio (UMDA / MIMIC / BOA).
   future CubeCL item (same escape hatch ADR 0017 reserved for sampling).
 - The gate needs `pop = 2000` — an order of magnitude above the other EDA
   gates. Accepted: BOA's population scaling on order-5 traps is a literature
-  result (Pelikan), not an implementation artifact, and the runtime stays
-  inside the test budget.
+  result (Pelikan, Goldberg & Cantú-Paz 2000), not an implementation
+  artifact, and the runtime stays inside the test budget.
 - Block-aligned (tight) encoding only; a bit-permuted (loose) trap variant is
   a stronger structure-learning test and stays deferred (spec §7).
 
@@ -209,15 +209,20 @@ BOA relearns per generation; carrying stale edges across generations couples
 the model to population drift and complicates determinism reasoning. The seam
 stays available if a damped-CPT variant is ever needed.
 
-**Elitist replacement to rescue small populations.** Out of scope: Pelikan's
-BOA replaces the worst half of the population, but `EdaStrategy` (frozen, ADR
-0017) is full-generational. Scaling the population achieves the gate within
-the frozen surface; replacement policy changes would need their own ADR.
+**Elitist replacement to rescue small populations.** Out of scope: plain BOA
+(Pelikan, Goldberg & Cantú-Paz 1999) is already full-generational; the
+worst-half-replacing, diversity-preserving scheme belongs to hierarchical BOA
+(Pelikan & Goldberg 2001+), which `EdaStrategy` (frozen, ADR 0017) does not
+target. Scaling the population achieves the gate within the frozen surface;
+replacement policy changes would need their own ADR.
 
 ## References
 
 - Pelikan, Goldberg & Cantú-Paz (1999), *BOA: The Bayesian Optimization
   Algorithm.*
+- Pelikan, Goldberg & Cantú-Paz (2000), *Bayesian Optimization Algorithm,
+  Population Sizing, and Time to Convergence* (GECCO-2000) — source of the
+  order-5 trap population-scaling result cited above.
 - Deb & Goldberg (1992), *Analyzing deception in trap functions.*
 - Schwarz (1978), *Estimating the dimension of a model* (BIC).
 - boa-bayesian-network-eda — governing sub-spec (type designs §3.3/§4.2).
