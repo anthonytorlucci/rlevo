@@ -34,7 +34,7 @@ Default hyperparameters match the Nature DQN paper:
 |----------------|---------|--------|
 | `batch_size` | 32 | Nature DQN |
 | `gamma` (γ) | 0.99 | Nature DQN |
-| `tau` (soft-update) | 0.005 | CleanRL |
+| `target_update` | `TargetUpdate::polyak(0.005, 1)` | CleanRL |
 | `learning_rate` | 0.001 | CleanRL |
 | `epsilon_start` | 1.0 | Nature DQN |
 | `epsilon_end` | 0.01 | CleanRL |
@@ -245,7 +245,7 @@ Default hyperparameters follow CleanRL:
 | `actor_lr` | 3e-4 | CleanRL |
 | `critic_lr` | 3e-4 | CleanRL |
 | `gamma` (γ) | 0.99 | CleanRL |
-| `tau` (Polyak) | 0.005 | CleanRL |
+| `target_update` | `TargetUpdate::polyak(0.005, 2)` | CleanRL |
 | `exploration_noise` (σ) | 0.1 | CleanRL |
 | `policy_frequency` | 2 | CleanRL |
 
@@ -315,12 +315,11 @@ Default hyperparameters follow CleanRL:
 | `critic_lr` | 1e-3 | CleanRL |
 | `alpha_lr` | 1e-3 | CleanRL |
 | `gamma` \(\gamma\) | 0.99 | CleanRL |
-| `tau` (Polyak) | 0.005 | CleanRL |
+| `target_update` | `TargetUpdate::polyak(0.005, 1)` | CleanRL |
 | `autotune` (\(\alpha\) auto-tune) | true | Haarnoja et al. (2018b) |
 | `initial_alpha` | 1.0 | CleanRL |
 | `target_entropy` | \(-\left | A \right |\) heuristic | Haarnoja et al. (2018b) |
 | `policy_frequency` | 2 | CleanRL |
-| `target_update_frequency` | 1 | CleanRL |
 
 The squashed-Gaussian head's `log σ` clamp range (`log_std: Bounds::new(-5.0,
 2.0)`, CleanRL) is **not** a training-config field — it lives on

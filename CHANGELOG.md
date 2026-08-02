@@ -127,8 +127,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   moves. New documented invariants: `low().len() == high().len() ==
   Self::COMPONENTS`, and `low()[i] < high()[i]` for every `i`. **No persisted data
   format changes.**
-- The trait's doc claim that bounds may be derived from "a runtime env config
-  (e.g. a `max_torque` field)" is **removed as false** — `low()`/`high()` are
+- **Also on `BoundedAction`:** the trait's doc claim that bounds may be derived
+  from "a runtime env config (e.g. a `max_torque` field)" is **removed as
+  false** — `low()`/`high()` are
   static methods with no `self` and cannot reach instance state. `from_slice`'s
   docs (and the matching row in `docs/rules.md`) said the slice must have exactly
   `RANK` elements; the contract has been `COMPONENTS` since ADR 0038.
@@ -239,8 +240,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **`HostRow::row_is_finite`, a provided method for detecting non-finite rows**
   (ADR 0067, resolves #1043). Every observation reaching an agent was passed to
-  the network unchecked. The method is *provided*, so all 42 existing `HostRow`
-  implementors compile unchanged; it takes a `scratch: &mut Vec<f32>` rather
+  the network unchecked. The method is *provided*, so every existing `HostRow`
+  implementor compiles unchanged; it takes a `scratch: &mut Vec<f32>` rather
   than allocating internally, because an f32-backed image observation would
   otherwise cost a ~110 KB allocation on every environment step and widening
   the signature afterwards would break every impl.
@@ -251,17 +252,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   reduction equals it exactly when some element is non-finite; because `max` is
   associative, LLVM lowers it to a horizontal reduction. `Iterator::all` must
   short-circuit and cannot be lowered that way — measured at ~9 GB/s against a
-  ~62 GB/s memcpy, eight times the cost of the write it rides — and its timing
+  ~62 GB/s memcpy, roughly seven times the cost of the write it rides — and its timing
   depends on *where* the poison sits, which quietly confounds any
   clean-versus-poisoned benchmark control.
 
   The four integer-backed observation types (`PixelObservation`,
   `CarRacingObservation`, `GridObservation`, `GoToDoorObservation`) override it
   to `true`, since `u8 -> f32` cannot produce a non-finite value. Each override
-  carries a compile-time witness (`let _: &[u8] = &self.pixels;`) so that
-  re-backing one of them with `f32` fails to compile at the site whose
-  reasoning it invalidates, rather than silently turning the override into a
-  lie. The witness must stay a concrete type ascription: written as an
+  carries a compile-time witness — e.g. `PixelObservation`'s
+  `let _: &[u8] = &self.pixels;`, or a nested-array ascription over the field
+  for the grid types — so that re-backing one of them with `f32` fails to
+  compile at the site whose reasoning it invalidates, rather than silently
+  turning the override into a lie. The witness must stay a concrete type
+  ascription: written as an
   `Into<f32>` bound it would keep compiling forever, because
   `impl<T> From<T> for T` gives `f32: Into<f32>`.
 - **Kind-level tests for `config::in_range`'s rejection of non-finite values**
@@ -315,6 +318,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Changed**
 
+- **The workspace lint table is now enforced on `rlevo-core`** (#391), adding
+  `#[must_use]` to 15 public items — including trait methods
+  (`ContinuousAction::clip`, `DiscreteAction::random`/`enumerate`,
+  `MarkovState::is_markov`/`predict_next`, `BeliefState::update`) and inherent
+  methods (`EpisodeStatus::is_done`/`is_terminated`/`is_truncated`,
+  `RenderPayload::new`/`with`/`with_position`, `util::combinations`). Not
+  breaking — downstream code still compiles — but a caller discarding one of
+  these return values now gets a new `unused_must_use` warning.
 - **`TensorConvertible`'s round-trip contract is now two clauses instead of
   one** (ADR 0061, resolves #286). The old text — *"round-trip:
   `from_tensor(x.to_tensor(device))` equals `Ok(x)` for any valid `x`"* —
@@ -467,8 +478,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `env.state().grid` instead of reconstructing the layout from accessors at all.
 - **All 12 grid environments implement `Sensor` (ADR 0063, resolves #281);
   `impl Observable<3> for GridState` is removed.** Each environment's
-  `observe`/`observe_reset` forwards to a shared `observe_grid`/`mask_view` pair
-  parameterised by that environment's own `const VISIBILITY`, so the per-env
+  `observe`/`observe_reset` forwards to the shared public `observe_grid`
+  (backed by an internal `mask_view` helper), parameterised by that
+  environment's own `const VISIBILITY`, so the per-env
   difference is one constant, not eleven near-duplicated projections.
   `build_snapshot` now **takes** an already-produced `GridObservation` instead
   of producing one — its signature changes from `build_snapshot(reward, done)`
@@ -533,9 +545,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   longer derivable from `size`, so anything that needs to locate the door, the
   doorways or the one passable cell — a scripted rollout, a planner, a test —
   must ask the environment rather than recompute.
+- **`grids::core::Visibility`** (pub enum) and **`grids::core::observe_grid`**
+  (pub fn) — the per-environment occlusion mode and the shared
+  observation-building helper behind the `Sensor` migration above (ADR 0063,
+  #281). Every grid environment's `Sensor` impl now reduces to one
+  `const VISIBILITY: Visibility` plus a call into `observe_grid`, which is the
+  new public surface an external environment implementor following the same
+  pattern would need to name.
 - **`grids::core::placement`**, the shared placement sampler the family never
-  had: `is_free`, `sample_pos`, `place_obj`, `place_agent`, `random_direction`, a
-  `Rect` region type and a `PlacementError`. `grids/core/` previously offered
+  had: `is_free`, `sample_pos`, `place_obj`, `place_agent`, `random_direction`,
+  `no_reject`, a `Rect` region type and a `PlacementError`. `grids/core/`
+  previously offered
   `Grid::{new, in_bounds, get, set, draw_walls}` and nothing else — no free-cell
   predicate, no position sampler — so the only sampling code in the family was
   `GoToDoorEnv::sample_door_colors`, a hand-rolled rejection loop. Randomizing
@@ -879,9 +899,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Pendulum` has no terminal condition and so cannot be covered by that helper;
   it takes the guard for family uniformity, verified only to stay open, so a
   future termination rule cannot reintroduce the hole. The remaining families
-  (`grids`, `locomotion`, `box2d`, `pixel_grid`, bandits) are still unguarded and
-  tracked by #289, so the migration note on `Environment::step` stays until they
-  land.
+  (`grids`, `locomotion`, `box2d`, `pixel_grid`, bandits) were still unguarded
+  at this point in the cycle, tracked by #289 — all five land later in this
+  same `[Unreleased]` section (below), closing out the sweep and making the
+  `rlevo-core` migration-note removal (above) true workspace-wide.
 - **`ContinuousAction::from_slice` now accepts exactly `COMPONENTS` values on all
   five multi-component continuous actions**, matching what the trait and
   `docs/rules.md` §3 have always documented. `ReacherAction` and `SwimmerAction`
@@ -966,10 +987,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   that the old code would have failed.
 - **The grid solvability oracles could pass on an episode the agent died in**
   (#282). `assert_solvable!` and `run_script` both ran the entire action list and
-  asserted only the *final* snapshot's reward. No environment in the grid family
-  rejects a post-terminal `step` (ADR 0044 records ~44 non-conformant
-  environments), so an episode could end badly mid-script, keep stepping on a
-  finished episode, and hand back a healthy last snapshot. This was observed, not
+  asserted only the *final* snapshot's reward. At the time this was written, no
+  environment in the grid family rejected a post-terminal `step` (ADR 0044
+  recorded ~44 non-conformant environments workspace-wide) — the grid family's
+  own `EpisodeGuard` sweep lands later in this section (above) — so an episode
+  could end badly mid-script, keep stepping on a finished episode, and hand
+  back a healthy last snapshot. This was observed, not
   hypothesized: a `DistShift` script that walked into lava at action 5 — `done`,
   reward `0.0` — and then strolled on to the goal for `0.874` passed the old
   helper. Both now stop at the first snapshot reporting `is_done()` and assert on
@@ -1244,8 +1267,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   no value. `compute_gae`'s `truncated: &[bool]` becomes
   `truncation_value: &[Option<f32>]`.
 
-  *Migration.* `PpoAgent::record_step` and `PpgAgent::record_step` gain a
-  trailing `next_obs: &O`. Pass the observation from the snapshot the
+  *Migration.* `PpoAgent::record_step` and `PpgAgent::record_step` gain a new
+  `next_obs: &O` parameter, inserted before the trailing `status`. Pass the
+  observation from the snapshot the
   environment just returned — **not** the observation from a subsequent
   `reset()`. The agent computes the continuation value itself, and only when
   the status is `Truncated`, so a hand-written loop cannot forget to: it never
@@ -1436,9 +1460,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `validate()` impls. It subsumes only *half* of it: `config::ordered` was
   strict (`lo < hi`) and so also rejected a zero-width range, whereas
   `Bounds::try_new` deliberately permits `lo == hi`. **Both** Gaussian head
-  configs therefore carry an explicit `config::distinct(C, "log_std", ..)`
-  check to preserve the old semantics; a degenerate range reports
-  `field: "log_std"` with `ConstraintKind::DegenerateInterval`. The
+  configs therefore carry an explicit
+  `config::nondegenerate_bounds(C, "log_std", self.log_std)` check (the named
+  helper introduced in the `rlevo-core` section above) to preserve the old
+  semantics; a degenerate range reports `field: "log_std"` with
+  `ConstraintKind::DegenerateInterval`. The
   consequence differs by algorithm — on PPO a zero-width range freezes the
   shared `log_std` parameter and its gradient from step 0 with no path back,
   while on SAC it pins the per-observation `σ` to a constant and flattens the
@@ -1566,27 +1592,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   general problem tracked as #326. The signature and `#[must_use]` are
   unchanged.
 
-- **`target_update_frequency` default raised from `100` to `10_000` for DQN,
-  C51 and QR-DQN.** The old value had no basis in the literature or in any
-  reference implementation. The new one matches Stable-Baselines3's
-  `target_update_interval`, which — like our `step` counter — is measured in
-  **environment steps**, so the two are directly comparable.
-
-  This is deliberately *not* a literal match to Nature DQN, and the field docs
-  now say so. Mnih et al. 2015 specify `C = 10,000` measured in **parameter
-  updates** (Extended Data Table 1); at our `train_frequency: 4` that would be
-  ≈40,000 env steps. Our 10,000 env steps is ≈2,500 parameter updates — 4×
-  more frequent than Nature, and exactly SB3's convention. The field rustdocs
-  now state the unit explicitly, since "target update frequency" is measured
-  differently by different sources and the ambiguity is a live trap.
-
-  **No behavioral change under the shipped defaults**, which keep `tau = 0.005`
-  — after the #182 fix below, `target_update_frequency` is inert whenever
-  `tau > 0.0`. This affects only runs that explicitly opt into hard-sync mode
-  with `tau = 0.0`. Such runs will now sync the target 100× less often; if you
-  had been relying on the old `100` implicitly, set it explicitly. Note the new
-  default is Atari-scaled: on a short classic-control run it may sync only a
-  handful of times (see #337 for per-scale tuning guidance).
+- **`target_update_frequency` default tuning — superseded within this same
+  release.** An interim change here raised the DQN/C51/QR-DQN default from
+  `100` to `10_000`, on the reasoning that it should match Stable-Baselines3's
+  `target_update_interval` (measured in environment steps, ≈4× more frequent
+  than Nature DQN's `C = 10,000` parameter-update figure once `train_frequency:
+  4` is accounted for). That field no longer exists: the ADR 0058/0059
+  `tau`/`target_update_frequency` → `TargetUpdate` unification (above)
+  replaces it and the shipped default for DQN/C51/QR-DQN is
+  `TargetUpdate::polyak(0.005, 1)` — bit-identical to the *pre-this-cycle*
+  Polyak behavior, not the `10_000`-step hard-sync value this entry describes.
+  See that entry for the actual migration. The default-*value* question
+  (Atari- vs classic-control-scaled cadence) remains open, tracked by #337.
 
 - **`polyak_update` now keeps every soft update on-device instead of
   round-tripping each parameter through host memory** (resolves #322). The
@@ -1914,7 +1931,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   same-seed self-consistency (a deterministic `NaN` reproduces perfectly). This
   is a loss-level guard: it fully prevents *loss-origin* `NaN` but only surfaces
   (does not recover from) the rarer *finite-loss → `NaN`-gradient* case, which is
-  tracked separately under #328; reward-ingress finiteness is #352.
+  tracked separately under #328; reward-ingress finiteness (#352) is fixed
+  above by ADR 0065.
 - **The `BoundedAction` construction-time check now enforces the ordering half of
   the contract too**, not just the length half. `low()[i] < high()[i]` is stated
   in the trait docs and in `docs/rules.md` §3, but only the lengths were verified
@@ -2105,8 +2123,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   A non-finite `alpha_lr` is rejected by the same guard. The `[−88, 88]` clamp
   appears to cover it, but only for `g ≠ 0`: at `g = 0` the step is `Inf · 0 =
   NaN`, and `NaN.clamp(..)` propagates rather than rescuing. (Such a value
-  reaches the optimizer at all because `config::positive` treats `+Inf` as
-  positive — tracked separately in #353.)
+  could reach the optimizer at all because `config::positive` treated `+Inf`
+  as positive — fixed by #353, see the `rlevo-core` finiteness entry above.)
 
   A third variant sits one level further down, in the **bias-corrected** values:
   `v̂ = v / (1 − β₂ᵗ)` can overflow to `+Inf` while `g`, `lr` and both raw
@@ -2266,15 +2284,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   gated its full `target ← policy` copy on `target_update_frequency` alone and
   never read `tau`, despite every config doc promising the opposite ("When
   `tau > 0.0` … this field is ignored"). Because the `Default` shipped at the
-  time set **both** `tau = 0.005` and `target_update_frequency = 100` (that
-  frequency is now `10_000`, see **Changed** above), and each `train`
-  loop calls `sync_target()` unconditionally, a default run performed a Polyak
-  soft update every learn step *and* slammed the target onto the policy every
-  100 steps — destroying the target lag that Polyak exists to provide, which is
-  the whole mechanism these algorithms rely on for bootstrap stability. This
-  was not a config-exotic edge case; it was the default path for all three
-  agents. `sync_target` now returns early whenever `tau > 0.0`, so the hard
-  sync fires only under `tau == 0.0`, exactly as documented.
+  time set **both** `tau = 0.005` and `target_update_frequency = 100`, and each
+  `train` loop called `sync_target()` unconditionally, a default run performed
+  a Polyak soft update every learn step *and* slammed the target onto the
+  policy every 100 steps — destroying the target lag that Polyak exists to
+  provide, which is the whole mechanism these algorithms rely on for bootstrap
+  stability. This was not a config-exotic edge case; it was the default path
+  for all three agents.
 
   No published algorithm runs both schemes on one target network: Mnih et al.
   2015 (DQN), Bellemare et al. 2017 (C51) and Dabney et al. 2018 (QR-DQN) all
@@ -2290,23 +2306,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `.target_update_frequency(500)`), thereby *encoding the defective config*,
   then assert only that rewards are finite and that two seeded runs agree. A
   scheduled hard copy is both finite and perfectly deterministic, so those
-  assertions hold identically under either regime. Each agent now carries two
-  in-source unit tests asserting on the target's **parameter tensors** — one
-  pinning that `sync_target` is a no-op under `tau > 0.0`, one covering the
-  `tau == 0.0` hard-sync branch, which the fix would otherwise leave entirely
-  untested since no in-tree config sets it. Assertions deliberately avoid
-  Q-values and greedy actions: argmax is a lossy hash of the weights, so a
-  0.005 Polyak step and a full hard copy frequently yield the same action, and
-  such a test would have passed against the unfixed code.
+  assertions hold identically under either regime.
 
-  Also fixed: `tau == 0.0` together with `target_update_frequency == 0` meant
-  the target network never updated at all — silently trainable against a frozen
-  random bootstrap. All three configs now reject it in `validate()`. The
-  converse (both set) remains legal, since the library `Default` relies on it.
-
-  Note that `target_update_frequency` still means *soft* cadence in SAC and
-  *hard* cadence in these three; that cross-family divergence is tracked
-  separately as #334.
+  **Superseded within this same release.** The interim fix here made
+  `sync_target` return early whenever `tau > 0.0`, and added regression tests
+  pinning that no-op plus the `tau == 0.0` hard-sync branch. Neither
+  `sync_target` nor the `tau`/`target_update_frequency` pair it read exist
+  anymore: ADR 0058/0059 (the `target_update: TargetUpdate` entry above)
+  replaces both fields with a single cadence+τ type under which this
+  dual-mechanism bug — and the `tau == 0.0` / `target_update_frequency == 0`
+  frozen-target case this entry also fixed — are structurally unrepresentable,
+  and folds in the #334 cross-family (SAC vs. DQN/C51/QR-DQN) divergence this
+  entry originally left open. Read that entry for the shipped mechanism and
+  its own regression tests; the two `sync_target`-specific tests described
+  above were removed along with `sync_target` itself.
 - **A panic inside a learn step could permanently brick an agent** (ADR 0046,
   resolves #167) — all eight gradient-based agents (`dqn`, `c51`, `qrdqn`,
   `ddpg`, `td3`, `sac`, `ppo`, `ppg`) stored their trainable networks as
@@ -2363,7 +2376,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and has been retracted: `.valid()` is not a deep copy (it moves refcounted
   backend primitives), so its cost scales with `Param` count, not network
   size. The device→host→device round-trip in `polyak_update` is where the
-  real per-step cost lives; that is tracked separately as #322.
+  real per-step cost lives — fixed later in this same release, resolving
+  #322 (see the `polyak_update`/on-device entry under **Changed**, above).
 
 - **Every agent's minibatch staging round-tripped each observation through the
   device before ever using it** (resolves #362, completing the #187 sweep).
@@ -2476,20 +2490,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
   One non-obvious constraint surfaced while writing the fixtures, recorded here
   because it is easy to trip over: `PolyakMapper` looks parameters up by
-  `ParamId` and panics on a miss, so a target net built independently of the
-  active net does not blend — it aborts. Real agents get the matching IDs for
-  free by cloning the policy net; hand-built fixtures must reuse the active
-  net's `ParamId`s explicitly.
+  `ParamId`, so a target net built independently of the active net does not
+  blend cleanly. *At the time these tests were written a `ParamId` mismatch
+  panicked; ADR 0057 (above) later made the whole soft-update path fallible,
+  so the same mismatch is now reported as `Err(PolyakError)` instead of
+  aborting.* Real agents get the matching IDs for free by cloning the policy
+  net; hand-built fixtures must reuse the active net's `ParamId`s explicitly.
+
   A second qualification, added when #182 landed: the phrase "the exact
   failure mode τ exists to avoid" above overstates the practical exposure on
-  `dqn`, `c51` and `qrdqn` specifically. Until #182, those three hard-synced
-  the target on schedule anyway under any `target_update_frequency > 0`, so
-  under the shipped `Default` the panic-path residue was byte-identical to
-  what `sync_target` was about to do regardless, and was re-applied within at
-  most `target_update_frequency` env steps. The fix was nonetheless fully
-  load-bearing on `ddpg`, `sac` and `td3` — which have no hard-sync path at
-  all, so nothing would ever have overwritten the residue — and on
-  pure-Polyak configs (`target_update_frequency == 0`) of all six agents.
+  `dqn`, `c51` and `qrdqn` specifically. Under the `tau`/`target_update_frequency`
+  field pair that existed at the time — since replaced by `TargetUpdate` (see
+  above) — those three hard-synced the target on schedule anyway whenever a
+  hard-sync cadence was configured, so under the shipped `Default` the
+  panic-path residue was byte-identical to what the scheduled hard sync was
+  about to do regardless. The fix was nonetheless fully load-bearing on
+  `ddpg`, `sac` and `td3` — which have no hard-sync path at all, so nothing
+  would ever have overwritten the residue — and on pure-Polyak configs of all
+  six agents.
 
 ### Docs
 
