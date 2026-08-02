@@ -7,7 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [Unreleased]
+## [0.4.0] – 2026-08-02
+
+Minor release: contains breaking changes since 0.3.1. See the
+`rlevo-core`, `rlevo-environments`, and `rlevo-reinforcement-learning`
+**Breaking changes** subsections below for the full list and migration
+notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
+`rlevo-benchmarks`, or `rlevo-metrics-registry` this cycle.
 
 ### `rlevo-core`
 

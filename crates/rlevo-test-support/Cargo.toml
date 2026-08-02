@@ -18,8 +18,8 @@ serde = { workspace = true }
 # crate is `publish = false` and consumed solely through `[dev-dependencies]`.
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-rlevo-core = { path = "../rlevo-core", version = "0.3.1" }
-rlevo-environments = { path = "../rlevo-environments", version = "0.3.1", default-features = false }
+rlevo-core = { path = "../rlevo-core", version = "0.4.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.4.0", default-features = false }
 
 [lints]
 workspace = true
