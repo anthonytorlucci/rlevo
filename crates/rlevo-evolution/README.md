@@ -1,6 +1,6 @@
 # rlevo-evolution
 
-![Alt Text](rlevo-logo.png)
+![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
 Tensor-native classical evolutionary algorithms for `rlevo`, built on
 the [Burn](https://burn.dev/) framework.
