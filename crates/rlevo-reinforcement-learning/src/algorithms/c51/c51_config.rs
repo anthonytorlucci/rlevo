@@ -45,9 +45,9 @@ pub struct C51TrainingConfig {
     /// [`TargetUpdate`] is a single mechanism, not two (ADR 0058). Its cadence
     /// [`every`](TargetUpdate::every) decides *when* an update fires; its
     /// coefficient [`tau`](TargetUpdate::tau) decides *how far* the target
-    /// moves when it does — `target ← (1 − τ) · target + τ · policy`. A
+    /// moves when it does — `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{policy}$`. A
     /// periodic hard copy is not a second mechanism but the degenerate
-    /// `τ = 1.0`, spelled [`TargetUpdate::hard`]. The update is applied inside
+    /// `$\tau = 1.0$`, spelled [`TargetUpdate::hard`]. The update is applied inside
     /// [`C51Agent::learn_step`] and nowhere else, so no train loop can forget
     /// to drive it.
     ///
@@ -105,14 +105,14 @@ pub struct C51TrainingConfig {
     /// default (uniform replay).
     ///
     /// The priority signal for C51 is the **KL divergence**
-    /// `D_KL(target ‖ pred)`, *not* the cross-entropy the gradient uses — the
-    /// two differ by the per-sample target entropy `H(target)` (Rainbow,
+    /// `$D_{KL}(\text{target} \parallel \text{pred})$`, *not* the cross-entropy the gradient uses — the
+    /// two differ by the per-sample target entropy `$H(\text{target})$` (Rainbow,
     /// "prioritize transitions by the KL loss, since this is what the algorithm
     /// is minimizing"; see
     /// [`categorical_kl_per_sample`](crate::algorithms::c51::loss::categorical_kl_per_sample)).
     ///
     /// **Literature-recommended exponent.** Rainbow pairs the KL priority with
-    /// `ω = 0.5` (its `priority_exponent` here), and reports performance is "very
+    /// `$\omega = 0.5$` (its `priority_exponent` here), and reports performance is "very
     /// robust to the choice of ω" under the KL priority. The shipped default is
     /// Schaul's `0.6`; set `priority_exponent` to `0.5` on
     /// [`PrioritizedReplaySettings`] to match Rainbow. Buffer capacity comes from
@@ -121,11 +121,11 @@ pub struct C51TrainingConfig {
 }
 
 impl C51TrainingConfig {
-    /// Spacing between adjacent atoms: `(v_max − v_min) / (num_atoms − 1)`.
+    /// Spacing between adjacent atoms: `$(\text{v\_max} - \text{v\_min}) / (\text{num\_atoms} - 1)$`.
     ///
     /// Delegates to [`atom_spacing`] so the support this config builds and the
     /// bin indices the categorical projection computes share one definition of
-    /// `Δz` — an ULP of disagreement between the two is enough to push a
+    /// `$\Delta z$` — an ULP of disagreement between the two is enough to push a
     /// scatter index off the end of the support.
     ///
     /// # Returns
@@ -362,7 +362,7 @@ impl C51TrainingConfigBuilder {
     ///
     /// C51 prioritizes by the KL loss (Rainbow); see
     /// [`C51TrainingConfig::prioritized_replay`] for the literature-recommended
-    /// `ω = 0.5`. Leave unset for uniform replay.
+    /// `$\omega = 0.5$`. Leave unset for uniform replay.
     #[must_use]
     pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
         self.config.prioritized_replay = Some(settings);
@@ -465,7 +465,7 @@ mod tests {
     }
 
     /// Replaces `accepts_either_target_update_mechanism_alone`. There are no
-    /// longer two mechanisms to accept "alone": hard is `τ = 1.0` on the one
+    /// longer two mechanisms to accept "alone": hard is `$\tau = 1.0$` on the one
     /// rule, and every constructible rule yields a valid config.
     #[test]
     fn every_constructible_target_update_yields_a_valid_config() {

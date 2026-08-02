@@ -28,11 +28,11 @@
 //! # Why strictly positive, not merely non-negative
 //!
 //! Schaul et al. (2016) §3.3 define the proportional priority as
-//! `p_i = |δ_i| + ε`, where ε is "a small positive constant that prevents the
+//! `$p_i = |\delta_i| + \epsilon$`, where ε is "a small positive constant that prevents the
 //! edge-case of transitions not being revisited once their error is zero". With
 //! ε > 0 the priority is *never* zero, so `> 0` is the formulation's own
 //! invariant rather than an extra restriction. Admitting `0` would readmit the
-//! starvation edge case ε exists to prevent, and — at `α = 0`, where every
+//! starvation edge case ε exists to prevent, and — at `$\alpha = 0$`, where every
 //! positive priority maps to `1.0` — would make a zero-priority transition the
 //! sole exception to "α = 0 is uniform".
 //!
@@ -74,7 +74,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Construct with [`new`](Self::new) for literals (panics on an invalid value),
 /// [`try_new`](Self::try_new) for runtime data, or
-/// [`from_td_error`](Self::from_td_error) to apply Schaul's `p_i = |δ_i| + ε`.
+/// [`from_td_error`](Self::from_td_error) to apply Schaul's `$p_i = |\delta_i| + \epsilon$`.
 /// `Deserialize` routes through [`try_new`] via [`TryFrom`], so a priority
 /// loaded from a file cannot deserialize into an invalid one.
 ///
@@ -120,7 +120,7 @@ impl Priority {
     }
 
     /// Applies Schaul et al. (2016) §3.3's proportional priority
-    /// `p_i = |δ_i| + ε`.
+    /// `$p_i = |\delta_i| + \epsilon$`.
     ///
     /// This is the constructor agents use: `td_error` is a per-sample residual
     /// read back off a network, so it is precisely the value that can arrive as

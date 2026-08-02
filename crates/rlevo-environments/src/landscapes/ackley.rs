@@ -1,7 +1,7 @@
 //! Ackley function — a classical multimodal benchmark for EAs.
 //!
-//! `f(x) = -a·exp(-b·√(1/n · Σ x_i²)) − exp(1/n · Σ cos(c·x_i)) + a + e`
-//! with canonical constants `a = 20`, `b = 0.2`, `c = 2π`. Global
+//! `$f(x) = -a \exp\left(-b \sqrt{\frac{1}{n} \sum x_i^2}\right) - \exp\left(\frac{1}{n} \sum \cos(c \cdot x_i)\right) + a + e$`
+//! with canonical constants `a = 20`, `b = 0.2`, `$c = 2\pi$`. Global
 //! minimum at `x = 0` where `f(0) = 0`. Commonly evaluated over
 //! `[-32.768, 32.768]^n`; a narrower `[-5.12, 5.12]^n` window is
 //! convenient when comparing against Sphere / Rastrigin on the same
@@ -20,12 +20,12 @@ pub struct Ackley {
     pub a: f64,
     /// Inner exponential decay constant (canonical: `0.2`).
     pub b: f64,
-    /// Cosine frequency constant (canonical: `2π`).
+    /// Cosine frequency constant (canonical: `$2\pi$`).
     pub c: f64,
 }
 
 impl Ackley {
-    /// Build an Ackley with Ackley's canonical constants (`a=20`, `b=0.2`, `c=2π`).
+    /// Build an Ackley with Ackley's canonical constants (`a=20`, `b=0.2`, `$c = 2\pi$`).
     ///
     /// # Errors
     ///

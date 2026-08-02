@@ -1,24 +1,24 @@
 //! Easom's function — a 2-D "needle in a haystack" benchmark.
 //!
-//! `f(x₁, x₂) = −cos(x₁)·cos(x₂)·exp(−(x₁−π)² − (x₂−π)²)`, global minimum
-//! `f* = −1` (analytically exact) at `(π, π)`. The surface is essentially flat
-//! (≈ 0) everywhere except inside a small basin around `(π, π)`: the
-//! half-maximum contour has radius `√(ln 2) ≈ 0.833`, so gradient methods that
+//! `$f(x_1, x_2) = -\cos(x_1)\cdot\cos(x_2)\cdot\exp(-(x_1-\pi)^2 - (x_2-\pi)^2)$`, global minimum
+//! `$f^* = -1$` (analytically exact) at `$(\pi, \pi)$`. The surface is essentially flat
+//! (≈ 0) everywhere except inside a small basin around `$(\pi, \pi)$`: the
+//! half-maximum contour has radius `$\sqrt{\ln 2} \approx 0.833$`, so gradient methods that
 //! start outside the basin find no signal and fail. Differentiable everywhere.
 //!
 //! # Domain
 //!
 //! [`bounds`](Easom::bounds) returns `(-10.0, 10.0)`, which **is** the canonical
 //! domain: Al-Roomi, *Unconstrained Single-Objective Benchmark Functions
-//! Repository*, function #22 "Easom's Function", gives `−10 ≤ xᵢ ≤ 10` with
-//! `f* = −1` at `(π, π)`. The optimum sits inside this window, and since
-//! `|cos(x₁)·cos(x₂)| ≤ 1` and `exp(−(x₁−π)² − (x₂−π)²) ≤ 1`, no point anywhere
-//! scores below `−1` — so the box satisfies both `bounds()` obligations (ADR 0045:
+//! Repository*, function #22 "Easom's Function", gives `$-10 \leq x_i \leq 10$` with
+//! `$f^* = -1$` at `$(\pi, \pi)$`. The optimum sits inside this window, and since
+//! `$|\cos(x_1)\cdot\cos(x_2)| \leq 1$` and `$\exp(-(x_1-\pi)^2 - (x_2-\pi)^2) \leq 1$`, no point anywhere
+//! scores below `$-1$` — so the box satisfies both `bounds()` obligations (ADR 0045:
 //! O1 reachability, O2 no spurious optimum), pinned by the unit tests below.
 //!
 //! **Source divergence (not a defect).** Molga & Smutnicki and the SFU virtual
-//! library state the domain as `[-100, 100]²`. We follow Al-Roomi, the repository's
-//! authoritative table. `[-10, 10]²` is therefore correct as written — do not
+//! library state the domain as `$[-100, 100]^2$`. We follow Al-Roomi, the repository's
+//! authoritative table. `$[-10, 10]^2$` is therefore correct as written — do not
 //! "fix" it to match a different source.
 
 use std::f64::consts::PI;
@@ -41,7 +41,7 @@ impl Easom {
     }
 
     /// Recommended search box `(-10.0, 10.0)` applied per-coordinate — the canonical
-    /// domain per Al-Roomi #22. Contains the optimum `(π, π)`. See the type-level
+    /// domain per Al-Roomi #22. Contains the optimum `$(\pi, \pi)$`. See the type-level
     /// docs for the divergence from sources that state `[-100, 100]²`.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -110,7 +110,7 @@ mod tests {
 
     /// Certified global-minimum value, analytically exact (Al-Roomi #22).
     const F_OPT: f64 = -1.0;
-    /// The single certified global minimizer `(π, π)` (Al-Roomi #22).
+    /// The single certified global minimizer `$(\pi, \pi)$` (Al-Roomi #22).
     const OPTIMA: [(f64, f64); 1] = [(PI, PI)];
 
     /// O1 (reachability) — the search box reaches the certified global optimum.
@@ -132,9 +132,9 @@ mod tests {
         }
     }
 
-    /// O2 (no spurious optimum) — no point of the box scores below `f* = −1`.
+    /// O2 (no spurious optimum) — no point of the box scores below `$f^* = -1$`.
     ///
-    /// A deterministic 401×401 sweep of `bounds()²`. The bound `f ≥ −1` is exact
+    /// A deterministic 401×401 sweep of `bounds()²`. The bound `$f \geq -1$` is exact
     /// (a product of factors each of modulus ≤ 1), so `eps` guards float error only
     /// on a unit-scale surface.
     #[test]

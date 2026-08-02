@@ -9,7 +9,7 @@
 //! | Type | Action space |
 //! |---|---|
 //! | [`LunarLanderDiscrete`] | 4-way discrete: no-op, left, main, right engine |
-//! | [`LunarLanderContinuous`] | 2-dim continuous: throttle `∈ [-1,1]`, lateral `∈ [-1,1]` |
+//! | [`LunarLanderContinuous`] | 2-dim continuous: throttle `$\in [-1,1]$`, lateral `$\in [-1,1]$` |
 //!
 //! ## Wind model
 //!

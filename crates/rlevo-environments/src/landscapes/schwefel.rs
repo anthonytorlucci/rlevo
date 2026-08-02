@@ -1,26 +1,27 @@
 //! Schwefel function (Problem 2.26) — a deceptive multimodal benchmark.
 //!
-//! `f(x) = −Σ x_i·sin(√|x_i|)`, global minimum at `x_i = 420.9687…` where
-//! `f(x*) = −418.9829… · n`. The function is deceptive: many local minima
-//! cluster near `x_i ≈ 0` while the true optimum sits at ~84% of the domain
-//! radius from the centre, so an agent that converges near zero scores
-//! `f ≈ 0` instead of `f ≈ −418.98·n`.
+//! `$f(x) = -\sum x_i \cdot \sin(\sqrt{|x_i|})$`, global minimum at
+//! `$x_i = 420.9687\ldots$` where `$f(x^*) = -418.9829\ldots \cdot n$`. The
+//! function is deceptive: many local minima cluster near `$x_i \approx 0$`
+//! while the true optimum sits at ~84% of the domain radius from the centre,
+//! so an agent that converges near zero scores `$f \approx 0$` instead of
+//! `$f \approx -418.98 \cdot n$`.
 //!
-//! Evaluated over `[-500, 500]^n`. The function is separable, so coordinate-wise
+//! Evaluated over `$[-500, 500]^n$`. The function is separable, so coordinate-wise
 //! methods have a structural advantage. Differentiable except for a sign
-//! discontinuity in the derivative at `x_i = 0`; forward evaluation is exact
+//! discontinuity in the derivative at `$x_i = 0$`; forward evaluation is exact
 //! everywhere.
 //!
-//! Requires `n ≥ 1`.
+//! Requires `$n \geq 1$`.
 
-/// Per-dimension optimal coordinate, `x_i*`, at full `f64` precision.
+/// Per-dimension optimal coordinate, `$x_i^*$`, at full `f64` precision.
 //
 // The certified literature value carries more decimal digits than f64 stores;
 // we keep the published constant verbatim (spec principle: precise constants,
 // not rounded approximations) and silence the precision lint accordingly.
 #[allow(clippy::excessive_precision)]
 const X_OPT: f64 = 420.968_746_359_982_025;
-/// Per-dimension contribution to the optimum, `|f(x*)| / n`, at full precision.
+/// Per-dimension contribution to the optimum, `$|f(x^*)| / n$`, at full precision.
 ///
 /// Used by the test suite to assert the certified global-minimum value.
 #[cfg(test)]
@@ -41,8 +42,8 @@ impl Schwefel {
     /// # Errors
     ///
     /// Returns [`ConfigError`] if `dim == 0`: the coordinate sum is empty, so
-    /// `f = 0`, which is also the certified optimum `−418.9829·n` evaluated at
-    /// `n = 0` — the landscape would report itself solved before the search
+    /// `$f = 0$`, which is also the certified optimum `$-418.9829 \cdot n$` evaluated at
+    /// `$n = 0$` — the landscape would report itself solved before the search
     /// starts.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
         const C: &str = "Schwefel";
@@ -77,7 +78,7 @@ impl Schwefel {
     /// 2D projection of [`evaluate`](Self::evaluate) for visualisation.
     ///
     /// Coordinates beyond the first two are fixed at the per-dimension optimum
-    /// `x_i* = 420.9687…`, not `0.0`, so the rendered slice shows the global
+    /// `$x_i^* = 420.9687\ldots$`, not `0.0`, so the rendered slice shows the global
     /// basin rather than a cross-section through the deceptive near-zero region.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![X_OPT; self.dim];

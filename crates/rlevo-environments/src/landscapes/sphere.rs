@@ -1,6 +1,6 @@
 //! Sphere function — the simplest convex unimodal benchmark for EAs.
 //!
-//! `f(x) = Σ x_i²`, global minimum at `x = 0` where `f(0) = 0`.
+//! `$f(x) = \sum x_i^2$`, global minimum at `$x = 0$` where `$f(0) = 0$`.
 //! Commonly evaluated over `[-5.12, 5.12]^n` for comparability with
 //! Rastrigin / Ackley, though any symmetric domain works.
 
@@ -18,7 +18,7 @@ impl Sphere {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] if `dim == 0`: `f(x) = Σ x_i²` over an empty
+    /// Returns [`ConfigError`] if `dim == 0`: `$f(x) = \sum x_i^2$` over an empty
     /// coordinate set is the empty sum `0`, which is exactly the Sphere's
     /// global optimum — a zero-dimensional instance would report itself solved
     /// on every evaluation.

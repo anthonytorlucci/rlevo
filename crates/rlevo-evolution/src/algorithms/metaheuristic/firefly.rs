@@ -3,17 +3,18 @@
 //! Each firefly `i` moves toward every **brighter** firefly `j`, with
 //! attractiveness decaying exponentially in the squared distance:
 //!
-//! - `β(r_ij) = β₀ · exp(−γ · r_ij²)` where `r_ij = ‖x_i − x_j‖`,
-//! - `Δx_i = Σ_{j : f(x_j) > f(x_i)} β(r_ij) · (x_j − x_i) + α · (U[−0.5, 0.5])`,
-//! - `x_i ← x_i + Δx_i`.
+//! - `$\beta(r_{ij}) = \beta_0 \cdot \exp(-\gamma r_{ij}^2)$` where
+//!   `$r_{ij} = \lVert x_i - x_j \rVert$`,
+//! - `$\Delta x_i = \sum_{j : f(x_j) > f(x_i)} \beta(r_{ij}) \cdot (x_j - x_i) + \alpha \cdot (U[-0.5, 0.5])$`,
+//! - `$x_i \leftarrow x_i + \Delta x_i$`.
 //!
-//! The attraction sum is canonically `O(N²)`; a naïve tensor
+//! The attraction sum is canonically `$O(N^2)$`; a naïve tensor
 //! implementation materializes an `(N, N, D)` pairwise-difference
 //! tensor and therefore blows out memory at `N > 128`. This module
 //! enforces that hard cap when the `custom-kernels` feature is off. A
 //! future fused `CubeCL` kernel
 //! ([`super::kernels::pairwise_attract_cube`]) is designed to stream
-//! over the neighbour axis and keep memory at `O(ND)`, removing the
+//! over the neighbour axis and keep memory at `$O(ND)$`, removing the
 //! cap; until that kernel lands, the pure-tensor path runs even when
 //! the feature is enabled.
 //!
@@ -36,7 +37,7 @@ use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
-/// Hard cap for the pure-tensor `O(N²D)` Firefly path. Exceeding this
+/// Hard cap for the pure-tensor `$O(N^2 D)$` Firefly path. Exceeding this
 /// without the fused `CubeCL` kernel would allocate a cubic tensor on
 /// device; the kernel path removes the cap.
 pub const FIREFLY_PURE_TENSOR_CAP: usize = 128;
@@ -50,9 +51,9 @@ pub struct FireflyConfig {
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: Bounds,
-    /// Base attractiveness `β₀`. Canonical 1.0.
+    /// Base attractiveness `$\beta_0$`. Canonical 1.0.
     pub beta0: f32,
-    /// Light-absorption coefficient `γ`. Canonical 1.0; controls the
+    /// Light-absorption coefficient `$\gamma$`. Canonical 1.0; controls the
     /// range over which fireflies can see each other.
     pub gamma: f32,
     /// Noise scale for the random walk term. Canonical 0.2.
@@ -60,10 +61,10 @@ pub struct FireflyConfig {
 }
 
 impl FireflyConfig {
-    /// Default configuration. `γ` is scaled by the search-space extent
+    /// Default configuration. `$\gamma$` is scaled by the search-space extent
     /// so the exponential decay lands in a useful regime — Yang's
-    /// canonical `γ = 1` assumes `[0, 1]` normalization; for the usual
-    /// `[−5.12, 5.12]` domain, `γ ≈ 1 / L²` keeps attractiveness
+    /// canonical `$\gamma = 1$` assumes `$[0, 1]$` normalization; for the usual
+    /// `$[-5.12, 5.12]$` domain, `$\gamma \approx 1 / L^2$` keeps attractiveness
     /// non-vanishing across pairs.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
@@ -212,7 +213,7 @@ impl<B: Backend> FireflyAlgorithm<B> {
         }
     }
 
-    /// Pure-tensor `O(N²D)` attraction kernel — always available, even
+    /// Pure-tensor `$O(N^2 D)$` attraction kernel — always available, even
     /// without the `custom-kernels` feature. The fused `CubeCL` kernel
     /// designed in [`super::kernels::pairwise_attract_cube`] slots in at
     /// this call site once it lands.

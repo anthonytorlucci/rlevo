@@ -1,25 +1,25 @@
 //! Bukin function No.06 — a non-smooth 2-D benchmark with a knife-edge ridge.
 //!
-//! `f(x₁, x₂) = 100·√|x₂ − 0.01·x₁²| + 0.01·|x₁ + 10|`, global minimum `f* = 0`
-//! at `(−10, 1)`. The minimum lies on a parabolic ridge `x₂ = 0.01·x₁²` of
-//! effectively zero width — the transverse gradient diverges to `+∞` as the
+//! `$f(x_1, x_2) = 100 \sqrt{|x_2 - 0.01 \cdot x_1^2|} + 0.01 \cdot |x_1 + 10|$`, global minimum `f* = 0`
+//! at `(−10, 1)`. The minimum lies on a parabolic ridge `$x_2 = 0.01 \cdot x_1^2$` of
+//! effectively zero width — the transverse gradient diverges to `$+\infty$` as the
 //! ridge is approached — which is what makes standard gradient and DE methods
 //! fail.
 //!
 //! # Domain
 //!
-//! The true domain is asymmetric: `x₁ ∈ [-15, -5]`, `x₂ ∈ [-3, 3]`.
+//! The true domain is asymmetric: `$x_1 \in [-15, -5]$`, `$x_2 \in [-3, 3]$`.
 //! [`bounds`](Bukin6::bounds) returns a single `(lo, hi)` pair applied
 //! per-coordinate (the consuming renderer and search harnesses use one box for
 //! every axis), so it returns the *square bounding box* `(-15.0, 3.0)` of that
 //! asymmetric domain. This is the smallest square that still contains the full
 //! domain, the parabolic ridge, and the optimum `(−10, 1)` — a per-axis `x₁`
-//! range like `(-15, -5)` would exclude both the ridge (`x₂ = 0.01·x₁² ≈ 0..2.25`)
+//! range like `(-15, -5)` would exclude both the ridge (`$x_2 = 0.01 \cdot x_1^2 \approx 0 \ldots 2.25$`)
 //! and the optimum. The evaluator never clamps.
 //!
 //! The hull also admits points outside the published rectangle (e.g. `x₁ = +2`).
-//! That is harmless: `f` is a sum of two non-negative terms, so `f ≥ 0` on all
-//! of `ℝ²` and `f* = 0` is the global infimum — no widening of the box can admit
+//! That is harmless: `f` is a sum of two non-negative terms, so `$f \geq 0$` on all
+//! of `$\mathbb{R}^2$` and `f* = 0` is the global infimum — no widening of the box can admit
 //! a point better than `f*`. Both obligations are pinned by unit tests
 //! (`bounds_box_contains_optimum_on_both_axes` /
 //! `bounds_box_contains_full_asymmetric_domain` for reachability, and
@@ -30,7 +30,7 @@
 //!
 //! Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions
 //! Repository*, Dalhousie University — function #52: the source of the
-//! asymmetric domain `x₁ ∈ [-15, -5]`, `x₂ ∈ [-3, 3]` and of the global minimum
+//! asymmetric domain `$x_1 \in [-15, -5]$`, `$x_2 \in [-3, 3]$` and of the global minimum
 //! `f* = 0` at `(−10, 1)`. Corroborated by Surjanovic, S. & Bingham, D.,
 //! *Virtual Library of Simulation Experiments: Test Functions and Datasets*,
 //! Simon Fraser University.

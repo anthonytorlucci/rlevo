@@ -1,18 +1,19 @@
 //! Grey Wolf Optimizer.
 //!
 //! Each generation ranks the pack by fitness, promotes the top three
-//! wolves to `α`, `β`, `δ`, and updates every wolf toward a weighted
-//! average of the three. A linearly decreasing coefficient `a ∈ [2, 0]`
-//! drives the exploration-to-exploitation transition.
+//! wolves to `$\alpha$`, `$\beta$`, `$\delta$`, and updates every wolf
+//! toward a weighted average of the three. A linearly decreasing
+//! coefficient `$a \in [2, 0]$` drives the exploration-to-exploitation
+//! transition.
 //!
 //! # Update rule
 //!
-//! For each wolf `i` and each leader `k ∈ {α, β, δ}`:
+//! For each wolf `i` and each leader `$k \in \{\alpha, \beta, \delta\}$`:
 //!
-//! - `A_k = 2·a·r1 − a`, `C_k = 2·r2` with `r1, r2 ∈ U[0, 1]`,
-//! - `D_k = |C_k · X_k − X_i|`,
-//! - `X_k' = X_k − A_k · D_k`,
-//! - `X_i ← (X_α' + X_β' + X_δ') / 3`.
+//! - `$A_k = 2 a r_1 - a$`, `$C_k = 2 r_2$` with `$r_1, r_2 \in U[0, 1]$`,
+//! - `$D_k = |C_k \cdot X_k - X_i|$`,
+//! - `$X_k' = X_k - A_k \cdot D_k$`,
+//! - `$X_i \leftarrow (X_\alpha' + X_\beta' + X_\delta') / 3$`.
 //!
 //! # Candor
 //!
@@ -47,13 +48,13 @@ use crate::strategy::{Strategy, StrategyMetrics};
 /// Static configuration for [`GreyWolfOptimizer`].
 #[derive(Debug, Clone)]
 pub struct GwoConfig {
-    /// Pack size. The algorithm requires `pop_size ≥ 3`.
+    /// Pack size. The algorithm requires `$\text{pop\_size} \geq 3$`.
     pub pop_size: usize,
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: Bounds,
-    /// Budget used to schedule `a = 2·(1 − t/max_generations)`.
+    /// Budget used to schedule `$a = 2 (1 - t / \text{max\_generations})$`.
     /// The strategy itself is memoryless with respect to the harness's
     /// stopping criterion, so this value simply paces the exploration
     /// coefficient and need not equal the harness budget.
@@ -160,7 +161,7 @@ impl<B: Backend> GwoState<B> {
 /// # Panics
 ///
 /// [`Strategy::init`] panics if `params.pop_size < 3`, since the update
-/// rule needs three distinct leaders (`α`, `β`, `δ`).
+/// rule needs three distinct leaders (`$\alpha$`, `$\beta$`, `$\delta$`).
 ///
 /// # Example
 ///
@@ -245,7 +246,8 @@ where
     /// On the first call (before any [`tell`](Strategy::tell)), returns the
     /// initial pack unchanged so it can be evaluated before the first rank
     /// step. On subsequent calls, promotes the three highest-fitness wolves to
-    /// `α`, `β`, `δ` and computes the weighted-average update, then clamps
+    /// `$\alpha$`, `$\beta$`, `$\delta$` and computes the weighted-average
+    /// update, then clamps
     /// the result to [`GwoConfig::bounds`].
     fn ask(
         &self,

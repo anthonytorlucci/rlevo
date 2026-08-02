@@ -7,7 +7,7 @@
 //! and should only be wired into the strategies when profiling shows it
 //! on a hot path. The pure-tensor Mantegna path currently in
 //! [`super::super::cuckoo::CuckooSearch`] and
-//! [`super::super::bat::BatAlgorithm`] samples `u, v ∼ N(0, σ²)`
+//! [`super::super::bat::BatAlgorithm`] samples `$u, v \sim N(0, \sigma^2)$`
 //! host-side with `rand_distr::Normal` and bulk-uploads the resulting
 //! tensor — one host↔device transfer per generation, which profiles
 //! as a non-issue at the population sizes the integration tests exercise.
@@ -29,7 +29,7 @@
 //!
 //! # Why this kernel isn't in the current release
 //!
-//! The fractional-power step `|v|^(1/β)` is FMA-reorder-sensitive
+//! The fractional-power step `$|v|^{1/\beta}$` is FMA-reorder-sensitive
 //! enough that wgpu reductions drift ~`1e-3` relative from the
 //! flex path on identical seeds (`tests/backend_parity.rs` pins
 //! the cross-backend tolerance). The fusion win here is only "save

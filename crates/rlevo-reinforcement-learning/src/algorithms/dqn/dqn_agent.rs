@@ -320,7 +320,7 @@ where
 
     /// ε-greedy action selection.
     ///
-    /// With probability `ε` returns a uniformly random discrete action;
+    /// With probability `$\epsilon$` returns a uniformly random discrete action;
     /// otherwise runs the policy network on `obs` and returns the argmax.
     ///
     /// # Non-finite observations

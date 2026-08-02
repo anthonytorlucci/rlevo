@@ -67,7 +67,7 @@ impl ContinuousAction<1> for ReacherAction {
         Self([values[0], values[1]])
     }
 
-    /// Sample a uniformly-random action in `[-1.0, 1.0]²` using the global
+    /// Sample a uniformly-random action in `$[-1.0, 1.0]^2$` using the global
     /// thread-local RNG.
     fn random() -> Self {
         Self([

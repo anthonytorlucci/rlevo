@@ -4,13 +4,13 @@
 //! f(x) = \sum_{i=1}^{n-1} \left[ -x_i \sin\left(\sqrt{|x_i - x_{i+1} - 47|}\right)
 //!                        - (x_{i+1}+47) \sin\left(\sqrt{|0.5 x_i + x_{i+1} + 47|}\right) \right]
 //! ```
-//! Global minimum `f* ≈ −959.6407` at `(512, 404.2318)` for `n = 2`. The optimum
-//! is **pinned to the domain boundary** (`x₁* = 512` is not an interior critical
+//! Global minimum `$f^* \approx -959.6407$` at `$(512, 404.2318)$` for `$n = 2$`. The optimum
+//! is **pinned to the domain boundary** (`$x_1^* = 512$` is not an interior critical
 //! point), so interior gradient methods converge to nearby local minima and
 //! never reach it. Highly multimodal; non-differentiable where the
 //! absolute-value arguments cross zero.
 //!
-//! Evaluated over `[-512, 512]^n`. Requires `n ≥ 2`.
+//! Evaluated over `$[-512, 512]^n$`. Requires `$n \geq 2$`.
 //!
 //! # Provenance of the n-dimensional form
 //!
@@ -34,7 +34,7 @@ use rlevo_core::config::{self, ConfigError};
 /// whose provenance is discussed in the [module docs](self).
 #[derive(Debug, Clone, Copy)]
 pub struct Eggholder {
-    /// Number of input dimensions. Always `≥ 2` — enforced by [`Eggholder::new`].
+    /// Number of input dimensions. Always `$\geq 2$` — enforced by [`Eggholder::new`].
     dim: usize,
 }
 
@@ -44,7 +44,7 @@ impl Eggholder {
     /// # Errors
     ///
     /// Returns [`ConfigError`] if `dim < 2`. Every term couples a coordinate to
-    /// its successor (`x_i` with `x_{i+1}`), so the sum is empty for a single
+    /// its successor (`$x_i$` with `$x_{i+1}$`), so the sum is empty for a single
     /// coordinate and the function collapses to the constant `0` — with none of
     /// the boundary-pinned optimum the benchmark exists to expose.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
@@ -86,8 +86,8 @@ impl Eggholder {
 
     /// 2D projection of [`evaluate`](Self::evaluate) for visualisation.
     ///
-    /// The first two coordinates vary across the render window — and the `n = 2`
-    /// optimum `(512, 404.2318)` lies in that plane — so coordinates beyond the
+    /// The first two coordinates vary across the render window — and the `$n = 2$`
+    /// optimum `$(512, 404.2318)$` lies in that plane — so coordinates beyond the
     /// first two are held at `0.0`.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![0.0_f64; self.dim];

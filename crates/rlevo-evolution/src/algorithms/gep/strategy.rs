@@ -190,7 +190,7 @@ fn rows_to_tensor<B: Backend>(
 ///
 /// Fitness is canonical — *higher is better*. Each individual's selection
 /// weight is its fitness shifted so the worst finite individual sits at a
-/// small floor `ε`, i.e. `weight = (f − min_finite) + ε`, so a higher
+/// small floor `$\epsilon$`, i.e. `$\text{weight} = (f - \text{min\_finite}) + \epsilon$`, so a higher
 /// fitness yields a larger weight. This is sense-agnostic: the harness has
 /// already mapped a cost objective into canonical space, so no `mse`
 /// appears here. Non-finite fitness contributes zero weight. If the total
@@ -633,7 +633,7 @@ mod tests {
         harness.latest_metrics().unwrap().best_fitness_ever()
     }
 
-    /// Converges on `f(x) = x² + x + 1` over 20 points in [-1, 1].
+    /// Converges on `$f(x) = x^2 + x + 1$` over 20 points in [-1, 1].
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn converges_on_quadratic() {
@@ -702,7 +702,7 @@ mod tests {
         );
     }
 
-    /// Converges on `f(x, y) = x² + y²` over a 5×5 grid in [-2, 2]² (`n_vars` = 2).
+    /// Converges on `$f(x, y) = x^2 + y^2$` over a 5×5 grid in [-2, 2]² (`n_vars` = 2).
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn converges_on_sum_of_squares() {

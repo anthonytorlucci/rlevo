@@ -3,9 +3,9 @@
 //! Canonical PSO with two selectable velocity-update variants:
 //!
 //! - [`PsoVariant::Inertia`] — the Shi & Eberhart (1998) inertia-weight
-//!   form: `v ← ω·v + c1·r1·(pbest − x) + c2·r2·(gbest − x)`.
+//!   form: `$v \leftarrow \omega v + c_1 r_1 (\text{pbest} - x) + c_2 r_2 (\text{gbest} - x)$`.
 //! - [`PsoVariant::Constriction`] — the Clerc & Kennedy (2002)
-//!   constriction-factor form: `v ← χ·(v + c1·r1·(pbest − x) + c2·r2·(gbest − x))`.
+//!   constriction-factor form: `$v \leftarrow \chi (v + c_1 r_1 (\text{pbest} - x) + c_2 r_2 (\text{gbest} - x))$`.
 //!
 //! Both variants use the canonical *global-best* topology. Ring / local
 //! neighbourhoods are not currently implemented; only the fully-connected
@@ -62,11 +62,11 @@ use crate::strategy::{Strategy, StrategyMetrics};
 /// Which velocity-update rule PSO applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PsoVariant {
-    /// `v ← ω·v + c1·r1·(pbest − x) + c2·r2·(gbest − x)`.
+    /// `$v \leftarrow \omega v + c_1 r_1 (\text{pbest} - x) + c_2 r_2 (\text{gbest} - x)$`.
     Inertia,
     /// Clerc & Kennedy constriction form with factor
-    /// `χ = 2 / |2 − φ − √(φ² − 4φ)|`, where `φ = c1 + c2` and must be
-    /// `> 4`.
+    /// `$\chi = 2 / |2 - \varphi - \sqrt{\varphi^2 - 4\varphi}|$`, where `$\varphi = c_1 + c_2$` and must be
+    /// `$> 4$`.
     Constriction,
 }
 
@@ -94,14 +94,14 @@ pub struct PsoConfig {
 
 impl PsoConfig {
     /// Default configuration matching Shi & Eberhart's canonical settings
-    /// (`ω = 0.7298`, `c1 = c2 = 1.49618`) — the constriction-equivalent
+    /// (`$\omega = 0.7298$`, `c1 = c2 = 1.49618`) — the constriction-equivalent
     /// values so Inertia and Constriction variants agree in behaviour
     /// under the same default.
     ///
     /// The default variant is [`PsoVariant::Inertia`]. To switch to the
     /// constriction form, set `variant = PsoVariant::Constriction` and
     /// update `c1` and `c2` so that `c1 + c2 > 4` (the Clerc & Kennedy
-    /// requirement — the default `c1 = c2 = 1.49618` gives `φ ≈ 2.99`,
+    /// requirement — the default `c1 = c2 = 1.49618` gives `$\varphi \approx 2.99$`,
     /// which violates this); a canonical choice is `c1 = c2 = 2.05`.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
@@ -117,12 +117,12 @@ impl PsoConfig {
         }
     }
 
-    /// Computes the constriction factor `χ = 2 / |2 − φ − √(φ² − 4φ)|`
-    /// where `φ = c1 + c2`.
+    /// Computes the constriction factor `$\chi = 2 / |2 - \varphi - \sqrt{\varphi^2 - 4\varphi}|$`
+    /// where `$\varphi = c_1 + c_2$`.
     ///
-    /// Clerc & Kennedy (2002) require `φ > 4` for the closed form to be
-    /// real-valued. If `φ ≤ 4` the discriminant is clamped to zero and
-    /// `χ` falls back to `1.0` (no contraction) so the strategy remains
+    /// Clerc & Kennedy (2002) require `$\varphi > 4$` for the closed form to be
+    /// real-valued. If `$\varphi \le 4$` the discriminant is clamped to zero and
+    /// `$\chi$` falls back to `1.0` (no contraction) so the strategy remains
     /// numerically well-defined. A `debug_assert!` fires in debug builds
     /// when this fallback is triggered; it is silent in release builds.
     #[must_use]

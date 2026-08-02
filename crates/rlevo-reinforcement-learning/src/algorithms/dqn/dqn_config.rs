@@ -47,8 +47,8 @@ pub struct DqnTrainingConfig {
     /// [`TargetUpdate`] is a single mechanism, not two (ADR 0058). Its cadence
     /// [`every`](TargetUpdate::every) decides *when* an update fires; its
     /// coefficient [`tau`](TargetUpdate::tau) decides *how far* the target
-    /// moves when it does — `target ← (1 − τ)·target + τ·policy`. A periodic
-    /// hard copy is not a second mechanism but the degenerate `τ = 1.0`,
+    /// moves when it does — `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{policy}$`. A periodic
+    /// hard copy is not a second mechanism but the degenerate `$\tau = 1.0$`,
     /// spelled [`TargetUpdate::hard`]. The update is applied inside
     /// [`DqnAgent::learn_step`] and nowhere else, so no train loop can forget
     /// to drive it.
@@ -113,9 +113,9 @@ pub struct DqnTrainingConfig {
     ///
     /// `None` (the default) uses uniform replay — the pre-PER behaviour, byte
     /// for byte. `Some` enables PER: transitions are drawn in proportion to
-    /// `(|δ| + ε)^α`, and the per-sample loss is scaled by max-normalized
+    /// `$(|\delta| + \epsilon)^\alpha$`, and the per-sample loss is scaled by max-normalized
     /// importance weights annealed over `beta_anneal_steps`. The priority signal
-    /// is the absolute Huber TD error `|δ|` (Schaul §3.3, direct).
+    /// is the absolute Huber TD error `$|\delta|$` (Schaul §3.3, direct).
     ///
     /// Buffer capacity comes from [`replay_buffer_capacity`](Self::replay_buffer_capacity);
     /// the remaining knobs (α, ε, β schedule) live on

@@ -84,7 +84,8 @@ pub struct EdaParams<MP> {
     pub pop_size: usize,
     /// Fraction of the population kept by truncation selection; must lie
     /// strictly in `(0, 1)`. The effective `k` is
-    /// `ceil(selection_ratio · pop_size)` clamped to `[2, pop_size]`.
+    /// `$\lceil \text{selection\_ratio} \cdot \text{pop\_size} \rceil$` clamped
+    /// to `[2, pop_size]`.
     pub selection_ratio: f32,
     /// Optional inclusive `[lo, hi]` clamp applied to each gene after
     /// sampling. A no-op for binary models ([`UnivariateBernoulli`],
@@ -95,11 +96,11 @@ pub struct EdaParams<MP> {
 }
 
 /// Validation covers the engine-level knobs shared by every EDA model:
-/// `pop_size >= 2` and `selection_ratio ∈ (0, 1)` (open on both ends, since a
-/// ratio of `0` selects no parents and `1` defeats truncation). Model-specific
-/// params `MP` (which carry their own `genome_dim` etc.) are left to the model's
-/// own `fit`; no `MP: Validate` bound is imposed, keeping `EdaParams` usable
-/// with any model.
+/// `pop_size >= 2` and `$\text{selection\_ratio} \in (0, 1)$` (open on both
+/// ends, since a ratio of `0` selects no parents and `1` defeats truncation).
+/// Model-specific params `MP` (which carry their own `genome_dim` etc.) are
+/// left to the model's own `fit`; no `MP: Validate` bound is imposed, keeping
+/// `EdaParams` usable with any model.
 impl<MP> Validate for EdaParams<MP> {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "EdaParams";
@@ -189,7 +190,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
     /// Build the initial state.
     ///
     /// Fits the model's prior from `params.model` (passing `prev = None` and
-    /// empty `0 × 0` / length-`0` population and fitness tensors, per the
+    /// empty `$0 \times 0$` / length-`0` population and fitness tensors, per the
     /// [`ProbabilityModel`] invariants). The `rng` is unused — the prior is
     /// deterministic. The best-so-far trackers start empty.
     ///
@@ -254,8 +255,9 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
     /// maximise convention) via the crate's `sanitize_fitness` helper,
     /// updates the best-so-far tracker, truncation-selects the best `k` rows
     /// (descending fitness order, with
-    /// `k = ceil(selection_ratio · pop_size)` clamped to `[2, pop_size]`),
-    /// and refits the model to them (passing `prev = Some(model_state)`).
+    /// `$k = \lceil \text{selection\_ratio} \cdot \text{pop\_size} \rceil$`
+    /// clamped to `[2, pop_size]`), and refits the model to them (passing
+    /// `prev = Some(model_state)`).
     ///
     /// The selected population is also sanitized before the refit as a coarse
     /// backstop: non-finite genome values are mapped `NaN → 0.0` and `±inf`

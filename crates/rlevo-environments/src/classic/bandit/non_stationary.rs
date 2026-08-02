@@ -9,7 +9,7 @@
 //!
 //! This is the testbed from Sutton & Barto §2.5 used to demonstrate that
 //! constant step-size update rules outperform sample-average estimators when
-//! the underlying problem drifts. With `σ_walk = 0` the environment reduces
+//! the underlying problem drifts. With `$\sigma_{\text{walk}} = 0$` the environment reduces
 //! to the stationary [`KArmedBandit`](super::k_armed::KArmedBandit).
 //!
 //! # Example

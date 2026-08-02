@@ -5,7 +5,7 @@
 //! the forward pass returns a rank-3 tensor of **unnormalised logits** shaped
 //! `(batch, num_actions, num_atoms)` rather than a rank-2 tensor of
 //! Q-values. Agents convert logits → probabilities via `softmax` along the
-//! atom axis and compute expected Q-values as `Σ_i z_i · p_i`.
+//! atom axis and compute expected Q-values as `$\sum_i z_i \cdot p_i$`.
 
 use burn::module::AutodiffModule;
 use burn::tensor::Tensor;
@@ -22,7 +22,7 @@ use crate::utils::PolyakError;
 /// - [`forward_inner`](Self::forward_inner) — the same computation against
 ///   the inner non-autodiff module used as the frozen target network.
 /// - [`soft_update`](Self::soft_update) — Polyak averaging of the target
-///   network: `target ← (1 − τ) · target + τ · active`.
+///   network: `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`.
 ///
 /// The `DB` const generic is the observation tensor rank *including* the
 /// leading batch dimension (e.g. `DB = 2` for vector observations of shape

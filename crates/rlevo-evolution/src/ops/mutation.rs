@@ -26,9 +26,9 @@ fn standard_normal_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 
 /// Isotropic Gaussian mutation with a scalar step-size σ.
 ///
-/// Each gene in the population is independently perturbed by `σ · N(0, 1)`
+/// Each gene in the population is independently perturbed by `$\sigma \cdot N(0, 1)$`
 /// noise. The same σ is applied to every individual and every gene dimension.
-/// When `σ = 0` the function is an identity and returns a tensor numerically
+/// When `$\sigma = 0$` the function is an identity and returns a tensor numerically
 /// equal to the input.
 ///
 /// The `n·d` standard-normal draws are taken from the caller-supplied host

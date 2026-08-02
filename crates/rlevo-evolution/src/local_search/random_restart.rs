@@ -284,7 +284,7 @@ mod tests {
 
     const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 
-    /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
+    /// Negated sphere `$f(x) = -\sum x_i^2$` — concave bump; global maximum 0 at the
     /// origin.
     struct NegSphere;
     impl FitnessFn<Vec<f32>> for NegSphere {

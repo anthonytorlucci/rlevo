@@ -30,7 +30,7 @@ pub struct SwimmerConfig {
     /// Physics substep size in seconds. Default `0.005`.
     pub dt: f32,
     /// Number of physics substeps per `Environment::step` call. Effective
-    /// env dt = `dt × frame_skip`. Default `8` → env dt `0.04 s`.
+    /// env dt = `$\text{dt} \times \text{frame\_skip}$`. Default `8` → env dt `0.04 s`.
     pub frame_skip: u32,
     /// Half-width of the uniform reset-noise distribution applied to all
     /// generalised positions and velocities at `reset`. Default `0.1`.
@@ -45,12 +45,12 @@ pub struct SwimmerConfig {
     pub forward_reward_weight: f32,
     /// Scale factor on the quadratic control-cost penalty. Default `1e-4`.
     pub ctrl_cost_weight: f32,
-    /// Per-segment viscous linear-drag coefficient: `F = −k · v · ‖v‖`.
+    /// Per-segment viscous linear-drag coefficient: `$F = -k \cdot v \cdot \|v\|$`.
     /// Default `0.1`.
     pub drag_coefficient: f32,
-    /// Per-segment viscous angular-drag coefficient: `τ = −k_ang · ω`.
+    /// Per-segment viscous angular-drag coefficient: `$\tau = -k_{\text{ang}} \cdot \omega$`.
     ///
-    /// The term is **linear** in `ω` (not quadratic) because explicit-Euler
+    /// The term is **linear** in `$\omega$` (not quadratic) because explicit-Euler
     /// integration of quadratic drag diverges at the angular velocities
     /// reachable under sustained actuation in a zero-gravity free-floating
     /// chain. `MuJoCo` uses an implicit integrator and can afford quadratic
@@ -185,7 +185,7 @@ mod tests {
     /// direction: a future change that "simplifies" `in_range` to reject
     /// infinite *bounds* too would break it, which is the whole point of the
     /// test. The failing half pins that an infinite *value* is rejected as
-    /// `NotFinite` rather than `OutOfRange` — under `hi = ∞` a comparison-only
+    /// `NotFinite` rather than `OutOfRange` — under `$\text{hi} = \infty$` a comparison-only
     /// check would *accept* it.
     #[test]
     fn ctrl_cost_weight_accepts_large_finite_but_rejects_infinity() {

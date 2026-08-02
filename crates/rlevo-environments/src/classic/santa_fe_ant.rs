@@ -15,7 +15,7 @@
 //! **constant tensor order** — an information-reducing projection exactly like
 //! dropping the velocities from `CartPole`, *not* a modality change. Crucially,
 //! perceptual aliasing makes the *optimal* policy provably require internal
-//! memory: a memoryless reactive map `{0, 1} → action` cannot cross the trail's
+//! memory: a memoryless reactive map `$\{0, 1\} \to \text{action}$` cannot cross the trail's
 //! single, double, and L-shaped gaps, where the ant must step forward over an
 //! empty cell to reach food beyond it. [`SantaFeAntState`] signals this at the
 //! type level with [`MarkovState::is_markov`] returning `false`.

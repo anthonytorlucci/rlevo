@@ -164,7 +164,7 @@ impl Track {
     }
 }
 
-/// Evaluates one dimension of a Catmull-Rom spline at parameter `t ∈ [0, 1)`.
+/// Evaluates one dimension of a Catmull-Rom spline at parameter `$t \in [0, 1)$`.
 fn catmull_rom(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
     0.5 * ((2.0 * p1)
         + (-p0 + p2) * t

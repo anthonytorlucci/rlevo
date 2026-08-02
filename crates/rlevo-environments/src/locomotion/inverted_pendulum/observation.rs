@@ -17,7 +17,7 @@ impl InvertedPendulumObservation {
     }
 
     /// Pole angle relative to the upright vertical, in radians, wrapped to
-    /// `(-π, π]`. Positive values tilt the pole toward +x. Observation index 1.
+    /// `$(-\pi, \pi]$`. Positive values tilt the pole toward +x. Observation index 1.
     #[must_use]
     pub const fn pole_angle(&self) -> f32 {
         self.0[1]

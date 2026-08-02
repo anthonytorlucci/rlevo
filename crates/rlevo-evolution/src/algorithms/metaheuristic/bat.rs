@@ -3,13 +3,16 @@
 //! Each bat carries a position, a velocity, a frequency `f`, a loudness
 //! `A`, and a pulse rate `r`. Per generation:
 //!
-//! 1. Sample `f_i = f_min + (f_max − f_min)·β`, `β ∈ U[0, 1]`.
-//! 2. Update velocity: `v_i ← v_i + (x_i − x_best)·f_i`.
-//! 3. Propose candidate: `x'_i = x_i + v_i`. If `rand > r_i`, override
-//!    with a local walk `x'_i = x_best + ε · mean(A)`, `ε ∈ U[−1, 1]`.
+//! 1. Sample `$f_i = f_{\min} + (f_{\max} - f_{\min}) \cdot \beta$`,
+//!    `$\beta \in U[0, 1]$`.
+//! 2. Update velocity: `$v_i \leftarrow v_i + (x_i - x_{\text{best}}) \cdot f_i$`.
+//! 3. Propose candidate: `$x'_i = x_i + v_i$`. If `rand > r_i`, override
+//!    with a local walk `$x'_i = x_{\text{best}} + \varepsilon \cdot \text{mean}(A)$`,
+//!    `$\varepsilon \in U[-1, 1]$`.
 //! 4. `tell` accepts the candidate iff
-//!    `rand < A_i` **and** `f(x'_i) ≥ f(x_i)`. On acceptance:
-//!    `A_i *= α` (decay loudness), `r_i = r_{i,0}·(1 − exp(−γ·t))`
+//!    `rand < A_i` **and** `$f(x'_i) \geq f(x_i)$`. On acceptance:
+//!    `$A_i \leftarrow A_i \cdot \alpha$` (decay loudness),
+//!    `$r_i = r_{i,0} \cdot (1 - \exp(-\gamma t))$`
 //!    (grow pulse rate).
 //!
 //! # Candor
@@ -56,9 +59,9 @@ pub struct BatConfig {
     pub a0: f32,
     /// Initial pulse rate.
     pub r0: f32,
-    /// Loudness decay factor (0 < α ≤ 1). Canonical `α = 0.9`.
+    /// Loudness decay factor (0 < α ≤ 1). Canonical `$\alpha = 0.9$`.
     pub alpha: f32,
-    /// Pulse-rate growth factor (γ > 0). Canonical `γ = 0.9`.
+    /// Pulse-rate growth factor (γ > 0). Canonical `$\gamma = 0.9$`.
     pub gamma: f32,
 }
 
@@ -314,12 +317,13 @@ where
     ///
     /// On subsequent calls the update proceeds in three host/device steps:
     ///
-    /// 1. **Frequency** — sample `f_i = f_min + (f_max − f_min)·β_i`,
-    ///    `β_i ∈ U[0,1]`.
-    /// 2. **Global move** — `v_i ← v_i + (x_i − x_best)·f_i`,
-    ///    `x'_i = x_i + v_i`.
+    /// 1. **Frequency** — sample `$f_i = f_{\min} + (f_{\max} - f_{\min}) \cdot \beta_i$`,
+    ///    `$\beta_i \in U[0,1]$`.
+    /// 2. **Global move** — `$v_i \leftarrow v_i + (x_i - x_{\text{best}}) \cdot f_i$`,
+    ///    `$x'_i = x_i + v_i$`.
     /// 3. **Local walk** (when `rand > r_i`) — override with
-    ///    `x'_i = x_best + ε·mean(A)`, `ε ∈ U[−1,1]`.
+    ///    `$x'_i = x_{\text{best}} + \varepsilon \cdot \text{mean}(A)$`,
+    ///    `$\varepsilon \in U[-1,1]$`.
     ///
     /// All random draws are host-sampled through [`seed_stream`] for
     /// bit-stable reproduction across thread schedules.  The
@@ -439,8 +443,8 @@ where
     /// On subsequent calls candidate `i` replaces position `i` iff
     /// `pending_accept[i]` (drawn in [`ask`](Strategy::ask)) **and**
     /// `fitness[i] ≥ state.fitness[i]`.  On acceptance, loudness decays
-    /// (`A_i *= α`) and pulse rate grows
-    /// (`r_i = r₀·(1 − exp(−γ·t))`).
+    /// (`$A_i \leftarrow A_i \cdot \alpha$`) and pulse rate grows
+    /// (`$r_i = r_0 \cdot (1 - \exp(-\gamma t))$`).
     fn tell(
         &self,
         params: &BatConfig,

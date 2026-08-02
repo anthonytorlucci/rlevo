@@ -4,27 +4,27 @@
 //! f(x_1,x_2) = \left(x_2 - \frac{5.1 x_1^2}{4\pi^2} + \frac{5 x_1}{\pi} - 6\right)^2
 //!            + 10\left(1 - \frac{1}{8\pi}\right)\cos(x_1) + 10
 //! ```
-//! Global minimum `f* = 10/(8π) ≈ 0.397887357729738` attained at three points
-//! that are **not** related by symmetry: `(−π, 12.275)`, `(π, 2.275)`,
-//! `(3π, 2.475)`. Differentiable; a canonical surrogate-modelling test.
+//! Global minimum `$f^* = 10/(8\pi) \approx 0.397887357729738$` attained at three points
+//! that are **not** related by symmetry: `$(-\pi, 12.275)$`, `$(\pi, 2.275)$`,
+//! `$(3\pi, 2.475)$`. Differentiable; a canonical surrogate-modelling test.
 //!
 //! # Domain
 //!
-//! The published domain is asymmetric: `x₁ ∈ [-5, 10]`, `x₂ ∈ [0, 15]`.
+//! The published domain is asymmetric: `$x_1 \in [-5, 10]$`, `$x_2 \in [0, 15]$`.
 //! [`bounds`](Branin::bounds) returns a single `(lo, hi)` pair applied
 //! per-coordinate (the consuming renderer and every search harness hold one
 //! scalar box and apply it to every axis), so it returns the *square hull*
 //! `(-5.0, 15.0)` of that asymmetric domain — the smallest square containing
 //! both `[-5, 10]` and `[0, 15]`.
 //!
-//! The hull is required for **reachability**: the minimum `(−π, 12.275)` has
+//! The hull is required for **reachability**: the minimum `$(-\pi, 12.275)$` has
 //! `x₂ = 12.275 > 10`, so a `(-5.0, 10.0)` box would place one of the three
 //! certified minima outside the search space, where no optimiser could ever
 //! find it.
 //!
 //! The hull also admits points outside the published rectangle (e.g.
-//! `x₂ ∈ (10, 15]` paired with `x₁ ∈ (10, 15]`, or `x₂ < 0`). That is harmless:
-//! `f* = 10/(8π)` is the global **infimum of Branin over all of ℝ²** (see the
+//! `$x_2 \in (10, 15]$` paired with `$x_1 \in (10, 15]$`, or `x₂ < 0`). That is harmless:
+//! `$f^* = 10/(8\pi)$` is the global **infimum of Branin over all of ℝ²** (see the
 //! derivation on [`bounds`](Branin::bounds)), so no widening of the box can
 //! admit a point better than `f*`. Widening buys the third certified minimum
 //! and nothing else. The evaluator never clamps — the benchmark harness owns
@@ -57,8 +57,8 @@ impl Branin {
     }
 
     /// Square hull `(-5.0, 15.0)` of the asymmetric domain, applied
-    /// per-coordinate. Contains all three certified minima — `(−π, 12.275)`,
-    /// `(π, 2.275)`, `(3π, 2.475)` — on **both** axes, and admits no point
+    /// per-coordinate. Contains all three certified minima — `$(-\pi, 12.275)$`,
+    /// `$(\pi, 2.275)$`, `$(3\pi, 2.475)$` — on **both** axes, and admits no point
     /// better than `f*`. See the type-level docs for the published asymmetric
     /// domain.
     #[must_use]

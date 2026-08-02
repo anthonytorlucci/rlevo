@@ -75,11 +75,11 @@ pub struct PpoTrainingConfig {
     /// GAE bootstrap parameter λ.
     pub gae_lambda: f32,
 
-    /// PPO clipping coefficient ε (applied symmetrically as `[1−ε, 1+ε]`).
+    /// PPO clipping coefficient ε (applied symmetrically as `$[1-\epsilon, 1+\epsilon]$`).
     pub clip_coef: f32,
 
     /// When `true`, value-function targets use the clipped loss
-    /// `max((v_clipped − R)², (v − R)²)`. `CleanRL` default: on.
+    /// `$\max((v_{clipped} - R)^2, (v - R)^2)$`. `CleanRL` default: on.
     pub clip_value_loss: bool,
 
     /// Entropy bonus coefficient. `0.01` is the discrete default; use `0.0`

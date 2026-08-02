@@ -2,11 +2,11 @@
 //!
 //! # Status: designed, not yet implemented
 //!
-//! The current release ships the **pure-tensor** `O(N²D)` Firefly path
+//! The current release ships the **pure-tensor** `$O(N^2 D)$` Firefly path
 //! (the `pure_tensor_attract` helper inside
 //! [`super::super::firefly::FireflyAlgorithm`]) which works on every
 //! backend Burn supports and is capped at
-//! `pop_size ≤ 128` because the `(N, N, D)` difference tensor dominates
+//! `$\text{pop\_size} \leq 128$` because the `(N, N, D)` difference tensor dominates
 //! device memory beyond that. This module reserves the CubeCL-native
 //! replacement path behind the `custom-kernels` feature.
 //!
@@ -35,17 +35,17 @@
 //!
 //! The launch shape is `(N, cube_workgroup_size)`; each workgroup
 //! computes a single row's attraction sum by streaming over the
-//! neighbour axis, keeping memory `O(ND)` instead of the pure-tensor
-//! `O(N²D)`. The noise term `α · (rand − 0.5)` is derived from
+//! neighbour axis, keeping memory `$O(ND)$` instead of the pure-tensor
+//! `$O(N^2 D)$`. The noise term `$\alpha \cdot (\text{rand} - 0.5)$` is derived from
 //! `rng_bits` via xorshift inside the cube.
 //!
 //! # Expected impact
 //!
-//! At `N ≥ 128` on wgpu, the pure-tensor path allocates a `(N, N, D)`
+//! At `$N \geq 128$` on wgpu, the pure-tensor path allocates a `(N, N, D)`
 //! tensor — ~10 MB at `N = 512, D = 10` in `f32`. The fused kernel
 //! eliminates that allocation and collapses three launches (pairwise
-//! diff, attractiveness `β`, weighted sum) into one, with a target of
-//! measurable speedup at `N ≥ 128` on both wgpu and flex.
+//! diff, attractiveness `$\beta$`, weighted sum) into one, with a target of
+//! measurable speedup at `$N \geq 128$` on both wgpu and flex.
 //!
 //! # Fallback
 //!

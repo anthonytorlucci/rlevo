@@ -11,13 +11,13 @@ use burn::tensor::Tensor;
 use burn::tensor::activation::log_softmax;
 use burn::tensor::backend::Backend;
 
-/// Mean per-batch categorical KL divergence `KL(π_old ‖ π_new)`.
+/// Mean per-batch categorical KL divergence `$KL(\pi_{old} \Vert \pi_{new})$`.
 ///
 /// Both inputs are raw logits of shape `(batch, num_actions)`; the function
 /// softmaxes internally. Returns a scalar tensor (shape `()`) suitable for
 /// adding to other losses.
 ///
-/// `KL = Σ softmax(old) · (log_softmax(old) − log_softmax(new))`, averaged
+/// `$KL = \sum \text{softmax}(\text{old}) \cdot (\text{log\_softmax}(\text{old}) - \text{log\_softmax}(\text{new}))$`, averaged
 /// over the batch axis.
 pub fn policy_kl_categorical<B: Backend>(
     old_logits: Tensor<B, 2>,

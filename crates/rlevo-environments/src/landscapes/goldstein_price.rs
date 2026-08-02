@@ -4,16 +4,16 @@
 //! f(x_1,x_2) = \left[1 + (x_1+x_2+1)^2 (19 - 14x_1 + 3x_1^2 - 14x_2 + 6x_1x_2 + 3x_2^2)\right]
 //!            \times \left[30 + (2x_1-3x_2)^2 (18 - 32x_1 + 12x_1^2 + 48x_2 - 36x_1x_2 + 27x_2^2)\right]
 //! ```
-//! Global minimum `f* = 3` (not `0`) at `(0, −1)`. Four local minima populate
-//! the domain and the value ranges over `[3, ~1.3×10⁶]`, which makes the raw
+//! Global minimum `$f^* = 3$` (not `0`) at `$(0, -1)$`. Four local minima populate
+//! the domain and the value ranges over `$[3, \sim 1.3 \times 10^6]$`, which makes the raw
 //! form hostile to surrogate models. Differentiable everywhere.
 //!
 //! # Domain
 //!
 //! [`bounds`](GoldsteinPrice::bounds) returns `(-2.0, 2.0)`, which **is** the
 //! canonical domain: Al-Roomi, *Unconstrained Single-Objective Benchmark Functions
-//! Repository*, function #14 "Goldstein-Price's Function", gives `−2 ≤ xᵢ ≤ 2` with
-//! `f* = 3` at `(0, −1)`. The optimum lies inside the box and no point of it scores
+//! Repository*, function #14 "Goldstein-Price's Function", gives `$-2 \leq x_i \leq 2$` with
+//! `$f^* = 3$` at `$(0, -1)$`. The optimum lies inside the box and no point of it scores
 //! below `3`, so both `bounds()` obligations hold (ADR 0045: O1 reachability,
 //! O2 no spurious optimum) — pinned by unit tests below.
 
@@ -41,7 +41,7 @@ impl GoldsteinPrice {
     }
 
     /// Recommended search box `(-2.0, 2.0)` applied per-coordinate — the canonical
-    /// domain per Al-Roomi #14. Contains the global minimizer `(0, −1)`.
+    /// domain per Al-Roomi #14. Contains the global minimizer `$(0, -1)$`.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-2.0, 2.0)
@@ -88,7 +88,7 @@ mod tests {
 
     /// Certified global-minimum value (Al-Roomi #14).
     const F_OPT: f64 = 3.0;
-    /// The single certified global minimizer `(0, −1)` (Al-Roomi #14).
+    /// The single certified global minimizer `$(0, -1)$` (Al-Roomi #14).
     const OPTIMA: [(f64, f64); 1] = [(0.0, -1.0)];
 
     #[test]
@@ -124,7 +124,7 @@ mod tests {
 
     /// O1 (reachability) — the search box reaches the certified global optimum.
     ///
-    /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so `(0, −1)`
+    /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so `$(0, -1)$`
     /// must lie in `[lo, hi]` on BOTH axes.
     #[test]
     fn bounds_box_contains_optimum_on_both_axes() {
@@ -141,11 +141,11 @@ mod tests {
         }
     }
 
-    /// O2 (no spurious optimum) — no point of the box scores below `f* = 3`.
+    /// O2 (no spurious optimum) — no point of the box scores below `$f^* = 3$`.
     ///
-    /// A deterministic 401×401 sweep of `bounds()²`. The 400-step grid over `[-2, 2]`
-    /// lands exactly on `(0, −1)`, so the tightest sample sits at `f*` itself; `eps`
-    /// covers float error only. The surface spans `[3, ≈1.3e6]`, but near the minimum
+    /// A deterministic 401×401 sweep of `bounds()²`. The 400-step grid over `$[-2, 2]$`
+    /// lands exactly on `$(0, -1)$`, so the tightest sample sits at `$f^*$` itself; `eps`
+    /// covers float error only. The surface spans `$[3, \approx 1.3e6]$`, but near the minimum
     /// its scale is O(1), so an absolute `1e-9` is the right guard.
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {

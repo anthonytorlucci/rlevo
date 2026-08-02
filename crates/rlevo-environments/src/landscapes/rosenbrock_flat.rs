@@ -3,31 +3,31 @@
 //! ```math
 //! f(x) = \sum_{i=1}^{n-1} \left[100 |x_{i+1} - x_i^2| + (1 - x_i)^2\right]
 //! ```
-//! Global minimum `f* = 0` at `x = (1, …, 1)`. Replacing the smooth square of
+//! Global minimum `$f^* = 0$` at `$x = (1, \ldots, 1)$`. Replacing the smooth square of
 //! standard Rosenbrock with an absolute value turns the parabolic valley into a
-//! V-shaped **knife edge**: the ridge `x_{i+1} = x_i²` is genuinely flat and
-//! non-differentiable, so gradient methods stall on it and only the `(1 − x_i)²`
-//! terms provide directional signal along the valley. Requires `n ≥ 2`.
+//! V-shaped **knife edge**: the ridge `$x_{i+1} = x_i^2$` is genuinely flat and
+//! non-differentiable, so gradient methods stall on it and only the `$(1 - x_i)^2$`
+//! terms provide directional signal along the valley. Requires `$n \geq 2$`.
 //!
 //! # Domain
 //!
-//! The canonical domain is `[-2000, 2000]^n` (Monismith 2010). [`bounds`](RosenbrockFlat::bounds)
+//! The canonical domain is `$[-2000, 2000]^n$` (Monismith 2010). [`bounds`](RosenbrockFlat::bounds)
 //! returns `(-30.0, 30.0)` — a **cited reduced search range**, not a rendering
 //! concession: the modified-Rosenbrock side constraints were themselves reduced
-//! to `[-30, 30]` after Chen (1997), and Al-Roomi's repository records that
+//! to `$[-30, 30]$` after Chen (1997), and Al-Roomi's repository records that
 //! reduction alongside the canonical box.
 //!
 //! The reduction is the right call on both practical and contractual grounds:
 //!
-//! - `[-2000, 2000]^n` has a search volume of `4000^n` and, sampled at any
+//! - `$[-2000, 2000]^n$` has a search volume of `$4000^n$` and, sampled at any
 //!   sane resolution, renders as a featureless wall — every visible cell is
-//!   dominated by the `100·|x_{i+1} − x_i²|` term, which reaches `4·10^8` at the
+//!   dominated by the `$100 \cdot |x_{i+1} - x_i^2|$` term, which reaches `$4 \cdot 10^8$` at the
 //!   corners while the entire structure of interest lives near the origin.
-//! - The optimum `(1, …, 1)` sits *well inside* `[-30, 30]`, so the box is
+//! - The optimum `$(1, \ldots, 1)$` sits *well inside* `$[-30, 30]$`, so the box is
 //!   **reachable** — no certified minimiser is excluded on any coordinate.
-//! - `f` is a sum of `100·|·|` and `(·)²` terms, hence `f ≥ 0` on all of `ℝⁿ`
-//!   with `f = 0` attained at `(1, …, 1)`. No box — reduced or canonical —
-//!   can contain a point better than `f* = 0`, so the reduction cannot
+//! - `f` is a sum of `100·|·|` and `(·)²` terms, hence `$f \geq 0$` on all of `$\mathbb{R}^n$`
+//!   with `$f = 0$` attained at `$(1, \ldots, 1)$`. No box — reduced or canonical —
+//!   can contain a point better than `$f^* = 0$`, so the reduction cannot
 //!   introduce a **spurious optimum**.
 //!
 //! Both obligations are pinned by unit tests (`bounds_box_contains_optimum`,
@@ -36,20 +36,20 @@
 //!
 //! # Global minimum — known source erratum
 //!
-//! Al-Roomi's page for this function family prints `f_min = 1` at `x* = 0`.
-//! That is **falsified by its own formula**: at `x = (1, …, 1)` every
-//! `100·|x_{i+1} − x_i²|` term and every `(1 − x_i)²` term vanishes, giving
-//! `f = 0 < 1`. This crate deliberately implements the correct value,
-//! `f* = 0` at `x = (1, …, 1)`. Do not "fix" it back to the cited value.
+//! Al-Roomi's page for this function family prints `$f_{\min} = 1$` at `$x^* = 0$`.
+//! That is **falsified by its own formula**: at `$x = (1, \ldots, 1)$` every
+//! `$100 \cdot |x_{i+1} - x_i^2|$` term and every `$(1 - x_i)^2$` term vanishes, giving
+//! `$f = 0 < 1$`. This crate deliberately implements the correct value,
+//! `$f^* = 0$` at `$x = (1, \ldots, 1)$`. Do not "fix" it back to the cited value.
 //!
 //! # References
 //!
 //! Monismith, D.R. (2010), `PhD` dissertation, Oklahoma State University — source
-//! of the canonical `[-2000, 2000]^n` domain, catalogued as function #170 in
+//! of the canonical `$[-2000, 2000]^n$` domain, catalogued as function #170 in
 //! Al-Roomi's benchmark repository.
 //!
 //! Chen, D. (1997), "Comparisons Among Stochastic Optimization Algorithms", MS
-//! thesis, Oklahoma State University — source of the reduced `[-30, 30]` side
+//! thesis, Oklahoma State University — source of the reduced `$[-30, 30]$` side
 //! constraints that [`bounds`](RosenbrockFlat::bounds) returns, as recorded by
 //! Al-Roomi.
 
@@ -58,7 +58,7 @@ use rlevo_core::config::{self, ConfigError};
 /// Generalized Modified Rosenbrock No.01 evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct RosenbrockFlat {
-    /// Number of input dimensions. Always `≥ 2` — enforced by [`RosenbrockFlat::new`].
+    /// Number of input dimensions. Always `$\geq 2$` — enforced by [`RosenbrockFlat::new`].
     dim: usize,
 }
 
@@ -68,7 +68,7 @@ impl RosenbrockFlat {
     /// # Errors
     ///
     /// Returns [`ConfigError`] if `dim < 2`. Both the knife-edge term
-    /// `100·|x_{i+1} − x_i²|` and the `(1 − x_i)²` pull term are defined only on
+    /// `$100 \cdot |x_{i+1} - x_i^2|$` and the `$(1 - x_i)^2$` pull term are defined only on
     /// adjacent coordinate pairs (`i = 1..n−1`); with a single coordinate the sum
     /// is empty, erasing the ridge the benchmark exists to test.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
@@ -85,8 +85,8 @@ impl RosenbrockFlat {
 
     /// Evaluate the Modified Rosenbrock No.01 function at `x`.
     ///
-    /// Every term is non-negative, so `f ≥ 0` everywhere on `ℝⁿ`; the global
-    /// minimum is `f* = 0` at `x = (1, …, 1)`, where each term vanishes.
+    /// Every term is non-negative, so `$f \geq 0$` everywhere on `$\mathbb{R}^n$`; the global
+    /// minimum is `$f^* = 0$` at `$x = (1, \ldots, 1)$`, where each term vanishes.
     ///
     /// # Panics
     ///
@@ -110,11 +110,11 @@ impl RosenbrockFlat {
     /// Cited reduced search range `(-30.0, 30.0)`, applied per-coordinate.
     ///
     /// This is **not** a render window: the modified-Rosenbrock side constraints
-    /// were reduced from the canonical `[-2000, 2000]^n` (Monismith 2010) to
-    /// `[-30, 30]` after Chen (1997). The reduced box contains the optimum
-    /// `(1, …, 1)` on every coordinate, and — because `f` is a sum of `100·|·|`
-    /// and `(·)²` terms, hence `f ≥ 0` identically with `f = 0` at the optimum —
-    /// it contains no point better than `f* = 0`. See the module docs.
+    /// were reduced from the canonical `$[-2000, 2000]^n$` (Monismith 2010) to
+    /// `$[-30, 30]$` after Chen (1997). The reduced box contains the optimum
+    /// `$(1, \ldots, 1)$` on every coordinate, and — because `f` is a sum of `100·|·|`
+    /// and `(·)²` terms, hence `$f \geq 0$` identically with `$f = 0$` at the optimum —
+    /// it contains no point better than `$f^* = 0$`. See the module docs.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-30.0, 30.0)

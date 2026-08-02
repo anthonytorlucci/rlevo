@@ -1371,10 +1371,10 @@ mod tests {
     /// leg order `[South, East]`:
     ///
     /// - `limits_v = [0, 2, 6]`, `limits_h = [0, 4, 6]`, `room = (0, 0)`.
-    /// - **South**: `x ∈ (limits_v[0], limits_v[1]) = (0, 2)` → `x = 1`;
+    /// - **South**: `$x \in (\text{limits\_v}[0], \text{limits\_v}[1]) = (0, 2)$` → `x = 1`;
     ///   `y = limits_h[1] = 4`. Punch `(1, 4)`; `room = (0, 1)`.
     /// - **East**: `x = limits_v[1] = 2`;
-    ///   `y ∈ (limits_h[1], limits_h[2]) = (4, 6)` → `y = 5`.
+    ///   `$y \in (\text{limits\_h}[1], \text{limits\_h}[2]) = (4, 6)$` → `y = 5`.
     ///   Punch `(2, 5)`; `room = (1, 1)`.
     ///
     /// ```text
@@ -1389,8 +1389,8 @@ mod tests {
     /// ```
     ///
     /// Corridor: `(1,1) → (1,4) → (1,5) → (5,5)`. The other leg order
-    /// `[East, South]` instead punches `(2, y)` with `y ∈ {1,2,3}` and
-    /// `(x, 4)` with `x ∈ {3,4,5}` — also connected, and connected for the
+    /// `[East, South]` instead punches `(2, y)` with `$y \in \{1,2,3\}$` and
+    /// `(x, 4)` with `$x \in \{3,4,5\}$` — also connected, and connected for the
     /// *same* reason: each opening is punched on the boundary of the room the
     /// walk is standing in.
     ///

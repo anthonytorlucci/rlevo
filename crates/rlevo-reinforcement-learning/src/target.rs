@@ -15,10 +15,10 @@
 //! - the **cadence** [`every`](TargetUpdate::every) decides *when* an update
 //!   fires, and
 //! - the **coefficient** [`tau`](TargetUpdate::tau) decides *how far* the target
-//!   moves when it does — `target ← (1 − τ)·target + τ·active`.
+//!   moves when it does — `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`.
 //!
-//! A hard copy is not a second mechanism: it is the degenerate case `τ = 1.0`,
-//! where the blend reduces to `target ← active`. [`TargetUpdate::hard`] is a
+//! A hard copy is not a second mechanism: it is the degenerate case `$\tau = 1.0$`,
+//! where the blend reduces to `$\text{target} \leftarrow \text{active}$`. [`TargetUpdate::hard`] is a
 //! constructor for that point, not a variant. See ADR 0058 for the decision to
 //! unify the two, and ADR 0059 for the cadence's unit.
 //!
@@ -38,11 +38,11 @@
 //!
 //! # Why `PolyakTau` and not [`Probability`]
 //!
-//! [`Probability`]'s invariant is the *closed* unit interval `0 <= p <= 1`, so
+//! [`Probability`]'s invariant is the *closed* unit interval `$0 \leq p \leq 1$`, so
 //! it admits `0.0`. A τ of `0.0` is a permanently frozen target — the update
 //! fires on schedule and moves nothing, a silent no-op that looks like a
 //! configured update. [`PolyakTau`] excludes zero: its invariant is the
-//! half-open interval `0 < τ <= 1`. A caller who genuinely wants no target
+//! half-open interval `$0 < \tau \leq 1$`. A caller who genuinely wants no target
 //! tracking omits the target network, rather than configuring one that never
 //! moves.
 //!
@@ -86,22 +86,22 @@
 
 use std::num::NonZeroUsize;
 
-/// A Polyak (soft-update) coefficient τ in the half-open interval `(0, 1]`,
+/// A Polyak (soft-update) coefficient τ in the half-open interval `$(0, 1]$`,
 /// valid by construction.
 ///
-/// τ is the interpolation weight of `target ← (1 − τ)·target + τ·active`. A
+/// τ is the interpolation weight of `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`. A
 /// `PolyakTau` can never hold a `NaN`, an infinity, a negative, a zero, or a
-/// value above one: every constructor enforces `0.0 < τ <= 1.0`, which a
+/// value above one: every constructor enforces `$0.0 < \tau \leq 1.0$`, which a
 /// `NaN`/`Inf` fails. Both excluded endpoints matter:
 ///
-/// - `τ = 0.0` would be a frozen target — the update fires on schedule and
+/// - `$\tau = 0.0$` would be a frozen target — the update fires on schedule and
 ///   moves nothing. That is why this is not a
 ///   [`Probability`](rlevo_core::probability::Probability), whose invariant is
-///   the closed interval `[0, 1]`.
-/// - `τ > 1.0` would overshoot the live network, extrapolating past it rather
+///   the closed interval `$[0, 1]$`.
+/// - `$\tau > 1.0$` would overshoot the live network, extrapolating past it rather
 ///   than interpolating toward it.
 ///
-/// `τ = 1.0` is deliberately *included*: it is the hard copy `target ← active`.
+/// `$\tau = 1.0$` is deliberately *included*: it is the hard copy `$\text{target} \leftarrow \text{active}$`.
 ///
 /// Construct with [`new`](Self::new) for literals (panics on an invalid value)
 /// or [`try_new`](Self::try_new) for runtime data (returns
@@ -150,8 +150,8 @@ impl PolyakTau {
     ///
     /// Returns [`TargetUpdateError::Tau`] when `tau` is outside `(0, 1]` —
     /// zero, negative, above one, `NaN`, or infinite. Finiteness needs no
-    /// separate check: `NaN` fails both comparisons, `+∞` fails `<= 1.0`, and
-    /// `−∞` fails `> 0.0`.
+    /// separate check: `NaN` fails both comparisons, `$+\infty$` fails `<= 1.0`, and
+    /// `$-\infty$` fails `> 0.0`.
     ///
     /// # Examples
     ///
@@ -181,8 +181,8 @@ impl PolyakTau {
 /// One target-network update rule: a cadence and a Polyak coefficient.
 ///
 /// The rule is read as "every `every` gradient updates, move the target toward
-/// the live network by τ": `target ← (1 − τ)·target + τ·active`. There is a
-/// single mechanism — a hard copy is the degenerate `τ = 1.0`, reachable via
+/// the live network by τ": `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`. There is a
+/// single mechanism — a hard copy is the degenerate `$\tau = 1.0$`, reachable via
 /// [`hard`](Self::hard), not a second variant. See the
 /// [module docs](self#why-no-enum) for why this is a struct rather than an
 /// enum.
@@ -223,7 +223,7 @@ pub struct TargetUpdate {
 }
 
 impl TargetUpdate {
-    /// A full weight copy (`τ = 1.0`) every `every` gradient updates.
+    /// A full weight copy (`$\tau = 1.0$`) every `every` gradient updates.
     ///
     /// This is the value-based (DQN / C51 / QR-DQN) convention. It is a
     /// convenience over [`polyak(1.0, every)`](Self::polyak), not a distinct
@@ -351,7 +351,7 @@ impl TargetUpdate {
         self.every.get()
     }
 
-    /// `true` when `τ == 1.0`, i.e. when a fired update is a full weight copy.
+    /// `true` when `$\tau = 1.0$`, i.e. when a fired update is a full weight copy.
     ///
     /// This is a query over the single representation, not a tag: `hard(n)` and
     /// `polyak(1.0, n)` are the same value and both report `true`.

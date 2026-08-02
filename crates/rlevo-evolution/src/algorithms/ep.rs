@@ -5,11 +5,11 @@
 //! - **No crossover**. Each parent produces exactly one offspring by
 //!   Gaussian mutation.
 //! - **Self-adaptive σ**. Each individual carries its own σ, updated
-//!   by the log-normal rule `σ' = σ · exp(τ · N(0, 1))`. This is the
+//!   by the log-normal rule `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$`. This is the
 //!   same mechanism and ordering as the multi-parent ES variants: σ is
 //!   perturbed first, and the updated σ' drives that individual's gene
 //!   mutation. Survivor σ are inherited, not reset.
-//! - **q-tournament survivor selection** on the `(μ + μ)` pool. Each
+//! - **q-tournament survivor selection** on the `$(\mu + \mu)$` pool. Each
 //!   individual plays `q` random opponents; the μ individuals with the
 //!   highest win-counts survive. This diverges from truncation
 //!   selection — EP gives weaker individuals a stochastic chance to
@@ -44,7 +44,7 @@ const DEFAULT_SIGMA_MAX: f32 = 1e6;
 #[derive(Debug, Clone)]
 pub struct EpConfig {
     /// Parent population size (offspring population is also μ — EP is
-    /// strictly `μ + μ`).
+    /// strictly `$\mu + \mu$`).
     pub mu: usize,
     /// Genome dimensionality.
     pub genome_dim: usize,
@@ -54,7 +54,7 @@ pub struct EpConfig {
     pub initial_sigma: f32,
     /// Lower clamp for the self-adaptive σ.
     ///
-    /// The log-normal update `σ' = σ · exp(τ · N(0,1))` is an unbounded
+    /// The log-normal update `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$` is an unbounded
     /// multiplicative random walk; without a floor σ can underflow toward
     /// `0`, collapsing the mutation amplitude so the search freezes. Must be
     /// strictly positive and `< sigma_max`. Default `DEFAULT_SIGMA_MIN`.
@@ -131,12 +131,12 @@ impl Validate for EpConfig {
 /// parents are returned unchanged; on the very first [`Strategy::tell`]
 /// call `parent_fitness` is populated and
 /// `best_genome`/`best_fitness` are initialized. Subsequent
-/// ask/tell cycles produce, evaluate, and select from the `(μ + μ)` pool.
+/// ask/tell cycles produce, evaluate, and select from the `$(\mu + \mu)$` pool.
 ///
-/// During `ask`, `sigmas` is temporarily expanded to length `2μ` (parent
+/// During `ask`, `sigmas` is temporarily expanded to length `$2\mu$` (parent
 /// σ concatenated with offspring σ) so `tell` can apply q-tournament
 /// selection over the combined pool without re-deriving σ values. After
-/// `tell` completes, `sigmas` is back to length `μ`.
+/// `tell` completes, `sigmas` is back to length `$\mu$`.
 #[derive(Debug, Clone)]
 pub struct EpState<B: Backend> {
     /// Current parents, shape `(μ, D)`.
@@ -146,7 +146,7 @@ pub struct EpState<B: Backend> {
     pub sigmas: Tensor<B, 1>,
     /// Host-side fitness cache for the current parents.
     ///
-    /// Empty before the first [`Strategy::tell`] call; length `μ`
+    /// Empty before the first [`Strategy::tell`] call; length `$\mu$`
     /// thereafter. The `is_empty()` check distinguishes the initial
     /// evaluation phase from subsequent tournament-selection generations.
     pub parent_fitness: Vec<f32>,
@@ -252,14 +252,14 @@ where
     /// **Subsequent calls:**
     ///
     /// 1. Applies the log-normal σ update to each parent:
-    ///    `σ'_i = σ_i · exp(τ · N(0, 1))`, host-sampled via
+    ///    `$\sigma'_i = \sigma_i \cdot \exp(\tau \cdot N(0,1))$`, host-sampled via
     ///    [`seed_stream`] with [`SeedPurpose::Other`].
     /// 2. Mutates each parent by its updated σ using
     ///    [`gaussian_mutation_per_row`], host-sampled via [`seed_stream`]
     ///    with [`SeedPurpose::Mutation`].
     /// 3. Clamps offspring to `params.bounds`.
     /// 4. Appends the offspring σ values to `state.sigmas`, making it
-    ///    length `2μ` so [`Strategy::tell`] can select over the combined
+    ///    length `$2\mu$` so [`Strategy::tell`] can select over the combined
     ///    pool without re-deriving them.
     ///
     /// Returns the offspring tensor and the updated state.
@@ -323,9 +323,9 @@ where
     ///
     /// **Subsequent calls:**
     ///
-    /// 1. Builds the `(μ + μ)` combined pool of parents and offspring
-    ///    (and their `2μ` σ values from [`Strategy::ask`]).
-    /// 2. Runs q-tournament selection: each of the `2μ` members plays
+    /// 1. Builds the `$(\mu + \mu)$` combined pool of parents and offspring
+    ///    (and their `$2\mu$` σ values from [`Strategy::ask`]).
+    /// 2. Runs q-tournament selection: each of the `$2\mu$` members plays
     ///    `params.tournament_q` random opponents; the member wins a bout
     ///    if its fitness is strictly higher. The μ members with the most
     ///    wins survive; ties are broken by fitness (higher wins).
@@ -493,7 +493,7 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "tournament_q");
     }
 
-    /// `μ = 0` is the degenerate empty population; the config guard must reject
+    /// `$\mu = 0$` is the degenerate empty population; the config guard must reject
     /// it (`config::at_least("mu", .., 1)`) so no zero-row parent tensor ever
     /// reaches `init` (`ep` §7, edge case).
     #[test]
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "mu");
     }
 
-    /// `μ = 1` is the smallest population the config accepts; it must validate
+    /// `$\mu = 1$` is the smallest population the config accepts; it must validate
     /// and drive without panicking through several generations (`ep` §7, edge
     /// case — smallest degenerate μ is handled, not rejected).
     #[test]
@@ -532,7 +532,7 @@ mod tests {
         );
     }
 
-    /// Canonical (maximise) fitness `−Σ xᵢ²` read straight off a genome tensor,
+    /// Canonical (maximise) fitness `$-\sum x_i^2$` read straight off a genome tensor,
     /// so tests can drive a strategy directly without the harness.
     fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
         let device = pop.device();

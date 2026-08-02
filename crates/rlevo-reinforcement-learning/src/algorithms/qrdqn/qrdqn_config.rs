@@ -51,9 +51,9 @@ pub struct QrDqnTrainingConfig {
     /// [`TargetUpdate`] is a single mechanism, not two (ADR 0058). Its cadence
     /// [`every`](TargetUpdate::every) decides *when* an update fires; its
     /// coefficient [`tau`](TargetUpdate::tau) decides *how far* the target
-    /// moves when it does — `target ← (1 − τ) · target + τ · policy`. A
+    /// moves when it does — `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{policy}$`. A
     /// periodic hard copy is not a second mechanism but the degenerate
-    /// `τ = 1.0`, spelled [`TargetUpdate::hard`]. The update is applied inside
+    /// `$\tau = 1.0$`, spelled [`TargetUpdate::hard`]. The update is applied inside
     /// [`QrDqnAgent::learn_step`] and nowhere else, so no train loop can forget
     /// to drive it.
     ///
@@ -92,26 +92,26 @@ pub struct QrDqnTrainingConfig {
     /// Number of quantiles `N` used to represent the return distribution.
     ///
     /// The default is 200 — the value from Dabney et al. (2018). Quantile
-    /// midpoints `τ_i = (i + 0.5) / N` are implied by this field alone.
+    /// midpoints `$\tau_i = (i + 0.5) / N$` are implied by this field alone.
     pub num_quantiles: usize,
 
-    /// Huber threshold `κ` used by the quantile Huber loss. Values below
-    /// `κ` are treated quadratically, above `κ` linearly. Default `1.0`.
+    /// Huber threshold `$\kappa$` used by the quantile Huber loss. Values below
+    /// `$\kappa$` are treated quadratically, above `$\kappa$` linearly. Default `1.0`.
     ///
-    /// # Valid domain: finite, strictly positive, with `0.5 · κ²` finite in `f32`
+    /// # Valid domain: finite, strictly positive, with `$0.5 \cdot \kappa^2$` finite in `f32`
     ///
-    /// [`validate`](Validate::validate) rejects `κ ≤ 0`; every non-finite κ
-    /// (`NaN` and `±∞` alike, as
+    /// [`validate`](Validate::validate) rejects `$\kappa \leq 0$`; every non-finite κ
+    /// (`NaN` and `$\pm\infty$` alike, as
     /// [`ConstraintKind::NotFinite`](rlevo_core::config::ConstraintKind::NotFinite));
-    /// and every *finite* κ large enough that `0.5 · κ²` overflows `f32` — the
+    /// and every *finite* κ large enough that `$0.5 \cdot \kappa^2$` overflows `f32` — the
     /// last accepted value is `≈ 2.6087635e19` (`√(2 · f32::MAX)`).
     ///
     /// Two independent `NaN` sources motivate the bounds. Dabney et al. (2018)
-    /// Eq. (10) is `ρ^κ_τ(u) = |τ − 𝟙{u<0}| · L_κ(u) / κ`, so κ is a
-    /// **divisor** and κ = 0 evaluates `0/0`. Separately, `huber` evaluates
+    /// Eq. (10) is `$\rho^\kappa_\tau(u) = |\tau - \mathbb{1}\{u<0\}| \cdot L_\kappa(u) / \kappa$`, so κ is a
+    /// **divisor** and κ = 0 evaluates `$0/0$`. Separately, `huber` evaluates
     /// *both* branches eagerly and selects with a multiplicative mask:
-    /// `linear = (|u| − 0.5·κ)·κ ≈ −0.5·κ²` for the small-residual elements
-    /// the mask is about to discard. Once `0.5 · κ²` overflows to `−∞`, the
+    /// `$\text{linear} = (|u| - 0.5\cdot\kappa)\cdot\kappa \approx -0.5\kappa^2$` for the small-residual elements
+    /// the mask is about to discard. Once `$0.5 \cdot \kappa^2$` overflows to `$-\infty$`, the
     /// discard is `0 · (−∞) = NaN` — so a huge-but-finite κ poisons every
     /// element even though the mask selects the quadratic branch everywhere.
     /// The upper bound is therefore the precondition of that eager branch, not
@@ -134,7 +134,7 @@ pub struct QrDqnTrainingConfig {
     /// # Tiny κ is accepted and is not a `NaN`, but is not useful
     ///
     /// Subnormal κ (~`1e-45`) validates and produces a finite loss, because
-    /// `L_κ(u)` underflows to `0.0` before the division does any damage. The
+    /// `$L_\kappa(u)$` underflows to `0.0` before the division does any damage. The
     /// measured loss is then exactly `0.0` for ordinary residuals: the
     /// gradient signal is flushed away by `f32` precision loss rather than by
     /// any modelled behaviour. This is documented, not rejected — the boundary
@@ -147,7 +147,7 @@ pub struct QrDqnTrainingConfig {
     /// The paper notes that "as κ → 0 the quantile Huber loss reverts to the
     /// quantile regression loss" — a **limit** statement, not an evaluation.
     /// The paper's own κ = 0 variant, QR-DQN-0, is the strict quantile loss of
-    /// Eq. (8), `ρ_τ(u) = u(τ − 𝟙{u<0})`, a separate unsmoothed formula
+    /// Eq. (8), `$\rho_\tau(u) = u(\tau - \mathbb{1}\{u<0\})$`, a separate unsmoothed formula
     /// substituted for Eq. (10) rather than Eq. (10) at κ = 0. That unsmoothed
     /// path is not implemented in this crate, so QR-DQN-0 cannot be selected by
     /// setting this field to `0.0`. The default `1.0` is the paper's
@@ -182,7 +182,7 @@ pub struct QrDqnTrainingConfig {
 }
 
 impl QrDqnTrainingConfig {
-    /// Builds the quantile-midpoint tensor `[(i + 0.5) / N]_{i=0..N-1}` on
+    /// Builds the quantile-midpoint tensor `$[(i + 0.5) / N]_{i=0..N-1}$` on
     /// the requested backend and device. Shape: `(num_quantiles,)`.
     // Structural size of the distributional support (atom / quantile count). The
     // configs cap these in the low hundreds, so the value is exact in f32; a
@@ -419,9 +419,9 @@ impl QrDqnTrainingConfigBuilder {
 
     /// Sets [`QrDqnTrainingConfig::kappa`] (Huber loss threshold κ).
     ///
-    /// κ must be strictly positive and small enough that `0.5 · κ²` stays
+    /// κ must be strictly positive and small enough that `$0.5 \cdot \kappa^2$` stays
     /// finite in `f32`; [`build`](Self::build) rejects anything else, because
-    /// the quantile Huber loss divides by κ and evaluates a `−0.5·κ²` branch
+    /// the quantile Huber loss divides by κ and evaluates a `$-0.5\kappa^2$` branch
     /// eagerly. See [`QrDqnTrainingConfig::kappa`] for the derivation and for
     /// why κ = 0 is not QR-DQN-0.
     #[must_use]
@@ -556,10 +556,10 @@ mod tests {
         );
     }
 
-    /// `NaN` and `−∞` are caught by `config::positive`, but as `NotFinite`
+    /// `NaN` and `$-\infty$` are caught by `config::positive`, but as `NotFinite`
     /// (issue #353) — a *different* kind from κ = 0's `NotPositive`, because
     /// "not a number" and "not above zero" are different complaints. Asserted
-    /// per value rather than in one loop with `+∞`: `+∞` is also `NotFinite`
+    /// per value rather than in one loop with `$+\infty$`: `$+\infty$` is also `NotFinite`
     /// now, but it reaches that verdict having previously been the overflow
     /// guard's job (see `rejects_overflowing_kappa`).
     #[test]
@@ -583,8 +583,8 @@ mod tests {
 
     /// A huge-but-*finite* κ is as fatal as κ = 0 and was the hole the first
     /// `is_finite` guard left open. `huber` evaluates its linear branch
-    /// `(|u| − 0.5·κ)·κ` for every element before masking, so once `0.5·κ²`
-    /// overflows f32 to `−∞` the masked-out elements become `0 · (−∞)` = NaN,
+    /// `$(|u| - 0.5\cdot\kappa)\cdot\kappa$` for every element before masking, so once `$0.5\cdot\kappa^2$`
+    /// overflows f32 to `$-\infty$` the masked-out elements become `0 · (−∞)` = NaN,
     /// even though the mask selects the quadratic branch everywhere.
     ///
     /// The rejected values below bracket the measured NaN boundary: on the
@@ -683,7 +683,7 @@ mod tests {
     /// Replaces the three `accepts_*_configuration` tests, which enumerated the
     /// legal (τ, frequency) combinations of the two-mechanism era. There is one
     /// mechanism now, so the property is simply: anything constructible is
-    /// valid — hard included, since hard is `τ = 1.0` on the same rule.
+    /// valid — hard included, since hard is `$\tau = 1.0$` on the same rule.
     #[test]
     fn every_constructible_target_update_yields_a_valid_config() {
         for rule in [

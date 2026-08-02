@@ -39,7 +39,7 @@ pub struct ReacherConfig {
     /// multiplication. Default: `[-1.0, 1.0]`.
     pub action_clip: Bounds,
     /// Weight applied to the squared control norm in the reward:
-    /// `reward_control = -ctrl_cost_weight · ‖action‖²`. Default: `0.1`.
+    /// `$\text{reward\_control} = -\text{ctrl\_cost\_weight} \cdot \|\text{action}\|^2$`. Default: `0.1`.
     pub ctrl_cost_weight: f32,
     /// Full length of link 1 (shoulder to elbow) in metres. Default: `0.10`.
     pub link1_length: f32,

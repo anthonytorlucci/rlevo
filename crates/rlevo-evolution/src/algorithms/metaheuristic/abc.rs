@@ -5,8 +5,9 @@
 //! solutions:
 //!
 //! 1. **Employed phase** (`pop_size` candidates). For every bee `i`, pick
-//!    a neighbour `k ≠ i`, pick a random dimension `j`, and perturb:
-//!    `v_ij = x_ij + φ·(x_ij − x_kj)` with `φ ∈ U[−1, 1]`.
+//!    a neighbour `$k \neq i$`, pick a random dimension `j`, and perturb:
+//!    `$v_{ij} = x_{ij} + \varphi \cdot (x_{ij} - x_{kj})$` with
+//!    `$\varphi \in U[-1, 1]$`.
 //! 2. **Onlooker phase** (`pop_size` candidates). Draw a target `t` via
 //!    tournament selection (fitness-biased), then perturb exactly as in
 //!    the employed phase.
@@ -219,7 +220,7 @@ impl<B: Backend> AbcState<B> {
 /// # Panics
 ///
 /// [`Strategy::init`] panics if `params.pop_size < 2`, since the
-/// employed-phase neighbour `k ≠ i` cannot be drawn from a colony of
+/// employed-phase neighbour `$k \neq i$` cannot be drawn from a colony of
 /// one.
 ///
 /// # Example

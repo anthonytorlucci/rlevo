@@ -87,7 +87,7 @@ pub trait FitnessEvaluable {
     /// objective's **natural** value space (no hand-negation).
     ///
     /// The engine is maximise-native, but you do **not** negate here. A cost
-    /// objective returns its natural cost (e.g. Sphere → `Σxᵢ²`); a reward or
+    /// objective returns its natural cost (e.g. Sphere → `$\Sigma x_i^2$`); a reward or
     /// accuracy returns its natural value. The objective's direction is
     /// declared once, via the [`ObjectiveSense`] carried by the
     /// `FromFitnessEvaluable` adapter (`with_sense`, defaulting to

@@ -25,8 +25,8 @@
 //! | Hopper | 3 | 11 | z + angle + state ranges |
 //! | Humanoid | 17 | 348 | z ∉ (1.0, 2.0) |
 //! | HumanoidStandup | 17 | 348 | never |
-//! | InvertedPendulum | 1 | 4 | `|angle| ≥ 0.2` |
-//! | InvertedDoublePendulum | 1 | 9 | `y_tip ≤ 1.0` |
+//! | InvertedPendulum | 1 | 4 | `$|\text{angle}| \geq 0.2$` |
+//! | InvertedDoublePendulum | 1 | 9 | `$y_{\text{tip}} \leq 1.0$` |
 //! | Pusher | 7 | 23 | never |
 //! | Reacher | 2 | 10 | never |
 //! | Swimmer | 2 | 8 | never |

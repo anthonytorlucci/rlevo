@@ -15,7 +15,7 @@
 //! `lo + (hi - lo) * r`, so a zero-width range is safe.
 //!
 //! An infinite endpoint is **permitted** — it expresses a one-sided range such
-//! as a `[0.7, ∞)` "healthy above this height" check, and [`f32::clamp`] is
+//! as a `$[0.7, \infty)$` "healthy above this height" check, and [`f32::clamp`] is
 //! well-defined with an infinite bound (it panics only on `min > max` or `NaN`).
 //! The whole invariant is therefore exactly `lo <= hi`: a `NaN` endpoint makes
 //! that comparison `false` and is rejected, an infinite one does not.
@@ -53,7 +53,7 @@ use serde::{Deserialize, Serialize};
 /// fails). As a result [`clamp`](Self::clamp) is total and panic-free, and the
 /// silent `lo > hi` collapse of `x.max(lo).min(hi)` is unrepresentable wherever
 /// a `Bounds` is held. A degenerate single-point range (`lo == hi`) and a
-/// one-sided infinite range (e.g. `[0.7, ∞)`) are both permitted.
+/// one-sided infinite range (e.g. `$[0.7, \infty)$`) are both permitted.
 ///
 /// Construct with [`new`](Self::new) for literals (panics on an invalid pair) or
 /// [`try_new`](Self::try_new) for runtime data (returns [`BoundsError`]).
@@ -76,7 +76,7 @@ use serde::{Deserialize, Serialize};
 /// [`Validate`](crate::config::Validate) impl must re-assert it with
 /// [`config::nondegenerate_bounds`].
 ///
-/// The real precedent is a `log σ` range: zero width collapses σ to a constant,
+/// The real precedent is a `$\log \sigma$` range: zero width collapses σ to a constant,
 /// which trains and reports finite numbers while silently pinning the policy's
 /// scale. That is why both Gaussian policy-head configs in
 /// `rlevo-reinforcement-learning` carry the check (ADR 0054 §3).

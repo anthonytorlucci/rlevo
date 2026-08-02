@@ -14,7 +14,7 @@
 //! - [`UniformReplay<T>`] — the FIFO, uniform-with-replacement implementation
 //!   every shipped agent uses today.
 //! - [`PrioritizedReplay<T>`] — Schaul et al. (2016)'s proportional prioritized
-//!   replay: `P(i) ∝ p_i^α` over a sum-tree, Schaul's *stratified* draw (one
+//!   replay: `$P(i) \propto p_i^\alpha$` over a sum-tree, Schaul's *stratified* draw (one
 //!   value per equal-mass segment, not i.i.d.), importance weights
 //!   max-normalized over the sampled minibatch, and the `update_priorities`
 //!   feedback edge. Its priorities are [`Priority`] values, finite and strictly

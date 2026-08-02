@@ -1,6 +1,6 @@
 //! Quantile Huber loss for QR-DQN (Dabney et al. 2018, Eq. 10).
 //!
-//! The asymmetric κ-Huber loss weighted by `|τ − 𝟙{u < 0}|` is the
+//! The asymmetric κ-Huber loss weighted by `$|\tau - \mathbb{1}\{u < 0\}|$` is the
 //! distributional counterpart of the Huber TD loss used by DQN. Given the
 //! network's predicted quantile values for the taken action together with
 //! the target quantile values (produced by the Bellman backup on the
@@ -20,7 +20,7 @@ use burn::tensor::backend::Backend;
 
 /// Elementwise Huber loss with threshold `kappa`.
 ///
-/// `L_κ(u) = 0.5 · u²` when `|u| ≤ κ`, `κ · (|u| − 0.5 · κ)` otherwise.
+/// `$L_\kappa(u) = 0.5 \cdot u^2$` when `$|u| \leq \kappa$`, `$\kappa \cdot (|u| - 0.5 \cdot \kappa)$` otherwise.
 ///
 /// Differentiable at the seam — the classic Huber smoothing used in QR-DQN
 /// to avoid a discontinuous derivative at `u = 0`.
@@ -52,13 +52,13 @@ const QUANTILE_CHUNK_SIZE: usize = 32;
 /// - `target_quantiles`: `(batch, num_quantiles)` — Bellman-backed-up target
 ///   quantile vector (for the bootstrap action).
 /// - `taus`:             `(num_quantiles,)` — midpoint quantile levels
-///   `τ_i = (i + 0.5) / N`.
+///   `$\tau_i = (i + 0.5) / N$`.
 /// - `kappa`: Huber threshold.
 /// - **returns**:        `(batch,)`
 ///
 /// # Aggregation
-/// `u_ij = target_j − pred_i`, then `ρ_κ_{τ_i}(u_ij) = |τ_i − 𝟙{u_ij < 0}| ·
-/// L_κ(u_ij) / κ`. Aggregated as `mean_j → sum_i` following Dabney Eq. 10,
+/// `$u_{ij} = \text{target}_j - \text{pred}_i$`, then `$\rho^\kappa_{\tau_i}(u_{ij}) = |\tau_i - \mathbb{1}\{u_{ij} < 0\}| \cdot
+/// L_\kappa(u_{ij}) / \kappa$`. Aggregated as `mean_j → sum_i` following Dabney Eq. 10,
 /// **stopping before the batch mean**.
 ///
 /// # Returns

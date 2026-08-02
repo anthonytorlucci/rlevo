@@ -22,7 +22,7 @@ use super::observation::LunarLanderObservation;
 /// (PBRS) framework of Ng, Harada & Russell (1999), *"Policy Invariance Under
 /// Reward Transformations"* (ICML 1999, pp. 278–287), Φ is a scalar field over
 /// states and the shaping reward is the *difference*
-/// `F(s, a, s′) = γ·Φ(s′) − Φ(s)`. Φ is a potential; F is a reward. This key
+/// `$F(s, a, s') = \gamma \cdot \Phi(s') - \Phi(s)$`. Φ is a potential; F is a reward. This key
 /// carries Φ.
 ///
 /// # Reconstructing the shaping reward
@@ -44,16 +44,16 @@ use super::observation::LunarLanderObservation;
 /// On a **terminated** step the reward is *replaced* wholesale by ±100
 /// (+100 soft landing, −100 crash / out-of-bounds), discarding that step's
 /// shaping delta and control cost — this mirrors Gymnasium's
-/// `reward = ±100` assignment. So on a terminal snapshot, Φ(t) contributed
+/// `$\text{reward} = \pm 100$` assignment. So on a terminal snapshot, Φ(t) contributed
 /// **nothing** to that step's reward, and the naive reconstruction
-/// `Φ(t) − Φ(t−1)` is wrong *precisely there*. Analysis code that decomposes
+/// `$\Phi(t) - \Phi(t-1)$` is wrong *precisely there*. Analysis code that decomposes
 /// episode returns must special-case the terminal step.
 ///
 /// # Deliberate deviation from strict policy invariance
 ///
-/// Because `Φ(s_terminal)` ≠ 0 here (a crashed lander still has a large negative
+/// Because `$\Phi(s_{\text{terminal}})$` ≠ 0 here (a crashed lander still has a large negative
 /// potential), this is not a strictly policy-invariant PBRS instantiation:
-/// Grześ (2017) shows episodic policy invariance requires `Φ(s_terminal)` = 0.
+/// Grześ (2017) shows episodic policy invariance requires `$\Phi(s_{\text{terminal}})$` = 0.
 /// This is a **deliberate deviation kept for Gymnasium reward parity**, not a
 /// bug — rlevo reproduces `gymnasium.envs.box2d.lunar_lander` returns exactly.
 /// Do not "fix" the reward function to restore invariance.

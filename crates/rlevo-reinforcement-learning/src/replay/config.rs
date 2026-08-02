@@ -3,7 +3,7 @@
 use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
 
-/// The ε floor of Schaul et al. (2016) §3.3's `p_i = |δ_i| + ε`.
+/// The ε floor of Schaul et al. (2016) §3.3's `$p_i = |\delta_i| + \epsilon$`.
 ///
 /// **Schaul gives no numeric value for ε** — it is described only as "a small
 /// positive constant that prevents the edge-case of transitions not being
@@ -14,17 +14,17 @@ use serde::{Deserialize, Serialize};
 ///
 /// - **It must not reorder real TD errors.** The shipped configs use rewards of
 ///   order 1 (`CartPole`'s `+1` per step, the classic-control family, the bandit
-///   family) with `γ < 1`, which puts a residual carrying signal at roughly
+///   family) with `$\gamma < 1$`, which puts a residual carrying signal at roughly
 ///   `1e-2 … 1e1`. At `1e-6`, ε sits at least four orders of magnitude below
 ///   the smallest such residual, so it perturbs no ordering that matters.
 /// - **It must survive `f32`.** `1e-6` is a normal `f32` and exceeds the `f32`
-///   spacing at `1.0` (≈`1.19e-7`), so `|δ| + ε` is not absorbed across the
-///   residual range above. (For `|δ| ≳ 8` the addition *is* absorbed —
-///   irrelevant, since ε only has work to do when `|δ| ≈ 0`.)
+///   spacing at `1.0` (≈`1.19e-7`), so `$|\delta| + \epsilon$` is not absorbed across the
+///   residual range above. (For `$|\delta| \gtrsim 8$` the addition *is* absorbed —
+///   irrelevant, since ε only has work to do when `$|\delta| \approx 0$`.)
 /// - **It must leave a converged transition revisitable but strongly
 ///   deprioritized.** That is its entire purpose. Under the default
 ///   `priority_exponent = 0.6`, a fully-converged transition carries
-///   `(1e-6)^0.6 ≈ 4e-4` of unnormalized mass against a `|δ| = 1` transition's
+///   `(1e-6)^0.6 ≈ 4e-4` of unnormalized mass against a `$|\delta| = 1$` transition's
 ///   `1.0` — non-zero, so it is never starved, but ~2500× less likely per draw.
 /// - **It must not flatten the distribution when nothing has converged yet.** A
 ///   larger ε (say `1e-2`) raises the floor to `(1e-2)^0.6 ≈ 6e-2`, pulling
@@ -85,14 +85,14 @@ pub struct PrioritizedReplayConfig {
     /// Must be non-zero.
     pub capacity: usize,
 
-    /// Schaul Eq. 1's α in `P(i) = p_i^α / Σ_k p_k^α`.
+    /// Schaul Eq. 1's α in `$P(i) = p_i^\alpha / \sum_k p_k^\alpha$`.
     ///
     /// `0.0` is the uniform case (every stored transition maps to mass `1.0`),
     /// `1.0` is fully greedy prioritization. Must lie in `[0, 1]`. Defaults to
     /// [`DEFAULT_PRIORITY_EXPONENT`].
     pub priority_exponent: f32,
 
-    /// Schaul §3.3's ε in `p_i = |δ_i| + ε`.
+    /// Schaul §3.3's ε in `$p_i = |\delta_i| + \epsilon$`.
     ///
     /// Must be finite and strictly positive. Defaults to
     /// [`DEFAULT_PRIORITY_EPSILON`] — see that constant for why `1e-6`, and for

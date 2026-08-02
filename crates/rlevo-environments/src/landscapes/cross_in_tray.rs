@@ -4,8 +4,8 @@
 //! f(x_1,x_2) = -0.0001 \left(\left|\sin(x_1)\sin(x_2)
 //!            \exp\left(\left|100 - \frac{\sqrt{x_1^2+x_2^2}}{\pi}\right|\right)\right| + 1\right)^{0.1}
 //! ```
-//! Global minimum `f* ≈ −2.062611870822739` at the four sign combinations of
-//! `(±1.349406608602084, ±1.349406608602084)`. The absolute value applied to the
+//! Global minimum `$f^* \approx -2.062611870822739$` at the four sign combinations of
+//! `$(\pm 1.349406608602084, \pm 1.349406608602084)$`. The absolute value applied to the
 //! oscillating product creates V-shaped kinks along the coordinate axes, giving
 //! the function its cross pattern.
 //!
@@ -13,13 +13,13 @@
 //!
 //! [`bounds`](CrossInTray::bounds) returns `(-15.0, 15.0)`, which **is** the
 //! canonical domain: Al-Roomi, *Unconstrained Single-Objective Benchmark Functions
-//! Repository*, function #44 "Cross-in-Tray Function", gives `−15 ≤ xᵢ ≤ 15` with
-//! `f* ≈ −2.0626` at the four symmetric points `xᵢ* ≈ ±1.3494`. All four lie inside
+//! Repository*, function #44 "Cross-in-Tray Function", gives `$-15 \leq x_i \leq 15$` with
+//! `$f^* \approx -2.0626$` at the four symmetric points `$x_i^* \approx \pm 1.3494$`. All four lie inside
 //! the box and none of it scores below `f*`, so both `bounds()` obligations hold
 //! (ADR 0045: O1 reachability, O2 no spurious optimum) — pinned by unit tests below.
 //!
-//! Over this window the inner exponential reaches ≈ `e⁹³`, but the outer
-//! `0.0001·(·)^0.1` compresses it back — no `f64` overflow.
+//! Over this window the inner exponential reaches ≈ `$e^{93}$`, but the outer
+//! `$0.0001 \cdot (\cdot)^{0.1}$` compresses it back — no `f64` overflow.
 
 // non-differentiable at zero crossings of sin(x1)*sin(x2) (the cross ridges)
 
@@ -44,7 +44,7 @@ impl CrossInTray {
     }
 
     /// Recommended search box `(-15.0, 15.0)` applied per-coordinate — the canonical
-    /// domain per Al-Roomi #44. Contains all four global minimizers `(±1.3494…, ±1.3494…)`.
+    /// domain per Al-Roomi #44. Contains all four global minimizers `$(\pm 1.3494\ldots, \pm 1.3494\ldots)$`.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-15.0, 15.0)
@@ -162,8 +162,8 @@ mod tests {
     /// A deterministic 401×401 sweep of `bounds()²`. `eps` is looser here (`1e-6`,
     /// i.e. ~5e-7 relative on the `≈2.06` scale) than for the polynomial landscapes:
     /// the grid steps by `0.075`, which lands a sample almost exactly on a minimizer
-    /// (`±1.35` vs `±1.34941`), so the true margin at the tightest sample is small —
-    /// and the `exp(≈99) → (·)^0.1` path is where any float noise would appear.
+    /// (`$\pm 1.35$` vs `$\pm 1.34941$`), so the true margin at the tightest sample is small —
+    /// and the `$\exp(\approx 99) \to (\cdot)^{0.1}$` path is where any float noise would appear.
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {
         const STEPS: u16 = 400;

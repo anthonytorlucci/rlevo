@@ -1,17 +1,17 @@
 //! Whale Optimization Algorithm.
 //!
 //! Each whale chooses per generation between two behaviours, driven by a
-//! uniform random `p ∈ U[0, 1]`:
+//! uniform random `$p \in U[0, 1]$`:
 //!
-//! - `p < 0.5` — **encircle / search**:
-//!     - `|A| < 1`: exploit the current best (`X ← X_best − A·|C·X_best − X|`),
-//!     - `|A| ≥ 1`: explore by pulling toward a random other whale
-//!       (`X ← X_rand − A·|C·X_rand − X|`).
-//! - `p ≥ 0.5` — **spiral bubble-net**:
-//!   `X ← |X_best − X|·exp(b·l)·cos(2π·l) + X_best`, `l ∈ U[−1, 1]`,
+//! - `$p < 0.5$` — **encircle / search**:
+//!     - `$|A| < 1$`: exploit the current best (`$X \leftarrow X_{\text{best}} - A \cdot |C X_{\text{best}} - X|$`),
+//!     - `$|A| \geq 1$`: explore by pulling toward a random other whale
+//!       (`$X \leftarrow X_{\text{rand}} - A \cdot |C X_{\text{rand}} - X|$`).
+//! - `$p \geq 0.5$` — **spiral bubble-net**:
+//!   `$X \leftarrow |X_{\text{best}} - X| \cdot \exp(bl) \cos(2\pi l) + X_{\text{best}}$`, `$l \in U[-1, 1]$`,
 //!   `b = 1` (canonical).
 //!
-//! `A = 2a·r − a`, `C = 2r`, with `a` linearly decreased from 2 to 0
+//! `$A = 2ar - a$`, `$C = 2r$`, with `$a$` linearly decreased from 2 to 0
 //! over the budget.
 //!
 //! The branches are realized as two boolean masks and three tensor
@@ -49,15 +49,15 @@ use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
-/// `exp(x)` overflows f32 for x ≳ 88.7; clamp the spiral exponent so an
+/// `$\exp(x)$` overflows f32 for x ≳ 88.7; clamp the spiral exponent so an
 /// out-of-range `b` can never produce `inf`/`NaN` in the spiral update.
 const MAX_SPIRAL_EXP: f32 = 80.0; // exp(80) ≈ 5.5e34, well under f32::MAX
 
-/// Per-element spiral bubble-net factor `exp(b·l)·cos(2π·l)`.
+/// Per-element spiral bubble-net factor `$\exp(bl)\cos(2\pi l)$`.
 ///
-/// The exponent `b·l` is clamped to `±`[`MAX_SPIRAL_EXP`] before
+/// The exponent `$bl$` is clamped to `±`[`MAX_SPIRAL_EXP`] before
 /// exponentiation. Without the clamp an out-of-range `b` drives
-/// `exp(b·l)` past f32's overflow threshold to `inf`; where `cos(2π·l)`
+/// `$\exp(bl)$` past f32's overflow threshold to `inf`; where `$\cos(2\pi l)$`
 /// is zero the product is `inf · 0 = NaN` (and elsewhere it is `±inf`) —
 /// non-finite values that the downstream bounds clamp does not sanitize.
 /// Clamping the exponent keeps the factor finite for every `l`.
@@ -268,9 +268,9 @@ where
     /// subsequent calls, each whale independently selects one of three
     /// moves based on host-sampled scalars `p` and `|A|`:
     ///
-    /// - `p < 0.5, |A| < 1` — encircle the current best,
-    /// - `p < 0.5, |A| ≥ 1` — search toward a random other whale,
-    /// - `p ≥ 0.5` — spiral toward the current best.
+    /// - `$p < 0.5,\ |A| < 1$` — encircle the current best,
+    /// - `$p < 0.5,\ |A| \geq 1$` — search toward a random other whale,
+    /// - `$p \geq 0.5$` — spiral toward the current best.
     ///
     /// The three candidate tensors are computed in parallel and composed
     /// with boolean masks; no divergent kernel paths are used. Results are

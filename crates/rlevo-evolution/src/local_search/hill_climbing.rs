@@ -6,11 +6,11 @@
 //! [`HillClimbVariant`]:
 //!
 //! - [`FirstImprovement`](HillClimbVariant::FirstImprovement) — each iteration
-//!   perturbs one randomly chosen coordinate by `±step_size` and accepts the
+//!   perturbs one randomly chosen coordinate by `$\pm \text{step\_size}$` and accepts the
 //!   move on the first strict improvement seen. Cheap per step; good when the
 //!   budget is small.
 //! - [`BestImprovement`](HillClimbVariant::BestImprovement) — each *sweep*
-//!   probes `±step_size` along every coordinate (`2·dim` evaluations) and moves
+//!   probes `$\pm \text{step\_size}$` along every coordinate (`$2 \cdot \text{dim}$` evaluations) and moves
 //!   to the single best strict improver. More evaluations per move, but each
 //!   move is greedier.
 //!
@@ -33,7 +33,7 @@ pub enum HillClimbVariant {
     /// Probe one random coordinate per iteration; accept the first strict
     /// improvement.
     FirstImprovement,
-    /// Probe `±step` along every coordinate per sweep; move to the best strict
+    /// Probe `$\pm \text{step}$` along every coordinate per sweep; move to the best strict
     /// improver.
     BestImprovement,
 }
@@ -415,7 +415,7 @@ mod tests {
         let _ = HillClimbingParams::default_for(Bounds::new(-1.0, 1.0)).with_step_size(0.0);
     }
 
-    /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
+    /// Negated sphere `$f(x) = -\sum x_i^2$` — concave bump; global maximum 0 at the
     /// origin.
     struct NegSphere;
     impl FitnessFn<Vec<f32>> for NegSphere {

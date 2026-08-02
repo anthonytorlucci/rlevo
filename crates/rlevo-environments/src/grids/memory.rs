@@ -29,7 +29,7 @@
 //! forward **flood fill**, not a ray cast. The corridor's full-width wall rows do
 //! squeeze the lit region down to three view columns while the beam is *inside*
 //! the corridor — but the moment it reaches the start room at `x = 3` the room is
-//! open across rows `mid ± 1`, light spreads sideways with no further limit, and
+//! open across rows `$\text{mid} \pm 1$`, light spreads sideways with no further limit, and
 //! the cue at `(1, mid - 1)` is lit again. Whatever hides the cue in this
 //! environment, it is not occlusion.
 //!
@@ -54,7 +54,7 @@
 //! Because the leak zone (`x <= 7`) is fixed while the corridor grows with
 //! `size`, the cue-free stretch the agent must bridge from memory is
 //! `size`-dependent. The cue-free centre-row corridor cells are exactly
-//! `x ∈ [8, size - 3]`, i.e. `size - 10` of them:
+//! `$x \in [8, \text{size} - 3]$`, i.e. `size - 10` of them:
 //!
 //! | `size` | fork column | cue-free corridor cells | recall horizon |
 //! |--------|-------------|-------------------------|----------------|
@@ -174,7 +174,7 @@
 //! - `J` — the fork **junction** `(size - 2, height/2)`, reached by walking East.
 //! - `d` — the two **decision cells**: `Done` from here, facing the adjacent
 //!   `O`, is how the agent answers.
-//! - The corridor cells at `x ∈ [8, 10]` are the **cue-free run**: from none of
+//! - The corridor cells at `$x \in [8, 10]$` are the **cue-free run**: from none of
 //!   them can any facing reach the cue (see the leak zone above). At the floor
 //!   size of `11` this run is the single cell `x = 8`.
 //! - The blank interior cells in rows 1–3 and 9–11 are sealed dead space, exactly
@@ -267,7 +267,7 @@ const MIN_SIZE: usize = 11;
 /// is unreadable at the fork); it is also where the cue-free corridor run is a
 /// single cell, so the recall horizon is ~1–2 steps. `13` widens that run to
 /// three cells — the cheapest size at which the agent must genuinely *hold* the
-/// cue — at a `5 * size²` budget of `845` rather than `605`. See the recall
+/// cue — at a `$5 \cdot \text{size}^2$` budget of `845` rather than `605`. See the recall
 /// horizon table in the module docs.
 const DEFAULT_SIZE: usize = 13;
 
@@ -325,7 +325,7 @@ const SIZE_BELOW_MIN: &str = "MemoryEnv requires size >= 11: at smaller sizes th
 /// Rejection text for an even `size`.
 const SIZE_NOT_ODD: &str = "MemoryEnv requires an odd size so the corridor has a single centre row";
 
-/// Canonical Minigrid step budget: `5 * size²`.
+/// Canonical Minigrid step budget: `$5 \cdot \text{size}^2$`.
 #[must_use]
 const fn default_max_steps(size: usize) -> usize {
     5 * size * size
@@ -407,11 +407,11 @@ pub struct MemoryConfig {
     /// The default is `13`, not the floor of `11`: the floor is merely the
     /// smallest *correct* size, at which the cue-free corridor run is a single
     /// cell. `13` gives a three-cell run — a recall horizon worth the name — for
-    /// a `5 * size²` budget of `845` instead of `605`.
+    /// a `$5 \cdot \text{size}^2$` budget of `845` instead of `605`.
     pub size: usize,
     /// Maximum steps before the episode times out with reward `0.0`.
     ///
-    /// Canonical Minigrid uses `5 * size²`.
+    /// Canonical Minigrid uses `$5 \cdot \text{size}^2$`.
     pub max_steps: usize,
     /// Seed for the environment's persistent RNG.
     ///
@@ -447,7 +447,7 @@ impl MemoryConfig {
 }
 
 impl Default for MemoryConfig {
-    /// `size = 13`, `max_steps = 845` (`5 * size²`), `seed = 0`.
+    /// `size = 13`, `max_steps = 845` (`$5 \cdot \text{size}^2$`), `seed = 0`.
     ///
     /// Deliberately **one step above `MIN_SIZE`**: see the module docs. The
     /// floor is a correctness bound, and shipping it as the default would ship
@@ -490,7 +490,7 @@ impl FromStr for MemoryConfig {
     /// Parses `"size=13,max_steps=845,seed=0"` (keys in any order) or the
     /// positional form `"13,845,0"`.
     ///
-    /// When `max_steps` is omitted it is derived from `size` as `5 * size²`,
+    /// When `max_steps` is omitted it is derived from `size` as `$5 \cdot \text{size}^2$`,
     /// so `"size=13"` yields the canonical budget for a 13×13 grid rather than
     /// the default-size one.
     ///
@@ -1048,7 +1048,7 @@ mod tests {
             "the default must not be the bare correctness floor of {MIN_SIZE}"
         );
 
-        // The cue-free corridor run is `x ∈ [cue_x + VIEW_REACH + 1, fork_x - 1]`.
+        // The cue-free corridor run is `$x \in [\text{cue\_x} + \text{VIEW\_REACH} + 1, \text{fork\_x} - 1]$`.
         #[allow(clippy::cast_possible_wrap)]
         let reach = VIEW_REACH as i32;
         let cue_free = |size: usize| {

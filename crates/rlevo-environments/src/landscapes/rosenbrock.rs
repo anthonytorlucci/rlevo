@@ -1,17 +1,17 @@
 //! Rosenbrock function — the classical "banana" valley benchmark for EAs.
 //!
-//! `f(x) = Σ_{i=1}^{n-1} [100·(x_{i+1} − x_i²)² + (x_i − 1)²]`, global minimum
-//! at `x = (1, …, 1)` where `f(x*) = 0`. The minimum lies at the bottom of a
-//! long, narrow, curved valley following `x_{i+1} = x_i²`; the surface is smooth
+//! `$f(x) = \sum_{i=1}^{n-1} [100 \cdot (x_{i+1} - x_i^2)^2 + (x_i - 1)^2]$`, global minimum
+//! at `$x = (1, \ldots, 1)$` where `$f(x^*) = 0$`. The minimum lies at the bottom of a
+//! long, narrow, curved valley following `$x_{i+1} = x_i^2$`; the surface is smooth
 //! everywhere but the Hessian is nearly singular along the valley floor, so the
 //! landscape looks deceptively flat in the render.
 //!
-//! Commonly evaluated over `[-30, 30]^n` (used here); de Jong's original used
-//! `[-2.048, 2.048]` and the BBOB/COCO convention is `[-5, 10]`. For `n ≥ 4` the
-//! function has exactly two local minima — the global at `(1, …, 1)` and a local
-//! near `(-1, 1, …, 1)` — so restartless optimizers can stall at the wrong basin.
+//! Commonly evaluated over `$[-30, 30]^n$` (used here); de Jong's original used
+//! `$[-2.048, 2.048]$` and the BBOB/COCO convention is `$[-5, 10]$`. For `$n \geq 4$` the
+//! function has exactly two local minima — the global at `$(1, \ldots, 1)$` and a local
+//! near `$(-1, 1, \ldots, 1)$` — so restartless optimizers can stall at the wrong basin.
 //!
-//! Requires `n ≥ 2`; the sum is empty for `n = 1`.
+//! Requires `$n \geq 2$`; the sum is empty for `$n = 1$`.
 
 use rlevo_core::config::{self, ConfigError};
 
@@ -21,7 +21,7 @@ use rlevo_core::config::{self, ConfigError};
 /// struct carries no tunable constants.
 #[derive(Debug, Clone, Copy)]
 pub struct Rosenbrock {
-    /// Number of input dimensions. Always `≥ 2` — enforced by [`Rosenbrock::new`].
+    /// Number of input dimensions. Always `$\geq 2$` — enforced by [`Rosenbrock::new`].
     dim: usize,
 }
 

@@ -46,7 +46,7 @@
 //!
 //! The four openings above sit at `y = 3` and `y = 6` on column `5`, and at
 //! `x = 3` and `x = 8` on row `5` — one in each of the cross's four segments,
-//! and none of them at the old fixed `mid ± 3`. Reading them back:
+//! and none of them at the old fixed `$\text{mid} \pm 3$`. Reading them back:
 //!
 //! ```rust
 //! use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
@@ -119,8 +119,8 @@ const MIN_SIZE: usize = 11;
 pub const OPENING_COUNT: usize = 4;
 
 // The invariants `build` silently assumes, restated for sampled offsets (ADR
-// 0062). Until #282 the four openings sat at a fixed `mid ± 3` and this block
-// asserted that `mid ± 3` lands strictly inside the border — measured before the
+// 0062). Until #282 the four openings sat at a fixed `$\text{mid} \pm 3$` and this block
+// asserted that `$\text{mid} \pm 3$` lands strictly inside the border — measured before the
 // guard existed, `size = 7` perforated all four perimeter walls (holes at (0,3),
 // (3,0), (3,6), (6,3)) and `size = 8` perforated two, at (4,7) and (7,4).
 //
@@ -129,7 +129,7 @@ pub const OPENING_COUNT: usize = 4;
 // half-open range, and an *empty* range panics inside `random_range` rather than
 // producing a bad board. These assertions state at compile time that `MIN_SIZE`
 // keeps all four ranges non-empty, so lowering `MIN_SIZE` breaks the build
-// instead of the board — the same contract the `± 3` version carried. Do not
+// instead of the board — the same contract the `$\pm 3$` version carried. Do not
 // delete this block; restate it if the ranges change.
 //
 // Each assertion below is literally "this half-open range is non-empty", i.e.
@@ -242,7 +242,7 @@ impl Validate for FourRoomsConfig {
     /// at `size < 5` a segment's opening range (`1..mid`, `mid + 1..size - 1`)
     /// is empty and `random_range` panics on it, and at `size` 5 through 9 the
     /// quadrants shrink past the "at least three interior cells" premise
-    /// `MIN_SIZE` encodes. (Before #282 the openings were fixed at `mid ± 3`;
+    /// `MIN_SIZE` encodes. (Before #282 the openings were fixed at `$\text{mid} \pm 3$`;
     /// the same floor then bought a different failure — `size` 1 through 6
     /// panicked inside `Grid::set`, and `size` 7 and 8 punched their openings
     /// through the *perimeter* wall. The measurement is historical, the guard is
@@ -857,7 +857,7 @@ mod tests {
 
     /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
     /// built by `Deserialize` or struct-update syntax reached `build`. Measured
-    /// consequences under the then-fixed `mid ± 3` openings: `size` 1–6 panicked
+    /// consequences under the then-fixed `$\text{mid} \pm 3$` openings: `size` 1–6 panicked
     /// in `Grid::set`; `size = 7` punched a hole in all four perimeter walls and
     /// `size = 8` in two. The openings are sampled now (#282) so those exact
     /// numbers are history, but the floor still guards a real cliff — below

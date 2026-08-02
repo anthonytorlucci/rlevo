@@ -8,30 +8,30 @@ use serde::{Deserialize, Serialize};
 /// `[body_angle, joint1_angle, joint2_angle, vx_com, vy_com,
 ///   ω_body, joint1_dot, joint2_dot]`.
 ///
-/// * `body_angle` — absolute z-rotation of segment0 (wrapped to `(-π, π]`).
+/// * `body_angle` — absolute z-rotation of segment0 (wrapped to `$(-\pi, \pi]$`).
 /// * `joint{1,2}_angle` — **relative** angle between adjacent segments
 ///   (child − parent in world-z), wrapped.
 /// * `vx_com, vy_com, ω_body` — segment0's linear/angular velocity.
-/// * `joint{k}_dot` — relative angular rate `ω_child − ω_parent`.
+/// * `joint{k}_dot` — relative angular rate `$\omega_{\text{child}} - \omega_{\text{parent}}$`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SwimmerObservation(pub [f32; 8]);
 
 impl SwimmerObservation {
-    /// Absolute z-rotation of segment0 (front body), wrapped to `(-π, π]`.
+    /// Absolute z-rotation of segment0 (front body), wrapped to `$(-\pi, \pi]$`.
     #[must_use]
     pub const fn body_angle(&self) -> f32 {
         self.0[0]
     }
 
-    /// Relative angle of segment1 with respect to segment0 (`a1 − a0`),
-    /// wrapped to `(-π, π]`.
+    /// Relative angle of segment1 with respect to segment0 (`$a_1 - a_0$`),
+    /// wrapped to `$(-\pi, \pi]$`.
     #[must_use]
     pub const fn joint1_angle(&self) -> f32 {
         self.0[1]
     }
 
-    /// Relative angle of segment2 with respect to segment1 (`a2 − a1`),
-    /// wrapped to `(-π, π]`.
+    /// Relative angle of segment2 with respect to segment1 (`$a_2 - a_1$`),
+    /// wrapped to `$(-\pi, \pi]$`.
     #[must_use]
     pub const fn joint2_angle(&self) -> f32 {
         self.0[2]
@@ -56,20 +56,20 @@ impl SwimmerObservation {
         self.0[5]
     }
 
-    /// Relative angular rate of joint1: `ω_segment1 − ω_segment0` (rad/s).
+    /// Relative angular rate of joint1: `$\omega_{\text{segment1}} - \omega_{\text{segment0}}$` (rad/s).
     #[must_use]
     pub const fn joint1_dot(&self) -> f32 {
         self.0[6]
     }
 
-    /// Relative angular rate of joint2: `ω_segment2 − ω_segment1` (rad/s).
+    /// Relative angular rate of joint2: `$\omega_{\text{segment2}} - \omega_{\text{segment1}}$` (rad/s).
     #[must_use]
     pub const fn joint2_dot(&self) -> f32 {
         self.0[7]
     }
 
     /// Returns `true` if all eight observation elements are finite (not NaN
-    /// and not `±∞`).
+    /// and not `$\pm\infty$`).
     #[must_use]
     pub fn is_finite(&self) -> bool {
         self.0.iter().all(|v| v.is_finite())

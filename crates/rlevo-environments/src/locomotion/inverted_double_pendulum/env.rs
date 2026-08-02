@@ -23,9 +23,9 @@ use super::state::InvertedDoublePendulumState;
 
 /// Reward-component key: alive bonus (`+10` while healthy, `0` otherwise).
 pub const METADATA_KEY_ALIVE: &str = "alive";
-/// Reward-component key: tip-distance penalty `−0.01·x_tip² − (y_tip − 2)²`.
+/// Reward-component key: tip-distance penalty `$-0.01 \cdot x_{\text{tip}}^2 - (y_{\text{tip}} - 2)^2$`.
 pub const METADATA_KEY_DISTANCE: &str = "distance";
-/// Reward-component key: angular-velocity penalty `−1e-3·|ω₁| − 5e-3·|ω₂|`.
+/// Reward-component key: angular-velocity penalty `$-1\text{e-}3 \cdot |\omega_1| - 5\text{e-}3 \cdot |\omega_2|$`.
 pub const METADATA_KEY_VELOCITY: &str = "velocity";
 
 /// Cart-pole-pole balance task backed by a pluggable physics engine.
@@ -238,7 +238,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
 
     /// Sample the current physics state and pack it into a 9-element
     /// observation. θ₂ is the **relative** elbow angle (pole2 world angle
-    /// minus pole1 world angle), wrapped to `(-π, π]`.
+    /// minus pole1 world angle), wrapped to `$(-\pi, \pi]$`.
     ///
     /// `obs[8]` is the aggregated contact wrench on pole2 (`cfrc_ext[0]`). With
     /// jointed-neighbour contacts disabled for `MuJoCo` parent–child filter parity
@@ -391,7 +391,7 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
     /// - `Running` — tip is above the healthy threshold and `max_steps` not
     ///   reached.
     /// - `Terminated` — tip fell below `healthy.z_range` lower bound
-    ///   (`y_tip ≤ 1.0` by default) and `termination` is
+    ///   (`$y_{\text{tip}} \leq 1.0$` by default) and `termination` is
     ///   `OnUnhealthy`.
     /// - `Truncated` — `steps >= max_steps`.
     ///
@@ -890,7 +890,7 @@ mod tests {
 
     /// Drives a fresh episode to a real **`Terminated`** — not a truncation: a
     /// sustained +1.0 cart force drops the tip below the healthy `z_range` floor
-    /// (`y_tip ≤ 1.0`), and the `OnUnhealthy` rule ends the episode through the
+    /// (`$y_{\text{tip}} \leq 1.0$`), and the `OnUnhealthy` rule ends the episode through the
     /// same physics path an agent would hit.
     fn drive_to_tip_drop(
         env: &mut InvertedDoublePendulum<Rapier3DBackend>,

@@ -1,13 +1,13 @@
 //! Host-side dense linear algebra for covariance-matrix strategies.
 //!
 //! CMA-ES and CMSA-ES need a symmetric eigendecomposition (for the sampling
-//! transform `B·diag(√Λ)` and the conditioning matrix `C^{-1/2}`) and a
+//! transform `$B \cdot \mathrm{diag}(\sqrt{\Lambda})$` and the conditioning matrix `C^{-1/2}`) and a
 //! Cholesky factor (for CMSA-ES sampling). Burn 0.21 ships **no** Cholesky or
 //! eigendecomposition primitive, and the workspace deliberately avoids a
 //! `nalgebra` dependency (ADR 0021 §3 / research note
 //! `cma-es-sampling-and-numerics` §L4: the logged `nalgebra` 4×4 symmetric-eigen
 //! bug and its non-portable LAPACK path do not justify the dependency for the
-//! `D ≤ 30` regime these strategies target). Both routines therefore run on host
+//! `$D \leq 30$` regime these strategies target). Both routines therefore run on host
 //! `Vec<f32>` buffers — covariance matrices are tiny, so the device round-trip
 //! would dominate any on-device kernel anyway.
 //!
@@ -18,7 +18,7 @@
 /// the covariance-matrix strategies use this is never reached in practice.
 const MAX_SWEEPS: usize = 100;
 
-/// Symmetric eigendecomposition `A = V · diag(Λ) · Vᵀ`.
+/// Symmetric eigendecomposition `$A = V \cdot \mathrm{diag}(\Lambda) \cdot V^T$`.
 ///
 /// Returned by [`jacobi_eigen`]. Packaging the two buffers in a named struct
 /// removes the positional ambiguity of a `(Vec<f32>, Vec<f32>)` pair — a caller
@@ -27,7 +27,7 @@ const MAX_SWEEPS: usize = 100;
 /// used.
 #[derive(Debug, Clone)]
 pub struct SymEigen {
-    /// Eigenvalues `Λ` (unsorted), length `n`.
+    /// Eigenvalues `$\Lambda$` (unsorted), length `n`.
     pub values: Vec<f32>,
     /// Row-major `n × n` eigenvector matrix `V` whose **column** `k` is the
     /// eigenvector for `values[k]`: component `i` lives at `vectors[i * n + k]`.
@@ -42,7 +42,7 @@ pub struct SymEigen {
 /// invariant (`vectors` column `k` is the eigenvector for `values[k]`).
 ///
 /// The eigenvector columns are orthonormal, so the input is reconstructed as
-/// `V · diag(Λ) · Vᵀ`. The classic numerically stable rotation (Golub & Van
+/// `$V \cdot \mathrm{diag}(\Lambda) \cdot V^T$`. The classic numerically stable rotation (Golub & Van
 /// Loan, *Matrix Computations*, ch. 8, "Symmetric Eigenvalue Problems" — the
 /// Jacobi-methods section is §8.4 in the 1st edition, §8.5 from the 2nd
 /// edition on) is used; sweeps stop once the off-diagonal Frobenius mass is
@@ -138,7 +138,7 @@ pub fn jacobi_eigen(a: &[f32], n: usize) -> SymEigen {
     }
 }
 
-/// Lower-triangular Cholesky factor `L` with `L · Lᵀ = a`.
+/// Lower-triangular Cholesky factor `L` with `$L \cdot L^T = a$`.
 ///
 /// `a` is an `n × n` **symmetric positive-definite** matrix in row-major order.
 /// Returns the lower-triangular `L` (row-major `n × n`, zeros above the
@@ -235,7 +235,7 @@ pub fn symmetrize(m: &mut [f32], n: usize) {
 mod tests {
     use super::*;
 
-    /// Reconstruct `V · diag(Λ) · Vᵀ` from an eigendecomposition.
+    /// Reconstruct `$V \cdot \mathrm{diag}(\Lambda) \cdot V^T$` from an eigendecomposition.
     fn reconstruct(eigvals: &[f32], eigvecs: &[f32], n: usize) -> Vec<f32> {
         let mut out: Vec<f32> = vec![0.0; n * n];
         for i in 0..n {

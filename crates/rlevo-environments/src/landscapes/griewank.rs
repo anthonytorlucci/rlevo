@@ -1,15 +1,15 @@
 //! Griewank function — a multimodal benchmark with a dense lattice of local minima.
 //!
-//! `f(x) = (1/4000)·Σ x_i² − Π cos(x_i / √i) + 1` (with `i` 1-based), global
-//! minimum at `x = 0` where `f(0) = 0`. The quadratic bowl and the product of
+//! `$f(x) = \frac{1}{4000}\sum x_i^2 - \prod \cos(x_i / \sqrt{i}) + 1$` (with `i` 1-based), global
+//! minimum at `$x = 0$` where `$f(0) = 0$`. The quadratic bowl and the product of
 //! cosines interact to produce many regularly-spaced local minima.
 //!
-//! Commonly evaluated over `[-600, 600]^n` (used here). Counterintuitively the
+//! Commonly evaluated over `$[-600, 600]^n$` (used here). Counterintuitively the
 //! function becomes *easier* at higher `n` because the quadratic term dominates
-//! the cosine perturbation; it is most discriminating at `n = 5–15`. A narrower
-//! `[-10, 10]` window shows the local structure better than the full domain.
+//! the cosine perturbation; it is most discriminating at `$n = 5\text{--}15$`. A narrower
+//! `$[-10, 10]$` window shows the local structure better than the full domain.
 //!
-//! Requires `n ≥ 1`.
+//! Requires `$n \geq 1$`.
 
 use rlevo_core::config::{self, ConfigError};
 
@@ -26,7 +26,7 @@ impl Griewank {
     /// # Errors
     ///
     /// Returns [`ConfigError`] if `dim == 0`: the quadratic term is an empty sum
-    /// (`0`) and the cosine term an empty product (`1`), so `f = 0 − 1 + 1 = 0`
+    /// (`0`) and the cosine term an empty product (`1`), so `$f = 0 - 1 + 1 = 0$`
     /// — precisely the Griewank's global minimum — for every input.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
         const C: &str = "Griewank";

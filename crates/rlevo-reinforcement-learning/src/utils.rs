@@ -13,7 +13,7 @@ use burn::tensor::{Tensor, TensorPrimitive};
 /// Computes Bellman backup target Q-values for a mini-batch.
 ///
 /// Applies the standard one-step TD target:
-/// `target = reward + γ · max_next_Q · (1 − terminated)`.
+/// `$\text{target} = \text{reward} + \gamma \cdot \text{max\_next\_Q} \cdot (1 - \text{terminated})$`.
 ///
 /// # Arguments
 ///
@@ -25,11 +25,11 @@ use burn::tensor::{Tensor, TensorPrimitive};
 ///   downward on any time-limited environment. See Pardo et al., "Time Limits
 ///   in Reinforcement Learning", ICML 2018, Eq. 6 (partial-episode
 ///   bootstrapping), and Gymnasium's
-///   `Q(s,a) = r + γ · ¬terminated · max_a' Q(s′,a')`.
+///   `$Q(s,a) = r + \gamma \cdot \neg\text{terminated} \cdot \max_{a'} Q(s', a')$`.
 ///
 /// # Non-finite hardening
 ///
-/// The bootstrap term is **masked**, not scaled by `(1 − terminated)`. The two
+/// The bootstrap term is **masked**, not scaled by `$(1 - \text{terminated})$`. The two
 /// agree exactly for finite inputs, but scaling propagates poison: IEEE-754
 /// gives `NaN · 0.0 == NaN` and `inf · 0.0 == NaN`, so a single non-finite
 /// entry in `next_q_max` would survive a terminal transition and contaminate
@@ -130,7 +130,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
     }
 }
 
-/// Polyak-averages `active` into `target`: `target ← (1 − τ)·target + τ·active`.
+/// Polyak-averages `active` into `target`: `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`.
 ///
 /// Used by every off-policy algorithm that maintains a target network (DQN,
 /// C51, QR-DQN, DDPG, TD3, SAC). Pass `tau = 1.0` for a hard copy.

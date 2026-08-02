@@ -1,12 +1,12 @@
 //! Covariance Matrix Adaptation Evolution Strategy (CMA-ES).
 //!
 //! CMA-ES (Hansen & Ostermeier, 2001; Hansen, 2016) samples each generation
-//! from a multivariate normal `N(m, σ²C)` and adapts the mean `m`, the global
-//! step size `σ`, and the covariance matrix `C` from the ranked offspring. Two
+//! from a multivariate normal `$N(m, \sigma^2 C)$` and adapts the mean `m`, the global
+//! step size `$\sigma$`, and the covariance matrix `C` from the ranked offspring. Two
 //! evolution paths drive the adaptation:
 //!
-//! - the **conjugate path** `p_σ` feeds Cumulative Step-size Adaptation (CSA),
-//!   which lengthens or shrinks `σ` depending on whether consecutive steps are
+//! - the **conjugate path** `$p_\sigma$` feeds Cumulative Step-size Adaptation (CSA),
+//!   which lengthens or shrinks `$\sigma$` depending on whether consecutive steps are
 //!   correlated or anti-correlated;
 //! - the **anisotropic path** `p_c` feeds the rank-1 update of `C`.
 //!
@@ -51,10 +51,10 @@ use crate::strategy::{Strategy, StrategyMetrics};
 const EIGENVALUE_FLOOR: f32 = 1e-20;
 
 /// Relative eigenvalue floor: eigenvalues below `λ_max · CONDITION_FLOOR` are
-/// clamped before taking `√Λ` / `1/√Λ`, capping the covariance condition number
+/// clamped before taking `$\sqrt{\Lambda}$` / `$1/\sqrt{\Lambda}$`, capping the covariance condition number
 /// near `1e14` (pycma's condition-number treatment). Without this, a single
 /// eigenvalue drifting toward zero would make a `C^{-1/2}` column explode and
-/// drive `σ` to `+∞` through the CSA update.
+/// drive `$\sigma$` to `+∞` through the CSA update.
 const CONDITION_FLOOR: f32 = 1e-14;
 
 /// Per-eigenvalue floor for the current covariance: the larger of the absolute
@@ -66,45 +66,45 @@ fn eigenvalue_floor(eigvals: &[f32]) -> f32 {
 
 /// Static configuration for a CMA-ES run.
 ///
-/// Construct with [`CmaEsConfig::default_for`] (derives `λ` from the dimension
-/// per Hansen 2016) or [`CmaEsConfig::with_pop_size`] (explicit `λ`, e.g. a
+/// Construct with [`CmaEsConfig::default_for`] (derives `$\lambda$` from the dimension
+/// per Hansen 2016) or [`CmaEsConfig::with_pop_size`] (explicit `$\lambda$`, e.g. a
 /// larger population for multimodal landscapes). The recombination weights and
-/// learning rates are all derived from `(λ, D)` and cached as fields so
+/// learning rates are all derived from `$(\lambda, D)$` and cached as fields so
 /// [`Strategy::tell`] reads them without recomputing.
 #[derive(Debug, Clone)]
 pub struct CmaEsConfig {
-    /// Offspring population size `λ`.
+    /// Offspring population size `$\lambda$`.
     pub pop_size: usize,
     /// Genome dimensionality `D`.
     pub genome_dim: usize,
-    /// Search-space bounds; used only to sample the initial mean `m⁰`.
+    /// Search-space bounds; used only to sample the initial mean `$m^0$`.
     /// Offspring are **not** clamped (CMA-ES samples in unbounded ℝᴰ).
     pub bounds: Bounds,
-    /// Initial global step size `σ`.
+    /// Initial global step size `$\sigma$`.
     pub initial_sigma: f32,
-    /// Number of selected parents `μ = ⌊λ/2⌋`.
+    /// Number of selected parents `$\mu = \lfloor \lambda/2 \rfloor$`.
     pub mu: usize,
-    /// Recombination weights `wᵢ` (length `μ`, positive, summing to 1).
+    /// Recombination weights `$w_i$` (length `$\mu$`, positive, summing to 1).
     pub weights: Vec<f32>,
-    /// Variance-effective selection mass `μ_eff = 1 / Σ wᵢ²`.
+    /// Variance-effective selection mass `$\mu_{\text{eff}} = 1 / \sum w_i^2$`.
     pub mu_eff: f32,
-    /// CSA learning rate `c_σ`.
+    /// CSA learning rate `$c_\sigma$`.
     pub c_sigma: f32,
-    /// CSA damping `d_σ`.
+    /// CSA damping `$d_\sigma$`.
     pub d_sigma: f32,
     /// Anisotropic-path learning rate `c_c`.
     pub c_c: f32,
     /// Rank-1 covariance learning rate `c_1`.
     pub c_1: f32,
-    /// Rank-μ covariance learning rate `c_μ`.
+    /// Rank-μ covariance learning rate `$c_\mu$`.
     pub c_mu: f32,
-    /// Expected length of `N(0, I)`, `χ_n ≈ √D (1 − 1/4D + 1/21D²)`.
+    /// Expected length of `$N(0, I)$`, `$\chi_n \approx \sqrt{D}(1 - 1/4D + 1/21D^2)$`.
     pub chi_n: f32,
 }
 
 impl CmaEsConfig {
     /// Default configuration for dimensionality `D`, with the Hansen-2016
-    /// population `λ = 4 + ⌊3 ln D⌋`.
+    /// population `$\lambda = 4 + \lfloor 3\ln D \rfloor$`.
     ///
     /// Sets `bounds = (-5.12, 5.12)` (the standard Sphere/Rastrigin domain) and
     /// `initial_sigma = 1.0`.
@@ -117,10 +117,10 @@ impl CmaEsConfig {
         Self::with_pop_size(lambda, genome_dim)
     }
 
-    /// Configuration with an explicit population size `λ`.
+    /// Configuration with an explicit population size `$\lambda$`.
     ///
-    /// Larger `λ` improves basin-finding on multimodal landscapes (Hansen 2016,
-    /// §A); all derived weights and learning rates follow from `(λ, D)`.
+    /// Larger `$\lambda$` improves basin-finding on multimodal landscapes (Hansen 2016,
+    /// §A); all derived weights and learning rates follow from `$(\lambda, D)$`.
     ///
     /// The `pop_size ≥ 2` invariant is enforced by [`Validate::validate`] at the
     /// harness chokepoint, not by this infallible producer.
@@ -288,11 +288,11 @@ pub struct CmaEsState<B: Backend> {
     mean: Vec<f32>,
     /// Covariance matrix `C`, row-major `D × D`.
     cov: Vec<f32>,
-    /// Conjugate evolution path `p_σ`, length `D`.
+    /// Conjugate evolution path `$p_\sigma$`, length `D`.
     p_sigma: Vec<f32>,
     /// Anisotropic evolution path `p_c`, length `D`.
     p_c: Vec<f32>,
-    /// Global step size `σ`.
+    /// Global step size `$\sigma$`.
     sigma: f32,
     /// Completed-generation counter.
     generation: usize,
@@ -304,7 +304,7 @@ pub struct CmaEsState<B: Backend> {
     ///
     /// The eigendecomposition is the most expensive host op per generation and
     /// is needed twice on an unchanged `C`: [`Strategy::ask`] builds the
-    /// sampling transform `B·diag(√Λ)` from it, and the following
+    /// sampling transform `$B \cdot \mathrm{diag}(\sqrt{\Lambda})$` from it, and the following
     /// [`Strategy::tell`] builds the conditioning matrix `C^{-1/2}` from the
     /// same decomposition. This field memoizes the raw
     /// [`SymEigen`](crate::ops::linalg::SymEigen) so `tell` reuses `ask`'s work.
@@ -414,7 +414,7 @@ impl<B: Backend> CmaEsState<B> {
         &self.cov
     }
 
-    /// Conjugate evolution path `p_σ`, length `D`.
+    /// Conjugate evolution path `$p_\sigma$`, length `D`.
     #[must_use]
     pub fn p_sigma(&self) -> &[f32] {
         &self.p_sigma
@@ -426,7 +426,7 @@ impl<B: Backend> CmaEsState<B> {
         &self.p_c
     }
 
-    /// Global step size `σ`.
+    /// Global step size `$\sigma$`.
     #[must_use]
     pub fn sigma(&self) -> f32 {
         self.sigma
@@ -486,7 +486,7 @@ where
     type State = CmaEsState<B>;
     type Genome = Tensor<B, 2>;
 
-    /// Initializes `m⁰` uniformly in `params.bounds` (host-RNG convention),
+    /// Initializes `$m^0$` uniformly in `params.bounds` (host-RNG convention),
     /// `C = I`, `σ = initial_sigma`, and both evolution paths to zero.
     fn init(
         &self,
@@ -522,10 +522,10 @@ where
         }
     }
 
-    /// Samples `λ` offspring from `N(m, σ²C)`.
+    /// Samples `$\lambda$` offspring from `$N(m, \sigma^2 C)$`.
     ///
-    /// The covariance is eigendecomposed into `C = B diag(Λ) Bᵀ`; each
-    /// offspring is `xᵢ = m + σ · B diag(√Λ) zᵢ` for `zᵢ ~ N(0, I)`, drawn
+    /// The covariance is eigendecomposed into `$C = B \,\mathrm{diag}(\Lambda)\, B^T$`; each
+    /// offspring is `$x_i = m + \sigma \cdot B\,\mathrm{diag}(\sqrt{\Lambda})\, z_i$` for `$z_i \sim N(0, I)$`, drawn
     /// host-side from a deterministic [`SeedPurpose::CmaSampling`] stream. The
     /// distribution parameters are returned unchanged (the mean/covariance
     /// update happens in [`tell`](Self::tell), which recomputes the steps from
@@ -549,8 +549,8 @@ where
         // Sampling transform B·diag(√Λ) from the eigendecomposition of C. The
         // raw decomposition is kept whole (not destructured) so it can be
         // memoized on the returned state for `tell` to reuse. The eigenvalue
-        // floor is applied *here* per-use — `ask` needs `√Λ`, `tell` needs
-        // `1/√Λ`, so only the raw values are cached and each site floors them.
+        // floor is applied *here* per-use — `ask` needs `$\sqrt{\Lambda}$`, `tell` needs
+        // `$1/\sqrt{\Lambda}$`, so only the raw values are cached and each site floors them.
         let eig: SymEigen = jacobi_eigen(&state.cov, d);
         let floor: f32 = eigenvalue_floor(&eig.values);
         let mut bd: Vec<f32> = vec![0.0; d * d];
@@ -589,14 +589,14 @@ where
     ///
     /// # Lost generations
     ///
-    /// The rank-μ update needs `μ` *usable* selection steps. Ranking already
+    /// The rank-μ update needs `$\mu$` *usable* selection steps. Ranking already
     /// sanitizes (`NaN → −∞`) and sorts with `total_cmp`, so a non-finite
-    /// fitness can never rank among the best — but if **fewer than `μ`**
+    /// fitness can never rank among the best — but if **fewer than `$\mu$`**
     /// sanitized values are finite, non-usable individuals would still fill out
-    /// the selected `μ` and feed meaningless steps `yᵢ = (xᵢ − m)/σ` into the
+    /// the selected `$\mu$` and feed meaningless steps `$y_i = (x_i - m)/\sigma$` into the
     /// mean and covariance updates. When that happens `tell` takes a deliberate
-    /// **lost generation**: the entire adaptive update (mean, `C`, `p_σ`, `p_c`,
-    /// `σ`, and the eigendecomposition memo) is skipped and the search
+    /// **lost generation**: the entire adaptive update (mean, `C`, `$p_\sigma$`, `p_c`,
+    /// `$\sigma$`, and the eigendecomposition memo) is skipped and the search
     /// distribution is left exactly unchanged. A legitimate `−∞` counts as
     /// non-usable here — it marks a member evaluation that broke, so it cannot
     /// contribute a meaningful recombination step.
@@ -655,8 +655,8 @@ where
         // steps. If fewer than μ sanitized values are finite, the selected μ
         // would include non-usable members (`−∞`, a sanitized `NaN`, or a
         // broken `−∞` evaluation) whose steps corrupt the mean/covariance
-        // update. Freeze the whole search distribution — mean, `C`, `p_σ`,
-        // `p_c`, `σ`, and the eig memo all stay untouched (the retained memo
+        // update. Freeze the whole search distribution — mean, `C`, `$p_\sigma$`,
+        // `p_c`, `$\sigma$`, and the eig memo all stay untouched (the retained memo
         // remains coherent because `cov` is unchanged) — but still advance the
         // generation counter (so the next `ask` draws a fresh stream, not a
         // replay) and best-so-far tracking. See the `# Lost generations` doc
@@ -703,7 +703,7 @@ where
         // it so the stale decomposition cannot outlive the `cov` overwrite at
         // the end of this method. The fallback keeps `tell` correct for a state
         // that reached here without a paired `ask`. The floor is applied here
-        // as `1/√Λ` (vs `ask`'s `√Λ`), so only the raw eigenvalues are cached.
+        // as `$1/\sqrt{\Lambda}$` (vs `ask`'s `$\sqrt{\Lambda}$`), so only the raw eigenvalues are cached.
         let SymEigen {
             values: eigvals,
             vectors: eigvecs,
@@ -783,7 +783,7 @@ where
         // Defensive float-drift hygiene (pycma-style): with the factored-product
         // accumulation above, `C` is already bit-exact symmetric by construction,
         // so this re-symmetrization is a no-op today. It is a backstop guarding
-        // the solver's symmetry assumption (ask's `√Λ` sampling, tell's `C^{-1/2}`
+        // the solver's symmetry assumption (ask's `$\sqrt{\Lambda}$` sampling, tell's `C^{-1/2}`
         // conditioning) against any future edit that reorders the accumulation.
         symmetrize(&mut cov_new, d);
 
@@ -994,7 +994,7 @@ mod tests {
     }
 
     /// Lost generation: with fewer than μ finite fitness values, `tell` must
-    /// freeze the entire search distribution (mean, `C`, `σ`, both paths) yet
+    /// freeze the entire search distribution (mean, `C`, `$\sigma$`, both paths) yet
     /// still advance the generation counter and best-so-far tracking.
     #[test]
     fn tell_freezes_distribution_on_too_few_finite() {
@@ -1184,7 +1184,7 @@ mod tests {
     /// `cma_es_drive_preserves_invariants` property asserts the same bit-exact
     /// equality across the sampled space. PD is checked via a symmetric
     /// eigendecomposition (all eigenvalues strictly positive), which is exactly
-    /// the property `ask`'s `√Λ` sampling and `tell`'s `C^{-1/2}` conditioning
+    /// the property `ask`'s `$\sqrt{\Lambda}$` sampling and `tell`'s `C^{-1/2}` conditioning
     /// rely on.
     #[test]
     fn tell_keeps_covariance_symmetric_and_positive_definite() {
@@ -1232,7 +1232,7 @@ mod tests {
     /// accumulation + `symmetrize` backstop) the answer is structurally no: `C`
     /// is bit-exact symmetric after every `tell`, so it never leaves the
     /// symmetric manifold and no drift can accumulate — there is nothing to
-    /// compound. This long run (`λ=16`, `D=5`, 400 generations of synthetic
+    /// compound. This long run (`$\lambda=16$`, `D=5`, 400 generations of synthetic
     /// strictly-descending fitness) exercises many `tell` updates and asserts,
     /// after *every* generation, bit-exact symmetry across all `(i,j)`/`(j,i)`
     /// pairs plus all-finite entries. It protects the fix against a future edit
@@ -1376,8 +1376,8 @@ mod tests {
 
     /// Issue #147 §7.2 eigenvalue-floor clamp: a degenerate (exactly zero)
     /// eigenvalue is floored to the relative floor `λ_max · CONDITION_FLOOR`,
-    /// strictly above zero, so `√Λ` and `1/√Λ` both stay finite. Without the
-    /// floor the `1/√Λ` used in `tell`'s `C^{-1/2}` would diverge to `+∞`.
+    /// strictly above zero, so `$\sqrt{\Lambda}$` and `$1/\sqrt{\Lambda}$` both stay finite. Without the
+    /// floor the `$1/\sqrt{\Lambda}$` used in `tell`'s `C^{-1/2}` would diverge to `+∞`.
     #[test]
     fn eigenvalue_floor_clamps_degenerate_eigenvalue() {
         // λ_max = 1, one exactly-zero eigenvalue.
@@ -1457,7 +1457,7 @@ mod tests {
             let strategy = CmaEs::<Flex>::new();
             let params = CmaEsConfig::with_pop_size(lambda, d);
             // Restrict the sampled `(λ, D)` box to the valid-config subset: in
-            // the small-`D` / large-`λ` corner the derived `c_1 + c_mu` rounds
+            // the small-`D` / large-`$\lambda$` corner the derived `c_1 + c_mu` rounds
             // fractionally past 1.0, which `validate()` rejects. We only drive
             // valid configs here; the `Err` path is covered by dedicated tests.
             prop_assume!(params.validate().is_ok());

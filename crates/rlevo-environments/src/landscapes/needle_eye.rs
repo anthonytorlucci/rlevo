@@ -7,13 +7,13 @@
 //!   \sum_i (100 + |x_i|) \cdot \mathbb{1}[|x_i| > 10^{-4}] & \text{otherwise}
 //! \end{cases}
 //! ```
-//! Global minimum `f* = 1` on a hypercube of side `2×10⁻⁴` centred at the
-//! origin. Outside that needle the value is `≥ 100`. Piecewise constant and
+//! Global minimum `$f^* = 1$` on a hypercube of side `$2 \times 10^{-4}$` centred at the
+//! origin. Outside that needle the value is `$\geq 100$`. Piecewise constant and
 //! **non-differentiable**; there is no gradient information to exploit.
 //!
-//! Evaluated over `[-10, 10]^n`. For `n ≥ 2` the optimal region is
-//! astronomically small (volume fraction `≈ 10⁻¹⁰` at `n = 2`), so this is a
-//! failure-demonstration function, not a solvable test. Requires `n ≥ 1`.
+//! Evaluated over `$[-10, 10]^n$`. For `$n \geq 2$` the optimal region is
+//! astronomically small (volume fraction `$\approx 10^{-10}$` at `$n = 2$`), so this is a
+//! failure-demonstration function, not a solvable test. Requires `$n \geq 1$`.
 
 use rlevo_core::config::{self, ConfigError};
 
@@ -25,7 +25,7 @@ pub struct Needle {
 }
 
 impl Needle {
-    /// Half-width of the optimal needle: `|x_i| ≤ EYE` is "inside".
+    /// Half-width of the optimal needle: `$|x_i| \leq \text{EYE}$` is "inside".
     pub const EYE: f64 = 1e-4;
 
     /// Creates a `dim`-dimensional Needle-Eye evaluator.
@@ -33,8 +33,8 @@ impl Needle {
     /// # Errors
     ///
     /// Returns [`ConfigError`] if `dim == 0`: the "inside the eye" predicate
-    /// `∀i. |x_i| ≤ EYE` is vacuously true over an empty coordinate set, so
-    /// every point returns the global minimum `f* = 1` and the needle can never
+    /// `$\forall i.\ |x_i| \leq \text{EYE}$` is vacuously true over an empty coordinate set, so
+    /// every point returns the global minimum `$f^* = 1$` and the needle can never
     /// be missed.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
         const C: &str = "Needle";

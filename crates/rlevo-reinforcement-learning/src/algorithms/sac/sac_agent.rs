@@ -2,15 +2,15 @@
 //! temperature, and replay buffer management.
 //!
 //! [`SacAgent`] pairs a squashed-Gaussian actor with **two** Q-critics (each
-//! with its own Polyak-averaged target) and a single scalar `log α` module.
+//! with its own Polyak-averaged target) and a single scalar `$\log \alpha$` module.
 //! Compared to [`Td3Agent`](crate::algorithms::td3::td3_agent::Td3Agent), SAC:
 //!
 //! 1. drops the target actor (the stochastic policy + `min`-of-twin-Q backup
 //!    already addresses critic overestimation),
 //! 2. replaces deterministic-actor + exploration-noise with a single
 //!    reparameterized sample from the policy at every env step, and
-//! 3. adds an entropy term `−α·log π(a'|s')` to the Bellman target and an
-//!    auto-tuning loss for `log α`.
+//! 3. adds an entropy term `$-\alpha \cdot \log \pi(a'|s')$` to the Bellman target and an
+//!    auto-tuning loss for `$\log \alpha$`.
 //!
 //! Drive the full loop with [`super::train::train`].
 
@@ -77,9 +77,9 @@ pub struct SacMetrics {
     pub critic_loss: f32,
     /// Most recent actor loss (`0.0` until the first policy update fires).
     pub actor_loss: f32,
-    /// Most recent α value (`= exp(log α)`).
+    /// Most recent α value (`$= \exp(\log \alpha)$`).
     pub alpha: f32,
-    /// Most recent mean `−log π(a|s)` across the actor batch — proxy for
+    /// Most recent mean `$-\log \pi(a|s)$` across the actor batch — proxy for
     /// policy entropy.
     pub entropy: f32,
     /// Mean of `min(q1, q2)` across the most recent learn step.
@@ -110,7 +110,7 @@ pub struct LearnOutcome {
     pub actor_loss: Option<f32>,
     /// Current α (after an auto-tuning step on actor-update iterations).
     pub alpha: f32,
-    /// Batch-mean `−log π(a|s)` on the most recent actor update, or `None`
+    /// Batch-mean `$-\log \pi(a|s)$` on the most recent actor update, or `None`
     /// on critic-only iterations.
     pub entropy: Option<f32>,
     /// Mean of `min(q1, q2)` across the batch.
@@ -409,7 +409,7 @@ where
         self.last_actor_loss
     }
 
-    /// Most recent batch-mean `−log π(a|s)` proxy for policy entropy.
+    /// Most recent batch-mean `$-\log \pi(a|s)$` proxy for policy entropy.
     pub fn last_entropy(&self) -> f32 {
         self.last_entropy
     }

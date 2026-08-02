@@ -121,7 +121,7 @@ impl<T> ReplayKind<T> {
     /// - **Uniform** has no priorities, so this is a deliberate no-op — written
     ///   out explicitly so the compiler forces the same decision for any future
     ///   variant.
-    /// - **Prioritized** applies `p_i = |signal_i| + ε` to each signal and
+    /// - **Prioritized** applies `$p_i = |\text{signal}_i| + \epsilon$` to each signal and
     ///   writes it back, dropping any id evicted since it was sampled.
     ///
     /// # Errors

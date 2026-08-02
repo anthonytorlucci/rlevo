@@ -9,7 +9,7 @@
 //! entropy-temperature controls (`alpha_lr`, `autotune`, `initial_alpha`,
 //! `target_entropy`).
 //!
-//! The squashed-Gaussian head's `log σ` bounds are **not** here: they live on
+//! The squashed-Gaussian head's `$\log \sigma$` bounds are **not** here: they live on
 //! [`SquashedGaussianPolicyHeadConfig`](crate::algorithms::sac::sac_policy::SquashedGaussianPolicyHeadConfig),
 //! the config that is actually consumed to build the head and where the clamp
 //! is applied.
@@ -34,15 +34,15 @@ pub struct SacTrainingConfig {
     pub actor_lr: f64,
     /// Learning rate for both critics' Adam optimisers.
     pub critic_lr: f64,
-    /// Learning rate for the `log α` optimiser (ignored when `autotune=false`).
+    /// Learning rate for the `$\log \alpha$` optimiser (ignored when `autotune=false`).
     pub alpha_lr: f64,
     /// Discount factor γ applied to the bootstrap target.
     pub gamma: f32,
-    /// When `true`, `log α` is trained toward `target_entropy`. When `false`,
-    /// `α` is frozen at `initial_alpha`.
+    /// When `true`, `$\log \alpha$` is trained toward `target_entropy`. When `false`,
+    /// `$\alpha$` is frozen at `initial_alpha`.
     pub autotune: bool,
     /// Initial value for α (i.e. `log α = ln(initial_alpha)`). Defaults to
-    /// `1.0` so `log α` starts at `0`, matching `CleanRL`.
+    /// `1.0` so `$\log \alpha$` starts at `0`, matching `CleanRL`.
     pub initial_alpha: f32,
     /// Target entropy H̄. `None` ⇒ `-(A::COMPONENTS as f32)` (the common
     /// heuristic from Haarnoja et al. 2018b, matching `CleanRL`).
@@ -61,7 +61,7 @@ pub struct SacTrainingConfig {
     /// Optional gradient clipping applied to actor and both critic grads.
     pub clip_grad: Option<GradientClippingConfig>,
     /// Base Adam configuration cloned for each optimiser so the actor, both
-    /// critics, and `log α` share β-params but keep independent moment
+    /// critics, and `$\log \alpha$` share β-params but keep independent moment
     /// estimates.
     pub optimizer: AdamConfig,
 }
@@ -176,7 +176,7 @@ impl SacTrainingConfigBuilder {
         self
     }
 
-    /// Sets the `log α` learning rate.
+    /// Sets the `$\log \alpha$` learning rate.
     #[must_use]
     pub fn alpha_lr(mut self, lr: f64) -> Self {
         self.config.alpha_lr = lr;

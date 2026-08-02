@@ -43,7 +43,7 @@ pub struct InvertedPendulum<B: LocomotionBackend = Rapier3DBackend> {
     /// healthiness test is a live read of the current pole angle and the step
     /// counter keeps climbing, so an unguarded post-terminal step integrates
     /// another frame, ticks `steps` and emits a fresh alive bonus — a toppled
-    /// pole that swings back through `|θ| < 0.2` even re-earns `+1` on a
+    /// pole that swings back through `$|\theta| < 0.2$` even re-earns `+1` on a
     /// `Running` snapshot, silently resurrecting the episode.
     guard: EpisodeGuard,
     _marker: PhantomData<B>,
@@ -194,7 +194,7 @@ impl InvertedPendulum<Rapier3DBackend> {
         let pole_vel = Rapier3DBackend::get_vel(&self.world, self.state.pole);
 
         // Pole orientation is pure rotation about world-y. Its quaternion is
-        // `(cos(θ/2), 0, sin(θ/2), 0)` in `[w, x, y, z]` order. Recover θ:
+        // `$(\cos(\theta/2), 0, \sin(\theta/2), 0)$` in `[w, x, y, z]` order. Recover θ:
         let [w, _, y, _] = pole_pose.orientation;
         let pole_angle = 2.0 * y.atan2(w);
         // Normalise to (-π, π].
@@ -712,7 +712,7 @@ mod tests {
     }
 
     /// Drives a fresh episode to a real **`Terminated`** — not a truncation:
-    /// a short +x kick on the cart topples the pole, gravity carries `|θ|`
+    /// a short +x kick on the cart topples the pole, gravity carries `$|\theta|$`
     /// past the healthy band `(-0.2, 0.2)`, and the `OnUnhealthy` rule ends
     /// the episode through the same physics path an agent would hit.
     fn drive_to_pole_fall(

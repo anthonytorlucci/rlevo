@@ -3,21 +3,21 @@
 //! Each generation every nest proposes a new egg by taking a
 //! Lévy-stable step from its current position:
 //!
-//! - `u ∼ N(0, σ_u²)`, `v ∼ N(0, 1)`,
-//! - `step = u / |v|^(1/β)`,
-//! - `x'_i = x_i + α · step`,
+//! - `$u \sim N(0, \sigma_u^2)$`, `$v \sim N(0, 1)$`,
+//! - `$\text{step} = u / |v|^{1/\beta}$`,
+//! - `$x'_i = x_i + \alpha \cdot \text{step}$`,
 //!
-//! where `σ_u = (Γ(1+β)·sin(π·β/2) / (Γ((1+β)/2)·β·2^((β−1)/2)))^(1/β)`
+//! where `$\sigma_u = \left(\frac{\Gamma(1+\beta) \sin(\pi\beta/2)}{\Gamma((1+\beta)/2) \cdot \beta \cdot 2^{(\beta-1)/2}}\right)^{1/\beta}$`
 //! (Mantegna's algorithm, β ≈ 1.5).
 //!
 //! `tell` greedy-accepts each new egg against its own slot, then
-//! abandons the `p_a · N` worst nests and reinitializes them from the
+//! abandons the `$p_a \cdot N$` worst nests and reinitializes them from the
 //! search bounds. Abandoned slots carry sentinel `+∞` fitness so the
 //! next generation's Lévy proposal always lands.
 //!
 //! # Numerical parity caveat
 //!
-//! The fractional power `|v|^(1/β)` is FMA-reorder-sensitive — wgpu
+//! The fractional power `$|v|^{1/\beta}$` is FMA-reorder-sensitive — wgpu
 //! reductions can drift ~`1e-3` relative from flex on the same seed.
 //! The backend-parity test relaxes tolerance for CS accordingly.
 //!
@@ -52,11 +52,11 @@ pub struct CuckooConfig {
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: Bounds,
-    /// Step size scale (`α` in the paper). Canonical `α = 0.01`
+    /// Step size scale (`$\alpha$` in the paper). Canonical `$\alpha = 0.01$`
     /// multiplied by the search-space width; strategy users should
     /// tune relative to their domain.
     pub alpha: f32,
-    /// Lévy index (`β`). Must be in `(0, 2)`; canonical 1.5.
+    /// Lévy index (`$\beta$`). Must be in `(0, 2)`; canonical 1.5.
     pub beta: f32,
     /// Nest abandonment probability (`p_a`). Canonical 0.25.
     pub p_a: f32,
@@ -189,7 +189,7 @@ impl<B: Backend> CuckooSearch<B> {
         }
     }
 
-    /// Mantegna's `σ_u` for the `u ∼ N(0, σ_u²)` draw.
+    /// Mantegna's `$\sigma_u$` for the `$u \sim N(0, \sigma_u^2)$` draw.
     fn mantegna_sigma_u(beta: f32) -> f32 {
         // Γ(1 + β) · sin(π·β/2)  /  ( Γ((1+β)/2) · β · 2^((β-1)/2) ) ) ^ (1/β)
         let num = gamma(1.0 + beta) * ((PI * beta) / 2.0).sin();
@@ -198,12 +198,12 @@ impl<B: Backend> CuckooSearch<B> {
     }
 }
 
-/// Lanczos approximation for `Γ(z)` on positive reals.
+/// Lanczos approximation for `$\Gamma(z)$` on positive reals.
 ///
 /// Used host-side by [`CuckooSearch::mantegna_sigma_u`] to evaluate the
-/// `σ_u` constant for Mantegna's Lévy-stable sampler. Accurate to `~1e-3`
-/// for `z ∈ [0.5, 5]`, which covers the valid range of the Lévy index
-/// `β ∈ (0, 2)`.
+/// `$\sigma_u$` constant for Mantegna's Lévy-stable sampler. Accurate to `~1e-3`
+/// for `$z \in [0.5, 5]$`, which covers the valid range of the Lévy index
+/// `$\beta \in (0, 2)$`.
 #[allow(clippy::many_single_char_names)]
 fn gamma(z: f32) -> f32 {
     // 5-term Lanczos coefficients (g = 7). Enough for `z ∈ [0.5, 5]`
@@ -234,10 +234,10 @@ fn gamma(z: f32) -> f32 {
     (2.0 * PI).sqrt() * t.powf(z + 0.5) * (-t).exp() * x
 }
 
-/// One Mantegna Lévy step component `u / |w|^(1/β)`.
+/// One Mantegna Lévy step component `$u / |w|^{1/\beta}$`.
 ///
 /// Guards the measure-zero pathological draw: a Normal draw `w == 0` (or
-/// any `w` whose `|w|^(1/β)` rounds to `0` or a non-finite value) makes the
+/// any `w` whose `$|w|^{1/\beta}$` rounds to `0` or a non-finite value) makes the
 /// denominator degenerate. Un-guarded, `0/0` is `NaN` and `x/0` is `±inf` —
 /// both survive the downstream bounds clamp and would poison a nest slot
 /// forever. A non-finite or zero denominator folds the step to `0.0`
@@ -311,10 +311,10 @@ where
     /// On the first call (`state.fitness` is empty) returns the initial
     /// nests unchanged so the caller can evaluate generation zero.
     ///
-    /// On subsequent calls, samples `u ∼ N(0, σ_u²)` and `v ∼ N(0, 1)`
+    /// On subsequent calls, samples `$u \sim N(0, \sigma_u^2)$` and `$v \sim N(0, 1)$`
     /// host-side from a deterministic [`seed_stream`], then forms
-    /// `step = u / |v|^(1/β)` and proposes
-    /// `x'_i = x_i + α · step`, clipped to `params.bounds`.
+    /// `$\text{step} = u / |v|^{1/\beta}$` and proposes
+    /// `$x'_i = x_i + \alpha \cdot \text{step}$`, clipped to `params.bounds`.
     fn ask(
         &self,
         params: &CuckooConfig,
@@ -364,7 +364,7 @@ where
     ///
     /// 1. **Greedy accept** — egg `i` replaces nest `i` iff
     ///    `fitness[i] ≤ state.fitness[i]`.
-    /// 2. **Abandonment** — the `⌊p_a · pop_size⌋` worst nests are
+    /// 2. **Abandonment** — the `$\lfloor p_a \cdot \text{pop\_size} \rfloor$` worst nests are
     ///    re-initialized from `bounds` via [`seed_stream`]; abandoned
     ///    slots carry sentinel `+∞` fitness so the next generation's Lévy
     ///    proposal always lands on them.

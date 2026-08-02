@@ -377,7 +377,7 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
 /// # Why O lives here, not on `State`
 ///
 /// In the POMDP tuple ⟨S, A, T, R, Ω, O⟩ the emission model `O` is a property of
-/// the problem, not of a point `s ∈ S` in state space. `State` used to carry a
+/// the problem, not of a point `$s \in S$` in state space. `State` used to carry a
 /// `fn observe(&self) -> Self::Observation`, which welded the observation's
 /// tensor order to the state's own order and, having only `&self`, forced
 /// world-derived sensors (lidar, pixels) to be cached into the state first.

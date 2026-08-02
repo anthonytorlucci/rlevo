@@ -66,7 +66,7 @@ pub struct PpoMetrics {
     pub entropy: f32,
     /// Most recent approx-KL between old and new policies.
     pub approx_kl: f32,
-    /// Most recent clip fraction (share of ratios outside `[1 − ε, 1 + ε]`).
+    /// Most recent clip fraction (share of ratios outside `$[1 - \epsilon, 1 + \epsilon]$`).
     pub clip_frac: f32,
     /// Current learning rate (after annealing).
     pub learning_rate: f32,
@@ -149,8 +149,8 @@ pub struct PpoUpdateStats {
     pub explained_variance: f32,
     /// Number of update epochs actually completed (≤ `config.update_epochs`).
     pub epochs_run: usize,
-    /// Smallest clamped `log σ` across action dims after this update, or
-    /// `None` for discrete (categorical) policies, which have no `log σ`.
+    /// Smallest clamped `$\log \sigma$` across action dims after this update, or
+    /// `None` for discrete (categorical) policies, which have no `$\log \sigma$`.
     ///
     /// Watch this on continuous runs: a value drifting down toward the head's
     /// `log_std_min` is the policy collapsing to a deterministic action, and
@@ -162,8 +162,8 @@ pub struct PpoUpdateStats {
     /// Read once per update via [`PpoPolicy::min_log_std`], which costs one
     /// device→host sync.
     pub min_log_std: Option<f32>,
-    /// Largest clamped `log σ` across action dims after this update, or `None`
-    /// for discrete (categorical) policies, which have no `log σ`.
+    /// Largest clamped `$\log \sigma$` across action dims after this update, or `None`
+    /// for discrete (categorical) policies, which have no `$\log \sigma$`.
     ///
     /// The ceiling-side counterpart to [`min_log_std`](Self::min_log_std), and
     /// not redundant with it: a minimum reports the *healthiest* dim, so a head
@@ -180,7 +180,7 @@ pub struct PpoUpdateStats {
 }
 
 impl Default for PpoUpdateStats {
-    /// The neutral placeholder: every diagnostic zero, both `log σ` extrema
+    /// The neutral placeholder: every diagnostic zero, both `$\log \sigma$` extrema
     /// absent.
     ///
     /// Used by the training loops for the pre-first-update value of

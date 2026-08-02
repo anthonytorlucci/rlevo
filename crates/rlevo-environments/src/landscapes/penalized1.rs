@@ -10,21 +10,21 @@
 //! where `$y_i = 1 + (x_i + 1)/4$` and the penalty
 //! `$u(x) = 100(x-10)^4$` for `x > 10`, `$100(-x-10)^4$` for `x < −10`, else `0`.
 //!
-//! Global minimum at `x_i = −1` (which maps to `y_i = 1`, zeroing every
-//! sinusoidal term) where `f(x*) = 0`. Evaluated over `[-50, 50]^n` with the
-//! soft penalty walls activating at `±10`.
+//! Global minimum at `$x_i = -1$` (which maps to `$y_i = 1$`, zeroing every
+//! sinusoidal term) where `$f(x^*) = 0$`. Evaluated over `$[-50, 50]^n$` with the
+//! soft penalty walls activating at `$\pm 10$`.
 //!
-//! This is **not** the Levy function: the modern Levy uses `y_i = 1 + (x_i−1)/4`
-//! with the optimum at `x* = +1` and no external penalty. Differentiable except
-//! for a kink in `f''` at `x_i = ±10`.
+//! This is **not** the Levy function: the modern Levy uses `$y_i = 1 + (x_i - 1)/4$`
+//! with the optimum at `$x^* = +1$` and no external penalty. Differentiable except
+//! for a kink in `$f''$` at `$x_i = \pm 10$`.
 //!
-//! Requires `n ≥ 1`.
+//! Requires `$n \geq 1$`.
 
 use std::f64::consts::PI;
 
 use rlevo_core::config::{self, ConfigError};
 
-/// Quartic boundary penalty `u(x)` with `a = 10`, `k = 100`, `m = 4`.
+/// Quartic boundary penalty `$u(x)$` with `$a = 10$`, `$k = 100$`, `$m = 4$`.
 fn penalty(x: f64) -> f64 {
     // non-differentiable in f'' at x = ±10 (penalty activation) — explicit
     // piecewise branches are intentional; no smooth approximation.
@@ -47,14 +47,14 @@ pub struct Penalized1 {
 impl Penalized1 {
     /// Creates a `dim`-dimensional Penalized No.01 evaluator.
     ///
-    /// `dim == 1` is valid: the `Σ_{i=1}^{n-1}` term is empty and drops out, but
-    /// the `10·sin²(π·y_1)` and `(y_n − 1)²` terms sit outside that sum and
+    /// `dim == 1` is valid: the `$\sum_{i=1}^{n-1}$` term is empty and drops out, but
+    /// the `$10 \cdot \sin^2(\pi \cdot y_1)$` and `$(y_n - 1)^2$` terms sit outside that sum and
     /// survive (with `y_n == y_1`), so the function stays non-constant and the
-    /// published optimum `f(−1) = 0` still holds.
+    /// published optimum `$f(-1) = 0$` still holds.
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] when `dim == 0`: the `π/n` prefactor would divide
+    /// Returns [`ConfigError`] when `dim == 0`: the `$\pi/n$` prefactor would divide
     /// by zero (yielding `inf`/`NaN`) and the `y[0]` / `y[n−1]` accesses would
     /// index out of bounds.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
@@ -90,7 +90,7 @@ impl Penalized1 {
     }
 
     /// Recommended search domain for each coordinate (the full domain; the soft
-    /// penalty walls sit at `±10`).
+    /// penalty walls sit at `$\pm 10$`).
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-50.0, 50.0)

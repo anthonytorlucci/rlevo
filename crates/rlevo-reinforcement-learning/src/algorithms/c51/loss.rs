@@ -3,7 +3,7 @@
 //! Given the target distribution (see
 //! [`crate::algorithms::c51::projection::project_distribution`]) and the
 //! policy network's **log-probabilities** for the taken action, this returns
-//! the **per-sample** cross-entropy `−Σ_i target_i · log p_i`, one value per
+//! the **per-sample** cross-entropy `$-\sum_i \text{target}_i \cdot \log p_i$`, one value per
 //! batch element. Reduction is the caller's job.
 //!
 //! Leaving the batch axis unreduced is what lets a caller multiply by a
@@ -51,13 +51,13 @@ pub fn categorical_cross_entropy_per_sample<B: Backend>(
 /// backed-up value lands in, so this guard is load-bearing, not defensive.
 const KL_LOG_FLOOR: f32 = 1e-30;
 
-/// Per-sample KL divergence `D_KL(target ‖ pred)` — C51's **priority** signal
+/// Per-sample KL divergence `$D_{KL}(\text{target} \parallel \text{pred})$` — C51's **priority** signal
 /// for prioritized replay (Rainbow), which is deliberately *not* the
 /// cross-entropy the gradient uses.
 ///
 /// # Why KL and not the cross-entropy
 ///
-/// `categorical_cross_entropy_per_sample` returns `CE = −Σ_i t_i · log p_i`,
+/// `categorical_cross_entropy_per_sample` returns `$\text{CE} = -\sum_i t_i \cdot \log p_i$`,
 /// which is what C51 minimises and therefore what the gradient sees. Rainbow
 /// prioritizes transitions by the **KL loss** instead ("since this is what the
 /// algorithm is minimizing", verbatim), and
@@ -72,7 +72,7 @@ const KL_LOG_FLOOR: f32 = 1e-30;
 /// loss can stay CE with no change to training. But `H(t)` **varies from sample
 /// to sample**, so using CE as the replay priority ranks transitions
 /// differently from KL. This function subtracts `H(t)` explicitly, computing
-/// `CE + Σ_i t_i · log t_i`, so the priority is the KL Rainbow specifies rather
+/// `$\text{CE} + \sum_i t_i \cdot \log t_i$`, so the priority is the KL Rainbow specifies rather
 /// than the CE that happens to be lying around.
 ///
 /// # Shapes

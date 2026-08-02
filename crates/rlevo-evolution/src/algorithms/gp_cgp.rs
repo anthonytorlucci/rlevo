@@ -8,7 +8,7 @@
 //!
 //! # Evolutionary engine
 //!
-//! Canonical CGP uses a `(1 + λ)` Evolution Strategy with point
+//! Canonical CGP uses a `$(1 + \lambda)$` Evolution Strategy with point
 //! mutation and no crossover. This module re-implements just that
 //! engine directly — not via [`crate::algorithms::es_classical`] — so
 //! the mutation logic can be specialized to the CGP genome semantics
@@ -21,9 +21,9 @@
 //! | id | op | arity | formula |
 //! |---|---|---|---|
 //! | 0 | add | 2 | `a + b` |
-//! | 1 | sub | 2 | `a − b` |
-//! | 2 | mul | 2 | `a · b` |
-//! | 3 | `protected_div` | 2 | `a / b` (or `a` if `|b| < ε`) |
+//! | 1 | sub | 2 | `$a - b$` |
+//! | 2 | mul | 2 | `$a \cdot b$` |
+//! | 3 | `protected_div` | 2 | `a / b` (or `a` if `$|b| < \epsilon$`) |
 //! | 4 | sin | 1 | `sin(a)` |
 //! | 5 | cos | 1 | `cos(a)` |
 //! | 6 | tanh | 1 | `tanh(a)` |
@@ -67,7 +67,7 @@ pub const NUM_FUNCTIONS: usize = FUNCTION_ARITIES.len();
 /// Static configuration for a [`CartesianGeneticProgramming`] run.
 #[derive(Debug, Clone)]
 pub struct CgpConfig {
-    /// Number of offspring per generation (λ in `(1 + λ)`).
+    /// Number of offspring per generation (λ in `$(1 + \lambda)$`).
     pub lambda: usize,
     /// Number of inputs (independent variables) the program sees.
     pub n_inputs: usize,
@@ -144,7 +144,7 @@ pub struct CgpState<B: Backend> {
     /// distinct from a legitimately sanitized `−∞` fitness. A `Minimize`
     /// landscape whose natural cost is `+∞` canonicalizes to `−∞` (ADR 0034);
     /// with the old sentinel that value re-triggered the bootstrap branch on
-    /// the next `ask`, collapsing the `(1+λ)` loop to a single parent forever.
+    /// the next `ask`, collapsing the `$(1+\lambda)$` loop to a single parent forever.
     pub parent_fitness: Option<f32>,
     /// Best-so-far genotype.
     pub best_genome: Option<Tensor<B, 2, Int>>,
@@ -154,7 +154,7 @@ pub struct CgpState<B: Backend> {
     pub generation: usize,
 }
 
-/// Classical Cartesian GP with `(1 + λ)` ES.
+/// Classical Cartesian GP with `$(1 + \lambda)$` ES.
 ///
 /// # Example
 ///
@@ -439,7 +439,7 @@ where
         (offspring, state.clone())
     }
 
-    /// Applies `(1+λ)` selection and returns the updated state.
+    /// Applies `$(1+\lambda)$` selection and returns the updated state.
     ///
     /// The canonical CGP tie-breaking rule is used: an offspring replaces the
     /// parent when its fitness is **less than or equal to** the parent's,
@@ -652,7 +652,7 @@ mod tests {
     /// Regression for the `is_finite()` bootstrap sentinel vs the sanitize-to-`−∞`
     /// convention (issue #132, `gp_cgp` §1.1 / ADR 0034). A canonical `−∞` parent
     /// fitness (a `Minimize` `+∞` cost canonicalizes to `−∞`) must not re-trigger
-    /// the bootstrap branch: the `(1+λ)` loop has to keep emitting λ offspring.
+    /// the bootstrap branch: the `$(1+\lambda)$` loop has to keep emitting λ offspring.
     #[test]
     fn neg_inf_parent_fitness_does_not_collapse_lambda_loop() {
         use rand::SeedableRng;
@@ -849,7 +849,7 @@ mod tests {
         );
     }
 
-    /// Symbolic regression on `x² + 1` over 20 evenly spaced x ∈ [−1, 1].
+    /// Symbolic regression on `$x^2 + 1$` over 20 evenly spaced x ∈ [−1, 1].
     struct SymRegression {
         params: CgpConfig,
         xs: Vec<f32>,
