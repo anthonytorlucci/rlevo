@@ -143,122 +143,56 @@ report-ppo-cartpole: client-build
 report-sphere: client-build
     cargo run -p rlevo-examples --features viz-report --example report_sphere_landscape_with_client --release
 
-# ── Crate-level integration tests ───────────────────────────────────────────
+# ── Single-test runner ──────────────────────────────────────────────────────
+# Generic slot for any crate-level or umbrella integration test that doesn't
+# need a permanent name. Examples:
+#   just test-one rlevo-evolution backend_parity
+#   just test-one rlevo-hybrid cartpole_smoke
+#   just test-one rlevo-benchmarks wire_format_compat --features record
+#   just test-one rlevo ddpg_integration
+test-one PACKAGE TEST *ARGS='':
+    cargo test -p {{PACKAGE}} --test {{TEST}} {{ARGS}}
 
-# Wire-format mirror parity: native EpisodeRecord vs browser-client mirror round-trip.
-test-wire-format:
-    cargo test -p rlevo-benchmarks --test wire_format_compat --features record
+# ── Heavy / #[ignore]d tests (maintainer-run; not part of any CI gate) ───────
+#
+# These are excluded from `cargo test`'s default run via #[ignore], so neither
+# crate-tests.yml's per-crate matrix nor `test-workspace` ever executes them.
+# weekly-tests.yml runs each binary's *entire* ignored suite on a schedule
+# (`cargo test --release --test <bin> -- --ignored`) — coarse-grained, whole
+# binary, ~45min timeout (350min for the QR-DQN acceptance run). The
+# `test-one` invocations below are for iterating on ONE of those tests locally
+# without waiting on its siblings in the same binary.
+#
+#   just test-one rlevo-evolution coevolution_forgetting --release -- observe_dynamics --ignored --nocapture
+#       Prints host–parasite trajectory statistics; no assertion, read-only diagnostic.
+#
+#   just test-one rlevo memetic_rastrigin --release -- calibration_explorer --ignored --nocapture
+#       Multi-seed sweep for re-pinning the memetic-vs-bare-DE margin (test-memetic's
+#       >=30% threshold). Run after touching DE, HillClimbing, or the wrapper's budget split.
+#
+#   just test-one rlevo ppo_integration -- ppo_pendulum_improves_over_random --ignored
+#       ~30s on Flex. PPO's only continuous-control regression check (CartPole cases run unignored).
+#
+#   just test-one rlevo ppg_integration -- ppg_without_aux_phase_matches_ppo_baseline --ignored
+#   just test-one rlevo ppg_integration -- ppg_aux_phase_actually_runs --ignored
+#       Smoke runs: PPG without aux phase must not regress vs. plain PPO; aux phase must
+#       actually execute (not silently no-op).
+#
+#   just test-one rlevo td3_integration -- td3_linear_improves_over_random --ignored
+#       ~8,000-step run. TD3's LinearEnv acceptance check; Pendulum stays weekly-only.
+#
+#   DDPG, TD3 (Pendulum case), SAC: fast plumbing-only tests run unignored via
+#   `just test-one rlevo <ddpg|td3|sac>_integration`. Their heavy LinearEnv/Pendulum
+#   cases have no individual test-one shortcut here — run the whole ignored
+#   suite locally with `cargo test --release -p rlevo --test <bin> -- --ignored`
+#   (weekly-tests.yml matrix — .github/workflows/weekly-tests.yml).
 
-# Grid env solvability canary: scripted optimal rollout through every grids env.
-test-grids-solvable:
-    cargo test -p rlevo-environments --test grids_solvable
-
-# AsciiRenderable coverage: render contract across classic/grids/toy_text/landscapes/box2d.
-test-render-coverage:
-    cargo test -p rlevo-environments --test render_coverage
-
-# Cross-backend parity: GA drives Sphere-D10 to a non-trivial optimum on both Flex and wgpu.
-test-backend-parity:
-    cargo test -p rlevo-evolution --test backend_parity
-
-# Co-evolution forgetting prevention: HoF retains solver coverage in a non-stationary host–parasite game.
-test-coevo-forgetting:
-    cargo test -p rlevo-evolution --test coevolution_forgetting
-
-# Co-evolution forgetting observer [ignored: prints trajectory statistics, no assertion].
-test-coevo-forgetting-observe:
-    cargo test -p rlevo-evolution --test coevolution_forgetting -- observe_dynamics --ignored --nocapture
-
-# Bit-exact determinism: every EA strategy produces identical fitness trajectory from same seed.
-test-evolution-determinism:
-    cargo test -p rlevo-evolution --test determinism
-
-# EDA plumbing smoke: each ProbabilityModel completes ask→evaluate→tell with finite metrics.
-test-eda-smoke:
-    cargo test -p rlevo-evolution --test eda_smoke
-
-# Weight-only neuroevolution: WeightOnly<GA> + ModuleEvalFn evolves an MLP to fit a noisy sine (directional MSE improvement).
-test-neuroevolution:
-    cargo test -p rlevo-evolution --test neuroevolution_supervised
-
-# Policy neuroevolution smoke: PolicyNeuroevolution runs 2 generations on CartPole without panic (correctness, not convergence).
-test-policy-neuroevolution:
-    cargo test -p rlevo-hybrid --test cartpole_smoke
-
-# ── Integration tests (rlevo umbrella) ──────────────────────────────────────
-
-# Cross-crate integration: core + RL replay/metrics.
-test-integration:
-    cargo test -p rlevo --test integration_test
-
-# Recording/episode-count off-by-one regression.
-test-recording:
-    cargo test -p rlevo --test recording_episode_count --features="viz-report"
-
-# Evaluator harness smoke tests.
-test-evaluator:
-    cargo test -p rlevo --test evaluator_smoke
-
-# Rastrigin-D10 end-to-end suite (real-valued EA strategies via harness).
-test-rastrigin:
-    cargo test -p rlevo --test rastrigin_run_suite
-
-# Every shipping swarm strategy on Rastrigin-D10 and Ackley-D10.
-test-swarm:
-    cargo test -p rlevo --test swarm_rastrigin_suite
-
-# Memetic headline acceptance: wrapper beats bare DE on evals-to-target (>=30% fewer).
-test-memetic:
-    cargo test -p rlevo --test memetic_rastrigin
-
-# Memetic calibration explorer [ignored: multi-seed sweep for re-pinning the margin].
-test-memetic-calibration:
-    cargo test -p rlevo --test memetic_rastrigin --release -- calibration_explorer --ignored --nocapture
-
-# EDA convergence: all four ProbabilityModels reach the Sphere-D10 gate, and
-# MIMIC beats UMDA's median on Rosenbrock-D10 across 9 fixed seeds.
-test-eda:
-    cargo test -p rlevo --test eda_convergence
-
-# EDA determinism: all five ProbabilityModels produce bit-identical trajectories from the same seed.
-test-eda-determinism:
-    cargo test -p rlevo --test determinism
-
-# Co-evolution harness: CoEvolutionaryHarness driven by rlevo-benchmarks Evaluator end-to-end.
-test-coevo-harness:
-    cargo test -p rlevo --test coevolution_harness
-
-# Post-run record → report pipeline smoke [requires viz-report feature].
-test-report-smoke:
-    cargo test -p rlevo --test cartpole_report_smoke --features viz-report
-
-# PPO — Pendulum improves over random [ignored: ~30s on Flex].
-test-ppo-pendulum:
-    cargo test -p rlevo --test ppo_integration -- ppo_pendulum_improves_over_random --ignored
-
-# PPG — without aux phase matches PPO baseline [ignored: smoke run].
-test-ppg-no-aux:
-    cargo test -p rlevo --test ppg_integration -- ppg_without_aux_phase_matches_ppo_baseline --ignored
-
-# PPG — aux phase actually runs [ignored: smoke run].
-test-ppg-aux:
-    cargo test -p rlevo --test ppg_integration -- ppg_aux_phase_actually_runs --ignored
-
-# DDPG — fast plumbing tests only (deterministic-act check); heavy LinearEnv + Pendulum runs are #[ignore]d (see .github/workflows/weekly-tests.yml).
-test-ddpg:
-    cargo test -p rlevo --test ddpg_integration
-
-# TD3 — fast plumbing tests only (deterministic-act + delayed-update); LinearEnv via test-td3-linear, Pendulum #[ignore]d (see .github/workflows/weekly-tests.yml).
-test-td3:
-    cargo test -p rlevo --test td3_integration
-
-# TD3 — LinearEnv beats a measured random baseline [ignored: ~8 000-step run].
-test-td3-linear:
-    cargo test -p rlevo --test td3_integration -- td3_linear_improves_over_random --ignored
-
-# SAC — fast plumbing tests only (alpha + reproducibility); heavy LinearEnv + Pendulum runs are #[ignore]d (see .github/workflows/weekly-tests.yml).
-test-sac:
-    cargo test -p rlevo --test sac_integration
+# Note: integration_test, recording_episode_count, evaluator_smoke,
+# rastrigin_run_suite, swarm_rastrigin_suite, and cartpole_report_smoke (all
+# `crates/rlevo/tests/`) are covered by crate-tests.yml's `rlevo` matrix entry
+# (`cargo test --package rlevo --features viz-report` — a superset of the
+# default features, so every non-ignored rlevo test binary runs there). Use
+# `just test-one rlevo <name> [--features viz-report]` to run one in isolation.
 
 # ── viz-examples CI targets ─────────────────────────────────────────────────
 

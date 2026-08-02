@@ -172,13 +172,19 @@ jobs:
           - rlevo
         include:
           # `crates/rlevo/tests/recording_episode_count.rs` and
-          # `cartpole_report_smoke.rs` use `rlevo_benchmarks::record` and the
-          # report emitter unconditionally — neither file is `#![cfg]`-gated —
-          # and `viz-report` is not among `rlevo`'s default features. A bare
-          # `cargo test -p rlevo` therefore fails to *compile* those two
-          # binaries rather than skipping them.
+          # `cartpole_report_smoke.rs` are gated behind `required-features =
+          # ["viz-report"]` (crates/rlevo/Cargo.toml), which is not among
+          # `rlevo`'s default features. A bare `cargo test -p rlevo` silently
+          # *skips* both binaries rather than running them.
           - crate: rlevo
             features: --features viz-report
+          # `crates/rlevo-benchmarks/tests/wire_format_compat.rs` (native
+          # EpisodeRecord vs. browser-client wire-format mirror parity) is
+          # `#![cfg(feature = "record")]`, which is not among
+          # `rlevo-benchmarks`'s default features (`json` only). Without this
+          # override the file compiles to nothing and the test never runs.
+          - crate: rlevo-benchmarks
+            features: --features record
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
