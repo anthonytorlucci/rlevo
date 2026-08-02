@@ -466,8 +466,8 @@ impl BipedalWalker {
     ///
     /// The formula is:
     ///
-    /// ```text
-    /// reward = vel_x − 0.3 × (a₀² + a₁² + a₂² + a₃²)
+    /// ```math
+    /// \text{reward} = \text{vel\_x} - 0.3 \times (a_0^2 + a_1^2 + a_2^2 + a_3^2)
     /// ```
     ///
     /// where `vel_x` is the hull's horizontal velocity (world units per second)

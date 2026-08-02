@@ -167,7 +167,7 @@ use serde::{Deserialize, Serialize};
 /// Implement this trait only when you need custom dynamics; prefer the
 /// provided types for standard use.
 pub trait AcrobotDynamicsFn: fmt::Debug + Clone + Send + Sync {
-    /// Computes the state derivative `dθ1/dt, dθ2/dt, d²θ1/dt², d²θ2/dt²`
+    /// Computes the state derivative `$\dot\theta_1, \dot\theta_2, \ddot\theta_1, \ddot\theta_2$`
     /// for the given state and torque.
     ///
     /// `s` is `[theta1, theta2, dtheta1, dtheta2]` and `a` is the applied
@@ -178,7 +178,7 @@ pub trait AcrobotDynamicsFn: fmt::Debug + Clone + Send + Sync {
 
 /// Sutton & Barto textbook dynamics — the Gymnasium default.
 ///
-/// Includes the full `2·dθ2·dθ1` Coriolis cross-term and the `dθ1²`
+/// Includes the full `$2 \cdot \dot\theta_2 \cdot \dot\theta_1$` Coriolis cross-term and the `$\dot\theta_1^2$`
 /// centripetal term in φ₁. This is the recommended choice for reproducing
 /// published benchmark results.
 #[derive(Debug, Clone, Copy, Default)]
@@ -186,7 +186,7 @@ pub struct BookDynamics;
 
 /// Original NIPS-1995 dynamics — omits certain cross-terms.
 ///
-/// φ₁ drops the `2·dθ2·dθ1` Coriolis cross-term and the `dθ1²`
+/// φ₁ drops the `$2 \cdot \dot\theta_2 \cdot \dot\theta_1$` Coriolis cross-term and the `$\dot\theta_1^2$`
 /// centripetal term present in [`BookDynamics`]. Produces subtly different
 /// trajectories and is provided for historical reproducibility.
 #[derive(Debug, Clone, Copy, Default)]
@@ -322,9 +322,9 @@ pub struct AcrobotConfig {
     pub link_moi: f32,
     /// Gravitational acceleration (m/s²). Default: `9.8`.
     pub gravity: f32,
-    /// Max angular velocity for joint 1 (rad/s). Default: `4π`.
+    /// Max angular velocity for joint 1 (rad/s). Default: `$4\pi$`.
     pub max_vel_1: f32,
-    /// Max angular velocity for joint 2 (rad/s). Default: `9π`.
+    /// Max angular velocity for joint 2 (rad/s). Default: `$9\pi$`.
     pub max_vel_2: f32,
     /// Uniform noise added to the applied torque. `0` = deterministic. Default: `0.0`.
     pub torque_noise_max: f32,
@@ -544,7 +544,7 @@ pub struct AcrobotObservation {
 }
 
 impl AcrobotObservation {
-    /// Flattens the observation to `[cos θ1, sin θ1, cos θ2, sin θ2, dθ1, dθ2]`.
+    /// Flattens the observation to `$[\cos\theta_1, \sin\theta_1, \cos\theta_2, \sin\theta_2, \dot\theta_1, \dot\theta_2]$`.
     #[must_use]
     pub fn to_array(&self) -> [f32; 6] {
         [
@@ -781,7 +781,7 @@ impl<D: AcrobotDynamicsFn> Sensor<1, 1, 1> for Acrobot<D> {
     type State = AcrobotState;
     type Observation = AcrobotObservation;
 
-    /// Projects the resulting state to the 6-D `[cos θ, sin θ, θ̇]` observation;
+    /// Projects the resulting state to the 6-D `$[\cos\theta, \sin\theta, \dot\theta]$` observation;
     /// the observation is a pure trigonometric function of the state and ignores
     /// the applied torque.
     fn observe(&self, _action: &AcrobotAction, next_state: &AcrobotState) -> AcrobotObservation {
@@ -794,7 +794,7 @@ impl<D: AcrobotDynamicsFn> Sensor<1, 1, 1> for Acrobot<D> {
     }
 }
 
-/// Builds the 6-D Acrobot observation `[cos θ1, sin θ1, cos θ2, sin θ2, θ̇1, θ̇2]`
+/// Builds the 6-D Acrobot observation `$[\cos\theta_1, \sin\theta_1, \cos\theta_2, \sin\theta_2, \dot\theta_1, \dot\theta_2]$`
 /// from a state.
 fn acrobot_observation(state: &AcrobotState) -> AcrobotObservation {
     AcrobotObservation {

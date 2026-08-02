@@ -26,7 +26,7 @@ use super::importance_exponent::ImportanceExponent;
 /// Schaul et al. (2016) Table 3's β start for the proportional variant.
 pub const DEFAULT_BETA_START: f32 = 0.4;
 
-/// Schaul et al. (2016) Table 3's annealed β endpoint (`β → 1`).
+/// Schaul et al. (2016) Table 3's annealed β endpoint (`$\beta \to 1$`).
 pub const DEFAULT_BETA_END: f32 = 1.0;
 
 /// Default number of env steps over which β anneals from
@@ -110,7 +110,7 @@ pub struct PrioritizedReplaySettings {
     /// Defaults to [`DEFAULT_PRIORITY_EXPONENT`] (Table 3, proportional row).
     pub priority_exponent: f32,
 
-    /// Schaul §3.3's ε in `p_i = |δ_i| + ε`. Must be finite and strictly
+    /// Schaul §3.3's ε in `$p_i = |\delta_i| + \epsilon$`. Must be finite and strictly
     /// positive. Defaults to [`DEFAULT_PRIORITY_EPSILON`].
     pub priority_epsilon: f32,
 

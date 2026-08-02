@@ -9,12 +9,12 @@
 //!    policy network's trunk, trained against the same target returns as the
 //!    main value network.
 //! 2. `logits(obs) → logits(s)` — access to the raw pre-softmax logits so the
-//!    auxiliary phase can compute `KL(π_old ‖ π_new)` for distillation.
+//!    auxiliary phase can compute `$KL(\pi_{old} \Vert \pi_{new})$` for distillation.
 //!
 //! # Scope
 //!
 //! v1 of PPG is discrete-only: we expose logits directly and compute the KL
-//! via `Σ p_old · (log p_old − log p_new)`. A continuous analogue (exposing
+//! via `$\sum \text{p\_old} \cdot (\log \text{p\_old} - \log \text{p\_new})$`. A continuous analogue (exposing
 //! Gaussian distribution parameters) is a follow-up once a Gaussian PPG head
 //! drives a second concrete consumer — matching the "cross-algo abstraction
 //! waits until SAC/PPG drive a concrete second consumer" pattern noted in
@@ -42,7 +42,7 @@ pub trait PpgAuxValueHead<B: AutodiffBackend, const DB: usize>:
     /// Raw policy logits, shape `(batch, num_actions)`.
     ///
     /// Exposed so the auxiliary phase can compute
-    /// `KL(π_old ‖ π_new) = Σ softmax(old_logits) · (log_softmax(old_logits) − log_softmax(new_logits))`
+    /// `$KL(\pi_{old} \Vert \pi_{new}) = \sum \text{softmax}(\text{old\_logits}) \cdot (\text{log\_softmax}(\text{old\_logits}) - \text{log\_softmax}(\text{new\_logits}))$`
     /// for distillation. Returning logits (rather than pre-computed
     /// log-probs) keeps the KL kernel decoupled from how the network
     /// internally parameterises its distribution.

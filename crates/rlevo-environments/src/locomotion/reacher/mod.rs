@@ -21,14 +21,14 @@
 //! * Planar constraint: both links have `enabled_translations(true, true, false)`
 //!   and `enabled_rotations(false, false, true)`.
 //! * Action: `Box(-1, 1, (2,))` — shoulder/elbow torque targets; applied as
-//!   `action · gear` with `gear = [200, 200]` (Gymnasium XML).
+//!   `$\text{action} \cdot \text{gear}$` with `gear = [200, 200]` (Gymnasium XML).
 //! * Observation (10-dim):
-//!   `[cos θ₁, cos θ₂, sin θ₁, sin θ₂, target_x, target_y, θ̇₁, θ̇₂,
-//!     (finger − target)_x, (finger − target)_y]`.
-//!   θ₂ is the **relative** elbow angle (link2 − link1), wrapped to `(-π, π]`.
+//!   `$[\cos\theta_1, \cos\theta_2, \sin\theta_1, \sin\theta_2, \text{target\_x}, \text{target\_y}, \dot\theta_1, \dot\theta_2,
+//!     (\text{finger} - \text{target})_x, (\text{finger} - \text{target})_y]$`.
+//!   θ₂ is the **relative** elbow angle (link2 − link1), wrapped to `$(-\pi, \pi]$`.
 //! * Reward: `reward_distance + reward_control` with
-//!   `reward_distance = −‖finger − target‖` and
-//!   `reward_control  = −0.1 · ‖action‖²`; both components ≤ 0.
+//!   `$\text{reward\_distance} = -\|\text{finger} - \text{target}\|$` and
+//!   `$\text{reward\_control} = -0.1 \cdot \|\text{action}\|^2$`; both components ≤ 0.
 //! * Termination: never (`TerminationMode::Never`).
 //! * Truncation: `max_steps = 50`.
 //!

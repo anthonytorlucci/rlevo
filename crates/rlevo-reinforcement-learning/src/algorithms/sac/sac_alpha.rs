@@ -1,10 +1,11 @@
-//! Learnable temperature `α = exp(log α)` for SAC's maximum-entropy objective.
+//! Learnable temperature `$\alpha = \exp(\log \alpha)$` for SAC's maximum-entropy objective.
 //!
 //! SAC's auto-tuning dual is a one-parameter optimisation:
 //!
-//! ```text
-//! L(log α) = −(log α · (log π(a|s) + H̄)).mean()
-//! ∂L/∂(log α) = −(log π.mean() + H̄)
+//! ```math
+//! L(\log \alpha) = -\big(\log \alpha \cdot (\log \pi(a|s) + \bar{H})\big).\text{mean}()
+//! \qquad
+//! \frac{\partial L}{\partial (\log \alpha)} = -\big(\overline{\log \pi} + \bar{H}\big)
 //! ```
 //!
 //! We don't need Burn's autodiff to take this gradient — it's a closed-form
@@ -13,7 +14,7 @@
 //! manager: an orphan `Param` registered with `require_grad` can cause the
 //! server to prune shared leaf nodes during the critic's first backward,
 //! panicking the second critic's backward with "Node should have a step
-//! registered". Keeping `log α` as a plain `f32` with hand-rolled Adam
+//! registered". Keeping `$\log \alpha$` as a plain `f32` with hand-rolled Adam
 //! sidesteps the interaction entirely.
 //!
 //! # Relation to the published objective
@@ -21,23 +22,23 @@
 //! The canonical dual is Haarnoja et al., *Soft Actor-Critic Algorithms and
 //! Applications* (arXiv:1812.05905), Eq. 18:
 //!
-//! ```text
-//! J(α) = E_{a∼π}[ −α log π(a|s) − α H̄ ]
+//! ```math
+//! J(\alpha) = \mathbb{E}_{a \sim \pi}\big[-\alpha \log \pi(a|s) - \alpha \bar{H}\big]
 //! ```
 //!
-//! with the target entropy `H̄ = −dim(A)`, the default heuristic from that
+//! with the target entropy `$\bar{H} = -\text{dim}(A)$`, the default heuristic from that
 //! paper's Appendix D / Table 1.
 //!
-//! Note that the paper writes the dual in terms of **α**, not `log α`.
-//! Optimising `log α` unconstrained — as this module does — is an
+//! Note that the paper writes the dual in terms of **α**, not `$\log \alpha$`.
+//! Optimising `$\log \alpha$` unconstrained — as this module does — is an
 //! *implementation convention* shared by softlearning (the authors' own
 //! code), rlkit, `CleanRL` and Stable-Baselines3. Its only effect is to enforce
-//! `α ≥ 0` by construction; it carries no other guarantee from the paper.
+//! `$\alpha \geq 0$` by construction; it carries no other guarantee from the paper.
 //!
 //! # Deliberate deviations from every reference implementation
 //!
 //! This module applies two hardenings that appear in **no** reference SAC:
-//! softlearning, rlkit, `CleanRL` and SB3 all leave `log α` unbounded, and none
+//! softlearning, rlkit, `CleanRL` and SB3 all leave `$\log \alpha$` unbounded, and none
 //! of them guards the α optimiser against a non-finite gradient. Both are
 //! `rlevo` deviations, justified as defensive engineering rather than as
 //! standard practice. They fix **different** problems and are separable.
@@ -45,13 +46,13 @@
 //! ## 1. Skipping the update on a non-finite gradient
 //!
 //! The gradient `g = −(log π.mean() + H̄)` is host-side `f32`. A collapsed
-//! squashed-Gaussian policy legitimately produces `NaN`/`±Inf` `log π` on
+//! squashed-Gaussian policy legitimately produces `NaN`/`±Inf` `$\log \pi$` on
 //! out-of-distribution actions, and a diverging critic can feed the same
 //! through reparameterisation.
 //!
 //! Because Adam's moments are exponential moving averages
 //! (`m ← β₁·m + (1−β₁)·g`), folding one non-finite `g` into `m`/`v` poisons
-//! both buffers **permanently**: every subsequent `log α` is `NaN` no matter
+//! both buffers **permanently**: every subsequent `$\log \alpha$` is `NaN` no matter
 //! how healthy later gradients are. This is unlike the actor/critic
 //! optimisers, which are rebuilt from fresh gradients each step and therefore
 //! self-heal. [`LogAlpha::adam_step`] therefore returns without touching any
@@ -62,7 +63,7 @@
 //! to `+inf` from roughly `|g| ≳ 10²¹` while `g` itself is still an ordinary
 //! finite float. `v = +inf` is absorbing under the moving average, so
 //! `v_hat.sqrt()` is `inf` and every later step size is exactly `0`: the
-//! controller freezes **silently**, with no `NaN` and no unusual `log α` to
+//! controller freezes **silently**, with no `NaN` and no unusual `$\log \alpha$` to
 //! betray it. That is a worse failure than the `NaN` one — nothing observable
 //! goes wrong except that the entropy constraint quietly stops being
 //! enforced. Both moments are therefore computed into locals and committed
@@ -88,8 +89,8 @@
 //! This path is reachable without adversarial inputs: the
 //! [SAC policy head](super::sac_policy) clamps `log_std`, but the Gaussian
 //! **mean** is an unclamped `Linear` output, so a diverging mean against a
-//! near-floor `std` makes `((a − μ)/σ)²` enormous yet finite, and
-//! `log π` follows.
+//! near-floor `std` makes `$((a - \mu)/\sigma)^2$` enormous yet finite, and
+//! `$\log \pi$` follows.
 //!
 //! The idiom is precedented outside RL by `PyTorch` AMP's `GradScaler`, which
 //! skips `optimizer.step()` when the unscaled gradients contain `inf`/`NaN`.
@@ -97,20 +98,20 @@
 //! objection raised against the tensor-side guard debated in #173 does not
 //! apply here.
 //!
-//! ## 2. Clamping `log α` as a backstop
+//! ## 2. Clamping `$\log \alpha$` as a backstop
 //!
-//! `log α` is confined to `[-88, 88]` so that `α = exp(log α)` is finite
+//! `$\log \alpha$` is confined to `[-88, 88]` so that `$\alpha = \exp(\log \alpha)$` is finite
 //! (`exp(88.7) ≈ f32::MAX`). SAC's legitimate α range is roughly `[0, 10]`,
-//! i.e. `log α ≤ 2.3`, so the bound is provably non-binding in any healthy
+//! i.e. `$\log \alpha \leq 2.3$`, so the bound is provably non-binding in any healthy
 //! run and no converging run's numbers change.
 //!
 //! This is **not** a fix for the poisoned-moment bug above: once `NaN` is in
 //! the EMA it stays there whatever is done to the parameter. It is an
-//! independent guard against `α` overflowing to `inf` and is also unrelated
-//! to the `log σ` clamp on the policy heads, which bounds a different
+//! independent guard against `$\alpha$` overflowing to `inf` and is also unrelated
+//! to the `$\log \sigma$` clamp on the policy heads, which bounds a different
 //! parameter for a different reason.
 
-/// Stateful `log α` with its own scalar Adam first/second-moment estimates.
+/// Stateful `$\log \alpha$` with its own scalar Adam first/second-moment estimates.
 ///
 /// The Adam hyperparameters are fixed at `CleanRL`'s defaults (β₁ = 0.9,
 /// β₂ = 0.999, ε = 1 × 10⁻⁸) and are not exposed as configuration. The
@@ -158,12 +159,12 @@ pub struct LogAlpha {
     bias_corrected_overflow_warned: bool,
 }
 
-/// Lower bound on `log α`, chosen so `exp` cannot underflow to a subnormal.
+/// Lower bound on `$\log \alpha$`, chosen so `exp` cannot underflow to a subnormal.
 ///
 /// See the [module docs](self) for why this is non-binding in healthy runs.
 const LOG_ALPHA_MIN: f32 = -88.0;
 
-/// Upper bound on `log α`, chosen so `exp(log α)` stays finite in `f32`
+/// Upper bound on `$\log \alpha$`, chosen so `$\exp(\log \alpha)$` stays finite in `f32`
 /// (`exp(88.7) ≈ f32::MAX`).
 const LOG_ALPHA_MAX: f32 = 88.0;
 
@@ -184,15 +185,15 @@ impl LogAlpha {
         }
     }
 
-    /// Current `log α`.
+    /// Current `$\log \alpha$`.
     #[must_use]
     pub fn log_alpha(&self) -> f32 {
         self.log_alpha
     }
 
-    /// Current `α = exp(log α)`.
+    /// Current `$\alpha = \exp(\log \alpha)$`.
     ///
-    /// `log α` is clamped to `[LOG_ALPHA_MIN, LOG_ALPHA_MAX]` before
+    /// `$\log \alpha$` is clamped to `[LOG_ALPHA_MIN, LOG_ALPHA_MAX]` before
     /// exponentiating, so the returned α is always finite. See the
     /// [module docs](self) for why the bound never binds in a healthy run.
     #[must_use]
@@ -210,7 +211,7 @@ impl LogAlpha {
     ///
     /// # Skipped updates
     ///
-    /// The step is **skipped in full** — `m`, `v`, `t` and `log α` all left
+    /// The step is **skipped in full** — `m`, `v`, `t` and `$\log \alpha$` all left
     /// untouched — in either of two cases, each with its own one-shot
     /// `tracing::warn!`:
     ///
@@ -223,9 +224,9 @@ impl LogAlpha {
     ///
     /// # Arguments
     ///
-    /// * `log_prob_mean` — batch mean of `log π(a|s)` under the current
+    /// * `log_prob_mean` — batch mean of `$\log \pi(a|s)$` under the current
     ///   policy.
-    /// * `target_entropy` — the constraint `H̄`, conventionally `−dim(A)`.
+    /// * `target_entropy` — the constraint `$\bar{H}$`, conventionally `$-\text{dim}(A)$`.
     /// * `lr` — learning rate for this step.
     // Adam's step counter, u32 -> i32 for `powi`. Wrapping would need 2^31 updates,
     // by which point both bias corrections have long since saturated at 1.0.
@@ -420,8 +421,8 @@ mod tests {
     #![allow(clippy::float_cmp)]
     use super::*;
 
-    /// With `log π` well below `target_entropy` (i.e. `log π + H̄ < 0`), the
-    /// closed-form gradient is positive so Adam pushes `log α` down.
+    /// With `$\log \pi$` well below `target_entropy` (i.e. `$\log \pi + \bar{H} < 0$`), the
+    /// closed-form gradient is positive so Adam pushes `$\log \alpha$` down.
     #[test]
     fn auto_alpha_decreases_when_logp_is_below_target_entropy() {
         let mut la = LogAlpha::new(0.0);
@@ -761,7 +762,7 @@ mod tests {
     // log_alpha clamp backstop
     // -----------------------------------------------------------------
 
-    /// `exp` overflows around `log α ≈ 88.7`, so an absurd `log α` — reachable
+    /// `exp` overflows around `$\log \alpha \approx 88.7$`, so an absurd `$\log \alpha$` — reachable
     /// only via a pathological gradient sequence — must still yield a finite α.
     #[test]
     fn alpha_is_finite_for_absurd_log_alpha_magnitudes() {
@@ -831,7 +832,7 @@ mod tests {
         );
     }
 
-    /// Repeated steps must drive `log α` well inside the clamp: the bound is a
+    /// Repeated steps must drive `$\log \alpha$` well inside the clamp: the bound is a
     /// backstop for pathological runs, not part of the normal control loop.
     #[test]
     fn clamp_does_not_bind_in_a_realistic_run() {

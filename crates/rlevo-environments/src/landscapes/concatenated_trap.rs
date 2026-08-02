@@ -6,9 +6,12 @@
 //! cost that depends only on its *unitation* `u` (the number of 1-bits in the
 //! block), and the total objective is the sum across blocks:
 //!
-//! ```text
-//!   cost(u) = 0        if u == k        (all-ones block)
-//!   cost(u) = u + 1    otherwise
+//! ```math
+//! \text{cost}(u) =
+//! \begin{cases}
+//!   0     & \text{if } u = k \text{ (all-ones block)} \\
+//!   u + 1 & \text{otherwise}
+//! \end{cases}
 //! ```
 //!
 //! For a trap of order `k = 5`, the per-block cost table is:
@@ -162,9 +165,12 @@ impl ConcatenatedTrap {
     /// passes through the global optimum at the `(1, 1)` corner. Each driven
     /// block uses a continuous relaxation of the trap cost:
     ///
-    /// ```text
-    ///   cost(p) = 1 + (k − 1)·p   for p < 1   (deceptive ramp away from 1)
-    ///   cost(p) = 0               for p >= 1  (the rewarding all-ones state)
+    /// ```math
+    /// \text{cost}(p) =
+    /// \begin{cases}
+    ///   1 + (k - 1) p & \text{for } p < 1 \text{ (deceptive ramp away from 1)} \\
+    ///   0             & \text{for } p \geq 1 \text{ (the rewarding all-ones state)}
+    /// \end{cases}
     /// ```
     ///
     /// `x`/`y` are clamped to `[0, 1]`. When `num_blocks == 1` only `x` drives

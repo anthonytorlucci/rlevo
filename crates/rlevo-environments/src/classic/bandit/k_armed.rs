@@ -1,7 +1,7 @@
 //! K-armed bandit environment — Sutton & Barto, *Reinforcement Learning*, §2.
 //!
 //! Stateless k-armed bandit generic over the number of arms `K`. On each step
-//! the agent selects an arm `a ∈ {0, …, K-1}` and receives a reward sampled
+//! the agent selects an arm `$a \in \{0, \ldots, K-1\}$` and receives a reward sampled
 //! from `N(q*(a), 1)` where the true means `q*(a)` are themselves drawn from
 //! `N(0, 1)` at construction (and re-drawn from the same seed on
 //! [`Environment::reset`]).

@@ -316,7 +316,7 @@ impl Observation<1> for PendulumObservation {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Map angle to `(-π, π]`.
+/// Map angle to `$(-\pi, \pi]$`.
 ///
 /// Uses `rem_euclid` to handle negative inputs correctly.
 #[inline]
@@ -454,7 +454,7 @@ impl Sensor<1, 1, 1> for Pendulum {
     type State = PendulumState;
     type Observation = PendulumObservation;
 
-    /// Projects the resulting state to the 3-D `[cos θ, sin θ, θ̇]` observation;
+    /// Projects the resulting state to the 3-D `$[\cos\theta, \sin\theta, \dot\theta]$` observation;
     /// the observation is a pure function of the state and ignores the torque.
     fn observe(&self, _action: &PendulumAction, next_state: &PendulumState) -> PendulumObservation {
         pendulum_observation(*next_state)
@@ -466,7 +466,7 @@ impl Sensor<1, 1, 1> for Pendulum {
     }
 }
 
-/// Builds the 3-D Pendulum observation `[cos θ, sin θ, θ̇]` from a state.
+/// Builds the 3-D Pendulum observation `$[\cos\theta, \sin\theta, \dot\theta]$` from a state.
 fn pendulum_observation(state: PendulumState) -> PendulumObservation {
     PendulumObservation {
         cos_theta: state.theta.cos(),

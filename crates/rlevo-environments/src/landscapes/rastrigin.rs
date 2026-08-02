@@ -1,7 +1,7 @@
 //! Rastrigin function — a classical multimodal benchmark for EAs.
 //!
-//! `f(x) = A·n + Σ (x_i² − A·cos(2π x_i))`, with `A = 10`, global minimum
-//! at `x = 0` where `f(0) = 0`. Commonly evaluated over `[-5.12, 5.12]^n`.
+//! `$f(x) = A \cdot n + \sum (x_i^2 - A \cos(2\pi x_i))$`, with `$A = 10$`, global minimum
+//! at `$x = 0$` where `$f(0) = 0$`. Commonly evaluated over `$[-5.12, 5.12]^n$`.
 
 use std::f64::consts::PI;
 
@@ -21,7 +21,7 @@ impl Rastrigin {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] if `dim == 0`: the `A·n` offset collapses to `0`
+    /// Returns [`ConfigError`] if `dim == 0`: the `$A \cdot n$` offset collapses to `0`
     /// and the per-coordinate sum is empty, so `f` is identically `0` — the
     /// Rastrigin's global optimum — for every input.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {

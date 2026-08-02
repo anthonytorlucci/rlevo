@@ -1,14 +1,14 @@
 //! Deb's function No.01 — `10^n` degenerate global minima of equal value.
 //!
-//! `f(x) = −(1/n)·Σ sin⁶(5π·x_i)`, global minimum `f* = −1` attained whenever
-//! every `x_i ∈ {−0.9, −0.7, …, −0.1, 0.1, …, 0.9}` — ten optima per dimension,
+//! `$f(x) = -\left(\frac{1}{n}\right) \cdot \sum \sin^6(5\pi \cdot x_i)$`, global minimum `f* = −1` attained whenever
+//! every `$x_i \in \{-0.9, -0.7, \ldots, -0.1, 0.1, \ldots, 0.9\}$` — ten optima per dimension,
 //! `10^n` in total. The function is separable and differentiable; it tests
 //! whether convergence metrics and population-diversity handling cope with
 //! non-unique solutions.
 //!
 //! Evaluated over `[-1, 1]^n`. (The CEC 2013 `[0, 1]` "Equal Maxima" variant is a
 //! different function with `5^n` optima.) Because the optima count explodes,
-//! meaningful benchmarking is restricted to `n ≤ 2`. Requires `n ≥ 1`.
+//! meaningful benchmarking is restricted to `$n \leq 2$`. Requires `$n \geq 1$`.
 
 use std::f64::consts::PI;
 

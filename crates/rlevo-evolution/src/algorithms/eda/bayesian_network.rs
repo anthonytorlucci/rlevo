@@ -36,8 +36,8 @@
 //! selected rows in which the parents take packed configuration `c` and gene `v`
 //! takes bit `x ∈ {0, 1}`, and `N(c) = N(c, 0) + N(c, 1)`:
 //!
-//! ```text
-//! score(v, Pa) = Σ_c Σ_x  N(c, x) · ln( N(c, x) / N(c) )  −  (ln(n) / 2) · 2^q
+//! ```math
+//! \text{score}(v, Pa) = \sum_c \sum_x N(c, x) \cdot \ln\left( \frac{N(c, x)}{N(c)} \right) - \frac{\ln(n)}{2} \cdot 2^q
 //! ```
 //!
 //! The log-likelihood term rewards parents that make `v` more predictable; the
@@ -157,7 +157,7 @@ pub struct BayesianNetworkState {
 /// rationale, bit-packing, and references). Fitness is accepted but ignored; the
 /// fit is always unweighted and non-incremental.
 ///
-/// [`fit`](ProbabilityModel::fit) is `O(D² · N · κ)`;
+/// [`fit`](ProbabilityModel::fit) is `$O(D^2 \cdot N \cdot \kappa)$`;
 /// [`sample`](ProbabilityModel::sample) is `O(D)` per individual.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BayesianNetwork;
@@ -201,8 +201,8 @@ fn pack_config(bits: &[u8], row_base: usize, parents: &[usize]) -> usize {
 ///
 /// Single pass over the `n` rows: pack each row's parent config and increment
 /// `counts[config * 2 + bit_v]`. The likelihood term sums
-/// `N(c, x) · ln(N(c, x) / N(c))` over occupied cells (zero counts skipped), and
-/// the `½·ln(n)·2^q` complexity penalty applies regardless of which configs were
+/// `$N(c, x) \cdot \ln(N(c, x) / N(c))$` over occupied cells (zero counts skipped), and
+/// the `$\frac{1}{2} \cdot \ln(n) \cdot 2^q$` complexity penalty applies regardless of which configs were
 /// observed. All arithmetic is `f64`; scores use raw MLE counts.
 //
 // Single-char math names (n, d, v, q, c, x) mirror the BIC formula and the
@@ -257,10 +257,10 @@ fn insert_sorted(parents: &mut Vec<usize>, value: usize) {
     parents.insert(pos, value);
 }
 
-/// Does adding edge `u → v` create a cycle?
+/// Does adding edge `$u \to v$` create a cycle?
 ///
 /// A cycle appears iff `v` is already an ancestor of `u`. Iterative DFS upward
-/// from `u` through `parents[]`, looking for `v`. `O(D·κ)` per check.
+/// from `u` through `parents[]`, looking for `v`. `$O(D \cdot \kappa)$` per check.
 fn creates_cycle(parents: &[Vec<usize>], u: usize, v: usize) -> bool {
     let d = parents.len();
     let mut visited = vec![false; d];
@@ -328,7 +328,7 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
     /// 1. Bitizes the selected rows to `{0, 1}` via `>= 0.5`.
     /// 2. Greedily adds the highest-BIC-gain edge each round (subject to the
     ///    `max_parents` cap and acyclicity) until no strictly-positive gain
-    ///    remains, using a `D × D` gain cache.
+    ///    remains, using a `$D \times D$` gain cache.
     /// 3. Estimates Laplace-smoothed CPTs from the final structure.
     /// 4. Computes a deterministic topological order (Kahn, min-index).
     ///
@@ -514,7 +514,7 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
 
     /// Draw `n` binary genomes by ancestral sampling along the topological order.
     ///
-    /// Each gene `v` is sampled from `P(v = 1 | parents)` read out of its CPT at
+    /// Each gene `v` is sampled from `$P(v = 1 \mid \text{parents})$` read out of its CPT at
     /// the bit-packed parent configuration (parents already sampled, since the
     /// traversal follows the topological order). Exactly one `rng.random::<f32>()`
     /// call is consumed per gene regardless of structure, keeping RNG

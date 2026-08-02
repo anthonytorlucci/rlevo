@@ -9,8 +9,8 @@ use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConver
 use serde::{Deserialize, Serialize};
 
 /// 10-dim observation. Layout:
-/// `[cos θ₁, cos θ₂, sin θ₁, sin θ₂, target_x, target_y, θ̇₁, θ̇₂,
-///   (finger − target)_x, (finger − target)_y]`.
+/// `$[\cos\theta_1, \cos\theta_2, \sin\theta_1, \sin\theta_2, \text{target\_x}, \text{target\_y}, \dot\theta_1, \dot\theta_2,
+///   (\text{finger} - \text{target})_x, (\text{finger} - \text{target})_y]$`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ReacherObservation(pub [f32; 10]);
 
@@ -21,8 +21,8 @@ impl ReacherObservation {
         self.0[0]
     }
 
-    /// Cosine of the elbow (link 2) **relative** angle θ₂ = `θ_world2` − θ₁,
-    /// wrapped to `(-π, π]`. Index 1.
+    /// Cosine of the elbow (link 2) **relative** angle θ₂ = `$\theta_{\text{world2}}$` − θ₁,
+    /// wrapped to `$(-\pi, \pi]$`. Index 1.
     #[must_use]
     pub const fn theta2_cos(&self) -> f32 {
         self.0[1]
@@ -54,15 +54,15 @@ impl ReacherObservation {
         self.0[6]
     }
 
-    /// Elbow **relative** angular velocity θ̇₂ = `ω_link2` − `ω_link1` in
+    /// Elbow **relative** angular velocity θ̇₂ = `$\omega_{\text{link2}} - \omega_{\text{link1}}$` in
     /// rad s⁻¹. Index 7.
     #[must_use]
     pub const fn theta2_dot(&self) -> f32 {
         self.0[7]
     }
 
-    /// Vector from the fingertip to the target in world frame: `[finger_x −
-    /// target_x, finger_y − target_y]` in metres. The L2 norm of this vector
+    /// Vector from the fingertip to the target in world frame: `$[\text{finger\_x} -
+    /// \text{target\_x}, \text{finger\_y} - \text{target\_y}]$` in metres. The L2 norm of this vector
     /// is the distance term in the reward. Indices 8–9.
     #[must_use]
     pub const fn finger_minus_target_xy(&self) -> [f32; 2] {

@@ -6,11 +6,12 @@
 //! dimension from a Gaussian kernel centred on an archive solution
 //! selected by rank-weighted roulette:
 //!
-//! 1. Compute per-archive, per-dim `σ_{l,d} = ξ · mean_e |x_{e,d} − x_{l,d}|`.
+//! 1. Compute per-archive, per-dim
+//!    `$\sigma_{l,d} = \xi \cdot \text{mean}_e |x_{e,d} - x_{l,d}|$`.
 //! 2. For every offspring `i` and every dimension `d`:
-//!    - Sample an archive index `l ∼ Categorical(w)` where
-//!      `w_l ∝ exp(−(rank_l − 1)² / (2·q²·k²))`.
-//!    - Sample `x_{i,d} ∼ N(x_{l,d}, σ_{l,d})`.
+//!    - Sample an archive index `$l \sim \text{Categorical}(w)$` where
+//!      `$w_l \propto \exp(-(\text{rank}_l - 1)^2 / (2 q^2 k^2))$`.
+//!    - Sample `$x_{i,d} \sim N(x_{l,d}, \sigma_{l,d})$`.
 //! 3. Evaluate offspring, merge with archive, keep top `k`.
 //!
 //! # References
@@ -131,7 +132,8 @@ impl<B: Backend> AntColonyReal<B> {
         }
     }
 
-    /// Compute rank-based archive weights `w_l ∝ exp(−(l−1)² / (2·q²·k²))`.
+    /// Compute rank-based archive weights
+    /// `$w_l \propto \exp(-(l-1)^2 / (2 q^2 k^2))$`.
     fn compute_weights(archive_size: usize, q: f32) -> Vec<f32> {
         #[allow(clippy::cast_precision_loss)]
         let k = archive_size as f32;
@@ -221,9 +223,10 @@ where
     ///
     /// 1. Selecting an archive index `l` by CDF-weighted roulette from
     ///    `state.weights` (host-side, via `seed_stream`).
-    /// 2. Computing `σ_{l,d} = ξ · mean_e |archive_{e,d} − archive_{l,d}|`
+    /// 2. Computing
+    ///    `$\sigma_{l,d} = \xi \cdot \text{mean}_e |\text{archive}_{e,d} - \text{archive}_{l,d}|$`
     ///    on-device.
-    /// 3. Sampling `x_{i,d} ~ N(archive_{l,d}, σ_{l,d})` host-side via
+    /// 3. Sampling `$x_{i,d} \sim N(\text{archive}_{l,d}, \sigma_{l,d})$` host-side via
     ///    `rand_distr::Normal` and a second `seed_stream`.
     ///
     /// Offspring are clamped to `params.bounds` before upload to the device.
@@ -509,7 +512,7 @@ mod tests {
 
     /// Builds a 3-row archive whose weights force the roulette in `ask` to
     /// always select archive row 0 (`weights = [1, 0, 0]` ⇒ CDF `[1, 1, 1]` ⇒
-    /// `pick(u) == 0` for every `u ∈ [0, 1)`), so the sampled mean is
+    /// `pick(u) == 0` for every `$u \in [0, 1)$`), so the sampled mean is
     /// deterministically `archive[0, :]`.
     fn state_forcing_row_zero(
         archive_vals: Vec<f32>,

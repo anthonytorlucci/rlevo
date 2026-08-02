@@ -1,25 +1,25 @@
 //! Built-in squashed-Gaussian policy head for SAC.
 //!
-//! Two-hidden-layer MLP emitting a state-conditional mean and `log σ` per
+//! Two-hidden-layer MLP emitting a state-conditional mean and `$\log \sigma$` per
 //! action dimension. Samples via the reparameterization trick
-//! `z = μ + σ·ε`, squashes to `a = action_scale · tanh(z) + action_bias`,
+//! `$z = \mu + \sigma \cdot \epsilon$`, squashes to `a = action_scale · tanh(z) + action_bias`,
 //! and returns the log-probability of `a` under the true squashed-Gaussian
 //! density — Jacobian correction included.
 //!
-//! # Why state-conditional `log σ`?
+//! # Why state-conditional `$\log \sigma$`?
 //!
 //! Unlike [PPO's continuous head](crate::algorithms::ppo::policies::gaussian),
 //! which uses a free `log_std` parameter and deliberately skips the tanh
 //! Jacobian (it cancels in the PPO ratio), SAC needs (a) a policy whose
 //! entropy can shrink in certainty regions and grow in uncertain ones, which
-//! requires `log σ` to depend on the observation, and (b) the exact log-density
+//! requires `$\log \sigma$` to depend on the observation, and (b) the exact log-density
 //! of the squashed sample because the entropy appears directly in both the
 //! Bellman target and the actor loss.
 //!
 //! # Numerical stability
 //!
-//! The tanh Jacobian `log(1 − tanh²(z))` is computed as
-//! `2·(ln 2 − z − softplus(−2·z))` — the identity used throughout the SAC
+//! The tanh Jacobian `$\log(1 - \tanh^2(z))$` is computed as
+//! `$2 \cdot (\ln 2 - z - \text{softplus}(-2z))$` — the identity used throughout the SAC
 //! literature to avoid catastrophic cancellation near the saturation region.
 
 use burn::module::Module;
@@ -41,19 +41,19 @@ pub struct SquashedGaussianPolicyHeadConfig {
     pub hidden: usize,
     /// Number of continuous action dimensions.
     pub action_dim: usize,
-    /// Clamp applied to the `log σ` head output. `CleanRL` uses `[-5, 2]`.
+    /// Clamp applied to the `$\log \sigma$` head output. `CleanRL` uses `[-5, 2]`.
     ///
     /// A [`Bounds`] rather than a `(min, max)` pair because the clamp that
     /// consumes it is [`Tensor::clamp`], whose `Flex` implementation delegates
     /// to [`f32::clamp`] and **panics** when `min > max` — while the autodiff
     /// path's default `clamp_min(clamp_max(x, max), min)` instead silently pins
-    /// every `log σ` to `min`. An inverted range is therefore a
+    /// every `$\log \sigma$` to `min`. An inverted range is therefore a
     /// backend-divergent failure, and `Bounds` makes it unrepresentable rather
     /// than merely rejected.
     ///
     /// `Bounds` permits the degenerate `lo == hi`; this config does not.
     /// [`validate`](Validate::validate) rejects it explicitly, because a
-    /// zero-width range pins `σ` to a constant for every observation.
+    /// zero-width range pins `$\sigma$` to a constant for every observation.
     pub log_std: Bounds,
     /// Multiplier applied to `tanh(z)` before the env sees the action.
     pub action_scale: f32,
@@ -126,14 +126,14 @@ impl Validate for SquashedGaussianPolicyHeadConfig {
     }
 }
 
-/// MLP → `(μ, log σ)` squashed-Gaussian head with tanh output.
+/// MLP → `$(\mu, \log \sigma)$` squashed-Gaussian head with tanh output.
 ///
 /// `log_std_min` / `log_std_max` / `action_scale` / `action_bias` are
 /// constants captured at construction time. They are **not** learnable and
 /// travel with the module only because Burn's `#[derive(Module)]` requires
 /// fields to be either `Param`s, sub-modules, or plain data.
 ///
-/// The two `log σ` bounds are stored as separate `f32`s rather than as the
+/// The two `$\log \sigma$` bounds are stored as separate `f32`s rather than as the
 /// config's [`Bounds`]: the clamp site is [`Tensor::clamp`], which takes two
 /// scalars, and keeping plain `f32` fields leaves the `#[derive(Module)]`
 /// plain-data classification and the module record untouched. The fields are
@@ -161,7 +161,7 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
         relu(self.fc2.forward(h))
     }
 
-    /// `(μ, log σ)` with `log σ` clamped to `[log_std_min, log_std_max]`.
+    /// `$(\mu, \log \sigma)$` with `$\log \sigma$` clamped to `[log_std_min, log_std_max]`.
     /// Exposed at crate visibility so the agent can pull the mean for
     /// deterministic evaluation without re-running the feature extractor.
     pub(crate) fn mean_and_log_std(&self, obs: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 2>) {
@@ -190,12 +190,12 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
         self.action_bias
     }
 
-    /// Clamp lower bound applied to `log σ`.
+    /// Clamp lower bound applied to `$\log \sigma$`.
     pub fn log_std_min(&self) -> f32 {
         self.log_std_min
     }
 
-    /// Clamp upper bound applied to `log σ`.
+    /// Clamp upper bound applied to `$\log \sigma$`.
     pub fn log_std_max(&self) -> f32 {
         self.log_std_max
     }
@@ -203,17 +203,19 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
 
 /// Shared reparameterized-sample math for the squashed-Gaussian policy.
 ///
-/// Given pre-computed `(μ, log σ)` tensors of shape `(batch, action_dim)`
-/// and a noise tensor `ε` of the same shape, computes:
+/// Given pre-computed `$(\mu, \log \sigma)$` tensors of shape `(batch, action_dim)`
+/// and a noise tensor `$\epsilon$` of the same shape, computes:
 ///
-/// ```text
-/// z          = μ + exp(log σ) · ε                  (reparameterization)
-/// log π(z)   = log N(z | μ, σ²) − log|det J_tanh|  (Jacobian-corrected)
-/// a          = action_scale · tanh(z) + action_bias  (squashed action)
+/// ```math
+/// \begin{aligned}
+/// z &= \mu + \exp(\log \sigma) \cdot \varepsilon &&\text{(reparameterization)} \\
+/// \log \pi(z) &= \log \mathcal{N}(z \mid \mu, \sigma^2) - \log|\det J_{\tanh}| &&\text{(Jacobian-corrected)} \\
+/// a &= \text{action\_scale} \cdot \tanh(z) + \text{action\_bias} &&\text{(squashed action)}
+/// \end{aligned}
 /// ```
 ///
-/// The Jacobian term `log(1 − tanh²(z))` is evaluated as
-/// `2·(ln 2 − z − softplus(−2z))` for numerical stability near saturation.
+/// The Jacobian term `$\log(1 - \tanh^2(z))$` is evaluated as
+/// `$2 \cdot (\ln 2 - z - \text{softplus}(-2z))$` for numerical stability near saturation.
 /// The `log|action_scale|` contribution is subtracted once per action
 /// dimension to account for the scale of the squashed sample.
 ///

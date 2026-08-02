@@ -3,7 +3,7 @@
 //! The [`QrDqnAgent`] struct owns the policy network (returning raw quantile
 //! values), a frozen target network, an Adam optimizer, a uniform replay
 //! buffer, and the ε-greedy exploration schedule shared with DQN. Action
-//! selection uses the mean-quantile Q-value `(1/N) · Σ_i θ_i(s, a)`; the
+//! selection uses the mean-quantile Q-value `$(1/N) \cdot \sum_i \theta_i(s, a)$`; the
 //! learning step computes target quantiles via a one-step Bellman backup on
 //! the bootstrap action's quantile vector — no categorical projection — and
 //! minimises the quantile Huber loss (see

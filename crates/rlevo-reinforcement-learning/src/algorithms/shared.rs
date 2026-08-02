@@ -279,11 +279,11 @@ where
 /// Reduces a per-sample `[batch]` loss to a scalar, first scaling each sample by
 /// its importance-sampling weight when the batch carries any.
 ///
-/// This is where Schaul Algorithm 1 line 13's `w_j · δ_j` enters an autodiff
-/// framework: multiplying the per-sample **loss** by `w_j` before reduction
-/// scales that sample's gradient contribution by `w_j`, exactly as the paper
+/// This is where Schaul Algorithm 1 line 13's `$w_j \cdot \delta_j$` enters an autodiff
+/// framework: multiplying the per-sample **loss** by `$w_j$` before reduction
+/// scales that sample's gradient contribution by `$w_j$`, exactly as the paper
 /// scales the per-sample update. The weight touches only the loss — never the
-/// TD-target computation and never `δ` itself (ADR 0050 §10, §14).
+/// TD-target computation and never `$\delta$` itself (ADR 0050 §10, §14).
 ///
 /// - **Uniform replay** emits [`SampledBatch::weights`] of `None`, so this is a
 ///   plain `.mean()` — **bit-identical** to the pre-PER reduction, which is what
@@ -293,7 +293,7 @@ where
 ///   that sample's contribution to both loss and gradient.
 ///
 /// The largest weight in a prioritized batch is exactly `1.0`, so a batch drawn
-/// with `β = 0` (all weights `1.0`) also reduces to a plain mean.
+/// with `$\beta = 0$` (all weights `1.0`) also reduces to a plain mean.
 pub(crate) fn reduce_weighted_loss<B: Backend>(
     per_sample: Tensor<B, 1>,
     batch: &SampledBatch,

@@ -116,7 +116,7 @@ use serde::{Deserialize, Serialize};
 // Named reward-component keys (spec A4)
 // ---------------------------------------------------------------------------
 
-/// Named component key for the per-step control cost (`-0.1 * force²`).
+/// Named component key for the per-step control cost (`$-0.1 \cdot \text{force}^2$`).
 pub const REWARD_CTRL: &str = "ctrl";
 /// Named component key for the goal-reaching bonus (`+100`).
 pub const REWARD_GOAL: &str = "goal";
@@ -511,8 +511,8 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
     ///
     /// Clamps the force to `action_bounds`, integrates physics
     /// (velocity → clamp → position → left-wall inelastic collision), then
-    /// computes `reward = -0.1 * force² + 100 * goal_reached`. The episode
-    /// terminates when `position ≥ goal_position` and `velocity ≥ goal_velocity`.
+    /// computes `$\text{reward} = -0.1 \cdot \text{force}^2 + 100 \cdot \text{goal\_reached}$`. The episode
+    /// terminates when `$\text{position} \geq \text{goal\_position}$` and `$\text{velocity} \geq \text{goal\_velocity}$`.
     ///
     /// # Errors
     ///

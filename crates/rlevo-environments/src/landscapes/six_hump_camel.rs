@@ -1,13 +1,13 @@
 //! Six-Hump Camel-Back function — a 2-D polynomial benchmark with two equal minima.
 //!
-//! `f(x₁, x₂) = 4x₁² − 2.1x₁⁴ + x₁⁶/3 + x₁x₂ − 4x₂² + 4x₂⁴`. The surface has six
+//! `$f(x_1, x_2) = 4x_1^2 - 2.1x_1^4 + x_1^6/3 + x_1 x_2 - 4x_2^2 + 4x_2^4$`. The surface has six
 //! local minima in three point-symmetric pairs; exactly **two** are global, at
-//! `(±0.08984…, ∓0.71266…)`, with `f* ≈ −1.031628…`. A pure polynomial,
-//! differentiable everywhere, satisfying `f(−x₁, −x₂) = f(x₁, x₂)`.
+//! `$(\pm 0.08984\ldots, \mp 0.71266\ldots)$`, with `$f^* \approx -1.031628\ldots$`. A pure polynomial,
+//! differentiable everywhere, satisfying `$f(-x_1, -x_2) = f(x_1, x_2)$`.
 //!
 //! # Domain
 //!
-//! The canonical domain is `[-5, 5]²` (Al-Roomi, *Unconstrained Single-Objective
+//! The canonical domain is `$[-5, 5]^2$` (Al-Roomi, *Unconstrained Single-Objective
 //! Benchmark Functions Repository*, function #23 "Six-Hump Camel-Back Function").
 //! [`bounds`](SixHumpCamel::bounds) deliberately returns the **reduced range**
 //! `(-2.0, 2.0)` — the narrow window that shows the six-hump structure, which is
@@ -16,8 +16,8 @@
 //! The reduction conforms to the `bounds()` contract (ADR 0045): `bounds()` is
 //! the *recommended per-coordinate search box*, not the mathematical domain, and
 //! it must (O1) contain every certified global optimum on every coordinate and
-//! (O2) contain no point scoring below `f*`. Both hold here — the two global
-//! minima `(±0.08984…, ∓0.71266…)` lie well inside `[-2, 2]²`, and `f* ≈ −1.031628`
+//! (O2) contain no point scoring below `$f^*$`. Both hold here — the two global
+//! minima `$(\pm 0.08984\ldots, \mp 0.71266\ldots)$` lie well inside `$[-2, 2]^2$`, and `$f^* \approx -1.031628$`
 //! is the global infimum of a coercive polynomial, so no point of the smaller box
 //! can beat it. Both obligations are pinned by unit tests below.
 
@@ -41,9 +41,9 @@ impl SixHumpCamel {
     }
 
     /// Recommended search box `(-2.0, 2.0)` applied per-coordinate — a deliberate
-    /// *reduced range* of the canonical `[-5, 5]²` domain, chosen because it frames
+    /// *reduced range* of the canonical `$[-5, 5]^2$` domain, chosen because it frames
     /// the six-hump structure. Both global minima lie inside it and no point of the
-    /// box scores below `f*`. See the type-level docs.
+    /// box scores below `$f^*$`. See the type-level docs.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-2.0, 2.0)
@@ -91,7 +91,7 @@ mod tests {
     /// Certified global-minimum value (Dixon & Szego 1978; Al-Roomi #23 gives −1.03163).
     const F_OPT: f64 = -1.031_628_453_489_877;
 
-    /// Both certified global minimizers `(±0.08984…, ∓0.71266…)` (Al-Roomi #23).
+    /// Both certified global minimizers `$(\pm 0.08984\ldots, \mp 0.71266\ldots)$` (Al-Roomi #23).
     const OPTIMA: [(f64, f64); 2] = [
         (0.089_842_013_683_013_31, -0.712_656_403_270_413_5),
         (-0.089_842_013_683_013_31, 0.712_656_403_270_413_5),
@@ -139,7 +139,7 @@ mod tests {
     ///
     /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so BOTH
     /// degenerate minima must lie in `[lo, hi]` on BOTH axes. `(-2, 2)` is a
-    /// reduced range of the canonical `[-5, 5]²`, which is exactly the situation
+    /// reduced range of the canonical `$[-5, 5]^2$`, which is exactly the situation
     /// that silently excluded an optimum in issue #113.
     #[test]
     fn bounds_box_contains_optimum_on_both_axes() {
@@ -156,7 +156,7 @@ mod tests {
         }
     }
 
-    /// O2 (no spurious optimum) — no point of the reduced box scores below `f*`.
+    /// O2 (no spurious optimum) — no point of the reduced box scores below `$f^*$`.
     ///
     /// A deterministic 401×401 sweep of `bounds()²`. `eps` guards float error only:
     /// the surface has O(1) scale near the minimum, so `1e-9` is far below any real

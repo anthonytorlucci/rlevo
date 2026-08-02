@@ -105,12 +105,12 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
         raw_row.to_vec()
     }
 
-    /// Smallest `log σ` across action dims, or `None` for policies with no
-    /// `log σ` at all.
+    /// Smallest `$\log \sigma$` across action dims, or `None` for policies with no
+    /// `$\log \sigma$` at all.
     ///
     /// Continuous (Gaussian) heads report the minimum of their **clamped**
-    /// `log σ`; discrete categorical heads have no scale parameter and keep the
-    /// `None` default. The value is a health signal: a `log σ` drifting toward
+    /// `$\log \sigma$`; discrete categorical heads have no scale parameter and keep the
+    /// `None` default. The value is a health signal: a `$\log \sigma$` drifting toward
     /// `log_std_min` is a policy collapsing to a deterministic action, and on a
     /// state-independent `log_std` reaching the bound freezes the parameter
     /// permanently (see
@@ -125,13 +125,13 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
         None
     }
 
-    /// Largest `log σ` across action dims, or `None` for policies with no
-    /// `log σ` at all.
+    /// Largest `$\log \sigma$` across action dims, or `None` for policies with no
+    /// `$\log \sigma$` at all.
     ///
     /// Continuous (Gaussian) heads report the maximum of their **clamped**
-    /// `log σ`; discrete categorical heads have no scale parameter and keep the
+    /// `$\log \sigma$`; discrete categorical heads have no scale parameter and keep the
     /// `None` default. The value is the ceiling-side health signal, and it is
-    /// not redundant with [`min_log_std`](Self::min_log_std): a `log σ` drifting
+    /// not redundant with [`min_log_std`](Self::min_log_std): a `$\log \sigma$` drifting
     /// up toward `log_std_max` is a policy *diverging* — that dim samples
     /// near-uniform noise across the whole action range and carries almost no
     /// policy signal — and on a state-independent `log_std`, reaching the upper

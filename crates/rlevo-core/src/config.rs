@@ -23,11 +23,11 @@
 //! the infallible `Default` / `ConstructableEnv::new` paths keep returning
 //! `Self`.
 //!
-//! ## A config *value* must be finite; a config *bound* may be `±∞`
+//! ## A config *value* must be finite; a config *bound* may be `$\pm\infty$`
 //!
 //! Every float the helpers below check as a **value** — `positive`'s `got`,
 //! `in_range`'s `got`, `ordered`'s `(low, high)`, `distinct`'s `(a, b)` — is a
-//! config's own field, and a field is never legitimately `NaN` or `±∞`. Those
+//! config's own field, and a field is never legitimately `NaN` or `$\pm\infty$`. Those
 //! are rejected as [`ConstraintKind::NotFinite`], and the finiteness check runs
 //! *first*, so `NotFinite` wins over `NotPositive` / `OutOfRange` /
 //! `NotOrdered` / `DegenerateInterval`. A non-finite value is a
@@ -216,7 +216,7 @@ pub struct ConfigError {
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ConstraintKind {
-    /// Value must be finite: `NaN` and `±∞` are never valid config *values*.
+    /// Value must be finite: `NaN` and `$\pm\infty$` are never valid config *values*.
     ///
     /// Checked before every other float constraint, so a non-finite value is
     /// reported as what it is rather than as the range / ordering / positivity
@@ -276,13 +276,13 @@ pub enum ConstraintKind {
 
 /// Rejects a value that is not finite, or not strictly positive (`got > 0`).
 ///
-/// `+∞` is *not* a positive config value: `f64::INFINITY > 0.0` is true, but a
-/// hyperparameter of `+∞` is a mistake, not an intent. It is rejected as
-/// [`ConstraintKind::NotFinite`], as is `−∞` and `NaN`.
+/// `$+\infty$` is *not* a positive config value: `f64::INFINITY > 0.0` is true, but a
+/// hyperparameter of `$+\infty$` is a mistake, not an intent. It is rejected as
+/// [`ConstraintKind::NotFinite`], as is `$-\infty$` and `NaN`.
 ///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::NotFinite`] when `got` is `NaN` or `±∞` — that
+/// Returns [`ConstraintKind::NotFinite`] when `got` is `NaN` or `$\pm\infty$` — that
 /// check runs first — and [`ConstraintKind::NotPositive`] when `got` is finite
 /// but `<= 0`.
 pub fn positive(config: &'static str, field: &'static str, got: f64) -> Result<(), ConfigError> {
@@ -307,7 +307,7 @@ pub fn positive(config: &'static str, field: &'static str, got: f64) -> Result<(
 ///
 /// # The value must be finite; the bounds need not be
 ///
-/// `got` is a config's own field, so `NaN` and `±∞` are rejected outright as
+/// `got` is a config's own field, so `NaN` and `$\pm\infty$` are rejected outright as
 /// [`ConstraintKind::NotFinite`] rather than as an out-of-range comparison.
 /// `lo` and `hi` are the *schema* and are deliberately **not** checked:
 /// `hi = f64::INFINITY` is the intended spelling of "unbounded above", so
@@ -322,7 +322,7 @@ pub fn positive(config: &'static str, field: &'static str, got: f64) -> Result<(
 ///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::NotFinite`] when `got` is `NaN` or `±∞` — that
+/// Returns [`ConstraintKind::NotFinite`] when `got` is `NaN` or `$\pm\infty$` — that
 /// check runs first — and [`ConstraintKind::OutOfRange`] when `got` is finite
 /// but `< lo` or `> hi`.
 pub fn in_range(
@@ -356,7 +356,7 @@ pub fn in_range(
 ///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::NotFinite`] when either endpoint is `NaN` or `±∞`
+/// Returns [`ConstraintKind::NotFinite`] when either endpoint is `NaN` or `$\pm\infty$`
 /// (`low` is checked first), and [`ConstraintKind::NotOrdered`] when both are
 /// finite but `low >= high`.
 ///
@@ -406,7 +406,7 @@ pub fn ordered(
 ///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::NotFinite`] when either value is `NaN` or `±∞`
+/// Returns [`ConstraintKind::NotFinite`] when either value is `NaN` or `$\pm\infty$`
 /// (`a` is checked first), and [`ConstraintKind::DegenerateInterval`] when both
 /// are finite but equal.
 ///
@@ -464,17 +464,17 @@ pub fn distinct(
 ///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::NotFinite`] when either endpoint is `±∞` (`lo` is
+/// Returns [`ConstraintKind::NotFinite`] when either endpoint is `$\pm\infty$` (`lo` is
 /// checked first), and [`ConstraintKind::DegenerateInterval`] when the range has
 /// zero width. (`NaN` is already unrepresentable in a [`Bounds`].)
 ///
 /// # The naming wart
 ///
-/// A helper called "nondegenerate" also rejects `±∞` endpoints. That is
+/// A helper called "nondegenerate" also rejects `$\pm\infty$` endpoints. That is
 /// inherited from [`distinct`]'s finiteness guard, and it is intended: per ADR
 /// 0060 a config *value* must be finite, and a `Bounds` **field** of a config is
 /// a value, not the schema-level bound of [`in_range`]. A deliberately one-sided
-/// infinite range — `HealthyCheck::z_range` in `rlevo-environments`, `[0.7, ∞)`
+/// infinite range — `HealthyCheck::z_range` in `rlevo-environments`, `$[0.7, \infty)$`
 /// — simply does not use this helper; it relies on the [`Bounds`] invariant
 /// alone.
 pub fn nondegenerate_bounds(
@@ -556,7 +556,7 @@ mod tests {
     }
 
     /// The headline case of issue #353: `f64::INFINITY > 0.0` is `true`, so
-    /// `positive` used to hand `+∞` back as a perfectly good hyperparameter at
+    /// `positive` used to hand `$+\infty$` back as a perfectly good hyperparameter at
     /// every one of its call sites. A config *value* is never legitimately
     /// infinite, so both infinities are now `NotFinite` — and the carried `got`
     /// is the offending value verbatim, so the message names what arrived.
@@ -631,8 +631,8 @@ mod tests {
         }
     }
 
-    /// The other half of the finiteness guard. `−∞` would also fall out of a
-    /// finite `[lo, hi]` on comparison alone, but `+∞` would *not* if the upper
+    /// The other half of the finiteness guard. `$-\infty$` would also fall out of a
+    /// finite `[lo, hi]` on comparison alone, but `$+\infty$` would *not* if the upper
     /// bound were `f64::INFINITY` — which is exactly the idiom at 37 call
     /// sites. So the kind assertion here is load-bearing: it pins that an
     /// infinite **value** is rejected by the guard, independently of whatever
@@ -684,8 +684,8 @@ mod tests {
     }
 
     /// Both endpoints are config *values*, not bounds, so `ordered` refuses an
-    /// infinite one — including `(−∞, ∞)`, which satisfies `low < high` and was
-    /// therefore accepted outright. `(∞, ∞)` previously reported `NotOrdered`,
+    /// infinite one — including `$(-\infty, \infty)$`, which satisfies `low < high` and was
+    /// therefore accepted outright. `$(\infty, \infty)$` previously reported `NotOrdered`,
     /// a true-but-secondary diagnosis; it is a finiteness failure first.
     #[test]
     fn ordered_rejects_infinite_endpoints() {
@@ -717,7 +717,7 @@ mod tests {
 
     /// Closes the wrong-diagnosis bug: `distinct(NaN, 1.0)` rejected, but as
     /// `DegenerateInterval` — an error message asserting that two plainly
-    /// different values are equal. `(∞, ∞)` is the converse trap: genuinely
+    /// different values are equal. `$(\infty, \infty)$` is the converse trap: genuinely
     /// equal, but the actionable complaint is the infinity, not the degeneracy.
     /// None of these may report `DegenerateInterval`.
     #[test]

@@ -27,13 +27,13 @@
 //! * Middle ↔ Tail:  revolute-z impulse joint, anchor `(+0.05, 0, 0)` on
 //!   segment1's back, anchor `(−0.05, 0, 0)` on segment2's front.
 //! * Action: `Box(-1, 1, (2,))` — joint torque targets; applied as
-//!   `action · gear` with `gear = [150, 150]` (Gymnasium XML).
+//!   `$\text{action} \cdot \text{gear}$` with `gear = [150, 150]` (Gymnasium XML).
 //! * Observation (8-dim):
 //!   `[body_angle, joint1_angle, joint2_angle, vx_com, vy_com,
 //!     ω_body, joint1_dot, joint2_dot]` — matches `qpos[2:5]` + `qvel` from
 //!   Gymnasium.
-//! * Reward: `forward − ctrl` with `forward = 1.0 · vx_com` and
-//!   `ctrl = 1e-4 · ‖action‖²`.
+//! * Reward: `forward − ctrl` with `$\text{forward} = 1.0 \cdot \text{vx\_com}$` and
+//!   `$\text{ctrl} = 1e{-4} \cdot \|\text{action}\|^2$`.
 //! * Termination: never (`TerminationMode::Never` implicitly; swimmer has no
 //!   healthy gate).
 //! * Truncation: `max_steps = 1000`.
@@ -41,7 +41,7 @@
 //! ## Viscous drag
 //!
 //! Rapier has no native fluid solver. Each segment accrues a drag force
-//! `F = −k · v · ‖v‖` before every physics substep, where `k` is
+//! `$F = -k \cdot v \cdot \|v\|$` before every physics substep, where `k` is
 //! `drag_coefficient` (default `0.1`). The env owns its own `frame_skip`
 //! loop so drag is applied on every substep, not once per env step; this is
 //! required for numerical stability and to match the Gymnasium `frame_skip`
@@ -69,7 +69,7 @@
 //!   applied to the capsule volume; using 0.0471 kg (as Gymnasium-derived
 //!   calculations sometimes produce by crossing body density with `MuJoCo`'s
 //!   fluid `<option density>`) gives negligible inertia.
-//! * **Linear angular drag** `τ = −k_ang · ω`, not quadratic. Explicit
+//! * **Linear angular drag** `$\tau = -k_{\text{ang}} \cdot \omega$`, not quadratic. Explicit
 //!   Euler on quadratic drag overshoots past zero at high |ω| and
 //!   diverges within a substep; linear drag is unconditionally stable.
 //! * **Capsules, not cylinders** (`capsule_x`, not `cylinder`). The drag

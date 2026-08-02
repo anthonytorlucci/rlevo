@@ -6,8 +6,8 @@
 //! generates a deterministic per-arm reward sequence in `[0, amplitude]`
 //! before the agent ever acts:
 //!
-//! ```text
-//! r_t(a) = amplitude · 0.5 · (1 + cos(2π · (t + phase[a]) / period))
+//! ```math
+//! r_t(a) = \text{amplitude} \cdot 0.5 \cdot \left(1 + \cos\left(\frac{2\pi \cdot (t + \text{phase}[a])}{\text{period}}\right)\right)
 //! ```
 //!
 //! `phase[a]` is drawn once per [`Environment::reset`] from the seeded RNG so

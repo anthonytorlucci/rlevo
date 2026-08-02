@@ -19,17 +19,17 @@ pub struct ReacherState {
     /// the shoulder angle θ₁; its angular velocity gives θ̇₁.
     pub link1: RigidBodyHandle,
     /// Handle to the link 2 (forearm) rigid body. Its orientation encodes
-    /// the world-frame angle `θ_world2`; the relative elbow angle is
-    /// θ₂ = `θ_world2` − θ₁. The fingertip lies at body-local `(+link2_length/2, 0, 0)`.
+    /// the world-frame angle `$\theta_{\text{world2}}$`; the relative elbow angle is
+    /// θ₂ = `$\theta_{\text{world2}}$` − θ₁. The fingertip lies at body-local `(+link2_length/2, 0, 0)`.
     pub link2: RigidBodyHandle,
     /// Handle to the fixed target body. Its world-frame translation is
     /// `[target_xy[0], target_xy[1], 0.0]`.
     pub target: RigidBodyHandle,
     /// Impulse-joint handle for the shoulder revolute joint (root → link1,
-    /// axis = world-z). Torque `τ[0]` is applied here.
+    /// axis = world-z). Torque `$\tau[0]$` is applied here.
     pub shoulder: ImpulseJointHandle,
     /// Impulse-joint handle for the elbow revolute joint (link1 → link2,
-    /// axis = world-z). Torque `τ[1]` is applied here.
+    /// axis = world-z). Torque `$\tau[1]$` is applied here.
     pub elbow: ImpulseJointHandle,
     /// Cached target position `[x, y]` in metres, sampled at reset. Kept
     /// here to avoid querying the physics world on every observation

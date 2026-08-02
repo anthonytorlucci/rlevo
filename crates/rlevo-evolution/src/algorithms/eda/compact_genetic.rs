@@ -5,7 +5,7 @@
 //! the population explicitly. [`fit`] competes the **winner** (best fitness)
 //! against the **loser** (worst fitness) of the truncation-selected subset: on
 //! every gene where they disagree the probability is nudged by
-//! `±1 / virtual_pop_size` toward the winner's bit. [`sample`] emits raw
+//! `$\pm 1 / \text{virtual\_pop\_size}$` toward the winner's bit. [`sample`] emits raw
 //! `{0, 1}` `f32` genes; [`EdaParams::bounds`](crate::algorithms::eda::EdaParams::bounds) clamps are therefore no-ops.
 //!
 //! # Deviation from classic cGA
@@ -63,7 +63,7 @@ impl CompactGeneticParams {
 ///
 /// The vector has length `genome_dim`. On the prior path (`prev = None`) it
 /// is uniformly `0.5`; on subsequent calls entries are nudged by
-/// `±1 / virtual_pop_size` and clamped to `[0, 1]`.
+/// `$\pm 1 / \text{virtual\_pop\_size}$` and clamped to `[0, 1]`.
 ///
 /// The field is private so an out-of-range probability is unrepresentable
 /// from outside this module; build one with
@@ -119,7 +119,7 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
     /// `fitness` are ignored on that path. Otherwise finds the argmax (winner)
     /// and argmin (loser) of the fitness vector (canonical maximise: higher is
     /// better), then nudges each gene where winner and loser disagree by
-    /// `±1 / virtual_pop_size` (toward the winner), clamped to `[0, 1]`.
+    /// `$\pm 1 / \text{virtual\_pop\_size}$` (toward the winner), clamped to `[0, 1]`.
     ///
     /// # Panics
     ///

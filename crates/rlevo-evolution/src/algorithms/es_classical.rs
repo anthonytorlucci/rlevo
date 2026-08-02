@@ -4,12 +4,12 @@
 //!
 //! - `(1+1)` — a single parent, a single offspring, 1/5th success-rule
 //!   σ adaptation.
-//! - `(1+λ)` — a single parent, λ offspring per generation; the best
+//! - `$(1+\lambda)$` — a single parent, λ offspring per generation; the best
 //!   offspring replaces the parent iff its fitness improves. The
 //!   underlying mutation/selection loop is also reused by Cartesian GP.
-//! - `(μ,λ)` — μ parents, λ offspring; parents are discarded each
+//! - `$(\mu,\lambda)$` — μ parents, λ offspring; parents are discarded each
 //!   generation.
-//! - `(μ+λ)` — μ parents, λ offspring; survivors are the μ best of the
+//! - `$(\mu+\lambda)$` — μ parents, λ offspring; survivors are the μ best of the
 //!   combined pool.
 //!
 //! σ adaptation is by log-normal self-adaptation in the multi-parent
@@ -40,11 +40,11 @@ use crate::strategy::{Strategy, StrategyMetrics};
 pub enum EsKind {
     /// `(1+1)` with 1/5-rule σ adaptation.
     OnePlusOne,
-    /// `(1+λ)` with shared σ across offspring.
+    /// `$(1+\lambda)$` with shared σ across offspring.
     OnePlusLambda { lambda: usize },
-    /// `(μ,λ)` with log-normal per-individual σ adaptation.
+    /// `$(\mu,\lambda)$` with log-normal per-individual σ adaptation.
     MuCommaLambda { mu: usize, lambda: usize },
-    /// `(μ+λ)` with log-normal per-individual σ adaptation.
+    /// `$(\mu+\lambda)$` with log-normal per-individual σ adaptation.
     MuPlusLambda { mu: usize, lambda: usize },
 }
 
@@ -81,7 +81,7 @@ pub struct EsConfig {
     pub initial_sigma: f32,
     /// Lower clamp for the self-adaptive σ.
     ///
-    /// Both the log-normal update `σ' = σ · exp(τ · N(0,1))` (multi-parent
+    /// Both the log-normal update `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$` (multi-parent
     /// variants) and the Rechenberg 1/5-rule (`(1+1)`) are unbounded
     /// multiplicative processes; without a floor σ can underflow toward `0`,
     /// collapsing the mutation amplitude so the search freezes. Must be
@@ -169,7 +169,7 @@ pub struct EsState<B: Backend> {
     /// Per-parent σ values.
     ///
     /// Shape between generations is `(μ,)` for log-normal adaptation and
-    /// `(1,)` for `(1+1)`/`(1+λ)` with shared σ. Between an `ask` and the
+    /// `(1,)` for `(1+1)`/`$(1+\lambda)$` with shared σ. Between an `ask` and the
     /// matching `tell` the tensor is temporarily `(μ + λ,)`: parent σ
     /// followed by per-offspring σ. See `ask` for the rationale.
     sigmas: Tensor<B, 1>,
@@ -195,7 +195,7 @@ impl<B: Backend> EsState<B> {
     ///
     /// Returns a [`ConfigError`] if `parents` has zero rows or if
     /// `parent_fitness` is non-empty with a length other than the parent
-    /// count `μ` (`parents.dims()[0]`). The bootstrap state (empty
+    /// count `$\mu$` (`parents.dims()[0]`). The bootstrap state (empty
     /// `parent_fitness`) is accepted.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
@@ -229,7 +229,7 @@ impl<B: Backend> EsState<B> {
         })
     }
 
-    /// Parent population, shape `(μ, D)` (or `(1, D)` for `(1+1)`/`(1+λ)`).
+    /// Parent population, shape `(μ, D)` (or `(1, D)` for `(1+1)`/`$(1+\lambda)$`).
     #[must_use]
     pub fn parents(&self) -> &Tensor<B, 2> {
         &self.parents
@@ -242,7 +242,7 @@ impl<B: Backend> EsState<B> {
         &self.sigmas
     }
 
-    /// Parent fitnesses (empty at bootstrap, else `μ` long).
+    /// Parent fitnesses (empty at bootstrap, else `$\mu$` long).
     #[must_use]
     pub fn parent_fitness(&self) -> &[f32] {
         &self.parent_fitness
@@ -379,7 +379,7 @@ where
     /// unchanged so that they can be fitness-evaluated as the seed population.
     /// On subsequent calls, duplicates parents by uniform random selection,
     /// applies log-normal σ adaptation (multi-parent variants) or inherits the
-    /// shared σ (`(1+1)` / `(1+λ)`), then mutates via per-individual Gaussian
+    /// shared σ (`(1+1)` / `$(1+\lambda)$`), then mutates via per-individual Gaussian
     /// noise. All stochastic draws go through `seed_stream`
     /// (host-RNG convention); offspring σ values are appended to
     /// `state.sigmas` for consumption by `tell`.
@@ -478,11 +478,11 @@ where
     /// Variant behaviour:
     /// - `(1+1)`: greedy replacement; σ updated by Rechenberg's 1/5th
     ///   success rule every `10·D` steps.
-    /// - `(1+λ)`: best offspring replaces the parent only if it strictly
+    /// - `$(1+\lambda)$`: best offspring replaces the parent only if it strictly
     ///   improves fitness; σ is carried over unchanged.
-    /// - `(μ,λ)`: selects the μ best offspring; parent pool discarded.
+    /// - `$(\mu,\lambda)$`: selects the μ best offspring; parent pool discarded.
     ///   Survivor σ values are gathered by the same truncation indices.
-    /// - `(μ+λ)`: selects the μ best of the combined parent + offspring
+    /// - `$(\mu+\lambda)$`: selects the μ best of the combined parent + offspring
     ///   pool. Survivor σ values are drawn from the concatenated σ vector
     ///   by the same indices.
     ///
@@ -837,7 +837,7 @@ mod tests {
         }
     }
 
-    /// Canonical (maximise) fitness `−Σ xᵢ²` read straight off a genome tensor,
+    /// Canonical (maximise) fitness `$-\sum x_i^2$` read straight off a genome tensor,
     /// so tests can drive a strategy directly without the harness.
     fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
         let device = pop.device();
@@ -881,7 +881,7 @@ mod tests {
     /// maximise problem it must never decrease from one generation to the next
     /// across every ES variant (`es_classical` §7.2, monotone best-ever). This
     /// pins the invariant that the algorithm threads the rolling best through
-    /// `tell` and never resets it — including the `(μ,λ)` variant that discards
+    /// `tell` and never resets it — including the `$(\mu,\lambda)$` variant that discards
     /// its parent pool each generation.
     #[test]
     fn best_fitness_ever_is_monotonic_on_maximize() {

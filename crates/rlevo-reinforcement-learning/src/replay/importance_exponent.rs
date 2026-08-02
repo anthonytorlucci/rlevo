@@ -80,7 +80,7 @@ use serde::{Deserialize, Serialize};
 /// `ImportanceExponent` is held.
 ///
 /// `0.0` applies no importance correction; `1.0` ([`ONE`](Self::ONE)) applies
-/// the full correction and is the endpoint of Schaul Table 3's `β₀ = 0.4 → 1.0`
+/// the full correction and is the endpoint of Schaul Table 3's `$\beta_0 = 0.4 \to 1.0$`
 /// annealing schedule.
 ///
 /// Construct with [`new`](Self::new) for literals (panics on an invalid value)

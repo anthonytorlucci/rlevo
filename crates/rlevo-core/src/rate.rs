@@ -3,15 +3,15 @@
 //!
 //! Some evolutionary-operator parameters are non-negative magnitudes that are
 //! *not* probabilities — they have no upper bound of one. BLX-α's expansion
-//! factor `α` (conventionally `0.5`, but legitimately larger) widens the
-//! crossover sampling box, and Gaussian mutation's step size `σ` scales the
+//! factor `$\alpha$` (conventionally `0.5`, but legitimately larger) widens the
+//! crossover sampling box, and Gaussian mutation's step size `$\sigma$` scales the
 //! injected noise. Carried as bare `f32`s, a `NaN` or `Inf` value poisons the
 //! whole offspring tensor: `diff * NaN` and `noise * Inf` propagate silently
 //! into every gene with no error.
 //!
 //! [`NonNegativeRate`] removes that possibility. It is a **finite**, non-negative
 //! `f32` — the invariant is `is_finite() && r >= 0.0`, which rejects `NaN`,
-//! `±∞`, and negatives while permitting any finite magnitude (including `0.0`,
+//! `$\pm\infty$`, and negatives while permitting any finite magnitude (including `0.0`,
 //! which is a well-defined "no expansion / no mutation" rate). The invariant
 //! travels with the value, so an operator that takes a `NonNegativeRate` cannot
 //! be handed a poisoning scalar.

@@ -8,7 +8,7 @@
 //!
 //! | | Type | Shape | Range |
 //! |---|---|---|---|
-//! | Action | Continuous | 3 | `steer ∈ [-1,1]`, `gas ∈ [0,1]`, `brake ∈ [0,1]` |
+//! | Action | Continuous | 3 | `$\text{steer} \in [-1,1]$`, `$\text{gas} \in [0,1]$`, `$\text{brake} \in [0,1]$` |
 //! | Observation | Pixel | 96 × 96 × 3 | `u8` per channel |
 //!
 //! ## Reward structure

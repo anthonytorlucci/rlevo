@@ -3,13 +3,13 @@
 //! Identical to [`super::k_armed::KArmedBandit`] except that after every
 //! `step` each true arm mean is perturbed by independent Gaussian noise:
 //!
-//! ```text
-//! q*(a) ← q*(a) + N(0, σ_walk²)   for all a ∈ {0, …, K-1}
+//! ```math
+//! q_*(a) \leftarrow q_*(a) + \mathcal{N}(0, \sigma_{\text{walk}}^2) \quad \forall a \in \{0, \ldots, K-1\}
 //! ```
 //!
 //! This is the testbed from Sutton & Barto §2.5 used to demonstrate that
 //! constant step-size update rules outperform sample-average estimators when
-//! the underlying problem drifts. With `σ_walk = 0` the environment reduces
+//! the underlying problem drifts. With `$\sigma_{\text{walk}} = 0$` the environment reduces
 //! to the stationary [`KArmedBandit`](super::k_armed::KArmedBandit).
 //!
 //! # Example

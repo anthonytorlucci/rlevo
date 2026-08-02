@@ -111,7 +111,7 @@ const ALL_DIRECTIONS: [Direction; 4] = [
 
 /// A rectangular sub-region of a [`Grid`], **inclusive on all four sides**.
 ///
-/// `Rect::new(1, 1, 3, 3)` is the nine cells `x ∈ {1, 2, 3} × y ∈ {1, 2, 3}` —
+/// `Rect::new(1, 1, 3, 3)` is the nine cells `$x \in \{1, 2, 3\} \times y \in \{1, 2, 3\}$` —
 /// both corners are members. Inclusive bounds are the right convention for
 /// discrete cells: callers think "the left room spans columns 1 through 5", and
 /// the single-cell region `Rect::new(2, 2, 2, 2)` is expressible without a

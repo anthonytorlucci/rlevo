@@ -199,7 +199,7 @@ impl<const N: usize> Gear<N> {
     }
 }
 
-/// Quadratic control cost `weight * ‖action‖²`.
+/// Quadratic control cost `$\text{weight} \cdot \|\text{action}\|^2$`.
 #[must_use]
 pub fn ctrl_cost<const N: usize>(weight: f32, action: &[f32; N]) -> f32 {
     let mut sum = 0.0f32;
@@ -223,7 +223,7 @@ pub fn clip_contact_cost(contact_cost: f32, range: Bounds) -> f32 {
     range.clamp(contact_cost)
 }
 
-/// Normalise an angle (radians) to the half-open interval `(-π, π]`.
+/// Normalise an angle (radians) to the half-open interval `$(-\pi, \pi]$`.
 ///
 /// Used by any env that extracts a joint angle from a quaternion and needs a
 /// unique branch cut (e.g. `InvertedPendulum`'s pole angle, `Reacher`'s

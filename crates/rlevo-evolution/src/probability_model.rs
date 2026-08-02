@@ -61,7 +61,7 @@ use rand::Rng;
 /// - **Sanitized input assumed.** [`fit`](Self::fit) and
 ///   [`sample`](Self::sample) are infallible by design. The
 ///   [`EdaStrategy`](crate::algorithms::eda::EdaStrategy) driver sanitizes
-///   fitness (`NaN` → `-inf`) and clamps the selected-row count to `≥ 2` before
+///   fitness (`NaN` → `-inf`) and clamps the selected-row count to `$\geq 2$` before
 ///   calling `fit`, so the supported call path never supplies empty populations
 ///   or non-finite fitness. Callers that invoke `fit`/`sample` directly
 ///   (bypassing the driver) must uphold the same preconditions; otherwise

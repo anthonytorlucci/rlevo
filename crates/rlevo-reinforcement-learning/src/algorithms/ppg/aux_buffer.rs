@@ -17,7 +17,7 @@
 //!   regression target for both the main value net and the auxiliary value
 //!   head
 //!
-//! The pre-aux-phase policy logits (`π_old` for the distillation KL) are
+//! The pre-aux-phase policy logits (`$\pi_{old}$` for the distillation KL) are
 //! **not** stored here; they are computed once at the start of the
 //! auxiliary phase against the policy that has just finished `n_iteration`
 //! policy-phase updates, matching `CleanRL`'s `ppg_procgen.py`. Storing them
@@ -122,7 +122,7 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
     }
 
     /// Flat CPU-side access to one observation by global step index.
-    /// Used by the agent to batch-compute `π_old` logits once per aux phase.
+    /// Used by the agent to batch-compute `$\pi_{old}$` logits once per aux phase.
     #[must_use]
     pub fn obs_at(&self, global: usize) -> &O {
         let (si, ii) = self.locate(global);

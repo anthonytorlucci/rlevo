@@ -1,15 +1,15 @@
 //! Michalewicz function — a steep multimodal benchmark with near-flat plateaus.
 //!
-//! `f(x) = −Σ_{j=1}^{n} sin(x_j)·[sin(j·x_j²/π)]^{2m}` with canonical steepness
-//! `m = 10` (and `j` 1-based). The function is `≤ 0` everywhere on its domain and
-//! has `n!`-scaling local minima. At `m = 10` the `[sin(j·x_j²/π)]^{20}` factor is
+//! `$f(x) = -\sum_{j=1}^{n} \sin(x_j) \cdot [\sin(j \cdot x_j^2/\pi)]^{2m}$` with canonical steepness
+//! `$m = 10$` (and `j` 1-based). The function is `$\leq 0$` everywhere on its domain and
+//! has `$n!$`-scaling local minima. At `$m = 10$` the `$[\sin(j \cdot x_j^2/\pi)]^{20}$` factor is
 //! vanishingly small almost everywhere, leaving near-zero gradients outside narrow
 //! ridges; lowering `m` smooths the surface.
 //!
-//! Evaluated over `[0, π]^n`. Certified optima (Vanaret et al. 2020, interval
-//! arithmetic): `f* ≈ −1.8013` (n=2), `−4.68765818` (n=5), `−9.66015171564` (n=10).
+//! Evaluated over `$[0, \pi]^n$`. Certified optima (Vanaret et al. 2020, interval
+//! arithmetic): `$f^* \approx -1.8013$` (n=2), `−4.68765818` (n=5), `−9.66015171564` (n=10).
 //!
-//! Requires `n ≥ 1`.
+//! Requires `$n \geq 1$`.
 
 use std::f64::consts::{FRAC_PI_2, PI};
 
@@ -31,7 +31,7 @@ impl Michalewicz {
     /// # Errors
     ///
     /// Returns [`ConfigError`] if `dim == 0`: the sum over dimensions is empty,
-    /// so `f ≡ 0` — a perfectly flat surface with no local minima, no gradient,
+    /// so `$f \equiv 0$` — a perfectly flat surface with no local minima, no gradient,
     /// and no certified optimum to converge on.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
         const C: &str = "Michalewicz";
@@ -73,8 +73,8 @@ impl Michalewicz {
 
     /// 2D projection of [`evaluate`](Self::evaluate) for visualisation.
     ///
-    /// Coordinates beyond the first two are fixed at `π/2`, a reasonable interior
-    /// point in `[0, π]`, since closed-form per-dimension optima are only
+    /// Coordinates beyond the first two are fixed at `$\pi/2$`, a reasonable interior
+    /// point in `$[0, \pi]$`, since closed-form per-dimension optima are only
     /// tabulated for small `n`.
     fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
         let mut p = vec![FRAC_PI_2; self.dim];

@@ -14,8 +14,8 @@ use burn::tensor::{ElementConversion, Tensor};
 
 /// The clipped surrogate policy objective.
 ///
-/// `ratio = exp(new_log_probs − old_log_probs)`. The loss returned is
-/// `-mean(min(ratio·A, clip(ratio, 1−ε, 1+ε)·A))` — negative because
+/// `$\text{ratio} = \exp(\text{new\_log\_probs} - \text{old\_log\_probs})$`. The loss returned is
+/// `$-\text{mean}(\min(\text{ratio} \cdot A, \text{clip}(\text{ratio}, 1-\epsilon, 1+\epsilon) \cdot A))$` — negative because
 /// downstream code minimises. Shapes: all three inputs are `(batch,)`.
 pub fn clipped_surrogate<B: Backend>(
     new_log_probs: Tensor<B, 1>,
@@ -34,7 +34,7 @@ pub fn clipped_surrogate<B: Backend>(
 
 /// Clipped value-function loss.
 ///
-/// `v_loss_clipped = max((clip(v, v_old ± ε) − R)², (v − R)²)`, mean × 0.5.
+/// `$\text{v\_loss\_clipped} = \max((\text{clip}(v, v_{old} \pm \epsilon) - R)^2, (v - R)^2)$`, mean × 0.5.
 /// Follows `CleanRL`'s clipped-value variant (an ablation-selected detail in
 /// Huang et al. §5).
 pub fn clipped_value_loss<B: Backend>(
@@ -55,7 +55,7 @@ pub fn clipped_value_loss<B: Backend>(
     pointwise_max.mean().mul_scalar(0.5)
 }
 
-/// Unclipped value-function loss `0.5 · mean((v − R)²)`.
+/// Unclipped value-function loss `$0.5 \cdot \text{mean}((v - R)^2)$`.
 pub fn unclipped_value_loss<B: Backend>(
     new_values: Tensor<B, 1>,
     returns: Tensor<B, 1>,
@@ -77,7 +77,7 @@ pub fn normalize_advantages<B: Backend>(advantages: Tensor<B, 1>) -> Tensor<B, 1
     centered / (std + 1e-8)
 }
 
-/// Schulman's "k3" approximate KL divergence: `mean((r − 1) − log r)`.
+/// Schulman's "k3" approximate KL divergence: `$\text{mean}((r - 1) - \log r)$`.
 ///
 /// Always non-negative (in expectation); used as a sanity-check diagnostic
 /// and, when `target_kl` is configured, as an early-stop trigger.
@@ -91,9 +91,9 @@ pub fn approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<
 
 /// Schulman's "k1" approximate KL: `mean(old_log_probs − new_log_probs)`.
 ///
-/// This is the *pre-update* / naive KL estimator `mean(−log r)`, reported
+/// This is the *pre-update* / naive KL estimator `$\text{mean}(-\log r)$`, reported
 /// alongside the k3 estimator from [`approx_kl`]. Together they bracket the
-/// true KL and help diagnose PPO step size (Huang et al. 2022, detail #16).
+/// true KL and help diagnose PPO step size (Huang et al. 2022, detail #12).
 /// Unlike k3 it can be negative for a finite sample.
 pub fn old_approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<B, 1>) -> f32 {
     let log_ratio = new_log_probs - old_log_probs;
@@ -102,19 +102,19 @@ pub fn old_approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Ten
 
 /// Fraction of return variance explained by the value-network predictions.
 ///
-/// `ev = 1 − mean((returns − values)²) / Var(returns)`, computed over the whole
-/// rollout. `ev ≈ 1` means the value net tracks returns well; `ev ≈ 0` means it
+/// `$ev = 1 - \text{mean}((\text{returns} - \text{values})^2) / \text{Var}(\text{returns})$`, computed over the whole
+/// rollout. `$ev \approx 1$` means the value net tracks returns well; `$ev \approx 0$` means it
 /// predicts no better than the mean; negative means worse than the mean. This is
 /// the single most informative value-net health signal.
 ///
 /// # `CleanRL` / SB3 convention (non-centered residual)
 ///
-/// The residual term is the raw mean-square `mean((returns − values)²)`, not the
-/// *centered* variance `Var(returns − values)` of the scikit-learn R² formula.
-/// The two agree once the value net is unbiased (`E[returns − values] ≈ 0`), but
+/// The residual term is the raw mean-square `$\text{mean}((\text{returns} - \text{values})^2)$`, not the
+/// *centered* variance `$\text{Var}(\text{returns} - \text{values})$` of the scikit-learn R² formula.
+/// The two agree once the value net is unbiased (`$E[\text{returns} - \text{values}] \approx 0$`), but
 /// the non-centered form additionally penalises a constant value-net **bias**.
 /// So during early warm-up a value net that has the right shape but a constant
-/// offset reads `ev < 0` — this is expected, not a code bug. This matches `CleanRL`
+/// offset reads `$ev < 0$` — this is expected, not a code bug. This matches `CleanRL`
 /// and Stable-Baselines3 so curves are comparable across implementations.
 ///
 /// Returns `0.0` when `Var(returns) == 0` (a degenerate rollout) rather than

@@ -7,18 +7,20 @@
 //!
 //! ## Reward formula
 //!
-//! Each step applies potential-based shaping plus a control cost. `Φ` is the
+//! Each step applies potential-based shaping plus a control cost. `$\Phi$` is the
 //! **shaping potential** — an absolute scalar field over states, not a reward:
 //!
-//! ```text
-//! Φ(obs) = -100 * dist_to_helipad
-//!        - 100 * speed
-//!        - 100 * |angle|
-//!        +  10 * leg1_contact
-//!        +  10 * leg2_contact
+//! ```math
+//! \Phi(\text{obs}) = -100 \cdot \text{dist\_to\_helipad}
+//!   - 100 \cdot \text{speed}
+//!   - 100 \cdot |\text{angle}|
+//!   + 10 \cdot \text{leg1\_contact}
+//!   + 10 \cdot \text{leg2\_contact}
+//! ```
 //!
-//! reward = Φ(t) - Φ(t-1)               -- potential difference (the shaping reward)
-//!        - 0.3 * (|main| + |lateral|)  -- control cost
+//! ```math
+//! \text{reward} = \underbrace{\Phi(t) - \Phi(t-1)}_{\text{shaping reward}}
+//!   - \underbrace{0.3 \cdot (|\text{main}| + |\text{lateral}|)}_{\text{control cost}}
 //! ```
 //!
 //! On a terminal step the reward is **set to** +100 (soft landing) or −100
@@ -355,7 +357,7 @@ impl LunarLanderCore {
         // the ground — the legs extend below the hull and take the load — so
         // crash and landing stay mutually exclusive. This replaces the old
         // positional proxy (`pos.y < 0.1`), which was physically unreachable:
-        // a hull resting on the ground settles at `pos.y ≈ 0.78`.
+        // a hull resting on the ground settles at `$\text{pos.y} \approx 0.78$`.
         let is_crashed = self.hull_in_contact();
         let is_out_of_bounds =
             pos.x < 0.0 || pos.x > VIEWPORT_W / SCALE || pos.y > VIEWPORT_H / SCALE;
@@ -1113,7 +1115,7 @@ mod tests {
     ///
     /// This is the regression for issue #122: the crash branch was previously
     /// gated on `pos.y < 0.1`, which Rapier's solver never reaches (a hull
-    /// resting on the ground settles at `pos.y ≈ 0.78`), so the branch was dead
+    /// resting on the ground settles at `$\text{pos.y} \approx 0.78$`), so the branch was dead
     /// and the episode silently ran to `Truncated`. Against the old code this
     /// test fails (free-fall never terminates, so `terminal` stays `None` and
     /// the `expect` panics); with the hull-contact check it passes.

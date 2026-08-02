@@ -2,21 +2,21 @@
 //!
 //! Two-layer MLP with `tanh` activations, a linear mean head, and a
 //! state-independent `log_std` parameter (length `action_dim`). Sampling:
-//! `z = μ + σ·ε` with `ε ∼ N(0, 1)` drawn on CPU; the env receives
+//! `$z = \mu + \sigma \cdot \epsilon$` with `$\epsilon \sim \mathcal{N}(0, 1)$` drawn on CPU; the env receives
 //! `a = scale · tanh(z)`, keeping it within the bounded action space.
 //!
 //! # z vs a in the rollout
 //!
 //! The buffer stores the **pre-squash** sample `z`, and
 //! [`evaluate`](PpoPolicy::evaluate) computes log-probability on `z` under
-//! the current policy. The tanh Jacobian term `Σ log(1 − tanh²(z))` is the
+//! the current policy. The tanh Jacobian term `$\sum \log(1 - \tanh^2(z))$` is the
 //! same under old and new policies and therefore cancels in the PPO
 //! importance ratio — so we work entirely in Gaussian-on-`z` space, which is
 //! numerically stabler than the `atanh`-from-squashed-action path.
 //!
 //! # Entropy
 //!
-//! Returns the Gaussian entropy `Σ (log σ + ½ log(2πe))`, summed across
+//! Returns the Gaussian entropy `$\sum (\log \sigma + \frac{1}{2} \log(2\pi e))$`, summed across
 //! action dims. This matches `CleanRL`'s `probs.entropy().sum(1)` — the tanh
 //! Jacobian's entropy contribution is omitted, consistent with PPO practice.
 //!
@@ -25,19 +25,19 @@
 //! `log_std` is clamped to `[log_std_min, log_std_max]` everywhere it is read.
 //! The justification is **f32 totality**, not parity with SAC.
 //!
-//! `log_prob` evaluates `((z − μ)/σ)²` with `σ = exp(log σ)`. As `log σ`
-//! drifts down, `σ` underflows toward zero and the squared, normalized
-//! residual grows without bound: for a `k`-sigma sample drawn under `σ_old`
-//! and evaluated under `σ_new`, the magnitude is `O(k · σ_old/σ_new)`, so
-//! `scaled²` leaves f32 range once
-//! `2·(log σ_old − log σ_new) + 2·ln k > ln(3.4e38) ≈ 88.7`. Past that the
+//! `log_prob` evaluates `$((z - \mu)/\sigma)^2$` with `$\sigma = \exp(\log \sigma)$`. As `$\log \sigma$`
+//! drifts down, `$\sigma$` underflows toward zero and the squared, normalized
+//! residual grows without bound: for a `k`-sigma sample drawn under `$\sigma_{old}$`
+//! and evaluated under `$\sigma_{new}$`, the magnitude is `$O(k \cdot \sigma_{old}/\sigma_{new})$`, so
+//! `$\text{scaled}^2$` leaves f32 range once
+//! `$2 \cdot (\log \sigma_{old} - \log \sigma_{new}) + 2 \ln k > \ln(3.4\mathrm{e}38) \approx 88.7$`. Past that the
 //! ratio, the surrogate loss, and every gradient downstream are `inf`/`NaN`.
 //! Clamping makes the domain of `log_prob` finite by construction, so the
 //! function is total on f32.
 //!
 //! The bound is deliberately **non-binding for healthy runs**. A converging
-//! continuous-control policy lives around `log σ ∈ [−3, 1]`; the floor used
-//! throughout this repo, `−20`, is `σ ≈ 2·10⁻⁹`. The only runs whose numbers
+//! continuous-control policy lives around `$\log \sigma \in [-3, 1]$`; the floor used
+//! throughout this repo, `−20`, is `$\sigma \approx 2 \times 10^{-9}$`. The only runs whose numbers
 //! change are runs that were already producing garbage.
 //!
 //! ## Deliberate deviation from reference PPO
@@ -66,9 +66,9 @@
 //! Here `log_std` is a state-independent [`Param`] shared by all states. Once
 //! it crosses a bound, `clamp` zeroes its gradient — **permanently**, and that
 //! includes the entropy bonus's restoring force, which would otherwise push
-//! `log σ` back up. The parameter is stuck at the bound for the remainder of
+//! `$\log \sigma$` back up. The parameter is stuck at the bound for the remainder of
 //! training with no route back. The clamp therefore converts a run-destroying
-//! `NaN` into a silently frozen `σ`: a strictly better failure mode, but still
+//! `NaN` into a silently frozen `$\sigma$`: a strictly better failure mode, but still
 //! a failure mode, and one worth watching for.
 //!
 //! # Telemetry: making the trap door audible
@@ -88,13 +88,13 @@
 //!    they are opposite failures (σ collapsing to a point mass vs σ exploding
 //!    into pure noise) with different repairs, so silencing one because the
 //!    other already fired would hide the second diagnosis entirely (#347).
-//! 2. **Two per-update metrics** — the minimum and the maximum clamped `log σ`
+//! 2. **Two per-update metrics** — the minimum and the maximum clamped `$\log \sigma$`
 //!    across action dims — surfaced on
 //!    [`PpoUpdateStats`](crate::algorithms::ppo::ppo_agent::PpoUpdateStats) so
 //!    the drift toward *either* bound is visible *before* it pins. A minimum
 //!    alone is structurally blind to the ceiling: with `[-20, 2]` bounds and a
 //!    dim pinned at `2`, `min_log_std` can read a perfectly healthy `0.0`
-//!    while σ on that dim is frozen at `e² ≈ 7.4`.
+//!    while σ on that dim is frozen at `$e^2 \approx 7.4$`.
 //!
 //! ## Why the check is not in the forward pass
 //!
@@ -145,10 +145,10 @@ pub struct TanhGaussianPolicyHeadConfig {
     /// out already clamped (and, being state-independent, immediately gradient
     /// -frozen), which is always a configuration mistake.
     pub log_std_init: f32,
-    /// Clamp applied to the learned `log σ` parameter. `[-20, 2]` is the range
-    /// used throughout this repo: the floor is `σ ≈ 2·10⁻⁹`, far below any
+    /// Clamp applied to the learned `$\log \sigma$` parameter. `$[-20, 2]$` is the range
+    /// used throughout this repo: the floor is `$\sigma \approx 2 \times 10^{-9}$`, far below any
     /// healthy policy, so the bound never binds on a run that is working; the
-    /// ceiling `2` (`σ ≈ 7.4`) matches the SAC head's and sits well above any
+    /// ceiling `2` (`$\sigma \approx 7.4$`) matches the SAC head's and sits well above any
     /// converged continuous-control policy.
     ///
     /// Unlike SAC's clamp this bound is a **trap door** — see the
@@ -156,11 +156,11 @@ pub struct TanhGaussianPolicyHeadConfig {
     /// parameter rather than a per-step network output.
     ///
     /// A [`Bounds`] rather than a `(min, max)` pair: an inverted range reaches
-    /// [`Tensor::clamp`], which silently pins every `log σ` to `min` on the
+    /// [`Tensor::clamp`], which silently pins every `$\log \sigma$` to `min` on the
     /// autodiff path but **panics** on raw `Flex` (its `f32::clamp` delegate
     /// asserts `min <= max`). `Bounds` makes that backend-divergent failure
     /// unrepresentable. It does **not** discharge the two numerical invariants
-    /// below — the absolute floor (`log σ >= -35`) and the maximum span
+    /// below — the absolute floor (`$\log \sigma \geq -35$`) and the maximum span
     /// (`< 40`), both checked in `validate()`, are not
     /// expressible as an ordering, and `(-120, -100)` is a perfectly
     /// well-ordered range that still reaches `NaN` (ADR 0027, ADR 0049).
@@ -169,40 +169,40 @@ pub struct TanhGaussianPolicyHeadConfig {
     pub action_scale: f32,
 }
 
-/// Smallest permitted `log_std_min`, bounding `σ` itself in absolute terms.
+/// Smallest permitted `log_std_min`, bounding `$\sigma$` itself in absolute terms.
 ///
 /// This guards a **different** failure from [`MAX_LOG_STD_SPAN`]: that one
-/// bounds the *ratio* `σ_old/σ_new`, this one bounds `σ` on its own. Neither
+/// bounds the *ratio* `$\sigma_{old}/\sigma_{new}$`, this one bounds `$\sigma$` on its own. Neither
 /// implies the other — `(-120, -100)` is correctly ordered and spans only
-/// `20`, yet `exp(-110)` is exactly `0.0` in f32, so `(z − μ)/σ` is `±inf`
+/// `20`, yet `exp(-110)` is exactly `0.0` in f32, so `$(z - \mu)/\sigma$` is `$\pm\infty$`
 /// (or `0/0 = NaN`) and the `NaN` reaches `backward()`.
 ///
-/// `scaled_sq = ((z − μ)/σ)²` leaves f32 range once
+/// `$\text{scaled\_sq} = ((z - \mu)/\sigma)^2$` leaves f32 range once
 /// `|scaled| > √f32::MAX ≈ 1.8447·10¹⁹`, so the admissible floor scales with
 /// the residual that must stay representable:
-/// `log_std_min ≥ ln|z − μ| − 44.36`. Over a worst-case residual sweep of
-/// `10⁻³ … 10²` the binding case is `|z − μ| = 10²`, which requires
-/// `≥ −39.75`; `-35` is that rounded up with margin. At `-35` the admissible
+/// `$\text{log\_std\_min} \geq \ln|z - \mu| - 44.36$`. Over a worst-case residual sweep of
+/// `$10^{-3} \ldots 10^{2}$` the binding case is `$|z - \mu| = 10^2$`, which requires
+/// `$\geq -39.75$`; `-35` is that rounded up with margin. At `-35` the admissible
 /// residual is `√f32::MAX · exp(-35) ≈ 1.16·10⁴` — two decades beyond what the
 /// derivation assumes.
 ///
-/// The floor constrains no usable configuration: `σ = exp(-35) ≈ 6.3·10⁻¹⁶`,
+/// The floor constrains no usable configuration: `$\sigma = \exp(-35) \approx 6.3 \times 10^{-16}$`,
 /// six orders of magnitude below this repo's default floor of `-20`. (For
 /// scale: `exp` leaves f32's **normal** range around `-87` but does not reach
 /// exactly `0.0` until `≈ -104`.)
 ///
 /// Together with [`MAX_LOG_STD_SPAN`] this also bounds `log_std_max` from
 /// above, to `< 5`. That is intended and free — a converged
-/// continuous-control policy sits near `log σ ∈ [−3, 1]`.
+/// continuous-control policy sits near `$\log \sigma \in [-3, 1]$`.
 const MIN_LOG_STD_FLOOR: f32 = -35.0;
 
 /// Largest permitted `log_std_max − log_std_min`.
 ///
-/// `log_prob` evaluates `scaled = (z − μ)/σ_new` where `z` was sampled under
-/// `σ_old`; for a `k`-sigma sample the magnitude is `O(k · σ_old/σ_new)`, so
-/// `scaled²` overflows f32 once
+/// `log_prob` evaluates `$\text{scaled} = (z - \mu)/\sigma_{new}$` where `z` was sampled under
+/// `$\sigma_{old}$`; for a `k`-sigma sample the magnitude is `$O(k \cdot \sigma_{old}/\sigma_{new})$`, so
+/// `$\text{scaled}^2$` overflows f32 once
 /// `2·(log_std_max − log_std_min) + 2·ln k > ln(3.4e38) ≈ 88.7`. A span below
-/// `40` keeps `((z − μ)/σ)²` inside f32 range with headroom for large `k`.
+/// `40` keeps `$((z - \mu)/\sigma)^2$` inside f32 range with headroom for large `k`.
 const MAX_LOG_STD_SPAN: f32 = 40.0;
 
 /// Per-head, per-bound one-shot latches for the "clamp has bound" warning.
@@ -224,9 +224,9 @@ const MAX_LOG_STD_SPAN: f32 = 40.0;
 /// [`TanhGaussianPolicyHead::clamp_warned`]).
 #[derive(Debug, Default)]
 struct ClampWarnLatch {
-    /// Set once the raw `log σ` has been observed below `log_std_min`.
+    /// Set once the raw `$\log \sigma$` has been observed below `log_std_min`.
     below: AtomicBool,
-    /// Set once the raw `log σ` has been observed above `log_std_max`.
+    /// Set once the raw `$\log \sigma$` has been observed above `log_std_max`.
     above: AtomicBool,
 }
 
@@ -234,7 +234,7 @@ impl TanhGaussianPolicyHeadConfig {
     /// Validates the config, then constructs the module on `device`.
     ///
     /// [`validate`](Validate::validate) runs first, so a config that violates
-    /// the absolute `log σ` floor, the maximum span, or the `log_std_init`
+    /// the absolute `$\log \sigma$` floor, the maximum span, or the `log_std_init`
     /// range can never reach a built head. This is the *only* constructor:
     /// there is deliberately no infallible `init`, because an unchecked path
     /// would simply reinstate the bypass this method exists to close (#386).
@@ -410,7 +410,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         self.mean.forward(h)
     }
 
-    /// The current **raw** `log σ` parameter vector of length `action_dim`.
+    /// The current **raw** `$\log \sigma$` parameter vector of length `action_dim`.
     ///
     /// Deliberately unclamped: this is the learnable parameter as stored, so
     /// callers can observe drift past the bounds. The values actually used by
@@ -431,17 +431,17 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         self.action_scale
     }
 
-    /// Clamp lower bound applied to `log σ`.
+    /// Clamp lower bound applied to `$\log \sigma$`.
     pub fn log_std_min(&self) -> f32 {
         self.log_std_min
     }
 
-    /// Clamp upper bound applied to `log σ`.
+    /// Clamp upper bound applied to `$\log \sigma$`.
     pub fn log_std_max(&self) -> f32 {
         self.log_std_max
     }
 
-    /// The `log σ` used by *every* density computation: the learned parameter
+    /// The `$\log \sigma$` used by *every* density computation: the learned parameter
     /// clamped to `[log_std_min, log_std_max]` and broadcast from `(A,)` to
     /// `(batch, A)`.
     ///
@@ -455,9 +455,9 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
             .clamp(self.log_std_min, self.log_std_max)
     }
 
-    /// Reads the raw `log σ` vector to the host, warns **once per bound** if it
+    /// Reads the raw `$\log \sigma$` vector to the host, warns **once per bound** if it
     /// has left `[log_std_min, log_std_max]`, and returns the
-    /// `(minimum, maximum)` *clamped* `log σ` across action dims.
+    /// `(minimum, maximum)` *clamped* `$\log \sigma$` across action dims.
     ///
     /// This is the single place that pays a device→host sync for `log_std`, and
     /// both trait-level metrics project from it — so a PPO update pays **two
@@ -614,7 +614,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
         self.action_dim
     }
 
-    /// Samples actions via reparameterisation `z = μ + σ·ε` with `ε ∼ N(0,1)`
+    /// Samples actions via reparameterisation `$z = \mu + \sigma \cdot \epsilon$` with `$\epsilon \sim \mathcal{N}(0, 1)$`
     /// drawn on CPU, then returns `z` (the pre-squash sample), its Gaussian
     /// log-probability, and the per-row Gaussian entropy.
     ///
@@ -702,7 +702,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
             .collect()
     }
 
-    /// Minimum **clamped** `log σ` across action dims, and one of the two
+    /// Minimum **clamped** `$\log \sigma$` across action dims, and one of the two
     /// points at which the per-bound one-shot clamp warnings are evaluated.
     ///
     /// Costs one device→host sync; call once per update, never per step.
@@ -710,7 +710,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
         Some(self.read_log_std_extrema_and_warn().0)
     }
 
-    /// Maximum **clamped** `log σ` across action dims — the ceiling-side
+    /// Maximum **clamped** `$\log \sigma$` across action dims — the ceiling-side
     /// counterpart to [`min_log_std`](Self::min_log_std), and the other point
     /// at which the per-bound one-shot clamp warnings are evaluated.
     ///
@@ -973,7 +973,7 @@ mod tests {
         assert_eq!(err.kind, ConstraintKind::DegenerateInterval { value: 0.0 });
     }
 
-    /// A span of 40 or more lets `((z−μ)/σ)²` leave f32 range even though the
+    /// A span of 40 or more lets `$((z-\mu)/\sigma)^2$` leave f32 range even though the
     /// bounds are correctly ordered — orderedness alone (all `Bounds`
     /// guarantees) would accept it.
     ///
@@ -1277,11 +1277,11 @@ mod tests {
     /// Regression test for the NaN defect: a `log_std` that has drifted far
     /// below the floor must still yield a finite `log_prob`.
     ///
-    /// Without the clamp, `σ = exp(−60) ≈ 8.8·10⁻²⁷`, so `((z−μ)/σ)²` for a
-    /// residual of order 1 is ~`10⁵²` — well past f32's `3.4·10³⁸` — and the
+    /// Without the clamp, `$\sigma = \exp(-60) \approx 8.8 \times 10^{-27}$`, so `$((z-\mu)/\sigma)^2$` for a
+    /// residual of order 1 is ~`$10^{52}$` — well past f32's `$3.4 \times 10^{38}$` — and the
     /// log-prob comes back `-inf`, which poisons the ratio and every gradient
-    /// downstream. With the clamp, `σ = exp(−20) ≈ 2·10⁻⁹` and the square stays
-    /// around `2.5·10¹⁷`, comfortably inside range.
+    /// downstream. With the clamp, `$\sigma = \exp(-20) \approx 2 \times 10^{-9}$` and the square stays
+    /// around `$2.5 \times 10^{17}$`, comfortably inside range.
     #[test]
     fn clamp_keeps_log_prob_finite_when_log_std_collapses() {
         let device = Default::default();
@@ -1308,7 +1308,7 @@ mod tests {
         assert!(ent.is_finite(), "entropy must stay finite, got {ent}");
     }
 
-    /// The sampling path must draw `z = μ + σ·ε` from the **clamped** `σ`, not
+    /// The sampling path must draw `$z = \mu + \sigma \cdot \epsilon$` from the **clamped** `$\sigma$`, not
     /// the raw parameter.
     ///
     /// Log-prob agreement alone cannot catch a one-sided clamp here, because
@@ -1316,15 +1316,15 @@ mod tests {
     /// the same function `evaluate` uses — so the two always agree by
     /// construction. What a one-sided clamp *does* corrupt is the sample's
     /// spread: with `log_std` forced to `−60`, an unclamped draw would sit
-    /// `exp(−60) ≈ 9·10⁻²⁷` from the mean while every density downstream scored
-    /// it under `exp(−20) ≈ 2·10⁻⁹` — an on-policy rollout collecting samples
+    /// `$\exp(-60) \approx 9 \times 10^{-27}$` from the mean while every density downstream scored
+    /// it under `$\exp(-20) \approx 2 \times 10^{-9}$` — an on-policy rollout collecting samples
     /// from a distribution the loss does not believe in. So this test pins the
-    /// realized `|z − μ|` to the clamped scale, and checks agreement on top.
+    /// realized `$|z - \mu|$` to the clamped scale, and checks agreement on top.
     #[test]
     fn clamped_sample_draws_at_the_floor_scale_and_agrees_with_evaluate() {
         let device = Default::default();
         // A floor of −10 (σ ≈ 4.5·10⁻⁵) rather than the usual −20: at −20 the
-        // increment σ·ε is below one f32 ulp of a mean of order 0.1, so `z − μ`
+        // increment σ·ε is below one f32 ulp of a mean of order 0.1, so `$z - \mu$`
         // would round to exactly zero and the assertion could not distinguish
         // the two cases. The clamp under test is identical either way.
         let cfg = TanhGaussianPolicyHeadConfig {
@@ -1627,7 +1627,7 @@ mod tests {
     /// Under the old single-`AtomicBool` latch this call emitted exactly one
     /// event, and — because the emitting branch was `if below { .. } else
     /// { .. }` — that event named only `log_std_min`. The ceiling violation
-    /// (`log σ = 9`, σ ≈ 8103, a policy sampling pure noise on dim 1) was
+    /// (`$\log \sigma = 9$`, σ ≈ 8103, a policy sampling pure noise on dim 1) was
     /// dropped from the very first warning and, the latch now being set, from
     /// every subsequent one too.
     ///
@@ -1836,7 +1836,7 @@ mod tests {
     /// `min_log_std` is structurally blind to a dim pinned at the ceiling, and
     /// `max_log_std` is the metric that sees it.
     ///
-    /// With `[-20, 2]` bounds, a head whose clamped `log σ` is `[-20, 2]`
+    /// With `[-20, 2]` bounds, a head whose clamped `$\log \sigma$` is `[-20, 2]`
     /// reports `min_log_std = -20.0`... but a head whose *raw* parameter is
     /// `[-20.0, 9.0]` — one healthy dim, one dim frozen at σ = e² with a dead
     /// gradient — reports `min_log_std = -20.0` too, and a head at

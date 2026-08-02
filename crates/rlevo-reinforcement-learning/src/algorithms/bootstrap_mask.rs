@@ -3,7 +3,7 @@
 //!
 //! Every off-policy training loop must feed the *Bellman bootstrap mask* from
 //! [`Snapshot::is_terminated`], not [`Snapshot::is_done`]. A truncation (time
-//! limit) ends the episode but not the MDP, so `γ · V(next_obs)` must survive
+//! limit) ends the episode but not the MDP, so `$\gamma \cdot V(\text{next\_obs})$` must survive
 //! in the target; zeroing it there biases every Q-value downward (Pardo et
 //! al., "Time Limits in Reinforcement Learning", ICML 2018, Eq. 6).
 //!

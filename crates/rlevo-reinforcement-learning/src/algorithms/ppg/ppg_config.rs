@@ -40,7 +40,7 @@ pub struct PpgConfig {
 
     /// Behavioral-cloning / distillation coefficient on the KL term.
     ///
-    /// Scales the `KL(π_old ‖ π_new)` distillation loss added to the
+    /// Scales the `$KL(\pi_{old} \Vert \pi_{new})$` distillation loss added to the
     /// auxiliary-value loss on the policy network. `CleanRL` default: `1.0`.
     pub beta_clone: f32,
 

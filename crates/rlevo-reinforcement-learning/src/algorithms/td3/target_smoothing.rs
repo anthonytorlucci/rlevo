@@ -10,11 +10,11 @@
 //!
 //! The update rule is
 //!
-//! ```text
-//! a' = clip(target_actor(s') + clip(N(0, σ²), -c, c), low, high)
+//! ```math
+//! a' = \text{clip}\big(\text{target\_actor}(s') + \text{clip}(\mathcal{N}(0, \sigma^2), -c, c),\; \text{low},\; \text{high}\big)
 //! ```
 //!
-//! where `σ = policy_noise` and `c = noise_clip`. `c` is a scalar; `low` and
+//! where `$\sigma = \text{policy\_noise}$` and `$c = \text{noise\_clip}$`. `c` is a scalar; `low` and
 //! `high` are the per-component `Box` bound vectors (ADR 0053 §6).
 
 use burn::tensor::backend::Backend;

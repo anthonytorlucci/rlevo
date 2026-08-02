@@ -1,14 +1,14 @@
 //! Alpine function No.01 — a non-smooth n-D benchmark from absolute values.
 //!
-//! `f(x) = Σ |x_i·sin(x_i) + 0.1·x_i|`, global minimum `f* = 0` at `x = 0`.
+//! `$f(x) = \sum |x_i \cdot \sin(x_i) + 0.1 \cdot x_i|$`, global minimum `f* = 0` at `x = 0`.
 //! Non-negative everywhere and **non-smooth**: each dimension contributes
 //! roughly eight kinks across `[-10, 10]` (one at the origin plus the seven
 //! roots of `sin(x_i) = −0.1`), so gradient methods stall at the creases away
 //! from the optimum.
 //!
-//! Evaluated over `[-10, 10]^n`. Requires `n ≥ 1`.
+//! Evaluated over `[-10, 10]^n`. Requires `$n \geq 1$`.
 //!
-//! Note: the canonical formula is `|x_i·sin(x_i) + 0.1·x_i|`; some libraries
+//! Note: the canonical formula is `$|x_i \cdot \sin(x_i) + 0.1 \cdot x_i|$`; some libraries
 //! (e.g. `NiaPy`) drop the leading `x_i` factor — that is a different function.
 
 use rlevo_core::config::{self, ConfigError};

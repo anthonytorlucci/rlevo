@@ -95,7 +95,7 @@ impl Species {
     }
 }
 
-/// Compatibility distance `δ = c1·E/N + c2·D/N + c3·W̄` between two genomes
+/// Compatibility distance `$\delta = c_1 \cdot E/N + c_2 \cdot D/N + c_3 \cdot \bar{W}$` between two genomes
 /// (Stanley & Miikkulainen, 2002).
 ///
 /// `E` is the excess gene count, `D` the disjoint gene count, `W̄` the mean

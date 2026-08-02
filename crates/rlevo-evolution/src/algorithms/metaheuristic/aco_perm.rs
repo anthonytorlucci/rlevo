@@ -27,11 +27,11 @@ pub struct AcoPermConfig {
     pub pop_size: usize,
     /// Number of nodes in the graph (permutation length).
     pub n_nodes: usize,
-    /// Pheromone evaporation rate, `ρ ∈ (0, 1]`.
+    /// Pheromone evaporation rate, `$\rho \in (0, 1]$`.
     pub rho: f32,
-    /// Heuristic exponent `α` (pheromone weight).
+    /// Heuristic exponent `$\alpha$` (pheromone weight).
     pub alpha: f32,
-    /// Heuristic exponent `β` (desirability weight).
+    /// Heuristic exponent `$\beta$` (desirability weight).
     pub beta: f32,
 }
 

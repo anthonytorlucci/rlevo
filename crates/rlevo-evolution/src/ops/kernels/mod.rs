@@ -40,7 +40,7 @@
 //! ```
 //!
 //! performing the index sampling and comparison in a single launch,
-//! eliminating the host trip entirely. Expected speedup at `N ≥ 256`
+//! eliminating the host trip entirely. Expected speedup at `$N \geq 256$`
 //! on wgpu: order-of-magnitude.
 //!
 //! # DE trial-vector construction

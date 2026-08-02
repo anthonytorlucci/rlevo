@@ -8,10 +8,10 @@
 //! via [`RapierWorld::step`](crate::box2d::physics::RapierWorld). Car dynamics
 //! are approximated by direct force application:
 //!
-//! - **Gas**: forward force proportional to `gas × 500 × car_density`.
+//! - **Gas**: forward force proportional to `$\text{gas} \times 500 \times \text{car\_density}$`.
 //! - **Brake**: opposing force proportional to the current linear velocity scaled
-//!   by `brake × 200 × car_density`.
-//! - **Steer**: torque impulse proportional to `steer × speed × 2`, so steering
+//!   by `$\text{brake} \times 200 \times \text{car\_density}$`.
+//! - **Steer**: torque impulse proportional to `$\text{steer} \times \text{speed} \times 2$`, so steering
 //!   authority grows with speed.
 //! - **Lateral friction**: velocity component perpendicular to the car heading is
 //!   damped to prevent unrealistic sliding.
@@ -34,7 +34,7 @@
 //! whole track.
 //!
 //! rlevo keeps its own coverage-threshold termination
-//! (`tiles_visited >= lap_complete_percent × total_tiles`) rather than gym's
+//! (`$\text{tiles\_visited} \geq \text{lap\_complete\_percent} \times \text{total\_tiles}$`) rather than gym's
 //! re-cross-tile-0 rule, which couples completion to a single tile and makes
 //! `lap_complete_percent` a near-no-op (upstream Gymnasium issue #1269). The
 //! sweep makes laps *reachable in principle*; it does not make them *easy* —
@@ -93,7 +93,7 @@ const CAR_H: f32 = 4.0 / 30.0;
 ///
 /// # Action (3 dims, D5: asymmetric bounds)
 ///
-/// `steer ∈ [−1, 1]`, `gas ∈ [0, 1]`, `brake ∈ [0, 1]`.
+/// `$\text{steer} \in [-1, 1]$`, `$\text{gas} \in [0, 1]$`, `$\text{brake} \in [0, 1]$`.
 #[derive(Debug)]
 pub struct CarRacing {
     world: RapierWorld,
@@ -246,7 +246,7 @@ impl CarRacing {
         // an eighth of the loop, clamped to a sane [3, 16] band. The final
         // `.min((total-1)/2)` enforces `bound < total/2`, on which the
         // forward/backward disambiguation relies: a backward move has
-        // `forward_gap ≈ total`, so it must never fall inside `1..=bound`.
+        // `$\text{forward\_gap} \approx \text{total}$`, so it must never fall inside `1..=bound`.
         // Without this cap a tiny loop (e.g. total=5 ⇒ bound=3 > 2.5) would let
         // a reverse step be scored as forward progress.
         let bound = (total / 8).clamp(3, 16).min(total.saturating_sub(1) / 2);
@@ -424,7 +424,7 @@ impl Environment<3, 3, 1> for CarRacing {
     /// marks newly covered tiles and pays `lap_reward / total_tiles` for each.
     /// The step reward is that tile reward plus the constant `frame_penalty`.
     /// The episode is `Terminated` once `tiles_visited` reaches
-    /// `lap_complete_percent × total_tiles`, and `Truncated` once `steps`
+    /// `$\text{lap\_complete\_percent} \times \text{total\_tiles}$`, and `Truncated` once `steps`
     /// reaches `config.max_steps`.
     ///
     /// # Errors
@@ -433,7 +433,7 @@ impl Environment<3, 3, 1> for CarRacing {
     ///   ended (lap completed or step budget exhausted); call
     ///   [`reset`](Environment::reset) first.
     /// - [`EnvironmentError::InvalidAction`] if `action` violates the asymmetric
-    ///   bounds `steer ∈ [−1, 1]`, `gas ∈ [0, 1]`, `brake ∈ [0, 1]`.
+    ///   bounds `$\text{steer} \in [-1, 1]$`, `$\text{gas} \in [0, 1]$`, `$\text{brake} \in [0, 1]$`.
     fn step(&mut self, action: CarRacingAction) -> Result<Self::SnapshotType, EnvironmentError> {
         // Guard first — ahead of the action check, the force application, the
         // world integration, the step counter and the tile-visit sweep. Whether
@@ -567,7 +567,7 @@ impl CarRacing {
 ///   `advanced`.
 /// - `forward_gap > bound`: mark nothing, not advanced — either a spurious
 ///   nearest-jump across a self-intersection, or backward motion (where
-///   `forward_gap ≈ total`); neither is real forward coverage. This
+///   `$\text{forward\_gap} \approx \text{total}$`); neither is real forward coverage. This
 ///   disambiguation relies on the caller's `bound < total/2`.
 ///
 /// Pure: integer/flag math only, no RNG and no physics, so it is unit-testable

@@ -44,13 +44,13 @@ pub struct UnivariateBernoulliParams {
     /// [`UnivariateBernoulliState::prob`].
     pub genome_dim: usize,
     /// Interpolation rate toward the best individual's gene value per
-    /// generation (`0 < learning_rate < 1`; original Baluja uses 0.1).
+    /// generation (`$0 < \text{learning\_rate} < 1$`; original Baluja uses 0.1).
     pub learning_rate: f32,
     /// Additional interpolation rate applied on genes where the best and
     /// worst individuals disagree. The extra step interpolates toward the
     /// *best* individual's gene — identical, for binary `{0, 1}` genes, to
     /// moving away from the worst's value, since the two differ
-    /// (`0 ≤ negative_learning_rate < 1`; original uses 0.075).
+    /// (`$0 \leq \text{negative\_learning\_rate} < 1$`; original uses 0.075).
     pub negative_learning_rate: f32,
 }
 

@@ -1,26 +1,26 @@
 //! Trefethen's function — a 2-D benchmark with five incommensurate frequencies.
 //!
-//! ```text
-//! f(x₁,x₂) = e^{sin(50·x₁)} + sin(60·e^{x₂}) + sin(70·sin(x₁))
-//!          + sin(sin(80·x₂)) − sin(10·(x₁+x₂)) + (x₁² + x₂²)/4
+//! ```math
+//! f(x_1,x_2) = e^{\sin(50 x_1)} + \sin(60 e^{x_2}) + \sin(70 \sin(x_1))
+//!            + \sin(\sin(80 x_2)) - \sin(10(x_1+x_2)) + \frac{x_1^2 + x_2^2}{4}
 //! ```
-//! Global minimum `f* ≈ −3.306_868_647_475_23` at `(−0.024403, 0.210612)`. The
-//! frequencies `{50, 60, 70, 80, 10}` share no ratio, so there is no periodic
+//! Global minimum `f* ≈ −3.306_868_647_475_23` at `$(-0.024403, 0.210612)$`. The
+//! frequencies `$\{50, 60, 70, 80, 10\}$` share no ratio, so there is no periodic
 //! lattice of equivalent basins and no dominant spatial scale — dense grid
-//! search plus local refinement is needed. The stabilising `(x₁²+x₂²)/4` term is
+//! search plus local refinement is needed. The stabilising `$(x_1^2+x_2^2)/4$` term is
 //! coercive, so it keeps the minimum interior and well-defined.
 //!
 //! # Domain
 //!
 //! Trefethen's original problem — Problem 4 of the SIAM 100-Digit Challenge
 //! (*SIAM News*, Jan/Feb 2002) — is **unconstrained**: it states no box at all.
-//! It is well-posed anyway because the `(x₁²+x₂²)/4` term is coercive, so a
-//! finite global minimum exists without an artificial box. (The `[-1, 1]²`
+//! It is well-posed anyway because the `$(x_1^2+x_2^2)/4$` term is coercive, so a
+//! finite global minimum exists without an artificial box. (The `$[-1, 1]^2$`
 //! framing often repeated in benchmark write-ups is a *visualization*
 //! convention, not a published constraint — it is not cited here as one.)
 //!
 //! The **bounded benchmark box** used by the optimization literature —
-//! `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5, 4.5]` — is documented by Al-Roomi (2015)
+//! `$x_1 \in [-6.5, 6.5]$`, `$x_2 \in [-4.5, 4.5]$` — is documented by Al-Roomi (2015)
 //! and propagated through Gavana's `benchmark_functions` (2013). Al-Roomi's
 //! page lists Mishra, S. (2006), *"Some New Test Functions for Global
 //! Optimization and Performance of Repulsive Particle Swarm Method"*, MPRA
@@ -33,7 +33,7 @@
 //! `(lo, hi)` pair applied per-coordinate (the consuming renderer and search
 //! harnesses use one box for every axis), so it returns the *square hull*
 //! `(-6.5, 6.5)` of that box — the smallest symmetric square containing the full
-//! benchmark domain and the optimum `(−0.024403, 0.210612)` on both axes.
+//! benchmark domain and the optimum `$(-0.024403, 0.210612)$` on both axes.
 //! The evaluator never clamps.
 
 /// Trefethen's function (strictly 2-D).
@@ -49,8 +49,8 @@ impl Trefethen {
 
     /// Evaluate Trefethen's function at `(x1, x2)`.
     ///
-    /// The `sin(60·e^{x₂})` term is finite across the recommended domain, but for
-    /// `x₂ ≳ 710` the inner `e^{x₂}` overflows to infinity and the result is
+    /// The `$\sin(60 \cdot e^{x_2})$` term is finite across the recommended domain, but for
+    /// `$x_2 \gtrsim 710$` the inner `$e^{x_2}$` overflows to infinity and the result is
     /// `NaN`; callers operating far outside the domain must clamp `x₂` themselves.
     #[must_use]
     pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
@@ -63,8 +63,8 @@ impl Trefethen {
     }
 
     /// Square hull `(-6.5, 6.5)` of the asymmetric benchmark box
-    /// `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5, 4.5]`, applied per-coordinate. Contains
-    /// the full domain and the optimum `(−0.024403, 0.210612)` on both axes. See
+    /// `$x_1 \in [-6.5, 6.5]$`, `$x_2 \in [-4.5, 4.5]$`, applied per-coordinate. Contains
+    /// the full domain and the optimum `$(-0.024403, 0.210612)$` on both axes. See
     /// the module-level docs for the provenance of that box.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {

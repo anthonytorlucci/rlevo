@@ -4,26 +4,26 @@
 //! as f24 but adds orthogonal rotation and ill-conditioning transforms on top of
 //! this body; those are intentionally omitted here.
 //!
-//! ```text
-//! f(x) = min[ Σ(x_i − μ₁)²,  d·n + s·Σ(x_i − μ₂)² ]
-//!        + 10·Σ{ 1 − cos[2π(x_i − μ₁)] }
+//! ```math
+//! f(x) = \min\left[ \sum_i (x_i - \mu_1)^2,\; d n + s \sum_i (x_i - \mu_2)^2 \right]
+//!        + 10 \sum_i \left\{ 1 - \cos[2\pi (x_i - \mu_1)] \right\}
 //! ```
-//! with `μ₁ = 2.5`, `d = 1`, `s = 1 − 1/(2√(n+20) − 8.2)`, and
-//! `μ₂ = −√((μ₁² − d)/s)`. Global minimum `f* = 0` at `x_i = μ₁ = 2.5`.
+//! with `$\mu_1 = 2.5$`, `$d = 1$`, `$s = 1 - 1/(2\sqrt{n+20} - 8.2)$`, and
+//! `$\mu_2 = -\sqrt{(\mu_1^2 - d)/s}$`. Global minimum `$f^* = 0$` at `$x_i = \mu_1 = 2.5$`.
 //!
-//! The function pairs two Sphere funnels — a narrow global one at `μ₁` and a
-//! wide deceptive one at `μ₂` that occupies most of the search volume — with a
+//! The function pairs two Sphere funnels — a narrow global one at `$\mu_1$` and a
+//! wide deceptive one at `$\mu_2$` that occupies most of the search volume — with a
 //! Rastrigin oscillation. Large-population EAs distribute members proportional
 //! to basin volume, biasing the majority toward the wrong funnel.
 //!
-//! Evaluated over `[-5.12, 5.12]^n`. The `min(·,·)` is non-differentiable on the
-//! hypersurface where its two arguments are equal. Requires `n ≥ 2`.
+//! Evaluated over `$[-5.12, 5.12]^n$`. The `$\min(\cdot,\cdot)$` is non-differentiable on the
+//! hypersurface where its two arguments are equal. Requires `$n \geq 2$`.
 
 use std::f64::consts::PI;
 
 use rlevo_core::config::{self, ConfigError};
 
-/// Global-funnel centre `μ₁`.
+/// Global-funnel centre `$\mu_1$`.
 const MU1: f64 = 2.5;
 /// Depth offset `d` of the deceptive funnel.
 const D: f64 = 1.0;
@@ -47,8 +47,8 @@ impl LunacekBiRastrigin {
     /// # Errors
     ///
     /// Returns [`ConfigError`] if `dim < 2`. The depth-scaling parameter
-    /// `s = 1 − 1/(2√(n+20) − 8.2)` is non-positive for `n < 2` (`s(0) ≈ −0.344`,
-    /// `s(1) ≈ −0.036`), which makes `μ₂ = −√((μ₁² − d)/s)` the square root of a
+    /// `$s = 1 - 1/(2\sqrt{n+20} - 8.2)$` is non-positive for `$n < 2$` (`$s(0) \approx -0.344$`,
+    /// `$s(1) \approx -0.036$`), which makes `$\mu_2 = -\sqrt{(\mu_1^2 - d)/s}$` the square root of a
     /// negative number — i.e. `NaN`, propagated silently through
     /// [`evaluate`](Self::evaluate) with no panic and no diagnostic. This bound is
     /// *derived* from the closed-form `s(n)` used by the BBOB/COCO benchmark suite
@@ -69,19 +69,19 @@ impl LunacekBiRastrigin {
         self.dim
     }
 
-    /// Depth-scaling parameter `s = 1 − 1/(2√(n+20) − 8.2)`.
+    /// Depth-scaling parameter `$s = 1 - 1/(2\sqrt{n+20} - 8.2)$`.
     ///
-    /// Always strictly positive: `s` crosses zero between `n = 1` (`≈ −0.036`) and
-    /// `n = 2` (`≈ +0.153`), and [`new`](Self::new) rejects `dim < 2`.
+    /// Always strictly positive: `s` crosses zero between `$n = 1$` (`$\approx -0.036$`) and
+    /// `$n = 2$` (`$\approx +0.153$`), and [`new`](Self::new) rejects `dim < 2`.
     #[must_use]
     pub fn s(&self) -> f64 {
         1.0 - 1.0 / (2.0 * (self.dim as f64 + 20.0).sqrt() - 8.2)
     }
 
-    /// Deceptive-funnel centre `μ₂ = −√((μ₁² − d)/s)`.
+    /// Deceptive-funnel centre `$\mu_2 = -\sqrt{(\mu_1^2 - d)/s}$`.
     ///
     /// Always finite: [`s`](Self::s) is positive for every constructible `dim`, so
-    /// the radicand `(μ₁² − d)/s` is positive and the `sqrt` is real.
+    /// the radicand `$(\mu_1^2 - d)/s$` is positive and the `sqrt` is real.
     #[must_use]
     pub fn mu2(&self) -> f64 {
         -((MU1 * MU1 - D) / self.s()).sqrt()
@@ -118,7 +118,7 @@ impl LunacekBiRastrigin {
 
     /// 2D projection of [`evaluate`](Self::evaluate) for visualisation.
     ///
-    /// Coordinates beyond the first two are fixed at `μ₁ = 2.5` (the optimum) so
+    /// Coordinates beyond the first two are fixed at `$\mu_1 = 2.5$` (the optimum) so
     /// the rendered slice passes through the global funnel.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![MU1; self.dim];

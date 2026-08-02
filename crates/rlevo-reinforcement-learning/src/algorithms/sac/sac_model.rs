@@ -5,15 +5,15 @@
 //! Q-critics. The critics reuse the DDPG/TD3 [`ContinuousQ`] contract
 //! verbatim (same signatures, same Polyak-averaged target twins). The actor
 //! trait is SAC-specific: instead of emitting a single deterministic action,
-//! it samples `a ~ π(·|s)` via the reparameterization trick and returns the
-//! paired `log π(a|s)` so the agent can score the entropy term used in both
-//! the Bellman backup (`y = r + γ(1−d)(min Q − α log π)`) and the actor loss
-//! (`L_π = α log π − min Q`).
+//! it samples `$a \sim \pi(\cdot|s)$` via the reparameterization trick and returns the
+//! paired `$\log \pi(a|s)$` so the agent can score the entropy term used in both
+//! the Bellman backup (`$y = r + \gamma(1-d)(\min Q - \alpha \log \pi)$`) and the actor loss
+//! (`$L_\pi = \alpha \log \pi - \min Q$`).
 //!
 //! There is **no target actor**: SAC's stochastic policy plus
 //! `min`-of-twin-Q already handles critic overestimation, so target bootstraps
 //! go through the live actor. Callers must pre-sample the reparameterization
-//! noise `ε ~ N(0, I)` on CPU and pass it to [`forward_sample`] /
+//! noise `$\epsilon \sim \mathcal{N}(0, I)$` on CPU and pass it to [`forward_sample`] /
 //! [`forward_sample_inner`] so the stochasticity stays reproducible under a
 //! seeded `rand::Rng`.
 //!
@@ -50,7 +50,7 @@ pub trait SquashedGaussianPolicy<B: AutodiffBackend, const DB: usize, const DAB:
     AutodiffModule<B>
 {
     /// Number of continuous action dimensions emitted per row. Needed by the
-    /// agent to size the `ε` noise tensor without another trait bound.
+    /// agent to size the `$\epsilon$` noise tensor without another trait bound.
     fn action_dim(&self) -> usize;
 
     /// Autodiff forward sample: given a pre-drawn standard-normal noise

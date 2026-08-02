@@ -45,7 +45,7 @@ pub trait DeterministicPolicy<B: AutodiffBackend, const DB: usize, const DAB: us
 
     /// Polyak-averages the target toward the active network.
     ///
-    /// Returns `(1 − τ) · target + τ · active` element-wise for every
+    /// Returns `$(1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$` element-wise for every
     /// parameter.
     ///
     /// # Errors
@@ -86,8 +86,8 @@ pub trait ContinuousQ<B: AutodiffBackend, const DB: usize, const DAB: usize>:
 
     /// Polyak-averages the target toward the active network.
     ///
-    /// Returns `(1 − τ) · target + τ · active` element-wise for every
-    /// parameter, with `τ` drawn from
+    /// Returns `$(1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$` element-wise for every
+    /// parameter, with `$\tau$` drawn from
     /// [`DdpgTrainingConfig::target_update`](crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig::target_update).
     ///
     /// # Errors

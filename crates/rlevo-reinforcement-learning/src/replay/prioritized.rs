@@ -10,7 +10,7 @@ use super::priority::{Priority, PriorityError};
 use super::sum_tree::{PriorityIndex, SumTree, stratified_draw};
 use super::{ReplayStrategy, SampledBatch, TransitionId};
 
-/// A replay buffer that samples transitions in proportion to `p_i^α`, per
+/// A replay buffer that samples transitions in proportion to `$p_i^\alpha$`, per
 /// Schaul, Quan, Antonoglou & Silver, *Prioritized Experience Replay*
 /// (ICLR 2016, arXiv:1511.05952v4), **proportional variant**.
 ///
@@ -40,21 +40,21 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 ///
 /// | Paper | Here |
 /// |---|---|
-/// | §3.3 `p_i = \|δ_i\| + ε` | [`Priority::from_td_error`] / [`priority_from_td_error`](Self::priority_from_td_error) |
+/// | §3.3 `$p_i = \lvert \delta_i \rvert + \epsilon$` | [`Priority::from_td_error`] / [`priority_from_td_error`](Self::priority_from_td_error) |
 /// | §3.3 ε "a small positive constant" — **no value given** | [`DEFAULT_PRIORITY_EPSILON`] = `1e-6`, **our** choice, justified there |
-/// | Eq. 1 `P(i) = p_i^α / Σ_k p_k^α` | [`sampling_probability`](Self::sampling_probability), via a sum-tree |
+/// | Eq. 1 `$P(i) = p_i^\alpha / \sum_k p_k^\alpha$` | [`sampling_probability`](Self::sampling_probability), via a sum-tree |
 /// | Eq. 1 "α = 0 corresponding to the uniform case" | exact: `p^0 == 1` for every stored `p`, which is `> 0` by construction |
 /// | Appendix B.2.1 stratified draw | one draw per equal-mass segment — **not** i.i.d. |
-/// | Alg. 1 line 6 `p_t = max_{i<t} p_i` | [`max_priority`](Self::max_priority), a running max tracked incrementally |
-/// | §3.4 `w_i = (1/N · 1/P(i))^β` | [`sample`](Self::sample) — see *Importance weights* below |
+/// | Alg. 1 line 6 `$p_t = \max_{i<t} p_i$` | [`max_priority`](Self::max_priority), a running max tracked incrementally |
+/// | §3.4 `$w_i = (1/N \cdot 1/P(i))^\beta$` | [`sample`](Self::sample) — see *Importance weights* below |
 /// | Alg. 1 line 10 max-normalization | over the **sampled minibatch** |
 /// | Alg. 1 lines 11-12 priority writeback | [`update_priorities`](Self::update_priorities) |
 /// | Appendix B.2.1 sum-tree | O(log N) update and draw |
-/// | Table 3 proportional row `α = 0.6`, `β₀ = 0.4 → 1` | α defaults here; β and its schedule live on the agent config (ADR 0050 §11) |
+/// | Table 3 proportional row `$\alpha = 0.6$`, `$\beta_0 = 0.4 \to 1$` | α defaults here; β and its schedule live on the agent config (ADR 0050 §11) |
 ///
 /// # Importance weights: which maximum, and why the `1/N` vanishes
 ///
-/// Schaul §3.4 gives `w_i = (1/N · 1/P(i))^β` and then: "For stability reasons,
+/// Schaul §3.4 gives `$w_i = (1/N \cdot 1/P(i))^\beta$` and then: "For stability reasons,
 /// we **always** normalize weights by `1/max_i w_i` so that they only scale the
 /// update downwards." Algorithm 1 line 10 takes that maximum **over the sampled
 /// minibatch**. That is what this implementation does.
@@ -67,26 +67,27 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 ///
 /// Appendix B.2.1 warns that "this normalization interacts with annealing on β",
 /// so the two are not independent knobs. Accordingly the normalization is folded
-/// into the same expression as `w_i`, and there is **no way to obtain
+/// into the same expression as `$w_i$`, and there is **no way to obtain
 /// unnormalized weights** from this type. Because `w` is monotonically
 /// decreasing in `P`, the minibatch maximum is attained at the minimum sampled
 /// probability, and the ratio collapses:
 ///
-/// ```text
-///     w_i        (1/N · 1/P_i)^β       ( P_min )^β       ( m_min )^β
-///  ---------  =  ----------------  =   ( ----- )     =   ( ----- )
-///  max_j w_j     (1/N · 1/P_min)^β     (  P_i  )         (  m_i  )
+/// ```math
+/// \frac{w_i}{\max_j w_j} =
+/// \frac{(1/N \cdot 1/P_i)^\beta}{(1/N \cdot 1/P_{min})^\beta} =
+/// \left(\frac{P_{min}}{P_i}\right)^{\!\beta} =
+/// \left(\frac{m_{min}}{m_i}\right)^{\!\beta}
 /// ```
 ///
-/// where `m = p^α` is the unnormalized mass. Both `N` and `p_total` cancel
+/// where `$m = p^\alpha$` is the unnormalized mass. Both `N` and `p_total` cancel
 /// exactly. The shipped code evaluates the right-hand form, which is *the same
 /// number* as the left with strictly fewer rounding steps and no dependence on
 /// `N` — a simplification of the arithmetic, not of the algorithm. One
 /// consequence is worth pinning: the largest weight in every batch is exactly
 /// `1.0`, bit for bit, because `1.0f64.powf(β) == 1.0`.
 ///
-/// **`w_i` scales the per-sample loss only.** It must never enter the target
-/// computation and must never alter `δ` itself (ADR 0050 §10). This type cannot
+/// **`$w_i$` scales the per-sample loss only.** It must never enter the target
+/// computation and must never alter `$\delta$` itself (ADR 0050 §10). This type cannot
 /// enforce that — it is a property of the agent's loss site — but it is the
 /// implementer bug class the literature review names, so it is stated here too.
 ///
@@ -143,9 +144,9 @@ pub struct PrioritizedReplay<T> {
     /// slot on eviction and force a full sum-tree rebuild per insert.
     items: Vec<T>,
     /// Raw priorities `p_i`, parallel to `items`. Kept alongside the tree's
-    /// `p_i^α` masses so `α` never has to be inverted to recover `p_i`.
+    /// `$p_i^\alpha$` masses so `α` never has to be inverted to recover `p_i`.
     priorities: Vec<Priority>,
-    /// `p_i^α` by slot, plus `p_total` and the inverse CDF.
+    /// `$p_i^\alpha$` by slot, plus `p_total` and the inverse CDF.
     index: SumTree,
     capacity: usize,
     /// Total inserts ever. The transition in the live window at offset `s` from
@@ -232,7 +233,7 @@ impl<T> PrioritizedReplay<T> {
         self.pushes
     }
 
-    /// Schaul §3.3's `p_i = |δ_i| + ε`, applying **this buffer's** configured ε.
+    /// Schaul §3.3's `$p_i = |\delta_i| + \epsilon$`, applying **this buffer's** configured ε.
     ///
     /// Prefer this over [`Priority::from_td_error`] at agent call sites, so
     /// there is one ε rather than two copies that can drift apart.
@@ -253,13 +254,13 @@ impl<T> PrioritizedReplay<T> {
         self.slot_of(id).map(|slot| self.priorities[slot])
     }
 
-    /// Schaul Eq. 1's denominator `Σ_k p_k^α` — the sum-tree root, `p_total`.
+    /// Schaul Eq. 1's denominator `$\sum_k p_k^\alpha$` — the sum-tree root, `p_total`.
     #[must_use]
     pub fn total_priority(&self) -> f64 {
         self.index.total()
     }
 
-    /// Schaul Eq. 1's `P(i) = p_i^α / Σ_k p_k^α`, or `None` if `id` has been
+    /// Schaul Eq. 1's `$P(i) = p_i^\alpha / \sum_k p_k^\alpha$`, or `None` if `id` has been
     /// evicted.
     ///
     /// Exposed because it is the quantity the paper's correctness is stated in:
@@ -318,7 +319,7 @@ impl<T> PrioritizedReplay<T> {
         }
     }
 
-    /// Convenience writeback: applies `p_i = |δ_i| + ε` to each TD error and
+    /// Convenience writeback: applies `$p_i = |\delta_i| + \epsilon$` to each TD error and
     /// forwards to [`update_priorities`](Self::update_priorities).
     ///
     /// This is the call agents make. Every residual is validated **before** any
@@ -352,14 +353,14 @@ impl<T> PrioritizedReplay<T> {
         Ok(())
     }
 
-    /// Schaul Eq. 1's `p_i^α`, computed in `f64`.
+    /// Schaul Eq. 1's `$p_i^\alpha$`, computed in `f64`.
     ///
     /// `f64` is not for accuracy of the power itself but for the *summation*:
     /// the sum-tree adds these pairwise up the levels while the O(n) reference
     /// oracle adds them left to right, and `f64` accumulation over
     /// `f32`-precision inputs is what makes those two orders agree exactly.
     ///
-    /// At `α = 0` this is `1.0` for every stored priority — `p` is strictly
+    /// At `$\alpha = 0$` this is `1.0` for every stored priority — `p` is strictly
     /// positive by construction, so there is no `0^0` case — which is how
     /// Eq. 1's "α = 0 corresponding to the uniform case" is recovered *exactly*,
     /// not approximately.

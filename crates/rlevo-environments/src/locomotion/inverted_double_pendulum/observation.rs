@@ -21,7 +21,7 @@ impl InvertedDoublePendulumObservation {
         self.0[1]
     }
     /// `obs[2]` — sine of the **relative** elbow angle (θ₂ = pole2 world
-    /// angle − pole1 world angle, wrapped to `(-π, π]`).
+    /// angle − pole1 world angle, wrapped to `$(-\pi, \pi]$`).
     #[must_use]
     pub const fn sin_theta2(&self) -> f32 {
         self.0[2]

@@ -5,23 +5,23 @@
 //! instead:
 //!
 //! - self-adapts the step size **per individual** with the classical
-//!   log-normal rule `σᵢ = σ̄ · exp(τ · N(0, 1))`, then recombines the selected
-//!   `σᵢ` into the next `σ̄` (the same σ-self-adaptation mechanism as
+//!   log-normal rule `$\sigma_i = \bar\sigma \cdot \exp(\tau \cdot N(0,1))$`, then recombines the selected
+//!   `$\sigma_i$` into the next `$\bar\sigma$` (the same σ-self-adaptation mechanism as
 //!   [`crate::algorithms::es_classical`], so the two ES σ-adaptation families
 //!   share one mutation rule);
 //! - blends the covariance toward the rank-μ maximum-likelihood estimate of the
 //!   selected mutation steps with time constant
-//!   `τ_c = 1 + D(D+1)/(2μ)`:
-//!   `C ← (1 − 1/τ_c) C + (1/τ_c) · (1/μ) Σ s_{(i)} s_{(i)}ᵀ`.
+//!   `$\tau_c = 1 + D(D+1)/(2\mu)$`:
+//!   `$C \leftarrow (1 - 1/\tau_c) C + (1/\tau_c) \cdot (1/\mu) \sum s_{(i)} s_{(i)}^T$`.
 //!
 //! Sampling needs only a Cholesky factor of `C` (no eigendecomposition,
 //! no `C^{-1/2}`), so each generation is cheaper than CMA-ES.
 //!
 //! # On the τ constant
 //!
-//! The canonical CMSA-ES learning rate is `τ = 1/√(2D)` (Beyer & Sendhoff,
+//! The canonical CMSA-ES learning rate is `$\tau = 1/\sqrt{2D}$` (Beyer & Sendhoff,
 //! 2008), used here. Note this differs from
-//! [`EsConfig`](crate::algorithms::es_classical::EsConfig)'s `1/√(2√D)`: the two
+//! [`EsConfig`](crate::algorithms::es_classical::EsConfig)'s `$1/\sqrt{2\sqrt{D}}$`: the two
 //! strategies share the log-normal σ-self-adaptation *mechanism* (ADR 0021 §5),
 //! but CMSA-ES keeps its own algorithm-faithful constant.
 //!
@@ -91,25 +91,25 @@ fn cholesky_with_jitter(cov: &[f32], d: usize) -> Vec<f32> {
 /// Static configuration for a CMSA-ES run.
 #[derive(Debug, Clone)]
 pub struct CmsaEsConfig {
-    /// Offspring population size `λ`.
+    /// Offspring population size `$\lambda$`.
     pub pop_size: usize,
     /// Genome dimensionality `D`.
     pub genome_dim: usize,
-    /// Search-space bounds; used only to sample the initial mean `m⁰`.
+    /// Search-space bounds; used only to sample the initial mean `$m^0$`.
     pub bounds: Bounds,
-    /// Initial global step size `σ̄`.
+    /// Initial global step size `$\bar\sigma$`.
     pub initial_sigma: f32,
-    /// Number of selected parents `μ = ⌊λ/2⌋`.
+    /// Number of selected parents `$\mu = \lfloor \lambda/2 \rfloor$`.
     pub mu: usize,
-    /// Log-normal σ-self-adaptation learning rate `τ = 1/√(2D)`.
+    /// Log-normal σ-self-adaptation learning rate `$\tau = 1/\sqrt{2D}$`.
     pub tau: f32,
-    /// Covariance time constant `τ_c = 1 + D(D+1)/(2μ)`.
+    /// Covariance time constant `$\tau_c = 1 + D(D+1)/(2\mu)$`.
     pub tau_c: f32,
 }
 
 impl CmsaEsConfig {
     /// Default configuration for dimensionality `D`, with the Hansen-style
-    /// population `λ = 4 + ⌊3 ln D⌋` and `μ = ⌊λ/2⌋`.
+    /// population `$\lambda = 4 + \lfloor 3\ln D \rfloor$` and `$\mu = \lfloor \lambda/2 \rfloor$`.
     ///
     /// Sets `bounds = (-5.12, 5.12)` and `initial_sigma = 1.0`.
     #[must_use]
@@ -121,7 +121,7 @@ impl CmsaEsConfig {
         Self::with_pop_size(lambda, genome_dim)
     }
 
-    /// Configuration with an explicit population size `λ`.
+    /// Configuration with an explicit population size `$\lambda$`.
     ///
     /// The `pop_size ≥ 2` invariant is enforced by [`Validate::validate`] at the
     /// harness chokepoint, not by this infallible producer.
@@ -178,9 +178,9 @@ pub struct CmsaEsState<B: Backend> {
     mean: Vec<f32>,
     /// Covariance matrix `C`, row-major `D × D`.
     cov: Vec<f32>,
-    /// Global step size `σ̄`.
+    /// Global step size `$\bar\sigma$`.
     sigma: f32,
-    /// Per-offspring step sizes `σᵢ`, carried `ask → tell` (length `λ`, empty
+    /// Per-offspring step sizes `$\sigma_i$`, carried `ask → tell` (length `$\lambda$`, empty
     /// before the first `ask`). Mirrors the σ-scratchpad pattern in
     /// [`EsState`](crate::algorithms::es_classical::EsState).
     offspring_sigmas: Vec<f32>,
@@ -256,13 +256,13 @@ impl<B: Backend> CmsaEsState<B> {
         &self.cov
     }
 
-    /// Global step size `σ̄`.
+    /// Global step size `$\bar\sigma$`.
     #[must_use]
     pub fn sigma(&self) -> f32 {
         self.sigma
     }
 
-    /// Per-offspring step sizes `σᵢ`, carried `ask → tell` (empty before the
+    /// Per-offspring step sizes `$\sigma_i$`, carried `ask → tell` (empty before the
     /// first `ask`).
     #[must_use]
     pub fn offspring_sigmas(&self) -> &[f32] {
@@ -323,7 +323,7 @@ where
     type State = CmsaEsState<B>;
     type Genome = Tensor<B, 2>;
 
-    /// Initializes `m⁰` uniformly in `params.bounds` (host-RNG convention),
+    /// Initializes `$m^0$` uniformly in `params.bounds` (host-RNG convention),
     /// `C = I`, and `σ̄ = initial_sigma`.
     fn init(
         &self,
@@ -356,12 +356,12 @@ where
         }
     }
 
-    /// Samples `λ` offspring with per-individual log-normal step sizes.
+    /// Samples `$\lambda$` offspring with per-individual log-normal step sizes.
     ///
-    /// For each offspring: `σᵢ = σ̄ · exp(τ · N(0,1))`, `sᵢ = A zᵢ`
-    /// (`A` the Cholesky factor of `C`, `zᵢ ~ N(0, I)`), `xᵢ = m + σᵢ · sᵢ`.
+    /// For each offspring: `$\sigma_i = \bar\sigma \cdot \exp(\tau \cdot N(0,1))$`, `$s_i = A z_i$`
+    /// (`A` the Cholesky factor of `C`, `$z_i \sim N(0, I)$`), `$x_i = m + \sigma_i \cdot s_i$`.
     /// All draws come from one deterministic [`SeedPurpose::CmaSampling`]
-    /// stream; the `σᵢ` are stashed in state for [`tell`](Self::tell).
+    /// stream; the `$\sigma_i$` are stashed in state for [`tell`](Self::tell).
     fn ask(
         &self,
         params: &CmsaEsConfig,
@@ -410,7 +410,7 @@ where
         (population, next)
     }
 
-    /// Recombines the `μ` best offspring into the next mean, step size, and
+    /// Recombines the `$\mu$` best offspring into the next mean, step size, and
     /// rank-μ covariance blend.
     fn tell(
         &self,
@@ -550,7 +550,7 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    /// Reconstruct `L · Lᵀ` for a row-major `n × n` lower-triangular factor.
+    /// Reconstruct `$L \cdot L^T$` for a row-major `n × n` lower-triangular factor.
     fn recon_llt(l: &[f32], n: usize) -> Vec<f32> {
         let mut out: Vec<f32> = vec![0.0; n * n];
         for i in 0..n {

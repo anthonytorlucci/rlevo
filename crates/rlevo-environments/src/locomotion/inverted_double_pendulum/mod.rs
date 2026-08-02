@@ -21,12 +21,12 @@
 //! * Pole2: dynamic capsule, revolute-y joint to pole1's top. Mass from density.
 //! * Action: `Box(-1, 1, (1,))` — force target, scaled by `gear = [100]`.
 //! * Observation (9-dim):
-//!   `[cart_x, sin θ₁, sin θ₂, cos θ₁, cos θ₂, cart_vx, θ̇₁, θ̇₂, F_ext_x]`.
+//!   `$[\text{cart\_x}, \sin\theta_1, \sin\theta_2, \cos\theta_1, \cos\theta_2, \text{cart\_vx}, \dot\theta_1, \dot\theta_2, F_{\text{ext},x}]$`.
 //!   θ₂ is the **relative** elbow angle (pole2 world − pole1 world), wrapped.
 //! * Reward:
-//!   `alive_bonus − 0.01·x_tip² − (y_tip − 2)² − 1e-3·|ω₁| − 5e-3·|ω₂|`,
+//!   `$\text{alive\_bonus} - 0.01 \cdot x_{\text{tip}}^2 - (y_{\text{tip}} - 2)^2 - 1\text{e-}3 \cdot |\omega_1| - 5\text{e-}3 \cdot |\omega_2|$`,
 //!   with `alive_bonus = 10.0` while healthy and `0` otherwise.
-//! * Termination: `y_tip ≤ 1.0`, or non-finite state.
+//! * Termination: `$y_{\text{tip}} \leq 1.0$`, or non-finite state.
 //! * Truncation: `max_steps = 1000`.
 //!
 //! ## Divergence from Gymnasium
@@ -43,7 +43,7 @@
 //!   a placeholder for a future re-model against Gymnasium's `qfrc_constraint`
 //!   (the generalised constraint force on the cart slider DOF), tracked in
 //!   issue #271.
-//! * `ω₂` is reported as world-frame angular velocity (not relative to pole1),
+//! * `$\omega_2$` is reported as world-frame angular velocity (not relative to pole1),
 //!   matching `MuJoCo`'s `qvel` for the second hinge — i.e. it is the body's
 //!   absolute rate, not the rate of the relative joint angle.
 

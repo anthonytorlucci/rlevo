@@ -1,7 +1,7 @@
 //! Simulated annealing.
 //!
 //! Simulated annealing performs a stochastic walk that accepts worsening moves
-//! with probability `exp(Δf / T)`, cooling the temperature `T` over time so
+//! with probability `$\exp(\Delta f / T)$`, cooling the temperature `T` over time so
 //! the walk gradually concentrates on improving moves. This lets it escape
 //! shallow local maxima that strict hill climbing gets stuck in, at the cost of
 //! being a coarse explorer rather than a precision finisher.
@@ -9,8 +9,8 @@
 //! Each iteration proposes a neighbour by adding per-coordinate Gaussian noise
 //! `N(0, step_size)` to the current walker position (sampled through the
 //! supplied `rng`), clamps it to bounds, and evaluates it. A non-worsening move
-//! is always accepted; a worsening move (`Δf = cand_fit - current_fit < 0`) is
-//! accepted iff a uniform draw `rng.random::<f32>()` falls below `exp(Δf / T)`.
+//! is always accepted; a worsening move (`$\Delta f = \text{cand\_fit} - \text{current\_fit} < 0$`) is
+//! accepted iff a uniform draw `rng.random::<f32>()` falls below `$\exp(\Delta f / T)$`.
 //! The temperature is cooled once per iteration via the configured
 //! [`CoolingSchedule`], and the walk early-stops once `T < min_temp`.
 //!
@@ -427,7 +427,7 @@ mod tests {
             .with_cooling(CoolingSchedule::Geometric { factor: 1.5 });
     }
 
-    /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
+    /// Negated sphere `$f(x) = -\sum x_i^2$` — concave bump; global maximum 0 at the
     /// origin.
     struct NegSphere;
     impl FitnessFn<Vec<f32>> for NegSphere {

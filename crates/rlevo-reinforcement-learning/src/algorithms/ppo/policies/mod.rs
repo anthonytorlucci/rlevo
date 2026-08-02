@@ -4,7 +4,7 @@
 //! - [`CategoricalPolicyHead`] — discrete action spaces; softmax over a
 //!   learned logits head, sampling via Gumbel-max on CPU.
 //! - [`TanhGaussianPolicyHead`] — continuous action spaces; state-independent
-//!   `log_std` parameter, sampling via reparameterisation `z = μ + σ·ε` then
+//!   `log_std` parameter, sampling via reparameterisation `$z = \mu + \sigma \cdot \epsilon$` then
 //!   `a = scale · tanh(z)`.
 //!
 //! Both heads are full MLPs with two hidden `tanh` layers (`CleanRL` default).

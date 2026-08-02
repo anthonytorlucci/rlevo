@@ -3,8 +3,9 @@
 //!
 //! Each dimension is modelled by an independent Gaussian. [`fit`] performs an
 //! unweighted maximum-likelihood estimate over the `k` selected rows: the
-//! per-column mean and variance are computed via `÷k` (not `÷(k-1)`), and the
-//! variance is floored at [`UnivariateGaussianParams::min_variance`] to prevent
+//! per-column mean and variance are computed via `$\div k$` (not
+//! `$\div (k-1)$`), and the variance is floored at
+//! [`UnivariateGaussianParams::min_variance`] to prevent
 //! collapse to a point mass. The `fitness` tensor is accepted by the
 //! [`ProbabilityModel`] interface but ignored; the fit is unweighted.
 //! [`sample`] draws each gene from its dimension's fitted Gaussian using the
@@ -42,7 +43,7 @@ pub struct UnivariateGaussianParams {
     /// Prior mean for every dimension, used when `prev = None`.
     pub init_mean: f32,
     /// Prior standard deviation for every dimension, used when `prev = None`.
-    /// The prior variance is `init_std²`.
+    /// The prior variance is `$\text{init\_std}^2$`.
     pub init_std: f32,
     /// Minimum variance for any dimension; prevents the model from collapsing
     /// to a point mass. The MLE estimate is floored at this value after each
@@ -68,8 +69,8 @@ impl UnivariateGaussianParams {
 ///
 /// Both vectors have length `genome_dim`. On the prior path (`prev = None`)
 /// they are initialised from [`UnivariateGaussianParams::init_mean`] /
-/// `init_std²`; on subsequent calls they hold the unweighted MLE estimates
-/// computed from the truncation-selected population.
+/// `$\text{init\_std}^2$`; on subsequent calls they hold the unweighted MLE
+/// estimates computed from the truncation-selected population.
 ///
 /// Fields are private so a mismatched `mean` / `variance` length (or a
 /// negative / non-finite variance) is unrepresentable from outside this
@@ -128,7 +129,8 @@ impl UnivariateGaussianState {
 /// Univariate Marginal Distribution Algorithm for continuous spaces (UMDA).
 ///
 /// Implements [`ProbabilityModel`] with an unweighted per-dimension Gaussian
-/// fit (`÷k` MLE variance, [`UnivariateGaussianParams::min_variance`] floor)
+/// fit (`$\div k$` MLE variance,
+/// [`UnivariateGaussianParams::min_variance`] floor)
 /// and independent per-dimension Gaussian sampling via the host RNG.
 /// The fitness tensor passed to [`ProbabilityModel::fit`] is accepted but
 /// ignored; the estimate is always unweighted.
@@ -144,9 +146,10 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateGaussian {
     /// Fit per-dimension Gaussian statistics to the selected population.
     ///
     /// When `prev = None` returns the prior (length-`genome_dim` vectors of
-    /// `init_mean` and `init_std²`); `population` and `fitness` are ignored
-    /// on that path. Otherwise computes the unweighted `÷k` MLE mean and
-    /// variance for every column and floors each variance at `min_variance`.
+    /// `init_mean` and `$\text{init\_std}^2$`); `population` and `fitness` are
+    /// ignored on that path. Otherwise computes the unweighted `$\div k$` MLE
+    /// mean and variance for every column and floors each variance at
+    /// `min_variance`.
     /// The `fitness` argument is accepted but always ignored.
     ///
     /// # Panics

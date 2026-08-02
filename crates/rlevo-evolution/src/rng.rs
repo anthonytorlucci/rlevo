@@ -94,7 +94,7 @@ pub enum SeedPurpose {
     /// Multivariate-Gaussian sampling in covariance-matrix strategies.
     ///
     /// Used by [`crate::algorithms::cma_es`] and
-    /// [`crate::algorithms::cmsa_es`] so each generation draws its `N(m, σ²C)`
+    /// [`crate::algorithms::cmsa_es`] so each generation draws its `$N(m, \sigma^2 C)$`
     /// offspring (and, for CMSA-ES, the per-individual log-normal σ mutations)
     /// from a stream independent of every other operator purpose.
     CmaSampling = 11,

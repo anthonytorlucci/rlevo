@@ -670,7 +670,7 @@ mod tests {
     ///
     /// Sized by the *weakest* draw in the suite rather than picked round: at
     /// `MIN_SIZE` the gap row has exactly three values, so "every seed happened
-    /// to draw the same row" has probability `3 * (1/3)^SEEDS ≈ 10^-30` at 64.
+    /// to draw the same row" has probability `$3 \cdot (1/3)^{\text{SEEDS}} \approx 10^{-30}$` at 64.
     /// That is many orders below the number of times this suite will ever run,
     /// so a failure here is evidence of a pinned draw, not of bad luck.
     const SEEDS: u64 = 64;
@@ -849,7 +849,7 @@ mod tests {
     ///
     /// Run at size 9, where the sets are `{2,3,4,5,6}` and `{1,…,7}`.
     /// `WIDE_SEEDS` is sized so that missing any one of the seven rows by chance
-    /// has probability `7 * (6/7)^512 ≈ 5e-34`; the assertion is deterministic
+    /// has probability `$7 \cdot (6/7)^{512} \approx 5 \times 10^{-34}$`; the assertion is deterministic
     /// for every practical purpose, and 512 resets of a 9×9 board are free.
     #[test]
     fn the_draws_cover_their_whole_range() {

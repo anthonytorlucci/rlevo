@@ -739,7 +739,7 @@ mod tests {
     }
 
     /// Equal-and-opposite (impulse): two identical free bodies, zero gravity.
-    /// The `±τ·â` pair injects zero NET external torque, so with symmetric
+    /// The `$\pm \tau \cdot \hat{a}$` pair injects zero NET external torque, so with symmetric
     /// inertia the bodies counter-rotate and their z-angular-velocities cancel —
     /// i.e. the system's total angular momentum stays ≈ 0.
     #[test]

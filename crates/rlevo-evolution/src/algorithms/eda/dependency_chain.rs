@@ -20,20 +20,21 @@
 //! # Estimator regularisation
 //!
 //! Sample Pearson correlations from `k` selected rows have a standard error
-//! of approximately `1/√k` under the null hypothesis of independence. Treating
+//! of approximately `$1/\sqrt{k}$` under the null hypothesis of independence. Treating
 //! those spurious correlations as real dependency injects noise into every
 //! conditional mean — a penalty the univariate model never pays. To suppress
-//! this effect, any Pearson `|r| < 2/√k` is zeroed before the chain is built,
+//! this effect, any Pearson `$|r| < 2/\sqrt{k}$` is zeroed before the chain is built,
 //! causing the affected link to degenerate to independent marginal sampling
 //! exactly where no statistically detectable dependency exists. Correlations
-//! that survive this threshold are clamped to `[−0.9999, 0.9999]` to keep
+//! that survive this threshold are clamped to `$[-0.9999, 0.9999]$` to keep
 //! conditional variances positive.
 //!
 //! # Complexity
 //!
-//! [`fit`] is `O(k · D²)`: it forms the full `D × D` mutual-information matrix
+//! [`fit`] is `$O(k \cdot D^{2})$`: it forms the full `$D \times D$`
+//! mutual-information matrix
 //! from the `k` selected rows and greedily orders the `D` dimensions.
-//! [`sample`] is `O(D)` per individual: one conditional Gaussian draw per
+//! [`sample`] is `$O(D)$` per individual: one conditional Gaussian draw per
 //! chain link.
 //!
 //! # References
@@ -102,7 +103,7 @@ pub struct DependencyChainState {
     /// dimension).
     pub std: Vec<f32>,
     /// Pearson correlation of dimension `d` with its chain parent, after the
-    /// `|r| < 2/√k` significance filter and `[-0.9999, 0.9999]` clamp.
+    /// `$|r| < 2/\sqrt{k}$` significance filter and `$[-0.9999, 0.9999]$` clamp.
     /// The root dimension's entry is `0.0` (unused in sampling).
     pub link_corr: Vec<f32>,
 }
@@ -114,8 +115,9 @@ pub struct DependencyChainState {
 /// regularisation, and references). Fitness is accepted but ignored; the fit
 /// is always unweighted.
 ///
-/// [`fit`](ProbabilityModel::fit) is `O(k · D²)`; [`sample`](ProbabilityModel::sample)
-/// is `O(D)` per individual.
+/// [`fit`](ProbabilityModel::fit) is `$O(k \cdot D^{2})$`;
+/// [`sample`](ProbabilityModel::sample)
+/// is `$O(D)$` per individual.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DependencyChain;
 
@@ -129,12 +131,13 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
     /// `init_mean` / `init_std`, zero correlations). Otherwise:
     ///
     /// 1. Computes per-dimension MLE means and standard deviations
-    ///    (`÷k` variance, floored at `min_variance`).
-    /// 2. Builds the full `D × D` Pearson correlation matrix.
-    /// 3. Applies the `|r| < 2/√k` significance filter (see [module docs](self)
+    ///    (`$\div k$` variance, floored at `min_variance`).
+    /// 2. Builds the full `$D \times D$` Pearson correlation matrix.
+    /// 3. Applies the `$|r| < 2/\sqrt{k}$` significance filter (see
+    ///    [module docs](self)
     ///    for the estimator regularisation rationale) and clamps surviving
-    ///    correlations to `[−0.9999, 0.9999]`.
-    /// 4. Converts to mutual information `MI = −0.5 · ln(1 − r²)`.
+    ///    correlations to `$[-0.9999, 0.9999]$`.
+    /// 4. Converts to mutual information `$\text{MI} = -0.5 \cdot \ln(1 - r^{2})$`.
     /// 5. Builds the chain greedily: root = minimum-σ dimension, each
     ///    subsequent link = unvisited dimension with the highest MI to the
     ///    last chosen one.
@@ -336,20 +339,23 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
     /// subsequent dimension is sampled from the conditional Gaussian given its
     /// parent's sampled value:
     ///
-    /// ```text
-    /// μ_cond = μ_c + r · (σ_c / σ_p) · (x_parent − μ_p)
-    /// σ_cond = σ_c · √(1 − r²)
+    /// ```math
+    /// \mu_{\text{cond}} = \mu_c + r \cdot \frac{\sigma_c}{\sigma_p} \cdot (x_{\text{parent}} - \mu_p)
+    /// ```
+    /// ```math
+    /// \sigma_{\text{cond}} = \sigma_c \cdot \sqrt{1 - r^2}
     /// ```
     ///
     /// All randomness is drawn from `rng` (host RNG only; never
     /// `Tensor::random` / `B::seed`). The returned tensor has shape `(n, D)`.
-    /// This is `O(D)` per individual drawn.
+    /// This is `$O(D)$` per individual drawn.
     ///
     /// # Panics
     ///
     /// Does not panic under normal operation. The `Normal::new` calls are
-    /// guarded: `σ_c` is floored at `min_variance.sqrt()` during `fit`, and
-    /// `r` is clamped to `[-0.9999, 0.9999]` so `1 − r² ≥ 0.0002 > 0`.
+    /// guarded: `$\sigma_c$` is floored at `min_variance.sqrt()` during `fit`,
+    /// and `r` is clamped to `$[-0.9999, 0.9999]$` so
+    /// `$1 - r^{2} \geq 0.0002 > 0$`.
     fn sample(
         &self,
         state: &Self::State,

@@ -3,15 +3,15 @@
 //! Two kernels live here, both gated behind the crate-level
 //! `custom-kernels` feature:
 //!
-//! - [`pairwise_attract_cube`] — fuses Firefly's `O(N²D)` attractiveness
+//! - [`pairwise_attract_cube`] — fuses Firefly's `$O(N^2 D)$` attractiveness
 //!   update into a single launch that streams over neighbours to keep
-//!   memory `O(ND)`.
+//!   memory `$O(ND)$`.
 //! - [`levy_flight_cube`] — fuses Mantegna's three-op Lévy-stable
 //!   sampler into one launch. Wired into [`super::cuckoo`] and optionally
 //!   [`super::bat`] only when profiling shows it on a hot path.
 //!
 //! When `custom-kernels` is off, the [`super::firefly`] module caps
-//! population at `N ≤ 128` and emits the pure-tensor `O(N²D)`
+//! population at `$N \leq 128$` and emits the pure-tensor `$O(N^2 D)$`
 //! decomposition; [`super::cuckoo`] and [`super::bat`] fall back to
 //! pure-tensor Mantegna sampling built from `Tensor::random_normal` +
 //! element-wise ops.

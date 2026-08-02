@@ -47,7 +47,7 @@ pub enum StepEnd {
     ///
     /// Carries `V(s_continuation)` — the value network's estimate on the
     /// observation the environment produced *before* it was reset. Per Pardo
-    /// et al. Eq. 6 the target is `r + γ·V(s_continuation)`, not `r`.
+    /// et al. Eq. 6 the target is `$r + \gamma \cdot V(s_{\text{continuation}})$`, not `r`.
     Truncated {
         /// `V(s_continuation)`, the bootstrap for this step's delta.
         bootstrap_value: f32,

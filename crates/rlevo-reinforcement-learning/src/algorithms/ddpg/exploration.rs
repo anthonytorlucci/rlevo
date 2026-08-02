@@ -39,7 +39,7 @@ impl GaussianNoise {
         self.sigma
     }
 
-    /// Adds independent `N(0, sigma²)` noise to each component of `mean` and
+    /// Adds independent `$\mathcal{N}(0, \sigma^2)$` noise to each component of `mean` and
     /// clips the result into `[low[i], high[i]]`.
     ///
     /// # Panics

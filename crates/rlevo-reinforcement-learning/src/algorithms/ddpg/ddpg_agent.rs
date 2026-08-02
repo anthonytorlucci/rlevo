@@ -1060,7 +1060,7 @@ mod tests {
     /// Slack for the Polyak identity below. Each checksum is an `f32` device
     /// reduction over a handful of parameters and each blended parameter costs
     /// two `f32` roundings, so ~2e-6 is the realistic worst case; the smallest
-    /// signal any assertion here reads is `τ · gap ≈ 7.5e-3`, three orders of
+    /// signal any assertion here reads is `$\tau \cdot \text{gap} \approx 7.5\times10^{-3}$`, three orders of
     /// magnitude larger.
     const CHECKSUM_EPS: f64 = 1e-5;
 
@@ -1140,7 +1140,7 @@ mod tests {
     }
 
     /// Asserts that a fired Polyak update landed exactly where the rule says:
-    /// `target ← (1 − τ)·target + τ·active`, and that it moved at all.
+    /// `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`, and that it moved at all.
     fn assert_fired(before: [f64; 2], after: [f64; 2], live: [f64; 2], tau: f64) {
         for (i, ((&b, &a), &l)) in before.iter().zip(after.iter()).zip(live.iter()).enumerate() {
             assert_abs_diff_eq!(a, (1.0 - tau) * b + tau * l, epsilon = CHECKSUM_EPS);

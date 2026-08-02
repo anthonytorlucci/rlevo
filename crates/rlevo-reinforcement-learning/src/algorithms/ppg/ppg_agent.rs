@@ -13,7 +13,7 @@
 //!    surrogate + value loss), identical to [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update).
 //! 5. [`PpgAgent::maybe_aux_phase`] — if the auxiliary buffer holds
 //!    `n_iteration` rollouts, run `e_aux` epochs of auxiliary updates
-//!    (main-value MSE + aux-value MSE + `β · KL(π_old ‖ π_new)`) and drain
+//!    (main-value MSE + aux-value MSE + `$\beta \cdot KL(\pi_{old} \Vert \pi_{new})$`) and drain
 //!    the buffer.
 //!
 //! The policy-phase loop is code-wise parallel to [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update) but
@@ -107,7 +107,7 @@ pub struct AuxPhaseStats {
     pub main_value_loss: f32,
     /// Mean aux-value MSE across minibatches.
     pub aux_value_loss: f32,
-    /// Mean `KL(π_old ‖ π_new)` distillation loss across minibatches.
+    /// Mean `$KL(\pi_{old} \Vert \pi_{new})$` distillation loss across minibatches.
     pub policy_kl: f32,
     /// Epochs actually executed.
     pub epochs_run: usize,
@@ -197,7 +197,7 @@ where
     /// Non-finite-loss guard for the auxiliary-phase main-value-loss site.
     aux_main_value_guard: FiniteLossGuard,
     /// Non-finite-loss guard for the auxiliary-phase combined loss
-    /// (`aux_v_loss + β·KL`); its input is host-*derived* from the two summands
+    /// (`$\text{aux\_v\_loss} + \beta \cdot KL$`); its input is host-*derived* from the two summands
     /// already read, adding no sync (ADR 0056 §5).
     aux_total_guard: FiniteLossGuard,
 }
@@ -550,7 +550,7 @@ where
     ///
     /// Must be called **after** [`Self::finalize_rollout`] (so returns are
     /// populated) and **before** [`Self::policy_phase_update`] (which will
-    /// clear the rollout). The `π_old` logits for the distillation KL are
+    /// clear the rollout). The `$\pi_{old}$` logits for the distillation KL are
     /// **not** captured here — they are computed fresh at the start of
     /// [`Self::maybe_aux_phase`] against the post-policy-phase policy, so
     /// the distillation preserves (rather than undoes) the policy-phase's
@@ -769,7 +769,7 @@ where
     ///
     /// - main-value MSE against target returns,
     /// - aux-value-head MSE against target returns,
-    /// - `β · KL(π_old ‖ π_new)` distillation pulling the policy back to the
+    /// - `$\beta \cdot KL(\pi_{old} \Vert \pi_{new})$` distillation pulling the policy back to the
     ///   snapshot taken at the *start* of the auxiliary phase (i.e. the
     ///   policy that has just finished `n_iteration` policy-phase updates).
     ///
@@ -922,7 +922,7 @@ where
         Some(stats)
     }
 
-    /// Computes `π_old` logits for every step in the auxiliary buffer.
+    /// Computes `$\pi_{old}$` logits for every step in the auxiliary buffer.
     ///
     /// Returns a row-major flat `Vec<f32>` of length
     /// `total_steps * num_actions`. Batched through the policy in chunks to
@@ -1242,7 +1242,7 @@ mod tests {
     }
 
     /// Auxiliary-phase site: the aux-total guard fires on the host-*derived*
-    /// `aux_v_loss_val + kl_val·β` input (ADR 0056 §5). Diverging the policy net
+    /// `$\text{aux\_v\_loss\_val} + \text{kl\_val} \cdot \beta$` input (ADR 0056 §5). Diverging the policy net
     /// makes both the aux-value prediction and the distillation logits NaN, so
     /// the combined loss is non-finite; the guard must fire and skip only the
     /// policy step, while the independent main-value site still learns. Both

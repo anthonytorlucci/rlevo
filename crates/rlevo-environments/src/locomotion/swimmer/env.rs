@@ -29,10 +29,10 @@ use super::config::SwimmerConfig;
 use super::observation::SwimmerObservation;
 use super::state::SwimmerState;
 
-/// Reward-component key: `forward_reward_weight · vx_com` (≥ 0 when swimming
+/// Reward-component key: `$\text{forward\_reward\_weight} \cdot \text{vx\_com}$` (≥ 0 when swimming
 /// forward, ≤ 0 when drifting backward).
 pub const METADATA_KEY_FORWARD: &str = "forward";
-/// Reward-component key: `−ctrl_cost_weight · ‖action‖²` (≤ 0).
+/// Reward-component key: `$-\text{ctrl\_cost\_weight} \cdot \|\text{action}\|^2$` (≤ 0).
 pub const METADATA_KEY_CTRL: &str = "ctrl";
 
 /// A 3-segment planar swimmer with viscous drag, generic over the physics
@@ -410,12 +410,12 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     /// run `frame_skip` physics substeps (each preceded by viscous drag) →
     /// extract observation → compute reward.
     ///
-    /// Reward = `forward_reward_weight × vx_com − ctrl_cost_weight × ‖clipped_action‖²`.
+    /// Reward = `$\text{forward\_reward\_weight} \times \text{vx\_com} - \text{ctrl\_cost\_weight} \times \|\text{clipped\_action}\|^2$`.
     /// Both components are stored in snapshot metadata under
     /// [`METADATA_KEY_FORWARD`] and [`METADATA_KEY_CTRL`].
     ///
-    /// The episode is never terminated on a health condition. Once `steps ≥
-    /// max_steps` the status becomes `EpisodeStatus::Truncated`.
+    /// The episode is never terminated on a health condition. Once `$\text{steps} \geq
+    /// \text{max\_steps}$` the status becomes `EpisodeStatus::Truncated`.
     ///
     /// # Errors
     ///
@@ -425,7 +425,7 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     ///   the action itself, so a post-terminal call is diagnosed as the
     ///   call-sequence bug it is even when the replayed action is malformed.
     /// - [`EnvironmentError::InvalidAction`] if any element of `action` is
-    ///   non-finite (`NaN` or `±∞`).
+    ///   non-finite (`NaN` or `$\pm\infty$`).
     fn step(&mut self, action: SwimmerAction) -> Result<Self::SnapshotType, EnvironmentError> {
         // Guard first — ahead of the action check, the torque application and
         // the physics substeps. Whether the episode is over is a call-sequence
@@ -490,15 +490,15 @@ fn segment_z_angle(orientation: [f32; 4]) -> f32 {
 }
 
 /// Apply per-segment viscous drag to each handle in `handles`:
-/// quadratic linear drag `F = −k · v · ‖v‖` plus **linear** angular drag
-/// `τ = −k_ang · ω`, read from each body's current velocity.
+/// quadratic linear drag `$F = -k \cdot v \cdot \|v\|$` plus **linear** angular drag
+/// `$\tau = -k_{\text{ang}} \cdot \omega$`, read from each body's current velocity.
 ///
 /// The angular term is linear (not quadratic) because Rapier integrates forces
 /// with explicit Euler, and the overshoot threshold of an explicit step for
-/// quadratic drag is `k_ang · |ω| · dt / I < 1`: at gear=150 the chain reaches
-/// `|ω|` in the 100s of rad/s, which drives quadratic drag unstable and diverges
+/// quadratic drag is `$k_{\text{ang}} \cdot |\omega| \cdot \text{dt} / I < 1$`: at gear=150 the chain reaches
+/// `$|\omega|$` in the 100s of rad/s, which drives quadratic drag unstable and diverges
 /// to NaN in one substep. Linear drag is unconditionally stable as long as
-/// `k_ang · dt / I < 2`. `MuJoCo`'s own swimmer uses quadratic drag but with an
+/// `$k_{\text{ang}} \cdot \text{dt} / I < 2$`. `MuJoCo`'s own swimmer uses quadratic drag but with an
 /// implicit integrator; our linear variant is a Rapier-compatibility divergence.
 ///
 /// Free function (not a `&mut self` method) so it can be invoked from inside a

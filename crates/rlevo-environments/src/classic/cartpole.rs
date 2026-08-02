@@ -196,7 +196,7 @@ pub struct CartPoleConfig {
     pub force_mag: f32,
     /// Time step between updates (s). Default: `0.02`.
     pub tau: f32,
-    /// Pole angle at which the episode terminates (rad). Default: `12° ≈ 0.20944`.
+    /// Pole angle at which the episode terminates (rad). Default: `$12^\circ \approx 0.20944$`.
     pub theta_threshold_radians: f32,
     /// Cart position at which the episode terminates (m). Default: `2.4`.
     pub x_threshold: f32,
@@ -634,7 +634,7 @@ impl Sensor<1, 1, 1> for CartPole {
     type Observation = CartPoleObservation;
 
     /// Projects the resulting state directly onto the 4-D observation
-    /// `[x, ẋ, θ, θ̇]`; the observation ignores the applied force.
+    /// `$[x, \dot{x}, \theta, \dot\theta]$`; the observation ignores the applied force.
     fn observe(&self, _action: &CartPoleAction, next_state: &CartPoleState) -> CartPoleObservation {
         cartpole_observation(next_state)
     }
@@ -645,7 +645,7 @@ impl Sensor<1, 1, 1> for CartPole {
     }
 }
 
-/// Builds the 4-D `CartPole` observation `[x, ẋ, θ, θ̇]` from a state.
+/// Builds the 4-D `CartPole` observation `$[x, \dot{x}, \theta, \dot\theta]$` from a state.
 fn cartpole_observation(state: &CartPoleState) -> CartPoleObservation {
     CartPoleObservation {
         cart_pos: state.x,

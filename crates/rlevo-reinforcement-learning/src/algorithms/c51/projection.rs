@@ -10,8 +10,8 @@
 //! For each sample in the batch, each atom `z_i` of the next-state
 //! distribution is shifted by the Bellman backup:
 //!
-//! ```text
-//! Tz_i = clamp(r + γ · (1 − terminated) · z_i, v_min, v_max)
+//! ```math
+//! Tz_i = \text{clamp}(r + \gamma \cdot (1 - \text{terminated}) \cdot z_i,\; v_{min},\; v_{max})
 //! ```
 //!
 //! `Tz_i` generally falls between two atoms of the *fixed* support. The
@@ -55,11 +55,11 @@ use burn::tensor::{IndexingUpdateOp, Int, Tensor};
 
 use crate::algorithms::shared::clamp_preserving_nan;
 
-/// Spacing `Δz` between adjacent atoms of a uniform categorical support.
+/// Spacing `$\Delta z$` between adjacent atoms of a uniform categorical support.
 ///
-/// `Δz = (v_max − v_min) / (num_atoms − 1)` — the single source of truth for
+/// `$\Delta z = (\text{v\_max} - \text{v\_min}) / (\text{num\_atoms} - 1)$` — the single source of truth for
 /// the atom scale. Both the *construction* of the support tensor
-/// (`z_i = v_min + i · Δz`) and the *index* computation inside
+/// (`$z_i = \text{v\_min} + i \cdot \Delta z$`) and the *index* computation inside
 /// [`project_distribution`] must use this one function; two independent
 /// spellings of the same constant can disagree by an ULP and push a bin index
 /// off the end of the support.
@@ -123,11 +123,11 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 /// # Panics
 /// - If `num_atoms < 2`. A categorical support needs at least two atoms for the
 ///   `N-1` spacing denominator to be meaningful.
-/// - If the atom spacing `Δz = (v_max − v_min) / (N − 1)` is not finite and
+/// - If the atom spacing `$\Delta z = (\text{v\_max} - \text{v\_min}) / (N - 1)$` is not finite and
 ///   strictly positive — i.e. the support is degenerate (`v_max == v_min`) or
 ///   inverted (`v_max < v_min`), or a bound is non-finite. This is *not*
 ///   implied by `num_atoms >= 2`: a well-sized `num_atoms = 51` support with
-///   `v_min == v_max` gives `Δz = 0`, so `b = (Tz − v_min) / Δz` is `NaN` for
+///   `v_min == v_max` gives `$\Delta z = 0$`, so `$b = (Tz - \text{v\_min}) / \Delta z$` is `NaN` for
 ///   **every** element of **every** batch, for the whole run.
 ///
 ///   The assertion is a config-degeneracy backstop, not a memory-safety guard.
@@ -136,7 +136,7 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   keeps the scatter in range on both backends — so a degenerate support
 ///   could no longer corrupt anything; it would merely emit an all-`NaN` target
 ///   on every step. That is a run which trains on nothing and reports it only
-///   once, through the caller's one-shot `FiniteLossGuard` warning. `Δz` is a
+///   once, through the caller's one-shot `FiniteLossGuard` warning. `$\Delta z$` is a
 ///   *configuration* constant rather than per-batch data, so the right response
 ///   is to reject it at the call site with a message naming the offending
 ///   bounds, not to let it propagate.

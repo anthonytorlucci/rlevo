@@ -33,7 +33,7 @@
 //!   FIFO uniform buffer every off-policy agent above draws its batches from.
 //! - [`target`] — The target-network update rule: [`target::TargetUpdate`]
 //!   (a cadence plus a [`target::PolyakTau`] coefficient) expresses one
-//!   mechanism, in which a hard weight copy is the degenerate case `τ = 1.0`
+//!   mechanism, in which a hard weight copy is the degenerate case `$\tau = 1.0$`
 //!   rather than a separate variant.
 //! - [`utils`] — Shared helpers: Bellman target computation, Polyak averaging.
 
@@ -139,7 +139,7 @@ pub mod algorithms {
         //! [`sac_model::ContinuousQ`] critics (each with a Polyak-averaged
         //! target), a scalar [`sac_alpha::LogAlpha`] learnable temperature,
         //! and a uniform replay buffer. The Bellman target includes the
-        //! entropy term `−α·log π(a'|s')`; the actor is trained via
+        //! entropy term `$-\alpha \cdot \log \pi(a'|s')$`; the actor is trained via
         //! reparameterization, and α is auto-tuned toward the heuristic
         //! target entropy `-|A|` by default. `CleanRL`'s
         //! `sac_continuous_action.py` is the reference implementation.

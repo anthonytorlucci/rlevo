@@ -1,6 +1,6 @@
 //! Himmelblau's function — a classic 2-D multimodal benchmark with four equal minima.
 //!
-//! `f(x₁, x₂) = (x₁ + x₂² − 7)² + (x₁² + x₂ − 11)²`, with four global minima of
+//! `$f(x_1, x_2) = (x_1 + x_2^2 - 7)^2 + (x_1^2 + x_2 - 11)^2$`, with four global minima of
 //! value `0` arranged around the origin. A pure polynomial (no transcendental
 //! terms), differentiable everywhere, with nine stationary points total (four
 //! minima, four saddles, one local maximum). Widely used in niching competitions
@@ -10,9 +10,9 @@
 //!
 //! [`bounds`](Himmelblau::bounds) returns `(-6.0, 6.0)`, which **is** the canonical
 //! domain: Al-Roomi, *Unconstrained Single-Objective Benchmark Functions
-//! Repository*, function #56 "Himmelblau's Function", gives `−6 ≤ xᵢ ≤ 6` with
-//! `f* = 0` at `(3, 2)`, `(3.5844, −1.8481)`, `(−3.7793, −3.2832)` and
-//! `(−2.8051, 3.1313)`. All four lie inside the box, and `f` is a sum of two squares
+//! Repository*, function #56 "Himmelblau's Function", gives `$-6 \leq x_i \leq 6$` with
+//! `$f^* = 0$` at `$(3, 2)$`, `$(3.5844, -1.8481)$`, `$(-3.7793, -3.2832)$` and
+//! `$(-2.8051, 3.1313)$`. All four lie inside the box, and `$f$` is a sum of two squares
 //! so nothing can score below `0` — both `bounds()` obligations hold (ADR 0045:
 //! O1 reachability, O2 no spurious optimum), pinned by unit tests below.
 
@@ -83,8 +83,8 @@ mod tests {
     const F_OPT: f64 = 0.0;
 
     /// All four certified global minimizers, 12-digit (Al-Roomi 2015 via Maple;
-    /// the source table rounds them to `(3,2)`, `(3.5844,−1.8481)`,
-    /// `(−3.7793,−3.2832)`, `(−2.8051,3.1313)`).
+    /// the source table rounds them to `$(3,2)$`, `$(3.5844,-1.8481)$`,
+    /// `$(-3.7793,-3.2832)$`, `$(-2.8051,3.1313)$`).
     const OPTIMA: [(f64, f64); 4] = [
         (3.0, 2.0),
         (3.584_428_340_330, -1.848_126_526_964),
@@ -153,10 +153,10 @@ mod tests {
         }
     }
 
-    /// O2 (no spurious optimum) — no point of the box scores below `f* = 0`.
+    /// O2 (no spurious optimum) — no point of the box scores below `$f^* = 0$`.
     ///
-    /// A deterministic 401×401 sweep of `bounds()²`. `f` is a sum of two squares, so
-    /// `f ≥ 0` holds exactly and `eps` guards float error only (each square is
+    /// A deterministic 401×401 sweep of `bounds()²`. `$f$` is a sum of two squares, so
+    /// `$f \geq 0$` holds exactly and `eps` guards float error only (each square is
     /// non-negative in IEEE-754 too, so the margin is really zero-sided).
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {

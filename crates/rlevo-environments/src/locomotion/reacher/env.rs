@@ -31,9 +31,9 @@ use super::config::ReacherConfig;
 use super::observation::ReacherObservation;
 use super::state::ReacherState;
 
-/// Reward-component key: `−‖finger − target‖` (≤ 0).
+/// Reward-component key: `$-\|\text{finger} - \text{target}\|$` (≤ 0).
 pub const METADATA_KEY_REWARD_DISTANCE: &str = "reward_distance";
-/// Reward-component key: `−0.1 · ‖action‖²` (≤ 0).
+/// Reward-component key: `$-0.1 \cdot \|\text{action}\|^2$` (≤ 0).
 pub const METADATA_KEY_REWARD_CONTROL: &str = "reward_control";
 
 /// Reacher — a 2-link planar arm whose fingertip must reach a randomly

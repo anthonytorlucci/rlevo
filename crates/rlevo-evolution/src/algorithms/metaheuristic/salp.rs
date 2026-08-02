@@ -4,14 +4,14 @@
 //!
 //! - Leaders (indices `0 .. N/2`) update toward the food source `F`
 //!   (the best-so-far position), modulated by a time-decayed coefficient
-//!   `c1 = 2·exp(−(4·t / T)²)`:
+//!   `$c_1 = 2 \exp(-(4t/T)^2)$`:
 //!
-//!   `X_i ← F ± c1 · ((ub − lb)·c2 + lb)` with `c2, c3 ∈ U[0, 1]`,
-//!   where the sign follows `c3 ≥ 0.5 → +` and `c3 < 0.5 → −`.
+//!   `$X_i \leftarrow F \pm c_1 \cdot ((\text{ub} - \text{lb}) c_2 + \text{lb})$` with `$c_2, c_3 \in U[0, 1]$`,
+//!   where the sign follows `$c_3 \geq 0.5 \to +$` and `$c_3 < 0.5 \to -$`.
 //!
 //! - Followers (indices `N/2 .. N`) track the chain:
 //!
-//!   `X_i ← (X_i + X_{i−1}) / 2`.
+//!   `$X_i \leftarrow (X_i + X_{i-1}) / 2$`.
 //!
 //! The follower rule is realized as a parallel stencil — the shifted
 //! copy is `concat([last_leader, followers[..−1]])` — rather than a
@@ -47,7 +47,7 @@ use crate::strategy::{Strategy, StrategyMetrics};
 /// Static configuration for [`SalpSwarm`].
 #[derive(Debug, Clone)]
 pub struct SalpConfig {
-    /// Swarm size; must be `≥ 2` so there is at least one leader and
+    /// Swarm size; must be `$\geq 2$` so there is at least one leader and
     /// one follower.
     pub pop_size: usize,
     /// Genome dimensionality.

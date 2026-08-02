@@ -31,7 +31,7 @@ impl State<1> for SwimmerState {
     }
 
     /// Returns `true` when the last extracted observation is fully finite.
-    /// A `false` result indicates a physics divergence (NaN or `±∞` in one
+    /// A `false` result indicates a physics divergence (NaN or `$\pm\infty$` in one
     /// or more of the observation elements).
     fn is_valid(&self) -> bool {
         self.last_obs.is_finite()

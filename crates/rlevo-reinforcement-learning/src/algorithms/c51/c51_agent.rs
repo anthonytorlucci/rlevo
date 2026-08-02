@@ -3,7 +3,7 @@
 //! The [`C51Agent`] struct owns the policy network (returning atom logits),
 //! a frozen target network, an Adam optimizer, a uniform replay buffer, and
 //! the ε-greedy exploration schedule shared with DQN. Action selection uses
-//! the expected Q-value `Σ_i z_i · softmax(logits_i)`; the learning step
+//! the expected Q-value `$\sum_i z_i \cdot \text{softmax}(\text{logits}_i)$`; the learning step
 //! projects the bootstrap distribution onto the fixed atom support (see
 //! [`crate::algorithms::c51::projection`]) and minimises the categorical
 //! cross-entropy against the policy's log-probabilities.

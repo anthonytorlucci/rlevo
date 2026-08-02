@@ -1,7 +1,7 @@
 //! Uniform experience replay: a FIFO ring drawn i.i.d. with replacement.
 //!
 //! This is the strategy every shipped off-policy agent uses. It is a separate
-//! type from any future prioritized strategy rather than its `α = 0` special
+//! type from any future prioritized strategy rather than its `$\alpha = 0$` special
 //! case: Schaul's scheme draws *stratified*, one per equal-mass segment, while
 //! uniform draws i.i.d. with replacement, so one implementation cannot honour
 //! both semantics (ADR 0050 §4).

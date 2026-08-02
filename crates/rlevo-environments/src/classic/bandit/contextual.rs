@@ -1,8 +1,8 @@
 //! Contextual k-armed bandit — tabular discrete-context formulation.
 //!
-//! At each step the environment reveals a discrete context `c ∈ {0, …, C-1}`
+//! At each step the environment reveals a discrete context `$c \in \{0, \ldots, C-1\}$`
 //! (drawn uniformly from the seeded RNG) and the agent picks an arm
-//! `a ∈ {0, …, K-1}`. The reward is sampled from `N(q*(c, a), 1)` where the
+//! `$a \in \{0, \ldots, K-1\}$`. The reward is sampled from `N(q*(c, a), 1)` where the
 //! per-context, per-arm means `q*(c, a)` are drawn once from `N(0, 1)` at
 //! construction and **preserved** across [`Environment::reset`] — the problem
 //! is fixed for the lifetime of the environment; only the revealed context and
@@ -373,7 +373,7 @@ impl FromStr for ContextualBanditConfig {
 /// Tabular contextual bandit with `C` discrete contexts and `K` arms.
 ///
 /// On each step the environment draws the current context uniformly from
-/// `{0, …, C-1}` and the agent selects an arm `{0, …, K-1}`. Reward is
+/// `$\{0, \ldots, C-1\}$` and the agent selects an arm `$\{0, \ldots, K-1\}$`. Reward is
 /// sampled from `N(q*(context, arm), 1)` using a `C × K` table of means
 /// fixed at construction and reset by [`Environment::reset`].
 ///

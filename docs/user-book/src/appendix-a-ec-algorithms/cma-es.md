@@ -133,7 +133,8 @@ C \leftarrow \left(1 - \frac{1}{\tau_c}\right) C + \frac{1}{\tau_c} \cdot \frac{
 
 ## Pseudocode
 
-This follows Simon (2013, Fig. 6.17), the CMSA-ES outline. Here \\(\mu\\) is the
+This follows the CMSA-ES outline given in Simon (2013), *Evolutionary
+Optimization Algorithms*, ch. 6 (Evolution Strategies). Here \\(\mu\\) is the
 number of parents recombined and \\(\lambda\\) the number of offspring sampled
 per generation.
 

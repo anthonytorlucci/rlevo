@@ -190,8 +190,8 @@ impl<B: Backend> HallOfFame<B> {
 /// individual's score against the *current* opponents with its score against
 /// the *archived* champions:
 ///
-/// ```text
-/// fitness_blended = (1 - w) * fitness_current + w * fitness_hof
+/// ```math
+/// \text{fitness}_{\text{blended}} = (1 - w) \cdot \text{fitness}_{\text{current}} + w \cdot \text{fitness}_{\text{hof}}
 /// ```
 ///
 /// where `w` is [`hof_blend_weight`](Self::with_blend_weight) (default `0.3`).

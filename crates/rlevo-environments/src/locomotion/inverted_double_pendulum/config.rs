@@ -8,7 +8,7 @@ use crate::locomotion::common::{Gear, HealthyCheck, TerminationMode};
 /// Environment configuration for [`super::InvertedDoublePendulum`].
 ///
 /// Defaults match the Gymnasium v5 XML: gear 100, dt 0.01, `frame_skip` 1,
-/// reset noise 0.1, truncation at 1000, termination on `y_tip ≤ 1.0`.
+/// reset noise 0.1, truncation at 1000, termination on `$y_{\text{tip}} \leq 1.0$`.
 #[derive(Debug, Clone)]
 pub struct InvertedDoublePendulumConfig {
     /// RNG seed used for both weight initialisation and reset noise sampling.
@@ -29,7 +29,7 @@ pub struct InvertedDoublePendulumConfig {
     /// Default `TerminationMode::OnUnhealthy`.
     pub termination: TerminationMode,
     /// Half-width of the uniform distribution used to perturb `cart_x`,
-    /// `θ₁`, and `θ₂` at reset; also the standard deviation of the Gaussian
+    /// `$\theta_1$`, and `$\theta_2$` at reset; also the standard deviation of the Gaussian
     /// used to perturb velocities. Default `0.1`.
     pub reset_noise_scale: f32,
     /// Maximum number of steps before the episode is truncated. Default
@@ -59,15 +59,15 @@ pub struct InvertedDoublePendulumConfig {
     /// Bonus added to the reward each step the tip remains healthy. Default
     /// `10.0`.
     pub alive_reward: f32,
-    /// Coefficient of the `x_tip²` penalty. Default `0.01`.
+    /// Coefficient of the `$x_{\text{tip}}^2$` penalty. Default `0.01`.
     pub x_tip_weight: f32,
     /// Target height for the pole tip along world-z (Gymnasium's `y_tip`
     /// target). Default `2.0`.
     pub y_tip_target: f32,
-    /// Coefficient of the `|ω₁|` angular-velocity penalty for pole1.
+    /// Coefficient of the `$|\omega_1|$` angular-velocity penalty for pole1.
     /// Default `1e-3`.
     pub omega1_weight: f32,
-    /// Coefficient of the `|ω₂|` angular-velocity penalty for pole2.
+    /// Coefficient of the `$|\omega_2|$` angular-velocity penalty for pole2.
     /// Default `5e-3`.
     pub omega2_weight: f32,
 }

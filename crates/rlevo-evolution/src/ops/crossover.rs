@@ -11,7 +11,7 @@
 //!
 //! # BLX-α
 //!
-//! For each gene, child ∈ `U(min(a,b) − α·|a−b|, max(a,b) + α·|a−b|)`.
+//! For each gene, child ∈ `$U(\min(a,b) - \alpha \cdot |a-b|, \max(a,b) + \alpha \cdot |a-b|)$`.
 //! A common default is α = 0.5.
 //!
 //! # Uniform
@@ -42,12 +42,12 @@ fn unit_uniform_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 /// For each gene position `i`, the child's value is drawn uniformly from the
 /// extended interval
 ///
-/// ```text
-/// U(min(a_i, b_i) − α·|a_i − b_i|,  max(a_i, b_i) + α·|a_i − b_i|)
+/// ```math
+/// U\left(\min(a_i, b_i) - \alpha \cdot |a_i - b_i|,\ \max(a_i, b_i) + \alpha \cdot |a_i - b_i|\right)
 /// ```
 ///
-/// When `α = 0` the child lies strictly within the parents' bounding box.
-/// `α = 0.5` is the conventional default and allows mild extrapolation beyond
+/// When `$\alpha = 0$` the child lies strictly within the parents' bounding box.
+/// `$\alpha = 0.5$` is the conventional default and allows mild extrapolation beyond
 /// either parent. All `n·d` draws are taken from the caller-supplied host `rng`
 /// and loaded onto the device via [`Tensor::from_data`]; no backend-global RNG
 /// state is touched.

@@ -128,8 +128,8 @@ pub struct UnlockPickupConfig {
     /// Grid side length in cells (width = height = `size`); must be ≥ `MIN_SIZE` (7).
     ///
     /// The interior wall sits at `x = size / 2` and splits the board into a left
-    /// room spanning `x ∈ 1 ..= size / 2 - 1` and a right room spanning
-    /// `x ∈ size / 2 + 1 ..= size - 2`, both covering rows `1 ..= size - 2`.
+    /// room spanning `$x \in 1 ..= \text{size} / 2 - 1$` and a right room spanning
+    /// `$x \in \text{size} / 2 + 1 ..= \text{size} - 2$`, both covering rows `1 ..= size - 2`.
     /// Nothing inside those rooms is pinned to a coordinate derived from `size`:
     /// the door's row, the key and the agent in the left room, and the box in
     /// the right room are all drawn per episode (see the module docs). A larger
@@ -213,7 +213,7 @@ impl Validate for UnlockPickupConfig {
     /// file is user-supplied runtime data that never passes through `from_str`
     /// (rules.md §4 — "if an invalid value can arrive via `Deserialize`, it must
     /// be an `Err`"). Below the floor the two rooms the layout sampler draws
-    /// into stop being well-formed: at `size ≤ 4` the right room's rectangle is
+    /// into stop being well-formed: at `$\text{size} \leq 4$` the right room's rectangle is
     /// empty or inverted, which [`UnlockPickupEnv::with_config`] surfaces as a
     /// [`PlacementError`]-derived `ConfigError` rather than a panic. Sizes `5`
     /// and `6` do build a playable board and are rejected anyway, so `MIN_SIZE`

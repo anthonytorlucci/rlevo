@@ -29,7 +29,7 @@ pub struct Pose {
 pub struct Twist {
     /// `[vx, vy, vz]` world-frame linear velocity (metres per second).
     pub linear: [f32; 3],
-    /// `[ωx, ωy, ωz]` world-frame angular velocity (radians per second).
+    /// `$[\omega_x, \omega_y, \omega_z]$` world-frame angular velocity (radians per second).
     pub angular: [f32; 3],
 }
 
