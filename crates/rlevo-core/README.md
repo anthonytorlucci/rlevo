@@ -1,6 +1,6 @@
 # rlevo-core
 
-![Alt Text](rlevo-logo.png)
+![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
 Core abstractions for the `rlevo` Deep Reinforcement Learning with Evolutionary Optimization library.
 

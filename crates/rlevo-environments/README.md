@@ -1,6 +1,6 @@
 # rlevo-environments
 
-![Alt Text](rlevo-logo.png)
+![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
 Standard benchmark environments and landscapes for the `rlevo` workspace.
 

@@ -1,6 +1,6 @@
 # rlevo-benchmarks
 
-![Alt Text](rlevo-logo.png)
+![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
 Reproducible benchmarking harness for the `rlevo` workspace.
 

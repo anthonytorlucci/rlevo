@@ -1,6 +1,6 @@
 # rlevo-benchmarks-report-client
 
-![Alt Text](rlevo-logo.png)
+![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
 Leptos/WASM client for the [rlevo-benchmarks](../rlevo-benchmarks/) static-HTML
 report (Milestone 5.1).

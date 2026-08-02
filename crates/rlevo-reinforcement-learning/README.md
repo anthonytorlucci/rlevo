@@ -1,6 +1,6 @@
 # rlevo-reinforcement-learning
 
-![Alt Text](rlevo-logo.png)
+![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
 Deep reinforcement learning algorithms for the `rlevo` workspace.
 

@@ -1,6 +1,6 @@
 # rlevo-examples
 
-![Alt Text](rlevo-logo.png)
+![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
 Runnable, application-tier examples for the [`rlevo`](../rlevo/) library:
 benchmarking-harness demos, a live training dashboard, and post-run HTML
