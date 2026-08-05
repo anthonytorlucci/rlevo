@@ -435,15 +435,22 @@ fn update_best<B: Backend>(state: &mut GaState<B>, pop: &Tensor<B, 2>, fitness: 
     if fitness.is_empty() {
         return;
     }
+    // Sanitize (NaN → −∞) then order with `total_cmp`: the §3 correctness floor
+    // for a direct (non-harness) caller. `best_fitness` seeds at `−∞`, so a
+    // legitimately sanitized `−∞` fitness is treated as the worst, not skipped.
+    let sane: Vec<f32> = fitness
+        .iter()
+        .map(|&f| crate::fitness::sanitize_fitness(f))
+        .collect();
     let mut best_idx = 0_usize;
-    let mut best_f = fitness[0];
-    for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f > best_f {
+    let mut best_f = sane[0];
+    for (i, &f) in sane.iter().enumerate().skip(1) {
+        if f.total_cmp(&best_f) == std::cmp::Ordering::Greater {
             best_f = f;
             best_idx = i;
         }
     }
-    if best_f > state.best_fitness {
+    if best_f.total_cmp(&state.best_fitness) == std::cmp::Ordering::Greater {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
         let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(
@@ -571,5 +578,61 @@ mod tests {
                 break;
             }
         }
+    }
+
+    /// Direct-`tell` regression for the `update_best` scan (ADR 0034 decision 3,
+    /// `rules.md` §3). `EvolutionaryHarness::step` sanitizes fitness before
+    /// `tell`, but a direct caller does not, so a raw `NaN` can arrive at index
+    /// 0. Seeding the scan with `fitness[0]` and comparing with `>` made every
+    /// comparison against that `NaN` false, so the champion write was skipped
+    /// while `best_fitness` still ratcheted up from the sanitizing
+    /// `StrategyMetrics::from_host_fitness` — a permanent `best() == None`
+    /// desync. The winner here is row 1.
+    #[test]
+    fn direct_tell_with_nan_at_index_zero_records_champion() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let (pop, dim) = (6usize, 3usize);
+        let params = GaConfig::default_for(pop, dim);
+        let strategy = GeneticAlgorithm::<TestBackend>::new();
+        let mut rng = StdRng::seed_from_u64(0);
+
+        // Row `i` is filled with the constant `i`, so the champion row is
+        // identifiable from its contents alone.
+        let rows: Vec<f32> = [0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
+            .iter()
+            .flat_map(|&v| vec![v; dim])
+            .collect();
+        let population =
+            Tensor::<TestBackend, 2>::from_data(TensorData::new(rows, [pop, dim]), &device);
+        // Raw (unsanitized) fitness: NaN first, clear finite winner at index 1.
+        let fitness = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![f32::NAN, 1000.0, 1.0, 2.0, 3.0, 4.0], [pop]),
+            &device,
+        );
+        let state = GaState {
+            population: population.clone(),
+            fitness: Vec::new(),
+            best_genome: None,
+            best_fitness: f32::NEG_INFINITY,
+            generation: 0,
+        };
+
+        let (next, _m) = strategy.tell(&params, population, fitness, state, &mut rng);
+        let (genome, best_f) = strategy
+            .best(&next)
+            .expect("a finite winner exists, so the champion must be recorded");
+        approx::assert_relative_eq!(best_f, 1000.0, epsilon = 1e-6);
+        let row = genome
+            .into_data()
+            .into_vec::<f32>()
+            .expect("champion row host-read of a tensor this test just built");
+        assert_eq!(
+            row,
+            vec![1.0f32; dim],
+            "champion genome must be population row 1, the finite winner"
+        );
     }
 }

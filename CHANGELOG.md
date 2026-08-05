@@ -7,6 +7,54 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### `rlevo-evolution`
+
+**Fixed**
+
+- **`mean_fitness` still reported `+∞` for a population of optimal
+  individuals** (resolves the metrics half of #132). ADR 0034 maps a `+∞`
+  fitness to `f32::MAX` and states that, because the clamped value is finite, it
+  "cannot blow a `mean`, `variance`, or reward to `+∞`". That guarantee did not
+  hold: `f32::MAX` passes `is_finite()` and so joins the running total, and
+  `f32::MAX + f32::MAX` saturates straight back to `f32::INFINITY`. Two
+  individuals legitimately pegging the objective in one generation were enough
+  to report an infinite mean. `StrategyMetrics::from_host_fitness` now
+  accumulates in `f64` and narrows once, after the division — the accumulator's
+  width, not the clamp, is what carries the guarantee. This also removes the
+  ~1 ULP-per-addition drift the `f32` total accrued over a large population.
+  Because the chokepoint is shared, every evolutionary strategy was affected,
+  not only the EA-root family #132 names.
+
+  The existing coverage could not have caught this: the one `+∞` regression test
+  passed a slice with a *single* infinite member, and a single `f32::MAX` in the
+  sum is exactly the case that does not overflow. The defect needed two.
+
+- **A `NaN` at index 0 permanently stranded the champion genome in GA,
+  binary GA, and EP** (resolves the champion-tracking half of #132).
+  `update_best` in `algorithms/ga.rs`, `algorithms/ga_binary.rs` and
+  `algorithms/ep.rs` seeded its scan with `best_f = fitness[0]` and compared
+  with `>`. Every comparison against a `NaN` seed is false, so the scan kept
+  index 0 and the champion-write guard `best_f > state.best_fitness` never
+  fired — while the caller advanced `state.best_fitness` from the *sanitising*
+  `StrategyMetrics`. The two fields desynchronised: `best_fitness` ratcheted up
+  to the real winner, `best_genome` stayed `None`, and because the ratchet was
+  now high, every later generation failed the guard too. `Strategy::best()`
+  returned `None` for the rest of the run. All three now sanitise into a local
+  buffer and order with `total_cmp`, matching the fix already carried by
+  `algorithms/gp_cgp.rs` and satisfying ADR 0034's requirement that every
+  champion-write site hold the per-site correctness floor.
+
+  Only callers who drive `Strategy::tell` directly could reach this —
+  `EvolutionaryHarness::step` sanitises before `tell`, so harness-driven runs
+  were never exposed. `Strategy` is public and re-exported in the umbrella
+  prelude, and the existing tests all went through the harness. `es_classical.rs`
+  and `de.rs` were checked and are unaffected: both delegate to `argmax_host`,
+  which seeds at `−∞` and is `NaN`-safe under `>`.
+
+---
+
 ## [0.4.0] – 2026-08-02
 
 Minor release: contains breaking changes since 0.3.1. See the

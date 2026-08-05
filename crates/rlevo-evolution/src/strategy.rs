@@ -243,9 +243,20 @@ impl StrategyMetrics {
     /// from the average and counted in [`broken_count`](Self::broken_count)
     /// instead (ADR 0034). This keeps a single broken individual from blanking
     /// the whole mean to `−∞` while still surfacing that the population is
-    /// unhealthy. `+∞ → f32::MAX` members are finite and *are* included, so an
-    /// optimal individual cannot blow the mean to `+∞`. If *every* member is
-    /// broken, `mean_fitness = −∞` (degenerate but well-defined).
+    /// unhealthy. `+∞ → f32::MAX` members are finite and *are* included. If
+    /// *every* member is broken, `mean_fitness = −∞` (degenerate but
+    /// well-defined).
+    ///
+    /// The mean is **accumulated in `f64`** and narrowed to `f32` once, after the
+    /// division. The clamp alone does not make the mean safe: `f32::MAX` is
+    /// finite and therefore admitted into the sum, but *two* clamped members
+    /// saturate an `f32` accumulator (`f32::MAX + f32::MAX == f32::INFINITY`),
+    /// which would report `mean_fitness = +∞` for a population of optimal
+    /// individuals. `f64` carries the widened sum (`≈ 6.8e38` per pair, far below
+    /// `f64::MAX`), so it is the accumulator width — not the clamp — that
+    /// delivers ADR 0034's "cannot blow a mean up" guarantee. Averaging in `f64`
+    /// also removes the ~1 ULP-per-addition drift an `f32` sum accrues over a
+    /// large population.
     ///
     /// # Panics
     ///
@@ -261,9 +272,14 @@ impl StrategyMetrics {
         // so all statistics agree on the crate-wide convention. The mean is taken
         // over finite members only; non-finite (`−∞`) members are counted as
         // broken rather than dragging the mean to `−∞`.
+        //
+        // `finite_sum` is `f64`, not `f32`: sanitized `+∞` arrives as `f32::MAX`,
+        // which *is* finite and so joins the sum, and two such members overflow
+        // an `f32` accumulator to `+∞` (issue #132). `f64` holds the widened sum
+        // and also avoids the ~1 ULP-per-addition drift over a large population.
         let mut best = f32::NEG_INFINITY;
         let mut worst = f32::INFINITY;
-        let mut finite_sum = 0.0_f32;
+        let mut finite_sum = 0.0_f64;
         let mut finite_n = 0_usize;
         let mut broken_count = 0_usize;
         for &f in fitnesses {
@@ -275,16 +291,21 @@ impl StrategyMetrics {
                 worst = f;
             }
             if f.is_finite() {
-                finite_sum += f;
+                finite_sum += f64::from(f);
                 finite_n += 1;
             } else {
                 broken_count += 1;
             }
         }
         let mean = if finite_n > 0 {
+            // `usize as f64` is exact for any realistic population size, and the
+            // mean of values bounded by `f32::MAX` is itself within `f32` range,
+            // so the single narrowing below cannot overflow to `±∞`.
             #[allow(clippy::cast_precision_loss)]
-            let n = finite_n as f32;
-            finite_sum / n
+            let n = finite_n as f64;
+            #[allow(clippy::cast_possible_truncation)]
+            let mean = (finite_sum / n) as f32;
+            mean
         } else {
             // Every member is broken: no finite value to average.
             f32::NEG_INFINITY
@@ -937,11 +958,43 @@ mod tests {
     #[test]
     fn from_host_fitness_pos_inf_ranks_top_but_mean_stays_finite() {
         // +∞ → f32::MAX (ADR 0034): it stays best/finite and is *included* in the
-        // mean (no −∞/broken), so an optimal individual cannot blow the mean up.
+        // mean (no −∞/broken). The clamp is only half of why the mean survives —
+        // the other half is the `f64` accumulator, which
+        // `from_host_fitness_two_pos_inf_members_keep_mean_finite` pins for the
+        // multi-member case this single-member test cannot reach.
         let m = StrategyMetrics::from_host_fitness(0, &[1.0, f32::INFINITY, 3.0], 0.0);
         approx::assert_relative_eq!(m.best_fitness(), f32::MAX);
         assert_eq!(m.broken_count(), 0);
         assert!(m.mean_fitness().is_finite());
+    }
+
+    #[test]
+    fn from_host_fitness_two_pos_inf_members_keep_mean_finite() {
+        // Regression (issue #132): ADR 0034 maps `+∞ → f32::MAX` and claims the
+        // clamped value "cannot blow a mean up". `f32::MAX` passes `is_finite()`,
+        // so it is admitted into the accumulator — and *two* such members
+        // saturate an `f32` sum: `f32::MAX + f32::MAX == f32::INFINITY`. The
+        // accumulator, not the clamp, is what has to carry the guarantee, so the
+        // sum runs in `f64` (`f32::MAX + f32::MAX ≈ 6.8e38` is nowhere near
+        // `f64::MAX`) and is narrowed back to `f32` once, after the division.
+        // The mean here is `(1 + MAX + MAX + 3) / 4 ≈ 1.7e38`, comfortably
+        // representable in `f32`.
+        let m = StrategyMetrics::from_host_fitness(
+            0,
+            &[1.0, f32::INFINITY, f32::INFINITY, 3.0],
+            f32::NEG_INFINITY,
+        );
+        assert_eq!(
+            m.broken_count(),
+            0,
+            "clamped +∞ members are finite, so none is broken"
+        );
+        assert!(
+            m.mean_fitness().is_finite(),
+            "two f32::MAX members must not saturate the mean; got {}",
+            m.mean_fitness()
+        );
+        approx::assert_relative_eq!(m.best_fitness(), f32::MAX);
     }
 
     #[test]
