@@ -183,8 +183,16 @@ So the same chokepoint that canonicalises also **sanitises**, in one rule
 - `NaN → −∞` — the worst value under the maximise convention, so a broken
   individual can never seed or displace a real best;
 - `+∞ → f32::MAX` — a genuinely optimal individual still ranks top, but as a
-  *finite* value, so it cannot blow `mean_fitness` or a reward up to `+∞`;
+  *finite* value, so it never reads as a sentinel and never propagates `+∞` into
+  a reward;
 - `−∞` passes through unchanged (it is the worst-value sentinel).
+
+Note what that second rule does *not* buy you on its own. Clamping to
+`f32::MAX` keeps a single value finite, but \\(\texttt{f32::MAX} +
+\texttt{f32::MAX}\\) overflows back to `+∞`, so two optimal individuals in one
+generation would still saturate an `f32` running total. We therefore accumulate
+`mean_fitness` in `f64` and narrow once, after the division — it is the
+accumulator's width, not the clamp, that keeps the reported mean finite.
 
 The upshot for you as a caller: **the fitness a strategy's `tell` receives on a
 harness-driven run is always finite or `−∞`** — you never have to guard your
@@ -349,7 +357,10 @@ still scattered. A small gap means the whole population has settled near the sam
 optimum. For landscapes with a known optimum (Ackley → 0), `best_fitness_ever`
 doubles as a direct "how close did we get" readout. Averaging `mean_fitness` over
 the finite members keeps one broken individual from collapsing the whole statistic
-to `−∞`; `broken_count` surfaces that individual instead of hiding it.
+to `−∞`; `broken_count` surfaces that individual instead of hiding it. We sum
+those finite members in `f64` before narrowing back to `f32`, which both keeps a
+population of clamped `+∞` individuals from saturating the mean and removes the
+drift an `f32` running total accrues across a large population.
 
 ## Putting it together
 
