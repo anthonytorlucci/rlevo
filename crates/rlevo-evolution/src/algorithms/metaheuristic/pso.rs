@@ -668,6 +668,19 @@ mod tests {
             "bootstrap tell latched a raw NaN into the personal-best cache: {:?}",
             state.personal_best_fitness
         );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would let particle 0 tie or beat the finite rows
+        // and seed the global best from a NaN-scoring particle — the leader
+        // poisoning this regression exists to catch.
+        assert!(
+            state.personal_best_fitness[0].is_infinite()
+                && state.personal_best_fitness[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the personal-best cache: {:?}",
+            state.personal_best_fitness
+        );
 
         // Two more generations of finite, strictly-better fitness supplied by
         // the test (never a landscape). Particle 0 must adopt each value rather

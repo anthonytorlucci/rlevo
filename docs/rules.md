@@ -210,6 +210,15 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   For a whole `Tensor<B, 1>` on the hot path use `sanitize_fitness_tensor`
   (one device op) instead of a host round-trip.
 
+  **A `Strategy::tell` that pulls fitness to host sanitizes once at the pull**,
+  and the ordering/argmax/champion-write sites downstream *in that function* may
+  then assume it. One `.map(sanitize_fitness)` on the `Vec<f32>` the pull already
+  produces is cheaper and more greppable than re-deriving a `sane` buffer at each
+  site — and it stops the raw value reaching a *persistent* per-slot cache, where
+  a `NaN` freezes that individual for the rest of the run (#131: `state.fitness`
+  in the metaheuristic family). Sanitizing only the compared value is an
+  under-fix: the accept-store writes the raw value back.
+
 ---
 
 ## 4. Error Handling

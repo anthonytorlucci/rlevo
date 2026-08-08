@@ -904,6 +904,18 @@ mod tests {
             "raw NaN latched into the bee-0 fitness cache: {:?}",
             state.fitness()
         );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would rank bee 0 *above* the finite -1/-2/-3
+        // scores and make the NaN-scoring bee the reported population best —
+        // the leader poisoning this regression exists to catch.
+        assert!(
+            state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the bee-0 fitness cache: {:?}",
+            state.fitness()
+        );
 
         // Generations 1 and 2: every candidate is finite and strictly better,
         // so a live bee 0 must adopt them.
@@ -915,5 +927,64 @@ mod tests {
             state = advanced;
         }
         approx::assert_relative_eq!(state.fitness()[0], 20.0, epsilon = 1e-6);
+    }
+
+    // Regression for issue #131, `+∞` half. The
+    // `nan_fitness_does_not_latch_without_harness` family above covers
+    // `NaN → −∞`; `sanitize_fitness` has a second rule, `+∞ → f32::MAX`, which
+    // the same bypass `tell` now applies. That rule is *observable* to a direct
+    // `ask`/`tell` driver: an individual scoring a genuine `+∞` is reported as
+    // a finite `f32::MAX` in both the fitness cache and `StrategyMetrics`,
+    // never as raw `+∞`. This is intended (ADR 0034 decision 1) — it keeps the
+    // top-ranked member top-ranked while stopping a single unbounded score from
+    // blowing the population mean/variance to `+∞`. One shared test covers the
+    // rule; the nine per-algorithm NaN tests already prove every `tell` routes
+    // its host pull through `sanitize_fitness`, so the `+∞` branch reaches all
+    // of them by the same path.
+    #[test]
+    fn inf_fitness_clamps_finite_without_harness() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let params = AbcConfig::default_for(4, 2);
+        let mut rng = StdRng::seed_from_u64(31);
+
+        // Generation 0 (bootstrap): bee 0 scores `+∞`, the rest finite.
+        let state = strategy.init(&params, &mut rng, &device);
+        let (colony, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let fitness = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![f32::INFINITY, -1.0, -2.0, -3.0], [4]),
+            &device,
+        );
+        let (state, m) = strategy.tell(&params, colony, fitness, state, &mut rng);
+
+        // The cache holds the clamped, finite `f32::MAX` — not raw `+∞`.
+        assert!(
+            state.fitness()[0].is_finite(),
+            "raw +inf latched into the bee-0 fitness cache: {:?}",
+            state.fitness()
+        );
+        approx::assert_relative_eq!(state.fitness()[0], f32::MAX);
+
+        // Clamping preserves the ranking: bee 0 is still the best, and every
+        // reported statistic stays finite (the point of the clamp — `+∞` would
+        // poison `mean_fitness` for the whole population).
+        approx::assert_relative_eq!(m.best_fitness(), f32::MAX);
+        assert!(
+            m.mean_fitness().is_finite(),
+            "mean_fitness went non-finite under a +inf member: {}",
+            m.mean_fitness()
+        );
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best_fitness_ever went non-finite under a +inf member: {}",
+            m.best_fitness_ever()
+        );
+        // A clamped `+∞` is a *usable* member, unlike a sanitized `NaN`: it is
+        // finite, so it is averaged in rather than counted broken.
+        assert_eq!(
+            m.broken_count(),
+            0,
+            "a clamped +inf member must not be counted broken"
+        );
     }
 }

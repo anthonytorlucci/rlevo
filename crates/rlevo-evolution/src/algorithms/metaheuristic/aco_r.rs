@@ -825,5 +825,29 @@ mod tests {
             "raw NaN reached the public archive fitness: {:?}",
             state.archive_fitness
         );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. ACO_R differs from its siblings in *where*
+        // the value lands: the first-tell branch sorts the archive descending,
+        // so the sanitized row is demoted from index 0 to the tail. Any other
+        // finite substitute (e.g. `0.0`) clears `is_nan` yet would sort the
+        // NaN-scoring ant *above* every finite -2/-3/… row, into archive slot 0
+        // and straight into `best_fitness` — the leader poisoning this
+        // regression exists to catch.
+        let tail = state.archive_fitness[n - 1];
+        assert!(
+            tail.is_infinite() && tail.is_sign_negative(),
+            "sanitized NaN must land as -inf at the archive tail: {:?}",
+            state.archive_fitness
+        );
+        // The demotion is the observable consequence: the surviving best is the
+        // finite -2.0 (the NaN overwrote the -1.0 row), never the sanitized one.
+        assert!(
+            state.archive_fitness[0].is_finite() && state.best_fitness.is_finite(),
+            "sanitized NaN must not head the archive: archive={:?} best={}",
+            state.archive_fitness,
+            state.best_fitness
+        );
     }
 }

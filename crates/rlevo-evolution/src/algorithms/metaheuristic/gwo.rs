@@ -691,6 +691,18 @@ mod tests {
             "tell stored a raw NaN in the fitness cache: {:?}",
             state.fitness()
         );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would tie wolf 0 with the finite 0.0 rows and let
+        // it be elected alpha — the leader poisoning this regression exists to
+        // catch.
+        assert!(
+            state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the wolf-0 fitness cache: {:?}",
+            state.fitness()
+        );
 
         // Two more generations of finite, strictly-better fitness supplied by
         // the test (never a landscape): the cache tracks what it was given and

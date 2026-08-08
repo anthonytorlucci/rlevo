@@ -849,6 +849,18 @@ mod tests {
             "raw NaN latched into the nest-0 fitness cache: {:?}",
             state.fitness()
         );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would rank nest 0 *above* the finite -1/-2/-3
+        // scores and make the NaN-scoring nest the reported population best —
+        // the leader poisoning this regression exists to catch.
+        assert!(
+            state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the nest-0 fitness cache: {:?}",
+            state.fitness()
+        );
 
         // Generations 1 and 2: every egg is finite and strictly better, so a
         // live nest 0 must adopt them.

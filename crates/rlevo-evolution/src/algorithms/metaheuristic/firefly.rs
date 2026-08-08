@@ -781,6 +781,18 @@ mod tests {
             "raw NaN reached the public fitness cache: {:?}",
             state.fitness()
         );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would rank firefly 0 *above* every finite
+        // -1/-2/… row and make the NaN-scoring firefly the brightest — the
+        // leader poisoning this regression exists to catch.
+        assert!(
+            state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the firefly-0 fitness cache: {:?}",
+            state.fitness()
+        );
     }
 
     // Gap (b') cont. / issue #233: a full `genome_dim = 1` run drives the harness
