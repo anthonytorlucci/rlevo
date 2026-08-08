@@ -339,10 +339,23 @@ where
         mut state: PsoState<B>,
         _rng: &mut dyn Rng,
     ) -> (PsoState<B>, StrategyMetrics) {
-        let fitness_host = fitness
+        // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3,
+        // issue #131): the harness chokepoint already applies
+        // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
+        // a direct `ask`/`tell` driver can hand us a raw `NaN`. PSO latches
+        // fitness into the persistent `personal_best_fitness` cache and
+        // compares against it next generation — an unsanitised `NaN` there
+        // loses every `>` comparison and freezes that particle's personal best
+        // permanently, with no reset path. `sanitize_fitness` is idempotent, so
+        // this is a provable no-op on the harness path: do not delete it as
+        // redundant.
+        let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness tensor must be readable as f32");
+            .expect("fitness tensor must be readable as f32")
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         let device = population.device();
 
         // First tell: seed personal-bests.
@@ -627,6 +640,50 @@ mod tests {
             m.best_fitness_ever()
         );
         assert!(m.broken_count() >= 1, "the NaN row must be counted broken");
+    }
+
+    /// Regression for the ADR 0034 decision-3 bypass hole (issue #131): a
+    /// driver calling `init → ask → tell` directly gets no harness sanitize, so
+    /// a raw `NaN` used to latch into `personal_best_fitness[0]` and freeze
+    /// that particle's personal best permanently — `x > NaN` is false for every
+    /// `x`, and PSO has no reset path for the cache.
+    #[test]
+    fn nan_fitness_does_not_latch_without_harness() {
+        let device = Default::default();
+        let strategy = ParticleSwarm::<TestBackend>::new();
+        let params = PsoConfig::default_for(4, 3);
+        let mut rng = StdRng::seed_from_u64(131);
+        let state = strategy.init(&params, &mut rng, &device);
+
+        // Generation 0: row 0 is NaN, the rest finite. The bootstrap `tell`
+        // seeds `personal_best_fitness` straight from this vector.
+        let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let f0 = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![f32::NAN, 0.0, 0.0, 0.0], [4]),
+            &device,
+        );
+        let (mut state, _m) = strategy.tell(&params, pop, f0, state, &mut rng);
+        assert!(
+            !state.personal_best_fitness[0].is_nan(),
+            "bootstrap tell latched a raw NaN into the personal-best cache: {:?}",
+            state.personal_best_fitness
+        );
+
+        // Two more generations of finite, strictly-better fitness supplied by
+        // the test (never a landscape). Particle 0 must adopt each value rather
+        // than staying pinned behind an unbeatable cached entry.
+        for value in [1.0_f32, 2.0] {
+            let (pop, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let f =
+                Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![value; 4], [4]), &device);
+            let (next, _m) = strategy.tell(&params, pop, f, next, &mut rng);
+            state = next;
+            assert!(
+                (state.personal_best_fitness[0] - value).abs() < 1e-6,
+                "personal_best_fitness[0] = {} did not adopt the finite {value}",
+                state.personal_best_fitness[0]
+            );
+        }
     }
 
     #[test]

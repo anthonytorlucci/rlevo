@@ -338,10 +338,22 @@ where
         mut state: GwoState<B>,
         _rng: &mut dyn Rng,
     ) -> (GwoState<B>, StrategyMetrics) {
-        let fitness_host = fitness
+        // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3,
+        // issue #131): the harness chokepoint already applies
+        // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
+        // a direct `ask`/`tell` driver can hand us a raw `NaN`. `argtop3_max`
+        // sanitises on the *read*, which keeps leader selection safe; this
+        // closes the *write* half, so the `GwoState` fitness cache a caller
+        // observes via `fitness()` never holds a `NaN`. `sanitize_fitness` is
+        // idempotent, so this is a provable no-op on the harness path: do not
+        // delete it as redundant.
+        let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness tensor must be readable as f32");
+            .expect("fitness tensor must be readable as f32")
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         state.fitness.clone_from(&fitness_host);
         state.pack.clone_from(&population);
         let best_idx = argmax_host(&fitness_host);
@@ -648,6 +660,53 @@ mod tests {
         let (pack, _state) = strategy.ask(&params, &state, &mut rng, &device);
         let got = pack.into_data().into_vec::<f32>().unwrap();
         assert_eq!(expected, got);
+    }
+
+    /// Regression for the ADR 0034 decision-3 bypass hole (issue #131): a
+    /// driver calling `init → ask → tell` directly gets no harness sanitize, so
+    /// `tell` used to store a raw `NaN` into the `GwoState` fitness cache that
+    /// `fitness()` hands back to callers.
+    ///
+    /// GWO keeps no per-slot best, so nothing freezes and leader selection was
+    /// already safe (`argtop3_max` sanitises on the read). This is a
+    /// cache-hygiene assertion — the write half of the same rule — not a
+    /// freeze assertion.
+    #[test]
+    fn nan_fitness_does_not_latch_without_harness() {
+        let device = Default::default();
+        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let params = GwoConfig::default_for(4, 3);
+        let mut rng = StdRng::seed_from_u64(131);
+        let state = strategy.init(&params, &mut rng, &device);
+
+        // Generation 0: row 0 is NaN, the rest finite.
+        let (pack, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let f0 = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![f32::NAN, 0.0, 0.0, 0.0], [4]),
+            &device,
+        );
+        let (mut state, _m) = strategy.tell(&params, pack, f0, state, &mut rng);
+        assert!(
+            state.fitness().iter().all(|f| !f.is_nan()),
+            "tell stored a raw NaN in the fitness cache: {:?}",
+            state.fitness()
+        );
+
+        // Two more generations of finite, strictly-better fitness supplied by
+        // the test (never a landscape): the cache tracks what it was given and
+        // stays NaN-free.
+        for value in [1.0_f32, 2.0] {
+            let (pack, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let f =
+                Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![value; 4], [4]), &device);
+            let (next, _m) = strategy.tell(&params, pack, f, next, &mut rng);
+            state = next;
+            assert!(
+                state.fitness().iter().all(|f| (f - value).abs() < 1e-6),
+                "fitness cache did not track the supplied {value}: {:?}",
+                state.fitness()
+            );
+        }
     }
 
     #[test]
