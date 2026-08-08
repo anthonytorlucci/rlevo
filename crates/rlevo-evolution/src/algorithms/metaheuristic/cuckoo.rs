@@ -368,6 +368,10 @@ where
     ///    re-initialized from `bounds` via [`seed_stream`]; abandoned
     ///    slots carry sentinel `+∞` fitness so the next generation's Lévy
     ///    proposal always lands on them.
+    // Mirrors the same allow on `ArtificialBeeColony::tell`: the body is a
+    // straight-line accept → abandon → best-update pipeline, and splitting it
+    // would only move the device-tensor plumbing behind a name.
+    #[allow(clippy::too_many_lines)]
     fn tell(
         &self,
         params: &CuckooConfig,
@@ -376,10 +380,26 @@ where
         mut state: CuckooState<B>,
         rng: &mut dyn Rng,
     ) -> (CuckooState<B>, StrategyMetrics) {
-        let fitness_host = fitness
+        // Sanitise on the host pull, per the maximise convention (`rules.md`
+        // §3, ADR 0034): `NaN → −∞` (worst), `+∞ → f32::MAX`. This is the
+        // per-site correctness floor for callers that bypass
+        // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
+        // so a hand-rolled `ask`/`tell` driver reaches this line with raw
+        // values (ADR 0034 decision 3, issue #131). One sanitise here covers
+        // both the bootstrap seed of `state.fitness` and the accept-store
+        // below; a raw `NaN` latched into a nest's cache loses every later
+        // `fitness_host[i] >= state.fitness[i]` comparison, and `p_a = 0` is a
+        // valid config that disables the abandonment eviction which would
+        // otherwise clear it. `sanitize_fitness` is idempotent, so on the
+        // harness path (which pre-sanitises) this is a provable no-op — do not
+        // delete it as redundant.
+        let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness tensor must be readable as f32");
+            .expect("fitness tensor must be readable as f32")
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         let device = population.device();
         let pop = params.pop_size;
         let d = params.genome_dim;
@@ -792,5 +812,64 @@ mod tests {
             m.best_fitness_ever()
         );
         assert!(m.broken_count() > 0, "expected a broken (NaN) member");
+    }
+
+    // Regression for issue #131. `nan_fitness_survives_harness` above covers
+    // the harness path; this covers the documented bypass hole (ADR 0034
+    // decision 3) — a direct `init` → `ask` → `tell` driver. A raw `NaN`
+    // latched into `state.fitness` loses every later
+    // `fitness_host[i] >= state.fitness[i]` comparison, so nest 0 freezes. The
+    // §3-sanitized abandonment ranking below the accept loop would eventually
+    // evict such a nest, but `p_a = 0` is a valid config that disables it —
+    // hence `p_a = 0` here, and an assertion on the *cache*, not convergence.
+    #[test]
+    fn nan_fitness_does_not_latch_without_harness() {
+        let device = Default::default();
+        let strategy = CuckooSearch::<TestBackend>::new();
+        let mut params = CuckooConfig::default_for(4, 2);
+        params.p_a = 0.0;
+        let mut rng = StdRng::seed_from_u64(41);
+        let fit = |vals: Vec<f32>| {
+            let n = vals.len();
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device)
+        };
+
+        // Generation 0 (bootstrap): nest 0 scores `NaN`, the rest finite.
+        let state = strategy.init(&params, &mut rng, &device);
+        let (nests, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let (mut state, _m) = strategy.tell(
+            &params,
+            nests,
+            fit(vec![f32::NAN, -1.0, -2.0, -3.0]),
+            state,
+            &mut rng,
+        );
+        assert!(
+            !state.fitness()[0].is_nan(),
+            "raw NaN latched into the nest-0 fitness cache: {:?}",
+            state.fitness()
+        );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would rank nest 0 *above* the finite -1/-2/-3
+        // scores and make the NaN-scoring nest the reported population best —
+        // the leader poisoning this regression exists to catch.
+        assert!(
+            state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the nest-0 fitness cache: {:?}",
+            state.fitness()
+        );
+
+        // Generations 1 and 2: every egg is finite and strictly better, so a
+        // live nest 0 must adopt them.
+        for score in [10.0_f32, 20.0] {
+            let (eggs, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let n = eggs.dims()[0];
+            let (advanced, _m) = strategy.tell(&params, eggs, fit(vec![score; n]), next, &mut rng);
+            state = advanced;
+        }
+        approx::assert_relative_eq!(state.fitness()[0], 20.0, epsilon = 1e-6);
     }
 }

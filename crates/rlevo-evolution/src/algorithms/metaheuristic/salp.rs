@@ -285,10 +285,20 @@ where
         mut state: SalpState<B>,
         _rng: &mut dyn Rng,
     ) -> (SalpState<B>, StrategyMetrics) {
-        let fitness_host = fitness
+        // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
+        // per-site correctness floor for a caller driving `ask`/`tell`
+        // directly instead of `EvolutionaryHarness::step`, which already
+        // sanitizes (the ADR 0034 decision-3 bypass hole, issue #131):
+        // otherwise a raw NaN lands in the public `state.fitness` cache.
+        // `sanitize_fitness` is idempotent, so on the harness path this is a
+        // provable no-op — not redundant, load-bearing.
+        let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness tensor must be readable as f32");
+            .expect("fitness tensor must be readable as f32")
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         state.fitness.clone_from(&fitness_host);
         state.positions.clone_from(&population);
         let best_idx = argmax_host(&fitness_host);
@@ -486,6 +496,45 @@ mod tests {
         .expect("valid params");
         harness.reset();
         assert!(harness.latest_metrics().is_none());
+    }
+
+    /// Cache hygiene (not a freeze): `tell` overwrites `state.fitness`
+    /// wholesale every generation, so a `NaN` can never latch here. What this
+    /// pins is the **store** — driving `init → ask → tell` directly, the
+    /// ADR-0034 decision-3 bypass of `EvolutionaryHarness::step`, must not
+    /// leave a raw `NaN` in the public fitness cache a caller can read back.
+    #[test]
+    fn nan_fitness_does_not_latch_without_harness() {
+        let device = Default::default();
+        let strategy = SalpSwarm::<TestBackend>::new();
+        let params = SalpConfig::default_for(6, 3);
+        let mut rng = StdRng::seed_from_u64(7);
+        let state = strategy.init(&params, &mut rng, &device);
+        let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
+        // Gen-0 fitness supplied by the test, never by a landscape: [NaN, finite…].
+        #[allow(clippy::cast_precision_loss)]
+        let mut vals: Vec<f32> = (0..params.pop_size).map(|i| -(i as f32) - 1.0).collect();
+        vals[0] = f32::NAN;
+        let fitness =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [params.pop_size]), &device);
+        let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
+        assert!(
+            state.fitness.iter().all(|f| !f.is_nan()),
+            "raw NaN reached the public fitness cache: {:?}",
+            state.fitness
+        );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would rank salp 0 *above* every finite -1/-2/…
+        // row and elect the NaN-scoring salp as the food source — the leader
+        // poisoning this regression exists to catch.
+        assert!(
+            state.fitness[0].is_infinite() && state.fitness[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the salp-0 fitness cache: {:?}",
+            state.fitness
+        );
     }
 
     #[test]

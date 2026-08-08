@@ -13,6 +13,50 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **A `NaN` fitness permanently froze one individual in the metaheuristic
+  family, silently shrinking the population by one** (resolves #131). ABC, Bat,
+  Cuckoo Search and PSO keep a persistent per-slot fitness cache and accept a
+  candidate only when it beats the cached value. The raw `NaN` was latched into
+  that cache at the gen-0 bootstrap, and every subsequent comparison against it
+  is false — so the slot became a zombie the algorithm could never replace. Bat
+  and PSO have no reset mechanism at all, so the freeze was
+  permanent-until-restart; ABC escaped only via the scout `limit`
+  (`pop_size · genome_dim / 2` — hundreds of generations for realistic configs);
+  Cuckoo escaped via abandonment, but never at `p_a = 0`, a valid configuration
+  the suite already exercises. All nine metaheuristic `tell` impls now sanitize
+  the fitness vector once, where it is pulled to host, so the bootstrap seed and
+  the accept-store are both covered by one call.
+
+  The issue was filed as leader/global-best poisoning; it is not that.
+  `argmax_host` seeds from `−∞` and compares with `>`, so a `NaN` can neither
+  win a champion scan nor seed one, and `best()` was correct throughout — which
+  is precisely why the frozen slot went unnoticed: the run's *reported* optimum
+  stayed right while the search quietly ran a member short. Two files were
+  missed by the original triage in the other direction. `gwo.rs` sanitized on
+  the read (`argtop3_max`) but stored the raw value, and `aco_r.rs` sanitized
+  for its archive ranking but then re-read the *unsanitized* vector when
+  materializing `archive_fitness`, so a `NaN` survived at the archive tail. Both
+  had been declared clean on the strength of their read-side guard alone.
+
+  No existing test could have caught this. The NaN-safety coverage all runs
+  through `EvolutionaryHarness::step`, which sanitizes before `tell`, and the
+  convergence-style assertions that do exercise these algorithms pass happily
+  while a slot is frozen. The new `nan_fitness_does_not_latch_without_harness`
+  tests — one per algorithm, the bypass twin of the existing
+  `nan_fitness_survives_harness` — drive `init → ask → tell` directly and assert
+  on the cache rather than on convergence.
+
+  Only callers who drive `Strategy::tell` directly were exposed; harness-driven
+  runs were never affected, and on that path the change is a provable no-op
+  (`sanitize_fitness` is idempotent). `Strategy` is public and re-exported in the
+  umbrella prelude, so this is the ADR 0034 decision-3 bypass hole, now closed at
+  the per-site floor rather than left to the chokepoint above it.
+
+  One route remains open and is tracked separately as #1064: this sanitizes the
+  fitness *entering* `tell`, not the cache it is compared against, so a `NaN`
+  placed directly into a state's fitness vector via the `pub` `*State::try_new`
+  constructors (or `PsoState`'s `pub` fields) still freezes that slot.
+
 - **`mean_fitness` still reported `+∞` for a population of optimal
   individuals** (resolves the metrics half of #132). ADR 0034 maps a `+∞`
   fitness to `f32::MAX` and states that, because the clamped value is finite, it

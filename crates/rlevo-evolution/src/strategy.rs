@@ -145,10 +145,22 @@ pub trait Strategy<B: Backend>: Send + Sync {
     /// **canonical (maximise) and sanitized** (ADR 0034): every element is finite
     /// or `f32::NEG_INFINITY` — no `NaN`, no `+∞`. A `tell` impl may therefore
     /// build leaders / personal-best / global-best directly from it without a
-    /// finite check. Callers that invoke `tell` **directly, bypassing the
-    /// harness**, do *not* get this guarantee and must apply
-    /// `sanitize_fitness` at every
-    /// ordering/aggregation site (`rules.md` §3).
+    /// finite check.
+    ///
+    /// The guarantee is the harness's, so on a **bypass path** — a unit test or a
+    /// custom driver calling `ask`/`tell` by hand — it is the **implementor** that
+    /// owes it: a `tell` pulling `fitness` to host applies `sanitize_fitness`
+    /// **once at the pull**, after which every ordering / argmax / champion-write
+    /// site downstream *in that function* may assume it (`rules.md` §3).
+    ///
+    /// Every shipping strategy in [`algorithms::metaheuristic`] does this
+    /// internally, so a direct `ask`/`tell` caller of that family need not
+    /// pre-sanitize. Coverage stops at the tensor argument, though: a `NaN` written
+    /// straight into a state's fitness cache via the `pub` `*State::try_new`
+    /// constructors (or `PsoState`'s `pub` fields) is never re-sanitized and still
+    /// freezes that slot for the run (issue #1064).
+    ///
+    /// [`algorithms::metaheuristic`]: crate::algorithms::metaheuristic
     fn tell(
         &self,
         params: &Self::Params,

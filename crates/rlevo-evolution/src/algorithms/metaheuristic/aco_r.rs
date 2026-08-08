@@ -348,10 +348,21 @@ where
         mut state: AcoRState<B>,
         _rng: &mut dyn Rng,
     ) -> (AcoRState<B>, StrategyMetrics) {
-        let fitness_host = fitness
+        // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
+        // per-site correctness floor for a caller driving `ask`/`tell`
+        // directly instead of `EvolutionaryHarness::step`, which already
+        // sanitizes (the ADR 0034 decision-3 bypass hole, issue #131):
+        // the local `sane` derivations below only fix the *ranking*, while the
+        // stored `state.archive_fitness` would still carry the raw NaN.
+        // `sanitize_fitness` is idempotent, so on the harness path this is a
+        // provable no-op — not redundant, load-bearing.
+        let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness tensor must be readable as f32");
+            .expect("fitness tensor must be readable as f32")
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         let device = population.device();
         let k = params.archive_size;
 
@@ -785,5 +796,58 @@ mod tests {
             m.best_fitness_ever()
         );
         assert!(m.broken_count() > 0, "expected a broken (NaN) member");
+    }
+
+    /// Cache hygiene (not a freeze): `tell` already sanitizes for the archive
+    /// *ranking*, so a `NaN` sorts worst and is evicted rather than latching.
+    /// What this pins is the **store** — driving `init → ask → tell` directly,
+    /// the ADR-0034 decision-3 bypass of `EvolutionaryHarness::step`, must not
+    /// leave a raw `NaN` in the public `archive_fitness` a caller reads back.
+    #[test]
+    fn nan_fitness_does_not_latch_without_harness() {
+        let device: FlexDevice = Default::default();
+        let strategy = AntColonyReal::<TestBackend>::new();
+        let params = AcoRConfig::default_for(6, 4, 3);
+        let mut rng = StdRng::seed_from_u64(7);
+        let state = strategy.init(&params, &mut rng, &device);
+        // The first `ask` hands back the initial archive, so gen-0 scores the
+        // `archive_size` rows the first-tell branch sorts into the archive.
+        let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
+        // Gen-0 fitness supplied by the test, never by a landscape: [NaN, finite…].
+        let n = params.archive_size;
+        #[allow(clippy::cast_precision_loss)]
+        let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32) - 1.0).collect();
+        vals[0] = f32::NAN;
+        let fitness = Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device);
+        let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
+        assert!(
+            state.archive_fitness.iter().all(|f| !f.is_nan()),
+            "raw NaN reached the public archive fitness: {:?}",
+            state.archive_fitness
+        );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. ACO_R differs from its siblings in *where*
+        // the value lands: the first-tell branch sorts the archive descending,
+        // so the sanitized row is demoted from index 0 to the tail. Any other
+        // finite substitute (e.g. `0.0`) clears `is_nan` yet would sort the
+        // NaN-scoring ant *above* every finite -2/-3/… row, into archive slot 0
+        // and straight into `best_fitness` — the leader poisoning this
+        // regression exists to catch.
+        let tail = state.archive_fitness[n - 1];
+        assert!(
+            tail.is_infinite() && tail.is_sign_negative(),
+            "sanitized NaN must land as -inf at the archive tail: {:?}",
+            state.archive_fitness
+        );
+        // The demotion is the observable consequence: the surviving best is the
+        // finite -2.0 (the NaN overwrote the -1.0 row), never the sanitized one.
+        assert!(
+            state.archive_fitness[0].is_finite() && state.best_fitness.is_finite(),
+            "sanitized NaN must not head the archive: archive={:?} best={}",
+            state.archive_fitness,
+            state.best_fitness
+        );
     }
 }

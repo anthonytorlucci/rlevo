@@ -453,10 +453,26 @@ where
         mut state: BatState<B>,
         _rng: &mut dyn Rng,
     ) -> (BatState<B>, StrategyMetrics) {
-        let fitness_host = fitness
+        // Sanitise on the host pull, per the maximise convention (`rules.md`
+        // §3, ADR 0034): `NaN → −∞` (worst), `+∞ → f32::MAX`. This is the
+        // per-site correctness floor for callers that bypass
+        // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
+        // so a hand-rolled `ask`/`tell` driver reaches this line with raw
+        // values (ADR 0034 decision 3, issue #131). One sanitise here covers
+        // both the bootstrap seed of `state.fitness` and the accept-store
+        // below; a raw `NaN` latched into a bat's cache loses every later
+        // `fitness_host[i] >= state.fitness[i]` comparison, and BA has no
+        // scout or abandonment mechanism to rescue the frozen slot.
+        // `sanitize_fitness` is idempotent, so on the harness path (which
+        // pre-sanitises) this is a provable no-op — do not delete it as
+        // redundant.
+        let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness tensor must be readable as f32");
+            .expect("fitness tensor must be readable as f32")
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         let device = candidates.device();
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;
@@ -855,5 +871,68 @@ mod tests {
             m.best_fitness_ever()
         );
         assert!(m.broken_count() > 0, "expected a broken (NaN) member");
+    }
+
+    // Regression for issue #131. `nan_fitness_survives_harness` above covers
+    // the harness path; this covers the documented bypass hole (ADR 0034
+    // decision 3) — a direct `init` → `ask` → `tell` driver. A raw `NaN`
+    // latched into `state.fitness` loses every later
+    // `fitness_host[i] >= state.fitness[i]` comparison, so bat 0 freezes
+    // permanently: BA has no scout or abandonment mechanism to rescue a dead
+    // slot. The assertion is on the *cache*, not on convergence.
+    #[test]
+    fn nan_fitness_does_not_latch_without_harness() {
+        let device = Default::default();
+        let strategy = BatAlgorithm::<TestBackend>::new();
+        let mut params = BatConfig::default_for(4, 2);
+        // Loudness pinned at 1 with no decay keeps the `pending_accept` draw
+        // (uniform in [0, 1)) always under `A_i`, isolating the fitness
+        // comparison from the probabilistic acceptance gate.
+        params.a0 = 1.0;
+        params.alpha = 1.0;
+        let mut rng = StdRng::seed_from_u64(37);
+        let fit = |vals: Vec<f32>| {
+            let n = vals.len();
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device)
+        };
+
+        // Generation 0 (bootstrap): bat 0 scores `NaN`, the rest finite.
+        let state = strategy.init(&params, &mut rng, &device);
+        let (positions, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let (mut state, _m) = strategy.tell(
+            &params,
+            positions,
+            fit(vec![f32::NAN, -1.0, -2.0, -3.0]),
+            state,
+            &mut rng,
+        );
+        assert!(
+            !state.fitness()[0].is_nan(),
+            "raw NaN latched into the bat-0 fitness cache: {:?}",
+            state.fitness()
+        );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would rank bat 0 *above* the finite -1/-2/-3
+        // scores and make the NaN-scoring bat the reported population best —
+        // the leader poisoning this regression exists to catch.
+        assert!(
+            state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the bat-0 fitness cache: {:?}",
+            state.fitness()
+        );
+
+        // Generations 1 and 2: every candidate is finite and strictly better,
+        // so a live bat 0 must adopt them.
+        for score in [10.0_f32, 20.0] {
+            let (candidates, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let n = candidates.dims()[0];
+            let (advanced, _m) =
+                strategy.tell(&params, candidates, fit(vec![score; n]), next, &mut rng);
+            state = advanced;
+        }
+        approx::assert_relative_eq!(state.fitness()[0], 20.0, epsilon = 1e-6);
     }
 }

@@ -408,10 +408,25 @@ where
         mut state: AbcState<B>,
         rng: &mut dyn Rng,
     ) -> (AbcState<B>, StrategyMetrics) {
-        let fitness_host = fitness
+        // Sanitise on the host pull, per the maximise convention (`rules.md`
+        // §3, ADR 0034): `NaN → −∞` (worst), `+∞ → f32::MAX`. This is the
+        // per-site correctness floor for callers that bypass
+        // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
+        // so a hand-rolled `ask`/`tell` driver reaches this line with raw
+        // values (ADR 0034 decision 3, issue #131). One sanitise here covers
+        // both the bootstrap seed of `state.fitness` and the accept-store
+        // below; a raw `NaN` latched into a bee's cache loses every later
+        // `cand_fit >= state.fitness[t]` comparison, freezing that bee until
+        // the scout `limit` happens to rescue it. `sanitize_fitness` is
+        // idempotent, so on the harness path (which pre-sanitises) this is a
+        // provable no-op — do not delete it as redundant.
+        let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness tensor must be readable as f32");
+            .expect("fitness tensor must be readable as f32")
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         let device = candidates.device();
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;
@@ -850,5 +865,126 @@ mod tests {
             m.best_fitness_ever()
         );
         assert!(m.broken_count() > 0, "expected a broken (NaN) member");
+    }
+
+    // Regression for issue #131. `nan_fitness_survives_harness` above covers
+    // the harness path; this covers the documented bypass hole (ADR 0034
+    // decision 3) — a direct `init` → `ask` → `tell` driver. A raw `NaN`
+    // latched into `state.fitness` loses every later
+    // `cand_fit >= state.fitness[t]` comparison, so bee 0 freezes: it accepts
+    // nothing, and only the scout `limit` eventually rescues it. The assertion
+    // is on the *cache*, not on convergence — a "reaches < ε on Sphere" check
+    // passes straight through this bug because of that self-heal.
+    #[test]
+    fn nan_fitness_does_not_latch_without_harness() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let mut params = AbcConfig::default_for(4, 2);
+        // Push the scout trigger out of reach so the reinit self-heal cannot
+        // mask a frozen slot within this test's horizon.
+        params.limit = 1_000;
+        let mut rng = StdRng::seed_from_u64(31);
+        let fit = |vals: Vec<f32>| {
+            let n = vals.len();
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device)
+        };
+
+        // Generation 0 (bootstrap): bee 0 scores `NaN`, the rest finite.
+        let state = strategy.init(&params, &mut rng, &device);
+        let (colony, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let (mut state, _m) = strategy.tell(
+            &params,
+            colony,
+            fit(vec![f32::NAN, -1.0, -2.0, -3.0]),
+            state,
+            &mut rng,
+        );
+        assert!(
+            !state.fitness()[0].is_nan(),
+            "raw NaN latched into the bee-0 fitness cache: {:?}",
+            state.fitness()
+        );
+        // Pin the *value*, not just "not NaN": under the canonical maximise
+        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
+        // fitness, and that is precisely what makes a sanitized member unable
+        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
+        // clears `is_nan` yet would rank bee 0 *above* the finite -1/-2/-3
+        // scores and make the NaN-scoring bee the reported population best —
+        // the leader poisoning this regression exists to catch.
+        assert!(
+            state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
+            "sanitized NaN must land as -inf in the bee-0 fitness cache: {:?}",
+            state.fitness()
+        );
+
+        // Generations 1 and 2: every candidate is finite and strictly better,
+        // so a live bee 0 must adopt them.
+        for score in [10.0_f32, 20.0] {
+            let (candidates, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let n = candidates.dims()[0];
+            let (advanced, _m) =
+                strategy.tell(&params, candidates, fit(vec![score; n]), next, &mut rng);
+            state = advanced;
+        }
+        approx::assert_relative_eq!(state.fitness()[0], 20.0, epsilon = 1e-6);
+    }
+
+    // Regression for issue #131, `+∞` half. The
+    // `nan_fitness_does_not_latch_without_harness` family above covers
+    // `NaN → −∞`; `sanitize_fitness` has a second rule, `+∞ → f32::MAX`, which
+    // the same bypass `tell` now applies. That rule is *observable* to a direct
+    // `ask`/`tell` driver: an individual scoring a genuine `+∞` is reported as
+    // a finite `f32::MAX` in both the fitness cache and `StrategyMetrics`,
+    // never as raw `+∞`. This is intended (ADR 0034 decision 1) — it keeps the
+    // top-ranked member top-ranked while stopping a single unbounded score from
+    // blowing the population mean/variance to `+∞`. One shared test covers the
+    // rule; the nine per-algorithm NaN tests already prove every `tell` routes
+    // its host pull through `sanitize_fitness`, so the `+∞` branch reaches all
+    // of them by the same path.
+    #[test]
+    fn inf_fitness_clamps_finite_without_harness() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let params = AbcConfig::default_for(4, 2);
+        let mut rng = StdRng::seed_from_u64(31);
+
+        // Generation 0 (bootstrap): bee 0 scores `+∞`, the rest finite.
+        let state = strategy.init(&params, &mut rng, &device);
+        let (colony, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let fitness = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![f32::INFINITY, -1.0, -2.0, -3.0], [4]),
+            &device,
+        );
+        let (state, m) = strategy.tell(&params, colony, fitness, state, &mut rng);
+
+        // The cache holds the clamped, finite `f32::MAX` — not raw `+∞`.
+        assert!(
+            state.fitness()[0].is_finite(),
+            "raw +inf latched into the bee-0 fitness cache: {:?}",
+            state.fitness()
+        );
+        approx::assert_relative_eq!(state.fitness()[0], f32::MAX);
+
+        // Clamping preserves the ranking: bee 0 is still the best, and every
+        // reported statistic stays finite (the point of the clamp — `+∞` would
+        // poison `mean_fitness` for the whole population).
+        approx::assert_relative_eq!(m.best_fitness(), f32::MAX);
+        assert!(
+            m.mean_fitness().is_finite(),
+            "mean_fitness went non-finite under a +inf member: {}",
+            m.mean_fitness()
+        );
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best_fitness_ever went non-finite under a +inf member: {}",
+            m.best_fitness_ever()
+        );
+        // A clamped `+∞` is a *usable* member, unlike a sanitized `NaN`: it is
+        // finite, so it is averaged in rather than counted broken.
+        assert_eq!(
+            m.broken_count(),
+            0,
+            "a clamped +inf member must not be counted broken"
+        );
     }
 }
