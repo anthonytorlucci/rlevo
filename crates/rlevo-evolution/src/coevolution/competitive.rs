@@ -343,8 +343,15 @@ mod tests {
     }
 
     /// A `+∞` fitness is clamped to `f32::MAX` (still the top rank, but finite),
-    /// so it cannot blow the population mean up to `+∞`. Regression for the
-    /// ADR 0034 `+∞` rule on the coevolution path.
+    /// so **this** population's mean stays finite. Regression for the ADR 0034
+    /// `+∞` rule on the coevolution path.
+    ///
+    /// Note the scope: clamping bounds one *value*, not a *reduction* over
+    /// values. `f32::MAX` is finite and so joins a sum, and two saturated
+    /// members overflow an `f32` accumulator (issues #132, #1062). This test
+    /// holds because it poisons a single row and because the mean it checks is
+    /// computed in `f64` — not because the clamp makes reductions safe. See
+    /// ADR 0069 §Decision 1 and [`sanitize_fitness`](crate::fitness::sanitize_fitness).
     #[test]
     fn pos_inf_fitness_is_clamped_finite_in_metrics() {
         let m = run_one_step(PoisonRow0 {
