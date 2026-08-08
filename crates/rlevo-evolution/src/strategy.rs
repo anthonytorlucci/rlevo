@@ -260,15 +260,15 @@ impl StrategyMetrics {
     /// well-defined).
     ///
     /// The mean is **accumulated in `f64`** and narrowed to `f32` once, after the
-    /// division. The clamp alone does not make the mean safe: `f32::MAX` is
-    /// finite and therefore admitted into the sum, but *two* clamped members
-    /// saturate an `f32` accumulator (`f32::MAX + f32::MAX == f32::INFINITY`),
-    /// which would report `mean_fitness = +∞` for a population of optimal
-    /// individuals. `f64` carries the widened sum (`≈ 6.8e38` per pair, far below
-    /// `f64::MAX`), so it is the accumulator width — not the clamp — that
-    /// delivers ADR 0034's "cannot blow a mean up" guarantee. Averaging in `f64`
-    /// also removes the ~1 ULP-per-addition drift an `f32` sum accrues over a
-    /// large population.
+    /// division — the crate's `sanitized_mean` primitive (ADR 0069 §Decision 1).
+    /// The clamp alone does not make the mean safe: `f32::MAX` is finite and
+    /// therefore admitted into the sum, but *two* clamped members saturate an
+    /// `f32` accumulator (`f32::MAX + f32::MAX == f32::INFINITY`), which would
+    /// report `mean_fitness = +∞` for a population of optimal individuals. `f64`
+    /// carries the widened sum (`≈ 6.8e38` per pair, far below `f64::MAX`), so it
+    /// is the accumulator width — not the clamp — that delivers ADR 0034's
+    /// "cannot blow a mean up" guarantee. Averaging in `f64` also removes the ~1
+    /// ULP-per-addition drift an `f32` sum accrues over a large population.
     ///
     /// # Panics
     ///
@@ -285,14 +285,10 @@ impl StrategyMetrics {
         // over finite members only; non-finite (`−∞`) members are counted as
         // broken rather than dragging the mean to `−∞`.
         //
-        // `finite_sum` is `f64`, not `f32`: sanitized `+∞` arrives as `f32::MAX`,
-        // which *is* finite and so joins the sum, and two such members overflow
-        // an `f32` accumulator to `+∞` (issue #132). `f64` holds the widened sum
-        // and also avoids the ~1 ULP-per-addition drift over a large population.
+        // Extrema and the broken tally are order statistics, not reductions, so
+        // they stay `f32` (ADR 0069 §Decision 1 excludes ordering explicitly).
         let mut best = f32::NEG_INFINITY;
         let mut worst = f32::INFINITY;
-        let mut finite_sum = 0.0_f64;
-        let mut finite_n = 0_usize;
         let mut broken_count = 0_usize;
         for &f in fitnesses {
             let f = crate::fitness::sanitize_fitness(f);
@@ -302,26 +298,30 @@ impl StrategyMetrics {
             if f < worst {
                 worst = f;
             }
-            if f.is_finite() {
-                finite_sum += f64::from(f);
-                finite_n += 1;
-            } else {
+            if !f.is_finite() {
                 broken_count += 1;
             }
         }
-        let mean = if finite_n > 0 {
-            // `usize as f64` is exact for any realistic population size, and the
-            // mean of values bounded by `f32::MAX` is itself within `f32` range,
-            // so the single narrowing below cannot overflow to `±∞`.
-            #[allow(clippy::cast_precision_loss)]
-            let n = finite_n as f64;
-            #[allow(clippy::cast_possible_truncation)]
-            let mean = (finite_sum / n) as f32;
-            mean
-        } else {
-            // Every member is broken: no finite value to average.
-            f32::NEG_INFINITY
-        };
+        // The mean *is* a reduction, and it runs through `sanitized_mean`: `f64`
+        // accumulator, one narrowing after the division (ADR 0069 §Decision 2,
+        // issue #132). The primitive averages every value it is given, so the
+        // mean-over-finite-members semantics is expressed by the `filter` — a
+        // sanitized `−∞` is excluded here and counted as broken above, whereas a
+        // sanitized `+∞` is `f32::MAX`, is finite, and *is* averaged in.
+        //
+        // The filter re-sanitizes (`sanitize_fitness` is idempotent and is two
+        // branches) rather than materialising the sanitized values, keeping this
+        // once-per-generation statistic allocation-free.
+        //
+        // An all-broken population leaves the filter empty, and `sanitized_mean`
+        // documents that case as `−∞` — degenerate but well-defined, and exactly
+        // the value this function reported before it adopted the primitive.
+        let mean = crate::fitness::sanitized_mean(
+            fitnesses
+                .iter()
+                .copied()
+                .filter(|&f| crate::fitness::sanitize_fitness(f).is_finite()),
+        );
         Self {
             generation,
             population_size,
@@ -1325,5 +1325,101 @@ mod tests {
         harness.reset();
         let step = harness.step(());
         assert!(step.done);
+    }
+
+    // ------------------------------------------------------------------
+    // ADR 0069 §Decision 5 — behavioural finiteness property.
+    // ------------------------------------------------------------------
+
+    use proptest::collection::vec as prop_vec;
+    // Explicit list, not the glob prelude: the prelude re-exports a `Rng` that
+    // would collide with the `rlevo_core`/`rand` `Rng` pulled in by `use super::*`.
+    use proptest::prelude::{ProptestConfig, any, prop_assert, prop_assert_eq, proptest};
+
+    /// `f32::MAX · 2^-e`, built in `f64` so the shift is exact and `e` may reach
+    /// past `f32`'s exponent range without an intermediate `2^e` overflowing.
+    fn scaled_max(e: u32, negative: bool) -> f32 {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let m = (f64::from(f32::MAX) * 0.5_f64.powi(e as i32)) as f32;
+        if negative { -m } else { m }
+    }
+
+    proptest! {
+        // Pure host arithmetic over a slice of at most 65 values — no backend, no
+        // tensors. ADR 0036 §5's "cheap structural" tier.
+        #![proptest_config(ProptestConfig { cases: 128, ..ProptestConfig::default() })]
+
+        /// **ADR 0069 §Decision 5, property 2.** `from_host_fitness` reports a
+        /// **finite** `mean_fitness` whenever every member is finite — including
+        /// an all-`f32::MAX` population.
+        ///
+        /// This is the property that fails on issue #132. `f32::MAX` is finite, so
+        /// ADR 0034's sanitized `+∞` *joins* the sum rather than being excluded
+        /// from it, and `f32::MAX + f32::MAX == f32::INFINITY`: an `f32`
+        /// accumulator reports `mean_fitness = +∞` for a population of two optimal
+        /// individuals. Only §Decision 1's `f64` accumulator width makes the
+        /// reduction safe; the clamp bounds a value, not a fold.
+        ///
+        /// Magnitudes are generated as `f32::MAX · 2^-e` so the top of the `f32`
+        /// range — where the defect lives — is sampled directly rather than being
+        /// reached by luck. The all-`f32::MAX` population §Decision 5 names is
+        /// asserted **deterministically on every case** (at length `n + 1 ≥ 2`,
+        /// since a single member cannot overflow anything).
+        ///
+        /// The mean is also bracketed by `[worst, best]`: finiteness alone is
+        /// satisfied by any constant, and the bracket is the cheapest assertion
+        /// that a *mean* is what was computed. The slack is a relative ULP
+        /// allowance for the single narrowing at the end of the reduction, taken
+        /// against the `f64` span so `best − worst` cannot itself overflow.
+        #[test]
+        fn prop_mean_fitness_is_finite_for_a_finite_population(
+            members in prop_vec((0u32..=140, any::<bool>()), 1..=64),
+            generation in 0usize..1000,
+        ) {
+            let values: Vec<f32> = members
+                .iter()
+                .map(|&(e, negative)| scaled_max(e, negative))
+                .collect();
+            prop_assert!(
+                values.iter().all(|v| v.is_finite()),
+                "generator must only produce finite members"
+            );
+
+            let m = StrategyMetrics::from_host_fitness(generation, &values, f32::NEG_INFINITY);
+            prop_assert!(
+                m.mean_fitness().is_finite(),
+                "mean of a finite population must be finite, got {} for {:?}",
+                m.mean_fitness(),
+                values
+            );
+            prop_assert_eq!(m.broken_count(), 0, "no member is broken");
+
+            let (lo, hi) = (f64::from(m.worst_fitness()), f64::from(m.best_fitness()));
+            let slack = (hi - lo).abs() * 1e-6;
+            let mean = f64::from(m.mean_fitness());
+            prop_assert!(
+                mean >= lo - slack && mean <= hi + slack,
+                "mean {mean} escaped [{lo}, {hi}]"
+            );
+
+            // The named case: every member is the sanitized `+∞` sentinel. Its
+            // mean is `f32::MAX`; an `f32` accumulator saturates at `n = 2`.
+            let saturated = vec![f32::MAX; values.len() + 1];
+            let m = StrategyMetrics::from_host_fitness(generation, &saturated, f32::NEG_INFINITY);
+            prop_assert!(
+                m.mean_fitness().is_finite(),
+                "an all-`f32::MAX` population of {} must keep a finite mean, got {}",
+                saturated.len(),
+                m.mean_fitness()
+            );
+            // Exact, not approximate: the mean of `n` identical values is that
+            // value bit-for-bit under `f64` accumulation, and asserting it
+            // exactly is what rules out a "finite but wrong" mean.
+            prop_assert!(
+                m.mean_fitness().to_bits() == f32::MAX.to_bits(),
+                "and it is exactly `f32::MAX`, got {}",
+                m.mean_fitness()
+            );
+        }
     }
 }

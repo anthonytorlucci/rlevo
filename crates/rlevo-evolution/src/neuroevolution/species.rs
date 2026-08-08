@@ -294,18 +294,26 @@ pub fn speciate(
             s.best_fitness = species_best;
             s.last_improved_generation = generation;
         }
-        let sum: f32 = s
-            .members
-            .iter()
-            .map(|&i| crate::fitness::sanitize_fitness(fitness[i]))
-            .sum();
-        // `adjusted_fitness_sum = Σ raw/|species| = mean raw fitness`. A broken
-        // (sanitized-to-−inf) member drives this species' mean to −inf; the
-        // downstream `.max(0.0)` in `allocate_offspring` floors its share to 0,
-        // preserving the non-negative fitness-sharing precondition.
-        #[allow(clippy::cast_precision_loss)]
-        let mean = sum / s.members.len() as f32;
-        s.adjusted_fitness_sum = mean;
+        // `adjusted_fitness_sum = Σ raw/|species| = mean raw fitness`. The
+        // reduction runs through `sanitized_mean`, which sanitizes each member,
+        // accumulates in `f64`, and narrows once after the division (ADR 0069
+        // §Decision 1).
+        //
+        // The accumulator width — not the ADR 0034 clamp — is what keeps the mean
+        // finite: a sanitized `+∞` arrives as the *finite* `f32::MAX` and so joins
+        // the sum, and *two* such members saturate an `f32` accumulator
+        // (`f32::MAX + f32::MAX == f32::INFINITY`, issue #1062), handing
+        // `allocate_offspring` an infinite `total` that erases fitness-proportional
+        // apportionment for the whole population. The rationale lives on the
+        // primitive; only the site-specific consequences are noted here.
+        //
+        // Site-specific: a broken (sanitized-to-`−∞`) member still drives this
+        // species' mean to `−∞`, which the downstream `.max(0.0)` in
+        // `allocate_offspring` floors to a zero share, preserving the non-negative
+        // fitness-sharing precondition. `sanitized_mean`'s empty-input case
+        // (`−∞`) is unreachable here — step 3 above dropped every empty species.
+        s.adjusted_fitness_sum =
+            crate::fitness::sanitized_mean(s.members.iter().map(|&i| fitness[i]));
     }
 
     // 5. Pick each survivor's next representative at random (canonical, seeded).
@@ -369,10 +377,45 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
     if n == 0 {
         return Vec::new();
     }
-    let total: f32 = species
-        .iter()
-        .map(|s| s.adjusted_fitness_sum.max(0.0))
-        .sum();
+    // `total` is accumulated in `f64` by `sanitized_sum` and **kept** there (ADR
+    // 0069 §Decision 1/2): it legitimately exceeds `f32` range, being a sum across
+    // species of values each bounded by `f32::MAX` (ADR 0034 clamps a raw `+∞` to
+    // that finite value, so it joins the sum rather than being excluded). Two such
+    // species overflow an `f32` accumulator to `+∞` even though every term is
+    // finite — this is issue #1062's *second*, independent overflow, and it fires
+    // even when `speciate` gave every species an individually finite mean.
+    //
+    // What an infinite `total` costs: it slips past the `total <= 0.0` guard
+    // below, every share then evaluates to `x / ∞ == 0.0`, every `base` floors to
+    // `0`, and all `pop_size` seats fall through to the round-robin leftover pass
+    // — a uniform `[10, 10, 10]` split where the fitness-proportional answer was
+    // `[15, 15, 0]`. Narrowing `total` back to `f32` after a correct `f64`
+    // accumulation reproduces that collapse by exactly that route, because the
+    // narrowing itself overflows: `[f32::MAX, f32::MAX, 1.0]` sums to `≈ 6.8e38`,
+    // and `6.8e38_f64 as f32` is `+∞`. So `total` stays wide.
+    //
+    // No `NaN` arises on either path: the share's numerator is computed in `f64`,
+    // where `pop_size × f32::MAX` stays finite for any population that can
+    // physically exist (`f64::MAX / f32::MAX ≈ 5.3e269`), so a saturated species
+    // divides `finite / ∞ == 0.0`. (`∞ / ∞ == NaN` — which sorts *first*
+    // under the `total_cmp` tiebreak below, since `NaN` is positive in Rust — was
+    // the failure mode of the fully-`f32` arithmetic this replaced, where the
+    // `pop_size as f32 * f32::MAX` numerator overflowed on its own.)
+    //
+    // `share_term` is the single spelling of a species' contribution: floored at
+    // zero (fitness sharing requires a non-negative share) and sanitized. `total`
+    // and every numerator below must use *the same* value, because the
+    // apportionment's `Σ share == pop_size` identity is exactly "each numerator is
+    // one of `total`'s terms". `sanitized_sum` sanitizes what it accumulates, so
+    // an unsanitized numerator would break that identity: a `+∞` term would divide
+    // a *finite* (clamped) total to an infinite share, whose `as usize` cast
+    // saturates to `usize::MAX` and sends the overshoot-reclaim loop below on
+    // `usize::MAX − pop_size` iterations. `speciate` cannot produce a `+∞`
+    // `adjusted_fitness_sum`, so this is a floor, not a live path — but the field
+    // is `pub(crate)` and writable by any future in-crate operator.
+    let share_term =
+        |s: &Species| crate::fitness::sanitize_fitness(s.adjusted_fitness_sum.max(0.0));
+    let total: f64 = crate::fitness::sanitized_sum(species.iter().map(share_term));
 
     if total <= 0.0 {
         let base = pop_size / n;
@@ -388,12 +431,18 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
     }
 
     let mut counts = vec![0usize; n];
-    let mut fracs: Vec<(usize, f32)> = Vec::with_capacity(n);
+    // Fractional remainders stay `f64` alongside `total`, so the largest-remainder
+    // tiebreak keeps the precision of the shares it ranks.
+    let mut fracs: Vec<(usize, f64)> = Vec::with_capacity(n);
     let mut assigned = 0usize;
     for (i, s) in species.iter().enumerate() {
-        // Casts: pop_size and shares are small positive magnitudes.
+        // Cast: `pop_size` is exact in `f64` at any realistic population size. The
+        // share is computed in `f64` because the numerator reaches
+        // `pop_size × f32::MAX`; the quotient is bounded above by `pop_size`
+        // (this species' `share_term` is one of `total`'s terms), so the
+        // `base as usize` cast below stays sound.
         #[allow(clippy::cast_precision_loss)]
-        let share = pop_size as f32 * s.adjusted_fitness_sum.max(0.0) / total;
+        let share = pop_size as f64 * f64::from(share_term(s)) / total;
         let base = share.floor();
         // Casts: `base` is a non-negative floored share <= pop_size.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -791,5 +840,349 @@ mod tests {
             8,
             "offspring apportionment sums exactly, uncorrupted by a NaN member"
         );
+    }
+
+    /// Build a population of `weights.len()` single-connection genomes, one per
+    /// weight, and speciate it. Weights within `1.0` of each other share a
+    /// species (c3 = 1.0, threshold = 1.0).
+    fn speciate_weights(weights: &[f32], fitness: &[f32]) -> Vec<Species> {
+        let mut rng = StdRng::seed_from_u64(0);
+        let population: Vec<TopologyGenome> = weights
+            .iter()
+            .map(|&w| genome_with(vec![conn(0, w)]))
+            .collect();
+        let mut species: Vec<Species> = Vec::new();
+        let mut next_id = SpeciesId::new(0);
+        speciate(
+            &population,
+            fitness,
+            &mut species,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            &mut next_id,
+            0,
+            &mut rng,
+        );
+        species
+    }
+
+    /// Regression (issue #1062): **two** `+∞` members in one species must not
+    /// overflow `adjusted_fitness_sum` to `+∞`.
+    ///
+    /// ADR 0034 sanitizes `+∞` to `f32::MAX`, which is *finite* and therefore
+    /// joins the sum — and `f32::MAX + f32::MAX == f32::INFINITY`. A single `+∞`
+    /// member (the case
+    /// [`test_speciate_sanitizes_nan_and_inf_fitness`](test_speciate_sanitizes_nan_and_inf_fitness)
+    /// covers) is precisely the one that does *not* overflow, so this needs a
+    /// second one.
+    #[test]
+    fn test_speciate_two_inf_members_do_not_overflow_adjusted_sum() {
+        // All-`+∞` species: the mean of `n` copies of `f32::MAX` is `f32::MAX`.
+        let species = speciate_weights(&[0.0, 0.01], &[f32::INFINITY, f32::INFINITY]);
+        assert_eq!(species.len(), 1, "near-clones form a single species");
+        assert!(
+            species[0].adjusted_fitness_sum.is_finite(),
+            "two sanitized `+∞` members must not saturate the accumulator to `+∞`"
+        );
+        approx::assert_relative_eq!(species[0].adjusted_fitness_sum, f32::MAX);
+
+        // Mixed species: mean of (f32::MAX, f32::MAX, 2.0), taken in `f64`.
+        let species = speciate_weights(&[0.0, 0.01, 0.02], &[f32::INFINITY, f32::INFINITY, 2.0]);
+        assert_eq!(species.len(), 1, "near-clones form a single species");
+        assert!(
+            species[0].adjusted_fitness_sum.is_finite(),
+            "two sanitized `+∞` members must not saturate the accumulator to `+∞`"
+        );
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = ((2.0 * f64::from(f32::MAX) + 2.0) / 3.0) as f32;
+        approx::assert_relative_eq!(species[0].adjusted_fitness_sum, expected);
+    }
+
+    /// Regression (issue #1062): a species poisoned by two `+∞` members must not
+    /// erase fitness-proportional apportionment for the **whole** population.
+    ///
+    /// This is the **end-to-end** assertion: `speciate` must not hand
+    /// `allocate_offspring` an infinite `adjusted_fitness_sum`, and
+    /// `allocate_offspring` must not turn one into an infinite `total`. In the
+    /// original all-`f32` arithmetic both happened, the `total <= 0.0` guard did
+    /// not fire (`+∞ > 0`), healthy species computed `finite / ∞ == 0`, the
+    /// poisoned one `∞ / ∞ == NaN` (which floors to `0`), and every seat fell
+    /// through to the round-robin leftover pass — `[10, 10, 10]` instead of a
+    /// proportional split.
+    ///
+    /// It is deliberately **not** the discriminating guard for either accumulator
+    /// on its own: `allocate_offspring` now sanitizes its own terms
+    /// (`share_term`), so a `speciate` that regressed to an `f32` accumulator is
+    /// caught here only in combination. The single-site guards are
+    /// [`test_speciate_two_inf_members_do_not_overflow_adjusted_sum`] and
+    /// [`test_allocate_offspring_total_does_not_overflow_across_species`].
+    #[test]
+    fn test_allocate_offspring_poisoned_species_keeps_proportionality() {
+        // Three species (weights 10 apart), two members each.
+        let weights = [0.0, 0.01, 10.0, 10.01, 20.0, 20.01];
+
+        // Baseline control: means 100 / 10 / 1 over 30 seats.
+        let species = speciate_weights(&weights, &[100.0, 100.0, 10.0, 10.0, 1.0, 1.0]);
+        assert_eq!(species.len(), 3, "three well-separated species");
+        assert_eq!(
+            allocate_offspring(&species, 30),
+            vec![27, 3, 0],
+            "healthy apportionment is fitness-proportional (largest remainder)"
+        );
+
+        // Same population, but the top species' two members both score `+∞`.
+        let species = speciate_weights(
+            &weights,
+            &[f32::INFINITY, f32::INFINITY, 10.0, 10.0, 1.0, 1.0],
+        );
+        assert_eq!(species.len(), 3, "three well-separated species");
+        let counts = allocate_offspring(&species, 30);
+        assert_eq!(
+            counts,
+            vec![30, 0, 0],
+            "the top-fitness species keeps its share instead of collapsing to a \
+             round-robin [10, 10, 10] split"
+        );
+        assert!(
+            counts[0] > counts[1] && counts[0] > counts[2],
+            "the highest-fitness species still dominates apportionment"
+        );
+    }
+
+    /// Regression (issue #1062): `allocate_offspring`'s `total` overflows
+    /// **independently** of `speciate`. Each species' `adjusted_fitness_sum` here
+    /// is individually finite, yet their sum saturates an `f32` accumulator — so
+    /// `total` must be accumulated *and kept* in `f64`.
+    #[test]
+    fn test_allocate_offspring_total_does_not_overflow_across_species() {
+        let species = vec![
+            species_with(0, f32::MAX, f32::MAX, 0),
+            species_with(1, f32::MAX, f32::MAX, 0),
+            species_with(2, 1.0, 1.0, 0),
+        ];
+        assert!(
+            species.iter().all(|s| s.adjusted_fitness_sum.is_finite()),
+            "each species' adjusted fitness is finite on its own"
+        );
+        assert_eq!(
+            allocate_offspring(&species, 30),
+            vec![15, 15, 0],
+            "the two `f32::MAX` species split the seats evenly rather than \
+             collapsing to a round-robin [10, 10, 10] split"
+        );
+    }
+
+    /// `total` and each share numerator must read a species' contribution through
+    /// the **same** `share_term`, so `Σ share == pop_size` stays an identity.
+    ///
+    /// `speciate` cannot write a `+∞` `adjusted_fitness_sum` (that is what
+    /// [`test_speciate_two_inf_members_do_not_overflow_adjusted_sum`] pins), but
+    /// the field is `pub(crate)` and any in-crate operator can. `sanitized_sum`
+    /// clamps such a term to `f32::MAX` inside `total`; a numerator that skipped
+    /// the clamp would divide `∞` by a *finite* total, and `∞.floor() as usize`
+    /// saturates to `usize::MAX` — so the overshoot-reclaim loop would run
+    /// `usize::MAX − pop_size` times. Note the failure mode this test guards is a
+    /// **divergence**, not a wrong answer: if it ever regresses it will hang here
+    /// rather than fail.
+    ///
+    /// The expected apportionment is the one a `f32::MAX` term would get, which is
+    /// what the clamp means.
+    #[test]
+    fn test_allocate_offspring_infinite_term_is_clamped_like_the_total() {
+        let poisoned = vec![
+            species_with(0, f32::INFINITY, f32::INFINITY, 0),
+            species_with(1, 10.0, 10.0, 0),
+            species_with(2, 1.0, 1.0, 0),
+        ];
+        let clamped = vec![
+            species_with(0, f32::MAX, f32::MAX, 0),
+            species_with(1, 10.0, 10.0, 0),
+            species_with(2, 1.0, 1.0, 0),
+        ];
+        let counts = allocate_offspring(&poisoned, 30);
+        assert_eq!(
+            counts.iter().sum::<usize>(),
+            30,
+            "apportionment still sums to `pop_size` exactly (H3)"
+        );
+        assert_eq!(
+            counts,
+            allocate_offspring(&clamped, 30),
+            "a `+∞` term apportions exactly as its sanitized `f32::MAX` does"
+        );
+        assert_eq!(
+            counts,
+            vec![30, 0, 0],
+            "and the saturated species takes all"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // ADR 0069 §Decision 5 — behavioural rescale-invariance property.
+    // ------------------------------------------------------------------
+
+    use crate::rng::{SeedPurpose, seed_stream};
+    use proptest::collection::vec as prop_vec;
+    // Explicit list, not the glob prelude: the prelude re-exports a `Rng` that
+    // would collide with the `rand::RngExt`/`StdRng` pulled in via `use super::*`.
+    use proptest::prelude::{ProptestConfig, any, prop_assert_eq, proptest};
+
+    /// Speciate a generated population, drawing representatives from an ADR 0029
+    /// `seed_stream` substream — the same `SeedPurpose::Representative` stream
+    /// `NeatStrategy::tell` uses in production. proptest supplies only the `u64`
+    /// seed; it never drives the algorithm's RNG itself (ADR 0036 §3).
+    fn speciate_seeded(weights: &[f32], fitness: &[f32], seed: u64) -> Vec<Species> {
+        let mut rng = seed_stream(seed, 0, SeedPurpose::Representative);
+        let population: Vec<TopologyGenome> = weights
+            .iter()
+            .map(|&w| genome_with(vec![conn(0, w)]))
+            .collect();
+        let mut species: Vec<Species> = Vec::new();
+        let mut next_id = SpeciesId::new(0);
+        speciate(
+            &population,
+            fitness,
+            &mut species,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            &mut next_id,
+            0,
+            &mut rng,
+        );
+        species
+    }
+
+    /// `allocate_offspring ∘ speciate` with every fitness value multiplied by `c`.
+    fn apportion_at_scale(
+        weights: &[f32],
+        fitness: &[f32],
+        c: f32,
+        pop_size: usize,
+        seed: u64,
+    ) -> Vec<usize> {
+        let scaled: Vec<f32> = fitness.iter().map(|&f| f * c).collect();
+        allocate_offspring(&speciate_seeded(weights, &scaled, seed), pop_size)
+    }
+
+    /// Largest `k` with `2^k · max_fitness` still finite in `f32` — the top of
+    /// the rescale range the property is valid over (see the property's docs).
+    fn max_exact_scale_exponent(max_fitness: f32) -> i32 {
+        #[allow(clippy::cast_possible_truncation)]
+        let mut k = (f64::from(f32::MAX) / f64::from(max_fitness))
+            .log2()
+            .floor() as i32;
+        // Defensive: `log2().floor()` is one ULP away from an off-by-one at the
+        // very top of the range, and an overflow here would silently move the
+        // test into the clamped regime the property excludes.
+        while !(2.0_f32.powi(k) * max_fitness).is_finite() {
+            k -= 1;
+        }
+        k
+    }
+
+    proptest! {
+        // Pure host arithmetic — no backend, no tensors — but each case runs
+        // three full speciate+apportion passes over up to 12 cloned genomes.
+        // 64 cases is the ADR 0036 §5 "cheap structural" tier.
+        #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
+
+        /// **ADR 0069 §Decision 5, property 1.** Offspring apportionment is
+        /// invariant to a positive rescale of the whole fitness vector:
+        /// `allocate_offspring(speciate(c·f)) == allocate_offspring(speciate(f))`.
+        ///
+        /// This is the *behavioural* net §Decision 5 chooses over a source-text
+        /// guard. It keys on the answer, not on the spelling: it fails if
+        /// `speciate`'s per-species mean **or** `allocate_offspring`'s `total`
+        /// accumulates in `f32`, even though the latter site contains no lexical
+        /// trace of fitness hygiene at all.
+        ///
+        /// # The bound on `c`, and what "saturated" can mean here
+        ///
+        /// `c` ranges over powers of two up to `2^k_max`, the largest scale at
+        /// which `c · max(f)` is still **representable** in `f32`. That upper end
+        /// is the regime the defect lives in — per-species means within a factor
+        /// of two of `f32::MAX`, so both an `f32` member sum inside a species and
+        /// an `f32` sum of species means overflow to `+∞`.
+        ///
+        /// It deliberately stops there. Past `k_max` the members themselves
+        /// overflow and ADR 0034 clamps them to `f32::MAX`, which makes *every*
+        /// saturated member equal: proportionality is destroyed by the clamp, by
+        /// design, and no accumulator width can restore it. §Decision 5's phrase
+        /// "including the case where `c·f` saturates to `f32::MAX`" is therefore
+        /// only true of *reaching* `f32::MAX`, not of *clamping* to it — the
+        /// clamped case is an example test
+        /// ([`test_allocate_offspring_poisoned_species_keeps_proportionality`]),
+        /// where the expected answer is the one a tie yields, not the rescaled one.
+        ///
+        /// Powers of two make the invariance **exact**: `c·f` is error-free, and
+        /// scaling by a power of two commutes with round-to-nearest, so every
+        /// intermediate (the `f64` member sum, the `f32` narrowed mean, the `f64`
+        /// species total, the `f64` share) is exactly `c` times its unscaled
+        /// counterpart and the share quotients are bit-identical. The assertion is
+        /// therefore `==` on the counts, with no tolerance to hide a drift.
+        ///
+        /// There is **no lower** bound to state here, unlike the `z_score`
+        /// property: apportionment compares each species' share against a total
+        /// that shrinks with it, so it has no absolute-scale floor to trip over.
+        /// Generated fitness stays at or above `1`, so a small `c` cannot reach
+        /// the subnormal range either.
+        ///
+        /// Every case checks `k_max` explicitly in addition to the generated
+        /// scale, so the saturating regime is exercised on *every* case rather
+        /// than only when `headroom` happens to shrink to zero.
+        #[test]
+        fn prop_apportionment_is_invariant_to_positive_rescale(
+            // (per-species fitness level, per-species member count).
+            clusters in prop_vec((1u32..=1000, 1usize..=3), 2..=4),
+            pop_size in 1usize..=64,
+            headroom in 0u32..=120,
+            seed in any::<u64>(),
+        ) {
+            // Cluster `k`'s genomes carry connection weights near `10·k`. With
+            // `c3 = 1` and `compat_threshold = 1`, the compatibility distance is
+            // the absolute weight difference: members of a cluster (≤ 0.02 apart)
+            // group, distinct clusters (≥ 9.98 apart) split.
+            let mut weights: Vec<f32> = Vec::new();
+            let mut fitness: Vec<f32> = Vec::new();
+            for (k, &(level, size)) in clusters.iter().enumerate() {
+                for j in 0..size {
+                    #[allow(clippy::cast_precision_loss)]
+                    weights.push(10.0 * k as f32 + 0.01 * j as f32);
+                    #[allow(clippy::cast_precision_loss)]
+                    fitness.push(level as f32 + j as f32);
+                }
+            }
+
+            let max_fitness = fitness.iter().copied().fold(0.0_f32, f32::max);
+            let k_max = max_exact_scale_exponent(max_fitness);
+            #[allow(clippy::cast_possible_wrap)]
+            let k = k_max - headroom as i32;
+
+            let baseline = apportion_at_scale(&weights, &fitness, 1.0, pop_size, seed);
+            prop_assert_eq!(
+                baseline.iter().sum::<usize>(),
+                pop_size,
+                "apportionment must sum to pop_size exactly (H3)"
+            );
+
+            // The saturating end of the valid range, on every case.
+            prop_assert_eq!(
+                apportion_at_scale(&weights, &fitness, 2.0_f32.powi(k_max), pop_size, seed),
+                baseline.clone(),
+                "apportionment changed at the maximal representable scale 2^{}",
+                k_max
+            );
+            // A generated point inside the range.
+            prop_assert_eq!(
+                apportion_at_scale(&weights, &fitness, 2.0_f32.powi(k), pop_size, seed),
+                baseline,
+                "apportionment changed at scale 2^{}",
+                k
+            );
+        }
     }
 }

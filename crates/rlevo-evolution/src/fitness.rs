@@ -281,8 +281,23 @@ where
 ///   `f32::NAN` is a *positive* NaN, so `total_cmp` would otherwise rank it as
 ///   the **maximum** (`rules.md` §3) — the exact inversion this prevents.
 /// - `+∞ → f32::MAX`: a genuinely optimal individual (a landscape hitting its
-///   optimum, an unbounded reward) still ranks top, but as a **finite** value —
-///   so it cannot blow a population `mean`/`variance`/reward to `+∞`.
+///   optimum, an unbounded reward) is mapped to a **finite** value, so it can be
+///   compared, stored, and summed **at all**. Ordering is unaffected — the map
+///   is monotone, so `total_cmp`, sorts, and argmax still rank it at or above
+///   every other member (it ties with a legitimately-`f32::MAX` individual).
+///
+///   **This bounds one *value*; it does not bound a *reduction* over values.**
+///   Because `f32::MAX` is finite, a sanitized `+∞` *joins* a sum instead of
+///   being excluded from it, and `f32::MAX + f32::MAX == f32::INFINITY` — two
+///   saturated members suffice to drive an `f32` mean to `+∞` (issues #132,
+///   #1062), and squaring one suffices for an `f32` variance. What bounds a
+///   reduction is the **accumulator width**, not this clamp; no finite sentinel
+///   could substitute. Reduce fitness with [`sanitized_mean`] or
+///   [`sanitized_sum`], which accumulate in `f64` and narrow at most once, after
+///   the reduction (ADR 0069 §Decision 1, extending ADR 0034). A reduction
+///   performed by a Burn device op cannot widen its accumulator and instead
+///   bounds its terms, as [`shaping::z_score`](crate::shaping::z_score) does
+///   (ADR 0069 §Decision 4).
 /// - `−∞` passes through: it is the worst-value sentinel *and* the
 ///   uninitialized `best_fitness_ever` seed, and it must stay non-finite so the
 ///   mean-over-finite statistic in
@@ -306,6 +321,101 @@ pub(crate) fn sanitize_fitness(f: f32) -> f32 {
     } else {
         f
     }
+}
+
+/// Mean of `values` under [`sanitize_fitness`], accumulated in `f64` and
+/// narrowed to `f32` **once**, after the division (ADR 0069 §Decision 1).
+///
+/// # Why the accumulator is `f64`
+///
+/// [`sanitize_fitness`] maps `+∞` to [`f32::MAX`], which is **finite** — so a
+/// sanitized `+∞` is not excluded from a sum, it *joins* it. And
+/// `f32::MAX + f32::MAX == f32::INFINITY`: **two** saturated members are enough
+/// to blow an `f32` accumulator to `+∞`, producing exactly the infinite mean the
+/// clamp is often assumed to prevent (issue #132, issue #1062).
+///
+/// The clamp and the accumulator width answer two different questions. The clamp
+/// bounds one *value*, so it can be compared, stored, and summed **at all**; only
+/// the accumulator width bounds a *reduction*. No finite sentinel could do the
+/// latter — a sentinel `S` protects a sum over `N` terms only while `N·S <
+/// f32::MAX`, which already fails at `N = 2` for `f32::MAX`. `f64` does deliver
+/// it: `f64::MAX / f64::from(f32::MAX) ≈ 5.3e269`, so an `f64` accumulator
+/// absorbs any population of `f32::MAX` terms that can physically exist. It also
+/// removes the ~1 ULP-per-addition drift an `f32` sum accrues over a large
+/// population. (ADR 0069, extending ADR 0034.)
+///
+/// # Contract
+///
+/// - Every value is sanitized **before** it is accumulated, so no raw `NaN`
+///   reaches the sum. `+∞` cannot survive sanitization either, so `−∞ + (+∞)` is
+///   unreachable: the result is never `NaN`.
+/// - The mean is over **every** value supplied. A single sanitized-`−∞` (broken)
+///   member therefore drives the whole result to `−∞`. A caller wanting the
+///   mean-over-finite-members statistic — the one
+///   [`StrategyMetrics::from_host_fitness`](crate::strategy::StrategyMetrics::from_host_fitness)
+///   reports (ADR 0034) — filters the iterator before calling.
+/// - **An empty input yields [`f32::NEG_INFINITY`]**, and this function never
+///   panics. Rationale: `−∞` is the canonical worst-value sentinel of the
+///   maximise-native convention (ADR 0023), it is already what
+///   `from_host_fitness` reports for an all-broken population, and the IEEE
+///   answer (`0/0 → NaN`) is the one value the crate's hygiene rule exists to
+///   eliminate. Making the primitive total rather than panicking also keeps it
+///   usable from `pub` functions that take runtime-supplied fitness slices,
+///   where a panic would violate `rules.md` §4.
+/// - The single narrowing cannot overflow to `±∞` for a non-empty input: every
+///   sanitized term is `≤ f32::MAX`, so their mean is too.
+pub(crate) fn sanitized_mean(values: impl IntoIterator<Item = f32>) -> f32 {
+    let mut sum = 0.0_f64;
+    let mut count = 0_usize;
+    for v in values {
+        sum += f64::from(sanitize_fitness(v));
+        count += 1;
+    }
+    if count == 0 {
+        return f32::NEG_INFINITY;
+    }
+    // `usize as f64` is exact for any realistic population size.
+    #[allow(clippy::cast_precision_loss)]
+    let n = count as f64;
+    // The single narrowing of the whole reduction; bounded by `f32::MAX` above.
+    #[allow(clippy::cast_possible_truncation)]
+    let mean = (sum / n) as f32;
+    mean
+}
+
+/// Sum of `values` under [`sanitize_fitness`], accumulated in — and **returned
+/// as** — `f64` (ADR 0069 §Decision 1).
+///
+/// See [`sanitized_mean`] for why the accumulator is `f64`: `sanitize_fitness`
+/// maps `+∞` to the *finite* [`f32::MAX`], which therefore joins the sum, and
+/// `f32::MAX + f32::MAX == f32::INFINITY`.
+///
+/// # Why the return type is `f64`
+///
+/// Unlike a mean, a sum of `N` sanitized terms legitimately exceeds `f32` range,
+/// so there is no width to narrow back to. Returning `f32` would re-introduce at
+/// the boundary the very overflow the `f64` accumulator removed. The caller
+/// narrows deliberately — or, as in
+/// [`allocate_offspring`](crate::neuroevolution::species::allocate_offspring),
+/// where the sum is only ever a divisor, does not narrow at all.
+///
+/// There is deliberately **no `-> f32` sum variant** (ADR 0069 §Decision 2); a
+/// caller that genuinely needs one is asking for a mean.
+///
+/// # Contract
+///
+/// - Every value is sanitized before it is accumulated, so the result is never
+///   `NaN`: raw `NaN` becomes `−∞`, and `+∞` (which would make `−∞ + (+∞)`
+///   reachable) cannot survive sanitization.
+/// - A sanitized-`−∞` term makes the whole sum `−∞`.
+/// - **An empty input yields `0.0`**, the additive identity, and this function
+///   never panics. (`sanitized_mean` differs deliberately — an empty *mean* has
+///   no identity to fall back on.)
+pub(crate) fn sanitized_sum(values: impl IntoIterator<Item = f32>) -> f64 {
+    values
+        .into_iter()
+        .map(|v| f64::from(sanitize_fitness(v)))
+        .sum()
 }
 
 /// Tensor-level [`sanitize_fitness`] for the driver chokepoints — a single
@@ -444,6 +554,177 @@ mod tests {
         );
         approx::assert_relative_eq!(out[3], 3.0, epsilon = 1e-6);
         approx::assert_relative_eq!(out[4], -4.0, epsilon = 1e-6);
+    }
+
+    /// The case that motivated ADR 0069: **two** sanitized `+∞` members.
+    ///
+    /// `sanitize_fitness(+∞) == f32::MAX`, which is finite and therefore joins
+    /// the sum — and `f32::MAX + f32::MAX == f32::INFINITY` in `f32`. With the
+    /// `f64` accumulator the mean of two `f32::MAX` values is `f32::MAX`, not
+    /// `+∞`. The `f32`-accumulator control below is what the assertion is
+    /// distinguishing itself from.
+    #[test]
+    fn sanitized_mean_two_saturated_members_do_not_overflow() {
+        // Control: the same reduction in `f32` is exactly the defect.
+        let f32_control: f32 = [f32::INFINITY, f32::INFINITY]
+            .into_iter()
+            .map(sanitize_fitness)
+            .sum::<f32>()
+            / 2.0;
+        assert!(
+            f32_control.is_infinite() && f32_control.is_sign_positive(),
+            "control: an `f32` accumulator saturates two clamped members to `+∞`"
+        );
+
+        let mean = sanitized_mean([f32::INFINITY, f32::INFINITY]);
+        assert!(
+            mean.is_finite(),
+            "an `f64` accumulator keeps the mean of two clamped members finite"
+        );
+        approx::assert_relative_eq!(mean, f32::MAX);
+
+        // The sum is the same reduction without the division: it exceeds `f32`
+        // range, which is why `sanitized_sum` returns `f64`.
+        let sum = sanitized_sum([f32::INFINITY, f32::INFINITY]);
+        assert!(
+            sum.is_finite(),
+            "the `f64` sum of two clamped members is finite"
+        );
+        approx::assert_relative_eq!(sum, 2.0 * f64::from(f32::MAX));
+        #[allow(clippy::cast_possible_truncation)]
+        let narrowed = sum as f32;
+        assert!(
+            narrowed.is_infinite(),
+            "and it does not fit in `f32` — the reason there is no `-> f32` sum"
+        );
+    }
+
+    /// An all-`−∞` (all-broken) input reduces to `−∞`, not `NaN`: `−∞` passes
+    /// through sanitization and `−∞ / n == −∞`.
+    #[test]
+    fn sanitized_mean_all_negative_infinity_stays_negative_infinity() {
+        let mean = sanitized_mean([f32::NEG_INFINITY; 4]);
+        assert!(
+            mean.is_infinite() && mean.is_sign_negative(),
+            "an all-broken input means to `−∞`, not `NaN`"
+        );
+        let sum = sanitized_sum([f32::NEG_INFINITY; 4]);
+        assert!(
+            sum.is_infinite() && sum.is_sign_negative(),
+            "and sums to `−∞`"
+        );
+    }
+
+    /// Mixed `−∞` / `f32::MAX`: the sanitization rule makes `−∞ + (+∞)` — the one
+    /// arithmetic combination that yields `NaN` — unreachable, because `+∞` never
+    /// survives `sanitize_fitness`. A single broken member therefore drives the
+    /// whole reduction to `−∞`, deterministically.
+    #[test]
+    fn sanitized_mean_mixed_broken_and_saturated_is_negative_infinity_not_nan() {
+        let mean = sanitized_mean([f32::NEG_INFINITY, f32::INFINITY, 1.0]);
+        assert!(!mean.is_nan(), "no `NaN` can arise: `+∞` is clamped first");
+        assert!(
+            mean.is_infinite() && mean.is_sign_negative(),
+            "one broken member drives the unfiltered mean to `−∞`"
+        );
+
+        let sum = sanitized_sum([f32::NEG_INFINITY, f32::INFINITY, 1.0]);
+        assert!(!sum.is_nan(), "no `NaN` can arise in the sum either");
+        assert!(
+            sum.is_infinite() && sum.is_sign_negative(),
+            "the sum is `−∞`"
+        );
+
+        // Filtering the broken member out — how `from_host_fitness` spells
+        // mean-over-finite-members — recovers the finite statistic.
+        let finite_mean = sanitized_mean(
+            [f32::NEG_INFINITY, f32::INFINITY, 1.0]
+                .into_iter()
+                .filter(|&f| sanitize_fitness(f).is_finite()),
+        );
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = f64::midpoint(f64::from(f32::MAX), 1.0) as f32;
+        approx::assert_relative_eq!(finite_mean, expected);
+    }
+
+    /// A raw `NaN` is sanitized to `−∞` *before* it reaches the accumulator, so
+    /// it can never propagate through the reduction as a `NaN`.
+    #[test]
+    fn sanitized_mean_raw_nan_is_sanitized_before_accumulation() {
+        let mean = sanitized_mean([1.0, f32::NAN, 3.0]);
+        assert!(!mean.is_nan(), "a raw `NaN` never reaches the sum");
+        assert!(
+            mean.is_infinite() && mean.is_sign_negative(),
+            "`NaN → −∞` (worst) dominates the unfiltered mean"
+        );
+
+        let sum = sanitized_sum([1.0, f32::NAN, 3.0]);
+        assert!(!sum.is_nan(), "a raw `NaN` never reaches the sum");
+        assert!(
+            sum.is_infinite() && sum.is_sign_negative(),
+            "the sum is `−∞`"
+        );
+    }
+
+    /// Empty input: `sanitized_mean` is **total** and returns the canonical
+    /// worst-value sentinel `−∞` (ADR 0023) rather than panicking or yielding
+    /// `NaN`; `sanitized_sum` returns the additive identity `0.0`.
+    #[test]
+    fn sanitized_reductions_are_total_on_empty_input() {
+        let mean = sanitized_mean(std::iter::empty::<f32>());
+        assert!(
+            mean.is_infinite() && mean.is_sign_negative(),
+            "an empty mean is the worst-value sentinel, not `NaN`"
+        );
+        approx::assert_relative_eq!(sanitized_sum(std::iter::empty::<f32>()), 0.0);
+    }
+
+    /// A large input count: `100_000` members, half of them saturated to
+    /// `f32::MAX`. The `f32` control overflows to `+∞` after the *second*
+    /// saturated addition; the `f64` accumulator carries `50_000 × f32::MAX ≈
+    /// 1.7e43` without trouble, and the narrowing of the mean lands back inside
+    /// `f32` range because a mean of values bounded by `f32::MAX` is bounded by
+    /// `f32::MAX`.
+    #[test]
+    fn sanitized_mean_large_population_of_saturated_members() {
+        const N: usize = 100_000;
+        let values: Vec<f32> = (0..N)
+            .map(|i| if i % 2 == 0 { f32::INFINITY } else { 0.0 })
+            .collect();
+
+        let f32_control: f32 = values.iter().copied().map(sanitize_fitness).sum();
+        assert!(
+            f32_control.is_infinite(),
+            "control: the `f32` accumulator is already `+∞`"
+        );
+
+        let sum = sanitized_sum(values.iter().copied());
+        assert!(sum.is_finite(), "the `f64` accumulator carries ~1.7e43");
+        #[allow(clippy::cast_precision_loss)]
+        let expected_sum = (N / 2) as f64 * f64::from(f32::MAX);
+        approx::assert_relative_eq!(sum, expected_sum, max_relative = 1e-12);
+
+        let mean = sanitized_mean(values.iter().copied());
+        assert!(mean.is_finite(), "and the narrowed mean is finite");
+        approx::assert_relative_eq!(mean, f32::MAX / 2.0, max_relative = 1e-6);
+    }
+
+    /// The ordinary case, pinned so the `f64` detour cannot silently change a
+    /// finite answer: mean and sum of a plain finite population.
+    #[test]
+    fn sanitized_reductions_match_the_plain_answer_on_finite_input() {
+        approx::assert_relative_eq!(
+            sanitized_mean([1.0_f32, 2.0, 3.0, 4.0]),
+            2.5,
+            epsilon = 1e-6
+        );
+        approx::assert_relative_eq!(
+            sanitized_sum([1.0_f32, 2.0, 3.0, 4.0]),
+            10.0,
+            epsilon = 1e-12
+        );
+        // Single member: the mean is that member.
+        approx::assert_relative_eq!(sanitized_mean([-7.25_f32]), -7.25, epsilon = 1e-6);
     }
 
     /// Regression test for the load-bearing `BatchFitnessFn` invariant
