@@ -170,8 +170,9 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   aggregation in `rlevo-evolution` works purely in **canonical (maximise)**
   space and is **sense-unaware** — it never sees an `ObjectiveSense`. Best is the
   largest value; the worst-value sentinel is `f32::NEG_INFINITY`. Fitness hygiene
-  is one rule (ADR 0034): `NaN → −inf` (worst), `+∞ → f32::MAX` (ranks top but
-  finite, so it cannot blow a `mean`/reward up), `−inf` passes through.
+  is one rule (ADR 0034): `NaN → −inf` (worst), `+∞ → f32::MAX` (still ranks
+  top, and finite so it can be compared, stored, and summed *at all* — it bounds
+  the **value**, not a reduction over values; ADR 0069), `−inf` passes through.
 - An objective declares its natural direction with
   `rlevo_core::objective::ObjectiveSense { Minimize, Maximize }`. Fitness
   functions and landscape adapters return **natural** values — **never
@@ -218,6 +219,31 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   a `NaN` freezes that individual for the rest of the run (#131: `state.fitness`
   in the metaheuristic family). Sanitizing only the compared value is an
   under-fix: the accept-store writes the raw value back.
+- **Reduce sanitized fitness in `f64`.** Sanitizing bounds a value; only the
+  accumulator width bounds a *reduction*. `f32::MAX` is finite, so it joins a
+  sum, and `f32::MAX + f32::MAX == f32::INFINITY` — two saturated members blow an
+  `f32` mean to `+∞` (#132, #1062), and one blows an `f32` variance. So: **a
+  reduction over sanitized fitness accumulates in `f64` and narrows to `f32` at
+  most once, after the reduction** (ADR 0069). "Reduction" is any fold over
+  fitness magnitudes — sum, mean, variance, weighted sum — and it binds
+  **transitively**: a stored `f32` field holding a sum or mean of fitness is
+  itself a fitness magnitude, so reducing over *it* is covered (this is exactly
+  `allocate_offspring`). Use `fitness::sanitized_mean` / `fitness::sanitized_sum`
+  rather than hand-rolling the accumulator. Ordering, single-value comparison,
+  and argmax are **not** covered and stay `f32` — saturation is order-preserving,
+  so the sanitize-then-`total_cmp` bullet above is complete for them. A reduction
+  and the terms compared against it must be sanitized by the **same expression**:
+  a sanitized total with an unsanitized numerator yields an infinite share, and
+  `∞.floor() as usize` saturates to `usize::MAX`.
+- **A device reduction bounds its terms instead.** The rule above governs **host
+  iterator reductions**, where the caller owns the accumulator. `Tensor::sum()`
+  accumulates in `B::FloatElem`, which the backend fixes and Burn exposes no knob
+  for, so an on-device reduction satisfies the rule by bounding its *terms* —
+  `shaping::z_score` divides by the population's max-abs magnitude before
+  centering, so for a finite population every squared centered term lands in
+  `[0, 4]` (ADR 0069 §Decision 4).
+  Do not reach for a device→host round-trip to get an `f64` accumulator; that is
+  the cost `sanitize_fitness_tensor` exists to avoid.
 
 ---
 

@@ -97,6 +97,86 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and `de.rs` were checked and are unaffected: both delegate to `argmax_host`,
   which seeds at `−∞` and is `NaN`-safe under `>`.
 
+- **Two `+∞` fitnesses anywhere in a NEAT population erased fitness-proportional
+  offspring apportionment for *every* species, not just the one holding them**
+  (resolves #1062). This is the same overflow as the `mean_fitness` defect
+  above, at a site that fix could not reach: `speciate` and `allocate_offspring`
+  in `neuroevolution/species.rs` never route through
+  `StrategyMetrics::from_host_fitness`, so widening that accumulator left these
+  two untouched. Both summed sanitized fitness into an `f32`, and two members
+  clamped to `f32::MAX` saturate the total to `+∞`.
+
+  The population-wide blast radius comes from `allocate_offspring` inheriting
+  the infinity. Its `if total <= 0.0` guard does not fire, because `+∞ > 0`.
+  Healthy species then compute `pop_size × finite / ∞ = 0.0`; the poisoned one
+  computes `pop_size × ∞ / ∞ = NaN`, and `NaN as usize` saturates to `0` in
+  Rust. Every floored share lands on zero, so the largest-remainder
+  reconciliation hands out all `pop_size` seats round-robin — a species holding
+  a 100× fitness advantage went from 27 of 30 seats to 10, exactly the even
+  split NEAT's speciation exists to avoid. Unlike #132's champion desync, no
+  unusual usage is required: `NeatStrategy::tell` sanitizes and then calls
+  `speciate` unconditionally, and it is NEAT's only entry point, so any
+  objective that can return `+∞` twice reaches this on the normal path.
+
+  `allocate_offspring`'s `total` also overflows *independently* of the first
+  defect — three species whose adjusted sums are each individually finite still
+  saturate their total — so both accumulators needed widening, and `total`
+  stays `f64` rather than narrowing back.
+
+  The blind spot was inherited too. `test_speciate_sanitizes_nan_and_inf_fitness`
+  passes, and is correct: it covers the raw-`NaN` path, which ADR 0034 genuinely
+  fixed. But it places a *single* `+∞` member in a species, and one `f32::MAX` in
+  a sum is precisely the case that does not overflow. The new tests pin exact
+  count vectors rather than asserting the total sums to `pop_size` — that
+  weaker assertion holds on the buggy code, and is what let this through.
+
+- **`shaping::z_score` returned an all-zero vector — a silent zero ES gradient —
+  for any population containing a single saturated member.** Found while
+  generalising the two fixes above into ADR 0069, and latent: `z_score` is `pub`
+  but has no in-workspace caller yet. It squares its centred terms, so a member
+  at `f32::MAX` overflowed *its own squared term* to `+∞` at `N = 1`, before any
+  accumulation — no accumulator width would have helped. `var = +∞` drove
+  `std = +∞` and collapsed every output element to `±0.0`. An entirely saturated
+  population returned `NaN` instead. Both are finite-looking, panic-free, and
+  exactly the shape of failure that gets mistaken for a converged run.
+
+  The remedy could not be the `f64` widening the sibling fixes used:
+  `Tensor::sum()` accumulates in `B::FloatElem`, which the backend fixes, and
+  reaching an `f64` accumulator would force the device→host round-trip ADR 0034
+  introduced `sanitize_fitness_tensor` to avoid. `z_score` now divides the
+  population by its own max-abs magnitude before reducing, bounding every squared
+  term. That is strictly stronger than widening would have been — it also holds
+  on a narrower element type, where the old formula overflowed at fitness ≈ 256 —
+  and z-scoring is invariant to a positive rescale, so ordinary inputs move by at
+  most a few ULP.
+
+  A `−∞` member still yields `+∞`/`NaN` utilities. That behaviour is unchanged,
+  pre-existing, and deliberately left alone here rather than folded into an
+  overflow fix; it is tracked as #1068 and pinned by a test marked "Pin, not a
+  fix".
+
+**Changed**
+
+- **The rule that a sanitized `+∞` "cannot blow a `mean`, `variance`, or reward
+  to `+∞`" has been corrected wherever it was stated** (ADR 0069). It was false —
+  `f32::MAX` is finite, so it *joins* a sum — and it was the direct cause of
+  #132, #1062, and the `z_score` defect above: in each case the author read the
+  rule, sanitized correctly, and then accumulated in `f32` because the
+  documentation said the clamp made that safe. The claim is corrected in the
+  `sanitize_fitness` rustdoc (the tooltip at ~90 call sites, and the surface that
+  misled the `speciate` author), in `rules.md`, in a coevolution test's doc
+  comment, and via an annotation on ADR 0034's index row. ADR 0034 itself is
+  unedited — its *decision* stands and only its justification was wrong.
+
+  ADR 0069 records the corollary as a binding rule: a reduction over sanitized
+  fitness accumulates in `f64` and narrows at most once, afterwards; ordering,
+  comparison and argmax are excluded, since saturation is order-preserving. Two
+  `pub(crate)` primitives, `sanitized_mean` and `sanitized_sum`, give the rule a
+  name at the call site, and three rescale-invariance property tests enforce it
+  behaviourally — a source-text guard was rejected because two of the four
+  mis-widened sites never mention `sanitize_fitness` and would have gone green
+  through both #132 and #1062.
+
 ---
 
 ## [0.4.0] – 2026-08-02

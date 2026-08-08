@@ -328,6 +328,19 @@ that operate directly on the `(pop_size,)` fitness tensor:
 | `z_score` | centres to mean 0 and divides by population std-dev (floored at `1e-8`) | normalises scale across generations; degenerate all-equal populations map to zeros, not NaNs |
 | `centered_rank` | replaces each fitness with its rank, linearly spaced so the largest maps to `+0.5` and the smallest to `-0.5` | discards outlier *magnitudes*, keeping only order — the standard signal in modern ES (e.g. OpenAI-ES) |
 
+One wrinkle is worth knowing about if your objective can reach its optimum
+exactly. We map a raw \\( +\infty \\) fitness to `f32::MAX` so it still ranks top
+while staying finite (ADR 0034) — but finite means it *joins* a sum, and
+\\( \texttt{f32::MAX} + \texttt{f32::MAX} \\) saturates back to \\( +\infty \\).
+`z_score` squares its centred terms, so a **single** saturated member used to
+overflow the variance and collapse every shaped value to zero: a silent zero
+update, with no `NaN` and no panic to warn you. We now divide the population by
+its own max-abs magnitude before reducing, which bounds every squared term and
+leaves ordinary inputs unchanged to within a few ULP (ADR 0069). If your fitness
+can also produce \\( -\infty \\) — the worst-value sentinel a failed evaluation
+carries — see the caveat in the [`z_score`](https://docs.rs/rlevo-evolution)
+rustdoc; that case is tracked separately.
+
 Both are pure functions of the fitness vector, so they compose freely and never
 touch the host RNG. They are *signal conditioning*, applied by strategies that
 consume fitness as a gradient-like update (the ES family); the comparison-based
