@@ -408,10 +408,25 @@ where
         mut state: AbcState<B>,
         rng: &mut dyn Rng,
     ) -> (AbcState<B>, StrategyMetrics) {
-        let fitness_host = fitness
+        // Sanitise on the host pull, per the maximise convention (`rules.md`
+        // §3, ADR 0034): `NaN → −∞` (worst), `+∞ → f32::MAX`. This is the
+        // per-site correctness floor for callers that bypass
+        // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
+        // so a hand-rolled `ask`/`tell` driver reaches this line with raw
+        // values (ADR 0034 decision 3, issue #131). One sanitise here covers
+        // both the bootstrap seed of `state.fitness` and the accept-store
+        // below; a raw `NaN` latched into a bee's cache loses every later
+        // `cand_fit >= state.fitness[t]` comparison, freezing that bee until
+        // the scout `limit` happens to rescue it. `sanitize_fitness` is
+        // idempotent, so on the harness path (which pre-sanitises) this is a
+        // provable no-op — do not delete it as redundant.
+        let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness tensor must be readable as f32");
+            .expect("fitness tensor must be readable as f32")
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         let device = candidates.device();
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;
@@ -850,5 +865,55 @@ mod tests {
             m.best_fitness_ever()
         );
         assert!(m.broken_count() > 0, "expected a broken (NaN) member");
+    }
+
+    // Regression for issue #131. `nan_fitness_survives_harness` above covers
+    // the harness path; this covers the documented bypass hole (ADR 0034
+    // decision 3) — a direct `init` → `ask` → `tell` driver. A raw `NaN`
+    // latched into `state.fitness` loses every later
+    // `cand_fit >= state.fitness[t]` comparison, so bee 0 freezes: it accepts
+    // nothing, and only the scout `limit` eventually rescues it. The assertion
+    // is on the *cache*, not on convergence — a "reaches < ε on Sphere" check
+    // passes straight through this bug because of that self-heal.
+    #[test]
+    fn nan_fitness_does_not_latch_without_harness() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let mut params = AbcConfig::default_for(4, 2);
+        // Push the scout trigger out of reach so the reinit self-heal cannot
+        // mask a frozen slot within this test's horizon.
+        params.limit = 1_000;
+        let mut rng = StdRng::seed_from_u64(31);
+        let fit = |vals: Vec<f32>| {
+            let n = vals.len();
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device)
+        };
+
+        // Generation 0 (bootstrap): bee 0 scores `NaN`, the rest finite.
+        let state = strategy.init(&params, &mut rng, &device);
+        let (colony, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let (mut state, _m) = strategy.tell(
+            &params,
+            colony,
+            fit(vec![f32::NAN, -1.0, -2.0, -3.0]),
+            state,
+            &mut rng,
+        );
+        assert!(
+            !state.fitness()[0].is_nan(),
+            "raw NaN latched into the bee-0 fitness cache: {:?}",
+            state.fitness()
+        );
+
+        // Generations 1 and 2: every candidate is finite and strictly better,
+        // so a live bee 0 must adopt them.
+        for score in [10.0_f32, 20.0] {
+            let (candidates, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let n = candidates.dims()[0];
+            let (advanced, _m) =
+                strategy.tell(&params, candidates, fit(vec![score; n]), next, &mut rng);
+            state = advanced;
+        }
+        approx::assert_relative_eq!(state.fitness()[0], 20.0, epsilon = 1e-6);
     }
 }
