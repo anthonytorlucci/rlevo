@@ -4,7 +4,7 @@
 //! [`ratatui::try_init`], which also installs a panic hook that restores
 //! the terminal before propagating the panic. A dedicated thread takes
 //! ownership of the [`DefaultTerminal`](ratatui::DefaultTerminal) and
-//! drains a [`mpsc::Receiver<TuiEvent>`] each tick, folding events into
+//! drains a [`mpsc::Receiver<TuiEvent>`](std::sync::mpsc::Receiver) each tick, folding events into
 //! the shared [`AppState`] and redrawing the dashboard.
 //!
 //! Rollout-side producers ([`TuiReporter`] for suite/trial/episode

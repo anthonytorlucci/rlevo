@@ -110,6 +110,38 @@ jobs:
           fi
           echo "every workspace crate is covered by the test matrix"
 
+  # `[workspace.lints.rustdoc] broken_intra_doc_links = "deny"` sets the lint's
+  # *level*, but nothing in the pull-request gate invoked rustdoc's link pass,
+  # so the level applied to no run. `cargo test` is not a substitute: it builds
+  # doctests via `rustdoc --test`, which compiles the ``` examples and never
+  # resolves intra-doc links — a crate with a dangling `[`Foo::bar`]` tests
+  # green. That is how a link naming a trait method as an inherent one sat in
+  # `replay/config.rs` inside a 40-warning pile. Same silent-inertness class as
+  # the #391 lint-opt-in and #519 test-matrix jobs above: the check existed on
+  # paper and ran on nothing.
+  #
+  # Both feature configurations are checked. Default features miss every
+  # `rlevo-benchmarks` doc behind `tui` / `report` / `record` — 13 broken links
+  # were hiding there — and `--all-features` alone would stop covering any doc
+  # that a feature turns *off*.
+  docs:
+    name: rustdoc intra-doc links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: docs
+
+      # `--no-deps`: only this workspace's docs are ours to keep link-clean.
+      - name: Document with default features
+        run: cargo doc --workspace --no-deps
+
+      - name: Document with all features
+        run: cargo doc --workspace --no-deps --all-features
+
   # ADR 0042 / issue #128: `box2d` and `locomotion` are orthogonal
   # rlevo-environments features (neither implies the other) — a shared type
   # gated behind only one of them silently breaks the other's build. Two

@@ -1,6 +1,6 @@
 //! Streaming writer for per-episode record files plus a slim decoder
 //! sufficient for round-trip tests. The full report-tier loader lives
-//! in [`super::super::report::replay`].
+//! in [`report::replay`](crate::report::replay).
 //!
 //! Wire layout per `episode_<N>.rec`:
 //!
@@ -253,7 +253,7 @@ fn resolve_runs_dir(override_var: Option<std::ffi::OsString>) -> PathBuf {
 impl RecordWriter {
     /// Open a recorder rooted at `dir/<run_id>/`. Creates the
     /// directory if it does not exist; does not touch a pre-existing
-    /// `run.toml` until [`Self::finalize_manifest`] is called.
+    /// `run.toml` until [`RecordSink::on_run_end`] is called.
     ///
     /// # Errors
     ///

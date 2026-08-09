@@ -8,7 +8,7 @@
 //! The format-version byte lives at the very start of every
 //! `episode_*.rec` file so a loader can peek the version with a
 //! 16-byte read before committing to a decode pass — the writer's
-//! preamble is handled in [`super::writer`].
+//! preamble is handled in [`writer`](crate::record::writer).
 
 use std::collections::BTreeMap;
 

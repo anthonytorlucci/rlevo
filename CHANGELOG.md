@@ -9,6 +9,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **`ReplayBufferError` loses its `TensorConversionError(String)` and
+  `BatchError(String)` variants, and becomes `#[non_exhaustive]`** (resolves
+  #411). Neither variant was constructible in practice — no code in this
+  workspace or its predecessor ever built one — so the only code a removal can
+  break is an exhaustive `match` on the enum. Add a wildcard arm; the
+  `#[non_exhaustive]` attribute now requires one anyway, and in exchange a
+  future variant stops being a breaking change. No persisted data is involved:
+  `ReplayBufferError` does not derive `serde`, so no wire or config format
+  changes. (Other types in `replay/` — `ReplayConfig`, `PrioritizedReplaySettings`,
+  `Priority`, `ImportanceExponent` — do derive it, and are untouched.)
+
 ### `rlevo-evolution`
 
 **Fixed**
@@ -176,6 +189,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   behaviourally — a source-text guard was rejected because two of the four
   mis-widened sites never mention `sanitize_fitness` and would have gone green
   through both #132 and #1062.
+
+### `rlevo-reinforcement-learning`
+
+**Removed**
+
+- **Two `ReplayBufferError` variants that advertised failure modes the replay
+  seam cannot have** (resolves #411). `TensorConversionError(String)` and
+  `BatchError(String)` were residue of the pre-ADR-0050 `TrainingBatch`, which
+  assembled tensors inside the buffer. ADR 0050 §3 moved that out — a
+  `ReplayStrategy` "never sees a `Tensor`, a `Backend`, or a device" — and
+  `sample` is the seam's only fallible method, so after the rewrite there was
+  nowhere left for either variant to be returned from. Neither was ever
+  constructed, in `replay/` or in the `memory.rs` it replaced.
+
+  No test could have caught this, and none was missing: nothing behaved
+  incorrectly. The defect was the API surface itself. Read as an error domain,
+  the enum told an implementor that a strategy may fail at tensor conversion or
+  batch assembly, which is precisely the boundary ADR 0050 §3 draws — so the
+  issue's suggested remedy of a typed `#[from] rlevo_core::base::TensorConversionError`
+  payload was rejected: it would have handed out-of-crate implementors `?`
+  ergonomics for the crossing, advertising it as supported.
+
+  This mirrors the reasoning already recorded on `ReplayStrategy::sample`, where
+  ADR 0051 §2 kept a bad-β variant out of the enum so `UniformReplay` "is not
+  made to carry an error variant it could never produce"; and it is consistent
+  with `SampledBatch::weighted`, which treats the one *real* batch-assembly
+  failure (`weights.len() != ids.len()`) as a deliberate panic rather than an
+  `Err`. The enum's rustdoc now carries this rationale, so the absence reads as
+  a decision rather than an oversight.
+
+  The same shape one layer up — `TensorConversionFailed(String)`, declared and
+  unconstructed on all eight agent error enums — is **not** fixed here and is
+  tracked as #1070. It is deliberately a separate call: agents *are* where
+  staging happens, so deletion is not automatically the right remedy there.
 
 ---
 

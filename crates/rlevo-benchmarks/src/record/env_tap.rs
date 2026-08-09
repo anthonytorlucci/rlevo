@@ -1,4 +1,5 @@
-//! [`RecordingTap`] — an [`Environment`] wrapper that drives the
+//! [`RecordingTap`] — an [`Environment`](rlevo_core::environment::Environment)
+//! wrapper that drives the
 //! [`RecordSink`] surface from a raw env trajectory.
 //!
 //! Sibling of [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap). The two

@@ -53,7 +53,7 @@ pub const DEFAULT_PRIORITY_EXPONENT: f32 = 0.6;
 ///
 /// The importance-sampling exponent β and its annealing schedule live on the
 /// **agent** config, and the agent passes the evaluated β into
-/// [`sample`](super::PrioritizedReplay::sample) (ADR 0050 §11). The buffer has
+/// [`sample`](super::ReplayStrategy::sample) (ADR 0050 §11). The buffer has
 /// no step counter, and giving it one would duplicate the agent's — a second
 /// source of truth of exactly the shape `rules.md` §10 forbids — and would be
 /// wrong outright the moment two learners share one buffer.
