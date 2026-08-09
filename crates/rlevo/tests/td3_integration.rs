@@ -190,7 +190,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let stats = agent.stats();
     TrainOutcome {
         avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
     }
 }
 

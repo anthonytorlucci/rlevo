@@ -40,6 +40,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `ReplayBufferError` none is possible (see below). No persisted data is
   involved: none of the eight derives `serde`.
 
+- **`AgentStats<T>`'s four `pub` fields become private, behind `#[must_use]`
+  accessors** (resolves #407). `total_episodes`, `total_steps`, `best_score` and
+  `recent_history` are now read through `total_episodes()`, `total_steps()`,
+  `best_score()` and `recent_history()`, and `recent_history.len()` becomes
+  `recent_len()`; the bound itself is readable as `window_size()`, which was not
+  reachable before at all. One wrinkle worth calling out, because the compiler
+  reports it as a type error rather than a missing field:
+  `let history = &agent.stats().recent_history;` becomes
+  `let history = agent.stats().recent_history();` — the `&` is dropped, since
+  the accessor already returns a reference.
+
+  The invariant at stake is `recent_history.len() <= window_size`. `record()`
+  has always maintained it, popping the front before pushing once the window is
+  full — but a `pub` field let any external caller `push_back` past the window,
+  or advance `total_episodes` without touching the history and desync the
+  lifetime counters from it. `docs/rules.md` §3 lists precisely this shape of
+  bound for `History` and `ReplayStrategy` ("`len()` never exceeds capacity")
+  among the invariants a type must enforce rather than merely document; §2's
+  Struct Field Encapsulation rule (ADR 0055) names the remedy this entry
+  applies — private fields, `#[must_use]` read accessors named after the field.
+
+  No test could have caught this, and the reason is the point. All 25 call sites
+  across 11 files — nine integration suites, the `ch03_dqn_cartpole` book
+  example, and production code at `algorithms/ppo/train.rs:295` — only ever
+  *read* these fields, which the accessors still permit; nothing anywhere in the
+  workspace ever wrote to one. A test can only observe a missing guard by
+  tripping it, so the defect was unreachable from inside this repository and
+  reachable only by a downstream user of the published crate. (The issue itself
+  understates the surface as a single three-line test site; the verified figure
+  is the 25/11 above, and the migration is read-only at every one of them.)
+
 ### `rlevo-core`
 
 **Added**
@@ -314,6 +345,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   it is public for the same reason its rank-1 sibling is, and its docs carry
   the terminal-bootstrap convention, the masking rationale, and the C51
   exclusion so both forms of the convention are findable from one place.
+
+**Changed**
+
+- **`AgentStats` now demonstrates its window contract instead of asserting it in
+  prose** (for #407). The type carried no doc example, so the one behaviour a
+  caller has to internalise — the recent window evicts, the lifetime counters
+  never do — was discoverable only by reading `record()`. It gains a runnable
+  example showing both halves, and in-source unit tests for the two edges the
+  existing suite left open: an empty `AgentStats` (no average, no best) and
+  eviction at *exactly* `window_size`, the off-by-one the previous tests
+  straddled without pinning.
 
 **Removed**
 

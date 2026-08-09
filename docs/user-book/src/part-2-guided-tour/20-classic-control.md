@@ -179,7 +179,7 @@ example calls it directly:
 
 The last argument is `log_every`: emit a progress line every *N* steps (`0`
 disables logging). At the end you read results off `agent.stats()` —
-`total_episodes`, `best_score`, and `avg_score()` over the recent window.
+`total_episodes()`, `best_score()`, and `avg_score()` over the recent window.
 
 This is *not* an ask/tell loop in the evolutionary sense — the agent acts
 sequentially and updates after every few steps, not after a full population

@@ -172,12 +172,15 @@ fn main() {
 
     let stats = agent.stats();
     println!("\n=== CartPole DQN — training complete ===");
-    println!("episodes     : {}", stats.total_episodes);
-    println!("env steps    : {}", stats.total_steps);
-    println!("best episode : {:.1}", stats.best_score.unwrap_or(f32::NAN));
+    println!("episodes     : {}", stats.total_episodes());
+    println!("env steps    : {}", stats.total_steps());
+    println!(
+        "best episode : {:.1}",
+        stats.best_score().unwrap_or(f32::NAN)
+    );
     println!(
         "avg (last {:>3}): {:.1}",
-        stats.recent_history.len(),
+        stats.recent_len(),
         stats.avg_score().unwrap_or(f32::NAN)
     );
 }
@@ -207,7 +210,7 @@ mod tests {
             agent.buffer_len() > 0,
             "replay buffer should have transitions"
         );
-        for (i, m) in agent.stats().recent_history.iter().enumerate() {
+        for (i, m) in agent.stats().recent_history().iter().enumerate() {
             assert!(m.reward.is_finite(), "non-finite reward at episode {i}");
         }
     }
