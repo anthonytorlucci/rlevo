@@ -191,6 +191,16 @@ where
             );
             global_step += 1;
 
+            // DELIBERATE: `reward_f32` is accumulated raw, *including* a
+            // non-finite value. Do not "fix" this to skip a NaN: a poisoned
+            // episode return is a true statement about a run whose environment
+            // emitted NaN, and `AgentStats::avg_score` transits it as a
+            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070,
+            // #409). Unlike the off-policy agents, nothing was dropped
+            // upstream: ADR 0065 scopes only those six, so this path has no
+            // `FiniteRewardGuard` at all, and the same reward also
+            // reaches `compute_gae`, whose reverse recursion poisons the whole
+            // rollout's advantages. That ingestion gap is open, see #1042.
             episode_reward += reward_f32;
             episode_steps += 1;
 
