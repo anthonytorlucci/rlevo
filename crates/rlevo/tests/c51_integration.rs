@@ -145,7 +145,7 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let stats = agent.stats();
     TrainOutcome {
         avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
     }
 }
 
@@ -167,7 +167,7 @@ fn c51_cartpole_produces_finite_rewards() {
     let mut agent = fresh_agent(seed);
     train(&mut agent, &mut env, &mut rng, 2_500, 0).expect("training");
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
-    let history = &agent.stats().recent_history;
+    let history = agent.stats().recent_history();
     assert_all_finite(
         "reward",
         &history.iter().map(|m| m.reward).collect::<Vec<_>>(),

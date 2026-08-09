@@ -141,7 +141,7 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let stats = agent.stats();
     TrainOutcome {
         avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
     }
 }
 
@@ -206,7 +206,7 @@ fn ppo_cartpole_produces_finite_rewards() {
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
-    let history = &agent.stats().recent_history;
+    let history = agent.stats().recent_history();
     assert_all_finite(
         "reward",
         &history.iter().map(|m| m.reward).collect::<Vec<_>>(),
@@ -298,7 +298,7 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
     eprintln!("CALIBRATION: PPO Pendulum avg = {avg:.2}");
     TrainOutcome {
         avg_score: avg,
-        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
     }
 }
 

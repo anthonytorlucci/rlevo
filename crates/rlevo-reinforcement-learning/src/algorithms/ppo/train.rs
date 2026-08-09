@@ -292,7 +292,7 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
     // Per-iteration episode-return statistics over the recent-episode window.
     // Cheap: a handful of arithmetic ops on a bounded VecDeque, and only ever
     // reached behind the periodic-log guard so the hot path is untouched.
-    let ret_stats = EpisodeReturnStats::from_window(&agent.stats().recent_history);
+    let ret_stats = EpisodeReturnStats::from_window(agent.stats().recent_history());
     let elapsed = loop_start.elapsed().as_secs_f64();
     let steps_per_sec = if elapsed > 0.0 {
         global_step as f64 / elapsed

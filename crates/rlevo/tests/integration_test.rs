@@ -413,13 +413,13 @@ fn agent_stats_tracks_episodes_and_sliding_window() {
         duration: 7,
     });
 
-    assert_eq!(stats.total_episodes, 3);
-    assert_eq!(stats.total_steps, 32);
-    assert_eq!(stats.best_score, Some(8.0));
+    assert_eq!(stats.total_episodes(), 3);
+    assert_eq!(stats.total_steps(), 32);
+    assert_eq!(stats.best_score(), Some(8.0));
 
     // window_size = 2 means the first record is evicted; average is over the
     // last two episodes: (8.0 + 3.0) / 2 = 5.5.
     let avg = stats.avg_score().expect("avg_score present after records");
     assert!((avg - 5.5).abs() < 1e-6, "expected 5.5, got {avg}");
-    assert_eq!(stats.recent_history.len(), 2);
+    assert_eq!(stats.recent_len(), 2);
 }

@@ -141,7 +141,7 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let stats = agent.stats();
     TrainOutcome {
         avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
     }
 }
 
@@ -185,7 +185,7 @@ fn dqn_cartpole_produces_finite_rewards() {
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
     let rewards: Vec<f32> = agent
         .stats()
-        .recent_history
+        .recent_history()
         .iter()
         .map(|m| m.reward)
         .collect();
@@ -340,7 +340,7 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
     let rewards: Vec<f32> = agent
         .stats()
-        .recent_history
+        .recent_history()
         .iter()
         .map(|m| m.reward)
         .collect();
