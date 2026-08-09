@@ -302,11 +302,14 @@ where
     total_iterations: usize,
     step: usize,
     stats: AgentStats<PpoMetrics>,
-    /// Non-finite-loss guard for the policy-loss site (ADR 0056, #318). One
-    /// per-run `warn!` latch; the skip it drives fires every occurrence.
+    /// Non-finite-loss guard for the policy-loss site (ADR 0056, #318). Skips
+    /// the update on every occurrence; the `warn!` escalates by decades — skips
+    /// 1, 10, 100, … — each carrying the running total (ADR 0072 §1), readable
+    /// via [`Self::skipped_policy_updates`].
     policy_loss_guard: FiniteLossGuard,
-    /// Non-finite-loss guard for the value-loss site (ADR 0056, #318),
-    /// latching independently of [`Self::policy_loss_guard`].
+    /// Non-finite-loss guard for the value-loss site (ADR 0056, #318), counting
+    /// and escalating independently of [`Self::policy_loss_guard`]. See
+    /// [`Self::skipped_value_updates`].
     value_loss_guard: FiniteLossGuard,
 }
 
@@ -443,6 +446,86 @@ where
     /// Target total iterations used for LR annealing (supplied at `new`).
     pub fn total_iterations(&self) -> usize {
         self.total_iterations
+    }
+
+    /// Number of **policy** gradient updates skipped for a non-finite loss.
+    ///
+    /// Counted per *minibatch*, not per [`update`](Self::update) — see
+    /// [`skipped_updates`](Self::skipped_updates) for the unit and for the
+    /// attempts-vs-skips relationship.
+    #[must_use]
+    pub const fn skipped_policy_updates(&self) -> u64 {
+        self.policy_loss_guard.skipped()
+    }
+
+    /// Number of **value** gradient updates skipped for a non-finite loss.
+    ///
+    /// Independent of
+    /// [`skipped_policy_updates`](Self::skipped_policy_updates): the two sites
+    /// run their `backward()` + optimizer step in disjoint windows on
+    /// independent graphs, so one minibatch may be skipped at the policy site
+    /// and applied at the value site (ADR 0056). The two counters will
+    /// legitimately disagree — a diverged policy net with a healthy value net
+    /// is the ordinary case.
+    #[must_use]
+    pub const fn skipped_value_updates(&self) -> u64 {
+        self.value_loss_guard.skipped()
+    }
+
+    /// Total gradient updates skipped for a non-finite loss across **both** of
+    /// this agent's loss sites — policy and value.
+    ///
+    /// This is the canonical `skipped_updates` metric (ADR 0072 §2). It is the
+    /// aggregate, not a per-site read, precisely so that a future third loss
+    /// site cannot be added without appearing here: callers and the training
+    /// loop consume this one accessor, and the sum is the single place that has
+    /// to learn about a new guard. Saturating, so the sum cannot wrap even in
+    /// the physically-unreachable case of two near-`u64::MAX` terms.
+    ///
+    /// # The unit is a minibatch, not an `update` call
+    ///
+    /// This is where PPO differs from the off-policy agents, whose guards fire
+    /// once per learn step. PPO's guards sit **inside** the
+    /// `update_epochs × num_minibatches` loop of [`update`](Self::update), so a
+    /// single `update` call can contribute up to that many skips per site. Over
+    /// a run these counters therefore accumulate against
+    /// `iteration() × update_epochs × num_minibatches`, not against
+    /// `iteration()`. Normalize by that product before comparing this agent's
+    /// skip rate to a DQN's or a SAC's, and do not read a count above
+    /// `iteration()` as evidence of double counting.
+    ///
+    /// The epoch loop can also stop early on the `target_kl` trip, and an empty
+    /// minibatch chunk is skipped before the guards, so the product is an upper
+    /// bound on attempts rather than an exact one.
+    ///
+    /// # Relationship to attempts
+    ///
+    /// Per site, over the whole run,
+    ///
+    /// ```text
+    /// applied = attempts - skipped
+    /// ```
+    ///
+    /// where an "attempt" is one minibatch reaching that site's guard
+    /// (ADR 0056, ADR 0072). The subtraction can never underflow, because every
+    /// skip is first counted as an attempt.
+    ///
+    /// # Relationship to the healthy counts behind [`PpoUpdateStats`]
+    ///
+    /// [`update`](Self::update) keeps its own per-call `policy_healthy` /
+    /// `value_healthy` minibatch counts and uses them as the **denominators**
+    /// for the two gated means it reports in [`PpoUpdateStats`], so that a
+    /// skipped minibatch cannot re-poison `policy_loss` / `value_loss`
+    /// (#318, ADR 0056 §3). Those are per-`update`, live only for the duration
+    /// of the call, and answer "what did this update apply?". These accessors
+    /// are the **lifetime** skip totals and answer "how much has this run lost
+    /// in aggregate?". They are complements, not duplicates: neither can be
+    /// derived from the other, because the reported means discard the healthy
+    /// counts once the division is done.
+    #[must_use]
+    pub const fn skipped_updates(&self) -> u64 {
+        self.skipped_policy_updates()
+            .saturating_add(self.skipped_value_updates())
     }
 
     /// Running per-episode statistics.
@@ -722,8 +805,9 @@ where
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(self.config.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
-                // #318 / ADR 0056: same guard for the value site, latched
-                // separately so one site's failure cannot silence the other.
+                // #318 / ADR 0056: same guard for the value site, counted and
+                // warned separately (ADR 0072 §1) so one site's failure cannot
+                // silence or inflate the other's diagnostic.
                 if self.value_loss_guard.check(v_loss_val) {
                     let grads = v_loss_scaled.backward();
                     let grads_params = GradientsParams::from_grads(grads, self.value());
@@ -958,13 +1042,42 @@ mod tests {
             .expect("f32 weight host read")
     }
 
-    /// Builds an agent whose one four-step rollout has been collected and
-    /// finalized (advantages/returns populated) with *healthy* networks, so a
-    /// subsequent `update` can be driven directly after poisoning one net.
+    /// Collects and finalizes one four-step rollout on `agent`.
+    ///
+    /// Factored out of [`primed_ppo_agent_with`] so a test can re-prime an
+    /// agent between successive `update` calls — `update` clears the buffer, so
+    /// a second update needs a second rollout. Both networks must be *healthy*
+    /// when this runs: the value net is forwarded here (per-step values and the
+    /// GAE bootstrap), so a poisoned value net would write `NaN` advantages
+    /// into the buffer and poison the *policy* loss too, cross-contaminating the
+    /// two guards.
     // Test fixture data: the loop counter is bounded by a small constant, far
     // below f32's 2^24 exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    fn primed_ppo_agent() -> TestAgent {
+    fn collect_rollout(agent: &mut TestAgent, rng: &mut StdRng) {
+        let mut last = TestObs([0.4, 0.6]);
+        for i in 0..4usize {
+            let x = i as f32 * 0.1;
+            let obs = TestObs([x, 1.0 - x]);
+            let next = TestObs([x + 0.1, 0.9 - x]);
+            let outcome = agent.act(&obs, rng);
+            agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
+            last = next;
+        }
+        agent.finalize_rollout(&last);
+    }
+
+    /// Builds an agent whose one four-step rollout has been collected and
+    /// finalized (advantages/returns populated) with *healthy* networks, so a
+    /// subsequent `update` can be driven directly after poisoning one net.
+    ///
+    /// `num_minibatches` and `update_epochs` are parameters because the guards
+    /// fire **per minibatch** inside `update`: the number of skips a poisoned
+    /// net produces in one `update` is `update_epochs × num_minibatches`, and
+    /// the counter tests pin that product. The rollout is always 4 steps
+    /// (`num_envs = 1`, `num_steps = 4`), so `num_minibatches` must divide 4 for
+    /// the chunking to be even.
+    fn primed_ppo_agent_with(num_minibatches: usize, update_epochs: usize) -> TestAgent {
         let device = Default::default();
         let policy: CategoricalPolicyHead<TestBackend> = CategoricalPolicyHeadConfig {
             obs_dim: 2,
@@ -977,25 +1090,26 @@ mod tests {
         let config = PpoTrainingConfigBuilder::new()
             .num_envs(1)
             .num_steps(4)
-            .num_minibatches(1)
-            .update_epochs(1)
+            .num_minibatches(num_minibatches)
+            .update_epochs(update_epochs)
             .anneal_lr(false)
+            // Left at the `None` default explicitly: a `target_kl` trip would
+            // break the epoch loop early and make the pinned skip counts below
+            // depend on the KL trajectory rather than on the configured product.
+            .target_kl(None)
             .build()
             .expect("valid config");
         let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
 
         let mut rng = StdRng::seed_from_u64(0);
-        let mut last = TestObs([0.4, 0.6]);
-        for i in 0..4usize {
-            let x = i as f32 * 0.1;
-            let obs = TestObs([x, 1.0 - x]);
-            let next = TestObs([x + 0.1, 0.9 - x]);
-            let outcome = agent.act(&obs, &mut rng);
-            agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
-            last = next;
-        }
-        agent.finalize_rollout(&last);
+        collect_rollout(&mut agent, &mut rng);
         agent
+    }
+
+    /// The single-minibatch, single-epoch fixture: exactly **one** guarded
+    /// minibatch per site per `update`.
+    fn primed_ppo_agent() -> TestAgent {
+        primed_ppo_agent_with(1, 1)
     }
 
     /// A non-finite policy loss must skip the policy `backward` + optimizer step
@@ -1016,13 +1130,17 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(1);
         let stats = agent.update(&mut rng);
 
-        assert!(
-            agent.policy_loss_guard.warning_fired(),
-            "a NaN policy loss must fire the policy guard"
+        // 1 epoch × 1 minibatch = 1 guarded policy site visit in this `update`,
+        // and the poisoned policy makes every one of them non-finite.
+        assert_eq!(
+            agent.skipped_policy_updates(),
+            1,
+            "a NaN policy loss must count exactly one skip: 1 epoch × 1 minibatch = 1"
         );
-        assert!(
-            !agent.value_loss_guard.warning_fired(),
-            "the value net was healthy: its guard must not fire"
+        assert_eq!(
+            agent.skipped_value_updates(),
+            0,
+            "the value net was healthy: its counter must be exactly 0, not merely 'not yet warned'"
         );
         assert_eq!(
             stats.policy_loss, 0.0,
@@ -1063,13 +1181,17 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(2);
         let stats = agent.update(&mut rng);
 
-        assert!(
-            agent.value_loss_guard.warning_fired(),
-            "a NaN value loss must fire the value guard"
+        // 1 epoch × 1 minibatch = 1 guarded value site visit in this `update`,
+        // and the poisoned value net makes every one of them non-finite.
+        assert_eq!(
+            agent.skipped_value_updates(),
+            1,
+            "a NaN value loss must count exactly one skip: 1 epoch × 1 minibatch = 1"
         );
-        assert!(
-            !agent.policy_loss_guard.warning_fired(),
-            "the policy net was healthy: its guard must not fire"
+        assert_eq!(
+            agent.skipped_policy_updates(),
+            0,
+            "the policy net was healthy: the sibling site must be untouched, exactly 0"
         );
         assert_eq!(
             stats.value_loss, 0.0,
@@ -1078,6 +1200,97 @@ mod tests {
         assert!(
             stats.policy_loss.is_finite(),
             "the healthy policy site must still report a finite loss"
+        );
+    }
+
+    /// The skip counter is a **counter, not a latch** (ADR 0072 §2): a single
+    /// `update` whose policy loss is non-finite across several minibatches must
+    /// leave a count above 1.
+    ///
+    /// This is the PPO-specific half of the contract — the guards live inside
+    /// the `update_epochs × num_minibatches` loop, so one `update` call can
+    /// contribute many skips, unlike the off-policy agents' one-per-learn-step
+    /// sites.
+    #[test]
+    fn ppo_counts_repeated_loss_skips() {
+        // 3 epochs × 2 minibatches. The rollout is 4 steps and
+        // `num_minibatches = 2`, so `mb_size = 4 / 2 = 2` and `chunks(2)` over 4
+        // shuffled indices yields exactly 2 non-empty minibatches per epoch;
+        // `target_kl` is None, so no epoch is cut short. 3 × 2 = 6 guarded
+        // policy-site visits, all of them non-finite.
+        let mut agent = primed_ppo_agent_with(2, 3);
+
+        let poisoned = agent.policy.get().clone().map(&mut NanInjector);
+        agent.policy = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let _ = agent.update(&mut rng);
+
+        assert_eq!(
+            agent.skipped_policy_updates(),
+            6,
+            "one update with a NaN policy loss must count every minibatch: \
+             3 epochs × 2 minibatches = 6 — a latch would pin this at 1"
+        );
+        assert_eq!(
+            agent.skipped_value_updates(),
+            0,
+            "the value net stayed healthy: its counter must be exactly 0"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            6,
+            "the aggregate over a zero sibling is the policy count: 6 + 0 = 6"
+        );
+    }
+
+    /// [`PpoAgent::skipped_updates`] must be the sum of two **unequal** terms.
+    ///
+    /// Equal per-site counts would be satisfied by an aggregate that doubled
+    /// one guard and never read the other, which is exactly the copy-paste
+    /// defect this asserts against. The counters are lifetime totals, so the
+    /// asymmetry is built by poisoning the value site across *two* updates and
+    /// the policy site across *one*, re-collecting a rollout with healthy nets
+    /// in between (`update` clears the buffer, and a poisoned value net would
+    /// write NaN advantages that cross-contaminate the policy site).
+    #[test]
+    fn ppo_skipped_updates_aggregates_unequal_sites() {
+        // 1 epoch × 2 minibatches = 2 guarded visits per site per `update`.
+        let mut agent = primed_ppo_agent_with(2, 1);
+        let healthy_policy = agent.policy.get().clone();
+        let healthy_value = agent.value.get().clone();
+        let mut rng = StdRng::seed_from_u64(0);
+
+        // Updates 1 and 2: value net poisoned, policy healthy. 2 × 2 = 4 value
+        // skips, 0 policy skips.
+        for _ in 0..2 {
+            agent.value = Slot::new(healthy_value.clone().map(&mut NanInjector));
+            let _ = agent.update(&mut rng);
+            // Restore before re-priming: `collect_rollout` forwards the value
+            // net for the per-step values and the GAE bootstrap.
+            agent.value = Slot::new(healthy_value.clone());
+            collect_rollout(&mut agent, &mut rng);
+        }
+
+        // Update 3: policy net poisoned, value healthy. 1 × 2 = 2 policy skips.
+        agent.policy = Slot::new(healthy_policy.clone().map(&mut NanInjector));
+        let _ = agent.update(&mut rng);
+
+        assert_eq!(
+            agent.skipped_policy_updates(),
+            2,
+            "the policy site was poisoned for 1 update: 1 update × 1 epoch × 2 minibatches = 2"
+        );
+        assert_eq!(
+            agent.skipped_value_updates(),
+            4,
+            "the value site was poisoned for 2 updates: 2 updates × 1 epoch × 2 minibatches = 4"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            6,
+            "the aggregate is the sum of two unequal terms: 2 policy + 4 value = 6 \
+             (doubling either site would give 4 or 8)"
         );
     }
 }

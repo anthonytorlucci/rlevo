@@ -175,7 +175,9 @@ where
     gradient_updates: usize,
     stats: AgentStats<C51Metrics>,
     /// Non-finite-loss guard for the cross-entropy loss site (ADR 0056, #318).
-    /// One per-run `warn!` latch; the skip it drives fires every occurrence.
+    /// Skips the update on every occurrence; the `warn!` escalates by decades —
+    /// skips 1, 10, 100, … — each carrying the running total (ADR 0072 §1),
+    /// readable via [`Self::skipped_updates`].
     loss_guard: FiniteLossGuard,
     /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
     /// #352). Drops the transition on every occurrence; the `warn!` escalates
@@ -313,10 +315,56 @@ where
     /// counting only applied updates would make the target cadence a function
     /// of run health, stretching it exactly when a run is diverging.
     ///
+    /// Because this counts *attempts*, it is an upper bound on the updates that
+    /// actually reached the optimizer. Pair it with
+    /// [`skipped_updates`](Self::skipped_updates) to recover the applied count:
+    /// `applied = gradient_updates() - skipped_updates()`.
+    ///
     /// [`C51TrainingConfig::target_update`]: crate::algorithms::c51::c51_config::C51TrainingConfig::target_update
     /// [`learn_step`]: Self::learn_step
     pub fn gradient_updates(&self) -> usize {
         self.gradient_updates
+    }
+
+    /// Number of attempted gradient updates the non-finite-loss guard skipped.
+    ///
+    /// The subset of [`gradient_updates`](Self::gradient_updates) whose
+    /// categorical cross-entropy loss came out non-finite, so `backward()`, the
+    /// optimizer step and the target sync were all skipped to keep the weights
+    /// uncorrupted (ADR 0056, ADR 0072). C51 has exactly one loss site, so this
+    /// per-site count *is* the agent's aggregate.
+    ///
+    /// A non-zero count means those attempts cost wall-clock time but moved no
+    /// weights. Watch the *rate*: an isolated skip in a long run is usually
+    /// harmless, while a persistently rising count is a diverging network, a
+    /// learning rate that is too high, or a degenerate `log`/division — the run
+    /// is burning its step budget without training.
+    ///
+    /// # Relationship to [`gradient_updates`](Self::gradient_updates)
+    ///
+    /// [`gradient_updates`](Self::gradient_updates) counts **attempts** and
+    /// advances unconditionally once a loss is computed, *including* on a skip
+    /// (ADR 0059 §Decision 4) — gating it on success would make the target
+    /// cadence a function of run health. This counter is the skipped subset, so
+    /// the two compose exactly:
+    ///
+    /// ```text
+    /// applied = gradient_updates() - skipped_updates()
+    /// ```
+    ///
+    /// # Relationship to [`dropped_observations`](Self::dropped_observations)
+    ///
+    /// A **drop** and a **skip** are different losses at different boundaries.
+    /// [`dropped_transitions`](Self::dropped_transitions) and
+    /// [`dropped_observations`](Self::dropped_observations) count *data* that
+    /// never entered the replay buffer and can never be sampled; this counts an
+    /// *update* that was computed from admitted data but never reached the
+    /// optimizer. A drop is permanent (the experience is gone); a skip is
+    /// transient (the offending minibatch is gone by the next step, and the run
+    /// can recover on its own). Neither counter bounds the other.
+    #[must_use]
+    pub const fn skipped_updates(&self) -> u64 {
+        self.loss_guard.skipped()
     }
 
     /// Read-only view of the target network.
@@ -713,9 +761,13 @@ where
     /// when [`can_learn`](Self::can_learn) is false (buffer too small or
     /// step count below `learning_starts`), and also when the computed loss is
     /// non-finite (NaN/±Inf): in that case the backward pass, optimizer step,
-    /// target update, and PER writeback are all skipped and a one-shot `warn!`
-    /// fires (ADR 0056, #318), so the caller keeps its last healthy reported
-    /// metrics rather than folding a NaN into them. The gradient-update counter
+    /// target update, and PER writeback are all skipped (ADR 0056, #318) and
+    /// [`skipped_updates`](Self::skipped_updates) advances, so the caller keeps
+    /// its last healthy reported metrics rather than folding a NaN into them.
+    /// The accompanying `warn!` fires on a decade schedule — skips 1, 10, 100,
+    /// … — each line carrying the running total (ADR 0072 §1), so a run
+    /// discarding 1% of its updates is distinguishable from one discarding 40%.
+    /// The gradient-update counter
     /// advances even then, so the target cadence does not drift on a diverging
     /// run.
     ///
@@ -1349,6 +1401,12 @@ mod tests {
              on a successful step would let the cadence drift on a diverging run"
         );
         assert_eq!(
+            agent.skipped_updates(),
+            1,
+            "the only attempt so far was skipped: attempts = skips = 1, so \
+             applied = 0 (ADR 0059 §4 ∧ ADR 0072)"
+        );
+        assert_eq!(
             target_weights(&agent),
             target_before,
             "update 1 is not a multiple of 2, and the step was skipped anyway"
@@ -1360,6 +1418,12 @@ mod tests {
             .expect("no polyak error")
             .expect("a healthy primed agent learns");
         assert_eq!(agent.gradient_updates(), 2);
+        assert_eq!(
+            agent.skipped_updates(),
+            1,
+            "the healthy step reached the optimizer, so it adds an attempt but no \
+             skip: applied = 2 - 1 = 1"
+        );
         let after = max_abs_diff(&policy_weights(&agent), &target_weights(&agent));
         assert!(
             after < 1e-9,
@@ -1460,9 +1524,11 @@ mod tests {
             outcome.is_none(),
             "a non-finite cross-entropy loss must skip the step and return None"
         );
-        assert!(
-            agent.loss_guard.warning_fired(),
-            "the non-finite loss must fire the guard"
+        assert_eq!(
+            agent.skipped_updates(),
+            1,
+            "exactly one attempted update was skipped — the guard counts the skip \
+             itself, not merely that it has ever fired"
         );
         assert_eq!(
             target_weights(&agent),
@@ -1477,6 +1543,57 @@ mod tests {
         assert!(
             action.is_valid(),
             "act must still return a valid action after a skipped step"
+        );
+    }
+
+    /// ADR 0072: `skipped_updates` is a running **count**, not a boolean latch
+    /// wearing a counter's type. Three consecutive poisoned learn steps must
+    /// read back as `3` — a counter that saturates at `1` (the shape a
+    /// bool-to-counter mistranslation produces) would report a run that skipped
+    /// every one of its updates identically to a run that skipped one, which is
+    /// precisely the distinction the metric exists to make.
+    #[test]
+    fn c51_counts_repeated_loss_skips() {
+        let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
+        let target_before = target_weights(&agent);
+
+        // Poison a *clone* of the live policy so its `ParamId`s are preserved.
+        // The NaN weights persist across steps, so every attempt below is
+        // poisoned: nothing here can restore a finite loss.
+        let poisoned = agent.policy().clone().map(&mut NanInjector);
+        agent.policy_net = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(0);
+        for attempt in 1..=3 {
+            assert!(
+                agent
+                    .learn_step(&mut rng)
+                    .expect("no polyak error")
+                    .is_none(),
+                "attempt {attempt} must skip the step and return None"
+            );
+            assert_eq!(
+                agent.skipped_updates(),
+                attempt,
+                "the counter must advance by exactly one per skip, not latch"
+            );
+        }
+
+        assert_eq!(
+            agent.skipped_updates(),
+            3,
+            "three poisoned learn steps skipped three updates"
+        );
+        assert_eq!(
+            agent.gradient_updates(),
+            3,
+            "all three attempts still counted as attempts (ADR 0059 §4), so \
+             applied = 3 - 3 = 0"
+        );
+        assert_eq!(
+            target_weights(&agent),
+            target_before,
+            "no optimizer step ran, so no soft target sync moved the target"
         );
     }
 

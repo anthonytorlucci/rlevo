@@ -71,6 +71,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   understates the surface as a single three-line test site; the verified figure
   is the 25/11 above, and the migration is read-only at every one of them.)
 
+### `rlevo-metrics-registry`
+
+**Added**
+
+- **The canonical `skipped_updates` row** (for #346, ADR 0072). ADR 0056's
+  `FiniteLossGuard` skips `backward()` and the optimizer step whenever a loss
+  comes back non-finite, so a run can discard an arbitrary fraction of its
+  gradient updates while every other reported number — reward, loss, `n_updates`
+  — stays plausible. Until now that fraction was not a metric at all, only a log
+  line, so it never reached a plot or a saved run. The row is `Rl` /
+  `PerUpdate`, unit `"updates"`, `LowerIsBetter`, placed immediately after
+  `n_updates` because the pair is only meaningful read together: applied updates
+  are `n_updates − skipped_updates`. It is **cumulative**, not per-interval — a
+  per-interval count would be a function of `log_every`, a logging parameter,
+  which would make two runs of the same configuration incomparable purely
+  because one logged more often. Per ADR 0015's registry promise, adding the row
+  is the whole integration: the live benchmarks TUI and the on-disk record pick
+  it up with no `rlevo-benchmarks` change. The descriptor set is additive and
+  nothing matches it exhaustively, so no consumer breaks.
+
 ### `rlevo-core`
 
 **Added**
@@ -363,7 +383,79 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `cargo test` entirely. The two new regression tests therefore assert the
   *saturated value* at each counter, which is red in both profiles against `+=`.
 
+- **Under a latch, a run silently lost gradient updates and only the very first
+  skip was ever logged** (resolves #346, ADR 0072, partially superseding ADR
+  0056 §1 and §3). `FiniteLossGuard` warns once per site and then goes quiet for
+  the rest of the run, so a run discarding 1% of its updates and one discarding
+  40% produced byte-identical logs: one line each. That is the failure mode ADR
+  0065 named for `FiniteRewardGuard` — the loud divergence reads as a silent
+  one, and the operator's only remaining evidence is a curve that has stopped
+  improving for no visible reason. The guard now carries a running `skipped`
+  count and re-warns on the **1st, 10th, 100th, …** skip, each line carrying the
+  running total, adopting `FiniteRewardGuard`'s decade schedule verbatim so the
+  two guards read the same way in one log. **Operator-visible:** anyone grepping
+  for the old single-occurrence signature should expect the per-site volume to
+  rise from at most 1 line to at most about 7 over a realistic run — the message
+  is bounded logarithmically, not per skip, so a pathologically diverging run
+  still cannot flood the log.
+
+  The skip itself is unchanged and remains ungated: it fires on **every**
+  non-finite loss, never on the warning schedule (ADR 0056 §3, reaffirmed by
+  ADR 0072). Only the reporting was latched; no update that used to be applied
+  is now skipped, or the reverse.
+
+  The existing tests could not catch it, and the reason is why the counter
+  exists. All 19 agent-side assertions read `warning_fired()`, a `bool` that is
+  `true` after the first skip and stays `true` no matter how many follow — so
+  the latch was not merely uncovered, it was the *only* thing observable, and
+  "the guard fired" and "the guard fired 4000 times" were the same assertion.
+  `warning_fired()` is deleted (it was `#[cfg(test)]` and `pub(crate)`, so this
+  is a private-item removal, not a breaking change) and those 19 assertions
+  become exact-value assertions on the new counters — a strengthening in both
+  directions, since the old `!warning_fired()` was satisfiable by an
+  already-fired latch while `== 0` is not.
+
 **Added**
+
+- **Per-loss-site skip accessors on all eight agents, and `skipped_updates`
+  emitted from every train loop** (resolves #346, ADR 0072). The `Fixed` entry
+  above makes a skip *loggable*; these make it *readable at runtime*, which is
+  what a caller needs to gate a run, a sweep, or a test on. Twenty-two
+  accessors, one per loss site plus an aggregate on each multi-site agent: DQN,
+  C51 and QR-DQN have a single site, so `skipped_updates()` is both;
+  `DdpgAgent` adds `skipped_critic_updates()` / `skipped_actor_updates()`;
+  `Td3Agent` and `SacAgent` add `skipped_critic_1_updates()` /
+  `skipped_critic_2_updates()` / `skipped_actor_updates()`; `PpoAgent` adds
+  `skipped_policy_updates()` / `skipped_value_updates()`; `PpgAgent` adds
+  `skipped_policy_updates()` / `skipped_value_updates()` /
+  `skipped_aux_value_updates()` / `skipped_aux_total_updates()`. Per-site rather
+  than one lumped total because the sites diverge independently and for
+  different reasons — a critic blowing up is a different diagnosis from an actor
+  blowing up — and the aggregate is what the metric emits.
+
+  These pair with ADR 0059's `gradient_updates()` / `critic_updates()`, which
+  advance **unconditionally, including on a skip**: those count *attempts*, so
+  the applied-update count is `attempts − skipped`, and neither number means
+  what a reader expects without the other. `n_updates` and the new
+  `skipped_updates` metric row carry the same relationship into the record.
+
+- **`DdpgAgent::critic_updates()`** (for #346). Unrelated-looking, and exposed by
+  the work above: DDPG tracked `critic_updates` as a private field with no
+  accessor, unlike `SacAgent` and `Td3Agent`, which both expose theirs. So DDPG
+  alone had a numerator (`skipped_critic_updates()`) with no publicly readable
+  denominator — the `applied = attempts − skipped` identity was unevaluable on
+  exactly one of the eight agents. Additive; it restores parity across the
+  off-policy family.
+
+- **`AgentStats` is deliberately untouched by all of the above.** #346's title
+  proposed putting the skip counter there, and that is a scope error worth
+  recording so it is not re-proposed: `AgentStats` is **episode-scoped** — it
+  records one row per finished episode — while a loss skip is **per-update, per
+  loss site**, and several sites can skip within a single episode on agents that
+  update more than once per step. There is no rate at which the two can be
+  reconciled without inventing one. Adding the field would also have fired ADR
+  0071 §Reopen trigger 1. The counter lives on the guard, is read through the
+  agent, and reaches the record as a metric; the stats type keeps its meaning.
 
 - **`AgentStats::finite_best_score` and `AgentStats::non_finite_episodes`**
   (resolves #1078, ADR 0071). An earlier review claimed "`NaN` permanently

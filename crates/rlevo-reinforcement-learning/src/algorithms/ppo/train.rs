@@ -336,6 +336,12 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
         episode_length_mean = ret_stats.length_mean,
         env_steps_sampled = global_step,
         steps_per_sec = steps_per_sec,
+        // Cumulative, read from the agent rather than from `stats`: this is the
+        // lifetime aggregate over both loss sites (ADR 0072 §2), so adding a
+        // field to the public `PpoUpdateStats` would be a compat event for a
+        // value the agent already owns. Counted per *minibatch*, not per
+        // `update` — see `PpoAgent::skipped_updates`.
+        skipped_updates = agent.skipped_updates(),
         learning_rate = agent.current_learning_rate(),
         "ppo training progress"
     );

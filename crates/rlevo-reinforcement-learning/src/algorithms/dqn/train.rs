@@ -183,6 +183,12 @@ where
                 q_values = last_q_mean,
                 learning_rate = agent.learning_rate(),
                 n_updates = n_updates,
+                // Like `n_updates` and `td_loss`, a `PerUpdate` metric sampled
+                // on an *environment*-step cadence: `log_every` env steps do
+                // not line up with update boundaries. Harmless here because the
+                // counter is cumulative — a sample can only be stale, never
+                // wrong — whereas a per-window rate would be misattributed.
+                skipped_updates = agent.skipped_updates(),
                 "dqn training progress"
             );
         }

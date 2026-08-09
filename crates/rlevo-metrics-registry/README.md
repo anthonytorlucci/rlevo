@@ -50,7 +50,7 @@ against — it is the wire contract between the algorithm crates and the recorde
 
 ## The registry
 
-`CANONICAL_METRICS` holds 32 descriptors, ordered for a stable report layout:
+`CANONICAL_METRICS` holds 33 descriptors, ordered for a stable report layout:
 
 - **RL training stats (per update)** — `policy_loss`, `value_loss`, `loss`,
   `entropy`, `approx_kl`, `clip_frac`, plus the v6 additions
@@ -62,6 +62,9 @@ against — it is the wire contract between the algorithm crates and the recorde
 - **DQN family** — `td_loss`, `q_values`.
 - **SAC family** — `qf1_loss`, `qf2_loss`, `actor_loss`, `alpha`, `alpha_loss`.
 - **Schedules** — `clip_range`, `n_updates`.
+- **Update health** — `skipped_updates`, the cumulative count of optimiser
+  updates discarded by `FiniteLossGuard` on a non-finite loss (ADR-0056); a flat
+  line is healthy, any rise means updates were thrown away.
 - **EO training stats (per generation)** — `best_fitness`, `mean_fitness`,
   `worst_fitness`, `best_fitness_ever`.
 

@@ -265,6 +265,12 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
         // σ.
         min_log_std = ?stats.min_log_std,
         max_log_std = ?stats.max_log_std,
+        // Canonical `skipped_updates` (Rl / PerUpdate / cumulative, ADR 0072).
+        // Read from the agent, not from `stats` or `aux`: it is the lifetime
+        // aggregate over all four PPG loss sites — two of which live in the
+        // auxiliary phase and so are not represented in a `PpoUpdateStats` at
+        // all — and neither public stats struct grows a field for it.
+        skipped_updates = agent.skipped_updates(),
         aux_ran = aux.is_some(),
         aux_value_loss = aux.map_or(0.0, |a| a.aux_value_loss),
         aux_policy_kl = aux.map_or(0.0, |a| a.policy_kl),
