@@ -210,6 +210,54 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### `rlevo-reinforcement-learning`
 
+**Fixed**
+
+- **A non-finite target quantile survived terminal transitions in QR-DQN's
+  Bellman backup** (resolves #357). QR-DQN builds its target inline rather than
+  through the shared helper, and it still computed the backup by *scaling* the
+  bootstrap term: `rewards + (1 − terminated) · θ_target · γ`. Because IEEE-754
+  gives `NaN · 0.0 == NaN` (as does `inf · 0.0`), a poisoned quantile anywhere
+  in the target network's output for the bootstrap action contaminated the
+  target on exactly the samples where the terminal convention says the
+  bootstrap must vanish — samples whose correct value, the reward alone, is
+  known with certainty. The term is now genuinely masked to `0` wherever
+  `terminated == 1.0`, so a terminal target is the reward regardless of what
+  the next-state estimate holds.
+
+  This corrects the record as well as the code. The #192 entry under 0.4.0
+  below states that "C51 and QR-DQN never used this helper (they mask in their
+  own projection step)". That is false for QR-DQN: it did not mask, it scaled,
+  and this is the fix for the gap that sentence denied. C51 genuinely is
+  unaffected, for a reason worth stating precisely so nobody patches it on a
+  pattern match — its `(1 − terminated)` factor multiplies the **fixed atom
+  support**, finite by construction from `v_min`/`v_max` and asserted so, never
+  a network output.
+
+  This is hardening, not a repair of live divergence: the expression cannot
+  *originate* a non-finite value, only preserve one, and for all-finite inputs
+  the masked form is numerically identical, so no algorithm's behaviour
+  changes. The known upstream NaN sources (#184, #173) are both closed, so
+  there is no live trigger today. No test could have caught it, and the reason
+  is the interesting part: the backup was an inline expression in the middle of
+  `train_step`, with no seam a test could reach. Lifting it into a named
+  function is what made the poisoned case testable at all, and the five new
+  tests cover it. Four sit on the helper — including that masking stays
+  *per-row*, leaving a non-finite quantile on a non-terminal row for the
+  finite-loss guard rather than silently scrubbing a real divergence. The
+  fifth runs through the agent and pins the backed-up target numerically in
+  the reported loss, because the call site passes reward and terminal mask as
+  two `(B, 1)` tensors the compiler cannot tell apart: without it, transposing
+  them was a silent change.
+
+**Added**
+
+- **`utils::compute_target_quantiles`**, the rank-2 sibling of
+  `compute_target_q_values`, backing up a whole `(B, N)` quantile vector per
+  sample instead of a single bootstrap value. Introduced by the #357 fix above;
+  it is public for the same reason its rank-1 sibling is, and its docs carry
+  the terminal-bootstrap convention, the masking rationale, and the C51
+  exclusion so both forms of the convention are findable from one place.
+
 **Removed**
 
 - **Two `ReplayBufferError` variants that advertised failure modes the replay

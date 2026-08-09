@@ -31,7 +31,7 @@ use crate::algorithms::shared::{
     FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
     reduce_weighted_loss,
 };
-use crate::utils::PolyakError;
+use crate::utils::{PolyakError, compute_target_quantiles};
 
 /// Error variants returned by [`QrDqnAgent`] operations.
 ///
@@ -765,13 +765,16 @@ where
         let next_quantiles_chosen: Tensor<B::InnerBackend, 2> =
             next_quantiles_all.gather(1, a_star_3).squeeze_dim::<2>(1); // (B, N)
 
-        // Bellman backup (no projection): T θ_j = r + γ (1 − terminated) · θ_target_j.
+        // Bellman backup (no projection): T θ_j = r + γ · θ_target_j on a
+        // non-terminal transition, and T θ_j = r on a terminal one — the
+        // bootstrap is *masked away* there, not scaled by (1 − terminated).
+        // Scaling would let a non-finite target-network quantile survive the
+        // terminal transition, since NaN · 0.0 == NaN (issue #357).
         let rewards_bn: Tensor<B::InnerBackend, 2> = rewards_inner.unsqueeze_dim::<2>(1); // (B, 1)
         let terminated_bn: Tensor<B::InnerBackend, 2> = terminated_inner.unsqueeze_dim::<2>(1); // (B, 1)
-        let keep = terminated_bn.neg().add_scalar(1.0); // 1 − terminated  (B, 1)
         let gamma = self.config.gamma as f32;
         let target_inner: Tensor<B::InnerBackend, 2> =
-            rewards_bn + keep * next_quantiles_chosen.mul_scalar(gamma);
+            compute_target_quantiles(rewards_bn, next_quantiles_chosen, terminated_bn, gamma);
 
         // --- Policy forward (autodiff) ---
         //
@@ -1114,6 +1117,142 @@ mod tests {
         assert!(
             (after - before).abs() > 1e-9,
             "the quantile-Huber priority writeback must change the sampling mass: {before} -> {after}"
+        );
+    }
+
+    // -------- Bellman target reaches the loss (#357 call site) --------
+    //
+    // `learn_step` hands `(rewards, next_quantiles, terminated, gamma)` to
+    // `compute_target_quantiles`, and `rewards` and `terminated` are both
+    // `(B, 1)` `f32` tensors — the compiler cannot tell them apart. Nothing else
+    // in this suite asserts a numeric target or loss, so a swap of those two
+    // arguments used to pass every QR-DQN test. The fixture below makes the
+    // target value fully hand-computable and pins it through `LearnOutcome.loss`.
+
+    /// Weight fill for the target-arithmetic fixture.
+    ///
+    /// `TestQrDqnNet` computes `obs · W` with every element of `W` equal to this
+    /// fill, and `obs(x)` is four copies of `x`, so every one of the network's
+    /// `A × N` outputs is exactly `4 · x · fill` — `x` for `fill = 0.25`. Both
+    /// action heads therefore carry the same quantile vector, so the bootstrap
+    /// `argmax` and the taken action cannot change the arithmetic.
+    const BELLMAN_FILL: f32 = 0.25;
+    /// Reward on the fixture's single transition.
+    ///
+    /// Deliberately neither `0.0` nor `1.0`: those are the only two values the
+    /// terminated column ever holds, so a reward/terminated swap at the call
+    /// site would be numerically invisible if the reward were one of them.
+    const BELLMAN_REWARD: f32 = 3.0;
+    /// Discount for the fixture. Dyadic, so `γ · θ` is exact in `f32` and the
+    /// `f64` config knob round-trips without rounding.
+    const BELLMAN_GAMMA: f32 = 0.5;
+    /// `Σ_i τ_i` for `τ_i = (i + 0.5)/N`, which is `N/2` for any `N` — spelled
+    /// as a literal, with the `TEST_QUANTILES = 4` it assumes asserted below.
+    const TAU_SUM: f32 = 2.0;
+    const _: () = assert!(TEST_QUANTILES == 4, "TAU_SUM is N/2, written out for N = 4");
+
+    /// Builds a uniform-replay agent holding exactly **one** transition, with
+    /// `batch_size = 1`, so the sampled batch is that transition whatever the
+    /// RNG does and the reported loss is a deterministic function of the
+    /// Bellman target.
+    fn bellman_agent(terminated: bool) -> TestAgent {
+        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+            Default::default();
+        let config = QrDqnTrainingConfigBuilder::new()
+            .target_update(TargetUpdate::polyak(0.005, 1))
+            .batch_size(1)
+            .learning_starts(0)
+            .gamma(f64::from(BELLMAN_GAMMA))
+            .num_quantiles(TEST_QUANTILES)
+            .build()
+            .expect("valid config");
+        let policy: TestQrDqnNet<TestBackend> = TestQrDqnNet::new(BELLMAN_FILL, &device);
+        let mut agent = TestAgent::new(policy, config, device).expect("valid config");
+        // obs(1.0) -> every predicted quantile is 1.0.
+        // obs(2.0) -> every target-network quantile is 2.0.
+        agent.remember(
+            obs(1.0),
+            &CartPoleAction::Left,
+            BELLMAN_REWARD,
+            obs(2.0),
+            terminated,
+        );
+        agent
+    }
+
+    /// Runs one learn step on the fixture and returns `(loss, q_mean)`.
+    fn bellman_learn_once(terminated: bool) -> (f32, f32) {
+        let mut agent = bellman_agent(terminated);
+        let mut rng = StdRng::seed_from_u64(357);
+        let outcome = agent
+            .learn_step(&mut rng)
+            .expect("no polyak error")
+            .expect("one transition, batch_size = 1, learning_starts = 0");
+        (outcome.loss, outcome.q_mean)
+    }
+
+    /// The closed form of this fixture's loss.
+    ///
+    /// Every predicted quantile is `1.0` and every target quantile is the same
+    /// value `target`, so `u_ij = target − 1.0` for all `(i, j)`. With
+    /// `target > 1.0` the sign indicator is `0`, the weight is `τ_i`, and
+    /// `mean_j → sum_i` collapses to `L_κ(u) · Σ_i τ_i`.
+    fn bellman_expected_loss(target: f32) -> f32 {
+        let u = target - 1.0;
+        assert!(u > 0.0, "closed form assumes a positive residual");
+        // κ = 1.0 (config default) and u > κ here, so L_κ(u) = |u| − 0.5.
+        let huber = u - 0.5;
+        huber * TAU_SUM
+    }
+
+    /// Pins the Bellman target numerically **through the agent**, on a terminal
+    /// and a non-terminal transition.
+    ///
+    /// Terminal: the bootstrap is masked away, so the target is the reward
+    /// alone, `3.0`. Non-terminal: the target is `3.0 + 0.5 · 2.0 = 4.0`. Both
+    /// land in `LearnOutcome.loss` through the quantile-Huber closed form above.
+    ///
+    /// Swapping the `rewards` and `terminated` arguments at the
+    /// `compute_target_quantiles` call site makes the terminal target `1.0 +
+    /// 0.5 · 2.0 = 2.0` and the non-terminal target `0.0 + 0.5 · 2.0 = 1.0`,
+    /// i.e. losses of `1.0` and `0.0` against the `3.0` and `5.0` asserted here.
+    #[test]
+    fn qrdqn_learn_step_pins_the_bellman_target_through_the_loss() {
+        let (terminal_loss, q_mean) = bellman_learn_once(true);
+        // Precondition: the network really is the hand-set constant net, so the
+        // closed form above applies. Every predicted quantile is 1.0, hence
+        // q_mean = 1.0.
+        assert!(
+            (q_mean - 1.0).abs() < 1e-6,
+            "fixture precondition: every predicted quantile must be 1.0 \
+             (q_mean = {q_mean})"
+        );
+
+        // Terminal: target = reward = 3.0, u = 2.0, L_1(2.0) = 1.5, loss = 3.0.
+        let want_terminal = bellman_expected_loss(BELLMAN_REWARD);
+        assert!(
+            (terminal_loss - want_terminal).abs() < 1e-5,
+            "a terminal transition must back up the reward alone: loss \
+             {terminal_loss}, want {want_terminal}"
+        );
+
+        // Non-terminal: target = 3.0 + 0.5 · 2.0 = 4.0, u = 3.0,
+        // L_1(3.0) = 2.5, loss = 5.0.
+        let (nonterminal_loss, _) = bellman_learn_once(false);
+        let want_nonterminal = bellman_expected_loss(BELLMAN_REWARD + BELLMAN_GAMMA * 2.0);
+        assert!(
+            (nonterminal_loss - want_nonterminal).abs() < 1e-5,
+            "a non-terminal transition must keep the discounted bootstrap: loss \
+             {nonterminal_loss}, want {want_nonterminal}"
+        );
+
+        // Non-vacuity: the two branches must actually differ, or the pair of
+        // assertions above could be satisfied by a target that ignores the
+        // terminal mask entirely.
+        assert!(
+            (terminal_loss - nonterminal_loss).abs() > 1e-3,
+            "the terminal mask must be observable in the loss: terminal \
+             {terminal_loss} vs non-terminal {nonterminal_loss}"
         );
     }
 
