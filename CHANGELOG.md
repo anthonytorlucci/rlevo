@@ -365,6 +365,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`AgentStats::finite_avg_score` and `AgentStats::non_finite_recent_len`**
+  (resolves #409, ADR 0070). #409 asked for `avg_score` to filter `NaN` out of
+  its mean; that change is rejected — `avg_score` is byte-for-byte unchanged,
+  and the non-finite score it transits is a recorded contract (ADR 0065
+  §Decision 4): a training loop deliberately accumulates a non-finite
+  per-step reward into `episode_reward` unconditionally, so the reported
+  curve — not just `dropped_transitions()` — surfaces a poisoned run, and
+  `rlevo-test-support`'s `assert_improves_over_random`/`assert_reaches` both
+  gate a run's convergence check on that same value being finite; filtering
+  it there would let a `NaN`-poisoned run silently pass a threshold it never
+  met. What #409 actually found is real, just misdiagnosed: the crate offered
+  no *reporting* counterpart for a caller drawing a learning curve, where one
+  bad episode should not blank the mean for the next `window_size` episodes,
+  and the accepted contract that transiting is fine lived only inside a
+  `#[cfg(test)]` doc comment — not in the rustdoc, not on docs.rs — which is
+  how #409 came to be filed asserting the opposite of what the code already
+  did. Two additive accessors close both gaps, mirroring
+  `StrategyMetrics::mean_fitness`/`broken_count` in `rlevo-evolution` (ADR
+  0034 §Decision 4): `finite_avg_score()` returns the mean over the window's
+  finite entries (`None` when the window is empty or every entry is
+  non-finite), and `non_finite_recent_len()` reports how many entries it
+  excluded — shipped as a pair, since a hardened mean without its exclusion
+  count is the same silent sanitization ADR 0065 already refuses. The
+  predicate is `is_finite()`, deliberately stronger than #409's proposed
+  `!is_nan()`: `episode_reward` is an `f32` accumulator over a whole episode,
+  and a long episode of entirely *finite* per-step rewards can saturate it to
+  `±∞` with no `NaN` anywhere and no reward-ingestion guard on that path —
+  `!is_nan()` would let that value straight into a mean advertised as
+  hardened.
+
 - **`utils::compute_target_quantiles`**, the rank-2 sibling of
   `compute_target_q_values`, backing up a whole `(B, N)` quantile vector per
   sample instead of a single bootstrap value. Introduced by the #357 fix above;

@@ -197,6 +197,43 @@ impl<T: PerformanceRecord> AgentStats<T> {
     /// The average is computed only over the episodes currently held in
     /// `recent_history` (at most `window_size` entries), not over the full
     /// episode history.
+    ///
+    /// # Non-finite scores transit this average, by decision
+    ///
+    /// A `NaN` or `±∞` score is **not** filtered out. It propagates into the
+    /// mean and stays there until the sliding window rolls past the offending
+    /// episode, so this method can return `Some(NaN)` or `Some(±∞)` even though
+    /// [`Self::best_score`] does not — [`Self::record`] folds the best with
+    /// `f32::max`, which discards a `NaN` operand rather than latching it.
+    ///
+    /// That asymmetry is a recorded contract (ADR 0065 §Decision 4,
+    /// re-affirmed by ADR 0070), **not an oversight, and it must not be
+    /// "fixed" here.** The reasoning: an episode return is the primary
+    /// scientific measurement this crate produces. The six off-policy agents
+    /// refuse to *store* a non-finite reward at replay ingestion, but every
+    /// training loop still accumulates each step's reward into
+    /// `episode_reward` unconditionally — precisely so that a non-finite
+    /// reward still surfaces here. This is a second, independent detection
+    /// channel, and unlike the ingestion drop guard it does not share that
+    /// guard's decade-scheduled `warn!` throttling, so a poisoned run is
+    /// visible in the reported curve on the very next episode.
+    ///
+    /// It is also load-bearing for the test harness: `assert_reaches` and
+    /// `assert_improves_over_random` in `rlevo-test-support` both gate their
+    /// convergence check on the average being finite. Filtering here would let
+    /// a `NaN`-poisoned run quietly pass a threshold it never actually met;
+    /// admitting the `NaN` makes it fail loudly instead.
+    ///
+    /// # When you want the hardened statistic instead
+    ///
+    /// Use [`Self::finite_avg_score`] together with
+    /// [`Self::non_finite_recent_len`]. That pair is the direct analogue of
+    /// `StrategyMetrics::mean_fitness`/`broken_count` in `rlevo-evolution`
+    /// (ADR 0034): a mean over the well-behaved entries, shipped alongside the
+    /// count of what it excluded, so nothing is sanitized silently.
+    ///
+    /// Rule of thumb: reach for the pair when you are **reporting** a learning
+    /// curve; keep `avg_score` when you are **detecting** a problem.
     #[must_use]
     // Divisor/normalizer derived from a count -- batch size, minibatch count,
     // history length, iteration number. All are bounded by configured sizes far
@@ -213,6 +250,146 @@ impl<T: PerformanceRecord> AgentStats<T> {
                 .sum();
             Some(sum / self.recent_history.len() as f32)
         }
+    }
+
+    /// Returns the mean [`PerformanceRecord::score`] over the **finite**
+    /// entries of the sliding window, or `None` when the window holds no
+    /// finite entry.
+    ///
+    /// This is the hardened counterpart to [`Self::avg_score`]: a single
+    /// poisoned episode cannot blank the reported curve for the next
+    /// `window_size` episodes. `None` is returned in exactly two cases — the
+    /// window is empty, or every resident entry is non-finite — which are the
+    /// two situations in which "the mean of the good entries" has no answer.
+    /// Ship it with [`Self::non_finite_recent_len`], which reports how many
+    /// entries this method excluded; a hardened mean *without* that count is
+    /// silent sanitization, which ADR 0065 refuses.
+    ///
+    /// # Why the predicate is `is_finite`, not `!is_nan`
+    ///
+    /// Issue #409 proposed excluding `NaN` only. This method is deliberately
+    /// stronger and excludes `±∞` as well, for two reasons:
+    ///
+    /// - `±∞` destroys a mean as thoroughly as `NaN` does, and it is what
+    ///   ADR 0065's own `FiniteRewardGuard` tests for — a `!is_nan` predicate
+    ///   here would disagree with the ingestion guard about what "bad" means.
+    /// - `±∞` is reachable in a training loop's `episode_reward` from a run of
+    ///   entirely *finite* per-step rewards, by `f32` saturation over a long
+    ///   episode. No ingestion guard covers that path, because every
+    ///   individual reward it inspected was finite; the overflow happens in
+    ///   the accumulator afterwards.
+    ///
+    /// # Numerics
+    ///
+    /// The sum is accumulated in `f64` and narrowed to `f32` exactly once,
+    /// after the division — the same shape as `rlevo-evolution`'s
+    /// `sanitized_mean` (ADR 0069 §Decision 1). An `f32` accumulator can
+    /// saturate to `+∞` partway through a window of large-but-finite scores
+    /// and so manufacture the very non-finite value this method exists to
+    /// exclude. On the healthy path the wider accumulator changes nothing the
+    /// caller can observe at exactly-representable inputs.
+    ///
+    /// # Example
+    /// ```
+    /// use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
+    /// # #[derive(Debug, Clone)]
+    /// # struct Ep { score: f32, duration: usize }
+    /// # impl PerformanceRecord for Ep {
+    /// #   fn score(&self) -> f32 { self.score }
+    /// #   fn duration(&self) -> usize { self.duration }
+    /// # }
+    /// let mut stats = AgentStats::<Ep>::new(8);
+    /// assert_eq!(stats.finite_avg_score(), None);
+    ///
+    /// stats.record(Ep { score: 2.0, duration: 3 });
+    /// stats.record(Ep { score: f32::NAN, duration: 4 });
+    /// stats.record(Ep { score: f32::INFINITY, duration: 5 });
+    /// stats.record(Ep { score: 8.0, duration: 6 });
+    ///
+    /// // The hardened mean ignores both bad episodes; the raw mean does not.
+    /// assert_eq!(stats.finite_avg_score(), Some(5.0));
+    /// assert_eq!(stats.non_finite_recent_len(), 2);
+    /// assert!(!stats.avg_score().expect("window is non-empty").is_finite());
+    /// ```
+    #[must_use]
+    pub fn finite_avg_score(&self) -> Option<f32> {
+        let mut sum = 0.0_f64;
+        let mut count = 0_usize;
+        for entry in &self.recent_history {
+            let score = entry.score();
+            if score.is_finite() {
+                sum += f64::from(score);
+                count += 1;
+            }
+        }
+        if count == 0 {
+            return None;
+        }
+        // Divisor derived from a count, bounded by `window_size` and hence by
+        // `MAX_BUFFER_CAPACITY` -- far below f64's 2^53 exact-integer limit.
+        #[allow(clippy::cast_precision_loss)]
+        let n = count as f64;
+        // The single narrowing of the whole reduction: every term is a finite
+        // `f32`, so their mean is within `f32` range and cannot overflow.
+        #[allow(clippy::cast_possible_truncation)]
+        let mean = (sum / n) as f32;
+        Some(mean)
+    }
+
+    /// Returns how many entries of the sliding window carry a non-finite
+    /// (`NaN` or `±∞`) [`PerformanceRecord::score`].
+    ///
+    /// This is the count of exactly what [`Self::finite_avg_score`] excluded,
+    /// and shipping the two together is the load-bearing half of the pair: a
+    /// hardened mean reported on its own is the silent sanitization ADR 0065
+    /// refuses. The count also carries information the mean cannot — whether a
+    /// stray `NaN` is one episode in a hundred or a third of the window. The
+    /// pair mirrors `StrategyMetrics::mean_fitness`/`broken_count` in
+    /// `rlevo-evolution` (ADR 0034); see ADR 0070.
+    ///
+    /// # Windowed, and derived on each call
+    ///
+    /// Named to parallel [`Self::recent_len`] so that "windowed, not lifetime"
+    /// is audible at the call site. Nothing is stored: the count is recomputed
+    /// from `recent_history` on every call, so it is self-healing — once the
+    /// window rolls past the offending episode the count returns to zero.
+    ///
+    /// This is a deliberate contrast with the six off-policy agents'
+    /// `dropped_transitions()`, which is a **monotone lifetime** counter
+    /// (ADR 0065 §Decision 1). The two will disagree on a run that saw a
+    /// non-finite value early and recovered, and that disagreement is the
+    /// point: one answers "did this run ever go bad?", the other answers "is
+    /// it bad *now*?".
+    ///
+    /// Always `<= `[`Self::recent_len`].
+    ///
+    /// # Example
+    /// ```
+    /// use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
+    /// # #[derive(Debug, Clone)]
+    /// # struct Ep { score: f32, duration: usize }
+    /// # impl PerformanceRecord for Ep {
+    /// #   fn score(&self) -> f32 { self.score }
+    /// #   fn duration(&self) -> usize { self.duration }
+    /// # }
+    /// let mut stats = AgentStats::<Ep>::new(2);
+    /// assert_eq!(stats.non_finite_recent_len(), 0);
+    ///
+    /// stats.record(Ep { score: f32::NEG_INFINITY, duration: 3 });
+    /// assert_eq!(stats.non_finite_recent_len(), 1);
+    ///
+    /// // Self-healing: two clean episodes evict the bad one from the window.
+    /// stats.record(Ep { score: 1.0, duration: 4 });
+    /// stats.record(Ep { score: 3.0, duration: 5 });
+    /// assert_eq!(stats.non_finite_recent_len(), 0);
+    /// assert_eq!(stats.finite_avg_score(), Some(2.0));
+    /// ```
+    #[must_use]
+    pub fn non_finite_recent_len(&self) -> usize {
+        self.recent_history
+            .iter()
+            .filter(|entry| !entry.score().is_finite())
+            .count()
     }
 }
 
@@ -387,10 +564,18 @@ mod tests {
     /// `f32::maximum` (NaN-propagating) would invert this, hence the exact-value
     /// assertions rather than a mere `is_finite` check.
     ///
-    /// The final assertion records what is deliberately *not* guarded: review
-    /// row 1.2b ("NaN transits `avg_score`") is open and rated Low, because the
-    /// NaN clears itself once the window rolls past it. `avg_score` admitting
-    /// the NaN is therefore the known, accepted contract — do not "fix" it here.
+    /// The final assertion records a **contract, not an unfixed gap**. Review
+    /// row 1.2b ("NaN transits `avg_score`") is *decided*, not open pending a
+    /// fix: `avg_score` admits the NaN deliberately, as one of ADR 0065
+    /// §Decision 4's surfacing channels for a non-finite episode return.
+    /// ADR 0070 (issue #409) revisited it and re-affirmed the behaviour rather
+    /// than filtering, adding [`AgentStats::finite_avg_score`] and
+    /// [`AgentStats::non_finite_recent_len`] alongside for callers that want
+    /// the hardened statistic. **Do not "fix" `avg_score` to satisfy this line
+    /// — the line is the specification.** Filtering there would also blind
+    /// `assert_reaches`/`assert_improves_over_random` in `rlevo-test-support`,
+    /// which gate a run's convergence check on the average being finite; a
+    /// poisoned run would then pass a threshold it never met.
     ///
     /// This test only exercises the *argument* position of the fold (finite
     /// accumulator, NaN argument). Its sibling
@@ -416,12 +601,13 @@ mod tests {
         stats.record(TestRecord::with_duration(9.0, 5));
         assert_eq!(stats.best_score(), Some(9.0));
 
-        // Row 1.2b, open by design: the mean is *not* NaN-filtered, so the NaN
-        // transits it for as long as that episode sits in the window. `NaN !=
-        // NaN`, so this cannot be written as an `assert_eq!`.
+        // Row 1.2b, decided by design (ADR 0065 §Decision 4, re-affirmed by ADR
+        // 0070): the mean is *not* NaN-filtered, so the NaN transits it for as
+        // long as that episode sits in the window. `NaN != NaN`, so this cannot
+        // be written as an `assert_eq!`.
         assert!(
             stats.avg_score().is_some_and(f32::is_nan),
-            "avg_score should still admit the NaN (row 1.2b is open), got {:?}",
+            "avg_score must still admit the NaN (ADR 0065 §D4 / ADR 0070), got {:?}",
             stats.avg_score()
         );
 
@@ -523,5 +709,142 @@ mod tests {
         assert_eq!(stats.avg_score(), Some(2.0));
         assert_eq!(stats.total_episodes(), 3);
         assert_eq!(stats.total_steps(), 12);
+    }
+
+    /// The test that separates `is_finite()` from the `!is_nan()` predicate
+    /// issue #409 originally proposed (ADR 0070).
+    ///
+    /// Mutant killed: swapping either new method's predicate to `!is_nan()`.
+    /// Such an implementation admits `+∞` into the sum and returns
+    /// `Some(f32::INFINITY)` with a count of `0`, so the assertions are on
+    /// exact values — an `is_finite()` check on the result would pass against
+    /// the mutant for the count and only accidentally fail for the mean.
+    #[test]
+    fn positive_infinity_is_excluded_not_merely_nan() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+
+        stats.record(TestRecord::with_duration(3.0, 3));
+        stats.record(TestRecord::with_duration(f32::INFINITY, 4));
+        stats.record(TestRecord::with_duration(7.0, 5));
+
+        assert_eq!(stats.finite_avg_score(), Some(5.0));
+        assert_eq!(stats.non_finite_recent_len(), 1);
+        // The raw mean still admits the infinity, per ADR 0065 §Decision 4.
+        assert_eq!(stats.avg_score(), Some(f32::INFINITY));
+    }
+
+    /// A window in which *every* resident entry is non-finite has no
+    /// mean-over-finite-entries, and says so.
+    ///
+    /// Mutants killed: returning `Some(0.0)` from a `0/0` guarded to zero, and
+    /// returning `Some(NaN)` from an unguarded `0.0 / 0.0`. `assert_eq!` with
+    /// `None` kills both — `Some(NaN) != None` holds regardless of NaN's
+    /// self-inequality, which is why the assertion is not written as a
+    /// `is_none_or(f32::is_nan)`-style check.
+    #[test]
+    fn all_non_finite_window_has_no_finite_average() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+
+        stats.record(TestRecord::with_duration(f32::NAN, 3));
+        stats.record(TestRecord::with_duration(f32::INFINITY, 4));
+        stats.record(TestRecord::with_duration(f32::NEG_INFINITY, 5));
+
+        assert_eq!(stats.finite_avg_score(), None);
+        // Distinct from the empty-window case: the window is full of entries,
+        // all of them bad.
+        assert_eq!(stats.non_finite_recent_len(), 3);
+        assert_eq!(stats.recent_len(), 3);
+        assert_eq!(stats.total_steps(), 12);
+    }
+
+    /// All four observable quantities are distinct, so no pair of accessors
+    /// can be transposed and still satisfy every assertion.
+    ///
+    /// Mutants killed: `finite_avg_score` dividing by `recent_len()` rather
+    /// than the finite count (that yields `15/5 = 3.0`, not `5.0`);
+    /// `non_finite_recent_len` returning the finite count (`3`, deliberately
+    /// different from the non-finite count `2`) or the window occupancy (`5`);
+    /// and any implementation that also sanitizes `avg_score`.
+    #[test]
+    fn mixed_window_reports_four_distinct_observables() {
+        let mut stats = AgentStats::<TestRecord>::new(5);
+
+        stats.record(TestRecord::with_duration(2.0, 3));
+        stats.record(TestRecord::with_duration(f32::NAN, 4));
+        stats.record(TestRecord::with_duration(f32::INFINITY, 5));
+        stats.record(TestRecord::with_duration(8.0, 6));
+        stats.record(TestRecord::with_duration(5.0, 7));
+
+        assert_eq!(stats.finite_avg_score(), Some(5.0));
+        assert_eq!(stats.non_finite_recent_len(), 2);
+        assert_eq!(stats.recent_len(), 5);
+        let avg = stats.avg_score().expect("window is non-empty");
+        assert!(
+            !avg.is_finite(),
+            "avg_score must still admit the non-finite entries, got {avg}"
+        );
+    }
+
+    /// The window statistic is self-healing: once the bad episode is evicted,
+    /// the count returns to zero and the two means agree again.
+    ///
+    /// Mutant killed: caching the non-finite tally as a monotone field updated
+    /// in `record` — the `rlevo`-wide `dropped_transitions()` shape. That
+    /// mutant reports `1` after eviction; a derived count reports `0`.
+    #[test]
+    fn eviction_heals_the_non_finite_count() {
+        let mut stats = AgentStats::<TestRecord>::new(2);
+
+        stats.record(TestRecord::with_duration(f32::NAN, 3));
+        assert_eq!(stats.non_finite_recent_len(), 1);
+
+        // Two clean episodes push the NaN out of a window of 2.
+        stats.record(TestRecord::with_duration(1.0, 4));
+        stats.record(TestRecord::with_duration(3.0, 5));
+
+        assert_eq!(stats.non_finite_recent_len(), 0);
+        assert_eq!(stats.finite_avg_score(), Some(2.0));
+        assert_eq!(stats.avg_score(), Some(2.0));
+        // Lifetime counters are unaffected by the healing: 3 episodes, 12 steps.
+        assert_eq!(stats.total_episodes(), 3);
+        assert_eq!(stats.total_steps(), 12);
+    }
+
+    /// The change is additive: on a healthy window the hardened mean reports
+    /// the *same* value as `avg_score`, bit for bit.
+    ///
+    /// Mutant killed: an `f64` accumulator that perturbs the reported value at
+    /// exactly-representable inputs (e.g. narrowing per-term instead of once,
+    /// or dividing in `f32` after an `f64` sum). The scores and count here are
+    /// exact in both widths, so `assert_eq!` on the two means is meaningful
+    /// and no epsilon is warranted.
+    #[test]
+    fn all_finite_window_matches_avg_score_exactly() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+
+        stats.record(TestRecord::with_duration(1.0, 3));
+        stats.record(TestRecord::with_duration(2.0, 4));
+        stats.record(TestRecord::with_duration(4.0, 5));
+        stats.record(TestRecord::with_duration(9.0, 6));
+
+        assert_eq!(stats.finite_avg_score(), stats.avg_score());
+        assert_eq!(stats.finite_avg_score(), Some(4.0));
+        assert_eq!(stats.non_finite_recent_len(), 0);
+        assert_eq!(stats.recent_len(), 4);
+    }
+
+    /// An empty window reports absence, not a zero-valued statistic — matching
+    /// [`AgentStats::avg_score`]'s existing `None`.
+    ///
+    /// Mutant killed: `finite_avg_score` returning `Some(0.0)` on an empty
+    /// window, which would read as "the agent scored zero" on a fresh run.
+    #[test]
+    fn empty_window_has_no_finite_average_and_no_bad_entries() {
+        let stats = AgentStats::<TestRecord>::new(4);
+
+        assert_eq!(stats.finite_avg_score(), None);
+        assert_eq!(stats.non_finite_recent_len(), 0);
+        assert_eq!(stats.avg_score(), None);
+        assert_eq!(stats.recent_len(), 0);
     }
 }

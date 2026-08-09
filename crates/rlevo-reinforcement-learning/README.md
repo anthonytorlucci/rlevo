@@ -413,6 +413,7 @@ Episode-level outcome tracking for training loops. Moved here from `rlevo-core` 
 |------|-------------|
 | `PerformanceRecord` | Per-episode outcome: `score() -> f32`, `duration() -> usize` |
 | `AgentStats<T>` | Running counters (`total_episodes`, `total_steps`, `best_score`) with a configurable sliding-window average (`avg_score`) |
+| `AgentStats::finite_avg_score` | The same window average over its **finite** entries only, paired with `non_finite_recent_len` (the count of what was excluded). `avg_score` deliberately transits a `NaN`/`±∞` score as a detection channel (ADR 0065 §Decision 4); reach for this pair when *reporting* a curve rather than *detecting* a problem (ADR 0070) |
 
 ---
 

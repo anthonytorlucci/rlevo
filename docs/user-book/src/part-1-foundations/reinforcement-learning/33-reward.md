@@ -154,6 +154,15 @@ knowing why there are three rather than one:
   the agent never earned. So a `NaN` in your reward curve is telling you the
   truth, and the drop counter tells you how widespread the cause is.
 
+  That truth-telling is exactly why you should keep reading `avg_score()` for
+  *detection* — do not reach for its hardened sibling here. When you are
+  instead *reporting* a learning curve and want one bad episode not to blank
+  it for the next `window_size` episodes, read
+  [`AgentStats::finite_avg_score()`](https://docs.rs/rlevo-reinforcement-learning)
+  alongside [`AgentStats::non_finite_recent_len()`](https://docs.rs/rlevo-reinforcement-learning),
+  which report the mean over the window's finite entries and the count it
+  excluded.
+
 Why bother, given that a `NaN` reward cannot actually corrupt your weights
 today — a companion internal guard already refuses to run `backward()` on a
 non-finite loss, on every occurrence? Because without this guard, the
