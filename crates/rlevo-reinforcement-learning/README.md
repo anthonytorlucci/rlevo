@@ -414,6 +414,7 @@ Episode-level outcome tracking for training loops. Moved here from `rlevo-core` 
 | `PerformanceRecord` | Per-episode outcome: `score() -> f32`, `duration() -> usize` |
 | `AgentStats<T>` | Running counters (`total_episodes`, `total_steps`, `best_score`) with a configurable sliding-window average (`avg_score`) |
 | `AgentStats::finite_avg_score` | The same window average over its **finite** entries only, paired with `non_finite_recent_len` (the count of what was excluded). `avg_score` deliberately transits a `NaN`/`±∞` score as a detection channel (ADR 0065 §Decision 4); reach for this pair when *reporting* a curve rather than *detecting* a problem (ADR 0070) |
+| `AgentStats::finite_best_score` | The **lifetime** best score over `is_finite()` episodes only (`None` until something finite is recorded), paired with `non_finite_episodes` — a **monotone lifetime** count that never heals, deliberately unlike the windowed, self-healing `non_finite_recent_len`. `best_score` latches a `+∞` score **permanently** by decision: `f32::max` discards a `NaN` operand but propagates `+∞`, and the best is never evicted by the window. It is left that way because `+∞` *is* the true maximum observed — filtering under that name would report a number the run contradicts (ADR 0061, ADR 0071) |
 
 ---
 

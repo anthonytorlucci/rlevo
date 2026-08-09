@@ -162,6 +162,27 @@ knowing why there are three rather than one:
   alongside [`AgentStats::non_finite_recent_len()`](https://docs.rs/rlevo-reinforcement-learning),
   which report the mean over the window's finite entries and the count it
   excluded.
+- **The best-ever score latches on `+∞`, and only on `+∞`.** We fold
+  the best score with `f32::max`, which discards a `NaN` operand — so a `NaN`
+  episode cannot corrupt it — but which propagates `+∞`, because
+  `+∞` genuinely *is* the largest value it was handed. Since the best
+  score is never evicted by the sliding window, one such episode pins
+  [`AgentStats::best_score()`](https://docs.rs/rlevo-reinforcement-learning)
+  at `+∞` for the rest of the run, with no recovery. We leave it that
+  way for the same reason we leave the episode return poisoned: reporting the
+  largest *finite* score under a name that promises the largest score would
+  report a number the run contradicts. When you want the hardened statistic,
+  read [`AgentStats::finite_best_score()`](https://docs.rs/rlevo-reinforcement-learning)
+  with [`AgentStats::non_finite_episodes()`](https://docs.rs/rlevo-reinforcement-learning).
+  Note the scope: that count is a **lifetime** counter that never heals,
+  unlike the windowed `non_finite_recent_len()`, which returns to zero once
+  the window rolls past the bad episode. The two will disagree on a run that
+  went bad early and recovered — one answers *did this run ever go bad?*, the
+  other *is it bad now?*
+- **Watch for `+∞` even when the drop counter reads zero.** An episode of
+  entirely finite rewards can still saturate the `f32` return accumulator over
+  a long enough run, and no ingestion guard sees that — every individual
+  reward it inspected was finite, and the overflow happens afterwards.
 
 Why bother, given that a `NaN` reward cannot actually corrupt your weights
 today — a companion internal guard already refuses to run `backward()` on a

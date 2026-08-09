@@ -180,6 +180,12 @@ example calls it directly:
 The last argument is `log_every`: emit a progress line every *N* steps (`0`
 disables logging). At the end you read results off `agent.stats()` —
 `total_episodes()`, `best_score()`, and `avg_score()` over the recent window.
+CartPole's reward is a flat `1.0` per step under a step limit, so those three
+tell you everything here; if a run of yours can produce a non-finite episode
+return, note that `best_score()` latches a `+∞` permanently — read
+`finite_best_score()` with `non_finite_episodes()` instead, and see
+[Rewards](../part-1-foundations/reinforcement-learning/33-reward.md) for why we
+leave the raw value that way.
 
 This is *not* an ask/tell loop in the evolutionary sense — the agent acts
 sequentially and updates after every few steps, not after a full population

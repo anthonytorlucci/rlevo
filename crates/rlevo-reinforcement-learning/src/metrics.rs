@@ -54,6 +54,10 @@ pub struct AgentStats<T: PerformanceRecord> {
     total_steps: usize,
     /// The highest score observed across all episodes.
     best_score: Option<f32>,
+    /// The highest **finite** score observed across all episodes.
+    finite_best_score: Option<f32>,
+    /// Lifetime count of recorded episodes whose score was non-finite.
+    non_finite_episodes: usize,
     /// Fixed-size sliding window of the most recent episodes.
     recent_history: VecDeque<T>,
     /// Maximum capacity of the sliding window.
@@ -101,6 +105,8 @@ impl<T: PerformanceRecord> AgentStats<T> {
             total_episodes: 0,
             total_steps: 0,
             best_score: None,
+            finite_best_score: None,
+            non_finite_episodes: 0,
             recent_history: VecDeque::with_capacity(window_size),
             window_size,
         }
@@ -108,7 +114,8 @@ impl<T: PerformanceRecord> AgentStats<T> {
 
     /// Records a completed episode, updating all counters and the sliding window.
     ///
-    /// Both lifetime counters ([`Self::total_episodes`], [`Self::total_steps`])
+    /// All three lifetime counters ([`Self::total_episodes`],
+    /// [`Self::total_steps`], [`Self::non_finite_episodes`])
     /// saturate at `usize::MAX`: a further `record` leaves them pinned there
     /// rather than wrapping to a small value in release builds or aborting the
     /// run with an "attempt to add with overflow" panic under `overflow-checks`.
@@ -122,6 +129,11 @@ impl<T: PerformanceRecord> AgentStats<T> {
 
         let score = entry.score();
         self.best_score = Some(self.best_score.map_or(score, |b| b.max(score)));
+        if score.is_finite() {
+            self.finite_best_score = Some(self.finite_best_score.map_or(score, |b| b.max(score)));
+        } else {
+            self.non_finite_episodes = self.non_finite_episodes.saturating_add(1);
+        }
 
         // Maintain Sliding Window (O(1) with VecDeque)
         if self.recent_history.len() >= self.window_size {
@@ -158,9 +170,184 @@ impl<T: PerformanceRecord> AgentStats<T> {
     ///
     /// Unlike [`Self::avg_score`], the best score is never evicted by the
     /// sliding window.
+    ///
+    /// # A `+∞` score latches here permanently, by decision
+    ///
+    /// [`Self::record`] folds this with `f32::max`, which **discards** a `NaN`
+    /// operand — pinned by the tests `nan_score_does_not_poison_best_score` and
+    /// `nan_as_first_record_does_not_latch_best_score`, which cover the argument
+    /// and receiver positions of the fold separately — but **propagates** `+∞`,
+    /// in either operand position, because `+∞` compares greater than every
+    /// finite value.
+    ///
+    /// Combined with "never evicted" above, a single `+∞` episode pins this
+    /// accessor at `+∞` for the entire remaining lifetime of the agent, with no
+    /// self-healing of any kind. That is strictly worse than [`Self::avg_score`]'s
+    /// transit of a non-finite score, which heals within one
+    /// [`Self::window_size`] as the offending episode rolls out of the window.
+    ///
+    /// **This is not filtered, and must not be.** `+∞` genuinely *is* the true
+    /// maximum score observed, and reporting something smaller under the name
+    /// "best score" is exactly the fabrication ADR 0061 forbids and ADR 0070
+    /// §Rejected alternatives ruled out for the mean.
+    ///
+    /// Two paths reach it, and both are reachable on an agent that is fully
+    /// guarded today:
+    ///
+    /// - ADR 0065's `FiniteRewardGuard` refuses to *store* a non-finite
+    ///   per-step reward, but all eight training loops still accumulate
+    ///   `episode_reward += reward_f32` unconditionally and by design (ADR 0065
+    ///   §Decision 4), precisely so the bad value still surfaces as a statistic.
+    ///   A single `+∞` environment reward therefore reaches [`Self::record`]
+    ///   even with every ingestion guard in place.
+    /// - A long episode of entirely *finite* rewards can saturate the `f32`
+    ///   `episode_reward` accumulator to `+∞` by ordinary accumulation. There is
+    ///   no non-finite reward anywhere on that path, `dropped_transitions()`
+    ///   reads zero, and no `warn!` fires (ADR 0070 §Context 4).
+    ///
+    /// `-∞` is harmless here: `f32::max` discards it as the smaller operand at
+    /// the first finite episode.
+    ///
+    /// # When you want the hardened statistic instead
+    ///
+    /// Use [`Self::finite_best_score`] together with
+    /// [`Self::non_finite_episodes`] — the lifetime analogue of the
+    /// [`Self::finite_avg_score`] / [`Self::non_finite_recent_len`] pair, and
+    /// additive for the same reason (ADR 0071).
     #[must_use]
     pub fn best_score(&self) -> Option<f32> {
         self.best_score
+    }
+
+    /// Returns the highest **finite** [`PerformanceRecord::score`] observed
+    /// across all recorded episodes, or `None` when no finite score has ever
+    /// been recorded.
+    ///
+    /// This is the hardened counterpart to [`Self::best_score`]: a single `+∞`
+    /// episode cannot latch it for the lifetime of the agent. Ship it with
+    /// [`Self::non_finite_episodes`], which reports how many episodes this
+    /// maximum excluded; a hardened maximum *without* its exclusion count is the
+    /// silent sanitization ADR 0065 refuses.
+    ///
+    /// # Why the predicate is `is_finite`, not `!is_nan`
+    ///
+    /// The mean side ([`Self::finite_avg_score`]) argues this from `±∞`
+    /// destroying a mean. The maximum side has a sharper argument of its own:
+    /// `f32::max` **already** discards `NaN` for free, so a `!is_nan()`
+    /// predicate here would make this method observationally identical to
+    /// [`Self::best_score`] at every input *except* the one — `+∞` — that this
+    /// method exists for. That is a hardened name over an unhardened statistic,
+    /// which is the worst available outcome (ADR 0070 §Decision 3).
+    ///
+    /// `is_finite()` is additionally what `FiniteRewardGuard::admit` and
+    /// [`Self::finite_avg_score`] test for, so all three agree on what "bad"
+    /// means rather than each carrying a private definition.
+    ///
+    /// # Lifetime, and it stores state — unlike its windowed cousin
+    ///
+    /// This maximum is over all of history, so it **cannot** be derived from
+    /// `recent_history` the way [`Self::non_finite_recent_len`] is: the episode
+    /// that set it may have been evicted from the window many episodes ago.
+    /// [`Self::record`] therefore maintains it, and `AgentStats` carries a
+    /// field for it.
+    ///
+    /// ADR 0070 §Decision 5 declined to store state for the windowed count, and
+    /// that objection does **not** transfer here. It was an objection to a
+    /// counter that would need **decrementing on `pop_front`** — a new
+    /// correctness obligation coupling a counter to a deque eviction, which a
+    /// later refactor can break silently. A lifetime maximum and a lifetime
+    /// count have no eviction coupling at all: nothing about them changes when
+    /// the window rolls, so no new invariant lands on the hot path.
+    ///
+    /// # Example
+    /// ```
+    /// use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
+    /// # #[derive(Debug, Clone)]
+    /// # struct Ep { score: f32, duration: usize }
+    /// # impl PerformanceRecord for Ep {
+    /// #   fn score(&self) -> f32 { self.score }
+    /// #   fn duration(&self) -> usize { self.duration }
+    /// # }
+    /// let mut stats = AgentStats::<Ep>::new(8);
+    /// assert_eq!(stats.finite_best_score(), None);
+    ///
+    /// stats.record(Ep { score: 5.0, duration: 3 });
+    /// stats.record(Ep { score: f32::INFINITY, duration: 4 });
+    /// stats.record(Ep { score: 3.0, duration: 5 });
+    /// stats.record(Ep { score: 100.0, duration: 6 });
+    ///
+    /// // The raw maximum latches at `+∞` and never recovers -- by decision.
+    /// assert_eq!(stats.best_score(), Some(f32::INFINITY));
+    /// // The hardened maximum keeps advancing past the latch.
+    /// assert_eq!(stats.finite_best_score(), Some(100.0));
+    /// assert_eq!(stats.non_finite_episodes(), 1);
+    /// ```
+    #[must_use]
+    pub fn finite_best_score(&self) -> Option<f32> {
+        self.finite_best_score
+    }
+
+    /// Returns how many recorded episodes carried a non-finite (`NaN` or `±∞`)
+    /// [`PerformanceRecord::score`], over all of history.
+    ///
+    /// This is the count of exactly what [`Self::finite_best_score`] excluded,
+    /// and the two are one decision rather than two. The count carries what a
+    /// maximum cannot: whether the `+∞` latch on [`Self::best_score`] came from
+    /// one episode in a million or from a third of the run. Unlike a windowed
+    /// mean, a maximum gives no other signal about how often the bad value
+    /// occurred — once latched it never moves again, so its value is identical
+    /// in both cases.
+    ///
+    /// # Lifetime, not windowed — and it does not heal
+    ///
+    /// Named to parallel [`Self::total_episodes`] so that "lifetime, not
+    /// windowed" is audible at the call site. This is a **deliberate** contrast
+    /// with [`Self::non_finite_recent_len`], which parallels [`Self::recent_len`],
+    /// is derived from the window on every call, and returns to zero once the
+    /// window rolls past the offending episode.
+    ///
+    /// The two will disagree on a run that went bad early and recovered, and
+    /// that disagreement is the point: this one answers "did this run *ever* go
+    /// bad?", the windowed one answers "is it bad *now*?". It is the same split
+    /// ADR 0065 §Decision 1 drew for the agents' monotone
+    /// `dropped_transitions()`.
+    ///
+    /// Always `<= `[`Self::total_episodes`].
+    ///
+    /// # Saturation
+    ///
+    /// The counter saturates at `usize::MAX` in [`Self::record`], alongside the
+    /// other two lifetime counters, so a returned `usize::MAX` means "at least
+    /// this many non-finite episodes", not an exact count.
+    ///
+    /// # Example
+    /// ```
+    /// use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
+    /// # #[derive(Debug, Clone)]
+    /// # struct Ep { score: f32, duration: usize }
+    /// # impl PerformanceRecord for Ep {
+    /// #   fn score(&self) -> f32 { self.score }
+    /// #   fn duration(&self) -> usize { self.duration }
+    /// # }
+    /// let mut stats = AgentStats::<Ep>::new(2);
+    /// stats.record(Ep { score: f32::NAN, duration: 3 });
+    ///
+    /// // While the bad episode is resident, both counts agree.
+    /// assert_eq!(stats.non_finite_recent_len(), 1);
+    /// assert_eq!(stats.non_finite_episodes(), 1);
+    ///
+    /// // Two clean episodes evict it from a window of 2.
+    /// stats.record(Ep { score: 1.0, duration: 4 });
+    /// stats.record(Ep { score: 3.0, duration: 5 });
+    ///
+    /// // The windowed count heals; the lifetime count does not.
+    /// assert_eq!(stats.non_finite_recent_len(), 0);
+    /// assert_eq!(stats.non_finite_episodes(), 1);
+    /// assert_eq!(stats.finite_best_score(), Some(3.0));
+    /// ```
+    #[must_use]
+    pub fn non_finite_episodes(&self) -> usize {
+        self.non_finite_episodes
     }
 
     /// Returns the sliding window of the most recent episodes, oldest first.
@@ -791,6 +978,12 @@ mod tests {
     /// Mutant killed: caching the non-finite tally as a monotone field updated
     /// in `record` — the `rlevo`-wide `dropped_transitions()` shape. That
     /// mutant reports `1` after eviction; a derived count reports `0`.
+    ///
+    /// Mirror image of
+    /// [`non_finite_episodes_is_a_lifetime_count_not_a_window_count`], which
+    /// runs the same history against the *stored lifetime* counter and expects
+    /// the opposite answer. Keep both: together they are the only executable
+    /// statement of the windowed/lifetime split.
     #[test]
     fn eviction_heals_the_non_finite_count() {
         let mut stats = AgentStats::<TestRecord>::new(2);
@@ -846,5 +1039,246 @@ mod tests {
         assert_eq!(stats.non_finite_recent_len(), 0);
         assert_eq!(stats.avg_score(), None);
         assert_eq!(stats.recent_len(), 0);
+    }
+
+    /// The executable form of ADR 0070 §Correction (b) and of the decision that
+    /// the latch is *kept*: `best_score` reports `+∞` forever, and the hardened
+    /// sibling advances past it.
+    ///
+    /// Mutants killed:
+    /// (a) filtering non-finite scores inside `best_score` itself — the first
+    ///     assertion fails, which is what makes the ADR 0061 no-fabrication
+    ///     ruling executable rather than prose;
+    /// (b) folding the raw score into `finite_best_score` outside the
+    ///     `is_finite` guard — the accumulator latches at `+∞` and the second
+    ///     assertion reads `Some(f32::INFINITY)`, not `Some(100.0)`;
+    /// (c) seeding `finite_best_score` from `best_score` rather than from the
+    ///     first finite score.
+    ///
+    /// The `100.0` episode arrives **after** the `+∞` on purpose: it proves the
+    /// finite maximum still advances once the raw one has latched.
+    #[test]
+    fn positive_infinity_latches_best_score_but_not_finite_best_score() {
+        let mut stats = AgentStats::<TestRecord>::new(8);
+
+        stats.record(TestRecord::with_duration(5.0, 3));
+        stats.record(TestRecord::with_duration(f32::INFINITY, 4));
+        stats.record(TestRecord::with_duration(3.0, 5));
+        stats.record(TestRecord::with_duration(100.0, 6));
+
+        assert_eq!(stats.best_score(), Some(f32::INFINITY));
+        assert_eq!(stats.finite_best_score(), Some(100.0));
+        assert_eq!(stats.non_finite_episodes(), 1);
+        assert_eq!(stats.total_episodes(), 4);
+    }
+
+    /// `-∞` is the non-finite value `f32::max` handles *correctly* on the raw
+    /// side — it is discarded as the smaller operand — which is exactly why the
+    /// hardened side must still exclude and count it.
+    ///
+    /// Mutants killed: a counter predicated on `!is_nan()` (reports `0` here);
+    /// a counter predicated on `is_infinite() && is_sign_positive()` (`0`); and
+    /// a counter incremented only when `best_score` actually changed, or only
+    /// when it changed to a non-finite value (`0` — the raw best is `Some(2.0)`
+    /// either way).
+    #[test]
+    fn negative_infinity_is_excluded_from_finite_best_and_counted() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+
+        stats.record(TestRecord::with_duration(f32::NEG_INFINITY, 3));
+        stats.record(TestRecord::with_duration(2.0, 4));
+
+        // The raw fold discards `-∞` as the smaller operand, so raw and
+        // hardened agree on the value here -- only the count separates them.
+        assert_eq!(stats.best_score(), Some(2.0));
+        assert_eq!(stats.finite_best_score(), Some(2.0));
+        assert_eq!(stats.non_finite_episodes(), 1);
+    }
+
+    /// The `NaN` third of the predicate, in the receiver position (`NaN` first),
+    /// where the raw accumulator is itself seeded with the bad value.
+    ///
+    /// Mutant killed: a counter predicated on `is_infinite()`, which reports `0`
+    /// here.
+    ///
+    /// Note what this test does **not** kill:
+    /// [`positive_infinity_latches_best_score_but_not_finite_best_score`]'s
+    /// mutant (b) — an unguarded fold into `finite_best_score`. A `NaN`
+    /// accumulator heals through `.max` on the very next finite episode, so the
+    /// unguarded fold would still report `Some(5.0)` here and pass. That
+    /// asymmetry between `NaN` and `+∞` is why both tests exist.
+    #[test]
+    fn nan_is_excluded_from_finite_best_and_counted() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+
+        stats.record(TestRecord::with_duration(f32::NAN, 3));
+        stats.record(TestRecord::with_duration(5.0, 4));
+
+        // Pins the existing, unchanged raw behaviour: `f32::max` discards NaN.
+        assert_eq!(stats.best_score(), Some(5.0));
+        assert_eq!(stats.finite_best_score(), Some(5.0));
+        assert_eq!(stats.non_finite_episodes(), 1);
+    }
+
+    /// The single test that pins `is_finite()` as *the* predicate, by making the
+    /// three candidate predicates report three different counts over one
+    /// history: `!is_nan()` → `1`, `is_infinite()` → `2`, `is_finite()` → `3`.
+    ///
+    /// The two finite episodes that follow keep the hardened maximum
+    /// observable (`7.0`) and distinct from the raw one (`+∞`), so no pair of
+    /// accessors can be transposed and still satisfy every assertion.
+    #[test]
+    fn all_three_non_finite_kinds_are_excluded_and_counted() {
+        let mut stats = AgentStats::<TestRecord>::new(8);
+
+        stats.record(TestRecord::with_duration(f32::NAN, 3));
+        stats.record(TestRecord::with_duration(f32::INFINITY, 4));
+        stats.record(TestRecord::with_duration(f32::NEG_INFINITY, 5));
+        stats.record(TestRecord::with_duration(4.0, 6));
+        stats.record(TestRecord::with_duration(7.0, 7));
+
+        assert_eq!(stats.finite_best_score(), Some(7.0));
+        assert_eq!(stats.non_finite_episodes(), 3);
+        assert_eq!(stats.best_score(), Some(f32::INFINITY));
+        assert_eq!(stats.total_episodes(), 5);
+        assert_eq!(stats.recent_len(), 5);
+    }
+
+    /// The most important mutant of the whole change: `finite_best_score`
+    /// derived from `recent_history` on each call — the shape ADR 0070
+    /// §Decision 5 suggests by analogy with `non_finite_recent_len`, and which
+    /// is *wrong* for a lifetime statistic because the record that set the
+    /// maximum can be evicted. That mutant reports `Some(3.0)` here.
+    ///
+    /// Also killed: a `min` fold (`Some(1.0)`), and a "keep the latest finite
+    /// score" fold (`Some(3.0)`).
+    ///
+    /// Sibling of [`best_score_survives_eviction_while_average_does_not`]; the
+    /// `avg_score` assertion is carried along to show the window really did
+    /// roll past the `10.0`.
+    #[test]
+    fn finite_best_score_survives_eviction() {
+        let mut stats = AgentStats::<TestRecord>::new(2);
+
+        stats.record(TestRecord::with_duration(10.0, 3));
+        stats.record(TestRecord::with_duration(1.0, 4));
+        stats.record(TestRecord::with_duration(3.0, 5));
+
+        assert_eq!(stats.finite_best_score(), Some(10.0));
+        assert_eq!(stats.best_score(), Some(10.0));
+        assert_eq!(stats.recent_len(), 2);
+        assert_eq!(stats.avg_score(), Some(2.0));
+    }
+
+    /// The mirror image of [`eviction_heals_the_non_finite_count`]: the same
+    /// history, the same eviction, and the opposite expectation, because the
+    /// lifetime counter is stored rather than derived and so does not heal.
+    ///
+    /// Mutants killed: `non_finite_episodes` delegating to
+    /// `non_finite_recent_len` (reports `0` after the eviction); any reset of
+    /// the counter on eviction or on a clean episode.
+    #[test]
+    fn non_finite_episodes_is_a_lifetime_count_not_a_window_count() {
+        let mut stats = AgentStats::<TestRecord>::new(2);
+
+        stats.record(TestRecord::with_duration(f32::NAN, 3));
+        assert_eq!(stats.non_finite_recent_len(), 1);
+        assert_eq!(stats.non_finite_episodes(), 1);
+
+        // Two clean episodes push the NaN out of a window of 2.
+        stats.record(TestRecord::with_duration(1.0, 4));
+        stats.record(TestRecord::with_duration(3.0, 5));
+
+        assert_eq!(stats.non_finite_recent_len(), 0);
+        assert_eq!(stats.non_finite_episodes(), 1);
+        assert_eq!(stats.finite_best_score(), Some(3.0));
+    }
+
+    /// The third lifetime counter clamps at `usize::MAX` like the two settled
+    /// under #408, and for the same reason — see
+    /// [`total_steps_saturates_instead_of_wrapping`] for the house explanation
+    /// of why the pre-saturation state is installed by assigning the private
+    /// field directly, and why the assertion is on the *value*.
+    ///
+    /// Mutant killed: `self.non_finite_episodes += 1`. The assertion is never
+    /// "it did not panic": the dev profile enables `overflow-checks`, so a
+    /// panic-shaped test would pass against the unfixed `+=` under
+    /// `cargo test --release`, where the addition silently wraps to `0` instead.
+    #[test]
+    fn non_finite_episodes_saturates_instead_of_wrapping() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+        stats.non_finite_episodes = usize::MAX;
+
+        stats.record(TestRecord::with_duration(f32::NAN, 7));
+
+        assert_eq!(stats.non_finite_episodes(), usize::MAX);
+        // The episode counter starts at 0 and is nowhere near saturation, so a
+        // transposed accessor pair cannot satisfy both assertions.
+        assert_eq!(stats.total_episodes(), 1);
+    }
+
+    /// A history in which *every* episode was non-finite has no
+    /// maximum-over-finite-scores, and says so.
+    ///
+    /// Mutants killed: falling back to `best_score` when nothing finite was
+    /// recorded (reports `Some(f32::INFINITY)`); seeding the accumulator with
+    /// ADR 0069's `f32::NEG_INFINITY` sentinel, deliberately not adopted in this
+    /// crate (ADR 0070 §Decision 4) — that reports `Some(f32::NEG_INFINITY)`,
+    /// a claim about the agent rather than about the absence of data; and
+    /// `Some(NaN)`, which `assert_eq!` against `None` kills regardless of NaN's
+    /// self-inequality.
+    #[test]
+    fn all_non_finite_history_has_no_finite_best() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+
+        stats.record(TestRecord::with_duration(f32::NAN, 3));
+        stats.record(TestRecord::with_duration(f32::INFINITY, 4));
+        stats.record(TestRecord::with_duration(f32::NEG_INFINITY, 5));
+
+        assert_eq!(stats.finite_best_score(), None);
+        assert_eq!(stats.non_finite_episodes(), 3);
+        // The raw maximum still reports the truth about what was observed.
+        assert_eq!(stats.best_score(), Some(f32::INFINITY));
+        assert_eq!(stats.total_episodes(), 3);
+    }
+
+    /// A freshly constructed `AgentStats` reports absence on the new pair too,
+    /// matching [`empty_stats_report_no_average_or_best`] rather than
+    /// fabricating a zero.
+    ///
+    /// Mutant killed: `finite_best_score` initialised to `Some(0.0)`, which
+    /// would read as "the agent scored zero" on a run that has not started.
+    #[test]
+    fn empty_stats_report_no_finite_best_and_no_non_finite_count() {
+        let stats = AgentStats::<TestRecord>::new(4);
+
+        assert_eq!(stats.finite_best_score(), None);
+        assert_eq!(stats.non_finite_episodes(), 0);
+        assert_eq!(stats.best_score(), None);
+        assert_eq!(stats.total_episodes(), 0);
+    }
+
+    /// The additivity claim on the healthy path: with no non-finite episode
+    /// anywhere, the hardened maximum is the raw maximum, and the exclusion
+    /// count is zero.
+    ///
+    /// Mutant killed: any implementation that perturbs the reported maximum on
+    /// an all-finite history — an off-by-one fold that drops the first or last
+    /// episode, or a fold that keeps the latest rather than the greatest score
+    /// (the scores ascend, so the two are distinguished only by the `9.0`
+    /// arriving last; the count assertion and the exact `Some(9.0)` pin it).
+    #[test]
+    fn finite_best_score_matches_best_score_on_an_all_finite_history() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+
+        stats.record(TestRecord::with_duration(1.0, 3));
+        stats.record(TestRecord::with_duration(2.0, 4));
+        stats.record(TestRecord::with_duration(4.0, 5));
+        stats.record(TestRecord::with_duration(9.0, 6));
+
+        assert_eq!(stats.finite_best_score(), stats.best_score());
+        assert_eq!(stats.finite_best_score(), Some(9.0));
+        assert_eq!(stats.best_score(), Some(9.0));
+        assert_eq!(stats.non_finite_episodes(), 0);
     }
 }
