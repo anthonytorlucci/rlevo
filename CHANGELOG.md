@@ -337,6 +337,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   two `(B, 1)` tensors the compiler cannot tell apart: without it, transposing
   them was a silent change.
 
+- **`AgentStats`'s two lifetime counters wrapped in release instead of
+  saturating** (resolves #408). `record()` accumulated `total_episodes` and
+  `total_steps` with plain `+=`, and the workspace root declares no `[profile]`
+  section — so release inherits `overflow-checks = false` and both counters wrap
+  to `0` at `usize::MAX`, while debug panics. Neither profile is acceptable at
+  this site: nothing branches on these counters — they are read for progress
+  reporting — so a wrap does not fail, it *reports*, handing whoever is watching
+  a monotone quantity that just went backwards with no signal at all. Both are
+  now `saturating_add`, and the accessor docs state the resulting contract — a
+  counter pinned at `usize::MAX` means "at least this many", not "exactly this
+  many".
+
+  This is hardening rather than a live risk, and #407 is the reason. Before it
+  landed, the four fields were `pub`: any caller could write
+  `stats.total_steps = usize::MAX - 1` and make the very next `record()`
+  overflow, no long run required. Privatizing them closed that vector, leaving
+  only honest accumulation — roughly `1.8e19` steps on a 64-bit host. The issue
+  body concedes as much.
+
+  No existing test drove a counter anywhere near the boundary, and a test that
+  merely asserted "it didn't panic" would have been vacuous: the dev profile the
+  suite runs in has `overflow-checks = on`, so it panics on the *unfixed* code
+  for a reason unrelated to the fix, and the release-only wrap is invisible to
+  `cargo test` entirely. The two new regression tests therefore assert the
+  *saturated value* at each counter, which is red in both profiles against `+=`.
+
 **Added**
 
 - **`utils::compute_target_quantiles`**, the rank-2 sibling of
