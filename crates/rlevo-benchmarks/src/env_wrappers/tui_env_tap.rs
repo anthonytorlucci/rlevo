@@ -1,7 +1,8 @@
-//! [`TuiEnvTap`] — an [`Environment`] wrapper that emits episode returns to
-//! the live (metrics-only) TUI.
+//! [`TuiEnvTap`] — an [`Environment`](rlevo_core::environment::Environment)
+//! wrapper that emits episode returns to the live (metrics-only) TUI.
 //!
-//! [`TuiEnvTap`] wraps a raw [`Environment`] — the trait every RL/EA
+//! [`TuiEnvTap`] wraps a raw
+//! [`Environment`](rlevo_core::environment::Environment) — the trait every RL/EA
 //! algorithm crate drives directly. It is used by training loops that bypass
 //! the benchmarks harness (PPO's
 //! [`train_discrete`](https://docs.rs/rlevo-reinforcement-learning), future
@@ -11,7 +12,8 @@
 //!
 //! The live TUI is metrics-only (ADR-0013): the tap no longer captures env
 //! frames, only the per-episode return. Emission is best-effort and lossy
-//! via [`TuiHandle::try_push_episode_return`]; the wrapped env never stalls
+//! via [`TuiHandle::try_push_episode_return`](crate::reporter::tui::TuiHandle::try_push_episode_return);
+//! the wrapped env never stalls
 //! on render-thread state.
 //!
 //! [`TuiEvent::EpisodeReturn`]: crate::reporter::tui::TuiEvent::EpisodeReturn

@@ -3,7 +3,8 @@
 //!
 //! # The defect this closes
 //!
-//! [`PrioritizedReplay::sample`](super::PrioritizedReplay::sample) raises a
+//! [`PrioritizedReplay`](super::PrioritizedReplay)'s
+//! [`sample`](super::ReplayStrategy::sample) raises a
 //! probability ratio to β. Before this newtype the parameter was a bare `f32`
 //! guarded only by a `debug_assert!`, so in a **release** build a non-finite or
 //! out-of-range β propagated as follows:

@@ -1,7 +1,9 @@
 //! [`TuiCaptureLayer`] — a `tracing` Layer that fans every event into the
-//! TUI channel as both a [`TuiEvent::LogLine`] (for the scrolling log
-//! panel) and, when the event carries numeric fields matching the
-//! canonical metric registry, one or more [`TuiEvent::MetricUpdate`]
+//! TUI channel as both a
+//! [`TuiEvent::LogLine`](crate::reporter::tui::TuiEvent::LogLine) (for the
+//! scrolling log panel) and, when the event carries numeric fields matching the
+//! canonical metric registry, one or more
+//! [`TuiEvent::MetricUpdate`](crate::reporter::tui::TuiEvent::MetricUpdate)
 //! samples (for the sparkline panels).
 //!
 //! # Wiring contract

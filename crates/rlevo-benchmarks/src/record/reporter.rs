@@ -2,7 +2,7 @@
 //! surface.
 //!
 //! The benchmarks harness (`Suite` + `Evaluator`) drives the
-//! [`Reporter`] trait; [`RecordingReporter`] turns those lifecycle
+//! [`Reporter`](crate::reporter::Reporter) trait; [`RecordingReporter`] turns those lifecycle
 //! events into [`RecordSink`] calls so that harness runs land
 //! per-episode files even when the env is not wrapped in
 //! [`RecordingTap`].

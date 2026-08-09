@@ -6,8 +6,8 @@
 //! after the run via [`RecordSink::take_error`] and fail loudly instead of
 //! silently shipping a truncated recording.
 //!
-//! [`RecordWriter`]: super::writer::RecordWriter
-//! [`RecordSink::take_error`]: super::writer::RecordSink::take_error
+//! [`RecordWriter`]: crate::record::writer::RecordWriter
+//! [`RecordSink::take_error`]: crate::record::writer::RecordSink::take_error
 
 use std::io;
 

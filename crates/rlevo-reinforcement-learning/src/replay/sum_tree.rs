@@ -190,7 +190,8 @@ impl PriorityIndex for SumTree {
 ///
 /// Panics when `batch_size == 0`, or when `index.total()` is not strictly
 /// positive and finite. Both are guaranteed by
-/// [`PrioritizedReplay::sample`](super::PrioritizedReplay::sample)'s
+/// [`PrioritizedReplay`](super::PrioritizedReplay)'s
+/// [`sample`](super::ReplayStrategy::sample)
 /// preconditions: it rejects an under-filled buffer before calling, and every
 /// stored priority is finite and `> 0` by [`Priority`](super::Priority)'s
 /// construction, so a non-empty buffer has a positive total.

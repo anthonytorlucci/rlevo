@@ -28,13 +28,13 @@
 //! Every float the helpers below check as a **value** — `positive`'s `got`,
 //! `in_range`'s `got`, `ordered`'s `(low, high)`, `distinct`'s `(a, b)` — is a
 //! config's own field, and a field is never legitimately `NaN` or `$\pm\infty$`. Those
-//! are rejected as [`ConstraintKind::NotFinite`], and the finiteness check runs
+//! are rejected as [`ConstraintKind::NotFinite`](crate::config::ConstraintKind::NotFinite), and the finiteness check runs
 //! *first*, so `NotFinite` wins over `NotPositive` / `OutOfRange` /
 //! `NotOrdered` / `DegenerateInterval`. A non-finite value is a
 //! wrong-kind-of-number problem, and naming it as one is a better diagnosis
 //! than reporting the downstream comparison it also happens to fail.
 //!
-//! The **bounds** of [`in_range`] are the opposite case: `lo` and `hi` are the
+//! The **bounds** of [`in_range`](crate::config::in_range) are the opposite case: `lo` and `hi` are the
 //! *schema*, not the data, and `hi = f64::INFINITY` is the intended spelling of
 //! "unbounded above". `in_range(C, f, 0.0, f64::INFINITY, x)` therefore means
 //! "`x` must be finite and non-negative" and is accepted. `lo`/`hi` are not
