@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use rand::{Rng, RngExt};
 
 use super::{ImportanceExponent, ReplayBufferError, ReplayStrategy, SampledBatch, TransitionId};
+use crate::MAX_BUFFER_CAPACITY;
 
 /// A fixed-capacity FIFO replay buffer sampled uniformly with replacement.
 ///
@@ -79,13 +80,30 @@ impl<T> UniformReplay<T> {
     ///
     /// Panics if `capacity == 0`. A zero-capacity replay buffer cannot hold the
     /// transition it was just handed, and the pre-seam eviction shape would
-    /// have grown without bound instead of refusing. Every in-crate call site
-    /// passes a config field that
-    /// [`Validate`](rlevo_core::config::Validate) has already rejected zero
-    /// for, so this is a programming error, never user data.
+    /// have grown without bound instead of refusing.
+    ///
+    /// Panics if `capacity` exceeds [`MAX_BUFFER_CAPACITY`]. The bound is
+    /// shared with the prioritized buffer, whose sum-tree wraps outright at
+    /// capacities near `usize::MAX` in release builds (see that constant); here
+    /// the concrete failure is that `VecDeque::with_capacity` **aborts** the
+    /// process on an allocation it cannot serve, which no caller can catch or
+    /// diagnose. Refusing the capacity up front turns a process abort into a
+    /// panic that names the offending call site.
+    ///
+    /// Both are programming errors, never user data: every in-crate call site
+    /// passes a config field that [`Validate`](rlevo_core::config::Validate)
+    /// has already rejected zero and over-large values for. That is why this
+    /// stays infallible — there is no `try_new` and no `Result`, following the
+    /// #190/#191 precedent that a config-validated constructor does not
+    /// re-litigate its input in the type system.
     #[must_use]
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "replay buffer capacity must be non-zero");
+        assert!(
+            capacity <= MAX_BUFFER_CAPACITY,
+            "replay buffer capacity {capacity} exceeds MAX_BUFFER_CAPACITY \
+             {MAX_BUFFER_CAPACITY}"
+        );
         Self {
             buffer: VecDeque::with_capacity(capacity),
             capacity,
@@ -222,6 +240,35 @@ mod tests {
     #[should_panic(expected = "replay buffer capacity must be non-zero")]
     fn test_uniform_replay_new_rejects_zero_capacity() {
         let _: UniformReplay<u32> = UniformReplay::new(0);
+    }
+
+    /// Issue #404: `VecDeque::with_capacity(usize::MAX)` aborts the process on
+    /// a failed allocation rather than unwinding, so an over-large capacity had
+    /// no diagnosable failure mode at all. It is now a named panic.
+    #[test]
+    #[should_panic(expected = "exceeds MAX_BUFFER_CAPACITY")]
+    fn test_uniform_replay_new_rejects_capacity_above_ceiling() {
+        let _: UniformReplay<u32> = UniformReplay::new(MAX_BUFFER_CAPACITY + 1);
+    }
+
+    /// The ceiling is inclusive. Constructing the buffer at exactly
+    /// `MAX_BUFFER_CAPACITY` would try to reserve `2^32` elements, so this pins
+    /// the boundary at the assert rather than at the allocator: `usize::MAX`
+    /// and `MAX_BUFFER_CAPACITY + 1` are rejected, `MAX_BUFFER_CAPACITY` is not
+    /// what the assert complains about.
+    #[test]
+    fn test_uniform_replay_capacity_ceiling_is_inclusive() {
+        assert!(
+            MAX_BUFFER_CAPACITY.checked_next_power_of_two().is_some(),
+            "the ceiling itself must survive the sum-tree's rounding"
+        );
+        assert!(
+            MAX_BUFFER_CAPACITY
+                .next_power_of_two()
+                .checked_mul(2)
+                .is_some_and(|n| n == 1 << 33),
+            "and its doubling must be exact, which is the whole point of 2^32"
+        );
     }
 
     #[test]

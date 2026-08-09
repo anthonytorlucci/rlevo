@@ -7,6 +7,7 @@
 //! - [`HistoryRepresentation`] — trait for constructing state summaries from history
 //! - [`SufficientStatistic`] — history summary that satisfies the Markov property
 
+use crate::MAX_BUFFER_CAPACITY;
 use rlevo_core::base::{Action, Observation, Reward};
 use rlevo_core::state::MarkovState;
 use std::collections::VecDeque;
@@ -99,15 +100,25 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     ///
     /// # Arguments
     /// * `capacity` - Maximum number of transitions retained before the oldest
-    ///   is evicted. Must be greater than 0.
+    ///   is evicted. Must be in `1..=`[`MAX_BUFFER_CAPACITY`].
     ///
     /// # Panics
+    ///
     /// Panics if `capacity` is 0. A zero-capacity buffer cannot hold any
     /// transitions: [`Self::add`] would evict before every push, pinning
     /// `len()` at 1 while [`Self::capacity`] reports 0 and [`Self::is_full`]
     /// returns `true` from the first insert — a buffer that permanently
     /// violates its own `len() <= capacity` invariant while silently accepting
     /// and discarding every experience the agent collects.
+    ///
+    /// Panics if `capacity` exceeds [`MAX_BUFFER_CAPACITY`]. The argument
+    /// reaches [`VecDeque::with_capacity`] unfiltered, so without this bound a
+    /// caller-supplied capacity — a unit slip, a `usize::MAX` sentinel, a
+    /// deserialized garbage field — turns straight into an allocation request
+    /// for `capacity * size_of::<ExperienceTuple<..>>()` bytes. That aborts the
+    /// process on capacity overflow rather than unwinding, which is not a
+    /// failure a caller can catch or diagnose. Rejecting the argument up front
+    /// converts an abort into a panic that names the offending value.
     #[must_use]
     pub fn new(capacity: usize) -> Self {
         assert!(
@@ -115,6 +126,12 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
             "capacity must be greater than 0; a zero-capacity buffer cannot \
              hold transitions and would pin len() at 1 while reporting a \
              capacity of 0, breaking the len() <= capacity invariant"
+        );
+        assert!(
+            capacity <= MAX_BUFFER_CAPACITY,
+            "capacity must be at most {MAX_BUFFER_CAPACITY}, got {capacity}; \
+             this value is passed straight to VecDeque::with_capacity, where an \
+             out-of-range request aborts the process instead of unwinding"
         );
         Self {
             trace: VecDeque::with_capacity(capacity),
@@ -310,6 +327,17 @@ mod tests {
     #[should_panic(expected = "capacity must be greater than 0")]
     fn new_rejects_zero_capacity() {
         let _ = History::<1, 1, TestObs, TestAct, TestReward>::new(0);
+    }
+
+    /// The upper end of the same guard: `capacity` reaches
+    /// `VecDeque::with_capacity` directly, where an out-of-range request aborts
+    /// the process instead of unwinding. `should_panic` only observes an
+    /// unwind, so this test passing *is* the evidence that the value was
+    /// rejected before it reached the allocator.
+    #[test]
+    #[should_panic(expected = "capacity must be at most")]
+    fn new_rejects_capacity_above_ceiling() {
+        let _ = History::<1, 1, TestObs, TestAct, TestReward>::new(MAX_BUFFER_CAPACITY + 1);
     }
 
     /// Pins the [`Send`]/[`Sync`] auto-trait propagation documented on

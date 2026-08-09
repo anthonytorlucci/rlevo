@@ -266,6 +266,14 @@ pub enum ConstraintKind {
         /// The offending count.
         got: u64,
     },
+    /// An integer count / size / capacity must be at most `max`.
+    #[error("count {got} must be at most {max}")]
+    TooLarge {
+        /// The permitted maximum.
+        max: u64,
+        /// The offending count.
+        got: u64,
+    },
     /// A count / size / capacity must be non-zero.
     #[error("count/size must be non-zero")]
     Zero,
@@ -537,11 +545,36 @@ pub fn at_least(
     }
 }
 
+/// Rejects an integer count above `max`.
+///
+/// # Errors
+///
+/// Returns [`ConstraintKind::TooLarge`] when `got > max`.
+pub fn at_most(
+    config: &'static str,
+    field: &'static str,
+    got: usize,
+    max: usize,
+) -> Result<(), ConfigError> {
+    if got <= max {
+        Ok(())
+    } else {
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::TooLarge {
+                max: max as u64,
+                got: got as u64,
+            },
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        Bounds, ConfigError, ConstraintKind, Validate, Violations, at_least, distinct, in_range,
-        nondegenerate_bounds, nonzero, ordered, positive,
+        Bounds, ConfigError, ConstraintKind, Validate, Violations, at_least, at_most, distinct,
+        in_range, nondegenerate_bounds, nonzero, ordered, positive,
     };
 
     const C: &str = "TestConfig";
@@ -828,6 +861,20 @@ mod tests {
             at_least(C, "pop_size", 1, 2).unwrap_err().kind,
             ConstraintKind::TooSmall { min: 2, got: 1 }
         );
+    }
+
+    #[test]
+    fn at_most_accepts_at_and_below_max() {
+        assert!(at_most(C, "capacity", 8, 8).is_ok());
+        assert!(at_most(C, "capacity", 0, 8).is_ok());
+    }
+
+    #[test]
+    fn at_most_rejects_above_max() {
+        let err = at_most(C, "capacity", 9, 8).unwrap_err();
+        assert_eq!(err.config, C);
+        assert_eq!(err.field, "capacity");
+        assert_eq!(err.kind, ConstraintKind::TooLarge { max: 8, got: 9 });
     }
 
     #[test]

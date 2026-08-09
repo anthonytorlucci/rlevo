@@ -111,7 +111,7 @@ Small, dependency-free newtypes and helpers shared across config validation in e
 |---|---|
 | `Bounds` / `BoundsError` | Validated `[low, high]` interval type |
 | `Validate` | Trait for config structs to self-check via `Violations` |
-| `ConfigError` / `ConstraintKind` / `Violations` | Structured config-validation error reporting, plus helper checks (`positive`, `in_range`, `ordered`, `distinct`, `nonzero`, `at_least`) |
+| `ConfigError` / `ConstraintKind` / `Violations` | Structured config-validation error reporting, plus helper checks (`positive`, `in_range`, `ordered`, `distinct`, `nonzero`, `at_least`, `at_most`) |
 | `ObjectiveSense` | `Minimize \| Maximize`, used to disambiguate landscape/fitness direction |
 | `Probability` / `ProbabilityError` | Validated `[0, 1]` newtype |
 | `NonNegativeRate` / `NonNegativeRateError` | Validated non-negative `f32` newtype (learning rates, decay rates, etc.) |

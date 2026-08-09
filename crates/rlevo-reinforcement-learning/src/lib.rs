@@ -37,6 +37,51 @@
 //!   rather than a separate variant.
 //! - [`utils`] — Shared helpers: Bellman target computation, Polyak averaging.
 
+/// The upper bound on any replay-buffer capacity in this crate: `2^32`.
+///
+/// # Why a ceiling exists at all
+///
+/// The `SumTree` behind [`replay::PrioritizedReplay`] sizes its storage as
+/// `capacity.next_power_of_two() * 2`, and the workspace root `Cargo.toml`
+/// declares no `[profile]` section, so release builds inherit
+/// `overflow-checks = false` and **both** of those operations wrap. Measured on
+/// `aarch64` macOS with `rustc -O`:
+///
+/// | `capacity` | `leaf_base` | `nodes.len()` |
+/// |---|---|---|
+/// | `2^62 + 1` | `2^63` | `0` (the `* 2` wrapped) |
+/// | `2^63` | `2^63` | `0` (the `* 2` wrapped) |
+/// | `2^63 + 1` | `0` | `0` (`next_power_of_two` wrapped) |
+/// | `usize::MAX` | `0` | `0` (`next_power_of_two` wrapped) |
+///
+/// In debug those same capacities panic on overflow; in release the constructor
+/// *succeeds* and hands back a priority index with an empty node array, which
+/// then indexes out of bounds — or, worse, is read as a coherent distribution.
+/// A debug/release divergence in a constructor is not something a caller can
+/// reason about, so the capacity is rejected before it can reach the
+/// arithmetic.
+///
+/// # Why `2^32` specifically
+///
+/// The bound has to be *below* the wrap and *above* anything a researcher would
+/// legitimately ask for, and `2^32` clears both by a wide margin:
+///
+/// - **It cannot wrap.** `2^32.next_power_of_two() * 2 == 2^33`, a factor of
+///   `2^30` below the smallest capacity in the table above. Every intermediate
+///   stays exact on a 64-bit `usize`.
+/// - **It is far past the published state of the art.** 4.29e9 transitions is
+///   three orders of magnitude above DQN's 1e6 (Mnih et al. 2015), R2D2's ~4e6
+///   (Kapturowski et al. 2019), and Agent57's 1e7 (Badia et al. 2020). A
+///   capacity above this is a misconfiguration — a unit slip, a
+///   `usize::MAX` sentinel, a deserialized garbage field — not an experiment.
+/// - **It is unreachable in memory anyway.** The `SumTree` alone would want
+///   `2^33 * 8 B = 64 GiB` of `f64` nodes before a single transition is stored,
+///   so the allocation fails long before the arithmetic would.
+///
+/// A tighter bound would be arbitrary; a looser one would have to argue about
+/// the wrap. This one has to argue about neither.
+pub const MAX_BUFFER_CAPACITY: usize = 1 << 32;
+
 pub mod algorithms {
     //! Reinforcement learning algorithm implementations.
 

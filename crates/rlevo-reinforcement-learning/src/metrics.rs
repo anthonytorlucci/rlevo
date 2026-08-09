@@ -3,6 +3,7 @@
 //! This module provides [`PerformanceRecord`] for representing per-episode
 //! outcomes and [`AgentStats`] for accumulating them into running statistics.
 
+use crate::MAX_BUFFER_CAPACITY;
 use std::collections::VecDeque;
 
 /// The outcome of a single episode or step used for performance tracking.
@@ -37,14 +38,23 @@ impl<T: PerformanceRecord> AgentStats<T> {
     ///
     /// # Arguments
     /// * `window_size` - Maximum number of recent episodes retained for
-    ///   [`Self::avg_score`]. Must be greater than 0.
+    ///   [`Self::avg_score`]. Must be in `1..=`[`MAX_BUFFER_CAPACITY`].
     ///
     /// # Panics
+    ///
     /// Panics if `window_size` is 0. A zero-length window cannot hold any
     /// history: [`Self::record`] would evict the previous entry before every
     /// push, pinning `recent_history` at a single episode and making
     /// [`Self::avg_score`] report the latest score rather than a moving
     /// average.
+    ///
+    /// Panics if `window_size` exceeds [`MAX_BUFFER_CAPACITY`]. The argument is
+    /// handed unfiltered to [`VecDeque::with_capacity`], where an out-of-range
+    /// request aborts the process on capacity overflow rather than unwinding.
+    /// Every in-crate call site passes a hard-coded literal (`100`), so this
+    /// bound can only be tripped by a direct API caller — an out-of-range value
+    /// is a programming error at that call site, not a runtime condition to
+    /// recover from, which is why it panics rather than returning a `Result`.
     #[must_use]
     pub fn new(window_size: usize) -> Self {
         assert!(
@@ -52,6 +62,13 @@ impl<T: PerformanceRecord> AgentStats<T> {
             "window_size must be greater than 0; a zero-length window cannot \
              hold history and would make avg_score report the latest score \
              instead of a moving average"
+        );
+        assert!(
+            window_size <= MAX_BUFFER_CAPACITY,
+            "window_size must be at most {MAX_BUFFER_CAPACITY}, got \
+             {window_size}; this value is passed straight to \
+             VecDeque::with_capacity, where an out-of-range request aborts the \
+             process instead of unwinding"
         );
         Self {
             total_episodes: 0,
@@ -104,7 +121,7 @@ impl<T: PerformanceRecord> AgentStats<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentStats, PerformanceRecord};
+    use super::{AgentStats, MAX_BUFFER_CAPACITY, PerformanceRecord};
 
     /// Minimal [`PerformanceRecord`] carrying a score and a fixed duration.
     #[derive(Debug, Clone, PartialEq)]
@@ -133,6 +150,16 @@ mod tests {
     #[should_panic(expected = "window_size must be greater than 0")]
     fn new_rejects_zero_window_size() {
         let _ = AgentStats::<TestRecord>::new(0);
+    }
+
+    /// The upper end of the same guard. `window_size` reaches
+    /// `VecDeque::with_capacity` unfiltered, where an out-of-range request
+    /// aborts the process rather than unwinding — so reaching a catchable
+    /// panic at all is the property under test.
+    #[test]
+    #[should_panic(expected = "window_size must be at most")]
+    fn new_rejects_window_size_above_ceiling() {
+        let _ = AgentStats::<TestRecord>::new(MAX_BUFFER_CAPACITY + 1);
     }
 
     #[test]

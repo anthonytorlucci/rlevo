@@ -9,6 +9,7 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, Validate};
 
+use crate::MAX_BUFFER_CAPACITY;
 use crate::algorithms::c51::projection::atom_spacing;
 use crate::replay::PrioritizedReplaySettings;
 use crate::target::TargetUpdate;
@@ -75,6 +76,13 @@ pub struct C51TrainingConfig {
     pub steps_per_episode: usize,
 
     /// Maximum number of transitions retained in the replay buffer.
+    ///
+    /// Must be non-zero and at most [`MAX_BUFFER_CAPACITY`]. The ceiling is not
+    /// a taste judgement: this field is the only guard on the capacity that
+    /// reaches `UniformReplay::new` / `PrioritizedReplay::new`, and a
+    /// misconfigured value (a unit slip, a `usize::MAX` sentinel) either aborts
+    /// on a failed allocation or wraps the `SumTree`'s node arithmetic. See
+    /// [`MAX_BUFFER_CAPACITY`] for why `$2^{32}$` is the bound.
     pub replay_buffer_capacity: usize,
 
     /// Number of env steps collected before the first gradient update.
@@ -183,6 +191,12 @@ impl Validate for C51TrainingConfig {
         config::in_range(C, "epsilon_end", 0.0, 1.0, self.epsilon_end)?;
         config::in_range(C, "epsilon_decay", 0.0, 1.0, self.epsilon_decay)?;
         config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
+        config::at_most(
+            C,
+            "replay_buffer_capacity",
+            self.replay_buffer_capacity,
+            MAX_BUFFER_CAPACITY,
+        )?;
         config::nonzero(C, "train_frequency", self.train_frequency)?;
         config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
         config::at_least(C, "num_atoms", self.num_atoms, 2)?;
@@ -391,6 +405,7 @@ mod tests {
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
     use super::*;
+    use rlevo_core::config::ConstraintKind;
 
     #[test]
     fn defaults_are_51_atoms_on_symmetric_support() {
@@ -431,6 +446,36 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         assert!(C51TrainingConfig::default().validate().is_ok());
+    }
+
+    /// `replay_buffer_capacity` had a floor and no ceiling, so a
+    /// `usize::MAX` sentinel — a unit slip, a deserialized garbage field —
+    /// validated and went straight to the buffer constructor, where it aborts
+    /// on a failed allocation or wraps the `SumTree` arithmetic. The rejection
+    /// must be a **recoverable `Err`**, which is why this asserts on the
+    /// returned error rather than using `#[should_panic]`: a panic here would
+    /// be the bug, not the fix.
+    #[test]
+    fn rejects_replay_buffer_capacity_above_ceiling() {
+        let err = C51TrainingConfigBuilder::new()
+            .replay_buffer_capacity(usize::MAX)
+            .build()
+            .expect_err("usize::MAX capacity must be rejected, not allocated");
+        assert_eq!(err.field, "replay_buffer_capacity");
+        let max = u64::try_from(MAX_BUFFER_CAPACITY).expect("the ceiling fits in u64");
+        let got = u64::try_from(usize::MAX).expect("usize::MAX fits in u64 on this target");
+        assert_eq!(err.kind, ConstraintKind::TooLarge { max, got });
+    }
+
+    /// The boundary is inclusive: the ceiling itself is a legal (if
+    /// unallocatable) capacity, so the guard cannot be off by one.
+    #[test]
+    fn accepts_replay_buffer_capacity_at_ceiling() {
+        let cfg = C51TrainingConfigBuilder::new()
+            .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
+            .build()
+            .expect("the ceiling itself must validate");
+        assert_eq!(cfg.replay_buffer_capacity, MAX_BUFFER_CAPACITY);
     }
 
     /// The default is behaviour-preserving: the old `tau = 0.005` soft update

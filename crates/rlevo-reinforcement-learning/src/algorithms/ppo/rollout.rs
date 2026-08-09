@@ -23,6 +23,7 @@
 //! `t` is valid. Every done-ness read in [`compute_gae`] is therefore at index
 //! `[t]` — never `[t + 1]`.
 
+use crate::MAX_BUFFER_CAPACITY;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use std::marker::PhantomData;
@@ -80,13 +81,50 @@ pub struct RolloutBuffer<B: Backend, O> {
 impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     /// Allocates a buffer for `capacity` steps, with `action_dim` action
     /// components per step (1 for discrete, A for continuous-A).
+    ///
+    /// # Panics
+    ///
+    /// Panics unless `capacity` and `action_dim` are both in
+    /// `1..=`[`MAX_BUFFER_CAPACITY`] and their product is too. A zero for
+    /// either dimension yields a buffer that can never accept a step, and the
+    /// upper bounds exist because all three values reach
+    /// [`Vec::with_capacity`] unfiltered: `capacity * action_dim` is the
+    /// element count of `action_flat`, so an out-of-range request aborts the
+    /// process on capacity overflow instead of unwinding.
+    ///
+    /// The product is checked separately, not implied by the two per-argument
+    /// checks: `capacity` and `action_dim` can each sit far below the ceiling
+    /// while `capacity * action_dim` overflows `usize` outright. That product
+    /// is the actual argument to `Vec::with_capacity` below, so it is the value
+    /// that has to be in range.
     #[must_use]
     pub fn new(capacity: usize, action_dim: usize) -> Self {
+        assert!(
+            capacity > 0 && capacity <= MAX_BUFFER_CAPACITY,
+            "capacity must be in 1..={MAX_BUFFER_CAPACITY}, got {capacity}"
+        );
+        assert!(
+            action_dim > 0 && action_dim <= MAX_BUFFER_CAPACITY,
+            "action_dim must be in 1..={MAX_BUFFER_CAPACITY}, got {action_dim}"
+        );
+        let flat_len = capacity.checked_mul(action_dim).unwrap_or_else(|| {
+            panic!(
+                "capacity * action_dim overflows usize ({capacity} * \
+                 {action_dim}); that product is the element count of the \
+                 flattened action buffer"
+            )
+        });
+        assert!(
+            flat_len <= MAX_BUFFER_CAPACITY,
+            "capacity * action_dim must be at most {MAX_BUFFER_CAPACITY}, got \
+             {flat_len} ({capacity} * {action_dim}); that product is the \
+             element count of the flattened action buffer"
+        );
         Self {
             capacity,
             action_dim,
             obs: Vec::with_capacity(capacity),
-            action_flat: Vec::with_capacity(capacity * action_dim),
+            action_flat: Vec::with_capacity(flat_len),
             log_probs: Vec::with_capacity(capacity),
             values: Vec::with_capacity(capacity),
             rewards: Vec::with_capacity(capacity),
@@ -586,6 +624,55 @@ mod tests {
             "running final step must bootstrap last_value: {} vs 10.4",
             advs[0]
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "capacity must be in 1..=")]
+    fn new_rejects_zero_capacity() {
+        type B = burn::backend::Flex;
+        let _: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(0, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "capacity must be in 1..=")]
+    fn new_rejects_capacity_above_ceiling() {
+        type B = burn::backend::Flex;
+        let _: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(MAX_BUFFER_CAPACITY + 1, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "action_dim must be in 1..=")]
+    fn new_rejects_zero_action_dim() {
+        type B = burn::backend::Flex;
+        let _: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(4, 0);
+    }
+
+    /// Neither factor is out of range on its own — both are far below
+    /// [`MAX_BUFFER_CAPACITY`] — but their product is the element count handed
+    /// to `Vec::with_capacity` for `action_flat`, and it is not. A guard that
+    /// only checked the two arguments individually would accept this.
+    #[test]
+    #[should_panic(expected = "capacity * action_dim must be at most")]
+    fn new_rejects_product_above_ceiling() {
+        type B = burn::backend::Flex;
+        // Both arguments pass the per-argument checks; only the product fails.
+        let capacity = MAX_BUFFER_CAPACITY / 2;
+        let action_dim = 4;
+        let _: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(capacity, action_dim);
+    }
+
+    /// Same defect class as above, one step further out: the product does not
+    /// merely exceed the ceiling, it wraps `usize`. `capacity * action_dim`
+    /// would compute a small in-range length in release and hand
+    /// `Vec::with_capacity` a silently wrong allocation.
+    #[test]
+    #[should_panic(expected = "overflows usize")]
+    fn new_rejects_product_overflowing_usize() {
+        type B = burn::backend::Flex;
+        // 2^32 * 2^32 == 2^64: each factor is exactly at the ceiling and so
+        // passes its own check, while the product wraps to 0.
+        let _: RolloutBuffer<B, [f32; 1]> =
+            RolloutBuffer::new(MAX_BUFFER_CAPACITY, MAX_BUFFER_CAPACITY);
     }
 
     #[test]

@@ -177,9 +177,17 @@ impl<T> PrioritizedReplay<T> {
     /// # Errors
     ///
     /// Returns the first [`ConfigError`] from
-    /// [`PrioritizedReplayConfig::validate`] — a zero `capacity`, a
+    /// [`PrioritizedReplayConfig::validate`] — a zero `capacity`, a `capacity`
+    /// above [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY), a
     /// `priority_exponent` outside `[0, 1]`, or a non-positive
     /// `priority_epsilon`.
+    ///
+    /// The capacity ceiling is what makes the two allocations below safe: the
+    /// `Vec::with_capacity` calls cannot be handed a nonsense request, and
+    /// `SumTree::new`'s `capacity.next_power_of_two() * 2` — which wraps
+    /// silently in release builds near `usize::MAX`, yielding an empty node
+    /// array rather than a panic — stays exact. See the constant for the
+    /// measured wrap.
     pub fn new(config: PrioritizedReplayConfig) -> Result<Self, ConfigError> {
         config.validate()?;
         Ok(Self {
