@@ -38,6 +38,9 @@ use burn::tensor::{Tensor, TensorPrimitive};
 /// be exactly `0` wherever `terminated == 1.0`, whatever `next_q_max` holds
 /// there. This is defensive only; it does not alter any target computed from
 /// finite inputs.
+///
+/// See [`compute_target_quantiles`] for the rank-2 sibling used by
+/// distributional algorithms that back up a whole quantile vector per sample.
 pub fn compute_target_q_values<B: Backend>(
     rewards: Tensor<B, 1>,
     next_q_max: Tensor<B, 1>,
@@ -46,6 +49,92 @@ pub fn compute_target_q_values<B: Backend>(
 ) -> Tensor<B, 1> {
     let is_terminal = terminated.equal_elem(1.0);
     let bootstrap = next_q_max.mul_scalar(gamma).mask_fill(is_terminal, 0.0);
+    rewards + bootstrap
+}
+
+/// Computes the distributional Bellman backup for a batch of quantile vectors.
+///
+/// This is the rank-2 sibling of [`compute_target_q_values`]: instead of a
+/// single bootstrap value per sample it backs up a whole quantile vector,
+/// `$\mathcal{T}\theta_j = r + \gamma \cdot \theta^{\text{target}}_j$` for every
+/// quantile index `$j$`, with the bootstrap term dropped entirely on a terminal
+/// transition. There is no projection step — the quantile locations are the
+/// learned quantity, so the shifted atoms need no redistribution (Dabney et al.,
+/// "Distributional Reinforcement Learning with Quantile Regression", AAAI 2018,
+/// Eq. 9).
+///
+/// # Arguments
+///
+/// - `rewards` — `(B, 1)` per-sample reward.
+/// - `next_quantiles` — `(B, N)` target-network quantile estimates for the
+///   bootstrap action in the successor state.
+/// - `terminated` — `(B, 1)` mask in `{0.0, 1.0}` that is `1.0` **only** for an
+///   *environmental termination*, never for a *truncation*. The same
+///   partial-episode-bootstrapping caveat documented on
+///   [`compute_target_q_values`] applies verbatim: zeroing the bootstrap on a
+///   time-limit cutoff biases every quantile downward.
+/// - `gamma` — discount factor.
+///
+/// Returns the `(B, N)` target quantile vectors. The `rewards` `(B, 1)` term is
+/// broadcast across the quantile axis; that broadcast is intended.
+///
+/// # Non-finite hardening
+///
+/// The bootstrap is **masked**, not scaled by `$(1 - \text{terminated})$`
+/// (issue #357). The two agree exactly for finite inputs, but scaling
+/// propagates poison: IEEE-754 gives `NaN · 0.0 == NaN` and `inf · 0.0 == NaN`,
+/// so one non-finite entry anywhere in `next_quantiles` — a target-network
+/// output, and therefore data, not configuration — would survive a terminal
+/// transition and contaminate a target whose correct value (the reward alone)
+/// is known with certainty. Selecting on the terminal mask forces the bootstrap
+/// to be exactly `0` wherever `terminated == 1.0`, whatever `next_quantiles`
+/// holds on that row.
+///
+/// This is *not* a NaN scrubber. Masking is per-row: a non-finite quantile on a
+/// **non**-terminal row is left in place and must still be caught downstream by
+/// the agent's finite-loss guard. Silently repairing it there would hide a real
+/// divergence.
+///
+/// `terminated` reaches this function as exactly `0.0` or `1.0`, converted from
+/// a `bool` at the batch-staging site (`qrdqn_agent.rs`, `terminated.push(if
+/// t.terminated { 1.0 } else { 0.0 })`), so `equal_elem(1.0)` is an exact
+/// comparison against a value that is representable without rounding — not a
+/// threshold test on a continuous quantity.
+///
+/// # Why C51 does not call this
+///
+/// C51's Bellman shift in `algorithms::c51::projection` is syntactically the
+/// same expression, but its `$(1 - \text{terminated})$` factor multiplies the
+/// **fixed atom support** — finite by construction from `v_min`/`v_max`, and
+/// asserted so — never a network output. It therefore has no poison to
+/// propagate, and its result feeds a clamp-and-project step that this signature
+/// does not model. Do not fold that call site into this helper.
+pub fn compute_target_quantiles<B: Backend>(
+    rewards: Tensor<B, 2>,        // (B, 1)
+    next_quantiles: Tensor<B, 2>, // (B, N)
+    terminated: Tensor<B, 2>,     // (B, 1)
+    gamma: f32,
+) -> Tensor<B, 2> {
+    let [_, num_quantiles] = next_quantiles.dims();
+    // The `repeat_dim` is deliberate insurance, not a correctness requirement
+    // on the backends this repo tests. Burn 0.21's `mask_fill` DOES broadcast a
+    // (B, 1) mask over a (B, N) tensor — measured correct on both `Flex` (CPU)
+    // and `Wgpu` (Metal) — and the broadcast is explicit in the vendored
+    // sources: `burn-ndarray-0.21.0/src/ops/base.rs:94`
+    // (`mask.broadcast(output.dim())`) and `burn-flex-0.21.0/src/ops/mask.rs:32`
+    // (`broadcast_binary`). Dropping the `repeat_dim` would not break either.
+    //
+    // It is kept because the cubecl/wgpu path
+    // (`burn-cubecl-0.21.0/src/kernel/mask/mask_fill.rs`) reaches the same
+    // result through `mask.into_linear_view_like(&input)` with no explicit
+    // broadcast call, and the behaviour is documented nowhere in the trait — so
+    // relying on it would make this helper depend on an undocumented,
+    // backend-varying implementation detail, in a code path with a #1044-shaped
+    // history (a Metal-only `clamp` NaN divergence in the C51 projection).
+    // Expanding to (B, N) here costs one cheap op and removes that dependency.
+    let is_terminal = terminated.equal_elem(1.0).repeat_dim(1, num_quantiles);
+    let bootstrap = next_quantiles.mul_scalar(gamma).mask_fill(is_terminal, 0.0);
+    // (B, 1) + (B, N): the reward broadcast across quantiles is intended.
     rewards + bootstrap
 }
 
@@ -330,6 +419,180 @@ mod tests {
                 "finite inputs must give a finite target; sample {i} got {g}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // compute_target_quantiles (issue #357)
+    // -----------------------------------------------------------------------
+
+    /// Builds a rank-2 `f32` tensor of shape `(ROWS, COLS)` on the default test
+    /// device. Rank-1 `floats` cannot express the `(B, N)` quantile batch or the
+    /// `(B, 1)` reward / terminal columns these tests need.
+    fn floats_2d<const ROWS: usize, const COLS: usize>(
+        values: [[f32; COLS]; ROWS],
+    ) -> Tensor<TestBackend, 2> {
+        Tensor::from_floats(values, &TestDevice::default())
+    }
+
+    /// Reads a rank-2 tensor back to host floats in row-major order.
+    fn host_2d(tensor: &Tensor<TestBackend, 2>) -> Vec<f32> {
+        tensor
+            .to_data()
+            .to_vec::<f32>()
+            .expect("target tensor is f32 by construction")
+    }
+
+    /// The pre-hardening rank-2 formula, kept verbatim as the reference oracle
+    /// for the "finite inputs are unchanged" test. This is exactly what
+    /// `qrdqn_agent` computed inline before issue #357.
+    fn scaled_reference_2d(
+        rewards: Tensor<TestBackend, 2>,
+        next_quantiles: Tensor<TestBackend, 2>,
+        terminated: Tensor<TestBackend, 2>,
+        gamma: f32,
+    ) -> Tensor<TestBackend, 2> {
+        let keep = terminated.neg().add_scalar(1.0); // 1 − terminated  (B, 1)
+        rewards + keep * next_quantiles.mul_scalar(gamma)
+    }
+
+    #[test]
+    fn test_compute_target_quantiles_masks_non_finite_bootstrap_on_terminal() {
+        // Row 0 is terminal with a NaN quantile vector, row 1 terminal with
+        // +inf, row 2 terminal with -inf. Under the old
+        // `keep * next_quantiles` scaling every element of all three rows came
+        // back NaN, because `NaN * 0.0` and `inf * 0.0` are both NaN. Each
+        // element must instead be exactly that row's reward.
+        let rewards = floats_2d([[1.5], [-2.0], [0.25]]);
+        let next_quantiles = floats_2d([
+            [f32::NAN, f32::NAN, f32::NAN, f32::NAN],
+            [f32::INFINITY; 4],
+            [f32::NEG_INFINITY; 4],
+        ]);
+        let terminated = floats_2d([[1.0], [1.0], [1.0]]);
+
+        let got = host_2d(&compute_target_quantiles(
+            rewards,
+            next_quantiles,
+            terminated,
+            0.99,
+        ));
+        let want = [1.5_f32, -2.0, 0.25];
+
+        assert_eq!(got.len(), 12, "masking must preserve the (3, 4) shape");
+        for (flat, &g) in got.iter().enumerate() {
+            let (row, col) = (flat / 4, flat % 4);
+            assert!(
+                g.is_finite(),
+                "a terminal transition must never inherit a non-finite bootstrap; \
+                 quantile [{row}][{col}] got {g}"
+            );
+            assert_abs_diff_eq!(g, want[row], epsilon = EPS);
+        }
+    }
+
+    #[test]
+    fn test_compute_target_quantiles_bootstraps_when_not_terminated() {
+        const REWARDS: [[f32; 1]; 2] = [[1.0], [-0.5]];
+        // Row 0: 1.0 + 0.9*[2.0, 4.0, -3.0] = [2.8, 4.6, -1.7]
+        // Row 1: -0.5 + 0.9*[0.5, -1.0, 10.0] = [-0.05, -1.4, 8.5]
+        const WANT: [[f32; 3]; 2] = [[2.8, 4.6, -1.7], [-0.05, -1.4, 8.5]];
+
+        // Masking must not disturb the non-terminal path: every quantile here
+        // keeps the full `reward + gamma * next_quantile` target.
+        let gamma = 0.9_f32;
+
+        let got = host_2d(&compute_target_quantiles(
+            floats_2d(REWARDS),
+            floats_2d([[2.0, 4.0, -3.0], [0.5, -1.0, 10.0]]),
+            floats_2d([[0.0], [0.0]]),
+            gamma,
+        ));
+
+        for (flat, &g) in got.iter().enumerate() {
+            let (row, col) = (flat / 3, flat % 3);
+            assert_abs_diff_eq!(g, WANT[row][col], epsilon = EPS);
+            assert!(
+                (g - REWARDS[row][0]).abs() > EPS,
+                "quantile [{row}][{col}] must actually bootstrap, not collapse to the \
+                 reward; got {g}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_compute_target_quantiles_matches_scaled_formula_on_finite_inputs() {
+        // Mixed terminal / non-terminal batch, all finite: the masked form must
+        // reproduce the old `keep * next_quantiles` result exactly.
+        let gamma = 0.97_f32;
+        let rewards = [[0.0_f32], [1.25], [-3.5], [2.0]];
+        let next_quantiles = [
+            [5.0_f32, -5.0, 0.0, 123.5],
+            [-0.125, 1.0, 2.5, -7.0],
+            [0.5, 0.25, -0.75, 4.0],
+            [10.0, -10.0, 0.0625, 3.5],
+        ];
+        let terminated = [[0.0_f32], [1.0], [0.0], [1.0]];
+
+        let want = host_2d(&scaled_reference_2d(
+            floats_2d(rewards),
+            floats_2d(next_quantiles),
+            floats_2d(terminated),
+            gamma,
+        ));
+        let got = host_2d(&compute_target_quantiles(
+            floats_2d(rewards),
+            floats_2d(next_quantiles),
+            floats_2d(terminated),
+            gamma,
+        ));
+
+        assert_eq!(
+            got.len(),
+            want.len(),
+            "masking must preserve the batch and quantile counts"
+        );
+        for (flat, (&g, &w)) in got.iter().zip(want.iter()).enumerate() {
+            let (row, col) = (flat / 4, flat % 4);
+            assert_abs_diff_eq!(g, w, epsilon = EPS);
+            assert!(
+                g.is_finite(),
+                "finite inputs must give a finite target; quantile [{row}][{col}] got {g}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_compute_target_quantiles_masks_per_row_and_preserves_non_terminal_nan() {
+        // The mask is per-row, and this helper is not a NaN scrubber. Row 0 is
+        // terminal and must come back clean; row 1 is *not* terminated and
+        // carries a NaN quantile, which must survive so the agent's
+        // `FiniteLossGuard` still sees the divergence it exists to catch.
+        let gamma = 0.99_f32;
+        let got = host_2d(&compute_target_quantiles(
+            floats_2d([[1.5], [-2.0]]),
+            floats_2d([[f32::NAN, 3.0], [f32::NAN, 4.0]]),
+            floats_2d([[1.0], [0.0]]),
+            gamma,
+        ));
+
+        // Terminal row: both quantiles are exactly the reward, NaN included.
+        for (col, &g) in got[..2].iter().enumerate() {
+            assert!(
+                g.is_finite(),
+                "the terminal row must be clean even though its quantile vector \
+                 held a NaN; quantile [0][{col}] got {g}"
+            );
+            assert_abs_diff_eq!(g, 1.5_f32, epsilon = EPS);
+        }
+
+        // Non-terminal row: the NaN propagates, the finite quantile bootstraps.
+        assert!(
+            got[2].is_nan(),
+            "a NaN on a non-terminal row must reach the downstream finite guard, \
+             not be silently repaired; got {}",
+            got[2]
+        );
+        assert_abs_diff_eq!(got[3], -2.0 + gamma * 4.0, epsilon = EPS);
     }
 
     // Hand-set constant weights. `active` and `target` differ in *every*
