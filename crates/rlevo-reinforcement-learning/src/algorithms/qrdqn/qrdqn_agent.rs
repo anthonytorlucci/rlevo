@@ -175,7 +175,9 @@ where
     gradient_updates: usize,
     stats: AgentStats<QrDqnMetrics>,
     /// Non-finite-loss guard for the quantile-Huber loss site (ADR 0056, #318).
-    /// One per-run `warn!` latch; the skip it drives fires every occurrence.
+    /// Skips the update on every occurrence; the `warn!` escalates by decades —
+    /// skips 1, 10, 100, … — each carrying the running total (ADR 0072 §1),
+    /// readable via [`Self::skipped_updates`].
     loss_guard: FiniteLossGuard,
     /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
     /// #352). Drops the transition on every occurrence; the `warn!` escalates
@@ -312,10 +314,50 @@ where
     /// counting only applied updates would make the target cadence a function
     /// of run health, stretching it exactly when a run is diverging.
     ///
+    /// Because it counts *attempts*, it is an upper bound on the updates that
+    /// actually reached the optimizer:
+    /// [`skipped_updates`](Self::skipped_updates) counts the subset that did
+    /// not, so `applied = gradient_updates() - skipped_updates()`.
+    ///
     /// [`QrDqnTrainingConfig::target_update`]: crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig::target_update
     /// [`learn_step`]: Self::learn_step
     pub fn gradient_updates(&self) -> usize {
         self.gradient_updates
+    }
+
+    /// Number of gradient updates skipped because their loss was non-finite.
+    ///
+    /// QR-DQN has a single loss site (the quantile-Huber loss), so this
+    /// per-site count *is* the agent's aggregate contribution to the canonical
+    /// `skipped_updates` metric (ADR 0072 §2). A non-zero count means those
+    /// attempted updates never reached `backward()` or the optimizer step: the
+    /// guard kept the poison out of the weights (ADR 0056 §3), and what the run
+    /// lost instead is throughput. Watch it to size that loss — one skip in a
+    /// long run is a blip; a steadily rising count means the run's nominal step
+    /// budget bought materially less learning than it appears to have.
+    ///
+    /// # Relationship to [`gradient_updates`](Self::gradient_updates)
+    ///
+    /// [`gradient_updates`](Self::gradient_updates) counts **attempts** and
+    /// advances unconditionally, *including* on a skip (ADR 0059 §Decision 4).
+    /// This counter is the skipped **subset** of those attempts (ADR 0056, ADR
+    /// 0072), so the two compose exactly:
+    ///
+    /// ```text
+    /// applied = gradient_updates() - skipped_updates()
+    /// ```
+    ///
+    /// # Not a drop count
+    ///
+    /// Distinct from [`dropped_observations`](Self::dropped_observations) and
+    /// [`dropped_transitions`](Self::dropped_transitions): a *drop* is data that
+    /// never entered the replay buffer, so it can never be learned from at all.
+    /// A *skip* is an update that was computed from admitted data and then never
+    /// reached the optimizer. The two can move independently — a clean buffer
+    /// still skips when the network itself diverges.
+    #[must_use]
+    pub const fn skipped_updates(&self) -> u64 {
+        self.loss_guard.skipped()
     }
 
     /// Read-only view of the target network.
@@ -656,9 +698,13 @@ where
     /// Returns `None` when [`can_learn`](Self::can_learn) is false (buffer too
     /// small or fewer than `learning_starts` steps taken), and also when the
     /// computed loss is non-finite (NaN/±Inf): in that case the backward pass,
-    /// optimizer step, target update, and PER writeback are all skipped and a
-    /// one-shot `warn!` fires (ADR 0056, #318), so the caller keeps its last
-    /// healthy reported metrics rather than folding a NaN into them. The
+    /// optimizer step, target update, and PER writeback are all skipped (ADR
+    /// 0056, #318) and [`skipped_updates`](Self::skipped_updates) advances, so
+    /// the caller keeps its last healthy reported metrics rather than folding a
+    /// NaN into them. The accompanying `warn!` fires on a decade schedule —
+    /// skips 1, 10, 100, … — each line carrying the running total (ADR 0072
+    /// §1), so a run discarding 1% of its updates is distinguishable from one
+    /// discarding 40%. The
     /// gradient-update counter advances even then, so the target cadence does
     /// not drift on a diverging run. Returns
     /// [`Some(LearnOutcome)`](LearnOutcome) with the loss and diagnostic values
@@ -1353,8 +1399,14 @@ mod tests {
 
     /// ADR 0059 §4: the counter must advance even when the non-finite-loss
     /// guard skips the optimizer step, or a diverging run silently stretches
-    /// the target cadence. The skip consumes update 1, so the healthy step
-    /// lands on update 2 and `hard(2)` fires.
+    /// the target cadence. The three skips consume updates 1–3, so the healthy
+    /// step lands on update 4 and `hard(2)` fires.
+    ///
+    /// The paired counters over the all-poisoned prefix — `gradient_updates ==
+    /// skipped_updates == 3` — are the executable statement of "every attempt
+    /// advanced, none was applied" (ADR 0059 §Decision 4 ∧ ADR 0072): neither
+    /// counter alone can express it, and `applied = attempts − skipped` is only
+    /// meaningful if both move on the same events.
     #[test]
     fn qrdqn_gradient_counter_advances_through_a_nonfinite_loss_skip() {
         let mut agent = primed_agent(TargetUpdate::hard(2));
@@ -1364,22 +1416,31 @@ mod tests {
 
         let poisoned = agent.policy().clone().map(&mut NanInjector);
         agent.policy_net = Slot::new(poisoned);
-        assert!(
-            agent
-                .learn_step(&mut rng)
-                .expect("no polyak error")
-                .is_none(),
-            "a non-finite loss must skip the step"
-        );
+        for _ in 0..3 {
+            assert!(
+                agent
+                    .learn_step(&mut rng)
+                    .expect("no polyak error")
+                    .is_none(),
+                "a non-finite loss must skip the step"
+            );
+        }
         assert_eq!(
             agent.gradient_updates(),
-            1,
+            3,
             "the counter must advance on a skipped step (ADR 0059 §4) — gating it \
              on a successful step would let the cadence drift on a diverging run"
         );
+        assert_eq!(
+            agent.skipped_updates(),
+            3,
+            "all three attempts were skipped, so the skip counter equals the \
+             attempt counter and applied = 3 - 3 = 0 (ADR 0072)"
+        );
         assert!(
             max_abs_diff(&weights_of(agent.target_net()), &target_before) < 1e-9,
-            "update 1 is not a multiple of 2, and the step was skipped anyway"
+            "no skipped attempt may sync the target — not even update 2, which \
+             *is* a multiple of the hard(2) cadence"
         );
 
         agent.policy_net = Slot::new(healthy_policy);
@@ -1387,15 +1448,21 @@ mod tests {
             .learn_step(&mut rng)
             .expect("no polyak error")
             .expect("a healthy primed agent learns");
-        assert_eq!(agent.gradient_updates(), 2);
+        assert_eq!(agent.gradient_updates(), 4);
+        assert_eq!(
+            agent.skipped_updates(),
+            3,
+            "an applied update must not advance the skip counter: attempts is now \
+             4, skips stay 3, so exactly one update reached the optimizer"
+        );
         let after = max_abs_diff(
             &weights_of(&agent.policy().valid()),
             &weights_of(agent.target_net()),
         );
         assert!(
             after < 1e-9,
-            "the skipped attempt still consumed update 1, so the healthy step is \
-             update 2 and hard(2) fires on it (max |Δw| = {after:e})"
+            "the skipped attempts still consumed updates 1-3, so the healthy step \
+             is update 4 and hard(2) fires on it (max |Δw| = {after:e})"
         );
     }
 
@@ -1491,9 +1558,11 @@ mod tests {
             outcome.is_none(),
             "a non-finite quantile-Huber loss must skip the step and return None"
         );
-        assert!(
-            agent.loss_guard.warning_fired(),
-            "the non-finite loss must fire the guard"
+        assert_eq!(
+            agent.skipped_updates(),
+            1,
+            "exactly one attempted update was skipped — the guard counts every \
+             non-finite loss, and this run produced exactly one"
         );
         assert!(
             max_abs_diff(&weights_of(&agent.target_net), &target_before) < 1e-9,
@@ -1507,6 +1576,49 @@ mod tests {
         assert!(
             action.to_index() < <CartPoleAction as DiscreteAction<1>>::ACTION_COUNT,
             "act must still return a valid action after a skipped step"
+        );
+    }
+
+    /// ADR 0072: the skip counter is a *running total*, not a fired/not-fired
+    /// latch. Three consecutive poisoned learn steps must read back as three —
+    /// a counter that saturates at 1 (the shape a bool-to-counter translation
+    /// produces) reports a run that lost 37% of its updates identically to one
+    /// that hiccupped once, which is exactly the distinction ADR 0072 exists to
+    /// preserve.
+    #[test]
+    fn qrdqn_counts_repeated_loss_skips() {
+        let mut agent = primed_prioritized_agent();
+
+        // Poison a *clone* of the live policy so its `ParamId`s are preserved.
+        let poisoned = agent.policy().clone().map(&mut NanInjector);
+        agent.policy_net = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(0);
+        for attempt in 1..=3 {
+            assert!(
+                agent
+                    .learn_step(&mut rng)
+                    .expect("no polyak error")
+                    .is_none(),
+                "attempt {attempt}: a non-finite loss must skip the step every \
+                 time, not just the first"
+            );
+            assert_eq!(
+                agent.skipped_updates(),
+                attempt,
+                "the skip counter must equal the number of poisoned attempts so \
+                 far, not latch at 1"
+            );
+        }
+        assert_eq!(
+            agent.skipped_updates(),
+            3,
+            "three poisoned learn steps skip three updates"
+        );
+        assert_eq!(
+            agent.gradient_updates(),
+            3,
+            "all three attempts were counted as attempts, so applied = 3 - 3 = 0"
         );
     }
 

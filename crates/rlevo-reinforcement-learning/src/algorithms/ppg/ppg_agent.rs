@@ -252,7 +252,9 @@ where
     stats: AgentStats<PpgMetrics>,
     last_aux: Option<AuxPhaseStats>,
     /// Non-finite-loss guard for the policy-phase policy-loss site (ADR 0056,
-    /// #318). One per-run `warn!` latch per site; the skip fires every time.
+    /// #318). Consulted once per minibatch: the skip fires on every non-finite
+    /// occurrence, the `warn!` escalates by decades (ADR 0072). Surfaced by
+    /// [`skipped_policy_updates`](Self::skipped_policy_updates).
     policy_loss_guard: FiniteLossGuard,
     /// Non-finite-loss guard for the policy-phase value-loss site.
     value_loss_guard: FiniteLossGuard,
@@ -422,6 +424,135 @@ where
     /// `config.ppo.anneal_lr` is `false`.
     pub fn total_iterations(&self) -> usize {
         self.total_iterations
+    }
+
+    /// Policy-phase **policy** updates skipped for a non-finite loss (ADR 0056,
+    /// ADR 0072).
+    ///
+    /// Counts the `ppg/policy_loss` site only, and counts **minibatches**: the
+    /// guard is consulted once per minibatch inside
+    /// [`policy_phase_update`](Self::policy_phase_update), so one phase can
+    /// contribute up to `update_epochs × num_minibatches` to this total. It is
+    /// a lifetime count over every policy phase the agent has run, never reset.
+    ///
+    /// # Relationship to the reported mean
+    ///
+    /// [`PpoUpdateStats::policy_loss`] divides by the `policy_healthy` count of
+    /// that *single* call — the per-call complement of this counter, not a
+    /// duplicate of it. This accessor answers "how much of the run's step budget
+    /// never reached the optimizer", which no per-call mean can express.
+    ///
+    /// [`PpoUpdateStats::policy_loss`]: crate::algorithms::ppo::ppo_agent::PpoUpdateStats::policy_loss
+    #[must_use]
+    pub const fn skipped_policy_updates(&self) -> u64 {
+        self.policy_loss_guard.skipped()
+    }
+
+    /// Policy-phase **value** updates skipped for a non-finite loss (ADR 0056,
+    /// ADR 0072).
+    ///
+    /// The `ppg/value_loss` site, counted per minibatch on the same terms as
+    /// [`skipped_policy_updates`](Self::skipped_policy_updates). The two
+    /// policy-phase sites are guarded independently — the value net can keep
+    /// learning across a phase in which every policy step was skipped, and vice
+    /// versa — so this is not a subset of, nor bounded by, that counter.
+    #[must_use]
+    pub const fn skipped_value_updates(&self) -> u64 {
+        self.value_loss_guard.skipped()
+    }
+
+    /// Auxiliary-phase **main-value** updates skipped for a non-finite loss
+    /// (ADR 0056, ADR 0072).
+    ///
+    /// The `ppg/aux_main_value_loss` site, counted per minibatch inside
+    /// [`maybe_aux_phase`](Self::maybe_aux_phase).
+    ///
+    /// # Not comparable with the policy-phase counters
+    ///
+    /// The auxiliary phase runs on its own cadence — once every
+    /// `config.n_iteration` policy phases, for `e_aux` epochs over the whole
+    /// auxiliary buffer — so its attempt budget is unrelated to the policy
+    /// phase's. A larger `aux_*` count than
+    /// [`skipped_policy_updates`](Self::skipped_policy_updates) does **not**
+    /// mean the auxiliary phase is the sicker half of the run; the two have
+    /// different denominators. Compare each against its own phase's attempts.
+    #[must_use]
+    pub const fn skipped_aux_value_updates(&self) -> u64 {
+        self.aux_main_value_guard.skipped()
+    }
+
+    /// Auxiliary-phase **combined-loss** updates skipped for a non-finite loss
+    /// (ADR 0056, ADR 0072).
+    ///
+    /// The `ppg/aux_total_loss` site: the aux-value MSE plus `β · KL`
+    /// distillation term, counted per minibatch inside
+    /// [`maybe_aux_phase`](Self::maybe_aux_phase) on the same cadence caveat as
+    /// [`skipped_aux_value_updates`](Self::skipped_aux_value_updates).
+    ///
+    /// # One guard, two reported quantities
+    ///
+    /// This site's guard input is host-*derived* —
+    /// `total_val = aux_v_loss_val + kl_val * beta_clone`, rebuilt on the host
+    /// from two scalars already read, rather than a third tensor read back (ADR
+    /// 0056 §5). It gates a single optimizer step that owns *both* the aux-value
+    /// loss and the KL term, so on a skip **both** are excluded together. That
+    /// is why [`AuxPhaseStats::aux_value_loss`] and
+    /// [`AuxPhaseStats::policy_kl`] share the one `aux_total_healthy`
+    /// denominator, and why four guards do not imply four independent counts
+    /// over four independent quantities: three losses are individually gated,
+    /// and the fourth gate covers two reported values at once.
+    ///
+    #[must_use]
+    pub const fn skipped_aux_total_updates(&self) -> u64 {
+        self.aux_total_guard.skipped()
+    }
+
+    /// Total gradient updates skipped for a non-finite loss across **all four**
+    /// of PPG's loss sites — the canonical `skipped_updates` metric (ADR 0072
+    /// §2, §3).
+    ///
+    /// PPG has more loss sites than any other agent in the crate, so this
+    /// aggregate — not any single per-site accessor — is what the training loop
+    /// emits. It exists so that adding a fifth guarded site cannot silently drop
+    /// out of the reported metric: the sum is written once, here, rather than
+    /// re-derived at each call site.
+    ///
+    /// The sum is `saturating_add`ed rather than `+`ed, matching
+    /// [`AgentStats::record`]: a counter that pins at `u64::MAX` is a better
+    /// failure mode for a long-lived agent than one that wraps in release or
+    /// panics under `overflow-checks`. Reaching the ceiling is not physically
+    /// attainable here, so the saturation is a convention, not a live concern.
+    ///
+    /// # What one unit means
+    ///
+    /// One skipped **minibatch** at one site — not one skipped phase call.
+    /// Policy-phase sites accumulate over `update_epochs × num_minibatches` per
+    /// [`policy_phase_update`](Self::policy_phase_update); auxiliary-phase sites
+    /// over `e_aux ×` (auxiliary minibatches) per firing of
+    /// [`maybe_aux_phase`](Self::maybe_aux_phase), which is itself on a
+    /// `n_iteration` cadence. Because the four terms are measured against
+    /// different denominators, the aggregate is a **health signal**, not a rate:
+    /// read it as "this many optimizer steps were bought and not received", and
+    /// use the per-site accessors to attribute them.
+    ///
+    /// # `applied = attempts − skipped`
+    ///
+    /// Every guard is consulted on an attempt that was already made — the
+    /// forward pass and loss ran — so a skip is always a subset of an attempt
+    /// and the subtraction can never underflow. The per-call complements are the
+    /// `*_healthy` locals behind [`PpoUpdateStats`] and [`AuxPhaseStats`]: they
+    /// denominate that one call's means, while this counter is the lifetime
+    /// total. Complements, not duplicates.
+    ///
+    /// [`AgentStats::record`]: crate::metrics::AgentStats::record
+    /// [`PpoUpdateStats`]: crate::algorithms::ppo::ppo_agent::PpoUpdateStats
+    #[must_use]
+    pub const fn skipped_updates(&self) -> u64 {
+        self.policy_loss_guard
+            .skipped()
+            .saturating_add(self.value_loss_guard.skipped())
+            .saturating_add(self.aux_main_value_guard.skipped())
+            .saturating_add(self.aux_total_guard.skipped())
     }
 
     /// Per-episode statistics accumulated over the last 100 episodes.
@@ -753,8 +884,11 @@ where
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(cfg.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
-                // #318 / ADR 0056: same guard for the value site, latched
-                // separately from the policy site.
+                // #318 / ADR 0056: same guard type for the value site, counted
+                // separately from the policy site — its own per-site total
+                // (`skipped_value_updates`) and its own decade `warn!` schedule,
+                // and, like the policy site, its skip fires on every non-finite
+                // minibatch rather than only the first (ADR 0056 §3, ADR 0072).
                 if self.value_loss_guard.check(v_loss_val) {
                     let grads = v_loss_scaled.backward();
                     let grads_params = GradientsParams::from_grads(grads, self.value());
@@ -1278,13 +1412,26 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(1);
         let stats = agent.policy_phase_update(&mut rng);
 
-        assert!(
-            agent.policy_loss_guard.warning_fired(),
-            "a NaN policy loss must fire the policy-phase policy guard"
+        // `primed_ppg_agent`: num_steps = 4, num_minibatches = 1 → mb_size = 4,
+        // so 1 minibatch per epoch × update_epochs = 1 → 1 guarded attempt, all
+        // of it skipped.
+        assert_eq!(
+            agent.skipped_policy_updates(),
+            1,
+            "the single NaN policy minibatch (1 minibatch × 1 epoch) must be \
+             counted exactly once at the ppg/policy_loss site"
         );
-        assert!(
-            !agent.value_loss_guard.warning_fired(),
-            "the value net was healthy: its guard must not fire"
+        assert_eq!(
+            agent.skipped_value_updates(),
+            0,
+            "the value net was healthy: the sibling site must be untouched, \
+             pinned at exactly 0 rather than merely 'not yet warned'"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            1,
+            "the aggregate over all four sites must equal the one policy-site \
+             skip: 1 + 0 + 0 + 0"
         );
         assert_eq!(
             stats.policy_loss, 0.0,
@@ -1335,13 +1482,25 @@ mod tests {
             .maybe_aux_phase(&mut rng)
             .expect("n_iteration = 1 makes the aux phase ready after one snapshot");
 
-        assert!(
-            agent.aux_total_guard.warning_fired(),
-            "the NaN aux-total loss must fire the aux-total guard"
+        // `primed_ppg_agent`: one 4-step slice in the aux buffer,
+        // aux_batch_size = 4 → 1 minibatch per epoch × e_aux = 1 → 1 guarded
+        // attempt at each aux site.
+        assert_eq!(
+            agent.skipped_aux_total_updates(),
+            1,
+            "the single NaN aux-total minibatch (1 minibatch × 1 aux epoch) \
+             must be counted exactly once at the ppg/aux_total_loss site"
         );
-        assert!(
-            !agent.aux_main_value_guard.warning_fired(),
-            "the main-value site was healthy: its guard must not fire"
+        assert_eq!(
+            agent.skipped_aux_value_updates(),
+            0,
+            "the main-value site ran on the healthy value net: pinned at \
+             exactly 0, not merely 'not yet warned'"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            1,
+            "the aggregate must equal the one aux-total skip: 0 + 0 + 0 + 1"
         );
         assert_eq!(
             stats.aux_value_loss, 0.0,
@@ -1363,6 +1522,242 @@ mod tests {
         assert!(
             stats.main_value_loss.is_finite(),
             "the reported main-value loss must stay finite"
+        );
+    }
+
+    /// Like [`primed_ppg_agent`], but with the minibatch/epoch shape under the
+    /// caller's control so a test can predict the exact number of guarded
+    /// attempts a phase makes.
+    ///
+    /// The rollout is still four steps (`collect_rollout`), so the policy phase
+    /// runs `update_epochs × (4 / num_minibatches ⌈chunks⌉)` minibatches and the
+    /// auxiliary phase `e_aux = 1 × ⌈steps / aux_batch_size⌉`. `target_kl` is
+    /// pinned to `None` so no epoch can end early and change that arithmetic.
+    fn shaped_ppg_agent(
+        num_minibatches: usize,
+        update_epochs: usize,
+        aux_batch_size: usize,
+    ) -> TestAgent {
+        let device = Default::default();
+        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+            obs_dim: 2,
+            hidden: 4,
+            num_actions: 2,
+        }
+        .try_init::<TestBackend>(&device)
+        .expect("valid head config");
+        let value = TestValue::<TestBackend>::init(&device);
+        let config = PpgConfigBuilder::new()
+            .n_iteration(1)
+            .e_aux(1)
+            .aux_batch_size(aux_batch_size)
+            .with_ppo(|p| PpoTrainingConfig {
+                num_envs: 1,
+                num_steps: 4,
+                num_minibatches,
+                update_epochs,
+                anneal_lr: false,
+                target_kl: None,
+                ..p
+            })
+            .build()
+            .expect("valid config");
+        let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
+
+        let mut rng = StdRng::seed_from_u64(0);
+        collect_rollout(&mut agent, &mut rng);
+        agent
+    }
+
+    /// The skip counter is a *counter*, not a latch (ADR 0072 §2): PPG's guards
+    /// are consulted once per minibatch, so a phase in which every minibatch is
+    /// non-finite must record one skip per minibatch, not one per phase.
+    ///
+    /// This is the property `warning_fired()` could never express — a boolean
+    /// latch reads identically for 1 skip and for 8.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn ppg_counts_repeated_loss_skips() {
+        // 4 rollout steps / num_minibatches = 4 → mb_size = 1 → 4 minibatches
+        // per epoch; × update_epochs = 2 → 8 guarded policy attempts.
+        const EXPECTED_SKIPS: u64 = 8;
+
+        let mut agent = shaped_ppg_agent(4, 2, 4);
+
+        let poisoned = agent.policy.get().clone().map(&mut NanInjector);
+        agent.policy = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let stats = agent.policy_phase_update(&mut rng);
+
+        assert_eq!(
+            stats.epochs_run, 2,
+            "both epochs must run (target_kl is None), pinning the 4 × 2 \
+             minibatch arithmetic below"
+        );
+        assert_eq!(
+            agent.skipped_policy_updates(),
+            EXPECTED_SKIPS,
+            "every one of the 4 minibatches × 2 epochs = 8 NaN policy losses \
+             must be counted; a latch would report 1"
+        );
+        assert!(
+            agent.skipped_policy_updates() > 1,
+            "the counter must exceed 1 — this is the assertion that fails for a \
+             one-shot latch"
+        );
+        assert_eq!(
+            agent.skipped_value_updates(),
+            0,
+            "the healthy value site is pinned at exactly 0 across all 8 \
+             minibatches"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            EXPECTED_SKIPS,
+            "the aggregate must equal 8 + 0 + 0 + 0"
+        );
+        assert_eq!(
+            stats.policy_loss, 0.0,
+            "all 8 policy minibatches skipped → the 0.0 all-skipped sentinel"
+        );
+    }
+
+    /// The aggregate must sum **four distinct** per-site counters, each exactly
+    /// once (ADR 0072 §3). Constructed so all four terms are different *and*
+    /// none is zero — 2, 6, 4, 8, aggregate **20** — because the two properties
+    /// close two different holes:
+    ///
+    /// - **Distinct** rules out *duplication*: a chain that adds one guard twice
+    ///   and another not at all still reads correctly when terms are equal. With
+    ///   `{2, 6, 4, 8}` every such chain misses `20` (e.g. `2+2+4+8 = 16`,
+    ///   `6+6+4+8 = 24`, `2+6+4+4 = 16`, `2+6+8+8 = 24`).
+    /// - **Nonzero** rules out *omission*: a zero term is invisible to a sum, so
+    ///   deleting its summand changes nothing. The earlier shape of this test
+    ///   (2 / **0** / 8 / 4 = 14) passed against a `skipped_updates` with
+    ///   `value_loss_guard.skipped()` removed from the chain. Here the four
+    ///   single-term omissions give `18`, `14`, `16`, `12` — none is `20`.
+    ///
+    /// # Where each term comes from
+    ///
+    /// `shaped_ppg_agent(2, 1, 1)`: every policy phase runs 4 rollout steps / 2
+    /// minibatches = `mb_size` 2 → 2 minibatches × 1 epoch = **2 guarded attempts
+    /// per site per policy phase**; every aux phase runs
+    /// `⌈total_steps / 1⌉ = total_steps` minibatches × `e_aux = 1`.
+    ///
+    /// The policy and value sites share those attempts, so their counts are
+    /// separated by *which net is diverged* and by *how many policy phases run*:
+    /// one phase with a `NaN` policy (policy = 2), then three phases with a `NaN`
+    /// value net (value = 3 × 2 = 6). Each of the latter re-collects its rollout
+    /// with a **healthy** value net first — a rollout collected through a `NaN`
+    /// critic would store `NaN` values, hence `NaN` advantages, and the policy
+    /// site would skip too, collapsing the two terms back together.
+    #[test]
+    fn ppg_skipped_updates_aggregates_unequal_per_site_counts() {
+        // Policy phase #1: 2 minibatches × 1 epoch = 2 guarded policy attempts,
+        // all NaN (policy poisoned).
+        const POLICY_SKIPS: u64 = 2;
+        // Policy phases #2-#4: 3 phases × 2 minibatches = 6 guarded value
+        // attempts, all NaN (value poisoned, policy healthy). NONZERO on
+        // purpose — see the doc comment.
+        const VALUE_PHASES: usize = 3;
+        const VALUE_SKIPS: u64 = 6;
+        // Aux phase #1: 1 slice × 4 steps, aux_batch_size 1 → 4 minibatches ×
+        // e_aux 1 = 4 guarded aux-total attempts, all NaN (policy poisoned).
+        const AUX_TOTAL_SKIPS: u64 = 4;
+        // Aux phase #2: 2 slices × 4 steps = 8 steps, aux_batch_size 1 → 8
+        // minibatches × e_aux 1 = 8 guarded main-value attempts, all NaN
+        // (value poisoned).
+        const AUX_MAIN_SKIPS: u64 = 8;
+
+        let mut agent = shaped_ppg_agent(2, 1, 1);
+        let mut rng = StdRng::seed_from_u64(0);
+
+        // Keep healthy copies of both nets: each phase below diverges exactly
+        // one site, and restores the other from these before any rollout
+        // collection so the stored values/returns stay finite.
+        let healthy_policy = agent.policy.get().clone();
+        let healthy_value = agent.value.get().clone();
+
+        // One 4-step slice, snapshotted while both nets are healthy so the
+        // stored returns are finite.
+        agent.snapshot_into_aux_buffer();
+
+        // --- policy phase #1, poisoned policy: policy site only ---
+        agent.policy = Slot::new(healthy_policy.clone().map(&mut NanInjector));
+        agent.policy_phase_update(&mut rng);
+
+        // --- aux phase #1, still poisoned policy: aux-total site only ---
+        agent
+            .maybe_aux_phase(&mut rng)
+            .expect("n_iteration = 1: one snapshotted slice arms the aux phase");
+
+        assert_eq!(
+            agent.skipped_value_updates(),
+            0,
+            "site isolation: the value net was healthy throughout phase #1, so \
+             the value site is still silent — the divergence below is the only \
+             reason it starts counting"
+        );
+
+        // --- policy phases #2-#4, healthy policy but poisoned value: value
+        // site only. Restore BOTH nets before each rollout: the rollout's
+        // stored values must be finite or the policy site would skip as well.
+        agent.policy = Slot::new(healthy_policy.clone());
+        for _ in 0..VALUE_PHASES {
+            agent.value = Slot::new(healthy_value.clone());
+            collect_rollout(&mut agent, &mut rng);
+            agent.value = Slot::new(healthy_value.clone().map(&mut NanInjector));
+            agent.policy_phase_update(&mut rng);
+        }
+
+        // --- aux phase #2, healthy policy but poisoned value: main-value only ---
+        agent.value = Slot::new(healthy_value.clone());
+        collect_rollout(&mut agent, &mut rng);
+        agent.snapshot_into_aux_buffer();
+        agent.snapshot_into_aux_buffer();
+        agent.value = Slot::new(healthy_value.map(&mut NanInjector));
+        agent
+            .maybe_aux_phase(&mut rng)
+            .expect("two snapshotted slices arm the aux phase again");
+
+        assert_eq!(
+            agent.skipped_policy_updates(),
+            POLICY_SKIPS,
+            "policy site: 2 minibatches × 1 epoch = 2 NaN policy losses, accrued \
+             only in policy phase #1; phases #2-#4 ran a healthy policy against \
+             finite advantages and added nothing"
+        );
+        assert_eq!(
+            agent.skipped_value_updates(),
+            VALUE_SKIPS,
+            "value site: 3 policy phases × 2 minibatches = 6 NaN value losses. \
+             NONZERO on purpose — a zero here would be invisible to the \
+             aggregate, letting a chain that drops this summand still total 20"
+        );
+        assert_eq!(
+            agent.skipped_aux_value_updates(),
+            AUX_MAIN_SKIPS,
+            "aux main-value site: 8 minibatches × 1 aux epoch = 8 NaN losses, \
+             accrued only in the second aux phase"
+        );
+        assert_eq!(
+            agent.skipped_aux_total_updates(),
+            AUX_TOTAL_SKIPS,
+            "aux-total site: 4 minibatches × 1 aux epoch = 4 NaN losses, \
+             accrued only in the first aux phase"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            POLICY_SKIPS + VALUE_SKIPS + AUX_MAIN_SKIPS + AUX_TOTAL_SKIPS,
+            "the aggregate must be 2 + 6 + 8 + 4 = 20: each of the four \
+             distinct, nonzero per-site counters summed exactly once"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            20,
+            "pinned literal, so a change to any summand's arithmetic must be \
+             restated here rather than cancelling out"
         );
     }
 

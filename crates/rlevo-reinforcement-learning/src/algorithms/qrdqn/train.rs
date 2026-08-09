@@ -166,6 +166,7 @@ where
                 epsilon = agent.epsilon(),
                 quantile_spread = last_spread,
                 buffer = agent.buffer_len(),
+                skipped_updates = agent.skipped_updates(),
                 "qr-dqn training progress"
             );
         }

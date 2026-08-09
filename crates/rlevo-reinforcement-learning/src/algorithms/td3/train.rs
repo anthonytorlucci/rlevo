@@ -152,6 +152,11 @@ where
                 critic_loss = last_critic_loss,
                 q_mean = last_q_mean,
                 buffer = agent.buffer_len(),
+                // Canonical cumulative metric (ADR 0072): gradient updates that
+                // never reached an optimizer because their loss was non-finite.
+                // The AGGREGATE across all three loss sites — reading a single
+                // guard here would silently under-report the other two.
+                skipped_updates = agent.skipped_updates(),
                 "td3 training progress"
             );
         }

@@ -215,10 +215,14 @@ pub struct DdpgAgent<
     /// Most recent *applied* critic loss — carried forward across a non-finite
     /// skip so the reported metric never folds in a NaN (#318, ADR 0056 §3).
     last_critic_loss: f32,
-    /// Non-finite-loss guard for the critic loss site (ADR 0056, #318). One
-    /// per-run `warn!` latch per site; the skip it drives fires every occurrence.
+    /// Non-finite-loss guard for the critic loss site (ADR 0056, #318). Skips
+    /// the update on every occurrence; the `warn!` escalates by decades — skips
+    /// 1, 10, 100, … — each carrying the running total (ADR 0072 §1), readable
+    /// via [`Self::skipped_critic_updates`].
     critic_guard: FiniteLossGuard,
-    /// Non-finite-loss guard for the actor loss site, latching independently.
+    /// Non-finite-loss guard for the actor loss site, counting and escalating
+    /// independently of [`Self::critic_guard`]. See
+    /// [`Self::skipped_actor_updates`].
     actor_guard: FiniteLossGuard,
     /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
     /// #352). Drops the transition on every occurrence; the `warn!` escalates
@@ -370,6 +374,102 @@ where
     /// Global env-step count.
     pub fn step(&self) -> usize {
         self.step
+    }
+
+    /// Number of critic updates **attempted** — the counter that drives the
+    /// `policy_frequency` actor cadence and the
+    /// [`target_update`](DdpgTrainingConfig::target_update) Polyak cadence.
+    ///
+    /// This is an *attempt* count, not an *applied* count: it advances
+    /// unconditionally at the end of every learn step, including one whose
+    /// critic loss was non-finite and therefore skipped (ADR 0059 §Decision 4).
+    /// Keeping it unconditional is what makes the two cadences immune to a
+    /// transient `NaN` — a skip must not silently retime the actor and target
+    /// updates. Subtract
+    /// [`skipped_critic_updates`](Self::skipped_critic_updates) to recover the
+    /// number that actually reached the optimizer:
+    ///
+    /// ```text
+    /// applied = critic_updates() - skipped_critic_updates()
+    /// ```
+    #[must_use]
+    pub const fn critic_updates(&self) -> usize {
+        self.critic_updates
+    }
+
+    /// Number of **critic** updates skipped because the critic loss was
+    /// non-finite (ADR 0056, ADR 0072).
+    ///
+    /// # Relationship to [`critic_updates`](Self::critic_updates)
+    ///
+    /// [`critic_updates`](Self::critic_updates) counts **attempts** and
+    /// advances unconditionally, including on a skip (ADR 0059 §Decision 4);
+    /// this counts the **subset of those attempts that was skipped**, so
+    ///
+    /// ```text
+    /// applied = critic_updates() - skipped_critic_updates()
+    /// ```
+    ///
+    /// and the subtraction can never underflow, because every skip is first
+    /// counted as an attempt.
+    ///
+    /// # Relationship to the `dropped_*` counters
+    ///
+    /// A *drop* and a *skip* are different losses at different seams. A drop —
+    /// [`dropped_transitions`](Self::dropped_transitions),
+    /// [`dropped_observations`](Self::dropped_observations) — is **data that
+    /// never entered the replay buffer** and can never be sampled. A skip is an
+    /// **update that never reached the optimizer**, computed from data that is
+    /// still in the buffer and will be sampled again. Neither counter bounds
+    /// the other, and a run can show one without the other.
+    #[must_use]
+    pub const fn skipped_critic_updates(&self) -> u64 {
+        self.critic_guard.skipped()
+    }
+
+    /// Number of **actor** updates skipped because the actor loss was
+    /// non-finite (ADR 0056, ADR 0072).
+    ///
+    /// # Not comparable to [`skipped_critic_updates`](Self::skipped_critic_updates)
+    ///
+    /// The actor guard sits *inside* the `policy_frequency` cadence block, so
+    /// the actor is only ever *attempted* on every `policy_frequency`-th critic
+    /// update. Actor attempts are therefore fewer than critic attempts by
+    /// construction, and this count is drawn from that smaller pool: at the
+    /// shipped `policy_frequency = 2`, a run whose every loss is non-finite
+    /// reports roughly half as many actor skips as critic skips. Reading the
+    /// two as a like-for-like comparison — "the actor is healthier than the
+    /// critic" — is a misreading of the cadence, not a signal.
+    ///
+    /// The same attempts-minus-skips identity holds against the actor's own
+    /// attempt count, which is `critic_updates() / policy_frequency`.
+    #[must_use]
+    pub const fn skipped_actor_updates(&self) -> u64 {
+        self.actor_guard.skipped()
+    }
+
+    /// Total gradient updates skipped for a non-finite loss, across **both**
+    /// loss sites — the canonical `skipped_updates` metric this agent reports
+    /// (ADR 0072 §2, §3).
+    ///
+    /// The sum of [`skipped_critic_updates`](Self::skipped_critic_updates) and
+    /// [`skipped_actor_updates`](Self::skipped_actor_updates), saturating at
+    /// `u64::MAX` (a bound no real run approaches; the saturation exists so the
+    /// metric can never wrap into a small number).
+    ///
+    /// # Why the aggregate is the one the training loop emits
+    ///
+    /// DDPG has two loss sites today and could gain a third. The training loop
+    /// reads *this* accessor rather than adding the per-site counts itself, so
+    /// a new guard is picked up by extending this method alone — a site cannot
+    /// be silently omitted from the reported metric by a caller that has not
+    /// heard of it. Per-site attribution is what the two accessors above are
+    /// for; this is the number to alert on.
+    #[must_use]
+    pub const fn skipped_updates(&self) -> u64 {
+        self.critic_guard
+            .skipped()
+            .saturating_add(self.actor_guard.skipped())
     }
 
     /// Samples an action for the current observation.
@@ -1072,13 +1172,16 @@ mod tests {
             .expect("no polyak error")
             .expect("a primed agent past warm-up learns");
 
-        assert!(
-            agent.critic_guard.warning_fired(),
-            "the critic's non-finite loss must fire its guard"
+        assert_eq!(
+            agent.skipped_critic_updates(),
+            1,
+            "the one poisoned critic step must be counted as exactly one skip"
         );
-        assert!(
-            !agent.actor_guard.warning_fired(),
-            "the actor block did not run this step: its guard must not fire"
+        assert_eq!(
+            agent.skipped_actor_updates(),
+            0,
+            "the actor block did not run this step: the sibling site must be \
+             untouched, with a count of exactly zero"
         );
         assert!(
             outcome.actor_loss.is_none(),
@@ -1096,6 +1199,132 @@ mod tests {
         assert!(
             probe_action.as_slice()[0].is_finite(),
             "the actor must remain finite — the critic's NaN must not reach it"
+        );
+    }
+
+    /// Builds the same primed agent as
+    /// [`ddpg_nonfinite_critic_loss_skips_and_warns`] — four transitions in the
+    /// buffer, `learning_starts = 0`, `batch_size = 2` — with its critic already
+    /// diverged to `NaN` weights, so *every* subsequent `learn_step` produces a
+    /// non-finite critic loss. `policy_frequency` is a parameter because it
+    /// decides how many of those steps also attempt an actor update.
+    fn poisoned_critic_agent(policy_frequency: usize) -> GuardAgent {
+        let device = Default::default();
+        let config = DdpgTrainingConfigBuilder::new()
+            .batch_size(2)
+            .learning_starts(0)
+            .replay_buffer_capacity(64)
+            .critic_lr(0.05)
+            .policy_frequency(policy_frequency)
+            .build()
+            .expect("valid config");
+
+        let mut agent = GuardAgent::new(
+            TinyActor::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent");
+
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+        for x in [0.0_f32, 0.1, 0.2, 0.3] {
+            agent.remember(
+                make_obs(x, 1.0 - x),
+                &action,
+                0.5,
+                make_obs(x + 0.1, 0.9 - x),
+                false,
+            );
+        }
+
+        // Poison a *clone* to preserve `ParamId`s and the target Polyak pairing.
+        let poisoned = agent.critic.get().clone().map(&mut NanInjector);
+        agent.critic = Slot::new(poisoned);
+        agent
+    }
+
+    /// The skip counter is a **counter**, not a latch: three consecutive
+    /// poisoned critic steps must read exactly `3` (ADR 0072 §1). A count of
+    /// `1` here would mean the counter was mistranslated from the old
+    /// one-shot `warning_fired` boolean.
+    #[test]
+    fn ddpg_counts_repeated_loss_skips() {
+        // `policy_frequency = 4` keeps the actor block off all three steps
+        // (`critic_updates` reaches 1, 2, 3 — none a multiple of 4), so the
+        // critic count below is attributable to the critic site alone.
+        let mut agent = poisoned_critic_agent(4);
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for _ in 0..3 {
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent past warm-up learns");
+        }
+
+        assert_eq!(
+            agent.critic_updates(),
+            3,
+            "all three attempts must be counted, skip or not (ADR 0059 §Decision 4)"
+        );
+        assert_eq!(
+            agent.skipped_critic_updates(),
+            3,
+            "three consecutive non-finite critic losses must count as three \
+             skips, not one — the counter must not latch"
+        );
+        assert_eq!(
+            agent.skipped_actor_updates(),
+            0,
+            "the actor block never ran at policy_frequency = 4, so its count \
+             must be exactly zero"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            3,
+            "the aggregate over a silent actor site must equal the critic count"
+        );
+    }
+
+    /// The aggregate must sum the two *distinct* guards. The parts are
+    /// deliberately **unequal** (2 and 1): equal parts would also be satisfied
+    /// by an aggregate that added one guard to itself.
+    ///
+    /// The numbers come from the cadence, which is what makes them unequal for
+    /// free. At `policy_frequency = 2` over two learn steps, `critic_updates`
+    /// reaches 1 then 2, so the critic site is attempted twice and the actor
+    /// site only on the second step. The poisoned critic makes *both* losses
+    /// non-finite — the actor loss is `-mean(critic(obs, actor(obs)))`, so a
+    /// `NaN` critic poisons it too — giving 2 critic skips against 1 actor skip.
+    #[test]
+    fn ddpg_skipped_updates_aggregates_unequal_sites() {
+        let mut agent = poisoned_critic_agent(2);
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for _ in 0..2 {
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent past warm-up learns");
+        }
+
+        assert_eq!(
+            agent.skipped_critic_updates(),
+            2,
+            "the critic site is attempted every step: two steps, two skips"
+        );
+        assert_eq!(
+            agent.skipped_actor_updates(),
+            1,
+            "the actor site is attempted only on the second step at \
+             policy_frequency = 2: one skip"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            3,
+            "the aggregate must be critic (2) + actor (1) = 3 — not either \
+             site doubled (4 or 2)"
         );
     }
 

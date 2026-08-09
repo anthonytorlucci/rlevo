@@ -167,6 +167,13 @@ where
                 critic_loss = last_critic_loss,
                 q_mean = last_q_mean,
                 buffer = agent.buffer_len(),
+                // Canonical `PerUpdate` metric, sampled here on an
+                // *environment*-step cadence: `log_every` env steps do not line
+                // up with update boundaries. Harmless because the counter is
+                // cumulative — a sample can only be stale, never wrong. The
+                // aggregate across both loss sites, never one site's count (ADR
+                // 0072 §3).
+                skipped_updates = agent.skipped_updates(),
                 "ddpg training progress"
             );
         }

@@ -136,7 +136,10 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   keeps the scatter in range on both backends — so a degenerate support
 ///   could no longer corrupt anything; it would merely emit an all-`NaN` target
 ///   on every step. That is a run which trains on nothing and reports it only
-///   once, through the caller's one-shot `FiniteLossGuard` warning. `$\Delta z$` is a
+///   as a log line, through the caller's `FiniteLossGuard`: every update is
+///   skipped and counted, but the `warn!` follows a decade schedule — skips 1,
+///   10, 100, … (ADR 0072 §1) — so the operator learns *how much* was thrown
+///   away only by reading the running total off a warning. `$\Delta z$` is a
 ///   *configuration* constant rather than per-batch data, so the right response
 ///   is to reject it at the call site with a message naming the offending
 ///   bounds, not to let it propagate.
@@ -171,7 +174,8 @@ pub fn project_distribution<B: Backend>(
     // The operator below is NaN-safe (it neither hides the NaN nor derives an
     // out-of-range index from it), so this is not a safety guard: it is the
     // difference between naming the mis-specified support here and emitting an
-    // all-NaN target forever while the loss guard warns once. Fail loudly.
+    // all-NaN target forever while the loss guard only counts the skips and
+    // warns on its decade schedule (ADR 0072 §1). Fail loudly.
     assert!(
         delta_z.is_finite() && delta_z > 0.0,
         "C51 support must satisfy v_max > v_min with finite bounds \

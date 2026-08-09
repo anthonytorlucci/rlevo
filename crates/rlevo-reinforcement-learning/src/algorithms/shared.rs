@@ -343,8 +343,9 @@ pub(crate) fn reduce_weighted_loss<B: Backend>(
 ///
 /// `#[cfg(test)] pub(crate)` — this is instrumentation, not API. It is reachable
 /// only from this crate's own unit tests, mirroring
-/// [`FiniteLossGuard::warning_fired`], the existing precedent for a
-/// test-only observation hook in this module. Making it public would commit the
+/// [`LogAlpha::nonfinite_grad_warning_fired`](super::sac::sac_alpha), the
+/// existing precedent for a test-only observation hook in this crate's
+/// algorithms. Making it public would commit the
 /// crate to a checksum's stability across backends and dtypes, which nothing
 /// outside a test needs.
 #[cfg(test)]
@@ -572,12 +573,38 @@ pub(crate) fn clamp_preserving_nan<B: Backend, const D: usize>(
 /// AMP's `GradScaler`, which skips `optimizer.step()` when the unscaled
 /// gradients contain `inf`/`NaN` so the params stay uncorrupted, and continues.
 ///
+/// # Why a decade schedule and not a one-shot latch
+///
+/// A skipped update is not a free self-healing hiccup: it is *lost throughput*,
+/// and its **magnitude** is the operational fact an operator needs. "One `NaN`
+/// in a 1M-step run" and "37% of updates were never applied" are entirely
+/// different situations — the first is a blip, the second means the run's
+/// nominal step budget bought a third less learning than it looks like it did.
+/// A one-shot latch destroys exactly that distinction: it reports that the
+/// failure mode exists and nothing about its rate, so the two cases produce
+/// byte-identical logs.
+///
+/// So the warning escalates by decades — it fires at the 1st, 10th, 100th,
+/// 1000th, … skip, carrying the running total. That bounds log volume at ~7
+/// lines over any realistic run (a 10M-skip run emits 8) while making a
+/// persistent source impossible to mistake for an isolated blip (ADR 0072 §1,
+/// mirroring [`FiniteRewardGuard`]).
+///
+/// [`skipped`](Self::skipped) is the programmatic half of the same fact, and it
+/// composes with the *attempt* counters ADR 0059 introduced for the target-update
+/// cadence (`gradient_updates`, `critic_updates`): those count learn steps
+/// entered, this counts the ones that were thrown away, so
+/// `applied = attempts − skipped` is recoverable without parsing a log line.
+///
 /// One guard instance owns one loss site: each distinct failure mode keeps its
-/// own `warn!` latch so one site firing cannot silence another's diagnostic.
+/// own counter and its own warning schedule, so one site firing cannot silence
+/// or inflate another's diagnostic.
 pub(crate) struct FiniteLossGuard {
-    /// One-shot latch for the non-finite-loss warning. Latches the `warn!`
-    /// only — never the skip.
-    warned: bool,
+    /// Running count of gradient updates skipped for a non-finite loss.
+    skipped: u64,
+    /// Next value of `skipped` at which a `warn!` is due: 1, 10, 100, 1000, ….
+    /// Schedules the `warn!` only — never the skip.
+    next_warn_at: u64,
     /// Static site label (e.g. `"ppo/policy_loss"`) used in the warning's
     /// structured `site` field and message.
     label: &'static str,
@@ -585,58 +612,66 @@ pub(crate) struct FiniteLossGuard {
 
 impl FiniteLossGuard {
     /// Creates a guard for the loss site named `label` (e.g.
-    /// `"ppo/policy_loss"`), with its warning latch un-armed.
+    /// `"ppo/policy_loss"`), with its first warning due on the first skip.
     pub(crate) const fn new(label: &'static str) -> Self {
         Self {
-            warned: false,
+            skipped: 0,
+            next_warn_at: 1,
             label,
         }
     }
 
     /// Returns `true` if `loss` is finite — the caller proceeds to `backward()`
     /// and the optimizer step. Returns `false` if non-finite (NaN/±Inf) — the
-    /// caller MUST skip both. On the FIRST non-finite value only, emits a
-    /// one-shot `tracing::warn!`.
+    /// caller MUST skip both. Emits a `tracing::warn!` on the 1st, 10th, 100th,
+    /// … skip.
     ///
     /// CRITICAL: the skip (returning `false`) fires on EVERY non-finite
-    /// occurrence; only the `warn!` is latched. Never gate the return value
-    /// on `self.warned` — a run that emits NaN every step must be protected
-    /// every step (see ADR 0056 §3 and the mixed-precision `GradScaler`
-    /// precedent).
+    /// occurrence; only the `warn!` is scheduled. Never gate the return value
+    /// on `next_warn_at` or on `skipped` — a run that emits NaN every step must
+    /// be protected every step (ADR 0056 §3, reaffirmed by ADR 0072 §1, and the
+    /// mixed-precision `GradScaler` precedent). Silencing the log is a cosmetic
+    /// concern; folding one poisoned loss into the weights corrupts every
+    /// subsequent step of the run.
     pub(crate) fn check(&mut self, loss: f32) -> bool {
         if loss.is_finite() {
             return true;
         }
-        if !self.warned {
-            self.warned = true;
+        self.skipped += 1;
+        if self.skipped >= self.next_warn_at {
+            self.next_warn_at = self.next_warn_at.saturating_mul(10);
             tracing::warn!(
                 loss = loss,
+                skipped = self.skipped,
                 site = self.label,
                 "Non-finite loss ({loss}) at {} — the backward pass and \
                  optimizer step were SKIPPED to keep weights uncorrupted \
                  (Burn propagates NaN silently rather than panicking). This \
-                 step's value is excluded from the reported mean. One isolated \
-                 occurrence is usually harmless; a persistent source is almost \
-                 always a diverging policy/critic, a bad learning rate, or a \
-                 degenerate log/div (e.g. PPO ratio exp-overflow). Check loss \
-                 magnitudes and lower the learning rate or rescale rewards if \
-                 they grow without bound.",
+                 step's value is excluded from the reported mean. {} update(s) \
+                 skipped so far; this warning repeats at 1, 10, 100, … skips. \
+                 One isolated occurrence is usually harmless; a persistent \
+                 source is almost always a diverging policy/critic, a bad \
+                 learning rate, or a degenerate log/div (e.g. PPO ratio \
+                 exp-overflow). Check loss magnitudes and lower the learning \
+                 rate or rescale rewards if they grow without bound.",
                 self.label,
+                self.skipped,
             );
         }
         false
     }
 
-    /// Whether the one-shot non-finite-loss warning has already fired for this
-    /// instance.
+    /// Number of gradient updates skipped so far at this loss site for a
+    /// non-finite loss.
     ///
-    /// Exposed for tests: the crate has no `tracing` capture dependency, so the
-    /// once-only latch is asserted directly rather than by scraping log output
-    /// — the same approach as
-    /// [`LogAlpha::nonfinite_grad_warning_fired`](super::sac::sac_alpha).
-    #[cfg(test)]
-    pub(crate) fn warning_fired(&self) -> bool {
-        self.warned
+    /// Not test-gated: this is the per-site input the agents' public
+    /// `skipped_*_updates` accessors read, and the term each agent contributes
+    /// to the canonical `skipped_updates` metric (ADR 0072 §2, §3). A caller
+    /// tuning a run needs a programmatic way to discover how much of its step
+    /// budget never reached the weights, rather than having to scrape log
+    /// output.
+    pub(crate) const fn skipped(&self) -> u64 {
+        self.skipped
     }
 }
 
@@ -648,10 +683,10 @@ impl FiniteLossGuard {
 /// FIFO replay buffer, where it survives until capacity eviction. Every
 /// minibatch that happens to resample that transition produces a non-finite
 /// loss, which the loss guard then correctly skips — so the run silently loses
-/// gradient updates for as long as the poisoned transition is resident, and
-/// because the loss guard's `warn!` is one-shot, only the very first skip is
-/// ever logged. The weights stay clean (that is ADR 0056's job); what is lost is
-/// throughput, and what is never surfaced is the root cause.
+/// gradient updates for as long as the poisoned transition is resident. The
+/// weights stay clean (that is ADR 0056's job); what is lost is throughput, and
+/// what the loss guard cannot surface at all is the root cause: it sees a
+/// poisoned *loss*, never the poisoned reward that produced it.
 ///
 /// [`admit`](Self::admit) closes that at the ingestion boundary: `remember`
 /// takes an already-erased `f32`, so this is the one chokepoint every reward
@@ -661,18 +696,23 @@ impl FiniteLossGuard {
 ///
 /// # Why a decade schedule and not a one-shot latch
 ///
-/// [`FiniteLossGuard`] latches its warning once, and that is right for a
-/// *skipped gradient step*: the failure is self-healing, the next minibatch can
-/// recover, and repeating the line adds nothing. A *dropped transition* is
-/// different — it is unbounded data loss, and its magnitude is the operational
-/// fact the caller needs. "One `NaN` in a 1M-step run" and "37% of transitions
-/// never entered the buffer" are entirely different situations that a single
-/// latched line cannot distinguish.
+/// Both guards use the same schedule: they fire at the 1st, 10th, 100th, 1000th,
+/// … rejection, carrying the running total. (ADR 0072 brought
+/// [`FiniteLossGuard`] onto this schedule; it originally latched its warning
+/// once.) The shared reason is that the *rate* is the operational fact, not the
+/// mere existence of the failure mode: "one `NaN` in a 1M-step run" and "37% of
+/// events rejected" are entirely different situations, and a single latched
+/// line renders them identically. The schedule bounds log volume at ~7 lines
+/// over any realistic run (10M rejections emit 8) while making a persistent
+/// source impossible to mistake for an isolated blip.
 ///
-/// So the warning escalates by decades — it fires at the 1st, 10th, 100th,
-/// 1000th, … drop, carrying the running total. That bounds log volume at ~7
-/// lines over any realistic run (a 10M-drop run emits 8) while making a
-/// persistent source impossible to mistake for an isolated blip.
+/// What still differs between the two is the *consequence*, and it is why this
+/// guard exists on top of the loss guard. A skipped update is transient: the
+/// offending minibatch is gone by the next step and the run can recover on its
+/// own. A dropped transition concerns data that would otherwise have *persisted*
+/// — a poisoned reward stays resident in the FIFO buffer, poisoning every
+/// minibatch that resamples it until eviction, so rejecting it at ingestion
+/// removes a recurring cost rather than a one-step one.
 ///
 /// One guard instance owns one ingestion site, mirroring the one-guard-per-loss
 /// site rule above.
@@ -1928,67 +1968,181 @@ mod tests {
     // -------- FiniteLossGuard --------
 
     #[test]
-    fn finite_loss_guard_passes_finite_and_does_not_arm() {
+    fn finite_loss_guard_passes_finite_and_does_not_count() {
         let mut guard = FiniteLossGuard::new("test/site");
         assert!(guard.check(1.5), "a finite positive loss must proceed");
         assert!(guard.check(0.0), "zero is finite and must proceed");
         assert!(guard.check(-3.25), "a finite negative loss must proceed");
-        assert!(
-            !guard.warning_fired(),
-            "a finite loss must not arm the warning latch"
+        assert_eq!(
+            guard.skipped(),
+            0,
+            "no finite loss may increment the skipped-update counter"
         );
     }
 
     #[test]
-    fn finite_loss_guard_skips_and_arms_on_nan() {
+    fn finite_loss_guard_skips_and_counts_on_nan() {
         let mut guard = FiniteLossGuard::new("test/site");
         assert!(
             !guard.check(f32::NAN),
             "a NaN loss must return false (skip)"
         );
+        assert_eq!(guard.skipped(), 1, "the skip for NaN must be counted once");
+    }
+
+    #[test]
+    fn finite_loss_guard_skips_and_counts_on_infinities() {
+        for inf in [f32::INFINITY, f32::NEG_INFINITY] {
+            let mut guard = FiniteLossGuard::new("test/site");
+            assert!(!guard.check(inf), "±inf ({inf}) must return false (skip)");
+            assert_eq!(
+                guard.skipped(),
+                1,
+                "the skip for {inf} must be counted exactly once"
+            );
+        }
+    }
+
+    #[test]
+    fn finite_loss_guard_skip_is_never_latched() {
+        // ADR 0056 §3, reaffirmed by ADR 0072 §1: the skip must fire on EVERY
+        // non-finite occurrence — only the `warn!` is scheduled. Gating the
+        // return value on the warn schedule would fold nine of every ten
+        // poisoned losses into the weights, which is strictly worse than no
+        // guard at all (it would look fixed).
+        let mut guard = FiniteLossGuard::new("test/site");
+        for i in 1..=10_u64 {
+            assert!(
+                !guard.check(f32::NAN),
+                "NaN #{i} must STILL be skipped — the skip is never latched"
+            );
+            assert_eq!(guard.skipped(), i, "every skip must be counted");
+        }
         assert!(
-            guard.warning_fired(),
-            "the first NaN must arm the one-shot warning latch"
+            guard.check(2.0),
+            "a healthy loss after a run of skips must proceed again"
+        );
+        assert_eq!(
+            guard.skipped(),
+            10,
+            "proceeding on a finite loss must not disturb the skip count"
         );
     }
 
     #[test]
-    fn finite_loss_guard_skips_and_arms_on_infinities() {
-        for inf in [f32::INFINITY, f32::NEG_INFINITY] {
-            let mut guard = FiniteLossGuard::new("test/site");
-            assert!(!guard.check(inf), "±inf ({inf}) must return false (skip)");
+    fn finite_loss_guard_counts_every_skip() {
+        // The counter is the `applied = attempts − skipped` term of ADR 0072
+        // §2, so it must track the true skip total across a mixed stream, not
+        // just a monotone run of failures.
+        let mut guard = FiniteLossGuard::new("test/site");
+        for i in 1..=100_u64 {
+            assert!(!guard.check(f32::NAN), "NaN #{i} must be skipped");
+            assert_eq!(guard.skipped(), i, "skip #{i} must be counted immediately");
             assert!(
-                guard.warning_fired(),
-                "an infinite loss ({inf}) must arm the warning latch"
+                guard.check(0.5),
+                "the finite loss interleaved after NaN #{i} must proceed"
+            );
+            assert_eq!(
+                guard.skipped(),
+                i,
+                "the finite loss after NaN #{i} must leave the count at {i}"
             );
         }
+        assert_eq!(
+            guard.skipped(),
+            100,
+            "all 100 interleaved skips must be counted, and no finite loss \
+             may have added to them"
+        );
+    }
+
+    /// The decade schedule is asserted on the **emitted `tracing` events**, not
+    /// on the counter alone: the schedule *is* the log output, so observing the
+    /// real events is the only assertion a "simplify the schedule" mutation
+    /// cannot pass vacuously. See the capture harness note below.
+    #[test]
+    fn finite_loss_guard_warns_on_the_decade_schedule() {
+        // Skip counts at which a WARN is expected, over 100 consecutive skips.
+        let expected_at = [1_u64, 10, 100];
+
+        let events = capture_warnings(|| {
+            let mut guard = FiniteLossGuard::new("test/site");
+            for _ in 0..100 {
+                assert!(!guard.check(f32::NAN), "every NaN is skipped");
+            }
+            assert_eq!(guard.skipped(), 100, "all 100 skips are counted");
+        });
+
+        let fired_at: Vec<u64> = events.iter().filter_map(|e| e.skipped).collect();
+        assert_eq!(
+            fired_at, expected_at,
+            "the WARN must fire at exactly skips 1, 10 and 100 and nowhere in \
+             between; captured events: {events:?}"
+        );
+        assert_eq!(
+            events.len(),
+            expected_at.len(),
+            "every captured WARN must carry a `skipped` field; got {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .all(|e| e.site.as_deref() == Some("test/site")),
+            "every WARN must name its loss site; got {events:?}"
+        );
+        let first = events[0]
+            .message
+            .as_deref()
+            .expect("the first WARN carries a message");
+        assert!(
+            first.contains("SKIPPED"),
+            "the message must tell the operator the update was not applied; \
+             got {first}"
+        );
     }
 
     #[test]
-    fn finite_loss_guard_skip_refires_but_warning_latches_once() {
-        // ADR 0056 §3: the skip must fire on EVERY non-finite occurrence — only
-        // the `warn!` is one-shot. A run that emits NaN every step must be
-        // protected every step, so `check` returning `false` can never be
-        // gated on the latch.
-        let mut guard = FiniteLossGuard::new("test/site");
-
-        assert!(!guard.check(f32::NAN), "the first NaN must skip");
-        assert!(guard.warning_fired(), "and arm the latch");
-
-        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            assert!(
-                !guard.check(bad),
-                "a subsequent non-finite value ({bad}) must STILL skip"
-            );
-            assert!(
-                guard.warning_fired(),
-                "the latch stays armed but cannot re-warn"
-            );
-        }
-
+    fn finite_loss_guard_emits_no_warning_for_finite_losses() {
+        let events = capture_warnings(|| {
+            let mut guard = FiniteLossGuard::new("test/site");
+            for good in [0.0_f32, -0.0, 1.5, f32::MIN, f32::MAX] {
+                assert!(guard.check(good), "finite losses proceed");
+            }
+        });
         assert!(
-            guard.check(2.0),
-            "a healthy loss after a latched failure must proceed again"
+            events.is_empty(),
+            "a healthy stream of losses must emit no WARN at all; got {events:?}"
+        );
+    }
+
+    #[test]
+    fn finite_loss_guard_counts_are_per_site() {
+        // One guard instance owns one loss site (ADR 0072 §2): the per-site
+        // counters are what the agents' `skipped_*_updates` accessors read, so
+        // one diverging site must not inflate another's number.
+        let mut policy = FiniteLossGuard::new("test/policy_loss");
+        let mut value = FiniteLossGuard::new("test/value_loss");
+        for i in 1..=5_u64 {
+            assert!(!policy.check(f32::NAN), "policy NaN #{i} must be skipped");
+        }
+        assert_eq!(
+            policy.skipped(),
+            5,
+            "the policy site must count exactly its own 5 skips"
+        );
+        assert_eq!(
+            value.skipped(),
+            0,
+            "the value site saw no loss at all and must still read 0"
+        );
+        assert!(
+            value.check(1.0),
+            "the untouched site still passes finite losses"
+        );
+        assert_eq!(
+            value.skipped(),
+            0,
+            "a finite loss at the value site must leave its count at 0"
         );
     }
 
@@ -2321,6 +2475,9 @@ mod tests {
         level: Option<tracing::Level>,
         /// The structured `dropped` field: the running drop total.
         dropped: Option<u64>,
+        /// The structured `skipped` field: the running skipped-update total
+        /// emitted by [`FiniteLossGuard`].
+        skipped: Option<u64>,
         /// The structured `site` field, e.g. `"test/remember"`.
         site: Option<String>,
         /// The rendered human-readable message.
@@ -2338,8 +2495,10 @@ mod tests {
         }
 
         fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-            if field.name() == "dropped" {
-                self.0.dropped = Some(value);
+            match field.name() {
+                "dropped" => self.0.dropped = Some(value),
+                "skipped" => self.0.skipped = Some(value),
+                _ => {}
             }
         }
 

@@ -173,6 +173,7 @@ where
                 epsilon = agent.epsilon(),
                 entropy = last_entropy,
                 buffer = agent.buffer_len(),
+                skipped_updates = agent.skipped_updates(),
                 "c51 training progress"
             );
         }

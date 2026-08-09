@@ -246,12 +246,20 @@ pub struct Td3Agent<
     last_qf1_loss: f32,
     /// Most recent *applied* critic-2 loss (see [`Self::last_qf1_loss`]).
     last_qf2_loss: f32,
-    /// Non-finite-loss guard for the critic-1 loss site (ADR 0056, #318). One
-    /// per-run `warn!` latch per site; the skip it drives fires every occurrence.
+    /// Non-finite-loss guard for the critic-1 loss site (ADR 0056, #318). The
+    /// **skip** fires on every occurrence (ADR 0056 §3, reaffirmed by ADR 0072
+    /// §1); the **`warn!`** follows a decade schedule — at the 1st, 10th, 100th,
+    /// … skip, each line carrying the running total (ADR 0072). The count itself
+    /// is per-site and readable via
+    /// [`skipped_critic_1_updates`](Self::skipped_critic_1_updates).
     critic_1_guard: FiniteLossGuard,
-    /// Non-finite-loss guard for the critic-2 loss site, latching independently.
+    /// Non-finite-loss guard for the critic-2 loss site. Independent counter and
+    /// independent decade schedule; read it via
+    /// [`skipped_critic_2_updates`](Self::skipped_critic_2_updates).
     critic_2_guard: FiniteLossGuard,
-    /// Non-finite-loss guard for the actor loss site, latching independently.
+    /// Non-finite-loss guard for the actor loss site. Independent counter and
+    /// independent decade schedule; read it via
+    /// [`skipped_actor_updates`](Self::skipped_actor_updates).
     actor_guard: FiniteLossGuard,
     /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
     /// #352). Drops the transition on every occurrence; the `warn!` escalates
@@ -415,10 +423,114 @@ where
         self.step
     }
 
-    /// Number of critic updates applied so far. Exposed for tests that need
-    /// to verify the delayed-update schedule.
+    /// Number of critic updates **attempted** so far. Exposed for tests that
+    /// need to verify the delayed-update schedule.
+    ///
+    /// This is the cadence counter both the actor gate (`policy_frequency`) and
+    /// the target gate ([`TargetUpdate::fires_at`]) read, so it advances
+    /// **unconditionally** — including on a learn step whose critic loss was
+    /// non-finite and therefore skipped (ADR 0059 §Decision 4). It is an
+    /// attempt count, not an applied count.
+    ///
+    /// Subtract [`skipped_critic_1_updates`](Self::skipped_critic_1_updates) or
+    /// [`skipped_critic_2_updates`](Self::skipped_critic_2_updates) to recover
+    /// how many of those attempts actually reached that critic's optimizer:
+    /// `applied = attempts − skipped`.
+    ///
+    /// [`TargetUpdate::fires_at`]: crate::target::TargetUpdate::fires_at
     pub fn critic_updates(&self) -> usize {
         self.critic_updates
+    }
+
+    /// Number of critic-1 gradient updates skipped because the critic-1 loss
+    /// was non-finite (ADR 0056, ADR 0072).
+    ///
+    /// Each skip is one entered learn step whose `backward()` and optimizer
+    /// step were both suppressed so a `NaN`/`±Inf` loss could not be folded
+    /// into critic-1's weights. [`critic_updates`](Self::critic_updates) counts
+    /// **attempts** and advances anyway, so
+    /// `applied = critic_updates() − skipped_critic_1_updates()`.
+    ///
+    /// # Not the same event as a *drop*
+    ///
+    /// [`dropped_transitions`](Self::dropped_transitions) and
+    /// [`dropped_observations`](Self::dropped_observations) count **data that
+    /// never entered the replay buffer**. This counts an **update that never
+    /// reached the optimizer**. A run can have zero drops and many skips (a
+    /// diverging critic on clean data), or the reverse.
+    ///
+    /// # The two critics skip independently
+    ///
+    /// Critic-1 and critic-2 run their `backward()` + optimizer step in
+    /// disjoint windows on independent graphs, each behind its own guard, so
+    /// one can skip while the other applies on the very same learn step. Do not
+    /// expect these two counters to agree.
+    #[must_use]
+    pub const fn skipped_critic_1_updates(&self) -> u64 {
+        self.critic_1_guard.skipped()
+    }
+
+    /// Number of critic-2 gradient updates skipped because the critic-2 loss
+    /// was non-finite (ADR 0056, ADR 0072).
+    ///
+    /// The critic-1 counter's twin; see
+    /// [`skipped_critic_1_updates`](Self::skipped_critic_1_updates) for the
+    /// attempts-versus-skips relationship, the skip-versus-drop distinction,
+    /// and why the two critics' counts need not agree.
+    #[must_use]
+    pub const fn skipped_critic_2_updates(&self) -> u64 {
+        self.critic_2_guard.skipped()
+    }
+
+    /// Number of actor gradient updates skipped because the actor loss was
+    /// non-finite (ADR 0056, ADR 0072).
+    ///
+    /// # Not comparable with the critic counts
+    ///
+    /// The actor guard sits **inside** the `policy_frequency` cadence block
+    /// (Fujimoto et al. 2018 §5.2's delayed policy update), so the actor is
+    /// only *attempted* on every `policy_frequency`-th critic update. At the
+    /// shipped default of `2` the actor therefore has roughly half as many
+    /// attempts as either critic, and a smaller skip count than critic-1 does
+    /// **not** mean the actor is healthier. Compare each count against its own
+    /// attempt base — `critic_updates() / policy_frequency` for the actor — not
+    /// against another site's.
+    ///
+    /// The skip-versus-drop distinction is the same as for
+    /// [`skipped_critic_1_updates`](Self::skipped_critic_1_updates): a *drop*
+    /// is data that never entered the buffer, a *skip* is an update that never
+    /// reached the optimizer.
+    #[must_use]
+    pub const fn skipped_actor_updates(&self) -> u64 {
+        self.actor_guard.skipped()
+    }
+
+    /// Total gradient updates skipped for a non-finite loss across **all** of
+    /// this agent's loss sites — critic-1, critic-2 and the actor.
+    ///
+    /// This is the canonical `skipped_updates` metric the training loop emits
+    /// (ADR 0072). It exists as the single aggregation point on purpose: a
+    /// future fourth loss site is added to this sum once, and cannot be
+    /// silently omitted from the reporting path.
+    ///
+    /// The sum is `saturating_add`-chained (the
+    /// [`AgentStats`](crate::metrics::AgentStats) counter precedent), so it
+    /// pins at `u64::MAX` rather than wrapping — an unreachable total in
+    /// practice, but a wrapped one would read as a *healthy* run.
+    ///
+    /// # It is a sum of unlike terms
+    ///
+    /// The three sites do not share an attempt base — the actor is only
+    /// attempted every `policy_frequency`-th critic update, the critics on
+    /// every one — so this total is a throughput figure ("this many updates
+    /// never reached an optimizer"), not a rate. Read the per-site accessors to
+    /// attribute it.
+    #[must_use]
+    pub const fn skipped_updates(&self) -> u64 {
+        self.critic_1_guard
+            .skipped()
+            .saturating_add(self.critic_2_guard.skipped())
+            .saturating_add(self.actor_guard.skipped())
     }
 
     /// Samples an action for the current observation.
@@ -1237,18 +1349,31 @@ mod tests {
             .expect("a primed agent past warm-up learns");
         let after = critic_2_probe(&agent);
 
-        // critic-1's guard warned; the untouched sites stayed un-armed.
-        assert!(
-            agent.critic_1_guard.warning_fired(),
-            "critic-1's non-finite loss must fire its guard"
+        // Exactly one site skipped, and it was critic-1's. These are exact
+        // values, not `warning_fired()` booleans: a latch reads the same
+        // whether one update or ten thousand were thrown away (ADR 0072 §1),
+        // and `!fired` was satisfiable by an already-fired latch.
+        assert_eq!(
+            agent.skipped_critic_1_updates(),
+            1,
+            "critic-1's non-finite loss must skip exactly this one update"
         );
-        assert!(
-            !agent.critic_2_guard.warning_fired(),
-            "critic-2 was finite: its guard must not fire"
+        assert_eq!(
+            agent.skipped_critic_2_updates(),
+            0,
+            "critic-2's loss was finite: the sibling critic must be untouched, \
+             at exactly zero skips"
         );
-        assert!(
-            !agent.actor_guard.warning_fired(),
-            "the actor did not update this step: its guard must not fire"
+        assert_eq!(
+            agent.skipped_actor_updates(),
+            0,
+            "the actor did not update this step (policy_frequency = 2), so it \
+             cannot have skipped: exactly zero"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            1,
+            "the aggregate is the sum of the three sites: 1 + 0 + 0"
         );
 
         // critic-2 still updated.
@@ -1267,6 +1392,223 @@ mod tests {
         assert!(
             probe_action.as_slice()[0].is_finite(),
             "the actor must remain finite — critic-1's NaN must not reach it"
+        );
+    }
+
+    // -------- skip COUNTERS (ADR 0072, #346) --------
+
+    /// A primed agent whose live critic-1 has diverged to `NaN` weights, so
+    /// every subsequent learn step produces a non-finite critic-1 loss.
+    ///
+    /// Same fixture as [`td3_one_nonfinite_critic_skips_only_that_critic`],
+    /// parameterised on the two cadences so a test can decide whether the actor
+    /// gate and the Polyak gate fire during its run. Critic-1 is poisoned via a
+    /// *clone* of the live network, preserving `ParamId`s so the target Polyak
+    /// pairing stays valid.
+    ///
+    /// The poison is self-sustaining on purpose: critic-1's optimizer step is
+    /// skipped every time, so its weights are never overwritten and stay `NaN`
+    /// for the whole run — which is what makes a repeated-skip count testable
+    /// at all.
+    fn poisoned_critic_1_agent(policy_frequency: usize, target_update: TargetUpdate) -> GuardAgent {
+        let device = Default::default();
+        let config = Td3TrainingConfigBuilder::new()
+            .batch_size(2)
+            .learning_starts(0)
+            .replay_buffer_capacity(64)
+            .critic_lr(0.05)
+            .policy_frequency(policy_frequency)
+            .target_update(target_update)
+            .build()
+            .expect("valid config");
+
+        let mut agent = GuardAgent::new(
+            TinyActor::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent");
+
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+        for x in [0.0_f32, 0.1, 0.2, 0.3] {
+            agent.remember(
+                make_obs(x, 1.0 - x),
+                &action,
+                0.5,
+                make_obs(x + 0.1, 0.9 - x),
+                false,
+            );
+        }
+
+        let poisoned = agent.critic_1.get().clone().map(&mut NanInjector);
+        agent.critic_1 = Slot::new(poisoned);
+        assert_eq!(
+            agent.skipped_updates(),
+            0,
+            "precondition: a freshly built agent must have skipped nothing, or every \
+             count below would be reading someone else's skips"
+        );
+        agent
+    }
+
+    /// The counter counts **every** skip, not merely the first.
+    ///
+    /// Three consecutive poisoned learn steps must read exactly `3`. Three and
+    /// not one: a `1` is what a bool-to-counter mistranslation produces — a
+    /// latch that sets on the first occurrence and never moves again is
+    /// indistinguishable from a correct counter at n = 1, and that latch is
+    /// precisely what ADR 0072 replaced.
+    #[test]
+    fn td3_counts_repeated_loss_skips() {
+        // Both cadences are pushed out to 8 so neither fires within the three
+        // steps: the actor never attempts (so it cannot skip) and no Polyak
+        // update can carry critic-1's NaN into `target_critic_1`, which would
+        // poison the shared Bellman target and make critic-2 skip too. The
+        // single varying site is critic-1's.
+        let mut agent = poisoned_critic_1_agent(8, TargetUpdate::polyak(0.005, 8));
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for _ in 0..3 {
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent past warm-up learns");
+        }
+
+        assert_eq!(
+            agent.critic_updates(),
+            3,
+            "critic_updates counts ATTEMPTS and advances on a skip too (ADR 0059 \
+             §Decision 4): three learn steps must read 3, not 0"
+        );
+        assert_eq!(
+            agent.skipped_critic_1_updates(),
+            3,
+            "each of the three poisoned learn steps must increment the critic-1 skip \
+             count: exactly 3, not a latched 1"
+        );
+        assert_eq!(
+            agent.skipped_critic_2_updates(),
+            0,
+            "critic-2's loss stayed finite across all three steps: exactly 0"
+        );
+        assert_eq!(
+            agent.skipped_actor_updates(),
+            0,
+            "policy_frequency = 8 means the actor was never attempted in three \
+             steps, so it cannot have skipped: exactly 0"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            3,
+            "the aggregate over the three sites: 3 + 0 + 0"
+        );
+    }
+
+    /// The aggregate is the sum of three **different, nonzero** numbers.
+    ///
+    /// The parts are critic-1 = 5, critic-2 = 2, actor = 1 — aggregate **8**.
+    /// Both properties of that triple are load-bearing, against two different
+    /// defects:
+    ///
+    /// - **Pairwise unequal** catches *duplication*: an aggregate that adds one
+    ///   guard twice and another not at all still reads correctly when the terms
+    ///   are equal. Here every duplicated-guard sum misses — `5+5+2 = 12`,
+    ///   `5+5+1 = 11`, `2+2+5 = 9`, `2+2+1 = 5`, `1+1+5 = 7`, `1+1+2 = 4`, and
+    ///   the all-one-guard sums `15 / 6 / 3`.
+    /// - **All nonzero** catches *omission*: a zero term contributes nothing, so
+    ///   dropping its summand leaves the total unchanged. The earlier shape of
+    ///   this test (2 / **0** / 1 = 3) passed against a `skipped_updates` with
+    ///   `skipped_critic_2_updates()` deleted from the chain. With no zero, the
+    ///   three single-term omissions give `5+2 = 7`, `5+1 = 6`, `2+1 = 3`; `8`
+    ///   is reachable only by summing each guard exactly once.
+    ///
+    /// How the cadence produces exactly that triple, over five learn steps with
+    /// `policy_frequency = 4` and the Polyak cadence pushed out to 100:
+    ///
+    /// - critic-1 is `NaN`-poisoned from the start and never re-stepped (its
+    ///   optimizer step is skipped every time, so the poison is self-sustaining):
+    ///   it skips on **all five** steps.
+    /// - critic-2 and the shared Bellman target stay finite for steps 1-3 —
+    ///   critic-1's `NaN` is never blended into `target_critic_1`, so the
+    ///   sibling stays clean. Critic-2 is then diverged deliberately *between*
+    ///   steps 3 and 4 and, like critic-1, never re-stepped: **two** skips.
+    ///   Diverging it mid-run rather than up front is what keeps the two critic
+    ///   terms unequal; poisoning both at step 0 would give `5 / 5 / 1` and
+    ///   re-open the duplication hole between them.
+    /// - the actor sits behind `policy_frequency = 4`, so it is attempted only
+    ///   on critic update 4, where its loss is `−mean(critic_1(s, π(s)))` and
+    ///   therefore `NaN`: one attempt, **one** skip.
+    ///
+    /// This does not weaken the sibling-isolation property pinned by
+    /// [`td3_one_nonfinite_critic_skips_only_that_critic`] — the intermediate
+    /// assertion below re-pins `critic-2 == 0` right up to the moment critic-2 is
+    /// diverged on purpose.
+    #[test]
+    fn td3_aggregate_skip_count_sums_unequal_sites() {
+        let mut agent = poisoned_critic_1_agent(4, TargetUpdate::polyak(0.005, 100));
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for _ in 0..3 {
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent past warm-up learns");
+        }
+
+        assert_eq!(
+            agent.skipped_critic_2_updates(),
+            0,
+            "sibling isolation: three steps of a NaN critic-1 must not have made \
+             critic-2 skip — the divergence below is the only reason it starts"
+        );
+
+        // Diverge critic-2 too, via a *clone* so `ParamId`s (and hence the
+        // target Polyak pairing) stay valid — the same treatment critic-1 got
+        // inside `poisoned_critic_1_agent`.
+        let poisoned_2 = agent.critic_2.get().clone().map(&mut NanInjector);
+        agent.critic_2 = Slot::new(poisoned_2);
+
+        for _ in 0..2 {
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent past warm-up learns");
+        }
+
+        assert_eq!(
+            agent.skipped_critic_1_updates(),
+            5,
+            "critic-1 is permanently poisoned: it must skip on all five learn steps"
+        );
+        assert_eq!(
+            agent.skipped_critic_2_updates(),
+            2,
+            "critic-2 was diverged after step 3 and never re-stepped: exactly 2 \
+             skips. NONZERO on purpose — a zero here would be invisible to the \
+             aggregate, letting a chain that omits this summand still total 8"
+        );
+        assert_eq!(
+            agent.skipped_actor_updates(),
+            1,
+            "the actor is attempted only on critic update 4 (policy_frequency = 4) \
+             and its loss reads through the poisoned critic-1: exactly 1 skip from \
+             exactly 1 attempt"
+        );
+        assert_eq!(
+            agent.skipped_updates(),
+            8,
+            "the aggregate must be 5 + 2 + 1 = 8 over three DISTINCT per-site \
+             counts — no sum that double-counts one guard, and no sum that omits \
+             one, can land on 8 here"
+        );
+        assert_eq!(
+            agent.critic_updates(),
+            5,
+            "attempts advance unconditionally: five learn steps read 5 even though \
+             critic-1 applied none (applied = attempts − skipped = 0)"
         );
     }
 

@@ -336,6 +336,23 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         "Update count",
         "updates",
     ),
+    // ---- Update health (#346, ADR 0072) ----
+    // Placed last in the RL region, immediately after `n_updates`: the two are
+    // literal complements (attempts beside skips), so the report renders their
+    // panels adjacent, and appending here leaves every existing row's relative
+    // order unchanged — panel layout stays byte-identical. It must stay inside
+    // the RL region for `MetricKind` grouping to put it in the RL section.
+    du(
+        "skipped_updates",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Skipped updates",
+        "updates",
+    )
+    .reads(
+        Trend::LowerIsBetter,
+        "cumulative; flat = healthy, any rise = non-finite loss discarded an update",
+    ),
     // ---- Evolution training stats (per generation) ----
     d(
         "best_fitness",
@@ -558,6 +575,25 @@ mod tests {
             assert_eq!(descriptor(name).unwrap().kind, MetricKind::Rl, "{name}");
             assert!(!is_per_generation(name));
         }
+    }
+
+    #[test]
+    fn skipped_updates_is_an_rl_per_update_counter_read_lower_is_better() {
+        let d = descriptor("skipped_updates").expect("registered");
+        assert_eq!(d.kind, MetricKind::Rl);
+        assert_eq!(d.cadence, Cadence::PerUpdate);
+        assert_eq!(d.unit, Some("updates"));
+        assert_eq!(d.trend, Trend::LowerIsBetter);
+        assert!(!d.hint.is_empty());
+        assert!(!is_per_generation("skipped_updates"));
+        // The counter is cumulative, so a flat line reads as "healthy", not as
+        // "no data". Losing that word from the hint makes the panel
+        // unreadable — pin it.
+        assert!(
+            d.hint.contains("cumulative"),
+            "hint must say the counter is cumulative, got {:?}",
+            d.hint
+        );
     }
 
     #[test]
