@@ -389,7 +389,6 @@ mod tests {
                 assert_eq!(requested, 4, "error reports the requested batch size");
                 assert_eq!(available, 3, "error reports the stored count");
             }
-            other => panic!("expected InsufficientData, got {other:?}"),
         }
     }
 
