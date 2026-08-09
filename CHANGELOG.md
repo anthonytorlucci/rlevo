@@ -22,6 +22,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   changes. (Other types in `replay/` — `ReplayConfig`, `PrioritizedReplaySettings`,
   `Priority`, `ImportanceExponent` — do derive it, and are untouched.)
 
+- **All eight agent error enums lose their unconstructed variants and become
+  `#[non_exhaustive]`** (resolves #1070, and subsumes #467 and #484). The six
+  off-policy enums — `DqnAgentError`, `C51AgentError`, `QrDqnAgentError`,
+  `DdpgAgentError`, `Td3AgentError`, `SacAgentError` — drop
+  `TensorConversionFailed(String)`, `Buffer(#[from] ReplayBufferError)` and
+  `Io(#[from] std::io::Error)`, keeping `InvalidAction` and `Polyak`.
+  `PpoAgentError` and `PpgAgentError` drop `TensorConversionFailed(String)`,
+  `InvalidConfig(String)` and `Io(#[from] std::io::Error)`, keeping
+  `Environment` and so becoming one variant wide. Twenty-four variants in
+  total, none of which any code in this workspace ever constructed. Migration:
+  as above, an exhaustive `match` needs a wildcard arm, which
+  `#[non_exhaustive]` now requires anyway and which buys future variants for
+  free. The three `#[from]` impls go with their variants, so a `?` that
+  converted a `ReplayBufferError` or an `std::io::Error` into an agent error no
+  longer compiles — no such site exists in this workspace, and for
+  `ReplayBufferError` none is possible (see below). No persisted data is
+  involved: none of the eight derives `serde`.
+
 ### `rlevo-evolution`
 
 **Fixed**
@@ -223,6 +241,55 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   unconstructed on all eight agent error enums — is **not** fixed here and is
   tracked as #1070. It is deliberately a separate call: agents *are* where
   staging happens, so deletion is not automatically the right remedy there.
+
+- **Twenty-four agent error variants that advertised failure modes the agents
+  cannot reach** (resolves #1070 — the deferral recorded in the entry above —
+  and subsumes #467 and #484, which are per-agent slices of the same finding).
+  The issue was filed against `TensorConversionFailed(String)` on all eight
+  enums; verifying it turned up two more dead shapes on the same family, plus a
+  third on PPO and PPG. Three arguments, one per shape.
+
+  `TensorConversionFailed(String)` is unconstructible by signature, not by
+  accident. `act`, `act_greedy`, `act_with` and `act_greedy_with` all return a
+  bare action, not a `Result`, so the host-read that could fail has no channel
+  to return through. What is there instead is
+  `.expect("actor output is f32")` — an `.expect` on a named invariant, which
+  is the form `docs/rules.md` §4 sanctions for a read that cannot fail by
+  construction. So the issue's second candidate remedy, wiring the staging
+  sites to return the variant, is not a fix to this enum at all: it is a change
+  to four public signatures, which #317 explicitly defers. The first candidate,
+  `#[from]`-ing the core error, fails for the same reason — there is nothing to
+  convert *into a return value* from a function that does not return one. Each
+  enum's rustdoc now records that when #317 lands the variant must come back as
+  `#[from] rlevo_core::base::TensorConversionError`, not as a `String`, since
+  §4 prefers structured variants and names that type as the tensor-op domain; a
+  re-introduced `String` payload would reproduce exactly the defect this entry
+  closes.
+
+  `Buffer(#[from] ReplayBufferError)` was unreachable by design. Every
+  `learn_step` writes
+  `let Ok(batch) = self.buffer.sample(..) else { return Ok(None) };`, and after
+  the removal above the only variant `sample` can produce is
+  `InsufficientData` — which means "skip this learn step", not "the step
+  failed". Propagating it would misreport a warm-up buffer as an error.
+
+  `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
+  there is no `save`, `load`, `Recorder` or `std::fs` anywhere under
+  `algorithms/`, and ADR 0014 defers checkpointing to Tier D. On PPO and PPG,
+  `InvalidConfig(String)` duplicated validation another type already performs —
+  `new` returns `rlevo_core::config::ConfigError`, so a bad config is rejected
+  before an agent exists and never reaches the agent's own error type.
+
+  As with `ReplayBufferError`, no test could have caught this and none was
+  missing: nothing behaved incorrectly. The defect was the API surface. Read as
+  an error domain, these enums told a caller that action selection may fail,
+  which the signatures say it cannot. `PpoAgentError` and `PpgAgentError` are
+  left one variant wide, which is the honest width — `Environment` is the only
+  failure their train loops surface. No new ADR is written; the rationale lives
+  in each enum's rustdoc, so the absence reads as a decision rather than an
+  oversight, and `#[non_exhaustive]` keeps the door open at no cost. The bar
+  for reopening it is a real construction site, not an anticipated failure
+  mode.
 
 ---
 

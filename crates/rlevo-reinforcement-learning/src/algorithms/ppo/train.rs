@@ -154,7 +154,7 @@ where
 {
     let rollout_len = agent.config().num_steps;
 
-    let mut snapshot = env.reset().map_err(io_from_env)?;
+    let mut snapshot = env.reset().map_err(env_error)?;
     let mut episode_reward = 0.0_f32;
     let mut episode_steps = 0_usize;
     let mut last_update_stats = PpoUpdateStats::default();
@@ -173,7 +173,7 @@ where
             let act = agent.act(&obs_now, rng);
 
             let typed_action = action_from_row(&act.env_row);
-            let next_snapshot = env.step(typed_action).map_err(io_from_env)?;
+            let next_snapshot = env.step(typed_action).map_err(env_error)?;
             let reward_f32: f32 = (*next_snapshot.reward()).into();
             let status = next_snapshot.status();
             let done = status.is_done();
@@ -216,7 +216,7 @@ where
                 // the rollout's final step is recorded as done, so
                 // `finalize_rollout` never reads the observation at all.
                 if global_step < total_timesteps {
-                    snapshot = env.reset().map_err(io_from_env)?;
+                    snapshot = env.reset().map_err(env_error)?;
                 }
             } else {
                 snapshot = next_snapshot;
@@ -393,10 +393,12 @@ impl EpisodeReturnStats {
     }
 }
 
+/// Maps an [`EnvironmentError`](rlevo_core::environment::EnvironmentError)
+/// into [`PpoAgentError::Environment`] for use with `?` in the training loop.
 // Passed by name to `.map_err(..)`, which hands the closure an owned
 // `EnvironmentError`. Taking `&EnvironmentError` to satisfy the lint would force
 // a `|e| ..(&e)` closure at every call site for no benefit.
 #[allow(clippy::needless_pass_by_value)]
-fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> PpoAgentError {
+fn env_error(err: rlevo_core::environment::EnvironmentError) -> PpoAgentError {
     PpoAgentError::Environment(err.to_string())
 }

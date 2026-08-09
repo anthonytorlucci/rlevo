@@ -24,7 +24,7 @@ use rand::Rng;
 use rand::RngExt;
 
 use crate::metrics::{AgentStats, PerformanceRecord};
-use crate::replay::{ContinuousTransition, ReplayBufferError, ReplayStrategy, UniformReplay};
+use crate::replay::{ContinuousTransition, ReplayStrategy, UniformReplay};
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -41,24 +41,65 @@ use crate::algorithms::shared::{
 use crate::utils::{PolyakError, compute_target_q_values};
 
 /// Error variants returned by [`SacAgent`] operations.
+///
+/// Two variants, and each has a real construction site in this crate.
+/// [`InvalidAction`](SacAgentError::InvalidAction) is built by
+/// [`train`](super::train::train) when `env.reset()` or `env.step()` rejects an
+/// action the agent proposed. [`Polyak`](SacAgentError::Polyak) arrives through
+/// `?` on the target soft-updates at the end of
+/// [`learn_step`](SacAgent::learn_step), where a live critic and its target
+/// twin can disagree on parameter topology.
+///
+/// The enum is `#[non_exhaustive]`: downstream `match` expressions must carry a
+/// wildcard arm, so a future variant is not a breaking change.
+///
+/// # Why there is no tensor-conversion variant
+///
+/// This enum previously carried `TensorConversionFailed(String)`, which nothing
+/// constructed and nothing could. The one tensor host-read on the act path is
+/// the `as_slice::<f32>()` call in [`act`](SacAgent::act), and that method
+/// returns a bare `A` rather than a `Result` — there is no error channel for a
+/// variant to travel down. The read is an `.expect` on a named invariant, which
+/// is precisely the form `docs/rules.md` §4 sanctions for a host-read that
+/// "cannot fail by construction": the tensor is one the same function just
+/// built from its own actor. Issue #317 tracks making that path fallible and is
+/// an explicitly deferred breaking change.
+///
+/// When #317 lands, the variant returns as
+/// `#[from]` [`rlevo_core::base::TensorConversionError`] — not as a `String`.
+/// §4 prefers structured variants over string-based errors and names that type
+/// as the tensor-op error domain, so re-introducing a `String` payload would
+/// rebuild the discarded variant in a merely-live form.
+///
+/// # Why there is no buffer or I/O variant
+///
+/// `Buffer(#[from] ReplayBufferError)` was unreachable by design.
+/// [`learn_step`](SacAgent::learn_step) samples with
+/// `let Ok(batch) = self.buffer.sample(..) else { return Ok(None) };`, and the
+/// only variant `sample` can produce is
+/// [`ReplayBufferError::InsufficientData`](crate::replay::ReplayBufferError::InsufficientData),
+/// which means "the buffer is still warming up, skip this learn step" — not
+/// "this learn step failed". Propagating it would misreport an ordinary warm-up
+/// as an error.
+///
+/// `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
+/// there is no `save`, `load`, `Recorder`, or `std::fs` use anywhere under
+/// `algorithms/`, and ADR 0014 §6 defers the checkpoint write path to Tier D.
+///
+/// Because the enum is `#[non_exhaustive]`, adding a variant when either of
+/// those lands is not a breaking change. The bar for adding one is an actual
+/// construction site, not an anticipated failure mode — a declared but
+/// unconstructible variant is what this section exists to keep from recurring.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SacAgentError {
-    /// A tensor-to-action or action-to-tensor conversion failed.
-    #[error("Tensor conversion failed: {0}")]
-    TensorConversionFailed(String),
     /// The sampled or requested action is outside the valid action space.
     #[error("Invalid action: {0}")]
     InvalidAction(String),
-    /// A replay-buffer operation failed.
-    #[error(transparent)]
-    Buffer(#[from] ReplayBufferError),
     /// A target soft-update failed because a live critic and its target twin
     /// have mismatched parameter topologies.
     #[error(transparent)]
     Polyak(#[from] PolyakError),
-    /// An I/O error occurred while saving or loading model weights.
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
 }
 
 /// Per-episode statistics emitted by the SAC training loop.
@@ -478,7 +519,11 @@ where
     /// Panics if the actor slot is poisoned — i.e. a previous
     /// [`learn_step`](Self::learn_step) unwound *inside* the actor's optimizer
     /// step. The agent cannot recover and must be rebuilt; see
-    /// [`Slot`](crate::algorithms::shared::Slot).
+    /// [`Slot`](crate::algorithms::shared::Slot). Also panics if the actor's
+    /// output tensor is not `f32`: that host-read is an `.expect` on a named
+    /// invariant, the form `docs/rules.md` §4 sanctions here because `act`
+    /// returns a bare action and so has no error channel to report the failure
+    /// through — issue #317 tracks making the path fallible.
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, training: bool, rng: &mut R) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::COMPONENTS)
