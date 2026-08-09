@@ -31,17 +31,79 @@ use crate::algorithms::ppo::ppo_value::PpoValue;
 use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 
 /// Error variants returned by [`PpoAgent`] operations.
+///
+/// This enum is deliberately one variant wide. The PPO train loop
+/// ([`crate::algorithms::ppo::train`]) surfaces exactly one failure — an
+/// environment `reset`/`step` that returns `Err` — so the enum carries exactly
+/// one variant, [`Environment`](PpoAgentError::Environment), constructed at the
+/// single `env_error` helper in that module. This is the same shape, and the
+/// same reasoning, as
+/// [`ReplayBufferError`](crate::replay::ReplayBufferError) one layer down: the
+/// width of an error enum is the number of ways its owner can actually fail,
+/// not the number of ways one might imagine it failing.
+///
+/// # Why there is no tensor-conversion variant
+///
+/// This enum previously carried `TensorConversionFailed(String)`, which nothing
+/// ever constructed and nothing could. The agent's host-reading methods have no
+/// error channel by signature: [`PpoAgent::act`] returns a bare [`ActOutcome`]
+/// and [`PpoAgent::act_greedy_env_row_with`] returns `Vec<f32>`. Neither is a
+/// `Result`, so a failing host-read has nowhere to go. Those reads use the
+/// `.expect("<named invariant>")` form that `docs/rules.md` §4 sanctions for a
+/// host-read that cannot fail by construction — the tensor being read is one
+/// the same function just built on the same device.
+///
+/// Making those signatures fallible is tracked as issue #317 (see ADR 0057,
+/// which resolved the off-policy half and left `act` and the on-policy agents
+/// panic-based as the explicit residual). When #317 lands, the variant returns
+/// carrying [`rlevo_core::base::TensorConversionError`] via `#[from]` — a
+/// structured payload, **not** a `String`. `docs/rules.md` §4 prefers
+/// structured variants over string-based errors and names
+/// [`TensorConversionError`](rlevo_core::base::TensorConversionError) as the
+/// domain type for tensor ops, so re-adding a `String` payload would reintroduce
+/// the smell along with the variant.
+///
+/// # Why there is no config variant
+///
+/// This enum previously carried `InvalidConfig(String)`, duplicating a job
+/// another type already does. [`PpoAgent::new`] validates its
+/// [`PpoTrainingConfig`] through [`Validate`] and returns `Result<Self, E>`
+/// with `E` = [`rlevo_core::config::ConfigError`], so an inconsistent setting —
+/// `num_minibatches == 0`, say — is rejected *before* an agent exists. No
+/// `PpoAgent` can be holding a config bad enough to produce this variant,
+/// because such a config never yields a `PpoAgent`. (The deleted variant's own
+/// doc cited `minibatch_size > batch_size`, a state that cannot arise:
+/// [`PpoTrainingConfig::minibatch_size`] is *derived* from `num_steps`,
+/// `num_envs`, and `num_minibatches` and floored at `1`.)
+///
+/// # Why there is no I/O variant
+///
+/// This enum previously carried `Io(#[from] std::io::Error)` for "saving or
+/// loading model weights". No such code exists: nothing under
+/// [`crate::algorithms`] defines a `save`, a `load`, a `Recorder`, or touches
+/// `std::fs`. ADR 0014 defers checkpointing and resume-from-checkpoint to
+/// Tier D. The variant returns with the feature that needs it, not before.
+///
+/// # Known limitation: the `Environment` payload is a `String`
+///
+/// The surviving variant carries a `String` where
+/// [`rlevo_core::environment::EnvironmentError`] is the domain type;
+/// `docs/rules.md` §4 would prefer `Environment(#[from] EnvironmentError)`.
+/// `train.rs` currently calls `err.to_string()`, discarding the structured
+/// error and its [`source`](std::error::Error::source) chain. This is **known
+/// and tracked as #171**, which scopes the same fix across all eight
+/// algorithms — it is a breaking change to the payload type and is
+/// deliberately out of scope here. Do not read the `String` as endorsed.
+///
+/// # Adding a variant
+///
+/// The enum is `#[non_exhaustive]`, so adding a variant later is not a breaking
+/// change and downstream `match` expressions must already carry a wildcard arm.
+/// The bar for adding one is a real construction site — an anticipated failure
+/// mode is what the three sections above exist to keep out.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum PpoAgentError {
-    /// A tensor-to-action conversion failed.
-    #[error("Tensor conversion failed: {0}")]
-    TensorConversionFailed(String),
-    /// The config is internally inconsistent (e.g. `minibatch_size` > `batch_size`).
-    #[error("Invalid config: {0}")]
-    InvalidConfig(String),
-    /// An I/O error occurred while saving or loading model weights.
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
     /// Env-side failure surfaced through the train loop.
     #[error("Environment error: {0}")]
     Environment(String),
@@ -829,6 +891,12 @@ mod tests {
             .build()
             .expect("valid config");
         TestAgent::new(policy, value, config, device, 1).expect("valid config")
+    }
+
+    #[test]
+    fn error_display_uses_thiserror_messages() {
+        let err = PpoAgentError::Environment("boom".into());
+        assert_eq!(err.to_string(), "Environment error: boom");
     }
 
     /// Regression (issue #183): `clip_grad` must reach *both* optimizers.

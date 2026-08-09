@@ -18,7 +18,7 @@ use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 use crate::metrics::{AgentStats, PerformanceRecord};
-use crate::replay::{DiscreteTransition, ReplayBufferError, ReplayKind, ReplayStrategy};
+use crate::replay::{DiscreteTransition, ReplayKind, ReplayStrategy};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -37,24 +37,63 @@ use crate::algorithms::shared::{
 use crate::utils::PolyakError;
 
 /// Error variants returned by [`C51Agent`] operations.
+///
+/// Two things can go wrong, and each has a construction site.
+/// [`InvalidAction`](C51AgentError::InvalidAction) is built in
+/// [`crate::algorithms::c51::train`], where an environment `reset`/`step`
+/// rejection is converted into this domain. [`Polyak`](C51AgentError::Polyak)
+/// arrives through `?` in [`C51Agent::learn_step`] — the agent's only fallible
+/// method — when the policy and target networks have mismatched parameter
+/// topologies.
+///
+/// # Why there is no tensor-conversion variant
+///
+/// This enum previously carried `TensorConversionFailed(String)`, which nothing
+/// ever constructed and nothing could: the tensor host-reads on the action path
+/// live in [`act`](C51Agent::act), [`act_greedy`](C51Agent::act_greedy) and
+/// [`act_greedy_with`](C51Agent::act_greedy_with), all of which return a bare
+/// `A` rather than a `Result`. With no error channel in the signature there is
+/// nowhere for the variant to be returned from, so those reads use the
+/// infallible form that `docs/rules.md` §4 sanctions for a read that "cannot
+/// fail by construction (e.g. a tensor the same function just built)".
+///
+/// Making action selection fallible is a breaking change, deferred and tracked
+/// as #317. When it lands, the variant that returns must carry
+/// [`rlevo_core::base::TensorConversionError`] as a `#[from]` payload, not a
+/// `String`: §4 prefers structured error types over string-based ones, and
+/// names `TensorConversionError` as the domain type for tensor ops.
+///
+/// # Why there is no buffer or I/O variant
+///
+/// `Buffer(#[from] ReplayBufferError)` was unreachable by design.
+/// [`learn_step`](C51Agent::learn_step) samples with
+/// `let Ok(batch) = self.buffer.sample(..) else { return Ok(None) };`, and the
+/// only variant `sample` can produce is
+/// [`ReplayBufferError::InsufficientData`](crate::replay::ReplayBufferError::InsufficientData),
+/// which means "skip this learn step", not "the step failed". `Ok(None)` is the
+/// correct channel for a warm-up buffer; propagating it would misreport an
+/// ordinary warm-up as an error.
+///
+/// `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
+/// there is no `save`, no `load`, no `Recorder` and no `std::fs` anywhere under
+/// `algorithms/`, and ADR 0014 §6 defers checkpointing producer wiring to
+/// Tier D.
+///
+/// The enum is `#[non_exhaustive]`, so adding a variant later is not a breaking
+/// change — checkpointing is the shape that would plausibly need one. The bar
+/// for adding it is a real construction site, not an anticipated failure mode;
+/// an unconstructible variant is what this section exists to keep from
+/// recurring.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum C51AgentError {
-    /// A tensor-to-action or action-to-tensor conversion failed.
-    #[error("Tensor conversion failed: {0}")]
-    TensorConversionFailed(String),
     /// The sampled or requested action is outside the valid action space.
     #[error("Invalid action: {0}")]
     InvalidAction(String),
-    /// A replay buffer operation failed.
-    #[error(transparent)]
-    Buffer(#[from] ReplayBufferError),
     /// The target soft-update failed because the policy and target networks
     /// have mismatched parameter topologies.
     #[error(transparent)]
     Polyak(#[from] PolyakError),
-    /// An I/O error occurred while saving or loading model weights.
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
 }
 
 /// Per-episode statistics emitted by the C51 training loop.
