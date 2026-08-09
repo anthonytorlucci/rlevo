@@ -107,9 +107,18 @@ impl<T: PerformanceRecord> AgentStats<T> {
     }
 
     /// Records a completed episode, updating all counters and the sliding window.
+    ///
+    /// Both lifetime counters ([`Self::total_episodes`], [`Self::total_steps`])
+    /// saturate at `usize::MAX`: a further `record` leaves them pinned there
+    /// rather than wrapping to a small value in release builds or aborting the
+    /// run with an "attempt to add with overflow" panic under `overflow-checks`.
+    /// A long-lived agent is precisely the caller that reaches the ceiling, and
+    /// for it a monotone, clamped counter is a better failure mode than either
+    /// a silently rewound total or a crash on the hot path — nothing in this
+    /// crate branches on the counters, they are reported statistics.
     pub fn record(&mut self, entry: T) {
-        self.total_episodes += 1;
-        self.total_steps += entry.duration();
+        self.total_episodes = self.total_episodes.saturating_add(1);
+        self.total_steps = self.total_steps.saturating_add(entry.duration());
 
         let score = entry.score();
         self.best_score = Some(self.best_score.map_or(score, |b| b.max(score)));
@@ -125,6 +134,9 @@ impl<T: PerformanceRecord> AgentStats<T> {
     ///
     /// This is a global counter over all of history; it is unaffected by the
     /// sliding window and so may exceed [`Self::window_size`].
+    ///
+    /// The counter saturates in [`Self::record`], so a returned `usize::MAX`
+    /// means "at least this many episodes", not an exact count.
     #[must_use]
     pub fn total_episodes(&self) -> usize {
         self.total_episodes
@@ -134,7 +146,8 @@ impl<T: PerformanceRecord> AgentStats<T> {
     /// episode.
     ///
     /// Like [`Self::total_episodes`], this accumulates over all of history
-    /// rather than the sliding window.
+    /// rather than the sliding window, and saturates: a returned `usize::MAX`
+    /// means "at least this many steps", not an exact total.
     #[must_use]
     pub fn total_steps(&self) -> usize {
         self.total_steps
@@ -449,6 +462,49 @@ mod tests {
 
         assert_eq!(stats.total_episodes(), 3);
         assert_eq!(stats.total_steps(), 12);
+    }
+
+    /// The lifetime step counter clamps at `usize::MAX` instead of wrapping
+    /// (release) or panicking on the `overflow-checks` build (test/debug).
+    ///
+    /// The pre-saturation state is installed by assigning the private field
+    /// directly — this module is a child of `metrics`, so no test-only
+    /// constructor or setter is needed, and none should be added. Reaching
+    /// `usize::MAX` through `record` alone is not feasible.
+    ///
+    /// The assertion is on the *value* (`usize::MAX`), never on "it did not
+    /// panic": a panic-shaped test would pass against the unfixed `+=` under
+    /// `cargo test --release`, where the addition silently wraps instead.
+    #[test]
+    fn total_steps_saturates_instead_of_wrapping() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+        stats.total_steps = usize::MAX - 3;
+
+        // A 10-step episode overshoots the remaining headroom of 3.
+        stats.record(TestRecord::with_duration(1.0, 10));
+
+        assert_eq!(stats.total_steps(), usize::MAX);
+        // Distinct counters: the episode counter is nowhere near saturation, so
+        // a transposed accessor pair cannot satisfy both assertions.
+        assert_eq!(stats.total_episodes(), 1);
+    }
+
+    /// The episode-counter half of
+    /// [`total_steps_saturates_instead_of_wrapping`], and not subsumed by it:
+    /// `total_episodes` accumulates a literal `1` while `total_steps`
+    /// accumulates `entry.duration()`, so the two are separate call sites that
+    /// can be fixed — or regress — independently.
+    #[test]
+    fn total_episodes_saturates_instead_of_wrapping() {
+        let mut stats = AgentStats::<TestRecord>::new(4);
+        stats.total_episodes = usize::MAX;
+
+        stats.record(TestRecord::with_duration(1.0, 7));
+
+        assert_eq!(stats.total_episodes(), usize::MAX);
+        // The step counter starts at 0 and is unaffected: 7 != usize::MAX, so
+        // the two assertions cannot be satisfied by a single saturated value.
+        assert_eq!(stats.total_steps(), 7);
     }
 
     /// Eviction must not lower `best_score`: the maximum is global, while
