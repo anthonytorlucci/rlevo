@@ -365,6 +365,52 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`AgentStats::finite_best_score` and `AgentStats::non_finite_episodes`**
+  (resolves #1078, ADR 0071). An earlier review claimed "`NaN` permanently
+  poisons `best_score`"; that claim was refuted, and #1078 opens by conceding
+  it — `record()` folds the score with `f32::max`, which **discards** a `NaN`
+  operand in either position. What it
+  does *not* discard is `+∞`, which it propagates from either position because
+  `+∞` compares greater than every finite value, and `best_score` is never
+  evicted by the sliding window. One `+∞` episode therefore pins the accessor
+  at `+∞` for the agent's entire remaining lifetime, with no self-healing at
+  all — strictly worse than the `avg_score` case #409 was about, which recovers
+  within one `window_size` as the offending episode rolls out. The existing
+  tests missed it because the two `NaN` tests pin `f32::max`'s discarding
+  behaviour in both operand positions and were read as covering "non-finite
+  scores"; they cover `NaN` only, and `+∞` is the one non-finite value
+  `f32::max` propagates rather than discards. Nothing else gated it either —
+  `rlevo-test-support`'s `assert_reaches` and `assert_improves_over_random`
+  both read `avg_score` and never `best_score`, so a latched `+∞` survives a
+  fully green suite. It is also more reachable than it looks: ADR 0065's
+  `FiniteRewardGuard` refuses to *store* a non-finite per-step reward, but all
+  eight training loops still accumulate `episode_reward += reward_f32`
+  unconditionally and by design (ADR 0065 §Decision 4), so a single `+∞`
+  environment reward reaches `record()` on a fully guarded agent with
+  `dropped_transitions()` reading 1 — and separately, a long episode of
+  entirely *finite* rewards can saturate the `f32` accumulator with no
+  non-finite reward anywhere and `dropped_transitions()` reading zero.
+  `best_score` is nevertheless byte-for-byte unchanged: `+∞` genuinely *is* the
+  maximum score observed, and filtering it under that name would report a
+  number the run contradicts — the same fabrication ADR 0061 rules out and ADR
+  0070 refused for the mean. Two additive accessors close the gap instead:
+  `finite_best_score()` returns the lifetime maximum over `is_finite()` scores
+  (`None` until something finite is recorded), and `non_finite_episodes()`
+  counts the episodes it excluded. The predicate is `is_finite()` rather than
+  #409's `!is_nan()` for a reason sharper than the mean's: `f32::max` already
+  discards `NaN` for free, so a `!is_nan()` version of this accessor would be
+  indistinguishable from `best_score` at every input *except* the one that
+  motivated the issue. `non_finite_episodes()` parallels `total_episodes()` and
+  is a **monotone lifetime** counter that never heals — deliberately unlike
+  `non_finite_recent_len()`, which parallels `recent_len()`, is derived per
+  call, and returns to zero once the window rolls past; the two disagree on a
+  run that went bad early and recovered, and that disagreement is the point.
+  Unlike the #409 change, this one *does* add state: a lifetime maximum cannot
+  be derived from a window that evicted the record which set it. ADR 0070
+  declined a stored counter because it would need decrementing on eviction; a
+  lifetime counter has no eviction coupling to get wrong. It saturates at
+  `usize::MAX` alongside `total_episodes`/`total_steps`.
+
 - **`AgentStats::finite_avg_score` and `AgentStats::non_finite_recent_len`**
   (resolves #409, ADR 0070). #409 asked for `avg_score` to filter `NaN` out of
   its mean; that change is rejected — `avg_score` is byte-for-byte unchanged,
