@@ -8,12 +8,19 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, Validate};
 
+use crate::MAX_BUFFER_CAPACITY;
 use crate::target::TargetUpdate;
 
 /// Configuration for training a Deep Deterministic Policy Gradient agent.
 #[derive(Clone, Debug)]
 pub struct DdpgTrainingConfig {
     /// Maximum number of transitions stored in the replay buffer.
+    ///
+    /// Must be non-zero and at most [`MAX_BUFFER_CAPACITY`]. The ceiling is not
+    /// a taste judgement: this field is the only guard on the capacity that
+    /// reaches `UniformReplay::new`, and a misconfigured value (a unit slip, a
+    /// `usize::MAX` sentinel) aborts the process on a failed allocation. See
+    /// [`MAX_BUFFER_CAPACITY`] for why `$2^{32}$` is the bound.
     pub replay_buffer_capacity: usize,
     /// Mini-batch size drawn from the replay buffer each learn step.
     pub batch_size: usize,
@@ -77,6 +84,12 @@ impl Validate for DdpgTrainingConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "DdpgTrainingConfig";
         config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
+        config::at_most(
+            C,
+            "replay_buffer_capacity",
+            self.replay_buffer_capacity,
+            MAX_BUFFER_CAPACITY,
+        )?;
         config::nonzero(C, "batch_size", self.batch_size)?;
         config::positive(C, "actor_lr", self.actor_lr)?;
         config::positive(C, "critic_lr", self.critic_lr)?;
@@ -245,6 +258,36 @@ impl DdpgTrainingConfigBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rlevo_core::config::ConstraintKind;
+
+    /// `replay_buffer_capacity` had a floor and no ceiling, so a
+    /// `usize::MAX` sentinel — a unit slip, a deserialized garbage field —
+    /// validated and went straight to `UniformReplay::new`, which aborts the
+    /// process on the failed allocation. The rejection must be a **recoverable
+    /// `Err`**, which is why this asserts on the returned error rather than
+    /// using `#[should_panic]`: a panic here would be the bug, not the fix.
+    #[test]
+    fn rejects_replay_buffer_capacity_above_ceiling() {
+        let err = DdpgTrainingConfigBuilder::new()
+            .replay_buffer_capacity(usize::MAX)
+            .build()
+            .expect_err("usize::MAX capacity must be rejected, not allocated");
+        assert_eq!(err.field, "replay_buffer_capacity");
+        let max = u64::try_from(MAX_BUFFER_CAPACITY).expect("the ceiling fits in u64");
+        let got = u64::try_from(usize::MAX).expect("usize::MAX fits in u64 on this target");
+        assert_eq!(err.kind, ConstraintKind::TooLarge { max, got });
+    }
+
+    /// The boundary is inclusive: the ceiling itself is a legal (if
+    /// unallocatable) capacity, so the guard cannot be off by one.
+    #[test]
+    fn accepts_replay_buffer_capacity_at_ceiling() {
+        let cfg = DdpgTrainingConfigBuilder::new()
+            .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
+            .build()
+            .expect("the ceiling itself must validate");
+        assert_eq!(cfg.replay_buffer_capacity, MAX_BUFFER_CAPACITY);
+    }
 
     #[test]
     fn defaults_match_cleanrl() {

@@ -40,6 +40,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `ReplayBufferError` none is possible (see below). No persisted data is
   involved: none of the eight derives `serde`.
 
+### `rlevo-core`
+
+**Added**
+
+- **`config::at_most` and `ConstraintKind::TooLarge`**, the upper-bound
+  counterparts to the existing `at_least` / `TooSmall` pair (for #404). The
+  validation helpers could express "a count must be at least *n*" but had no way
+  to express a ceiling at all, which is why every `usize` capacity field in the
+  workspace was validated on one side only. `TooLarge` is a new variant on an
+  existing enum and nothing in the workspace matches `ConstraintKind`
+  exhaustively, so no caller breaks.
+
 ### `rlevo-evolution`
 
 **Fixed**
@@ -211,6 +223,51 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### `rlevo-reinforcement-learning`
 
 **Fixed**
+
+- **`SumTree::new` silently built a corrupt priority index in release builds,
+  and every caller-supplied buffer capacity was unbounded above** (resolves
+  #404). The prioritized-replay index sizes itself with
+  `capacity.next_power_of_two()` and then `leaf_base * 2`, and the workspace
+  root declares no `[profile]` section — so release inherits
+  `overflow-checks = false` and *both* operations wrap. Measured with
+  `rustc -O`: a capacity of `2^62 + 1` yielded `nodes.len() == 0`, and anything
+  above `2^63` wrapped `leaf_base` to `0` as well. Release therefore *returned*
+  a `SumTree` whose node array was empty, deferring the failure to an unrelated
+  index panic at sample time, while debug builds panicked honestly at
+  construction. A constructor whose contract differs between profiles is the
+  more serious half of this issue; the reported unbounded `with_capacity` calls
+  in `History::new`, `UniformReplay::new` and `PrioritizedReplay::new` are the
+  other half.
+
+  Both are closed by one documented ceiling, `MAX_BUFFER_CAPACITY` (`2^32`) —
+  three orders of magnitude above the largest published replay buffers and a
+  factor of `2^30` below the smallest capacity that wraps. It is enforced
+  through `Validate` wherever a `Result` already existed
+  (`PrioritizedReplayConfig`, the six agents' `replay_buffer_capacity`, and
+  PPO's previously-unchecked `num_envs · num_steps` product), so every
+  config-driven path now returns a recoverable `ConstraintKind::TooLarge`
+  instead of dying; and as a widened `assert!` in the infallible constructors
+  (`History::new`, `UniformReplay::new`, `SumTree::new`, `AgentStats::new`, and
+  `RolloutBuffer::new`, which had no guard at either end and multiplied
+  `capacity · action_dim` unchecked). No signature changes: `try_reserve_exact`
+  and a fallible `try_new` were both rejected, matching the #190/#191 precedent
+  — measured, `try_reserve_exact` recovers only the `usize::MAX` arm, which
+  already unwinds as a catchable panic.
+
+  The issue's own premise is corrected in passing. `Vec::with_capacity` does
+  *not* uniformly abort: `usize::MAX` raises a catchable `capacity overflow`
+  panic, and `with_capacity(1 << 45)` — 256 TiB — simply succeeded under macOS
+  overcommit. The abort is the other-allocator case, and the guard is what makes
+  the failure deterministic across all of them.
+
+  No existing test could have caught either half. Every capacity test in the
+  crate pinned the *lower* bound (`History::new(0)`, `UniformReplay::new(0)`,
+  `SumTree::new(0)`, `AgentStats::new(0)`), leaving the upper end entirely
+  unexercised — and the sum-tree wrap is invisible in debug, the profile the
+  suite runs in, because `overflow-checks` panics there for its own reasons. The
+  new `test_sum_tree_new_rejects_capacities_that_wrapped_in_release` therefore
+  asserts on the *guard's* panic message rather than merely that a panic
+  occurred, so it stays red in both profiles against an unguarded constructor.
 
 - **A non-finite target quantile survived terminal transitions in QR-DQN's
   Bellman backup** (resolves #357). QR-DQN builds its target inline rather than

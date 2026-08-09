@@ -13,6 +13,7 @@
 //!
 //! [`ppo_continuous_action.py`]: https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 
+use crate::MAX_BUFFER_CAPACITY;
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
@@ -153,6 +154,20 @@ impl Validate for PpoTrainingConfig {
             });
         }
         config::nonzero(C, "num_steps", self.num_steps)?;
+        // `batch_size()` is `num_envs * num_steps`, and that product — not
+        // either factor — is the capacity handed to `RolloutBuffer::new` by
+        // `PpoAgent::new` and `PpgAgent::new`. Reject it here so an
+        // out-of-range rollout size surfaces as a `ConfigError` at construction
+        // rather than as an allocation abort inside the buffer.
+        let batch_size = self
+            .num_envs
+            .checked_mul(self.num_steps)
+            .ok_or(ConfigError {
+                config: C,
+                field: "num_steps",
+                kind: ConstraintKind::Custom("num_envs * num_steps overflows usize"),
+            })?;
+        config::at_most(C, "num_steps", batch_size, MAX_BUFFER_CAPACITY)?;
         config::nonzero(C, "num_minibatches", self.num_minibatches)?;
         config::nonzero(C, "update_epochs", self.update_epochs)?;
         config::positive(C, "learning_rate", self.learning_rate)?;
@@ -434,6 +449,28 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         assert!(PpoTrainingConfig::default().validate().is_ok());
+    }
+
+    /// `num_steps` alone is `nonzero`-checked, but the value that reaches
+    /// `RolloutBuffer::new` is `batch_size() == num_envs * num_steps`. With
+    /// `num_envs == 1` the product is `num_steps`, so an out-of-range horizon
+    /// must be rejected by `validate` rather than becoming an allocation abort
+    /// in the buffer.
+    #[test]
+    fn rejects_batch_size_above_ceiling() {
+        let err = PpoTrainingConfigBuilder::new()
+            .num_envs(1)
+            .num_steps(MAX_BUFFER_CAPACITY + 1)
+            .build()
+            .unwrap_err();
+        assert_eq!(err.field, "num_steps");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooLarge {
+                max: MAX_BUFFER_CAPACITY as u64,
+                got: (MAX_BUFFER_CAPACITY + 1) as u64,
+            }
+        );
     }
 
     #[test]

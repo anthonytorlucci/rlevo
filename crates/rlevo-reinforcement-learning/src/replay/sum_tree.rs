@@ -34,6 +34,8 @@
 
 use rand::{Rng, RngExt};
 
+use crate::MAX_BUFFER_CAPACITY;
+
 /// A mapping from buffer slot to non-negative sampling mass, supporting the two
 /// operations Schaul's proportional variant needs: point update, and inverse-CDF
 /// lookup.
@@ -91,12 +93,38 @@ impl SumTree {
     ///
     /// # Panics
     ///
-    /// Panics when `capacity == 0`. Capacity reaches here only from a
+    /// Panics when `capacity == 0`, and when `capacity` exceeds
+    /// [`MAX_BUFFER_CAPACITY`]. Capacity reaches here only from a
     /// [`PrioritizedReplayConfig`](super::PrioritizedReplayConfig) that has
-    /// already passed `validate()`, which rejects zero, so a zero here is a
+    /// already passed `validate()`, which rejects both, so either is a
     /// programming error in the buffer rather than user-supplied data.
+    ///
+    /// The upper bound is nonetheless asserted here rather than left to the
+    /// caller, because the failure it prevents is invisible. `leaf_base * 2`
+    /// and `capacity.next_power_of_two()` both **wrap** in release builds — the
+    /// workspace root `Cargo.toml` has no `[profile]` section, so
+    /// `overflow-checks = false` is inherited. Measured on `aarch64` macOS with
+    /// `rustc -O`:
+    ///
+    /// | `capacity` | `leaf_base` | `nodes.len()` |
+    /// |---|---|---|
+    /// | `2^62 + 1` | `2^63` | `0` |
+    /// | `2^63` | `2^63` | `0` |
+    /// | `2^63 + 1` | `0` | `0` |
+    /// | `usize::MAX` | `0` | `0` |
+    ///
+    /// Without the assert, debug panics on the overflow while release *returns
+    /// a corrupt tree*: an empty `nodes` array whose `total()` indexes out of
+    /// bounds on the very first read. A constructor whose contract differs
+    /// between profiles is worse than one that always panics, so the bound is
+    /// checked explicitly and identically in both.
     pub(crate) fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "SumTree::new: capacity must be non-zero");
+        assert!(
+            capacity <= MAX_BUFFER_CAPACITY,
+            "SumTree::new: capacity {capacity} exceeds MAX_BUFFER_CAPACITY \
+             {MAX_BUFFER_CAPACITY}"
+        );
         let leaf_base = capacity.next_power_of_two();
         Self {
             nodes: vec![0.0; leaf_base * 2],
@@ -414,6 +442,82 @@ mod tests {
     #[should_panic(expected = "capacity must be non-zero")]
     fn test_sum_tree_new_panics_on_zero_capacity() {
         let _ = SumTree::new(0);
+    }
+
+    /// Issue #404, the release-mode half. Before the `MAX_BUFFER_CAPACITY`
+    /// assert, `SumTree::new` computed `capacity.next_power_of_two()` and then
+    /// `leaf_base * 2` with no guard, and the workspace root `Cargo.toml`
+    /// declares no `[profile]` section — so release builds inherit
+    /// `overflow-checks = false` and **both** operations wrap. Measured on
+    /// `aarch64` macOS with `rustc -O`, the four capacities below produced:
+    ///
+    /// | `capacity` | `leaf_base` | `nodes.len()` |
+    /// |---|---|---|
+    /// | `2^62 + 1` | `2^63` | `0` — `leaf_base * 2` wrapped |
+    /// | `2^63` | `2^63` | `0` — `leaf_base * 2` wrapped |
+    /// | `2^63 + 1` | `0` | `0` — `next_power_of_two` wrapped |
+    /// | `usize::MAX` | `0` | `0` — `next_power_of_two` wrapped |
+    ///
+    /// That is: in release the constructor *succeeded*, returning a priority
+    /// index with an empty node array; `total()` then reads `nodes[1]` out of
+    /// bounds. In debug the same inputs panicked on the overflow. Every one of
+    /// the four must now be rejected, identically in both profiles.
+    ///
+    /// `catch_unwind` rather than `#[should_panic]`: the attribute stops the
+    /// test at the first panic, so four `#[should_panic]` cases in a loop would
+    /// pin only the first capacity and silently skip the other three — and the
+    /// two wrap mechanisms above differ, so each needs its own assertion.
+    ///
+    /// The **message** is asserted, not merely the fact of a panic, and that is
+    /// load-bearing rather than fussy. Against the unguarded constructor this
+    /// test is red only in release; in debug the overflow check panics on its
+    /// own, so a bare `is_err()` would pass and the test would be pinning the
+    /// profile's accident instead of the guard. Requiring the guard's own
+    /// message distinguishes "rejected by `MAX_BUFFER_CAPACITY`" from "wrapped,
+    /// and happened to be caught by `-C overflow-checks`", and so fails in both
+    /// profiles the day the assert is deleted.
+    #[test]
+    fn test_sum_tree_new_rejects_capacities_that_wrapped_in_release() {
+        // Silence the default hook: four deliberate panics would otherwise
+        // print four backtraces over a passing test.
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let outcomes: Vec<(usize, Option<String>)> = [
+            (1_usize << 62) + 1,
+            1_usize << 63,
+            (1_usize << 63) + 1,
+            usize::MAX,
+        ]
+        .into_iter()
+        .map(|capacity| {
+            let message = std::panic::catch_unwind(|| SumTree::new(capacity))
+                .err()
+                .map(|payload| match payload.downcast::<String>() {
+                    Ok(s) => *s,
+                    Err(other) => match other.downcast::<&'static str>() {
+                        Ok(s) => (*s).to_owned(),
+                        Err(_) => "<non-string panic payload>".to_owned(),
+                    },
+                });
+            (capacity, message)
+        })
+        .collect();
+        std::panic::set_hook(previous);
+
+        for (capacity, message) in outcomes {
+            let message = message.unwrap_or_else(|| {
+                panic!(
+                    "SumTree::new({capacity}) must panic; unguarded it returned \
+                     a tree with an empty node array in release builds"
+                )
+            });
+            assert!(
+                message.contains("exceeds MAX_BUFFER_CAPACITY"),
+                "SumTree::new({capacity}) must be rejected by the capacity \
+                 guard, not by an overflow check that only exists in debug; \
+                 got {message:?}"
+            );
+        }
     }
 
     /// The whole justification for keeping the reference around: identical seeds

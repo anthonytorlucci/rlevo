@@ -3,6 +3,8 @@
 use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
 
+use crate::MAX_BUFFER_CAPACITY;
+
 /// The ε floor of Schaul et al. (2016) §3.3's `$p_i = |\delta_i| + \epsilon$`.
 ///
 /// **Schaul gives no numeric value for ε** — it is described only as "a small
@@ -82,7 +84,13 @@ pub const DEFAULT_PRIORITY_EXPONENT: f32 = 0.6;
 pub struct PrioritizedReplayConfig {
     /// The maximum number of transitions held; the oldest is evicted past this.
     ///
-    /// Must be non-zero.
+    /// Must be non-zero and at most
+    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY). The upper bound is
+    /// not a taste judgement: the sum-tree sizes itself as
+    /// `capacity.next_power_of_two() * 2`, which wraps silently in release
+    /// builds for capacities near `usize::MAX` and yields an empty node array.
+    /// See that constant for the measured wrap and for why `2^32` is orders of
+    /// magnitude above any published replay buffer.
     pub capacity: usize,
 
     /// Schaul Eq. 1's α in `$P(i) = p_i^\alpha / \sum_k p_k^\alpha$`.
@@ -114,6 +122,7 @@ impl Validate for PrioritizedReplayConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "PrioritizedReplayConfig";
         config::nonzero(C, "capacity", self.capacity)?;
+        config::at_most(C, "capacity", self.capacity, MAX_BUFFER_CAPACITY)?;
         config::in_range(
             C,
             "priority_exponent",
@@ -128,8 +137,11 @@ impl Validate for PrioritizedReplayConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, PrioritizedReplayConfig};
-    use rlevo_core::config::Validate;
+    use super::{
+        DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, MAX_BUFFER_CAPACITY,
+        PrioritizedReplayConfig,
+    };
+    use rlevo_core::config::{ConstraintKind, Validate};
 
     #[test]
     fn test_prioritized_replay_config_default_validates() {
@@ -167,6 +179,45 @@ mod tests {
             "capacity",
             "a zero-capacity buffer must be named as the offending field"
         );
+    }
+
+    /// The ceiling is inclusive: exactly [`MAX_BUFFER_CAPACITY`] is a legal
+    /// (if absurd) request, and the sum-tree arithmetic for it — `2^33` nodes —
+    /// is exact. Only strictly above it is rejected.
+    #[test]
+    fn test_prioritized_replay_config_accepts_capacity_at_ceiling() {
+        let c = PrioritizedReplayConfig {
+            capacity: MAX_BUFFER_CAPACITY,
+            ..PrioritizedReplayConfig::default()
+        };
+        assert!(
+            c.validate().is_ok(),
+            "MAX_BUFFER_CAPACITY is an inclusive bound"
+        );
+    }
+
+    /// Above the ceiling the sum-tree's `next_power_of_two() * 2` is on the road
+    /// to a release-mode wrap, so the config must refuse it — naming `capacity`
+    /// and reporting `TooLarge`, not some downstream symptom.
+    #[test]
+    fn test_prioritized_replay_config_rejects_capacity_above_ceiling() {
+        for capacity in [MAX_BUFFER_CAPACITY + 1, usize::MAX] {
+            let err = PrioritizedReplayConfig {
+                capacity,
+                ..PrioritizedReplayConfig::default()
+            }
+            .validate()
+            .unwrap_err();
+            assert_eq!(err.field, "capacity", "capacity {capacity} is the offender");
+            assert_eq!(
+                err.kind,
+                ConstraintKind::TooLarge {
+                    max: MAX_BUFFER_CAPACITY as u64,
+                    got: capacity as u64,
+                },
+                "capacity {capacity} must be rejected as TooLarge, carrying both bounds"
+            );
+        }
     }
 
     #[test]
