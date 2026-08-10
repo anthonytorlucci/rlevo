@@ -32,7 +32,7 @@ use std::collections::VecDeque;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::action::DiscreteAction;
+use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
@@ -493,14 +493,25 @@ impl Action<1> for FrozenLakeAction {
 impl DiscreteAction<1> for FrozenLakeAction {
     const ACTION_COUNT: usize = 4;
 
+    /// Constructs an action from its zero-based index.
+    ///
+    /// Use [`Self::try_from_index`] (or the equivalent [`TryFrom<usize>`]
+    /// implementation) when the index originates from data — a replay log, a
+    /// deserialized trajectory, a mis-sized policy head — rather than from a
+    /// trusted in-range computation such as an argmax over `ACTION_COUNT`
+    /// logits.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= ACTION_COUNT`, per the
+    /// [`DiscreteAction::from_index`] contract.
     fn from_index(index: usize) -> Self {
-        match index {
-            0 => FrozenLakeAction::Left,
-            1 => FrozenLakeAction::Down,
-            2 => FrozenLakeAction::Right,
-            3 => FrozenLakeAction::Up,
-            _ => panic!("FrozenLakeAction index {index} out of range [0, 4)"),
-        }
+        Self::try_from_index(index).unwrap_or_else(|_| {
+            panic!(
+                "FrozenLakeAction index {index} out of range [0, {})",
+                Self::ACTION_COUNT
+            )
+        })
     }
 
     fn to_index(&self) -> usize {
@@ -509,6 +520,37 @@ impl DiscreteAction<1> for FrozenLakeAction {
 }
 
 impl FrozenLakeAction {
+    /// Constructs an action from its zero-based index, returning an error if
+    /// `index` is out of range.
+    ///
+    /// This is the fallible counterpart to [`DiscreteAction::from_index`], for
+    /// callers whose index comes from data (a replay log, a deserialized
+    /// trajectory, a mis-sized policy head) rather than from a trusted
+    /// in-range computation.
+    ///
+    /// The index order is Gymnasium's `FrozenLake` wire format — `Left` (0),
+    /// `Down` (1), `Right` (2), `Up` (3) — which deliberately differs from the
+    /// ordering used by sibling toy-text environments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `index >= ACTION_COUNT`; the message
+    /// names the offending index and the valid range.
+    pub fn try_from_index(index: usize) -> Result<Self, InvalidActionError> {
+        match index {
+            0 => Ok(FrozenLakeAction::Left),
+            1 => Ok(FrozenLakeAction::Down),
+            2 => Ok(FrozenLakeAction::Right),
+            3 => Ok(FrozenLakeAction::Up),
+            _ => Err(InvalidActionError {
+                message: format!(
+                    "FrozenLakeAction index {index} out of range [0, {})",
+                    Self::ACTION_COUNT
+                ),
+            }),
+        }
+    }
+
     fn perpendiculars(self) -> [FrozenLakeAction; 2] {
         match self {
             FrozenLakeAction::Left | FrozenLakeAction::Right => {
@@ -518,6 +560,19 @@ impl FrozenLakeAction {
                 [FrozenLakeAction::Left, FrozenLakeAction::Right]
             }
         }
+    }
+}
+
+impl TryFrom<usize> for FrozenLakeAction {
+    type Error = InvalidActionError;
+
+    /// Delegates to [`FrozenLakeAction::try_from_index`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `index >= ACTION_COUNT`.
+    fn try_from(index: usize) -> Result<Self, Self::Error> {
+        Self::try_from_index(index)
     }
 }
 
@@ -945,6 +1000,81 @@ mod tests {
         for i in 0..FrozenLakeAction::ACTION_COUNT {
             assert_eq!(FrozenLakeAction::from_index(i).to_index(), i);
         }
+    }
+
+    #[test]
+    fn index_bindings_are_canonical() {
+        // Literal, not a loop: `action_roundtrip` is self-referential and still
+        // passes if the variant order is shuffled. These pin each index to a
+        // named variant — and this enum's Gymnasium order (Left, Down, Right,
+        // Up) deliberately differs from its CliffWalking sibling's, so a
+        // "harmonizing" reorder is a live hazard.
+        assert_eq!(FrozenLakeAction::from_index(0), FrozenLakeAction::Left);
+        assert_eq!(FrozenLakeAction::from_index(1), FrozenLakeAction::Down);
+        assert_eq!(FrozenLakeAction::from_index(2), FrozenLakeAction::Right);
+        assert_eq!(FrozenLakeAction::from_index(3), FrozenLakeAction::Up);
+    }
+
+    #[test]
+    fn to_index_values_are_canonical() {
+        assert_eq!(FrozenLakeAction::Left.to_index(), 0);
+        assert_eq!(FrozenLakeAction::Down.to_index(), 1);
+        assert_eq!(FrozenLakeAction::Right.to_index(), 2);
+        assert_eq!(FrozenLakeAction::Up.to_index(), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "FrozenLakeAction index 4 out of range [0, 4)")]
+    fn from_index_out_of_range_panics() {
+        let _ = FrozenLakeAction::from_index(4);
+    }
+
+    // A separate test from the one above: a `#[should_panic]` body unwinds at
+    // the first panic, so one body cannot exercise both inputs.
+    #[test]
+    #[should_panic(expected = "out of range [0, 4)")]
+    fn from_index_usize_max_panics() {
+        let _ = FrozenLakeAction::from_index(usize::MAX);
+    }
+
+    #[test]
+    fn try_from_index_accepts_every_valid_index() {
+        for i in 0..FrozenLakeAction::ACTION_COUNT {
+            assert_eq!(
+                FrozenLakeAction::try_from_index(i),
+                Ok(FrozenLakeAction::from_index(i))
+            );
+        }
+    }
+
+    #[test]
+    fn try_from_index_rejects_out_of_range() {
+        let err = FrozenLakeAction::try_from_index(4).expect_err("index 4 is out of range");
+        assert!(err.to_string().contains("index 4"), "message was {err}");
+
+        let err =
+            FrozenLakeAction::try_from_index(usize::MAX).expect_err("usize::MAX is out of range");
+        assert!(
+            err.to_string().contains(&usize::MAX.to_string()),
+            "message was {err}"
+        );
+    }
+
+    #[test]
+    fn try_from_matches_inherent_method() {
+        assert_eq!(
+            FrozenLakeAction::try_from(1usize),
+            FrozenLakeAction::try_from_index(1)
+        );
+        assert_eq!(
+            FrozenLakeAction::try_from(1usize),
+            Ok(FrozenLakeAction::Down)
+        );
+        assert_eq!(
+            FrozenLakeAction::try_from(usize::MAX),
+            FrozenLakeAction::try_from_index(usize::MAX)
+        );
+        assert!(FrozenLakeAction::try_from(4usize).is_err());
     }
 
     #[test]
