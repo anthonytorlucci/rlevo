@@ -45,7 +45,7 @@ use crate::episode::EpisodeGuard;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::action::DiscreteAction;
+use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
@@ -282,20 +282,75 @@ impl Action<1> for TaxiAction {
 impl DiscreteAction<1> for TaxiAction {
     const ACTION_COUNT: usize = 6;
 
+    /// Constructs an action from its zero-based index.
+    ///
+    /// Use [`Self::try_from_index`] (or the equivalent [`TryFrom<usize>`]
+    /// implementation) when the index originates from data — a replay log, a
+    /// deserialized trajectory, a mis-sized policy head — rather than from a
+    /// trusted in-range computation such as an argmax over `ACTION_COUNT`
+    /// logits.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= ACTION_COUNT`, per the
+    /// [`DiscreteAction::from_index`] contract.
     fn from_index(index: usize) -> Self {
-        match index {
-            0 => TaxiAction::South,
-            1 => TaxiAction::North,
-            2 => TaxiAction::East,
-            3 => TaxiAction::West,
-            4 => TaxiAction::Pickup,
-            5 => TaxiAction::Dropoff,
-            _ => panic!("TaxiAction index {index} out of range [0, 6)"),
-        }
+        // The error's own `Display` prefixes "Invalid action:", which would read
+        // as noise here; the panic keeps the historical wording verbatim.
+        Self::try_from_index(index).unwrap_or_else(|_| {
+            panic!(
+                "TaxiAction index {index} out of range [0, {})",
+                Self::ACTION_COUNT
+            )
+        })
     }
 
     fn to_index(&self) -> usize {
         *self as usize
+    }
+}
+
+impl TaxiAction {
+    /// Constructs an action from its zero-based index, returning an error if
+    /// `index` is out of range.
+    ///
+    /// This is the fallible counterpart to [`DiscreteAction::from_index`], for
+    /// callers whose index comes from data (a replay log, a deserialized
+    /// trajectory, a mis-sized policy head) rather than from a trusted in-range
+    /// computation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `index >= ACTION_COUNT`; the message
+    /// names the offending index and the valid range.
+    pub fn try_from_index(index: usize) -> Result<Self, InvalidActionError> {
+        match index {
+            0 => Ok(TaxiAction::South),
+            1 => Ok(TaxiAction::North),
+            2 => Ok(TaxiAction::East),
+            3 => Ok(TaxiAction::West),
+            4 => Ok(TaxiAction::Pickup),
+            5 => Ok(TaxiAction::Dropoff),
+            _ => Err(InvalidActionError {
+                message: format!(
+                    "TaxiAction index {index} out of range [0, {})",
+                    Self::ACTION_COUNT
+                ),
+            }),
+        }
+    }
+}
+
+impl TryFrom<usize> for TaxiAction {
+    type Error = InvalidActionError;
+
+    /// Delegates to [`TaxiAction::try_from_index`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `index >= ACTION_COUNT`.
+    fn try_from(index: usize) -> Result<Self, Self::Error> {
+        Self::try_from_index(index)
     }
 }
 
@@ -793,6 +848,81 @@ mod tests {
         for i in 0..TaxiAction::ACTION_COUNT {
             assert_eq!(TaxiAction::from_index(i).to_index(), i);
         }
+    }
+
+    #[test]
+    /// Pins each index to a named variant: the Gymnasium wire format is
+    /// South, North, East, West — neither alphabetical nor compass order.
+    fn index_bindings_are_canonical() {
+        // Literal, not a loop: `action_roundtrip` is self-referential and still
+        // passes if the variant order is shuffled. These pin each index to a
+        // named variant.
+        assert_eq!(TaxiAction::from_index(0), TaxiAction::South);
+        assert_eq!(TaxiAction::from_index(1), TaxiAction::North);
+        assert_eq!(TaxiAction::from_index(2), TaxiAction::East);
+        assert_eq!(TaxiAction::from_index(3), TaxiAction::West);
+        assert_eq!(TaxiAction::from_index(4), TaxiAction::Pickup);
+        assert_eq!(TaxiAction::from_index(5), TaxiAction::Dropoff);
+    }
+
+    #[test]
+    /// Pins the index each variant reports, in the Gymnasium wire order.
+    fn to_index_values_are_canonical() {
+        assert_eq!(TaxiAction::South.to_index(), 0);
+        assert_eq!(TaxiAction::North.to_index(), 1);
+        assert_eq!(TaxiAction::East.to_index(), 2);
+        assert_eq!(TaxiAction::West.to_index(), 3);
+        assert_eq!(TaxiAction::Pickup.to_index(), 4);
+        assert_eq!(TaxiAction::Dropoff.to_index(), 5);
+    }
+
+    #[test]
+    #[should_panic(expected = "TaxiAction index 6 out of range")]
+    /// Verifies the documented `DiscreteAction::from_index` panic contract.
+    fn from_index_out_of_range_panics() {
+        let _ = TaxiAction::from_index(6);
+    }
+
+    // A separate test from the one above: a `#[should_panic]` body unwinds at
+    // the first panic, so one body cannot exercise both inputs.
+    #[test]
+    #[should_panic(expected = "out of range")]
+    /// Verifies the panic contract holds at the extreme end of the index domain.
+    fn from_index_usize_max_panics() {
+        let _ = TaxiAction::from_index(usize::MAX);
+    }
+
+    #[test]
+    /// Verifies the fallible constructor accepts every in-range index.
+    fn try_from_index_accepts_every_valid_index() {
+        for i in 0..TaxiAction::ACTION_COUNT {
+            assert_eq!(TaxiAction::try_from_index(i), Ok(TaxiAction::from_index(i)));
+        }
+    }
+
+    #[test]
+    /// Verifies out-of-range indices are rejected with a message naming the index.
+    fn try_from_index_rejects_out_of_range() {
+        let err = TaxiAction::try_from_index(6).expect_err("index 6 is out of range");
+        assert!(err.to_string().contains("index 6"), "message was {err}");
+
+        let err = TaxiAction::try_from_index(usize::MAX).expect_err("usize::MAX is out of range");
+        assert!(
+            err.to_string().contains(&usize::MAX.to_string()),
+            "message was {err}"
+        );
+    }
+
+    #[test]
+    /// Verifies the `TryFrom` impl is a faithful delegate of the inherent method.
+    fn try_from_matches_inherent_method() {
+        assert_eq!(TaxiAction::try_from(3usize), TaxiAction::try_from_index(3));
+        assert_eq!(TaxiAction::try_from(3usize), Ok(TaxiAction::West));
+        assert_eq!(
+            TaxiAction::try_from(usize::MAX),
+            TaxiAction::try_from_index(usize::MAX)
+        );
+        assert!(TaxiAction::try_from(6usize).is_err());
     }
 
     #[test]
