@@ -1,10 +1,108 @@
 //! Rectangular grid of [`Entity`] cells, an egocentric view extractor, and the
 //! shadow-casting pass that turns that view into a visibility-masked one.
 
+use rlevo_core::config::{ConfigError, ConstraintKind};
+use rlevo_core::environment::EnvironmentError;
+
 use super::agent::AgentState;
 use super::entity::Entity;
 use super::observation::VIEW_SIZE;
 use crate::direction::Direction;
+
+/// A write to a [`Grid`] cell that the grid's own geometry rejected.
+///
+/// # Why this is not a `PlacementError` variant
+///
+/// [`placement`](super::placement) already depends on this module
+/// (`use super::grid::Grid`), so the dependency runs *placement → grid* and
+/// only that way. Adding an out-of-bounds variant to
+/// [`PlacementError`](super::PlacementError) and importing it back here would
+/// close that edge into a cycle, and would also hang a grid-geometry failure
+/// off a type whose whole vocabulary — regions, rejection filters, exhausted
+/// searches — is about *choosing* a cell rather than *writing* one. The two
+/// errors converge anyway one layer up: both land on
+/// [`EnvironmentError::Config`] through [`ConfigError`], so a `reset()` that
+/// samples a position and then writes it can `?` through either with no
+/// bridging code.
+///
+/// # Reaching the environment error path
+///
+/// An out-of-bounds write is a config-domain failure — a layout the
+/// environment's own parameters produced — so it converts into [`ConfigError`]
+/// and from there into [`EnvironmentError::Config`], mirroring
+/// [`PlacementError`](super::PlacementError):
+///
+/// ```
+/// use rlevo_core::environment::EnvironmentError;
+/// use rlevo_environments::grids::core::{Entity, Grid};
+///
+/// let mut grid = Grid::new(4, 4);
+/// let err = grid.try_set(9, 0, Entity::Goal).unwrap_err();
+/// let as_env: EnvironmentError = err.into();
+/// assert!(matches!(as_env, EnvironmentError::Config(_)));
+/// ```
+///
+/// The conversion is lossy in one direction only: `ConfigError` is
+/// allocation-free (`&'static str` payloads), so the coordinates and the grid
+/// extent survive only on the `GridError` itself. Log or match the `GridError`
+/// where that detail matters, then convert.
+///
+/// # What `#[non_exhaustive]` buys here, and what it does not
+///
+/// Both the enum and its `OutOfBounds` variant are `#[non_exhaustive]`. That
+/// reserves exactly two freedoms: adding a *new* variant, and adding a *new*
+/// field to `OutOfBounds`, without either being a breaking change. It also
+/// stops downstream crates constructing the variant by struct literal, so its
+/// fields can only ever be produced by this module.
+///
+/// It does **not** make the existing fields malleable. A downstream
+/// `GridError::OutOfBounds { x, y, .. }` still binds `x` and `y` by name, so
+/// renaming or removing a field is a breaking change (`E0026`) whether or not
+/// the variant is non-exhaustive. Collapsing the loose `(x, y)` pair into the
+/// single `Pos` newtype of issue #863 is therefore a semver-major change here,
+/// and should be planned as one — the attribute does not buy a quiet migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum GridError {
+    /// A write targeted a cell outside the grid.
+    #[error("cell ({x}, {y}) is outside the {width}×{height} grid")]
+    #[non_exhaustive]
+    OutOfBounds {
+        /// The requested x coordinate.
+        x: i32,
+        /// The requested y coordinate.
+        y: i32,
+        /// The grid's width in cells.
+        width: usize,
+        /// The grid's height in cells.
+        height: usize,
+    },
+}
+
+impl From<GridError> for ConfigError {
+    fn from(err: GridError) -> Self {
+        // `ConstraintKind` has no variant for "a coordinate fell outside a
+        // derived extent", and `Custom` is the documented home for a one-off
+        // invariant with a static explanation. The message states the policy
+        // that was violated without asserting a mechanism, per `rules.md` §4.
+        let kind = match err {
+            GridError::OutOfBounds { .. } => {
+                ConstraintKind::Custom("grid cell coordinates lie outside the grid")
+            }
+        };
+        Self {
+            config: "Grid",
+            field: "cell",
+            kind,
+        }
+    }
+}
+
+impl From<GridError> for EnvironmentError {
+    fn from(err: GridError) -> Self {
+        Self::Config(ConfigError::from(err))
+    }
+}
 
 /// Rectangular grid of [`Entity`] cells, row-major in `y` then `x`.
 #[derive(Debug, Clone)]
@@ -19,14 +117,30 @@ impl Grid {
     ///
     /// # Panics
     ///
-    /// Panics if either dimension is zero.
+    /// Panics if either dimension is zero, or if `width * height` overflows
+    /// `usize`.
+    ///
+    /// The overflow check guards the *product* only, and it exists for one
+    /// specific failure: a wrapped `width * height` would build a backing store
+    /// shorter than the grid's own extent, leaving `index` free to run past it.
+    /// Catching it here turns that into an immediate, named panic.
+    ///
+    /// It is not a size ceiling. A single absurd dimension whose product does
+    /// not wrap — `Grid::new(1, usize::MAX)` — passes this check and then fails
+    /// inside the allocation instead, either with the allocator's own
+    /// `"capacity overflow"` panic or, for large-but-representable requests, by
+    /// exhausting memory. Callers that need a bounded grid size must impose
+    /// that bound themselves.
     #[must_use]
     pub fn new(width: usize, height: usize) -> Self {
         assert!(width > 0 && height > 0, "grid dimensions must be positive");
+        let cell_count = width.checked_mul(height).unwrap_or_else(|| {
+            panic!("grid dimensions overflow usize: {width} × {height} exceeds usize::MAX cells")
+        });
         Self {
             width,
             height,
-            cells: vec![Entity::Empty; width * height],
+            cells: vec![Entity::Empty; cell_count],
         }
     }
 
@@ -62,15 +176,69 @@ impl Grid {
         }
     }
 
+    /// Overwrite the cell at `(x, y)`, reporting an out-of-bounds write instead
+    /// of panicking.
+    ///
+    /// This is the fallible half of [`set`](Self::set) and the one to reach for
+    /// whenever the coordinates come from *data* rather than from a literal —
+    /// a config field, a sampled position, a decoded layout. `set` is the right
+    /// call only when the caller has already established the coordinates are in
+    /// range (as [`draw_walls`](Self::draw_walls) has), because there a failure
+    /// is a bug in this module rather than bad input.
+    ///
+    /// The grid is left untouched when the write is rejected.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GridError::OutOfBounds`] if `(x, y)` lies outside the grid,
+    /// carrying both the requested coordinates and the grid extent. The error
+    /// converts into [`EnvironmentError`], so a `reset()` can `?` on it
+    /// directly.
+    ///
+    /// ```
+    /// use rlevo_environments::grids::core::{Entity, Grid, GridError};
+    ///
+    /// let mut grid = Grid::new(4, 3);
+    /// grid.try_set(1, 2, Entity::Goal)?;
+    /// assert_eq!(grid.get(1, 2), Entity::Goal);
+    ///
+    /// // A row past the bottom edge is rejected, not written.
+    /// assert!(matches!(
+    ///     grid.try_set(1, 3, Entity::Goal),
+    ///     Err(GridError::OutOfBounds { y: 3, height: 3, .. })
+    /// ));
+    /// # Ok::<(), GridError>(())
+    /// ```
+    pub fn try_set(&mut self, x: i32, y: i32, entity: Entity) -> Result<(), GridError> {
+        if !self.in_bounds(x, y) {
+            return Err(GridError::OutOfBounds {
+                x,
+                y,
+                width: self.width,
+                height: self.height,
+            });
+        }
+        let idx = self.index(x, y);
+        self.cells[idx] = entity;
+        Ok(())
+    }
+
     /// Overwrite the cell at `(x, y)`.
+    ///
+    /// The infallible spelling of [`try_set`](Self::try_set), for callers whose
+    /// coordinates are already known to be in range. The bounds check itself
+    /// lives in `try_set` and is not duplicated here.
     ///
     /// # Panics
     ///
     /// Panics if `(x, y)` is out of bounds.
     pub fn set(&mut self, x: i32, y: i32, entity: Entity) {
-        assert!(self.in_bounds(x, y), "Grid::set out of bounds: ({x}, {y})");
-        let idx = self.index(x, y);
-        self.cells[idx] = entity;
+        // Destructured rather than interpolated whole: `GridError`'s own
+        // `Display` repeats the coordinates the prefix already carries, and
+        // only the extent is new information here.
+        if let Err(GridError::OutOfBounds { width, height, .. }) = self.try_set(x, y, entity) {
+            panic!("Grid::set out of bounds: ({x}, {y}) in a {width}×{height} grid");
+        }
     }
 
     /// Fill the outermost rows and columns with [`Entity::Wall`], producing
@@ -392,6 +560,120 @@ mod tests {
         g.set(1, 1, Entity::Goal);
         assert_eq!(g.get(1, 1), Entity::Goal);
         assert_eq!(g.get(0, 0), Entity::Empty);
+    }
+
+    #[test]
+    #[should_panic(expected = "Grid::set out of bounds")]
+    fn set_out_of_bounds_panics() {
+        let mut g = Grid::new(3, 3);
+        g.set(-1, 0, Entity::Goal);
+    }
+
+    #[test]
+    fn try_set_in_bounds_writes_the_cell() {
+        let mut g = Grid::new(3, 4);
+        assert_eq!(g.try_set(2, 3, Entity::Lava), Ok(()));
+        assert_eq!(g.get(2, 3), Entity::Lava);
+    }
+
+    #[test]
+    fn try_set_rejects_every_edge_and_leaves_the_grid_alone() {
+        let (width, height) = (3usize, 4usize);
+        #[allow(clippy::cast_possible_wrap)]
+        let (w, h) = (width as i32, height as i32);
+
+        // One cell of non-default content, so "unmodified" is a claim about the
+        // whole grid rather than about an all-Empty grid that a failed write
+        // could not have disturbed visibly.
+        let mut g = Grid::new(width, height);
+        g.set(1, 1, Entity::Goal);
+        let before = g.clone();
+
+        for (x, y) in [(-1, 0), (0, -1), (w, 0), (0, h)] {
+            let err = g.try_set(x, y, Entity::Lava).unwrap_err();
+            assert_eq!(
+                err,
+                GridError::OutOfBounds {
+                    x,
+                    y,
+                    width,
+                    height
+                },
+                "({x}, {y}) is outside a {width}×{height} grid"
+            );
+            assert_eq!(
+                g.cells, before.cells,
+                "a rejected write at ({x}, {y}) must not touch any cell"
+            );
+        }
+    }
+
+    #[test]
+    fn try_set_rejects_the_extremes_of_i32() {
+        // `in_bounds` short-circuits on `x >= 0` before the `usize::try_from`,
+        // so `i32::MIN` is rejected by the sign test and `i32::MAX` by the
+        // extent test. Pinned because a future rewrite to a raw `as usize`
+        // cast would sign-extend `i32::MIN` into a huge in-range-looking index
+        // on a 64-bit target and index straight past the backing store.
+        let (width, height) = (3usize, 4usize);
+        let mut g = Grid::new(width, height);
+        g.set(1, 1, Entity::Goal);
+        let before = g.clone();
+
+        for (x, y) in [
+            (i32::MIN, 0),
+            (0, i32::MIN),
+            (i32::MAX, 0),
+            (0, i32::MAX),
+            (i32::MIN, i32::MIN),
+            (i32::MAX, i32::MAX),
+        ] {
+            assert!(!g.in_bounds(x, y), "({x}, {y}) must not be in bounds");
+            assert_eq!(
+                g.try_set(x, y, Entity::Lava),
+                Err(GridError::OutOfBounds {
+                    x,
+                    y,
+                    width,
+                    height
+                }),
+                "({x}, {y}) must be rejected with the requested coordinates intact"
+            );
+            assert_eq!(
+                g.cells, before.cells,
+                "a rejected write at ({x}, {y}) must not touch any cell"
+            );
+        }
+    }
+
+    #[test]
+    fn grid_error_display_names_the_cell_and_the_extent() {
+        // Deliberately asymmetric on both axes — `width != height` and
+        // `x != y` — so transposing either pair in the `#[error(...)]` format
+        // string fails this assertion instead of rendering identically.
+        let mut g = Grid::new(4, 7);
+        let err = g.try_set(9, 2, Entity::Goal).unwrap_err();
+        assert_eq!(err.to_string(), "cell (9, 2) is outside the 4×7 grid");
+    }
+
+    #[test]
+    fn grid_error_converts_into_an_environment_config_error() {
+        let mut g = Grid::new(2, 2);
+        let err = g.try_set(5, 5, Entity::Goal).unwrap_err();
+        let as_env: rlevo_core::environment::EnvironmentError = err.into();
+        assert!(matches!(
+            as_env,
+            rlevo_core::environment::EnvironmentError::Config(_)
+        ));
+    }
+
+    #[test]
+    // The message must discriminate against Rust's own debug-build
+    // "attempt to multiply with overflow", which a bare `width * height` would
+    // raise here and which also contains the word "overflow".
+    #[should_panic(expected = "grid dimensions overflow usize")]
+    fn new_rejects_overflowing_dimensions() {
+        let _ = Grid::new(usize::MAX, 2);
     }
 
     #[test]
