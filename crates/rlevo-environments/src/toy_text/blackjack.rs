@@ -39,7 +39,7 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::action::DiscreteAction;
+use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
@@ -257,6 +257,46 @@ pub enum BlackjackAction {
     Hit = 1,
 }
 
+impl BlackjackAction {
+    /// Constructs an action from its zero-based index, returning an error if
+    /// `index` is out of range.
+    ///
+    /// This is the fallible counterpart to [`DiscreteAction::from_index`], for
+    /// callers whose index comes from data (a replay log, a deserialized
+    /// trajectory, a mis-sized policy head) rather than from a trusted
+    /// in-range computation such as an argmax over `ACTION_COUNT` logits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `index >= ACTION_COUNT`; the message
+    /// names the offending index and the valid range.
+    pub fn try_from_index(index: usize) -> Result<Self, InvalidActionError> {
+        match index {
+            0 => Ok(BlackjackAction::Stick),
+            1 => Ok(BlackjackAction::Hit),
+            _ => Err(InvalidActionError {
+                message: format!(
+                    "BlackjackAction index {index} out of range [0, {})",
+                    Self::ACTION_COUNT
+                ),
+            }),
+        }
+    }
+}
+
+impl TryFrom<usize> for BlackjackAction {
+    type Error = InvalidActionError;
+
+    /// Delegates to [`BlackjackAction::try_from_index`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `index >= ACTION_COUNT`.
+    fn try_from(index: usize) -> Result<Self, Self::Error> {
+        Self::try_from_index(index)
+    }
+}
+
 impl Action<1> for BlackjackAction {
     fn shape() -> [usize; 1] {
         [1]
@@ -269,12 +309,27 @@ impl Action<1> for BlackjackAction {
 impl DiscreteAction<1> for BlackjackAction {
     const ACTION_COUNT: usize = 2;
 
+    /// Constructs an action from its zero-based index.
+    ///
+    /// Use [`Self::try_from_index`] (or the equivalent [`TryFrom<usize>`]
+    /// implementation) when the index originates from data rather than from a
+    /// trusted in-range computation such as an argmax over `ACTION_COUNT`
+    /// logits.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= ACTION_COUNT`, per the
+    /// [`DiscreteAction::from_index`] contract.
     fn from_index(index: usize) -> Self {
-        match index {
-            0 => BlackjackAction::Stick,
-            1 => BlackjackAction::Hit,
-            _ => panic!("BlackjackAction index {index} out of range [0, 2)"),
-        }
+        // The error's own `Display` prefixes "Invalid action:", which would read
+        // as noise here; the panic keeps the message this environment has always
+        // emitted, verbatim.
+        Self::try_from_index(index).unwrap_or_else(|_| {
+            panic!(
+                "BlackjackAction index {index} out of range [0, {})",
+                Self::ACTION_COUNT
+            )
+        })
     }
 
     fn to_index(&self) -> usize {
@@ -588,6 +643,78 @@ mod tests {
         for i in 0..BlackjackAction::ACTION_COUNT {
             assert_eq!(BlackjackAction::from_index(i).to_index(), i);
         }
+    }
+
+    #[test]
+    /// Verifies each index binds to its documented variant.
+    fn index_bindings_are_canonical() {
+        // Literal, not a loop: `action_roundtrip` is self-referential and still
+        // passes if the variant order is shuffled. These pin each index to a
+        // named variant.
+        assert_eq!(BlackjackAction::from_index(0), BlackjackAction::Stick);
+        assert_eq!(BlackjackAction::from_index(1), BlackjackAction::Hit);
+    }
+
+    #[test]
+    /// Verifies each variant reports its documented index.
+    fn to_index_values_are_canonical() {
+        assert_eq!(BlackjackAction::Stick.to_index(), 0);
+        assert_eq!(BlackjackAction::Hit.to_index(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "BlackjackAction index 2 out of range [0, 2)")]
+    fn from_index_out_of_range_panics() {
+        let _ = BlackjackAction::from_index(2);
+    }
+
+    // A separate test from the one above: a `#[should_panic]` body unwinds at
+    // the first panic, so one body cannot exercise both inputs.
+    #[test]
+    #[should_panic(expected = "out of range [0, 2)")]
+    fn from_index_usize_max_panics() {
+        let _ = BlackjackAction::from_index(usize::MAX);
+    }
+
+    #[test]
+    fn try_from_index_accepts_every_valid_index() {
+        for i in 0..BlackjackAction::ACTION_COUNT {
+            assert_eq!(
+                BlackjackAction::try_from_index(i),
+                Ok(BlackjackAction::from_index(i))
+            );
+        }
+    }
+
+    #[test]
+    fn try_from_index_rejects_out_of_range() {
+        let err = BlackjackAction::try_from_index(2).expect_err("index 2 is out of range");
+        assert!(err.to_string().contains("index 2"), "message was {err}");
+
+        let err =
+            BlackjackAction::try_from_index(usize::MAX).expect_err("usize::MAX is out of range");
+        assert!(
+            err.to_string().contains(&usize::MAX.to_string()),
+            "message was {err}"
+        );
+    }
+
+    #[test]
+    fn try_from_matches_inherent_method() {
+        assert_eq!(
+            BlackjackAction::try_from(1usize),
+            BlackjackAction::try_from_index(1)
+        );
+        assert_eq!(BlackjackAction::try_from(1usize), Ok(BlackjackAction::Hit));
+        assert_eq!(
+            BlackjackAction::try_from(2usize),
+            BlackjackAction::try_from_index(2)
+        );
+        assert!(BlackjackAction::try_from(2usize).is_err());
+        assert_eq!(
+            BlackjackAction::try_from(usize::MAX),
+            BlackjackAction::try_from_index(usize::MAX)
+        );
     }
 
     #[test]
