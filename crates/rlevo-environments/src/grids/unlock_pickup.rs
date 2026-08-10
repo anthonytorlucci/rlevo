@@ -1570,6 +1570,131 @@ mod tests {
         );
     }
 
+    /// The box in the agent's hand reaches the agent's own observation cell
+    /// (issue #1027).
+    ///
+    /// This environment's success gate is `has_target` (`:593`):
+    /// `self.state.agent.carrying == Some(self.layout.target)`. The entire
+    /// reward-relevant state therefore lives in the *hand*, not on the board —
+    /// and the `Pickup` that wins the episode simultaneously erases the box from
+    /// the grid. Before #1027 the emission pipeline stamped the hand nowhere, so
+    /// the terminal observation encoded the agent's cell as whatever floor it
+    /// stood on: a policy could never observe the very state it is rewarded for.
+    /// `stamp_carried` now writes the hand into `view[VIEW_SIZE - 1][VIEW_SIZE / 2]`,
+    /// the tail of canonical Minigrid's `gen_obs_grid`.
+    ///
+    /// The assertion is on the observation the environment **emitted** from a
+    /// real terminal `step()`, not on a hand-built state.
+    #[test]
+    fn test_unlock_pickup_carried_box_reaches_the_observation() {
+        /// The agent's own cell: the bottom row, centre column.
+        const AGENT_CELL: (usize, usize) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
+        /// The cell directly ahead of the agent, one row up the centre column.
+        const AHEAD_CELL: (usize, usize) = (VIEW_SIZE - 2, VIEW_SIZE / 2);
+
+        let mut env = env_7x7();
+        env.reset_with_seed(3).expect("reset");
+        let target = env.target();
+
+        // Seed 3's board is the one `a_planned_rollout_takes_the_key_then_the_box`
+        // and `drive_to_box_pickup` solve; the route is planned rather than
+        // scripted because the layout is sampled.
+        let route = plan(env.state(), &|agent| agent.carrying == Some(target))
+            .unwrap_or_else(|| panic!("seed 3 must be solvable:\n{}", env.ascii()));
+        let (&last, prefix) = route.split_last().expect("a non-empty route");
+        assert_eq!(
+            last,
+            GridAction::Pickup,
+            "the only action that can put the target in hand is Pickup"
+        );
+
+        // The step immediately before the winning pickup.
+        let before = *run(&mut env, prefix).observation();
+        let agent_before = env.state().agent;
+        assert_eq!(
+            agent_before.carrying, None,
+            "the hand must be empty going into the pickup — `pickup` is a no-op with a full hand"
+        );
+        let (fx, fy) = agent_before.front();
+        assert_eq!(
+            env.state().grid.get(fx, fy),
+            target,
+            "the box must still be on the board, directly ahead"
+        );
+
+        let terminal = env.step(last).expect("the winning pickup");
+        assert!(terminal.is_done(), "carrying the box must end the episode");
+        assert_eq!(env.state().agent.carrying, Some(target), "box in hand");
+        let after = *terminal.observation();
+
+        // The point of the test. The third byte is a literal `0`: carryables
+        // inherit `WorldObj.encode`, whose state byte is 0, and only `Door`
+        // overrides it with an open/closed/locked code. The colour is read from
+        // the layout, never hardcoded — it is sampled per episode.
+        assert_eq!(
+            after.view[VIEW_SIZE - 1][VIEW_SIZE / 2],
+            [target.type_u8(), target.color_u8(), 0],
+            "the carried target must be stamped into the agent's own view cell"
+        );
+
+        // Pins the assertion above to the *stamp* rather than to the board: the
+        // world cell the agent stands on is not the target, so a `stamp_carried`
+        // degraded to a no-op — which would let the agent's cell report the
+        // world — cannot satisfy it.
+        let standing_on = env
+            .state()
+            .grid
+            .get(env.state().agent.x, env.state().agent.y);
+        assert_ne!(
+            [
+                standing_on.type_u8(),
+                standing_on.color_u8(),
+                standing_on.state_u8()
+            ],
+            [target.type_u8(), target.color_u8(), 0],
+            "the agent is not standing on a copy of the target; only the hand can supply it"
+        );
+
+        // What the pickup changed, exactly. Two cells, both in the centre
+        // column: the agent's own cell (empty hand -> the box) and the cell
+        // directly ahead, which the `Pickup` cleared to `Empty` when it lifted
+        // the box off the board. Nothing else moves — the agent neither turns
+        // nor steps, and a `Box` is `see_behind() == true`, so removing it
+        // unmasks nothing behind it.
+        assert_eq!(
+            before.view[AGENT_CELL.0][AGENT_CELL.1],
+            [Entity::Empty.type_u8(), Entity::Empty.color_u8(), 0],
+            "empty-handed, the agent's own cell encodes as `Empty` — not as unseen"
+        );
+        assert_eq!(
+            before.view[AHEAD_CELL.0][AHEAD_CELL.1],
+            [target.type_u8(), target.color_u8(), 0],
+            "the box was visible one cell ahead before it was lifted"
+        );
+        assert_eq!(
+            after.view[AHEAD_CELL.0][AHEAD_CELL.1],
+            [
+                Entity::Empty.type_u8(),
+                Entity::Empty.color_u8(),
+                Entity::Empty.state_u8()
+            ],
+            "the pickup cleared the box's world cell"
+        );
+        for (r, c) in (0..VIEW_SIZE).flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c))) {
+            if (r, c) == AGENT_CELL || (r, c) == AHEAD_CELL {
+                assert_ne!(
+                    before.view[r][c], after.view[r][c],
+                    "cell ({r}, {c}) must change across the pickup"
+                );
+            } else {
+                assert_eq!(
+                    before.view[r][c], after.view[r][c],
+                    "cell ({r}, {c}) must be untouched by the pickup"
+                );
+            }
+        }
+    }
+
     // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
 
     /// Drive a fresh episode to its terminal snapshot **by picking up the box**,
