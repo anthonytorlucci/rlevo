@@ -218,6 +218,45 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `usize` cell indices, not `CELL_COUNT`, so that issue is only partly closed.
   New public API, so nothing breaks.
 
+- **`Grid::try_set` and `GridError`**, a non-panicking way to write a cell whose
+  coordinates come from data rather than from a literal (resolves #864, #862).
+  `Grid::set` panics out of bounds, which is the right contract for the literal
+  and derived coordinates every in-tree environment uses — each one calls
+  `Grid::new(config.size, …)` with the same config field its coordinates derive
+  from, so a larger config builds a larger grid and the write stays in range.
+  But `Grid` is publicly re-exported, so that reasoning protects only callers
+  inside this workspace; a downstream layout loader had no total write path at
+  all. `set` now delegates to `try_set`, giving the bounds check one home, and
+  `GridError` converts into `ConfigError` and `EnvironmentError` so a `reset()`
+  can `?` straight through it. The issue proposed `-> bool`; that was rejected
+  because `try_*` means `Result` everywhere else in the workspace, `bool` here
+  is reserved for predicates like `in_bounds`, and widening `bool` to `Result`
+  on public API later would be a breaking change. Both the enum and its variant
+  are `#[non_exhaustive]`, which reserves the right to add variants and fields
+  and stops downstream struct-literal construction — but note it does *not*
+  make the existing `x`/`y` fields malleable: a downstream
+  `OutOfBounds { x, y, .. }` binds them by name, so the position-newtype
+  collapse #863 proposes stays a semver-major change. `Grid::new` now rejects a
+  `width * height` that *wraps* — which would otherwise build a backing store
+  shorter than the grid's own extent, leaving `index` free to run past it. A
+  single absurd dimension (`Grid::new(1, usize::MAX)`) does not wrap and still
+  fails later inside the allocation; bounding grid size is the caller's job.
+  Both `Grid::new`'s and `Grid::set`'s panic contracts are now listed in the
+  panic-contracts table in `docs/rules.md`.
+
+- **`GridAction::try_from_index` and `impl TryFrom<usize> for GridAction`**, the
+  fallible counterpart to the trait's panicking `from_index` (resolves #813,
+  #829, #831). Every current caller pre-clamps its index, so nothing was
+  reachable — but the only constructor was one that panics, which is the wrong
+  default for an index arriving from a policy network's argmax. `from_index`
+  now routes through `try_from_index` and keeps its documented panic verbatim,
+  and gained the `# Panics` section it was missing. A `const` assertion ties the
+  explicit discriminants to `ACTION_COUNT`, so adding a variant without bumping
+  the constant is now a compile error rather than a runtime surprise — the
+  previous round-trip test was self-referential and passed under a shuffled
+  variant order (#815, #819, #835 add the literal-binding, literal-`to_index`,
+  and `usize::MAX` cases that pin it).
+
 ### `rlevo-evolution`
 
 **Fixed**

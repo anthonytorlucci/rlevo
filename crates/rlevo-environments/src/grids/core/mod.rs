@@ -65,7 +65,7 @@ pub use entity::{DoorState, Entity};
 // unoccluded window, which is only a correct emission model for an environment
 // that chose `Visibility::SeeThrough`. `observe_grid` is the public entry point
 // so the visibility policy cannot be bypassed from outside the crate.
-pub use grid::Grid;
+pub use grid::{Grid, GridError};
 pub use observation::{GridObservation, OBS_CHANNELS, UNSEEN_TYPE, VIEW_SIZE};
 pub use placement::{
     PlacementError, Rect, is_free, no_reject, place_agent, place_obj, random_direction, sample_pos,

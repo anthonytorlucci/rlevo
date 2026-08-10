@@ -284,6 +284,8 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | Builder `with_alpha(x)` | `x ∉ [0.0, 1.0]` |
 | `History::index(i)` | `i >= len()` |
 | `History::new(n)` | `n == 0` or `n > MAX_BUFFER_CAPACITY` |
+| `Grid::new(w, h)` | `w == 0`, `h == 0`, or `w * h` overflows `usize` |
+| `Grid::set(x, y, e)` | `(x, y)` out of bounds — use `Grid::try_set` for data-driven writes |
 | `SimulatedAnnealingParams::with_max_iters` | `max_iters == 0` |
 | `SimulatedAnnealingParams::with_initial_temp` | value not finite or not `> 0` |
 | `SimulatedAnnealingParams::with_cooling` | `Geometric` `factor ∉ (0, 1)`; `Linear` `delta` not finite or not `> 0` |
