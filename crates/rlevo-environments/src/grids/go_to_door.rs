@@ -266,6 +266,17 @@ impl GoToDoorObservation {
     ///
     /// Callers holding an unmasked view use
     /// [`from_entity_view`](Self::from_entity_view), which delegates here.
+    ///
+    /// # The agent's own cell is the hand, not the board
+    ///
+    /// Views arriving from `mask_view` have already had the agent's carried
+    /// item stamped into `view[VIEW_SIZE - 1][VIEW_SIZE / 2]` (an empty hand
+    /// stamps `Entity::Empty`), so channels 0-2 at that cell encode what the
+    /// agent holds rather than the world cell it stands on. `GoToDoorEnv` has
+    /// no pickable entity, so for this environment the stamp is always
+    /// `Entity::Empty` and the emitted agent cell is
+    /// `[Entity::Empty.type_u8(), 0, 0]`. Channel [`MISSION_CHANNEL`] is
+    /// written on both match arms below and so survives the stamp untouched.
     #[must_use]
     pub fn from_masked_view(
         view: [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE],
@@ -800,6 +811,13 @@ impl GoToDoorEnv {
     /// [`Mission::target_color`] into the observation's mission channel, which is
     /// why the emission model lives on the environment rather than on
     /// [`GridState`] (the mission is env context, not state).
+    ///
+    /// Going through `mask_view` also means the agent's carried item is stamped
+    /// into `view[VIEW_SIZE - 1][VIEW_SIZE / 2]` for free: channels 0-2 of that
+    /// cell report the hand, not the board. This env has no pickable entity, so
+    /// the stamp is invariably `Entity::Empty` here — but the emitted agent cell
+    /// is the stamp, not the raw egocentric window. The mission byte in
+    /// [`MISSION_CHANNEL`] is unaffected.
     fn observe_impl(&self, state: &GridState) -> GoToDoorObservation {
         let masked = mask_view(&state.grid, &state.agent, Self::VISIBILITY);
         GoToDoorObservation::from_masked_view(
@@ -1246,14 +1264,72 @@ mod tests {
         let env = env_6x6(2);
         let obs = env.observe_reset(env.state());
         let view = egocentric_view(&env.state().grid, &env.state().agent);
+        // The agent's own cell is deliberately excluded: `observe_impl` goes
+        // through `mask_view`, whose final step stamps the carried item over
+        // `[VIEW_SIZE - 1][VIEW_SIZE / 2]`. The raw egocentric window still
+        // reports the *world* cell there, so it is no longer what ships — every
+        // other cell is.
+        let (agent_row, agent_col) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
         for (r, row) in view.iter().enumerate() {
             for (c, cell) in row.iter().enumerate() {
+                if (r, c) == (agent_row, agent_col) {
+                    continue;
+                }
                 assert_eq!(
                     [obs.view[r][c][0], obs.view[r][c][1], obs.view[r][c][2]],
                     [cell.type_u8(), cell.color_u8(), cell.state_u8()],
                     "channels 0..2 must equal the shared grid entity encoding"
                 );
             }
+        }
+        // `GoToDoorEnv` has no pickable entity, so the stamp is invariably
+        // `Entity::Empty` — but it is the *stamp* that ships, not the window.
+        assert_eq!(
+            [
+                obs.view[agent_row][agent_col][0],
+                obs.view[agent_row][agent_col][1],
+                obs.view[agent_row][agent_col][2]
+            ],
+            [Entity::Empty.type_u8(), 0, 0],
+            "the agent cell must carry the empty hand, not the world cell under it"
+        );
+        assert_eq!(
+            obs.view[agent_row][agent_col][MISSION_CHANNEL],
+            env.mission().target_color.to_u8(),
+            "the stamp must not disturb the mission byte at the agent cell"
+        );
+    }
+
+    #[test]
+    fn test_go_to_door_agent_cell_is_empty_and_keeps_the_mission() {
+        // `observe_impl` calls `mask_view`, which ends in `stamp_carried`: the
+        // agent's own cell reports the hand, not the board. The wider 4-channel
+        // encoder gets that for free — `GoToDoorObservation::from_masked_view`
+        // encodes the already-stamped cell like any other.
+        //
+        // This env has no pickable entity and the agent starts and stays on
+        // `Entity::Empty`, so the hand is permanently empty and the stamp is a
+        // no-op *in value*. Pinning it makes that an asserted property of the
+        // env rather than a coincidence of its start pose.
+        //
+        // The mission byte survives the stamp: `from_masked_view` writes
+        // `mission_byte` into `MISSION_CHANNEL` on both match arms, so no cell —
+        // stamped, masked, or plain — can lose it.
+        let (agent_row, agent_col) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
+        let mut env = env_6x6(11);
+        for _ in 0..10 {
+            let snap = env.reset().expect("reset must succeed");
+            let mission = env.mission().target_color.to_u8();
+            assert_eq!(
+                snap.observation().view[agent_row][agent_col],
+                [Entity::Empty.type_u8(), 0, 0, mission],
+                "the agent cell must be an empty hand plus the mission byte"
+            );
+            assert_eq!(
+                snap.observation().mission_color_u8(),
+                mission,
+                "the mission accessor reads cell (0, 0), which the stamp never touches"
+            );
         }
     }
 

@@ -13,6 +13,13 @@ pub struct AgentState {
     /// Direction the agent is currently facing.
     pub direction: Direction,
     /// Item the agent is holding, if any.
+    ///
+    /// This field reaches the policy: `grid::stamp_carried` writes it into the
+    /// agent's own observation cell (`view[VIEW_SIZE - 1][VIEW_SIZE / 2]`) after
+    /// the visibility mask has been applied, so a policy can tell "holding the
+    /// key" from "empty-handed" — the state `dynamics::toggle` and
+    /// `UnlockPickupEnv` gate on. An empty hand encodes as
+    /// [`Entity::Empty`], never as an unseen cell.
     pub carrying: Option<Entity>,
 }
 

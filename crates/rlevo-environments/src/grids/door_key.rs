@@ -679,8 +679,8 @@ mod tests {
     use super::*;
     use crate::direction::Direction;
     use crate::episode::assert_rejects_post_terminal_step;
-    use crate::grids::core::UNSEEN_TYPE;
     use crate::grids::core::agent::AgentState;
+    use crate::grids::core::{UNSEEN_TYPE, VIEW_SIZE};
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::EpisodeStatus;
     use std::collections::{HashSet, VecDeque};
@@ -1293,6 +1293,199 @@ mod tests {
         let mut env = env_5x5();
         env.reset_with_seed(3).expect("reset");
         env
+    }
+
+    /// End-to-end reproducer for #1027: `AgentState::carrying` must reach the
+    /// emitted observation.
+    ///
+    /// Driven through the **real dynamics** — no hand-built `GridState`, no
+    /// direct `stamp_carried` call. The board is the seed-3 layout the module
+    /// docs pin (agent `(1, 1)` facing North, key `(1, 2)`, locked door
+    /// `(2, 1)`), so `module_doc_snapshot_is_current` fails first if the
+    /// generator moves under this script.
+    ///
+    /// Before the fix, `grid::stamp_carried` did not exist and the agent's own
+    /// view cell reported the world tile it stood on; a `DoorKeyEnv` policy had
+    /// no channel that ever showed whether it held the key, or which colour.
+    #[test]
+    fn test_door_key_carried_key_reaches_the_observation() {
+        let mut env = env_seed_3();
+
+        // The colour is read off the board, not assumed: the unlock gate
+        // compares against whatever colour the layout drew.
+        let key_color = match env.state().grid.get(1, 2) {
+            Entity::Key(color) => color,
+            other => panic!("seed 3 must place a key at (1, 2), found {other:?}"),
+        };
+
+        // North → East → South, which leaves the agent facing the key at (1, 2).
+        env.step(GridAction::TurnRight).expect("turn is legal");
+        let before = env.step(GridAction::TurnRight).expect("turn is legal");
+        assert_eq!(
+            env.state().agent.carrying,
+            None,
+            "the agent must still be empty-handed on the step before the Pickup"
+        );
+
+        let after = env.step(GridAction::Pickup).expect("the key is in front");
+        assert_eq!(
+            env.state().agent.carrying,
+            Some(Entity::Key(key_color)),
+            "the Pickup must have put the key in the agent's hand"
+        );
+
+        // The world tile the agent stands on is `Empty`, so the key byte in the
+        // agent's own view cell can only have come from the carry stamp — with
+        // an unstamped view that cell reports this tile and the next assertion
+        // fails.
+        let agent = env.state().agent;
+        assert_eq!(
+            env.state().grid.get(agent.x, agent.y),
+            Entity::Empty,
+            "the agent stands on an empty tile, which is what makes this a \
+             carry-stamp assertion rather than a world-tile one"
+        );
+
+        // The agent's own cell: bottom row, centre column.
+        let (arow, acol) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
+        let cell = after.observation().view[arow][acol];
+        assert_eq!(
+            cell,
+            [Entity::Key(key_color).type_u8(), key_color.to_u8(), 0],
+            "the carried key must be stamped into the agent's own view cell"
+        );
+
+        // Byte 1 called out on its own: `dynamics.rs:126` gates unlocking on
+        // `agent.carrying == Some(Entity::Key(color))` for the door's *colour*,
+        // so this is the exact byte a policy has to read to know whether its
+        // key opens the door in front of it. A type byte alone is not enough.
+        assert_eq!(
+            cell[1],
+            key_color.to_u8(),
+            "the colour byte is what the unlock gate compares against the door"
+        );
+
+        // Byte 2 is a literal 0: carryables inherit `WorldObj.encode`, and
+        // `Door` is the only entity that contributes a state byte.
+        assert_eq!(
+            cell[2], 0,
+            "a key has no state byte — only Door encodes one"
+        );
+
+        // Empty-handed, the same cell encodes `Entity::Empty`, never the unseen
+        // triple: the agent always observes its own cell.
+        assert_eq!(
+            before.observation().view[arow][acol],
+            [Entity::Empty.type_u8(), 0, 0],
+            "before the Pickup the agent's own cell must report an empty hand"
+        );
+
+        // The reproducer proper: exactly which cells the Pickup moved.
+        let changed: Vec<(usize, usize)> = (0..VIEW_SIZE)
+            .flat_map(|row| (0..VIEW_SIZE).map(move |col| (row, col)))
+            .filter(|&(row, col)| {
+                before.observation().view[row][col] != after.observation().view[row][col]
+            })
+            .collect();
+        // Two cells, and only two. `(6, 3)` is the agent's own cell gaining the
+        // key. `(5, 3)` is the world cell one step ahead — the key's tile —
+        // which the Pickup empties, and which is inside the view window here
+        // because the agent is standing right next to the key. Every other cell
+        // of the window is untouched by a Pickup.
+        assert_eq!(
+            changed,
+            vec![(VIEW_SIZE - 2, VIEW_SIZE / 2), (arow, acol)],
+            "a Pickup must change the agent's own cell and the emptied key tile, \
+             and nothing else"
+        );
+        assert_eq!(
+            after.observation().view[VIEW_SIZE - 2][VIEW_SIZE / 2],
+            [Entity::Empty.type_u8(), 0, 0],
+            "the key's world tile is empty once the key is in hand"
+        );
+    }
+
+    /// The interaction the other carry tests miss: still *holding* the key on
+    /// the exact frame the agent reaches the goal.
+    ///
+    /// `grid::stamp_carried` made two changes that every other test exercises
+    /// separately — a carried item becomes visible at the agent's own cell, and
+    /// the world tile under the agent stops leaking. This frame is where the
+    /// two collide: the agent stands on `Entity::Goal` *and* holds a key, so
+    /// exactly one of three values can appear in that cell. Nothing in
+    /// `DoorKeyEnv` forces a `Drop` before the goal, and `dynamics.rs`'s
+    /// `step_forward` moves the agent onto the goal cell *before* classifying
+    /// `Entity::Goal => StepOutcome::ReachedGoal`, after which `step()` calls
+    /// `observe()` unconditionally — so the frame is reachable, not synthetic.
+    ///
+    /// Driven through the real dynamics via [`drive_to_goal`], whose plan never
+    /// drops the key.
+    #[test]
+    fn test_door_key_carrying_at_the_goal_shows_the_hand_not_the_tile() {
+        let mut env = env_seed_3();
+
+        // Colour read off the board, not assumed: the layout draws it.
+        let key_color = match env.state().grid.get(1, 2) {
+            Entity::Key(color) => color,
+            other => panic!("seed 3 must place a key at (1, 2), found {other:?}"),
+        };
+
+        let terminal = drive_to_goal(&mut env);
+
+        // The episode really ended at the goal, so this cannot pass on some
+        // mid-episode frame that never stood on a terminal tile.
+        assert_eq!(
+            terminal.status(),
+            EpisodeStatus::Terminated,
+            "the frame under test must be the terminal one"
+        );
+
+        // Precondition 1: the hand is still full. The plan contains no `Drop`,
+        // and reaching the goal consumes nothing.
+        assert_eq!(
+            env.state().agent.carrying,
+            Some(Entity::Key(key_color)),
+            "the agent must still be carrying the key on the terminal frame"
+        );
+
+        // Precondition 2: the world tile under the agent genuinely IS the goal.
+        // Without this the tile-leak assertion below would be vacuous — it
+        // would pass on any tile that simply isn't a goal.
+        let agent = env.state().agent;
+        assert_eq!(
+            env.state().grid.get(agent.x, agent.y),
+            Entity::Goal,
+            "the agent must be standing on the goal entity itself"
+        );
+
+        // The agent's own cell: bottom row, centre column.
+        let (arow, acol) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
+        let cell = terminal.observation().view[arow][acol];
+
+        assert_eq!(
+            cell,
+            [Entity::Key(key_color).type_u8(), key_color.to_u8(), 0],
+            "the carried key must win the agent's own cell on the terminal frame"
+        );
+
+        // Negative 1: the terminal tile must not leak. `Goal` is directly under
+        // the agent on this frame, and canonical Minigrid erases it — the
+        // terminal tile is never a channel the policy can read.
+        assert_ne!(
+            cell,
+            [Entity::Goal.type_u8(), 0, 0],
+            "the goal tile under the agent must not leak into the observation"
+        );
+
+        // Negative 2: the hand must not read as empty. `stamp_carried` writes
+        // `Some(Entity::Empty)` only for `carrying == None`; a stamp that
+        // ignored the hand — or ran before the pickup state was consulted —
+        // would land here while still satisfying negative 1.
+        assert_ne!(
+            cell,
+            [Entity::Empty.type_u8(), 0, 0],
+            "the agent holds a key, so its own cell must not encode an empty hand"
+        );
     }
 
     /// Solves the seed-3 board through **real `step()` calls** and returns the

@@ -751,7 +751,21 @@ mod tests {
     fn test_unlock_occlusion_is_carried_entirely_by_the_locked_door() {
         let mut env = test_env();
         env.reset().expect("reset");
-        env.step(GridAction::Pickup).expect("take the key");
+        let picked = env.step(GridAction::Pickup).expect("take the key");
+        // The `Pickup` genuinely lands: the agent starts at (1, 1) facing East
+        // with the key at (2, 1), so `dynamics::pickup` finds a pickable entity
+        // directly in front. Pin the *colour* byte the carried key reports in
+        // the agent's own view cell — `dynamics.rs:126` unlocks only when
+        // `agent.carrying == Some(Entity::Key(color))` for the door's colour, so
+        // channel 1 here is the byte the door gate compares against. Channel 2
+        // is a literal `0`: carryables inherit `WorldObj.encode` and only
+        // `Door` writes a state byte.
+        assert_eq!(
+            picked.observation().view[VIEW_SIZE - 1][VIEW_SIZE / 2],
+            [Entity::Key(DOOR_COLOR).type_u8(), DOOR_COLOR.to_u8(), 0],
+            "the carried key — colour included — must reach the agent's own view cell"
+        );
+
         let locked = env.step(GridAction::TurnLeft).expect("face the door");
 
         let agent = env.state().agent;
@@ -849,6 +863,91 @@ mod tests {
             UnlockEnv::VISIBILITY,
             Visibility::Occluded,
             "Unlock derives from RoomGrid, which passes see_through_walls=False"
+        );
+    }
+
+    /// Issue #1027, end to end: [`AgentState::carrying`] must reach the emitted
+    /// observation.
+    ///
+    /// Before the fix, `mask_view` returned the masked window untouched and the
+    /// agent's own cell reported the *world* tile it stands on, so picking the
+    /// key up changed nothing the policy could see — the one bit the whole task
+    /// turns on was invisible. `grid::stamp_carried` now writes
+    /// `view[VIEW_SIZE - 1][VIEW_SIZE / 2]` after the visibility match, matching
+    /// canonical `MiniGridEnv.gen_obs_grid`.
+    ///
+    /// The reproducer is the observation *delta* across a single `Pickup`, and
+    /// it must move **exactly two** cells:
+    ///
+    /// * the agent's own cell `(6, 3)` — `Empty` → `Key(DOOR_COLOR)`, the stamp
+    ///   under test;
+    /// * the key's cell `(5, 3)` — `Key(DOOR_COLOR)` → `Empty`, because
+    ///   `dynamics::pickup` clears the key out of the world grid, and that cell
+    ///   (one step ahead of an agent at `(1, 1)` facing East) lies inside the
+    ///   view window.
+    ///
+    /// Nothing else in the window may move: `Pickup` neither turns nor walks the
+    /// agent, so the geometry is fixed and every other cell is byte-identical.
+    #[test]
+    fn test_unlock_carried_key_reaches_the_observation() {
+        /// The agent's own cell: where the carried item is stamped.
+        const AGENT_CELL: (usize, usize) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
+        /// The key's world cell (2, 1), seen one step ahead from the start pose.
+        const KEY_CELL: (usize, usize) = (VIEW_SIZE - 2, VIEW_SIZE / 2);
+
+        let mut env = test_env();
+        let before = *env.reset().expect("reset").observation();
+        assert_eq!(
+            env.state().agent.carrying,
+            None,
+            "the agent starts empty-handed"
+        );
+
+        let after = *env
+            .step(GridAction::Pickup)
+            .expect("take the key")
+            .observation();
+        assert_eq!(
+            env.state().agent.carrying,
+            Some(Entity::Key(DOOR_COLOR)),
+            "the Pickup must actually land, or this test proves nothing"
+        );
+
+        let moved: Vec<(usize, usize)> = (0..VIEW_SIZE)
+            .flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c)))
+            .filter(|&(r, c)| before.view[r][c] != after.view[r][c])
+            .collect();
+        assert_eq!(
+            moved,
+            vec![KEY_CELL, AGENT_CELL],
+            "a Pickup must change exactly the key's cell and the agent's own cell"
+        );
+
+        // The agent's cell before the Pickup: `Some(Entity::Empty)`, never the
+        // unseen triple — `stamp_carried` spells the empty hand as `Empty`
+        // precisely so it cannot collide with an occluded cell.
+        assert_eq!(
+            before.view[AGENT_CELL.0][AGENT_CELL.1],
+            [Entity::Empty.type_u8(), 0, 0],
+            "an empty-handed agent reports Empty in its own cell, not the unseen triple"
+        );
+        // And after: the key, with its colour, and a literal `0` state byte —
+        // carryables inherit `WorldObj.encode`; only `Door` has a state byte.
+        assert_eq!(
+            after.view[AGENT_CELL.0][AGENT_CELL.1],
+            [Entity::Key(DOOR_COLOR).type_u8(), DOOR_COLOR.to_u8(), 0],
+            "the carried key must be encoded into the agent's own cell"
+        );
+        // The other half of the delta: the key left the world grid.
+        assert_eq!(
+            before.view[KEY_CELL.0][KEY_CELL.1],
+            [Entity::Key(DOOR_COLOR).type_u8(), DOOR_COLOR.to_u8(), 0],
+            "the key sits one cell ahead of the start pose"
+        );
+        assert_eq!(
+            after.view[KEY_CELL.0][KEY_CELL.1],
+            [Entity::Empty.type_u8(), 0, 0],
+            "picking the key up clears it from the world grid"
         );
     }
 

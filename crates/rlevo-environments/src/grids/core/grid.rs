@@ -110,11 +110,74 @@ const AGENT_VIEW_ROW: usize = VIEW_SIZE - 1;
 /// View-window column the agent occupies: the centre column.
 const AGENT_VIEW_COL: usize = VIEW_SIZE / 2;
 
+/// Stamp the agent's carried item onto its own cell of an already-masked view.
+///
+/// This is the final step of canonical Minigrid's `MiniGridEnv.gen_obs_grid`
+/// (`minigrid/minigrid_env.py`, `master`, lines 597-632), which runs
+/// slice → `rotate_left(agent_dir + 1)` → `process_vis` and *then*:
+///
+/// ```ignore
+/// let agent_pos = (grid.width() / 2, grid.height() - 1);
+/// match self.carrying {
+///     Some(item) => grid.set(agent_pos, Some(item)),
+///     None => grid.set(agent_pos, None),
+/// }
+/// ```
+///
+/// Canonical's `None` there means *no object in this cell*; it is **not**
+/// rlevo's "unseen". That difference is the whole subject of the next section.
+///
+/// # `Some(Entity::Empty)`, never `None`
+///
+/// **Do not "simplify" the empty-handed branch to `None`.** Canonical's `None`
+/// and rlevo's `None` mean different things:
+///
+/// * Canonical `None` means *no object in this cell*, and `Grid.encode`
+///   (`minigrid/core/grid.py`, lines 260-263) turns it into
+///   `[OBJECT_TO_IDX["empty"], 0, 0] == [1, 0, 0]`.
+/// * rlevo's `Option<Entity>` in a masked view means *masked / unseen*:
+///   [`GridObservation::from_masked_view`](super::GridObservation::from_masked_view)
+///   encodes `None` as `[UNSEEN_TYPE, 0, 0] == [0, 0, 0]` (ADR 0063,
+///   Decision 4).
+///
+/// The faithful rlevo spelling of canonical's empty-handed branch is therefore
+/// `Some(Entity::Empty)`. Writing `None` would tell the policy that its own
+/// cell is unobserved — the one cell it always sees — and would collide with the
+/// encoding of a genuinely occluded cell.
+///
+/// # The agent's own cell never reports the world
+///
+/// After this stamp the agent's cell carries the *hand*, not the board: the
+/// world entity the agent is standing on is unconditionally overwritten. That is
+/// deliberate and matches canonical. The agent stands on [`Entity::Goal`] and on
+/// [`Entity::Lava`] at terminal steps, and canonical erases both — the terminal
+/// tile is never a channel the policy can read.
+///
+/// # Occlusion cannot hide the result
+///
+/// [`process_vis`] seeds `mask[agent_pos] = True` unconditionally, before any
+/// cell is read (`minigrid/core/grid.py`, line 294), and this stamp runs
+/// *after* the mask is applied. The carried item is therefore unmaskable under
+/// either [`Visibility`](super::Visibility) policy: `Occluded` always reports
+/// the agent's own cell, and `SeeThrough` masks nothing at all.
+#[must_use]
+pub(crate) fn stamp_carried(
+    mut view: [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE],
+    agent: &AgentState,
+) -> [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE] {
+    view[AGENT_VIEW_ROW][AGENT_VIEW_COL] = Some(agent.carrying.unwrap_or(Entity::Empty));
+    view
+}
+
 /// Extract a [`VIEW_SIZE`]×[`VIEW_SIZE`] egocentric view of the grid.
 ///
 /// The agent sits at view coordinates `(row = VIEW_SIZE - 1, col = VIEW_SIZE / 2)`
 /// and looks toward row `0`. Cells outside the grid decode as
 /// [`Entity::Wall`], so the returned array is always fully populated.
+///
+/// The window reports the *world* cell under the agent at
+/// `[AGENT_VIEW_ROW][AGENT_VIEW_COL]`, but that cell is overwritten downstream
+/// by [`stamp_carried`], so no emission path ships it.
 ///
 /// # Visibility
 ///
@@ -365,6 +428,79 @@ mod tests {
             .count();
         // Only the agent's own cell and at most one neighbor are inside the grid.
         assert!(wall_count >= 45);
+    }
+
+    // ---- stamp_carried ---------------------------------------------------
+
+    #[test]
+    fn stamp_carried_writes_empty_for_an_empty_hand() {
+        let agent = AgentState::new(1, 1, Direction::East);
+        assert_eq!(agent.carrying, None, "fixture must start empty-handed");
+
+        let stamped = stamp_carried([[None; VIEW_SIZE]; VIEW_SIZE], &agent);
+
+        assert_eq!(
+            stamped[AGENT_VIEW_ROW][AGENT_VIEW_COL],
+            Some(Entity::Empty),
+            "an empty hand is canonical's `grid.set(*agent_pos, None)`, which \
+             encodes as `[1, 0, 0]`"
+        );
+        // `None` here would encode as `[UNSEEN_TYPE, 0, 0] == [0, 0, 0]` — i.e.
+        // *unseen*, not *empty* — telling the policy its own cell is
+        // unobserved. This is the likeliest mis-transcription of canonical.
+        assert_ne!(
+            stamped[AGENT_VIEW_ROW][AGENT_VIEW_COL], None,
+            "the agent's own cell must never be emitted as masked/unseen"
+        );
+    }
+
+    #[test]
+    fn stamp_carried_touches_exactly_one_cell() {
+        let mut agent = AgentState::new(2, 3, Direction::North);
+        agent.carrying = Some(Entity::Ball(Color::Red));
+
+        // A view with a mix of visible and masked cells, so the "unchanged"
+        // claim covers the `None`s too.
+        let view: [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE] = std::array::from_fn(|row| {
+            std::array::from_fn(|col| {
+                if (row + col) % 3 == 0 {
+                    None
+                } else {
+                    Some(Entity::Door(Color::Blue, DoorState::Closed))
+                }
+            })
+        });
+        let stamped = stamp_carried(view, &agent);
+
+        for row in 0..VIEW_SIZE {
+            for col in 0..VIEW_SIZE {
+                if (row, col) == (AGENT_VIEW_ROW, AGENT_VIEW_COL) {
+                    continue;
+                }
+                assert_eq!(
+                    stamped[row][col], view[row][col],
+                    "cell ({row}, {col}) must be bit-identical to the input"
+                );
+            }
+        }
+        assert_eq!(
+            stamped[AGENT_VIEW_ROW][AGENT_VIEW_COL],
+            Some(Entity::Ball(Color::Red))
+        );
+    }
+
+    #[test]
+    fn stamp_carried_overwrites_an_opaque_world_cell() {
+        let mut agent = AgentState::new(4, 4, Direction::South);
+        agent.carrying = Some(Entity::Key(Color::Yellow));
+
+        let stamped = stamp_carried([[Some(Entity::Wall); VIEW_SIZE]; VIEW_SIZE], &agent);
+
+        assert_eq!(
+            stamped[AGENT_VIEW_ROW][AGENT_VIEW_COL],
+            Some(Entity::Key(Color::Yellow)),
+            "the hand replaces whatever the world put under the agent"
+        );
     }
 
     // ---- process_vis -----------------------------------------------------

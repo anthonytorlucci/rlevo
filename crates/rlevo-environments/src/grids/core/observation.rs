@@ -79,6 +79,24 @@ pub const UNSEEN_TYPE: u8 = 0;
 /// | 0       | Entity type ([`Entity::type_u8`])                  |
 /// | 1       | Color ([`Entity::color_u8`], `0` if no color)      |
 /// | 2       | Door state ([`Entity::state_u8`], `0` if no state) |
+///
+/// # The agent's own cell carries the hand, not the terrain
+///
+/// `view[VIEW_SIZE - 1][VIEW_SIZE / 2]` is the agent's own cell, and it encodes
+/// [`AgentState::carrying`](super::agent::AgentState::carrying) — `[1, 0, 0]`
+/// (canonical `OBJECT_TO_IDX["empty"]`) when the hand is empty. It is **not**
+/// the world entity the agent is standing on: that cell is overwritten by
+/// `grid::stamp_carried` inside `mask_view`, upstream of this type, matching the
+/// final step of canonical Minigrid's `gen_obs_grid`.
+///
+/// Two consequences for anyone reading channel 0 at that position:
+///
+/// * A [`Entity::Goal`] or [`Entity::Lava`] tile *under* the agent never
+///   appears, so the terminal tile is not a readable channel on the terminal
+///   frame.
+/// * The cell is unmaskable — under either
+///   [`Visibility`](super::Visibility) policy it is `Some`, so it never encodes
+///   as [`UNSEEN_TYPE`].
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GridObservation {
     /// Encoded view, indexed as `view[row][col][channel]`.
@@ -124,6 +142,20 @@ impl GridObservation {
     ///
     /// Callers holding an unmasked view use
     /// [`from_entity_view`](Self::from_entity_view), which delegates here.
+    ///
+    /// # A pure encoder — it does not stamp
+    ///
+    /// This function encodes the `view` it is handed and nothing else. In
+    /// particular it does **not** write the agent's carried item onto
+    /// `view[VIEW_SIZE - 1][VIEW_SIZE / 2]`; that stamp lives upstream in
+    /// `mask_view`, which applies it after the visibility policy has run (the
+    /// canonical `gen_obs_grid` order). Every production path therefore arrives
+    /// here with the agent's cell already carrying the hand.
+    ///
+    /// The split is deliberate: it keeps the encoder total over its input, so a
+    /// test may pass an arbitrary entity — or `None` — at the agent's cell and
+    /// get it encoded verbatim, and so the stamp has exactly one home rather
+    /// than being reapplied by each of the two encoders.
     ///
     /// # Arguments
     ///

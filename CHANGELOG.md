@@ -103,6 +103,48 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   existing enum and nothing in the workspace matches `ConstraintKind`
   exhaustively, so no caller breaks.
 
+### `rlevo-environments`
+
+**Fixed**
+
+- **The agent's carried item never reached the grid observation; the agent's
+  own view cell reported the world entity it stood on instead** (resolves
+  #1027, ADR 0073). `dynamics.rs` gates door-unlocking on `agent.carrying`
+  and `unlock_pickup.rs` gates episode success on it, so `door_key`,
+  `unlock`, and `unlock_pickup` had reward and transition dynamics that
+  depended on hand state the policy's own observation never carried in any
+  form — a policy could not condition on "am I holding the key" from what it
+  saw, only infer it from action history. `grid::stamp_carried` now writes
+  the agent's own view cell as `Some(agent.carrying.unwrap_or(Entity::Empty))`,
+  called from `mask_view` after the occlusion dispatch, mirroring canonical
+  Minigrid's `gen_obs_grid` order (slice → rotate → occlude → stamp the
+  carried object).
+
+  **Why the existing per-env occlusion tests missed this**: every one of
+  them compares two *emitted* observations — occluded against see-through —
+  cell by cell, so the agent's own cell moves identically on both sides of
+  the comparison and no assertion could ever see the difference between
+  "world entity" and "hand." Separately, every existing fixture starts the
+  agent standing on `Entity::Empty` with an empty hand, which is exactly the
+  one case where the old code and the fix produce the same byte — the
+  defect was invisible to both dimensions the coverage varied along.
+
+  Tensor shape and the serde wire format are unchanged (`GridObservation`
+  stays `[7, 7, 3]`, `GoToDoorObservation` stays `[7, 7, 4]`, no struct
+  gains a field), so any rollout or replay buffer recorded before this
+  change still deserialises without error — it is silently wrong rather
+  than loudly wrong, having recorded the world under the agent instead of
+  its hand.
+
+  One more consequence worth calling out on its own: because `Goal` and
+  `Lava` are both passable and the agent steps onto them before the
+  terminal match fires, the agent's own view cell now reads `Empty`
+  (empty-handed) instead of `Goal`/`Lava` on the terminal frame of eight
+  goal-reaching and three lava environments, whether or not anything is
+  carried. This changes observed bytes but breaks no compilation and no
+  persisted format, so it is recorded here rather than under Breaking
+  changes, whose entries above are all compile-time API breaks.
+
 ### `rlevo-evolution`
 
 **Fixed**
