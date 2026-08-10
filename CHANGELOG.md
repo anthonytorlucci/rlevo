@@ -551,6 +551,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   eviction at *exactly* `window_size`, the off-by-one the previous tests
   straddled without pinning.
 
+- **`experience.rs` now says it is not the replay integration path** (for #392).
+  A reader landing on `ExperienceTuple` had no signal that it, `History`,
+  `HistoryRepresentation` and `SufficientStatistic` are zero-consumer ADR 0003
+  roadmap markers rather than the type family an agent writes transitions
+  into — `crate::replay::Transition` is the live stored-transition model, and
+  nothing in the module said so. That mistake is exactly the complaint #188
+  raised, and ADR 0050 §9 answered it by promising the pointer in these module
+  docs while deliberately leaving the code untouched — the doc pointer *was*
+  the deliverable, and it never landed, so the module has read as the
+  integration path ever since. The module docs now carry the signpost and
+  name #95 as the issue that decides whether the four items survive at all.
+
+  Two `History` contracts that were previously legible only from the source are
+  now written down. Indexing panics at `idx >= len()` and `get()` is the
+  fallible alternative — documented on the `index` method and listed in
+  `docs/rules.md` §4 alongside `History::new`, which §4 requires of every panic
+  site. And `trace()` is an O(n) deep clone of every stored transition, not a
+  view; read-only callers should reach for `iter()`. The suggested
+  `as_trace()`/`&VecDeque` reshaping was declined: `iter()` already serves the
+  borrowed case, and returning a reference would pin `VecDeque` into the public
+  API in exchange for renaming a method with no callers.
+
 **Removed**
 
 - **Two `ReplayBufferError` variants that advertised failure modes the replay

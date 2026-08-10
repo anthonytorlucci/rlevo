@@ -6,6 +6,23 @@
 //! - [`History`] — a fixed-capacity FIFO buffer of transitions
 //! - [`HistoryRepresentation`] — trait for constructing state summaries from history
 //! - [`SufficientStatistic`] — history summary that satisfies the Markov property
+//!
+//! # Not the replay integration path
+//!
+//! [`crate::replay::Transition`] is the **live** stored-transition model: it is
+//! what every off-policy agent writes into a [`ReplayStrategy`], and it is the
+//! type to reach for when wiring a new agent to replay. The four items in this
+//! module have **zero consumers** in the workspace today. They are ADR 0003
+//! roadmap markers, kept under that ADR's conservative dead-code policy for the
+//! POMDP/history-conditioned work they were sketched for, and their survival is
+//! pending #95 — until that issue is settled, do not build against them.
+//!
+//! ADR 0050 §9 records this pointer as its own deliverable: `experience.rs` was
+//! deliberately left untouched by the replay-strategy seam, so the module docs
+//! carry the signpost instead of the code, and a reader cannot mistake
+//! [`ExperienceTuple`] for the integration path.
+//!
+//! [`ReplayStrategy`]: crate::replay::ReplayStrategy
 
 use crate::MAX_BUFFER_CAPACITY;
 use rlevo_core::base::{Action, Observation, Reward};
@@ -88,6 +105,17 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
 {
     type Output = ExperienceTuple<D, AD, O, A, R>;
 
+    /// Returns the transition stored at `idx`, counted from the oldest
+    /// retained entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `idx >= self.len()`. Indexing is the infallible spelling and
+    /// treats an out-of-range index as a programming error; use
+    /// [`History::get`] for the fallible alternative, which returns `None`
+    /// instead. Note that `len()` shrinks only via [`History::clear`] —
+    /// eviction keeps `len()` pinned at `capacity()` — so a stale index taken
+    /// before a push remains in range but no longer names the same transition.
     fn index(&self, idx: usize) -> &Self::Output {
         &self.trace[idx]
     }
@@ -163,6 +191,16 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     }
 
     /// Returns a clone of the full transition sequence in insertion order.
+    ///
+    /// This is an **O(n) deep clone**: every stored [`ExperienceTuple`] is
+    /// cloned, which clones two observations, an action, and a reward apiece.
+    /// Callers that only need to *read* the stored transitions should use
+    /// [`Self::iter`] (or [`Self::get`] / indexing for a single slot) and pay
+    /// nothing.
+    ///
+    /// The name intentionally mirrors the private `trace` field it copies,
+    /// rather than following the borrowing-accessor convention — the returned
+    /// value is an owned snapshot, not a view.
     #[must_use]
     pub fn trace(&self) -> VecDeque<ExperienceTuple<D, AD, O, A, R>> {
         self.trace.clone()
@@ -437,16 +475,199 @@ mod tests {
         assert_eq!(total_reward, TestReward(30.0));
     }
 
-    /// Test history operations with reward accumulation
+    /// Asserts that the reward at `history[idx]` is `expected`.
+    ///
+    /// Per-slot, never aggregate: a sum or a length cannot distinguish a
+    /// transposition or a dropped entry from a correct buffer.
+    fn assert_reward_at(
+        history: &History<1, 1, TestObs, TestAct, TestReward>,
+        idx: usize,
+        expected: f32,
+    ) {
+        let got = history[idx].reward.0;
+        assert!(
+            (got - expected).abs() < 1e-6,
+            "slot {idx} should hold reward {expected}, got {got}"
+        );
+    }
+
+    /// Every stored slot holds the reward it was pushed with, at its own
+    /// index, in insertion order.
+    ///
+    /// The reward values are distinct primes so that swapping any two slots or
+    /// dropping any one breaks a per-slot assertion — a length check or a sum
+    /// would see neither.
     #[test]
     fn test_history_reward_accumulation() {
         let mut history = History::<1, 1, TestObs, TestAct, TestReward>::new(5);
 
-        let rewards = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let rewards = [11.0_f32, 23.0, 37.0, 41.0, 59.0];
         for &reward_val in &rewards {
             history.add(TestObs, TestAct, TestReward(reward_val), TestObs, false);
         }
 
-        assert_eq!(history.len(), 5);
+        assert_eq!(
+            history.len(),
+            rewards.len(),
+            "a below-capacity fill must retain every pushed transition"
+        );
+        for (idx, &expected) in rewards.iter().enumerate() {
+            assert_reward_at(&history, idx, expected);
+        }
+    }
+
+    /// `terminated` round-trips through `add` unchanged, per slot.
+    ///
+    /// This flag is the Bellman bootstrap mask (see
+    /// [`ExperienceTuple::terminated`] and Pardo et al., ICML 2018): a
+    /// `History` that dropped, hardcoded, or inverted it would still store
+    /// every reward in the right order and pass every other test in this
+    /// module, while biasing every Q-value downward in any agent built on it.
+    ///
+    /// The pattern `[false, true, true, false, false]` is chosen so that it is
+    /// **not** all-true (killing a `terminated: false` hardcode), **not**
+    /// all-false (killing a `true` hardcode), and **asymmetric under reversal**
+    /// (killing an order-reversing push mutant — the reverse is
+    /// `[false, false, true, true, false]`). Pairing each flag with a distinct
+    /// prime reward means a transposition of two slots breaks both assertions
+    /// when the flags differ, and the reward assertion when they agree.
+    #[test]
+    fn terminated_round_trips_per_slot() {
+        let mut history = History::<1, 1, TestObs, TestAct, TestReward>::new(5);
+
+        let pushed = [
+            (13.0_f32, false),
+            (29.0, true),
+            (43.0, true),
+            (61.0, false),
+            (71.0, false),
+        ];
+        for &(reward_val, terminated) in &pushed {
+            history.add(
+                TestObs,
+                TestAct,
+                TestReward(reward_val),
+                TestObs,
+                terminated,
+            );
+        }
+
+        assert_eq!(
+            history.len(),
+            pushed.len(),
+            "a below-capacity fill must retain every pushed transition"
+        );
+        for (idx, &(reward_val, terminated)) in pushed.iter().enumerate() {
+            assert_reward_at(&history, idx, reward_val);
+            assert_eq!(
+                history[idx].terminated, terminated,
+                "slot {idx} (reward {reward_val}) should carry terminated={terminated}"
+            );
+        }
+    }
+
+    /// At capacity, `add` evicts the **oldest** entry, and the survivors keep
+    /// their relative order.
+    ///
+    /// Pushing five distinct rewards into a capacity-3 buffer must leave the
+    /// last three, in order. Asserting slot by slot is what makes this test
+    /// sensitive to the two ways eviction goes wrong: evicting from the wrong
+    /// end (`pop_back`), and evicting one push too late (`>` instead of `>=`).
+    #[test]
+    fn add_evicts_oldest_first_at_capacity() {
+        let mut history = History::<1, 1, TestObs, TestAct, TestReward>::new(3);
+
+        for &reward_val in &[11.0_f32, 23.0, 37.0, 41.0, 59.0] {
+            history.add(TestObs, TestAct, TestReward(reward_val), TestObs, false);
+        }
+
+        assert_eq!(
+            history.len(),
+            3,
+            "len() must never exceed the configured capacity of 3"
+        );
+        assert_reward_at(&history, 0, 37.0);
+        assert_reward_at(&history, 1, 41.0);
+        assert_reward_at(&history, 2, 59.0);
+    }
+
+    /// `is_full()` is `false` below capacity, flips to `true` on reaching it,
+    /// and stays `true` across an evicting push.
+    #[test]
+    fn is_full_transitions_false_to_true() {
+        let mut history = History::<1, 1, TestObs, TestAct, TestReward>::new(3);
+
+        history.add(TestObs, TestAct, TestReward(11.0), TestObs, false);
+        history.add(TestObs, TestAct, TestReward(23.0), TestObs, false);
+        assert!(!history.is_full(), "2 of 3 slots used must not report full");
+
+        history.add(TestObs, TestAct, TestReward(37.0), TestObs, false);
+        assert!(history.is_full(), "3 of 3 slots used must report full");
+
+        history.add(TestObs, TestAct, TestReward(41.0), TestObs, false);
+        assert!(
+            history.is_full(),
+            "an evicting push must leave the buffer full, not over- or under-filled"
+        );
+        assert_eq!(
+            history.len(),
+            3,
+            "an evicting push must hold len() at capacity"
+        );
+        assert_reward_at(&history, 2, 41.0);
+    }
+
+    /// `get()` resolves the last valid index and returns `None` past the end.
+    #[test]
+    fn get_returns_none_out_of_bounds() {
+        let mut history = History::<1, 1, TestObs, TestAct, TestReward>::new(5);
+        history.add(TestObs, TestAct, TestReward(11.0), TestObs, false);
+        history.add(TestObs, TestAct, TestReward(23.0), TestObs, false);
+        history.add(TestObs, TestAct, TestReward(37.0), TestObs, false);
+
+        let last = history
+            .get(history.len() - 1)
+            .expect("the last valid index must resolve");
+        assert!(
+            (last.reward.0 - 37.0).abs() < 1e-6,
+            "get(len() - 1) must return the most recently pushed transition"
+        );
+
+        assert!(
+            history.get(history.len()).is_none(),
+            "get(len()) is one past the end and must return None"
+        );
+        assert!(
+            history.get(history.len() + 1).is_none(),
+            "get(len() + 1) is out of bounds and must return None"
+        );
+    }
+
+    /// Pins the documented `# Panics` contract on the [`Index`] impl: indexing
+    /// past the end is a programming error, and [`History::get`] is the
+    /// fallible alternative.
+    ///
+    /// Deliberately a bare `should_panic` with no `expected` string. The two
+    /// `should_panic` tests above pin messages from `assert!` calls this crate
+    /// authors in [`History::new`], which are stable by our own contract; the
+    /// panic here comes from [`VecDeque`]'s indexing, whose wording is a std
+    /// implementation detail that has been reworded before. There is nothing
+    /// to disambiguate — the only operation in this body that can panic is the
+    /// index — so pinning std's phrasing would only buy failures unrelated to
+    /// `History`'s correctness.
+    #[test]
+    // `clippy::should_panic_without_expect` asks for an `expected` string to
+    // prove the test panicked for the intended reason. That guarantee is
+    // already structural here — the body has exactly one fallible operation —
+    // and the only string available to pin belongs to `VecDeque`, not to this
+    // crate, so satisfying the lint would trade a real property for a
+    // dependency on std's phrasing. See the doc comment above.
+    #[allow(clippy::should_panic_without_expect)]
+    #[should_panic]
+    fn index_panics_out_of_bounds() {
+        let mut history = History::<1, 1, TestObs, TestAct, TestReward>::new(5);
+        history.add(TestObs, TestAct, TestReward(11.0), TestObs, false);
+
+        let _ = &history[history.len()];
     }
 }
