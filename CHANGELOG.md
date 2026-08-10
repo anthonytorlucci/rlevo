@@ -261,8 +261,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `TaxiAction`, `FrozenLakeAction` and `CliffWalkingAction`** (resolves #954,
   #951, #971, #1093). Prospective hardening, not a live defect: the panic was
   and remains the documented `DiscreteAction::from_index` contract
-  (`rlevo-core/src/action.rs:117-123`), and every in-tree caller feeds it an
-  argmax over `ACTION_COUNT` logits. What was actually wrong is that all four
+  (`rlevo-core/src/action.rs:117-123`), and the sole in-tree caller
+  (`rlevo-examples/examples/toy_text/report_toy_text_with_client.rs:70`)
+  pre-clamps its index with `Uniform::new(0, ACTION_COUNT)`. What was actually wrong is that all four
   impls carried no doc comment at all — so the panic was undocumented at the
   point a reader would look for it — and there was no non-panicking path for an
   index that arrives from data (a replay log, a deserialized trajectory, a
