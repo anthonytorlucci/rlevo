@@ -877,7 +877,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "TaxiAction index 6 out of range")]
+    #[should_panic(expected = "TaxiAction index 6 out of range [0, 6)")]
     /// Verifies the documented `DiscreteAction::from_index` panic contract.
     fn from_index_out_of_range_panics() {
         let _ = TaxiAction::from_index(6);
@@ -886,7 +886,7 @@ mod tests {
     // A separate test from the one above: a `#[should_panic]` body unwinds at
     // the first panic, so one body cannot exercise both inputs.
     #[test]
-    #[should_panic(expected = "out of range")]
+    #[should_panic(expected = "out of range [0, 6)")]
     /// Verifies the panic contract holds at the extreme end of the index domain.
     fn from_index_usize_max_panics() {
         let _ = TaxiAction::from_index(usize::MAX);
