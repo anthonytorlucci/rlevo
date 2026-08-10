@@ -257,6 +257,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   variant order (#815, #819, #835 add the literal-binding, literal-`to_index`,
   and `usize::MAX` cases that pin it).
 
+- **`try_from_index` and `impl TryFrom<usize>` for `BlackjackAction`,
+  `TaxiAction`, `FrozenLakeAction` and `CliffWalkingAction`** (resolves #954,
+  #951, #971, #1093). Prospective hardening, not a live defect: the panic was
+  and remains the documented `DiscreteAction::from_index` contract
+  (`rlevo-core/src/action.rs:117-123`), and the sole in-tree caller
+  (`rlevo-examples/examples/toy_text/report_toy_text_with_client.rs:70`)
+  pre-clamps its index with `Uniform::new(0, ACTION_COUNT)`. What was actually wrong is that all four
+  impls carried no doc comment at all — so the panic was undocumented at the
+  point a reader would look for it — and there was no non-panicking path for an
+  index that arrives from data (a replay log, a deserialized trajectory, a
+  mis-sized policy head) rather than from a trusted computation. `from_index`
+  keeps its panic and its exact message, now routed through the fallible
+  constructor; the additions are purely additive and no caller needs to migrate.
+  The pre-existing coverage missed the gap because it was a self-referential
+  round-trip (`from_index(to_index(a)) == a`), which passes unchanged under a
+  shuffled variant order and so pinned nothing about the wire format. Literal
+  index-binding assertions now pin it, which matters most for `TaxiAction`
+  (South 0, North 1, East 2, West 3 — neither alphabetical nor compass order)
+  and for the fact that `CliffWalkingAction` (Up, Right, Down, Left) and
+  `FrozenLakeAction` (Left, Down, Right, Up) deliberately use *different*
+  orders, so a well-meaning cross-file "harmonization" would silently corrupt an
+  action space.
+
 ### `rlevo-evolution`
 
 **Fixed**
