@@ -67,7 +67,7 @@ use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
-use rlevo_core::state::Observable;
+use rlevo_core::state::{Observable, StateError};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
@@ -86,6 +86,14 @@ pub const CHANNELS: usize = 3;
 pub const IMG_SIDE: usize = GRID_SIDE * CELL_PX;
 /// Total number of cells in the grid (`GRID_SIDE²`).
 pub const CELL_COUNT: usize = GRID_SIDE * GRID_SIDE;
+/// [`CELL_COUNT`] as a `u32`, the width cell indices are stored in.
+///
+/// Exists so the range check on a cell index is a plain comparison rather than
+/// a `u32::try_from(CELL_COUNT).expect(...)` evaluated at every call. The cast
+/// is checked here once, at compile time: `GRID_SIDE` is a small literal, so
+/// the product is far below `u32::MAX`.
+#[allow(clippy::cast_possible_truncation)]
+pub const CELL_COUNT_U32: u32 = CELL_COUNT as u32;
 /// Total number of scalar elements in the rendered image
 /// (`IMG_SIDE * IMG_SIDE * CHANNELS`).
 pub const PIXEL_COUNT: usize = IMG_SIDE * IMG_SIDE * CHANNELS;
@@ -139,7 +147,7 @@ fn success_reward(step: usize, max_steps: usize) -> f32 {
 /// use rlevo_environments::pixel_grid::PixelGridState;
 /// use rlevo_core::base::State;
 ///
-/// let state = PixelGridState::new(0, 24);
+/// let state = PixelGridState::new(0, 24).expect("both indices are in range");
 /// assert!(state.is_valid());
 /// assert_eq!(<PixelGridState as State<1>>::shape(), [2]);
 /// ```
@@ -152,21 +160,35 @@ pub struct PixelGridState {
 impl PixelGridState {
     /// Construct a state from agent and goal cell indices.
     ///
-    /// Indices are not validated here; call [`is_valid`](State::is_valid) to
-    /// check that both lie in `0..CELL_COUNT`.
+    /// This is the only public construction path; it upholds the
+    /// `agent < CELL_COUNT && goal < CELL_COUNT` invariant that
+    /// [`Observable::project`] relies on to address the pixel buffer, and that
+    /// [`is_valid`](State::is_valid) re-checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::InvalidData`] if either index is `>= CELL_COUNT`.
     ///
     /// # Examples
     ///
     /// ```rust
     /// use rlevo_environments::pixel_grid::PixelGridState;
     ///
-    /// let state = PixelGridState::new(0, 24);
+    /// let state = PixelGridState::new(0, 24).expect("both indices are in range");
     /// assert_eq!(state.agent(), 0);
     /// assert_eq!(state.goal(), 24);
+    ///
+    /// // `CELL_COUNT` is 25, so index 25 is one past the last cell.
+    /// assert!(PixelGridState::new(25, 0).is_err());
     /// ```
-    #[must_use]
-    pub const fn new(agent: u32, goal: u32) -> Self {
-        Self { agent, goal }
+    pub fn new(agent: u32, goal: u32) -> Result<Self, StateError> {
+        if agent < CELL_COUNT_U32 && goal < CELL_COUNT_U32 {
+            Ok(Self { agent, goal })
+        } else {
+            Err(StateError::InvalidData(format!(
+                "cell index out of range [0, {CELL_COUNT}): agent {agent}, goal {goal}"
+            )))
+        }
     }
 
     /// Returns the agent's cell index.
@@ -244,14 +266,33 @@ impl State<1> for PixelGridState {
     }
 
     fn is_valid(&self) -> bool {
-        let count = u32::try_from(CELL_COUNT).expect("cell count fits in u32");
-        self.agent < count && self.goal < count
+        self.agent < CELL_COUNT_U32 && self.goal < CELL_COUNT_U32
     }
 }
 
 impl Observable<3> for PixelGridState {
     type Observation = PixelObservation;
 
+    /// Renders the latent to the `[IMG_SIDE, IMG_SIDE, CHANNELS]` RGB frame.
+    ///
+    /// Total for every value of the fields, including ones the fallible
+    /// [`PixelGridState::new`] would reject: an out-of-range cell index paints
+    /// nothing, so its block stays background black (see `paint_cell`). The
+    /// returned buffer always has `PIXEL_COUNT` elements.
+    ///
+    /// That degraded frame is an **absence marker, not a fabricated position**.
+    /// The agent is painted last and unconditionally, so *every* frame produced
+    /// from an in-range state contains an `AGENT_RGB` block; a frame with no
+    /// agent block is therefore unreachable from any valid state and cannot be
+    /// mistaken for one. A clamped or wrapped index, by contrast, would place
+    /// the agent on a real cell and be indistinguishable from a legitimate
+    /// observation.
+    ///
+    /// Note that the degraded frame is *finite* — every element is a `u8`
+    /// scaled into `[0, 1]` — so it is **not** caught by ADR 0067's
+    /// non-finite replay-ingestion drop. Nothing downstream rejects it; the
+    /// failure is silent past this point, which is why the invariant is
+    /// asserted at the [`Environment`] boundary in debug builds.
     fn project(&self) -> Self::Observation {
         let mut pixels = vec![0u8; PIXEL_COUNT];
         paint_cell(&mut pixels, self.goal as usize, GOAL_RGB);
@@ -263,7 +304,26 @@ impl Observable<3> for PixelGridState {
 
 /// Paint a single cell's `CELL_PX × CELL_PX` block in a row-major `[H, W, C]`
 /// pixel buffer with the given RGB color.
+///
+/// Total in `cell`: an index outside `0..CELL_COUNT` paints nothing and the
+/// block is left as background. Callers should have upheld the range
+/// invariant — a violation trips the `debug_assert!` — but a release build
+/// renders the degraded frame rather than panicking on an out-of-bounds slice
+/// (issue #542).
+///
+/// The guard must stay *ahead of the divide*. On a target with 32-bit `usize`,
+/// a `cell` near `usize::MAX` makes `crow * CELL_PX + dr` wrap, which can land
+/// `base` back inside `0..PIXEL_COUNT` and silently corrupt a pixel belonging
+/// to a valid cell. Bounds-checking each write instead of rejecting the cell
+/// would not close that.
 fn paint_cell(pixels: &mut [u8], cell: usize, color: [u8; CHANNELS]) {
+    debug_assert!(
+        cell < CELL_COUNT,
+        "cell {cell} out of range [0, {CELL_COUNT})"
+    );
+    if cell >= CELL_COUNT {
+        return; // total in release: leave the block unpainted
+    }
     let crow = cell / GRID_SIDE;
     let ccol = cell % GRID_SIDE;
     for dr in 0..CELL_PX {
@@ -294,7 +354,8 @@ fn paint_cell(pixels: &mut [u8], cell: usize, color: [u8; CHANNELS]) {
 /// use rlevo_core::state::Observable;
 ///
 /// assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
-/// let obs = PixelGridState::new(0, 24).project();
+/// let state = PixelGridState::new(0, 24).expect("both indices are in range");
+/// let obs = state.project();
 /// assert_eq!(obs.pixels().len(), PIXEL_COUNT);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -651,6 +712,12 @@ impl PixelGridEnv {
     /// Fixed placement puts the agent at cell `0` and the goal at the last
     /// cell; random placement samples distinct cells from `rng` (host-RNG
     /// convention — no backend/global RNG).
+    ///
+    /// Both branches build the state by struct literal rather than through the
+    /// fallible [`PixelGridState::new`]: the indices are construction-provably
+    /// in `0..CELL_COUNT` (sampled from that exact range, or the literals `0`
+    /// and `CELL_COUNT - 1`), so re-checking them here would only add an
+    /// unreachable error path for the caller to launder.
     fn initial_state(config: PixelGridConfig, rng: &mut StdRng) -> PixelGridState {
         if config.random_placement {
             let agent = rng.random_range(0..CELL_COUNT);
@@ -658,15 +725,15 @@ impl PixelGridEnv {
             while goal == agent {
                 goal = rng.random_range(0..CELL_COUNT);
             }
-            PixelGridState::new(
-                u32::try_from(agent).expect("cell index fits in u32"),
-                u32::try_from(goal).expect("cell index fits in u32"),
-            )
+            PixelGridState {
+                agent: u32::try_from(agent).expect("cell index fits in u32"),
+                goal: u32::try_from(goal).expect("cell index fits in u32"),
+            }
         } else {
-            PixelGridState::new(
-                0,
-                u32::try_from(CELL_COUNT - 1).expect("cell index fits in u32"),
-            )
+            PixelGridState {
+                agent: 0,
+                goal: CELL_COUNT_U32 - 1,
+            }
         }
     }
 
@@ -762,6 +829,16 @@ impl Environment<3, 1, 1> for PixelGridEnv {
         self.guard.reset();
         self.state = Self::initial_state(self.config, &mut self.rng);
         self.steps = 0;
+        // Assert *before* the sensor call, not at the end of the method: the
+        // projection is the code that would trip over an out-of-range cell, and
+        // its own `debug_assert!` fires first if this one runs after it —
+        // reporting the failure at the wrong layer.
+        debug_assert!(
+            self.state.is_valid(),
+            "PixelGridState invariant violated after reset: agent {}, goal {} (CELL_COUNT {CELL_COUNT})",
+            self.state.agent,
+            self.state.goal
+        );
         let observation = self.observe_reset(&self.state);
         Ok(self.snapshot(observation, 0.0, SnapshotStatus::Running))
     }
@@ -787,6 +864,14 @@ impl Environment<3, 1, 1> for PixelGridEnv {
 
         self.steps += 1;
         self.state.apply_move(action);
+        // Same placement rule as `reset`: ahead of the sensor call, so a broken
+        // move lands here rather than inside `paint_cell`.
+        debug_assert!(
+            self.state.is_valid(),
+            "PixelGridState invariant violated after step: agent {}, goal {} (CELL_COUNT {CELL_COUNT})",
+            self.state.agent,
+            self.state.goal
+        );
         let observation = self.observe(&action, &self.state);
 
         let snap = if self.state.at_goal() {
@@ -844,7 +929,7 @@ mod tests {
         env: &mut PixelGridEnv,
     ) -> SnapshotBase<3, PixelObservation, ScalarReward> {
         env.reset().expect("reset must succeed");
-        env.state = PixelGridState::new(23, 24);
+        env.state = PixelGridState::new(23, 24).expect("valid cell indices");
         env.step(PixelGridAction::Right)
             .expect("stepping onto the goal must succeed")
     }
@@ -1051,17 +1136,228 @@ mod tests {
 
     #[test]
     fn state_shape_matches_numel() {
-        let state = PixelGridState::new(0, 24);
+        let state = PixelGridState::new(0, 24).expect("valid cell indices");
         let shape_product: usize = <PixelGridState as State<1>>::shape().iter().product();
         assert_eq!(state.numel(), shape_product);
         assert_eq!(state.numel(), 2);
     }
 
+    // ── cell-index range invariant (issue #542) ──────────────────────────────
+
+    /// `new` is the only public construction path, so it is where the
+    /// `0..CELL_COUNT` invariant is enforced. The accepting side of `is_valid`
+    /// is asserted alongside it; the rejecting side needs a state `new` refuses
+    /// to build and lives in [`is_valid_rejects_out_of_range`].
+    #[test]
+    fn new_rejects_out_of_range() {
+        let good = PixelGridState::new(0, 24).expect("valid cell indices");
+        assert!(good.is_valid());
+
+        for (agent, goal) in [(25, 0), (0, 25)] {
+            let err = PixelGridState::new(agent, goal)
+                .expect_err("an index past the last cell must be rejected");
+            match err {
+                StateError::InvalidData(msg) => assert!(
+                    msg.contains("out of range"),
+                    "error must name the violated range, got {msg}"
+                ),
+                other => panic!("expected InvalidData, got {other:?}"),
+            }
+        }
+    }
+
+    /// The last legal cell is inside the range: the check is `<`, not `<=`.
+    #[test]
+    fn new_accepts_boundary_index() {
+        let last = CELL_COUNT_U32 - 1;
+        let state = PixelGridState::new(last, last).expect("the last cell is in range");
+        assert_eq!(state.agent(), last);
+        assert_eq!(state.goal(), last);
+        assert!(state.is_valid());
+    }
+
+    /// The rejecting half of `is_valid`, on fixtures `new` would refuse to
+    /// build. Both fields are exercised independently, since `project` paints
+    /// goal and agent through two separate `paint_cell` call sites.
+    ///
+    /// **Build configuration:** deliberately *not* gated on
+    /// `debug_assertions` — this runs in every build. The `project`-based
+    /// out-of-range tests below are release-only because `paint_cell`'s
+    /// `debug_assert!` fires first; asserting the predicate alone needs no such
+    /// gate, and CI runs this crate in debug. `project` is therefore never
+    /// called on these fixtures.
     #[test]
     fn is_valid_rejects_out_of_range() {
-        assert!(PixelGridState::new(0, 24).is_valid());
-        assert!(!PixelGridState::new(25, 0).is_valid());
-        assert!(!PixelGridState::new(0, 25).is_valid());
+        let last = CELL_COUNT_U32 - 1;
+        assert!(
+            PixelGridState {
+                agent: last,
+                goal: last,
+            }
+            .is_valid(),
+            "the last cell is in range on both fields"
+        );
+
+        for (agent, goal) in [
+            (CELL_COUNT_U32, last),  // agent one past the last cell
+            (last, CELL_COUNT_U32),  // goal one past the last cell
+            (CELL_COUNT_U32 + 7, 0), // agent well past the end
+            (0, CELL_COUNT_U32 + 7), // goal well past the end
+            (u32::MAX, u32::MAX),    // both saturated
+        ] {
+            let state = PixelGridState { agent, goal };
+            assert!(
+                !state.is_valid(),
+                "({agent}, {goal}) is outside [0, {CELL_COUNT}) and must be invalid"
+            );
+        }
+    }
+
+    /// `true` when any pixel in the frame carries `color`.
+    #[cfg(not(debug_assertions))]
+    fn frame_contains_block(obs: &PixelObservation, color: [u8; CHANNELS]) -> bool {
+        obs.pixels().chunks_exact(CHANNELS).any(|px| px == color)
+    }
+
+    /// `true` when any pixel in the frame carries the agent color.
+    #[cfg(not(debug_assertions))]
+    fn frame_contains_agent_block(obs: &PixelObservation) -> bool {
+        frame_contains_block(obs, AGENT_RGB)
+    }
+
+    /// Reads the RGB triple at pixel `(h, w)` of a rendered frame.
+    #[cfg(not(debug_assertions))]
+    fn pixel_at(obs: &PixelObservation, h: usize, w: usize) -> [u8; CHANNELS] {
+        let base = (h * IMG_SIDE + w) * CHANNELS;
+        [
+            obs.pixels()[base],
+            obs.pixels()[base + 1],
+            obs.pixels()[base + 2],
+        ]
+    }
+
+    /// The issue #542 reproducer: `PixelGridState::new(25, 0).project()` used to
+    /// panic with `range end index 1203 out of range for slice of length 1200`.
+    ///
+    /// `new` now rejects those indices, so the invalid state is built by
+    /// in-module struct literal — the only remaining way to produce one.
+    ///
+    /// **Build configuration:** this test is compiled only when
+    /// `debug_assertions` is OFF, i.e. it runs under `cargo test --release` and
+    /// NOT under a plain `cargo test`. The release path is the one the guard
+    /// exists for; in debug, `paint_cell`'s `debug_assert!` fires first and the
+    /// test would fail by design. Debug `cargo test` does not cover this.
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn project_is_total_for_out_of_range_cell() {
+        // Construction-provably out of range; `new` would reject this pair.
+        let state = PixelGridState {
+            agent: CELL_COUNT_U32,
+            goal: CELL_COUNT_U32 - 1,
+        };
+        assert!(!state.is_valid(), "fixture must be the invalid state");
+
+        let obs = state.project();
+        assert_eq!(
+            obs.pixels().len(),
+            PIXEL_COUNT,
+            "a degraded frame must still be a full-size frame"
+        );
+        // The in-range goal is painted normally: the out-of-range agent is
+        // dropped, not clamped onto a real cell (which would overwrite the goal
+        // block with AGENT_RGB), and the frame is not blanked wholesale.
+        assert_eq!(pixel_at(&obs, 16, 16), GOAL_RGB);
+        assert_eq!(pixel_at(&obs, 19, 19), GOAL_RGB);
+        assert!(
+            !frame_contains_agent_block(&obs),
+            "an out-of-range agent must render as absent, not relocated"
+        );
+
+        // The mirror case: `project` paints goal and agent through two separate
+        // `paint_cell` call sites, so the goal site needs its own coverage.
+        let state = PixelGridState {
+            agent: 0,
+            goal: CELL_COUNT_U32,
+        };
+        assert!(!state.is_valid(), "fixture must be the invalid state");
+
+        let obs = state.project();
+        assert_eq!(
+            obs.pixels().len(),
+            PIXEL_COUNT,
+            "a degraded frame must still be a full-size frame"
+        );
+        // The in-range agent is painted normally; the out-of-range goal is
+        // dropped rather than clamped onto a real cell.
+        assert_eq!(pixel_at(&obs, 0, 0), AGENT_RGB);
+        assert_eq!(pixel_at(&obs, 3, 3), AGENT_RGB);
+        assert!(
+            !frame_contains_block(&obs, GOAL_RGB),
+            "an out-of-range goal must render as absent, not relocated"
+        );
+    }
+
+    /// The absence marker is sound: no valid state can render a frame without an
+    /// agent block, so "no agent block" unambiguously means "the latent was out
+    /// of range" rather than "the agent is at some position".
+    ///
+    /// **Build configuration:** release only (`cargo test --release`); the
+    /// invalid half of the comparison trips `paint_cell`'s `debug_assert!` in a
+    /// debug build. See [`project_is_total_for_out_of_range_cell`].
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn degraded_frame_is_distinguishable_from_every_valid_frame() {
+        // Every reachable latent renders an agent block.
+        for agent in 0..CELL_COUNT_U32 {
+            for goal in 0..CELL_COUNT_U32 {
+                let state = PixelGridState::new(agent, goal).expect("valid cell indices");
+                assert!(
+                    frame_contains_agent_block(&state.project()),
+                    "valid state ({agent}, {goal}) must render an agent block"
+                );
+            }
+        }
+
+        // The degraded frame has none, so it is outside the image of `project`
+        // over the valid domain.
+        let degraded = PixelGridState {
+            agent: CELL_COUNT_U32 + 7,
+            goal: 0,
+        }
+        .project();
+        assert!(
+            !frame_contains_agent_block(&degraded),
+            "the degraded frame must be distinguishable from every valid frame"
+        );
+    }
+
+    /// The env-side [`Sensor`] is the second caller of `project` (added by the
+    /// ADR 0047 migration) and had the same gap; both of its methods must be
+    /// total over an invalid latent.
+    ///
+    /// **Build configuration:** release only (`cargo test --release`), for the
+    /// same reason as [`project_is_total_for_out_of_range_cell`].
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn sensor_observe_is_total_for_invalid_state() {
+        let env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false)
+            .expect("valid config");
+        let invalid = PixelGridState {
+            agent: CELL_COUNT_U32,
+            goal: CELL_COUNT_U32 - 1,
+        };
+
+        for obs in [
+            env.observe_reset(&invalid),
+            env.observe(&PixelGridAction::Up, &invalid),
+        ] {
+            assert_eq!(obs.pixels().len(), PIXEL_COUNT);
+            assert_eq!(pixel_at(&obs, 16, 16), GOAL_RGB);
+            assert!(
+                !frame_contains_agent_block(&obs),
+                "the sensor must inherit project's absence marker, not a clamp"
+            );
+        }
     }
 
     #[test]
@@ -1073,7 +1369,9 @@ mod tests {
     #[test]
     fn project_paints_agent_and_goal_blocks() {
         // Agent at cell 0 (top-left block), goal at cell 24 (bottom-right block).
-        let obs = PixelGridState::new(0, 24).project();
+        let obs = PixelGridState::new(0, 24)
+            .expect("valid cell indices")
+            .project();
         assert_eq!(obs.pixels().len(), PIXEL_COUNT);
 
         let pixel = |h: usize, w: usize| {
@@ -1096,7 +1394,9 @@ mod tests {
 
     #[test]
     fn agent_on_goal_renders_agent_color() {
-        let obs = PixelGridState::new(12, 12).project();
+        let obs = PixelGridState::new(12, 12)
+            .expect("valid cell indices")
+            .project();
         // Cell 12 = row 2, col 2 → pixel block rows/cols 8..12.
         let base = (8 * IMG_SIDE + 8) * CHANNELS;
         assert_eq!(
@@ -1128,7 +1428,9 @@ mod tests {
         type TestBackend = Flex;
         let device = Default::default();
 
-        let obs = PixelGridState::new(3, 21).project();
+        let obs = PixelGridState::new(3, 21)
+            .expect("valid cell indices")
+            .project();
         let tensor =
             <PixelObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
         let round_tripped =
@@ -1179,20 +1481,20 @@ mod tests {
     #[test]
     fn wall_clamping_holds_position_at_edges() {
         // Agent at cell 0 (top-left). Up and Left are no-ops.
-        let mut state = PixelGridState::new(0, 24);
+        let mut state = PixelGridState::new(0, 24).expect("valid cell indices");
         state.apply_move(PixelGridAction::Up);
         assert_eq!(state.agent(), 0);
         state.apply_move(PixelGridAction::Left);
         assert_eq!(state.agent(), 0);
         // Down moves to row 1 (cell 5); Right moves to col 1 (cell 1).
-        let mut state = PixelGridState::new(0, 24);
+        let mut state = PixelGridState::new(0, 24).expect("valid cell indices");
         state.apply_move(PixelGridAction::Down);
         assert_eq!(state.agent(), 5);
-        let mut state = PixelGridState::new(0, 24);
+        let mut state = PixelGridState::new(0, 24).expect("valid cell indices");
         state.apply_move(PixelGridAction::Right);
         assert_eq!(state.agent(), 1);
         // Agent at cell 24 (bottom-right). Down and Right are no-ops.
-        let mut state = PixelGridState::new(24, 0);
+        let mut state = PixelGridState::new(24, 0).expect("valid cell indices");
         state.apply_move(PixelGridAction::Down);
         assert_eq!(state.agent(), 24);
         state.apply_move(PixelGridAction::Right);
@@ -1206,7 +1508,7 @@ mod tests {
         let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         // Override placement for a one-step solve.
-        env.state = PixelGridState::new(23, 24);
+        env.state = PixelGridState::new(23, 24).expect("valid cell indices");
         let snap = env.step(PixelGridAction::Right).unwrap();
         assert!(snap.is_done());
         assert_eq!(snap.status(), EpisodeStatus::Terminated);

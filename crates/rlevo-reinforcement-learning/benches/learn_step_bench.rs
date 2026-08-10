@@ -145,7 +145,7 @@ use rand::rngs::StdRng;
 use rlevo_core::base::TensorConvertible;
 use rlevo_core::state::Observable;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
-use rlevo_environments::pixel_grid::{CELL_COUNT, PixelGridState, PixelObservation};
+use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::utils::{PolyakError, compute_target_q_values, polyak_update};
 
@@ -317,10 +317,13 @@ fn cartpole_transitions(n: usize, rng: &mut StdRng) -> Vec<SynthTransition<CartP
 fn pixel_transitions(n: usize, rng: &mut StdRng) -> Vec<SynthTransition<PixelObservation>> {
     (0..n)
         .map(|_| {
-            let goal = rng.random_range(0..CELL_COUNT as u32);
-            let obs = PixelGridState::new(rng.random_range(0..CELL_COUNT as u32), goal).project();
-            let next_obs =
-                PixelGridState::new(rng.random_range(0..CELL_COUNT as u32), goal).project();
+            let goal = rng.random_range(0..CELL_COUNT_U32);
+            let obs = PixelGridState::new(rng.random_range(0..CELL_COUNT_U32), goal)
+                .expect("cells sampled from 0..CELL_COUNT_U32 are in range")
+                .project();
+            let next_obs = PixelGridState::new(rng.random_range(0..CELL_COUNT_U32), goal)
+                .expect("cells sampled from 0..CELL_COUNT_U32 are in range")
+                .project();
             SynthTransition {
                 obs,
                 next_obs,
