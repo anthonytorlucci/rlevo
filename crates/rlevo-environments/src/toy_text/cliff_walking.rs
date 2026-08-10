@@ -49,7 +49,7 @@ use crate::episode::EpisodeGuard;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::action::DiscreteAction;
+use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
@@ -235,14 +235,27 @@ impl Action<1> for CliffWalkingAction {
 impl DiscreteAction<1> for CliffWalkingAction {
     const ACTION_COUNT: usize = 4;
 
+    /// Constructs an action from its zero-based index.
+    ///
+    /// Use [`Self::try_from_index`] (or the equivalent [`TryFrom<usize>`]
+    /// implementation) when the index originates from data — a replay log, a
+    /// deserialized trajectory, a mis-sized policy head — rather than from a
+    /// trusted in-range computation such as an argmax over `ACTION_COUNT`
+    /// logits.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= ACTION_COUNT`, per the
+    /// [`DiscreteAction::from_index`] contract.
     fn from_index(index: usize) -> Self {
-        match index {
-            0 => CliffWalkingAction::Up,
-            1 => CliffWalkingAction::Right,
-            2 => CliffWalkingAction::Down,
-            3 => CliffWalkingAction::Left,
-            _ => panic!("CliffWalkingAction index {index} out of range [0, 4)"),
-        }
+        // The error's own `Display` prefixes "Invalid action:", which would
+        // read as noise in a panic message; the wording is otherwise identical.
+        Self::try_from_index(index).unwrap_or_else(|_| {
+            panic!(
+                "CliffWalkingAction index {index} out of range [0, {})",
+                Self::ACTION_COUNT
+            )
+        })
     }
 
     fn to_index(&self) -> usize {
@@ -251,6 +264,37 @@ impl DiscreteAction<1> for CliffWalkingAction {
 }
 
 impl CliffWalkingAction {
+    /// Constructs an action from its zero-based index, returning an error if
+    /// `index` is out of range.
+    ///
+    /// This is the fallible counterpart to [`DiscreteAction::from_index`], for
+    /// callers whose index comes from data (a replay log, a deserialized
+    /// trajectory, a mis-sized policy head) rather than from a trusted in-range
+    /// computation.
+    ///
+    /// The index order is the Gymnasium wire format — `Up` (0), `Right` (1),
+    /// `Down` (2), `Left` (3) — and deliberately differs from the sibling
+    /// `FrozenLakeAction` ordering.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `index >= ACTION_COUNT`; the message
+    /// names the offending index and the valid range.
+    pub fn try_from_index(index: usize) -> Result<Self, InvalidActionError> {
+        match index {
+            0 => Ok(CliffWalkingAction::Up),
+            1 => Ok(CliffWalkingAction::Right),
+            2 => Ok(CliffWalkingAction::Down),
+            3 => Ok(CliffWalkingAction::Left),
+            _ => Err(InvalidActionError {
+                message: format!(
+                    "CliffWalkingAction index {index} out of range [0, {})",
+                    Self::ACTION_COUNT
+                ),
+            }),
+        }
+    }
+
     fn perpendiculars(self) -> [CliffWalkingAction; 2] {
         match self {
             CliffWalkingAction::Up | CliffWalkingAction::Down => {
@@ -260,6 +304,19 @@ impl CliffWalkingAction {
                 [CliffWalkingAction::Up, CliffWalkingAction::Down]
             }
         }
+    }
+}
+
+impl TryFrom<usize> for CliffWalkingAction {
+    type Error = InvalidActionError;
+
+    /// Delegates to [`CliffWalkingAction::try_from_index`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `index >= ACTION_COUNT`.
+    fn try_from(index: usize) -> Result<Self, Self::Error> {
+        Self::try_from_index(index)
     }
 }
 
@@ -587,6 +644,86 @@ mod tests {
     /// Verifies the discrete action count matches the four-direction action space.
     fn action_count() {
         assert_eq!(CliffWalkingAction::ACTION_COUNT, 4);
+    }
+
+    #[test]
+    /// Pins each index to a named variant. Literal, not a loop: a
+    /// `from_index`/`to_index` roundtrip is self-referential and still passes
+    /// if the variants are shuffled. This enum uses the Gymnasium order
+    /// (Up, Right, Down, Left), which differs from its `FrozenLake` sibling
+    /// (Left, Down, Right, Up), so a "harmonizing" reorder is a live hazard.
+    fn index_bindings_are_canonical() {
+        assert_eq!(CliffWalkingAction::from_index(0), CliffWalkingAction::Up);
+        assert_eq!(CliffWalkingAction::from_index(1), CliffWalkingAction::Right);
+        assert_eq!(CliffWalkingAction::from_index(2), CliffWalkingAction::Down);
+        assert_eq!(CliffWalkingAction::from_index(3), CliffWalkingAction::Left);
+    }
+
+    #[test]
+    /// Pins the wire-format index each variant serialises to.
+    fn to_index_values_are_canonical() {
+        assert_eq!(CliffWalkingAction::Up.to_index(), 0);
+        assert_eq!(CliffWalkingAction::Right.to_index(), 1);
+        assert_eq!(CliffWalkingAction::Down.to_index(), 2);
+        assert_eq!(CliffWalkingAction::Left.to_index(), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "CliffWalkingAction index 4 out of range [0, 4)")]
+    fn from_index_out_of_range_panics() {
+        let _ = CliffWalkingAction::from_index(4);
+    }
+
+    // A separate test from the one above: a `#[should_panic]` body unwinds at
+    // the first panic, so one body cannot exercise both inputs.
+    #[test]
+    #[should_panic(expected = "out of range [0, 4)")]
+    fn from_index_usize_max_panics() {
+        let _ = CliffWalkingAction::from_index(usize::MAX);
+    }
+
+    #[test]
+    fn try_from_index_accepts_every_valid_index() {
+        for i in 0..CliffWalkingAction::ACTION_COUNT {
+            assert_eq!(
+                CliffWalkingAction::try_from_index(i),
+                Ok(CliffWalkingAction::from_index(i))
+            );
+        }
+    }
+
+    #[test]
+    fn try_from_index_rejects_out_of_range() {
+        let err = CliffWalkingAction::try_from_index(4).expect_err("index 4 is out of range");
+        assert!(err.to_string().contains("index 4"), "message was {err}");
+
+        let err =
+            CliffWalkingAction::try_from_index(usize::MAX).expect_err("usize::MAX is out of range");
+        assert!(
+            err.to_string().contains(&usize::MAX.to_string()),
+            "message was {err}"
+        );
+    }
+
+    #[test]
+    fn try_from_matches_inherent_method() {
+        assert_eq!(
+            CliffWalkingAction::try_from(1usize),
+            CliffWalkingAction::try_from_index(1)
+        );
+        assert_eq!(
+            CliffWalkingAction::try_from(1usize),
+            Ok(CliffWalkingAction::Right)
+        );
+        assert_eq!(
+            CliffWalkingAction::try_from(4usize),
+            CliffWalkingAction::try_from_index(4)
+        );
+        assert!(CliffWalkingAction::try_from(4usize).is_err());
+        assert_eq!(
+            CliffWalkingAction::try_from(usize::MAX),
+            CliffWalkingAction::try_from_index(usize::MAX)
+        );
     }
 
     #[test]
