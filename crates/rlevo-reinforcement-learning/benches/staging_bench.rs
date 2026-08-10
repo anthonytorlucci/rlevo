@@ -93,7 +93,7 @@ use rand::rngs::StdRng;
 use rlevo_core::base::TensorConvertible;
 use rlevo_core::state::Observable;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
-use rlevo_environments::pixel_grid::{CELL_COUNT, PixelGridState, PixelObservation};
+use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
 
 use bench_backend::BenchBackend;
 
@@ -195,17 +195,14 @@ fn cartpole_batch(n: usize, rng: &mut StdRng) -> Vec<CartPoleObservation> {
         .collect()
 }
 
-// Synthetic fixture/benchmark data: the loop counter and element count are
-// bounded by small constants declared in this file, far below f32's 2^24
-// exact-integer limit. The values are inputs to a throughput measurement, not
-// quantities whose precision is asserted.
-#[allow(clippy::cast_possible_truncation)]
 fn pixel_batch(n: usize, rng: &mut StdRng) -> Vec<PixelObservation> {
     (0..n)
         .map(|_| {
-            let agent = rng.random_range(0..CELL_COUNT as u32);
-            let goal = rng.random_range(0..CELL_COUNT as u32);
-            PixelGridState::new(agent, goal).project()
+            let agent = rng.random_range(0..CELL_COUNT_U32);
+            let goal = rng.random_range(0..CELL_COUNT_U32);
+            PixelGridState::new(agent, goal)
+                .expect("cells sampled from 0..CELL_COUNT_U32 are in range")
+                .project()
         })
         .collect()
 }

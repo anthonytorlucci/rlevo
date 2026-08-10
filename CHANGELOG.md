@@ -71,6 +71,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   understates the surface as a single three-line test site; the verified figure
   is the 25/11 above, and the migration is read-only at every one of them.)
 
+- **`PixelGridState::new` becomes fallible and is no longer `const`**: it is now
+  `pub fn new(agent: u32, goal: u32) -> Result<Self, StateError>`, rejecting any
+  cell index `>= CELL_COUNT` (resolves #542, with the panic itself recorded under
+  `rlevo-environments` below). The old signature was `pub const fn -> Self` and
+  documented its own indices as unvalidated, which left the type's one real
+  invariant — the one `Observable::project` dereferences the pixel buffer with —
+  enforced nowhere. Validating at the only public construction path mirrors
+  `ContextualBanditObservation::new`, the existing precedent in this crate.
+
+  Migration is a `.expect("…")` or a `?` at each call site; the workspace's own
+  sites are literal-index test and benchmark fixtures, where an `.expect` reads
+  as the assertion it is. The loss of `const` is the sharper break: `new` can no
+  longer initialize a `const` or `static` item, and no `const fn` can call it.
+  Where the indices are construction-provably in range and the state is built
+  inside this crate, the struct literal remains available and is what
+  `PixelGridEnv::initial_state` now uses, rather than laundering an unreachable
+  error path back to the caller. No persisted data is affected:
+  `PixelGridState` derives only `Debug, Clone` — it has no `serde` derive — so
+  no checkpoint, replay buffer, or config format contains one.
+
 ### `rlevo-metrics-registry`
 
 **Added**
@@ -144,6 +164,59 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   carried. This changes observed bytes but breaks no compilation and no
   persisted format, so it is recorded here rather than under Breaking
   changes, whose entries above are all compile-time API breaks.
+
+- **Projecting a `pixel_grid` state with an out-of-range cell index aborted the
+  process** (resolves #542). `PixelGridState::new(25, 0).project()` panicked with
+  `range end index 1203 out of range for slice of length 1200`: `paint_cell`
+  computed a pixel block from a cell index nothing had range-checked and wrote
+  past the end of the frame. `State::is_valid` had encoded exactly the missing
+  predicate since the type was written, and had zero production callers —
+  `Observable::project` never consulted it, and `impl Sensor<3, 1, 1>`, added
+  later by the ADR 0047 migration, inherited the same gap, which made the panic
+  reachable through the environment's own emission path rather than only through
+  a direct `project` call.
+
+  **Why the existing tests missed it**: `is_valid_rejects_out_of_range` asserted
+  the predicate on an out-of-range state but never projected one, and every
+  `project` test used in-range indices. The predicate was covered; the code it
+  was supposed to protect was not — no test ever put the two together, which is
+  the only way the gap could have shown up. (The issue speculated the bad state
+  would arrive from "a deserialized checkpoint." It cannot: `PixelGridState`
+  derives only `Debug, Clone` and has no `serde`. The real exposure was the
+  public unvalidated `new`, which is why the fix is the fallible constructor
+  recorded under Breaking changes.)
+
+  `paint_cell` is now total in `cell`: a `debug_assert!` fires in debug builds,
+  and an early return placed *ahead of the divide* leaves the block unpainted in
+  release instead of writing out of bounds. The placement matters beyond the
+  panic — on a 32-bit-`usize` target, a large `cell` makes the row arithmetic
+  wrap and can land the write back inside the buffer, silently corrupting a
+  pixel belonging to a valid cell; per-write bounds checks would not close that.
+  `PixelGridEnv::reset` and `step` additionally assert
+  `self.state.is_valid()` in debug builds, immediately after writing the state
+  and before the sensor call, so a broken transition is reported at the
+  environment boundary rather than inside the renderer.
+
+  The cost of totality is worth stating plainly. The degraded frame omits the
+  agent block, which is an absence marker no valid state can produce (the agent
+  is painted last and unconditionally), so it is at least not mistakable for a
+  legitimate observation the way a clamped index would be — but it is still a
+  full-size frame of *finite* `u8`-derived values, so ADR 0067's non-finite
+  replay-ingestion drop does not catch it. Nothing downstream rejects it. In a
+  release build the failure is silent past `project`, and the debug assertions
+  are the only thing that makes it loud.
+
+**Added**
+
+- **`pixel_grid::CELL_COUNT_U32`**, `CELL_COUNT` as the `u32` that cell indices
+  are actually stored in (part of #545). It exists so a range check on an index
+  is a plain comparison against a compile-time constant rather than a
+  `u32::try_from(CELL_COUNT).expect(…)` re-evaluated on every call — which is
+  what `is_valid` did before, on the hot projection path. It replaces the
+  conversions in `is_valid` and in `initial_state`'s fixed-placement branch; the
+  remaining `u32::try_from` sites #545 lists convert sampled or computed
+  `usize` cell indices, not `CELL_COUNT`, so that issue is only partly closed.
+  New public API, so nothing breaks.
 
 ### `rlevo-evolution`
 
