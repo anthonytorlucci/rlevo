@@ -113,8 +113,8 @@ applies is decided by the *kind* of struct, not case by case:
   own check.
 - **An accessor on a config must be total.** A method that reads config fields
   without constructing anything must return a documented sentinel for values
-  `validate()` rejects, never panic — `C51Config::delta_z` returning `f32::NAN`
-  for `num_atoms < 2` is the reference (`c51/c51_config.rs:120-130`).
+  `validate()` rejects, never panic — `C51TrainingConfig::delta_z` returning
+  `f32::NAN` for `num_atoms < 2` is the reference (`c51/c51_config.rs`).
 
 ### Constants and Associated Constants
 - Constants: `UPPER_SNAKE_CASE` (e.g., `ACTION_COUNT`, `MAX_STEPS`, `GOAL_STATE`).
