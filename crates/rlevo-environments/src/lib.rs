@@ -93,13 +93,16 @@ pub mod classic;
 /// backward compatibility.
 pub mod direction;
 pub mod episode;
-/// Board-game environments — **stub, planned for v0.2**.
+/// Board-game environments — **stub, no `Environment` impls yet**.
 ///
 /// The submodules compile but do not yet implement the [`rlevo_core::environment::Environment`]
 /// trait. They are hidden from the rendered docs until the `Environment` impls land.
 /// Internal dead-code and doc-lint warnings are suppressed here because the
-/// contained code is scaffolding for the v0.2 implementation.
+/// contained code is scaffolding for those impls.
 #[doc(hidden)]
+// TODO(#1101): the board-state and move-encoding scaffolding under this module
+// has no non-test caller until the Chess and ConnectFour `Environment` impls
+// land; drop these allows once it does.
 #[allow(dead_code, clippy::doc_lazy_continuation, clippy::needless_range_loop)]
 pub mod games {
     pub mod chess;

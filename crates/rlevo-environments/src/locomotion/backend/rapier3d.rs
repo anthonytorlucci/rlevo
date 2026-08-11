@@ -170,7 +170,9 @@ impl Rapier3DWorld {
     }
 
     /// Insert a free-standing collider (e.g. the ground plane) with no rigid-body parent.
-    #[allow(dead_code)] // v0.2: used by locomotion skeleton builders
+    // TODO(#1102): called only from `#[cfg(test)]` today; the first
+    // production consumer is a ground-contact 3-D locomotion env.
+    #[allow(dead_code)]
     pub(crate) fn add_ground_collider(&mut self, desc: ColliderBuilder) -> ColliderHandle {
         self.colliders.insert(desc)
     }
@@ -204,7 +206,9 @@ impl Rapier3DWorld {
     }
 
     /// Read-only access to the world's rigid-body set.
-    #[allow(dead_code)] // v0.2: used by locomotion skeleton builders
+    // TODO(#1102): called only from `#[cfg(test)]` today; the first production
+    // consumer is a ground-contact 3-D locomotion env reading body state.
+    #[allow(dead_code)]
     pub(crate) fn bodies(&self) -> &RigidBodySet {
         &self.bodies
     }

@@ -106,11 +106,12 @@ MuJoCo-style locomotion environments in pure Rust via [Rapier3D](https://rapier.
 
 ---
 
-### Games (planned for v0.2)
+### Games (stub, no `Environment` impls yet)
 
-`Chess` and `ConnectFour` are planned for a future release. Stub modules exist
-in-source (`src/games/chess/` and `src/games/connect_four.rs`) but do not yet
-implement the `Environment` trait and are hidden from the public API docs.
+`Chess` and `ConnectFour` exist in-source as stub modules (`src/games/chess/`
+and `src/games/connect_four.rs`). They compile but do not yet implement the
+`Environment` trait, and are hidden from the public API docs until the
+`Environment` impls land.
 
 ---
 

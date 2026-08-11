@@ -1,9 +1,9 @@
 //! `BenchAdapter` — translates a typed [`Environment`] into the
 //! object-friendly [`BenchEnv`] interface.
 //!
-//! Bounded to [`ScalarReward`] for v0.1: every env in this crate uses it,
-//! and lifting the bound (e.g. via `BenchReward: Into<f64>`) is deferred
-//! until a non-scalar-reward env actually lands.
+//! Bounded to [`ScalarReward`]: every env in this crate uses it, and lifting
+//! the bound (e.g. via `BenchReward: Into<f64>`) is deferred until a
+//! non-scalar-reward env actually lands.
 //!
 //! [`EnvironmentError`] is preserved as the source of [`BenchError`]
 //! (the bench trait surface lives in `rlevo-core`).

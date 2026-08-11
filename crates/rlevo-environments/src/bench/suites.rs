@@ -1,8 +1,8 @@
 //! Preset [`Suite`] factories for the canonical environments in this crate.
 //!
 //! Each factory returns a single-env [`Suite`] keyed on a deterministic
-//! per-trial seed. Stitching multiple suites of different env types is a
-//! v0.1 limitation — [`Suite<E>`] is monomorphic, so a heterogeneous
+//! per-trial seed. Stitching multiple suites of different env types is not
+//! supported — [`Suite<E>`] is monomorphic, so a heterogeneous
 //! "all of classic control" suite needs a `Box<dyn BenchEnv<…>>` design
 //! (deferred).
 //!

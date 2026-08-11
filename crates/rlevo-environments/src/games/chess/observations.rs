@@ -272,7 +272,6 @@ impl ChessState {
 
     /// Returns the current board snapshot (most recent position).
     #[inline]
-    #[allow(dead_code)] // v0.2: used once Environment impl lands
     fn current_board(&self) -> &BoardSnapshot {
         &self.history[0]
     }

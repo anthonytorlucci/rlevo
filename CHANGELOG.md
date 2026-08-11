@@ -298,6 +298,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   orders, so a well-meaning cross-file "harmonization" would silently corrupt an
   action space.
 
+**Changed**
+
+- **The crate's documentation no longer names the version its unfinished work
+  arrives in** (resolves #1098). Six doc sites promised the `games` module,
+  the monomorphic `Suite<E>` limitation, and the `BenchAdapter` `ScalarReward`
+  bound in terms of "v0.1" / "v0.2" / "a future milestone" — `lib.rs`'s `games`
+  module doc, the crate `README.md`'s Games heading and body, the `bench::suites`
+  and `bench::adapter` module headers, and the `chess::environment` and
+  `connect_four` placeholders. The workspace has been on `0.4.0` since the last
+  release, so all of them were already false. As in the `rlevo-core` `agent`
+  fix (#936), the numbers are deleted rather than corrected: a version stamp in
+  prose about unimplemented work carries nothing a reader can act on, and every
+  release bump re-falsifies each copy — which is exactly what happened. Each
+  site now states the condition that actually governs when the gap closes (the
+  `Environment` impls landing; `Suite<E>` being monomorphic; a non-scalar-reward
+  env actually existing).
+
+  The `#[allow(dead_code)]` stubs now point at live tracking issues rather than
+  a milestone that has passed, as `docs/rules.md` §9 and §12 require: the `games`
+  module allow, which carried no pointer at all, names #1101, and the two
+  `Rapier3DWorld` accessors — `add_ground_collider` and `bodies`, both reachable
+  only from `#[cfg(test)]` today — name #1102. Those three stay: each is
+  independently load-bearing, and dropping any one of them fails a `-D warnings`
+  build.
+
+  A fourth allow, on `chess::observations::current_board`, is **removed**. It
+  suppressed nothing — the module-level allow already covered that method, so
+  deleting it leaves the crate clean. Note that verifying this needs
+  `cargo clippy -p rlevo-environments -- -D warnings` *without* `--all-targets`:
+  the latter compiles the test cfg, where `dead_code` does not fire at all, and
+  so reports success no matter which allows are present.
+
 ### `rlevo-evolution`
 
 **Fixed**
