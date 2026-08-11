@@ -298,6 +298,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   orders, so a well-meaning cross-file "harmonization" would silently corrupt an
   action space.
 
+**Changed**
+
+- **The crate's documentation no longer names the version its unfinished work
+  arrives in** (resolves #1098). Six doc sites promised the `games` module,
+  the monomorphic `Suite<E>` limitation, and the `BenchAdapter` `ScalarReward`
+  bound in terms of "v0.1" / "v0.2" / "a future milestone" — `lib.rs`'s `games`
+  module doc, the crate `README.md`'s Games heading and body, the `bench::suites`
+  and `bench::adapter` module headers, and the `chess::environment` and
+  `connect_four` placeholders. The workspace has been on `0.4.0` since the last
+  release, so all of them were already false. As in the `rlevo-core` `agent`
+  fix (#936), the numbers are deleted rather than corrected: a version stamp in
+  prose about unimplemented work carries nothing a reader can act on, and every
+  release bump re-falsifies each copy — which is exactly what happened. Each
+  site now states the condition that actually governs when the gap closes (the
+  `Environment` impls landing; `Suite<E>` being monomorphic; a non-scalar-reward
+  env actually existing).
+
+  The four `#[allow(dead_code)]` stubs are unchanged in effect but now point at
+  live tracking issues rather than a milestone that has passed, as `docs/rules.md`
+  §9 and §12 require: the `games` module allow (which carried no pointer at all)
+  and `chess::observations::current_board` name #1101, and the two `Rapier3DWorld`
+  accessors — `add_ground_collider` and `bodies`, both reachable only from
+  `#[cfg(test)]` today — name #1102. The allows themselves stay: every call site
+  is still test-only or commented out. Three of the four are independently
+  load-bearing — dropping any one of the `games` module allow,
+  `add_ground_collider`'s or `bodies`' fails a `-D warnings` build. The fourth,
+  on `current_board`, is redundant defense-in-depth: the module-level allow
+  already covers it, so it suppresses nothing on its own. It is kept rather than
+  deleted because it and the module allow are meant to come off together when
+  #1101 lands, but the redundancy is noted there.
+
 ### `rlevo-evolution`
 
 **Fixed**

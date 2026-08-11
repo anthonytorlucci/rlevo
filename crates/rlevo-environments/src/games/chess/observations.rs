@@ -272,7 +272,9 @@ impl ChessState {
 
     /// Returns the current board snapshot (most recent position).
     #[inline]
-    #[allow(dead_code)] // v0.2: used once Environment impl lands
+    // TODO(#1101): no caller until the Chess `Environment` impl lands; its only
+    // use site today is commented out in this module's tests.
+    #[allow(dead_code)]
     fn current_board(&self) -> &BoardSnapshot {
         &self.history[0]
     }
