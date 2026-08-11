@@ -58,6 +58,14 @@ use serde::{Deserialize, Serialize};
 /// `Deserialize` routes through [`try_new`] via [`TryFrom`], so a rate loaded
 /// from a file cannot deserialize into an out-of-range `Probability`.
 ///
+/// There is deliberately no `Default`. No probability is canonical — 0.0, 0.5,
+/// and 1.0 are each defensible — so a default would be an arbitrary rate
+/// silently inherited by every config field that omits one, which is the class
+/// of unexamined value this type exists to eliminate. ADR 0031 fixes this
+/// surface (`new`, `try_new`, `get`, the serde/`TryFrom`/`From` conversions, and
+/// the error struct); extending it is an ADR-superseding decision, not a
+/// drive-by convenience.
+///
 /// [`try_new`]: Self::try_new
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "f32", into = "f32")]
