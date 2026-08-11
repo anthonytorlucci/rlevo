@@ -282,6 +282,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `MultiDiscreteAction::from_indices(arr)` | any `arr[i] >= space[i]` |
 | Builder `with_capacity(n)` | `n == 0` |
 | Builder `with_alpha(x)` | `x ∉ [0.0, 1.0]` |
+| `util::combinations(n, k)` | exact `C(n, k)` exceeds `u64::MAX` — use `checked_combinations` for the full domain |
 | `History::index(i)` | `i >= len()` |
 | `History::new(n)` | `n == 0` or `n > MAX_BUFFER_CAPACITY` |
 | `Grid::new(w, h)` | `w == 0`, `h == 0`, or `w * h` overflows `usize` |
