@@ -16,7 +16,7 @@ Hard constraints and conventions that apply to every contribution. Read this bef
 - The workspace contains exactly these crates, each with a single, bounded responsibility:
   - `rlevo-core` — agent / environment contract: `State`, `Observation`, `Action`, `Reward`, `Environment`, `Snapshot`, `TensorConvertible`, the `util` module (the `combinations` / `checked_combinations` binomial helpers plus `util::seed`'s deterministic seed-derivation primitives — `SeedStream`, `splitmix64` — per ADR 0004), and the **render trait surface** (`Renderer`, `NullRenderer`, `AsciiRenderable` [optional debug helper — not a mandatory env invariant, per ADR 0013], `AsciiRenderer`, `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, `palette`). No algorithm or environment implementations. (ADR 0009)
   - `rlevo-environments` — environment implementations (depends on `rlevo-core`). `rlevo-environments::render` is a re-export shim that forwards all render types from `rlevo-core::render`; do not add new types there.
-  - `rlevo-reinforcement-learning` — gradient-based RL algorithms + the RL-only `memory` (replay buffer), `experience` (trajectory storage), and `metrics` (`AgentStats`) modules. Depends on `rlevo-core`. `rlevo-environments` is a dev-dep only (used by examples / benches / integration tests).
+  - `rlevo-reinforcement-learning` — gradient-based RL algorithms + the RL-only `replay` strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`, `ReplayKind`, per ADR 0050), `experience` (trajectory storage), and `metrics` (`AgentStats`) modules. Depends on `rlevo-core`. `rlevo-environments` is a dev-dep only (used by examples / benches / integration tests).
   - `rlevo-evolution` — evolutionary strategy algorithms. Depends on `rlevo-core` (for `BenchEnv`, `FitnessEvaluable`, `Landscape`, `SeedStream` per ADR 0004; ADR 0002's zero-dep stance was partially reversed by ADR 0004). Depends on `parking_lot` for `SharedPopulationObserver`.
   - `rlevo-hybrid` — hybrid RL + EA approaches. Hosts `StatefulPolicy` / `ReactivePolicy` (the rollout-policy contract), `RolloutFitness`, and `PolicyNeuroevolution` (ADR 0025). Depends on `rlevo-core`, `rlevo-reinforcement-learning`, and `rlevo-evolution`.
   - `rlevo-benchmarks` — paradigm-neutral evaluation harness (light-touch dep on `rlevo-core`, per ADR 0001). Has optional `tui` (ratatui live dashboard), `report` (static-HTML Leptos viewer), and `record` (EpisodeRecord file writer) features; this is the **only** production crate permitted to carry viz deps, and only behind those feature gates.
@@ -280,8 +280,9 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `DiscreteAction::from_index(i)` | `i >= ACTION_COUNT` |
 | `ContinuousAction::from_slice(v)` | `v.len() != COMPONENTS` (**not** `D`, the tensor rank — ADR 0038/0053) |
 | `MultiDiscreteAction::from_indices(arr)` | any `arr[i] >= space[i]` |
-| Builder `with_capacity(n)` | `n == 0` |
-| Builder `with_alpha(x)` | `x ∉ [0.0, 1.0]` |
+| `UniformReplay::new(capacity)` / `ReplayKind::uniform(capacity)` | `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` |
+| `ImportanceExponent::new(b)` | `b` not finite or `∉ [0, 1]` — use `try_new` for runtime-derived values |
+| `Priority::new(p)` | `p` not finite or not `> 0` — use `try_new` for runtime-derived values |
 | `util::combinations(n, k)` | exact `C(n, k)` exceeds `u64::MAX` — use `checked_combinations` for the full domain |
 | `History::index(i)` | `i >= len()` |
 | `History::new(n)` | `n == 0` or `n > MAX_BUFFER_CAPACITY` |
@@ -303,11 +304,20 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `ops::replacement::mu_comma_lambda` | `mu > offspring count` (i.e. `λ < μ`) |
 | `local_search::simulated_annealing::{refine, refine_with_known_fitness}` (via `refine_impl`) | `max_iters == 0` |
 
-The `Builder with_capacity(n)` / `with_alpha(x)` and
-`SimulatedAnnealingParams::with_*` rows are the blessed **setter-guard**
-exception: a single `with_*` method may panic on an out-of-domain argument
-because the panic points at the offending call site. They do **not** replace
-whole-config validation — see below.
+`SimulatedAnnealingParams::with_*`, `UniformReplay::new`, and
+`ImportanceExponent::new` / `Priority::new` are the blessed
+**setter-guard** exception: a single guarded constructor or setter taking a
+compile-time-known value may panic on an out-of-domain argument because the
+panic points at the offending call site. Two shapes admit this exception.
+For `ImportanceExponent` / `Priority`, `new`/`try_new` is the discriminator
+that keeps it honest: `new` is for literals and `Default`s, where the bad
+value sits at the call site; `try_new` is mandatory for anything derived
+from runtime data, and `Deserialize` must route through `try_new`. For
+`UniformReplay::new`, `capacity` is runtime-derived but stays infallible
+because every in-crate call site passes a config field a `Validate`
+chokepoint has already rejected — re-litigating a config-validated value
+in the type system is redundant (#190/#191), so there is no `try_new`.
+They do **not** replace whole-config validation — see below.
 
 ### Config Validation Contract (ADR 0026, 0055, 0060)
 
@@ -358,7 +368,8 @@ whole-config validation — see below.
   environments admitted configs that `from_str` refused. Where a constant's
   value is *derived* (a parity rule, a geometric offset), add a `const _: () =
   assert!(..)` pinning the derivation so lowering it breaks the build rather
-  than the output — `memory.rs` and `four_rooms.rs` are the reference cases.
+  than the output — `grids/memory.rs` and `grids/four_rooms.rs` are the
+  reference cases.
 - **No config loader exists in the workspace yet.** The first one added (run
   manifest, config file, checkpoint restore) owns the `Deserialize` half of this
   contract: call `validate()?` on the decoded value and propagate the `Err`.

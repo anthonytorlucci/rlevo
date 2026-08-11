@@ -44,10 +44,10 @@
 //!
 //! Validating an **assembled config as a whole** returns `Result` — never a
 //! panic — because many configs derive `Deserialize`, so a config loaded from a
-//! file is user-supplied runtime data. A single documented **builder setter**
-//! (`with_capacity(0)`, `with_alpha(x ∉ [0, 1])`) may still panic: the panic
-//! points at the offending call site, and it is an additive fail-fast
-//! convenience, not a substitute for `validate`.
+//! file is user-supplied runtime data. A single documented **builder setter or
+//! constructor** (`UniformReplay::new(0)`, `ImportanceExponent::new(1.5)`) may
+//! still panic: the panic points at the offending call site, and it is an
+//! additive fail-fast convenience, not a substitute for `validate`.
 //!
 //! # Example
 //!
