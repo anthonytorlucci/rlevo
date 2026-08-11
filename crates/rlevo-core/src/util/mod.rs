@@ -5,6 +5,13 @@
 //! [`seed`] module's deterministic seed-derivation primitives
 //! (see [`seed::SeedStream`]).
 //!
+//! [`combinations`] and [`checked_combinations`] have **zero consumers** in the
+//! workspace, as expected: they are public API for downstream users, retained
+//! when the `rlevo-utils` crate was folded in (ADR 0003) — not dead code
+//! awaiting a caller, nor anticipatory API for a planned internal feature.
+//! Removing them would break `rlevo-core`'s published surface with no
+//! offsetting benefit at alpha.
+//!
 //! [`combinations`]: crate::util::combinations
 //! [`checked_combinations`]: crate::util::checked_combinations
 //! [`seed`]: crate::util::seed
