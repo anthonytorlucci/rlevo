@@ -123,6 +123,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   existing enum and nothing in the workspace matches `ConstraintKind`
   exhaustively, so no caller breaks.
 
+- **`util::checked_combinations`**, a fallible counterpart to `combinations`
+  returning `Option<u64>` (for #927). `combinations` has to answer *something*
+  for arguments whose binomial coefficient is simply not representable, and the
+  only honest answers are a panic or an `Option`; callers that count
+  configurations from sizes they did not choose themselves now have the
+  non-panicking one. It returns `Some(0)` for `k > n` exactly as `combinations`
+  does, so it is a drop-in for every input the infallible helper accepts.
+
 **Changed**
 
 - **The `agent` module's documentation no longer names the version it is empty
@@ -140,6 +148,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   fills in. `docs/rules.md` loses a hardcoded `0.1.0` for the same reason,
   stating the workspace-inheritance mechanism instead of the value it currently
   carries.
+
+**Fixed**
+
+- **`util::combinations` returned wrong counts — silently, in release — for
+  binomial coefficients that fit comfortably in a `u64`** (resolves #927,
+  closes #933). The naive loop multiplied before dividing, so its *intermediate*
+  product overflowed long before the answer did, and in release builds that
+  overflow wrapped instead of panicking. `C(66, 33)` is
+  `7_219_428_434_016_265_740`, well under `u64::MAX`
+  (`18_446_744_073_709_551_615`), yet the helper returned
+  `128_965_714_594_187_190` — a plausible-looking number some 56× too small,
+  with nothing to distinguish it from a correct one.
+  Sweeping `n < 200`, 2603 `(n, k)` pairs whose exact value is representable
+  came back corrupted this way.
+
+  The fix accumulates in `u128` over the `C(n - k + i, i)` recurrence, whose
+  every partial result is an exact integer, and reduces by the symmetry
+  `C(n, k) == C(n, n - k)` first. Every representable coefficient is now
+  computed; `combinations` panics only when the *exact* result exceeds
+  `u64::MAX` (first at `n = 68`, where `C(68, 31)` and up no longer fit), a
+  contract now stated in its `# Panics`
+  section and in the `docs/rules.md` panic table. The signature is unchanged.
+  Note that the fix rejected in the issue thread — bolting `checked_mul` onto
+  the naive loop — would have panicked on all 2603 of those pairs rather than
+  computing them.
+
+  **Why the existing tests missed it**: the largest case they covered was
+  `C(54, 6)`, and the first intermediate overflow happens at `n = 63`. Every
+  assertion sat far inside the safe region `n <= 62`, so the coverage was not
+  merely thin near the boundary — it never approached it. A "does it panic?"
+  test would not have helped either, since release builds wrap rather than
+  panic; the new regression tests pin exact values.
 
 ### `rlevo-environments`
 
