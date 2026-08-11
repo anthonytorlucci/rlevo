@@ -77,6 +77,8 @@ impl Probability {
     /// Panics when `p` is outside `[0, 1]` (including `NaN` or infinite).
     #[must_use]
     pub const fn new(p: f32) -> Self {
+        // `(0.0..=1.0).contains(&p)` is not const-callable, so the manual comparison
+        // stands in; clippy skips `manual_range_contains` in const contexts.
         assert!(
             p >= 0.0 && p <= 1.0,
             "Probability::new: value outside [0, 1] (or NaN)"
