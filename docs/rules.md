@@ -293,6 +293,9 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `SimulatedAnnealingParams::with_cooling` | `Geometric` `factor ∉ (0, 1)`; `Linear` `delta` not finite or not `> 0` |
 | `SimulatedAnnealingParams::with_min_temp` | `min_temp` not finite or `< 0` |
 | `SimulatedAnnealingParams::with_step_size` | `step_size` not finite or not `> 0` |
+| `HillClimbingParams::with_max_iters` | `max_iters == 0` |
+| `HillClimbingParams::with_step_size` | `step_size` not finite or not `> 0` |
+| `HillClimbingParams::with_step_decay` | `step_decay` not finite, `<= 0`, or `> 1` |
 | Batch rank assertion | `BD != D + 1` or `BAD != AD + 1` |
 | `ops::selection::tournament_*` | `fitness.is_empty()` or `tournament_size < 2` |
 | `ops::selection::truncation_*` | `fitness.is_empty()` or `top_k > fitness.len()` |
@@ -303,12 +306,14 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `ops::replacement::mu_plus_lambda` | `mu > parent count + offspring count` |
 | `ops::replacement::mu_comma_lambda` | `mu > offspring count` (i.e. `λ < μ`) |
 | `local_search::simulated_annealing::{refine, refine_with_known_fitness}` (via `refine_impl`) | `max_iters == 0` |
+| `local_search::hill_climbing::{refine, refine_with_known_fitness}` (via `refine_impl`) | `max_iters == 0` |
 
-`SimulatedAnnealingParams::with_*`, `UniformReplay::new`, and
-`ImportanceExponent::new` / `Priority::new` are the blessed
-**setter-guard** exception: a single guarded constructor or setter taking a
-compile-time-known value may panic on an out-of-domain argument because the
-panic points at the offending call site. Two shapes admit this exception.
+`SimulatedAnnealingParams::with_*` / `HillClimbingParams::with_*`,
+`UniformReplay::new`, and `ImportanceExponent::new` /
+`Priority::new` are the blessed **setter-guard** exception: a
+single guarded constructor or setter taking a compile-time-known
+value may panic on an out-of-domain argument because the panic
+points at the offending call site. Two shapes admit this exception.
 For `ImportanceExponent` / `Priority`, `new`/`try_new` is the discriminator
 that keeps it honest: `new` is for literals and `Default`s, where the bad
 value sits at the call site; `try_new` is mandatory for anything derived
