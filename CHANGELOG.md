@@ -315,19 +315,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Environment` impls landing; `Suite<E>` being monomorphic; a non-scalar-reward
   env actually existing).
 
-  The four `#[allow(dead_code)]` stubs are unchanged in effect but now point at
-  live tracking issues rather than a milestone that has passed, as `docs/rules.md`
-  §9 and §12 require: the `games` module allow (which carried no pointer at all)
-  and `chess::observations::current_board` name #1101, and the two `Rapier3DWorld`
-  accessors — `add_ground_collider` and `bodies`, both reachable only from
-  `#[cfg(test)]` today — name #1102. The allows themselves stay: every call site
-  is still test-only or commented out. Three of the four are independently
-  load-bearing — dropping any one of the `games` module allow,
-  `add_ground_collider`'s or `bodies`' fails a `-D warnings` build. The fourth,
-  on `current_board`, is redundant defense-in-depth: the module-level allow
-  already covers it, so it suppresses nothing on its own. It is kept rather than
-  deleted because it and the module allow are meant to come off together when
-  #1101 lands, but the redundancy is noted there.
+  The `#[allow(dead_code)]` stubs now point at live tracking issues rather than
+  a milestone that has passed, as `docs/rules.md` §9 and §12 require: the `games`
+  module allow, which carried no pointer at all, names #1101, and the two
+  `Rapier3DWorld` accessors — `add_ground_collider` and `bodies`, both reachable
+  only from `#[cfg(test)]` today — name #1102. Those three stay: each is
+  independently load-bearing, and dropping any one of them fails a `-D warnings`
+  build.
+
+  A fourth allow, on `chess::observations::current_board`, is **removed**. It
+  suppressed nothing — the module-level allow already covered that method, so
+  deleting it leaves the crate clean. Note that verifying this needs
+  `cargo clippy -p rlevo-environments -- -D warnings` *without* `--all-targets`:
+  the latter compiles the test cfg, where `dead_code` does not fire at all, and
+  so reports success no matter which allows are present.
 
 ### `rlevo-evolution`
 
