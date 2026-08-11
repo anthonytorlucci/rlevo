@@ -118,10 +118,7 @@ Small, dependency-free newtypes and helpers shared across config validation in e
 
 ### `agent` — Agent Traits (reserved)
 
-Placeholder module reserved for a future unified agent trait hierarchy
-(`act` / `learn` / checkpoint). Empty in v0.1.0 — concrete algorithms currently
-live in `rlevo-reinforcement-learning` and `rlevo-evolution` and will migrate behind these traits
-once the API stabilizes.
+Placeholder module reserved for a future unified agent trait hierarchy (`act` / `learn` / checkpoint). Empty while the unified agent trait hierarchy stabilizes — concrete algorithms currently live in `rlevo-reinforcement-learning` and `rlevo-evolution` and will migrate behind these traits once the API stabilizes.
 
 ### `render` — Rendering Abstractions
 

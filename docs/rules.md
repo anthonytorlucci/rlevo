@@ -28,7 +28,7 @@ Hard constraints and conventions that apply to every contribution. Read this bef
 - Never add implementation logic to `rlevo-core`; it is a contract crate. The `util` module is the single exception (a math helper folded in from the deleted `rlevo-utils` crate per ADR 0003).
 - All shared dependencies must be declared in the root `Cargo.toml` `[workspace.dependencies]` table. Crates inherit via `{ workspace = true }`.
 - Workspace resolver must remain `resolver = "3"`.
-- All crates share version `0.1.0` and license `MIT OR Apache-2.0` via workspace inheritance.
+- All crates share a single version and license `MIT OR Apache-2.0` via workspace inheritance (`[workspace.package]` in the root `Cargo.toml`).
 
 ## 2. Naming Conventions
 

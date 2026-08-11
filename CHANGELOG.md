@@ -123,6 +123,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   existing enum and nothing in the workspace matches `ConstraintKind`
   exhaustively, so no caller breaks.
 
+**Changed**
+
+- **The `agent` module's documentation no longer names the version it is empty
+  in** (resolves #936). Every doc site describing the placeholder module carried
+  a version stamp, and between them they gave three different answers: the
+  crate-level module map in `lib.rs` said `v0.1.x`, the `pub mod agent` doc
+  comment said `v0.3.x`, and both the module's own header in `agent.rs` and the
+  crate `README.md` said `v0.1.0` — while the workspace has been on `0.4.0` for
+  some time, so every one of them was stale regardless of which you believed.
+  The stamps are deleted rather than corrected to `0.4.x`: a version number in
+  prose about an unimplemented module carries no information a reader can act
+  on, and keeping one only guarantees the next release bump re-falsifies each
+  copy. All of them now read "while the unified agent trait hierarchy
+  stabilizes", which is the condition that actually governs when the module
+  fills in. `docs/rules.md` loses a hardcoded `0.1.0` for the same reason,
+  stating the workspace-inheritance mechanism instead of the value it currently
+  carries.
+
 ### `rlevo-environments`
 
 **Fixed**

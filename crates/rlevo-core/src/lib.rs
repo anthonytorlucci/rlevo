@@ -22,7 +22,7 @@
 //! | [`probability`] | [`Probability`] — a `[0, 1]` rate valid by construction (rejects `NaN`, `Inf`, out-of-range) |
 //! | [`rate`] | [`NonNegativeRate`] — a finite non-negative magnitude valid by construction (BLX-α, σ) |
 //! | [`render`] | [`AsciiRenderable`], [`Renderer`](crate::render::Renderer), styled/palette/payload sub-modules — optional debug and TUI visualization layer |
-//! | [`agent`] | Reserved; empty in v0.1.x while the unified agent trait hierarchy stabilizes |
+//! | [`agent`] | Reserved; empty while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
 //!
 //! # Const-generic `RANK`
@@ -123,22 +123,10 @@ pub mod action;
 
 /// Reserved for a future unified agent trait hierarchy.
 ///
-/// Empty in v0.3.x. Concrete RL and evolutionary agents currently live in
-/// `rlevo-reinforcement-learning` and `rlevo-evolution` respectively.
+/// Empty while the unified agent trait hierarchy stabilizes. Concrete RL and
+/// evolutionary agents currently live in `rlevo-reinforcement-learning` and
+/// `rlevo-evolution` respectively.
 pub mod agent;
-
-/// Shared configuration-validation convention.
-///
-/// Provides [`Validate`], the trait every `*Config` implements to check its
-/// invariants at construction, plus the structured [`ConfigError`] /
-/// [`ConstraintKind`] it returns and ergonomic check helpers. Construction that
-/// consumes a caller-supplied config returns `Result<_, ConfigError>` rather
-/// than panicking (ADR 0026).
-///
-/// [`Validate`]: crate::config::Validate
-/// [`ConfigError`]: crate::config::ConfigError
-/// [`ConstraintKind`]: crate::config::ConstraintKind
-pub mod config;
 
 /// Validated closed-range primitive.
 ///
@@ -152,6 +140,19 @@ pub mod config;
 /// [`Bounds`]: crate::bounds::Bounds
 /// [`BoundsError`]: crate::bounds::BoundsError
 pub mod bounds;
+
+/// Shared configuration-validation convention.
+///
+/// Provides [`Validate`], the trait every `*Config` implements to check its
+/// invariants at construction, plus the structured [`ConfigError`] /
+/// [`ConstraintKind`] it returns and ergonomic check helpers. Construction that
+/// consumes a caller-supplied config returns `Result<_, ConfigError>` rather
+/// than panicking (ADR 0026).
+///
+/// [`Validate`]: crate::config::Validate
+/// [`ConfigError`]: crate::config::ConfigError
+/// [`ConstraintKind`]: crate::config::ConstraintKind
+pub mod config;
 
 /// Agent/environment interaction protocol.
 ///
