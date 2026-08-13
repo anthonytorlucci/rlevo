@@ -288,6 +288,8 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `util::combinations(n, k)` | exact `C(n, k)` exceeds `u64::MAX` — use `checked_combinations` for the full domain |
 | `History::index(i)` | `i >= len()` |
 | `History::new(n)` | `n == 0` or `n > MAX_BUFFER_CAPACITY` |
+| `AgentStats::new(window_size)` | `window_size == 0` or `window_size > MAX_BUFFER_CAPACITY` — the value reaches `VecDeque::with_capacity` unfiltered, where an out-of-range request **aborts** rather than unwinding |
+| `RolloutBuffer::new(capacity, action_dim)` | either argument `== 0` or `> MAX_BUFFER_CAPACITY`; or `capacity * action_dim` overflows `usize` or exceeds `MAX_BUFFER_CAPACITY` — **both factors can be in range while the product is not** |
 | `Grid::new(w, h)` | `w == 0`, `h == 0`, or `w * h` overflows `usize` |
 | `Grid::set(x, y, e)` | `(x, y)` out of bounds — use `Grid::try_set` for data-driven writes |
 | `SimulatedAnnealingParams::with_max_iters` | `max_iters == 0` |
@@ -337,6 +339,20 @@ which calls `PrioritizedReplayConfig::validate` first. Its assert is
 therefore defence in depth against a future in-crate caller that skips the
 chokepoint, not a contract an external caller can violate. They do **not**
 replace whole-config validation — see below.
+
+`AgentStats::new` and `RolloutBuffer::new` are tabled guarded constructors
+but sit outside both shapes above, and the difference is worth stating.
+`AgentStats::new(window_size)` has no fallible sibling and needs none: its
+only production caller passes a literal (`td3_agent.rs:369`). Its bound
+still earns a row because the value reaches `VecDeque::with_capacity`
+unfiltered, where an out-of-range request **aborts** rather than
+unwinding — the one failure in this table a caller cannot catch.
+`RolloutBuffer::new(capacity, action_dim)` is the case that looks
+config-guarded and is not: `capacity` is `PpoConfig::batch_size()`, which
+`validate()` does bound, but `action_dim` comes from `policy.action_dim()`
+at runtime and is bounded nowhere, so the **product** assert is a real
+guard rather than defence in depth. Do not "simplify" it away on the
+reasoning that the config already checked capacity; it did not check this.
 
 ### Config Validation Contract (ADR 0026, 0055, 0060)
 
