@@ -160,6 +160,7 @@ applies is decided by the *kind* of struct, not case by case:
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |
 | `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
 | `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted (ADR 0050) |
+| `PrioritizedReplay<T>` | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` (ADR 0050 §8) |
 
 ### Optimisation direction — maximise-native (ADR 0023)
 
@@ -270,7 +271,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   surfaces later as a misleading out-of-bounds panic far from the cause.
   There is no clippy lint narrow enough for this footgun, so it is a
   review-enforced convention (see #136 for the historical sweep).
-- **Panics are permitted only for programming errors** (index out of bounds, dimension mismatch, or an out-of-domain argument to a single documented builder setter — see the Panic Contracts table and the Config Validation Contract below). Document every panic site in a `# Panics` doc section.
+- **Panics are permitted only for programming errors** (index out of bounds, dimension mismatch, or an out-of-domain argument to a single documented builder setter or guarded constructor — see the Panic Contracts table and the Config Validation Contract below). Document every panic site in a `# Panics` doc section.
 - Never panic in response to user-supplied runtime data; return `Err(...)` instead. A `Deserialize`-able config *is* user-supplied runtime data.
 
 ### Documented Panic Contracts
@@ -281,6 +282,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `ContinuousAction::from_slice(v)` | `v.len() != COMPONENTS` (**not** `D`, the tensor rank — ADR 0038/0053) |
 | `MultiDiscreteAction::from_indices(arr)` | any `arr[i] >= space[i]` |
 | `UniformReplay::new(capacity)` / `ReplayKind::uniform(capacity)` | `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` |
+| `SumTree::new(capacity)` | `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` — crate-internal defence in depth; `PrioritizedReplayConfig::validate` rejects both first, so no public call path reaches it |
 | `ImportanceExponent::new(b)` | `b` not finite or `∉ [0, 1]` — use `try_new` for runtime-derived values |
 | `Priority::new(p)` | `p` not finite or not `> 0` — use `try_new` for runtime-derived values |
 | `util::combinations(n, k)` | exact `C(n, k)` exceeds `u64::MAX` — use `checked_combinations` for the full domain |
@@ -309,7 +311,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `local_search::hill_climbing::{refine, refine_with_known_fitness}` (via `refine_impl`) | `max_iters == 0` |
 
 `SimulatedAnnealingParams::with_*` / `HillClimbingParams::with_*`,
-`UniformReplay::new`, and `ImportanceExponent::new` /
+`UniformReplay::new` / `SumTree::new`, and `ImportanceExponent::new` /
 `Priority::new` are the blessed **setter-guard** exception: a
 single guarded constructor or setter taking a compile-time-known
 value may panic on an out-of-domain argument because the panic
@@ -318,11 +320,17 @@ For `ImportanceExponent` / `Priority`, `new`/`try_new` is the discriminator
 that keeps it honest: `new` is for literals and `Default`s, where the bad
 value sits at the call site; `try_new` is mandatory for anything derived
 from runtime data, and `Deserialize` must route through `try_new`. For
-`UniformReplay::new`, `capacity` is runtime-derived but stays infallible
-because every in-crate call site passes a config field a `Validate`
-chokepoint has already rejected — re-litigating a config-validated value
-in the type system is redundant (#190/#191), so there is no `try_new`.
-They do **not** replace whole-config validation — see below.
+`UniformReplay::new` and `SumTree::new`, `capacity` is runtime-derived but
+stays infallible because every in-crate call site passes a config field a
+`Validate` chokepoint has already rejected — re-litigating a
+config-validated value in the type system is redundant (#190/#191), so
+neither has a `try_new`. `SumTree` is crate-private, and outside its own
+test module — which constructs it directly to pin the panic — its only
+caller is `PrioritizedReplay::new`, which calls
+`PrioritizedReplayConfig::validate` first. Its assert is therefore defence
+in depth against a future in-crate caller that skips the chokepoint, not a
+contract an external caller can violate. They do **not** replace
+whole-config validation — see below.
 
 ### Config Validation Contract (ADR 0026, 0055, 0060)
 
