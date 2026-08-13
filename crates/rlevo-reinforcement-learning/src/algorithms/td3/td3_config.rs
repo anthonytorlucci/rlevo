@@ -11,7 +11,7 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, Validate};
 
-use crate::MAX_BUFFER_CAPACITY;
+use crate::replay::UniformReplayConfig;
 use crate::target::TargetUpdate;
 
 /// Configuration for training a Twin Delayed DDPG (TD3) agent.
@@ -19,11 +19,14 @@ use crate::target::TargetUpdate;
 pub struct Td3TrainingConfig {
     /// Maximum number of transitions stored in the replay buffer.
     ///
-    /// Must be non-zero and at most [`MAX_BUFFER_CAPACITY`]. The ceiling is not
-    /// a taste judgement: this field is the only guard on the capacity that
-    /// reaches `UniformReplay::new`, and a misconfigured value (a unit slip, a
-    /// `usize::MAX` sentinel) aborts the process on a failed allocation. See
-    /// [`MAX_BUFFER_CAPACITY`] for why `$2^{32}$` is the bound.
+    /// Must be non-zero and at most
+    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY). The ceiling is not
+    /// a taste judgement: a misconfigured value (a unit slip, a `usize::MAX`
+    /// sentinel) would otherwise reach `VecDeque::with_capacity` and abort the
+    /// process on a failed allocation. Both bounds are checked by
+    /// [`UniformReplayConfig`], which `validate` delegates to; see
+    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY) for why `$2^{32}$`
+    /// is the bound.
     pub replay_buffer_capacity: usize,
     /// Mini-batch size drawn from the replay buffer each learn step.
     pub batch_size: usize,
@@ -99,13 +102,22 @@ impl Default for Td3TrainingConfig {
 impl Validate for Td3TrainingConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "Td3TrainingConfig";
-        config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
-        config::at_most(
-            C,
-            "replay_buffer_capacity",
-            self.replay_buffer_capacity,
-            MAX_BUFFER_CAPACITY,
-        )?;
+        // `replay_buffer_capacity` carries no `config::` lines of its own: the
+        // floor-and-ceiling predicate is single-sourced in
+        // `UniformReplayConfig::validate`, which is the same check the buffer
+        // this field feeds runs at construction. The error is relabelled to
+        // name *this* config's field, so what the caller sees is byte-identical
+        // to the two hand-written lines it replaces — only `kind` passes
+        // through, and only the predicate's home moved (ADR 0050).
+        UniformReplayConfig {
+            capacity: self.replay_buffer_capacity,
+        }
+        .validate()
+        .map_err(|e| ConfigError {
+            config: C,
+            field: "replay_buffer_capacity",
+            ..e
+        })?;
         config::nonzero(C, "batch_size", self.batch_size)?;
         config::positive(C, "actor_lr", self.actor_lr)?;
         config::positive(C, "critic_lr", self.critic_lr)?;
@@ -302,6 +314,7 @@ impl Td3TrainingConfigBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MAX_BUFFER_CAPACITY;
     use rlevo_core::config::ConstraintKind;
 
     /// `replay_buffer_capacity` had a floor and no ceiling, so a

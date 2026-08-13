@@ -18,7 +18,7 @@ use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 use crate::metrics::{AgentStats, PerformanceRecord};
-use crate::replay::{DiscreteTransition, ReplayKind, ReplayStrategy};
+use crate::replay::{DiscreteTransition, ReplayKind, ReplayStrategy, UniformReplayConfig};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -256,7 +256,9 @@ where
         );
         let stats = AgentStats::<QrDqnMetrics>::new(100);
         let buffer = match &config.prioritized_replay {
-            None => ReplayKind::uniform(config.replay_buffer_capacity),
+            None => ReplayKind::uniform_from_config(UniformReplayConfig {
+                capacity: config.replay_buffer_capacity,
+            })?,
             Some(per) => ReplayKind::prioritized(per.buffer_config(config.replay_buffer_capacity))?,
         };
         Ok(Self {
@@ -941,6 +943,8 @@ mod tests {
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
     use super::*;
+    use crate::MAX_BUFFER_CAPACITY;
+    use rlevo_core::config::ConstraintKind;
 
     use burn::backend::{Autodiff, Flex};
     use burn::module::{AutodiffModule, Module, ModuleMapper, Param};
@@ -1817,5 +1821,48 @@ mod tests {
             3,
             "a finite observation must not increment the counter"
         );
+    }
+
+    /// An out-of-range `replay_buffer_capacity` must come back as an `Err`
+    /// from `new`, never as a panic. `UniformReplay::new` *asserts* on both
+    /// bounds, so before this constructor took the fallible
+    /// `ReplayKind::uniform_from_config` path the only thing standing between a bad
+    /// capacity and an abort was the `config.validate()?` line happening to
+    /// run first. This pins the observable contract so a reordering — or a
+    /// seventh agent copied from this one — cannot quietly turn it back into
+    /// a panic.
+    ///
+    /// The config is built by struct literal rather than through the builder
+    /// on purpose: `build()` runs `validate()`, so a builder physically cannot
+    /// hand `new` a bad capacity, and a test that went through it would be
+    /// asserting on the builder instead of on this constructor.
+    #[test]
+    fn new_rejects_out_of_range_replay_buffer_capacity() {
+        let over = MAX_BUFFER_CAPACITY + 1;
+        let cases = [
+            (0usize, ConstraintKind::Zero),
+            (
+                over,
+                ConstraintKind::TooLarge {
+                    max: u64::try_from(MAX_BUFFER_CAPACITY).expect("the ceiling fits in u64"),
+                    got: u64::try_from(over).expect("the ceiling plus one fits in u64"),
+                },
+            ),
+        ];
+
+        for (capacity, kind) in cases {
+            let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+                Default::default();
+            let config = QrDqnTrainingConfig {
+                replay_buffer_capacity: capacity,
+                ..QrDqnTrainingConfig::default()
+            };
+            let Err(err) = TestAgent::new(TestQrDqnNet::new(0.1, &device), config, device) else {
+                panic!("capacity {capacity} must be rejected, not allocated");
+            };
+            assert_eq!(err.config, "QrDqnTrainingConfig");
+            assert_eq!(err.field, "replay_buffer_capacity");
+            assert_eq!(err.kind, kind);
+        }
     }
 }

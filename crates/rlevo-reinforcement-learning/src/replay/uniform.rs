@@ -9,7 +9,9 @@
 use std::collections::VecDeque;
 
 use rand::{Rng, RngExt};
+use rlevo_core::config::{ConfigError, Validate};
 
+use super::config::UniformReplayConfig;
 use super::{ImportanceExponent, ReplayBufferError, ReplayStrategy, SampledBatch, TransitionId};
 use crate::MAX_BUFFER_CAPACITY;
 
@@ -91,11 +93,24 @@ impl<T> UniformReplay<T> {
     /// panic that names the offending call site.
     ///
     /// Both are programming errors, never user data: every in-crate call site
-    /// passes a config field that [`Validate`](rlevo_core::config::Validate)
-    /// has already rejected zero and over-large values for. That is why this
-    /// stays infallible — there is no `try_new` and no `Result`, following the
-    /// #190/#191 precedent that a config-validated constructor does not
-    /// re-litigate its input in the type system.
+    /// passes either a literal or a config field that [`Validate`] has already
+    /// rejected zero and over-large values for. That is why this stays
+    /// infallible, following the #190/#191 precedent that a config-validated
+    /// constructor does not re-litigate its input in the type system.
+    ///
+    /// # Choosing between `new` and [`from_config`](Self::from_config)
+    ///
+    /// `new` is for a **compile-time-known** capacity — a literal, a `const`, a
+    /// `Default` — where a bad value sits at the call site the panic names.
+    /// [`from_config`](Self::from_config) is mandatory for anything **derived
+    /// from runtime or deserialized data**: it runs
+    /// [`UniformReplayConfig::validate`] and returns a [`ConfigError`] naming
+    /// `capacity`, because a manifest field that arrived over `Deserialize` is
+    /// user data and `rules.md` §4 forbids panicking on user data. This is the
+    /// same `new`/`try_new` discriminator
+    /// [`ImportanceExponent::new`](super::ImportanceExponent::new) draws.
+    ///
+    /// [`Validate`]: rlevo_core::config::Validate
     #[must_use]
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "replay buffer capacity must be non-zero");
@@ -109,6 +124,47 @@ impl<T> UniformReplay<T> {
             capacity,
             pushes: 0,
         }
+    }
+
+    /// Builds an empty buffer from a validated [`UniformReplayConfig`].
+    ///
+    /// This is the **mandatory** path for a capacity derived from runtime or
+    /// deserialized data — a run manifest, a checkpoint restore, an agent config
+    /// field. Where [`new`](Self::new) asserts, this validates first and reports
+    /// a structured [`ConfigError`] naming `capacity`, so a bad manifest value
+    /// is an `Err` the caller can surface rather than a panic in the middle of a
+    /// training run (`rules.md` §4). Reserve [`new`](Self::new) for
+    /// compile-time-known capacities.
+    ///
+    /// Ordering mirrors [`PrioritizedReplay::new`](super::PrioritizedReplay::new):
+    /// validate, then build. Nothing is allocated on the rejecting path.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ConfigError`] from
+    /// [`UniformReplayConfig::validate`] — a zero `capacity`, or one above
+    /// [`MAX_BUFFER_CAPACITY`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_reinforcement_learning::replay::{UniformReplay, UniformReplayConfig};
+    ///
+    /// let buffer: UniformReplay<u32> =
+    ///     UniformReplay::from_config(UniformReplayConfig { capacity: 32 })?;
+    /// assert_eq!(buffer.capacity(), 32);
+    ///
+    /// // A capacity that would panic in `new` is an `Err` here.
+    /// assert!(UniformReplay::<u32>::from_config(UniformReplayConfig { capacity: 0 }).is_err());
+    /// # Ok::<(), rlevo_core::config::ConfigError>(())
+    /// ```
+    pub fn from_config(config: UniformReplayConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
+        Ok(Self {
+            buffer: VecDeque::with_capacity(config.capacity),
+            capacity: config.capacity,
+            pushes: 0,
+        })
     }
 
     /// Maximum number of transitions this buffer will hold.
@@ -268,6 +324,64 @@ mod tests {
                 .checked_mul(2)
                 .is_some_and(|n| n == 1 << 33),
             "and its doubling must be exact, which is the whole point of 2^32"
+        );
+    }
+
+    /// The whole point of the fallible path: a capacity that `new` asserts on
+    /// must come back as an `Err`, not unwind the caller. `catch_unwind` is not
+    /// used here — a panic would fail the test outright, which is the assertion.
+    #[test]
+    fn test_uniform_replay_from_config_rejects_zero_capacity_without_panicking() {
+        let err = UniformReplay::<u32>::from_config(UniformReplayConfig { capacity: 0 })
+            .expect_err("a zero capacity must be refused, not accepted");
+        assert_eq!(
+            err.field, "capacity",
+            "the error must name the offending field"
+        );
+    }
+
+    #[test]
+    fn test_uniform_replay_from_config_rejects_capacity_above_ceiling_without_panicking() {
+        for capacity in [MAX_BUFFER_CAPACITY + 1, usize::MAX] {
+            let err = UniformReplay::<u32>::from_config(UniformReplayConfig { capacity })
+                .expect_err("a capacity above the ceiling must be refused");
+            assert_eq!(
+                err.field, "capacity",
+                "capacity {capacity} must be reported against the capacity field"
+            );
+        }
+    }
+
+    #[test]
+    fn test_uniform_replay_from_config_builds_a_buffer_at_the_configured_capacity() {
+        let buffer: UniformReplay<u32> =
+            UniformReplay::from_config(UniformReplayConfig { capacity: 16 })
+                .expect("16 is a valid capacity");
+        assert_eq!(
+            buffer.capacity(),
+            16,
+            "capacity must be the config's, not a default"
+        );
+        assert_eq!(buffer.len(), 0, "a fresh buffer holds nothing");
+    }
+
+    /// `from_config` and `new` must agree wherever both are legal: the fallible
+    /// path is a validation gate in front of the same construction, not a second
+    /// buffer with its own behaviour.
+    #[test]
+    fn test_uniform_replay_from_config_matches_new_for_a_valid_capacity() {
+        let mut from_config: UniformReplay<u32> =
+            UniformReplay::from_config(UniformReplayConfig { capacity: 3 })
+                .expect("3 is a valid capacity");
+        let mut from_new: UniformReplay<u32> = UniformReplay::new(3);
+        for value in 0..5 {
+            from_config.push(value);
+            from_new.push(value);
+        }
+        assert_eq!(
+            from_config.iter().copied().collect::<Vec<_>>(),
+            from_new.iter().copied().collect::<Vec<_>>(),
+            "both constructors must yield the same eviction behaviour"
         );
     }
 

@@ -684,6 +684,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`UniformReplayConfig`, and a fallible `UniformReplay::from_config` /
+  `ReplayKind::uniform_from_config` beside the panicking `new`.** Uniform
+  replay was the only buffer with no config type: its capacity travelled as a
+  bare `usize` on six agent configs, each of which hand-wrote the same
+  `config::nonzero` + `config::at_most(.., MAX_BUFFER_CAPACITY)` pair in its own
+  `validate()`. Six copies of one predicate, with nothing keeping them in sync —
+  a seventh off-policy agent that copied five of the six lines would have left
+  `UniformReplay::new` to abort the process inside `VecDeque::with_capacity`
+  instead of returning `ConfigError`. The predicate now lives once, in
+  `UniformReplayConfig::validate`; the six agents delegate to it and relabel the
+  error so callers still see their own config and `replay_buffer_capacity` field
+  named, with the `ConstraintKind` passed through unchanged. Agent config field
+  types, builder setters, and error identity are all unchanged — this is
+  additive.
+
+  The six agents now construct through `from_config`, so correctness no longer
+  rests on `validate()` happening to be called before the buffer is built.
+  `UniformReplay::new(capacity)` survives for literals, on the same `new` /
+  `try_new` discriminator `ImportanceExponent` and `Priority` already use.
+
+  Why the existing tests missed it: every agent *did* validate correctly, so no
+  test could fail. The defect was duplication — invisible to any test of current
+  behaviour, and only observable as the seventh agent someone has not written
+  yet. `tests/replay_capacity_single_source_guard.rs` is therefore a source-text
+  guard rather than a behavioural test: it fails on a hand-written
+  `at_most(.., MAX_BUFFER_CAPACITY)` under `algorithms/`, and separately on an
+  agent that builds a replay buffer through an infallible constructor — the
+  worse drift, since dropping the check entirely also satisfies the first rule.
+
 - **Per-loss-site skip accessors on all eight agents, and `skipped_updates`
   emitted from every train loop** (resolves #346, ADR 0072). The `Fixed` entry
   above makes a skip *loggable*; these make it *readable at runtime*, which is

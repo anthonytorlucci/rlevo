@@ -1,4 +1,13 @@
-//! Configuration for [`PrioritizedReplay`](super::PrioritizedReplay).
+//! Configuration for the two shipped replay strategies:
+//! [`UniformReplay`](super::UniformReplay) and
+//! [`PrioritizedReplay`](super::PrioritizedReplay).
+//!
+//! Both configs are the [`Validate`] chokepoint their buffer's fallible
+//! constructor calls — [`UniformReplay::from_config`](super::UniformReplay::from_config)
+//! and [`PrioritizedReplay::new`](super::PrioritizedReplay::new) — so a
+//! capacity that arrived through `Deserialize` or struct-update syntax is
+//! refused with a [`ConfigError`] naming the field, never with a panic
+//! (`rules.md` §4).
 
 use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
@@ -135,11 +144,82 @@ impl Validate for PrioritizedReplayConfig {
     }
 }
 
+/// Hyperparameters for [`UniformReplay`](super::UniformReplay).
+///
+/// One field, because uniform replay has one knob: how much it remembers. The
+/// type exists anyway, and is not folded away into the bare `usize`
+/// [`UniformReplay::new`](super::UniformReplay::new) already takes, because a
+/// capacity that came from a deserialized run manifest is *user data*, and
+/// `rules.md` §4 puts user data behind a [`Validate`] chokepoint returning
+/// [`ConfigError`] rather than behind an assert. Passing this config to
+/// [`UniformReplay::from_config`](super::UniformReplay::from_config) is how a
+/// runtime-derived capacity reaches a buffer without a panic in the path.
+///
+/// # This `Default` is not the agents' default
+///
+/// [`Default`] gives `capacity: 100_000`, matching
+/// [`PrioritizedReplayConfig::default`] so that flipping `prioritized: true` on
+/// an otherwise-default setup does not silently resize the buffer. **No shipped
+/// agent uses it.** Each carries its own `replay_buffer_capacity` — `1_000_000`
+/// for TD3/SAC/DDPG (Fujimoto et al. 2018, Haarnoja et al. 2018), `10_000` for
+/// DQN/C51/QR-DQN — and composes a `UniformReplayConfig` from that field at
+/// construction time. This default therefore serves standalone use and
+/// [`Deserialize`] of a manifest that omits the field; it is not a claim about
+/// what any algorithm should want.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_core::config::Validate;
+/// use rlevo_reinforcement_learning::replay::UniformReplayConfig;
+///
+/// let config = UniformReplayConfig { capacity: 10_000 };
+/// assert!(config.validate().is_ok());
+///
+/// // The library default is itself valid, as every default must be.
+/// assert!(UniformReplayConfig::default().validate().is_ok());
+///
+/// // A zero-capacity buffer is rejected, not silently tolerated.
+/// let empty = UniformReplayConfig { capacity: 0 };
+/// assert_eq!(empty.validate().unwrap_err().field, "capacity");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct UniformReplayConfig {
+    /// The maximum number of transitions held; the oldest is evicted past this.
+    ///
+    /// Must be non-zero and at most
+    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY). Neither bound is a
+    /// taste judgement. A zero-capacity buffer cannot hold the transition it
+    /// was just handed, so every push would evict what it just stored. Above
+    /// the ceiling, `VecDeque::with_capacity` **aborts** the process on an
+    /// allocation it cannot serve — an outcome no caller can catch or
+    /// diagnose — so the capacity is refused here, where the offending field
+    /// still has a name. The ceiling is shared with
+    /// [`PrioritizedReplayConfig::capacity`] so that toggling prioritization
+    /// cannot move the boundary between an accepted and a rejected config.
+    pub capacity: usize,
+}
+
+impl Default for UniformReplayConfig {
+    fn default() -> Self {
+        Self { capacity: 100_000 }
+    }
+}
+
+impl Validate for UniformReplayConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "UniformReplayConfig";
+        config::nonzero(C, "capacity", self.capacity)?;
+        config::at_most(C, "capacity", self.capacity, MAX_BUFFER_CAPACITY)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, MAX_BUFFER_CAPACITY,
-        PrioritizedReplayConfig,
+        PrioritizedReplayConfig, UniformReplayConfig,
     };
     use rlevo_core::config::{ConstraintKind, Validate};
 
@@ -260,6 +340,68 @@ mod tests {
                 c.validate().unwrap_err().field,
                 "priority_epsilon",
                 "epsilon = {bad} is not strictly positive and must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_uniform_replay_config_default_validates() {
+        assert!(
+            UniformReplayConfig::default().validate().is_ok(),
+            "a library default must itself be valid (ADR 0026)"
+        );
+    }
+
+    /// The two configs agree on the default capacity, so turning prioritization
+    /// on for an otherwise-default setup does not silently resize the buffer.
+    #[test]
+    fn test_uniform_replay_config_default_capacity_matches_prioritized() {
+        assert_eq!(
+            UniformReplayConfig::default().capacity,
+            PrioritizedReplayConfig::default().capacity,
+            "the two replay configs must share a default capacity"
+        );
+    }
+
+    #[test]
+    fn test_uniform_replay_config_rejects_zero_capacity() {
+        let err = UniformReplayConfig { capacity: 0 }.validate().unwrap_err();
+        assert_eq!(
+            err.field, "capacity",
+            "a zero-capacity buffer must be named as the offending field"
+        );
+    }
+
+    /// The ceiling is inclusive: exactly [`MAX_BUFFER_CAPACITY`] is a legal (if
+    /// absurd) request, matching the prioritized config so that the accept/reject
+    /// boundary does not move when prioritization is toggled.
+    #[test]
+    fn test_uniform_replay_config_accepts_capacity_at_ceiling() {
+        assert!(
+            UniformReplayConfig {
+                capacity: MAX_BUFFER_CAPACITY
+            }
+            .validate()
+            .is_ok(),
+            "MAX_BUFFER_CAPACITY is an inclusive bound"
+        );
+    }
+
+    /// Above the ceiling, `VecDeque::with_capacity` aborts the process rather
+    /// than unwinding, so the config must refuse it — naming `capacity` and
+    /// reporting `TooLarge` with both bounds, not some downstream symptom.
+    #[test]
+    fn test_uniform_replay_config_rejects_capacity_above_ceiling() {
+        for capacity in [MAX_BUFFER_CAPACITY + 1, usize::MAX] {
+            let err = UniformReplayConfig { capacity }.validate().unwrap_err();
+            assert_eq!(err.field, "capacity", "capacity {capacity} is the offender");
+            assert_eq!(
+                err.kind,
+                ConstraintKind::TooLarge {
+                    max: MAX_BUFFER_CAPACITY as u64,
+                    got: capacity as u64,
+                },
+                "capacity {capacity} must be rejected as TooLarge, carrying both bounds"
             );
         }
     }

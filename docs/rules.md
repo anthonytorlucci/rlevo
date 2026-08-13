@@ -320,17 +320,23 @@ For `ImportanceExponent` / `Priority`, `new`/`try_new` is the discriminator
 that keeps it honest: `new` is for literals and `Default`s, where the bad
 value sits at the call site; `try_new` is mandatory for anything derived
 from runtime data, and `Deserialize` must route through `try_new`. For
-`UniformReplay::new` and `SumTree::new`, `capacity` is runtime-derived but
-stays infallible because every in-crate call site passes a config field a
-`Validate` chokepoint has already rejected — re-litigating a
-config-validated value in the type system is redundant (#190/#191), so
-neither has a `try_new`. `SumTree` is crate-private, and outside its own
-test module — which constructs it directly to pin the panic — its only
-caller is `PrioritizedReplay::new`, which calls
-`PrioritizedReplayConfig::validate` first. Its assert is therefore defence
-in depth against a future in-crate caller that skips the chokepoint, not a
-contract an external caller can violate. They do **not** replace
-whole-config validation — see below.
+`UniformReplay::new`, the same discriminator holds with a config in the
+`try_new` role: `new(capacity)` is for literals, and
+`from_config(UniformReplayConfig)` — which calls `validate()` and returns
+`Result` — is mandatory for anything derived from runtime or deserialized
+data. Every in-crate caller uses `from_config`, so `new`'s panic is
+reachable only from a literal. **`UniformReplayConfig` is the single home
+of the capacity predicate** (non-zero, at most `MAX_BUFFER_CAPACITY`): the
+six off-policy agent configs delegate to it and relabel the resulting
+`ConfigError` to name their own `replay_buffer_capacity` field, rather than
+re-deriving the bound — a `nonzero`/`at_most` pair written by hand under
+`algorithms/` is a guard-test failure, not a style preference. `SumTree` is
+crate-private, and outside its own test module — which constructs it
+directly to pin the panic — its only caller is `PrioritizedReplay::new`,
+which calls `PrioritizedReplayConfig::validate` first. Its assert is
+therefore defence in depth against a future in-crate caller that skips the
+chokepoint, not a contract an external caller can violate. They do **not**
+replace whole-config validation — see below.
 
 ### Config Validation Contract (ADR 0026, 0055, 0060)
 
