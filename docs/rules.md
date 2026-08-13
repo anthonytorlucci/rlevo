@@ -160,6 +160,7 @@ applies is decided by the *kind* of struct, not case by case:
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |
 | `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
 | `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted (ADR 0050) |
+| `PrioritizedReplay<T>` | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` (ADR 0050 §8) |
 
 ### Optimisation direction — maximise-native (ADR 0023)
 
@@ -270,7 +271,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   surfaces later as a misleading out-of-bounds panic far from the cause.
   There is no clippy lint narrow enough for this footgun, so it is a
   review-enforced convention (see #136 for the historical sweep).
-- **Panics are permitted only for programming errors** (index out of bounds, dimension mismatch, or an out-of-domain argument to a single documented builder setter — see the Panic Contracts table and the Config Validation Contract below). Document every panic site in a `# Panics` doc section.
+- **Panics are permitted only for programming errors** (index out of bounds, dimension mismatch, or an out-of-domain argument to a single documented builder setter or guarded constructor — see the Panic Contracts table and the Config Validation Contract below). Document every panic site in a `# Panics` doc section.
 - Never panic in response to user-supplied runtime data; return `Err(...)` instead. A `Deserialize`-able config *is* user-supplied runtime data.
 
 ### Documented Panic Contracts
@@ -281,11 +282,14 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `ContinuousAction::from_slice(v)` | `v.len() != COMPONENTS` (**not** `D`, the tensor rank — ADR 0038/0053) |
 | `MultiDiscreteAction::from_indices(arr)` | any `arr[i] >= space[i]` |
 | `UniformReplay::new(capacity)` / `ReplayKind::uniform(capacity)` | `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` |
+| `SumTree::new(capacity)` | `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` — crate-internal defence in depth; `PrioritizedReplayConfig::validate` rejects both first, so no public call path reaches it |
 | `ImportanceExponent::new(b)` | `b` not finite or `∉ [0, 1]` — use `try_new` for runtime-derived values |
 | `Priority::new(p)` | `p` not finite or not `> 0` — use `try_new` for runtime-derived values |
 | `util::combinations(n, k)` | exact `C(n, k)` exceeds `u64::MAX` — use `checked_combinations` for the full domain |
 | `History::index(i)` | `i >= len()` |
 | `History::new(n)` | `n == 0` or `n > MAX_BUFFER_CAPACITY` |
+| `AgentStats::new(window_size)` | `window_size == 0` or `window_size > MAX_BUFFER_CAPACITY` — the value reaches `VecDeque::with_capacity` unfiltered, where an out-of-range request **aborts** rather than unwinding |
+| `RolloutBuffer::new(capacity, action_dim)` | either argument `== 0` or `> MAX_BUFFER_CAPACITY`; or `capacity * action_dim` overflows `usize` or exceeds `MAX_BUFFER_CAPACITY` — **both factors can be in range while the product is not** |
 | `Grid::new(w, h)` | `w == 0`, `h == 0`, or `w * h` overflows `usize` |
 | `Grid::set(x, y, e)` | `(x, y)` out of bounds — use `Grid::try_set` for data-driven writes |
 | `SimulatedAnnealingParams::with_max_iters` | `max_iters == 0` |
@@ -309,7 +313,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `local_search::hill_climbing::{refine, refine_with_known_fitness}` (via `refine_impl`) | `max_iters == 0` |
 
 `SimulatedAnnealingParams::with_*` / `HillClimbingParams::with_*`,
-`UniformReplay::new`, and `ImportanceExponent::new` /
+`UniformReplay::new` / `SumTree::new`, and `ImportanceExponent::new` /
 `Priority::new` are the blessed **setter-guard** exception: a
 single guarded constructor or setter taking a compile-time-known
 value may panic on an out-of-domain argument because the panic
@@ -318,11 +322,37 @@ For `ImportanceExponent` / `Priority`, `new`/`try_new` is the discriminator
 that keeps it honest: `new` is for literals and `Default`s, where the bad
 value sits at the call site; `try_new` is mandatory for anything derived
 from runtime data, and `Deserialize` must route through `try_new`. For
-`UniformReplay::new`, `capacity` is runtime-derived but stays infallible
-because every in-crate call site passes a config field a `Validate`
-chokepoint has already rejected — re-litigating a config-validated value
-in the type system is redundant (#190/#191), so there is no `try_new`.
-They do **not** replace whole-config validation — see below.
+`UniformReplay::new`, the same discriminator holds with a config in the
+`try_new` role: `new(capacity)` is for literals, and
+`from_config(UniformReplayConfig)` — which calls `validate()` and returns
+`Result` — is mandatory for anything derived from runtime or deserialized
+data. Every in-crate caller uses `from_config`, so `new`'s panic is
+reachable only from a literal. **`UniformReplayConfig` is the single home
+of the capacity predicate** (non-zero, at most `MAX_BUFFER_CAPACITY`): the
+six off-policy agent configs delegate to it and relabel the resulting
+`ConfigError` to name their own `replay_buffer_capacity` field, rather than
+re-deriving the bound — a `nonzero`/`at_most` pair written by hand under
+`algorithms/` is a guard-test failure, not a style preference. `SumTree` is
+crate-private, and outside its own test module — which constructs it
+directly to pin the panic — its only caller is `PrioritizedReplay::new`,
+which calls `PrioritizedReplayConfig::validate` first. Its assert is
+therefore defence in depth against a future in-crate caller that skips the
+chokepoint, not a contract an external caller can violate. They do **not**
+replace whole-config validation — see below.
+
+`AgentStats::new` and `RolloutBuffer::new` are tabled guarded constructors
+but sit outside both shapes above, and the difference is worth stating.
+`AgentStats::new(window_size)` has no fallible sibling and needs none: its
+only production caller passes a literal (`td3_agent.rs:369`). Its bound
+still earns a row because the value reaches `VecDeque::with_capacity`
+unfiltered, where an out-of-range request **aborts** rather than
+unwinding — the one failure in this table a caller cannot catch.
+`RolloutBuffer::new(capacity, action_dim)` is the case that looks
+config-guarded and is not: `capacity` is `PpoConfig::batch_size()`, which
+`validate()` does bound, but `action_dim` comes from `policy.action_dim()`
+at runtime and is bounded nowhere, so the **product** assert is a real
+guard rather than defence in depth. Do not "simplify" it away on the
+reasoning that the config already checked capacity; it did not check this.
 
 ### Config Validation Contract (ADR 0026, 0055, 0060)
 

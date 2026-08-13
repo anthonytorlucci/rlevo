@@ -12,7 +12,10 @@
 //!   travel from `sample` to the staging code and (in a later step) back to a
 //!   priority writeback.
 //! - [`UniformReplay<T>`] — the FIFO, uniform-with-replacement implementation
-//!   every shipped agent uses today.
+//!   every shipped agent uses today. Built from a literal capacity with
+//!   [`UniformReplay::new`], or from a [`UniformReplayConfig`] — via
+//!   [`UniformReplay::from_config`] — whenever the capacity is runtime-derived
+//!   or deserialized.
 //! - [`PrioritizedReplay<T>`] — Schaul et al. (2016)'s proportional prioritized
 //!   replay: `$P(i) \propto p_i^\alpha$` over a sum-tree, Schaul's *stratified* draw (one
 //!   value per equal-mass segment, not i.i.d.), importance weights
@@ -101,7 +104,10 @@ mod sum_tree;
 mod transition;
 mod uniform;
 
-pub use config::{DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, PrioritizedReplayConfig};
+pub use config::{
+    DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, PrioritizedReplayConfig,
+    UniformReplayConfig,
+};
 pub use error::ReplayBufferError;
 pub use importance_exponent::{ImportanceExponent, ImportanceExponentError};
 pub use kind::{KindIter, ReplayKind};

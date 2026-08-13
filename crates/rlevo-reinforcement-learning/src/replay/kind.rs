@@ -24,7 +24,7 @@
 use rand::Rng;
 use rlevo_core::config::ConfigError;
 
-use super::config::PrioritizedReplayConfig;
+use super::config::{PrioritizedReplayConfig, UniformReplayConfig};
 use super::error::ReplayBufferError;
 use super::importance_exponent::ImportanceExponent;
 use super::prioritized::PrioritizedReplay;
@@ -75,18 +75,44 @@ impl<T> std::fmt::Debug for ReplayKind<T> {
 }
 
 impl<T> ReplayKind<T> {
-    /// Builds a uniform buffer holding at most `capacity` transitions.
+    /// Builds a uniform buffer holding at most `capacity` transitions, from a
+    /// **compile-time-known** value.
+    ///
+    /// Use this for a literal, a `const`, or a `Default`, where a bad value sits
+    /// at the call site the panic names. For a capacity read from a config —
+    /// anything runtime-derived or deserialized — use
+    /// [`uniform_from_config`](Self::uniform_from_config), which reports a
+    /// [`ConfigError`] instead of unwinding.
     ///
     /// # Panics
     ///
-    /// Panics if `capacity == 0` (see [`UniformReplay::new`]). Every in-crate
-    /// call site passes a `replay_buffer_capacity` a [`Validate`] impl has
-    /// already rejected zero for.
+    /// Panics if `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` (see
+    /// [`UniformReplay::new`]). Every in-crate call site passes a
+    /// `replay_buffer_capacity` a [`Validate`] impl has already rejected both
+    /// for.
     ///
     /// [`Validate`]: rlevo_core::config::Validate
     #[must_use]
     pub fn uniform(capacity: usize) -> Self {
         Self::Uniform(UniformReplay::new(capacity))
+    }
+
+    /// Builds a uniform buffer from a validated [`UniformReplayConfig`].
+    ///
+    /// The fallible sibling of [`uniform`](Self::uniform), and the mandatory
+    /// path for a capacity derived from runtime or deserialized data: an
+    /// out-of-domain value comes back as an `Err` naming `capacity` rather than
+    /// as a panic (`rules.md` §4). Structurally the mirror of
+    /// [`prioritized`](Self::prioritized), so both variants of this enum can be
+    /// built from a config with the same error type.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ConfigError`] from the config's `validate` — a zero
+    /// `capacity`, or one above
+    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY).
+    pub fn uniform_from_config(config: UniformReplayConfig) -> Result<Self, ConfigError> {
+        Ok(Self::Uniform(UniformReplay::from_config(config)?))
     }
 
     /// Builds a prioritized buffer from a validated [`PrioritizedReplayConfig`].
@@ -267,9 +293,10 @@ impl<T> ReplayStrategy<T> for ReplayKind<T> {
 #[cfg(test)]
 mod tests {
     use super::ReplayKind;
+    use crate::MAX_BUFFER_CAPACITY;
     use crate::replay::{
         DiscreteTransition, ImportanceExponent, PrioritizedReplayConfig, ReplayStrategy,
-        TransitionId,
+        TransitionId, UniformReplayConfig,
     };
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -328,6 +355,37 @@ mod tests {
             batch.weights().is_none(),
             "uniform replay emits no importance weights"
         );
+    }
+
+    /// The fallible sibling must propagate the config error rather than
+    /// unwinding — the panic `ReplayKind::uniform` is blessed for is exactly
+    /// what this constructor exists to avoid.
+    #[test]
+    fn test_uniform_from_config_propagates_the_error_instead_of_panicking() {
+        for capacity in [0, MAX_BUFFER_CAPACITY + 1, usize::MAX] {
+            let err =
+                ReplayKind::<DiscreteTransition<f32>>::uniform_from_config(UniformReplayConfig {
+                    capacity,
+                })
+                .expect_err("an out-of-domain capacity must be refused, not accepted");
+            assert_eq!(
+                err.field, "capacity",
+                "capacity {capacity} must be reported against the capacity field"
+            );
+        }
+    }
+
+    #[test]
+    fn test_uniform_from_config_builds_the_uniform_variant() {
+        let b = ReplayKind::<DiscreteTransition<f32>>::uniform_from_config(UniformReplayConfig {
+            capacity: 8,
+        })
+        .expect("8 is a valid capacity");
+        assert!(
+            !b.is_prioritized(),
+            "uniform_from_config must build the Uniform variant"
+        );
+        assert_eq!(b.len(), 0, "a freshly built buffer holds nothing");
     }
 
     #[test]

@@ -24,7 +24,7 @@ use rand::Rng;
 use rand::RngExt;
 
 use crate::metrics::{AgentStats, PerformanceRecord};
-use crate::replay::{ContinuousTransition, ReplayStrategy, UniformReplay};
+use crate::replay::{ContinuousTransition, ReplayStrategy, UniformReplay, UniformReplayConfig};
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -368,6 +368,12 @@ where
         let exploration = GaussianNoise::new(config.exploration_noise);
         let stats = AgentStats::<Td3Metrics>::new(100);
         let (low_t, high_t) = action_bound_tensors::<B::InnerBackend, A, DA, DAB>(&device);
+        // The capacity is a runtime config field, not a literal, so it takes
+        // the fallible path: an out-of-range value is a `ConfigError` naming
+        // `capacity`, never an allocation abort inside `VecDeque`.
+        let buffer = UniformReplay::from_config(UniformReplayConfig {
+            capacity: config.replay_buffer_capacity,
+        })?;
         Ok(Self {
             actor: Slot::new(actor),
             target_actor,
@@ -378,7 +384,7 @@ where
             actor_opt,
             critic_1_opt,
             critic_2_opt,
-            buffer: UniformReplay::new(config.replay_buffer_capacity),
+            buffer,
             exploration,
             low: A::low(),
             high: A::high(),
@@ -1181,6 +1187,8 @@ mod tests {
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
     use super::*;
+    use crate::MAX_BUFFER_CAPACITY;
+    use rlevo_core::config::ConstraintKind;
 
     use burn::backend::Flex;
 
@@ -2054,5 +2062,53 @@ mod tests {
             2,
             "a finite observation must not increment the `act_with` counter"
         );
+    }
+
+    /// An out-of-range `replay_buffer_capacity` must come back as an `Err`
+    /// from `new`, never as a panic. `UniformReplay::new` *asserts* on both
+    /// bounds, so before this constructor took the fallible
+    /// `UniformReplay::from_config` path the only thing standing between a bad
+    /// capacity and an abort was the `config.validate()?` line happening to
+    /// run first. This pins the observable contract so a reordering — or a
+    /// seventh agent copied from this one — cannot quietly turn it back into
+    /// a panic.
+    ///
+    /// The config is built by struct literal rather than through the builder
+    /// on purpose: `build()` runs `validate()`, so a builder physically cannot
+    /// hand `new` a bad capacity, and a test that went through it would be
+    /// asserting on the builder instead of on this constructor.
+    #[test]
+    fn new_rejects_out_of_range_replay_buffer_capacity() {
+        let over = MAX_BUFFER_CAPACITY + 1;
+        let cases = [
+            (0usize, ConstraintKind::Zero),
+            (
+                over,
+                ConstraintKind::TooLarge {
+                    max: u64::try_from(MAX_BUFFER_CAPACITY).expect("the ceiling fits in u64"),
+                    got: u64::try_from(over).expect("the ceiling plus one fits in u64"),
+                },
+            ),
+        ];
+
+        for (capacity, kind) in cases {
+            let device = Default::default();
+            let config = Td3TrainingConfig {
+                replay_buffer_capacity: capacity,
+                ..Td3TrainingConfig::default()
+            };
+            let Err(err) = GuardAgent::new(
+                TinyActor::<Ad>::new(&device),
+                TinyCritic::<Ad>::new(&device),
+                TinyCritic::<Ad>::new(&device),
+                config,
+                device,
+            ) else {
+                panic!("capacity {capacity} must be rejected, not allocated");
+            };
+            assert_eq!(err.config, "Td3TrainingConfig");
+            assert_eq!(err.field, "replay_buffer_capacity");
+            assert_eq!(err.kind, kind);
+        }
     }
 }

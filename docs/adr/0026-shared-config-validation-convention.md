@@ -25,6 +25,24 @@ convention. Fallibility is `Result`, not panic. Adoption is incremental; this
 ADR lands only the trait, the error type, one reference adopter, and the
 `docs/rules.md §4` reconciliation.
 
+**Update (2026-08-13):** every mention of `with_capacity` / `with_alpha` in
+this ADR names a builder that no longer exists. ADR
+[0050](0050-replay-strategy-seam.md) §8 removed
+`PrioritizedExperienceReplayBuilder` outright, and both rows have since been
+deleted from `docs/rules.md` §4's Documented Panic Contracts table (#1085,
+#1106). Superseded here: the "setter-guard panic rows retained" clause above;
+the §Context claim that the table "further blesses `with_capacity(n)` … and
+`with_alpha(x)`"; the §Decision 3 sentence that "the existing `with_capacity(0)`
+/ `with_alpha(x ∉ [0,1])` rows … stay valid"; and §Decision 4's **Keep** bullet
+instructing that those rows be kept. **§Decision 3's general rule is unaffected
+and stands as written** — a single guarded setter or constructor taking a
+compile-time-known value may still panic, and assembled configs still return
+`ConfigError`. Only the exemplars died. For the live members of the exception,
+read `docs/rules.md` §4: `SimulatedAnnealingParams::with_*` /
+`HillClimbingParams::with_*`, `UniformReplay::new` / `SumTree::new`, and
+`ImportanceExponent::new` / `Priority::new`. ADRs are immutable, so the record
+below is left as written; this note is the pointer.
+
 ## Context
 
 The workspace holds **87 `pub struct *Config`** types (plus hyperparameter-

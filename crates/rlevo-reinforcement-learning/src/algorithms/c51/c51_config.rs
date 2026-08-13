@@ -9,9 +9,8 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, Validate};
 
-use crate::MAX_BUFFER_CAPACITY;
 use crate::algorithms::c51::projection::atom_spacing;
-use crate::replay::PrioritizedReplaySettings;
+use crate::replay::{PrioritizedReplaySettings, UniformReplayConfig};
 use crate::target::TargetUpdate;
 
 /// Configuration for training a Categorical DQN (C51) agent.
@@ -77,12 +76,17 @@ pub struct C51TrainingConfig {
 
     /// Maximum number of transitions retained in the replay buffer.
     ///
-    /// Must be non-zero and at most [`MAX_BUFFER_CAPACITY`]. The ceiling is not
-    /// a taste judgement: this field is the only guard on the capacity that
-    /// reaches `UniformReplay::new` / `PrioritizedReplay::new`, and a
-    /// misconfigured value (a unit slip, a `usize::MAX` sentinel) either aborts
-    /// on a failed allocation or wraps the `SumTree`'s node arithmetic. See
-    /// [`MAX_BUFFER_CAPACITY`] for why `$2^{32}$` is the bound.
+    /// Must be non-zero and at most
+    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY). The ceiling is not
+    /// a taste judgement: a misconfigured value (a unit slip, a `usize::MAX`
+    /// sentinel) either aborts on a failed allocation or wraps the `SumTree`'s
+    /// node arithmetic. Both bounds are checked by [`UniformReplayConfig`],
+    /// which `validate` delegates to, and which shares its ceiling with
+    /// `PrioritizedReplayConfig` so toggling
+    /// [`prioritized_replay`](Self::prioritized_replay) cannot move the
+    /// accept/reject boundary. See
+    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY) for why `$2^{32}$`
+    /// is the bound.
     pub replay_buffer_capacity: usize,
 
     /// Number of env steps collected before the first gradient update.
@@ -190,13 +194,22 @@ impl Validate for C51TrainingConfig {
         config::in_range(C, "epsilon_start", 0.0, 1.0, self.epsilon_start)?;
         config::in_range(C, "epsilon_end", 0.0, 1.0, self.epsilon_end)?;
         config::in_range(C, "epsilon_decay", 0.0, 1.0, self.epsilon_decay)?;
-        config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
-        config::at_most(
-            C,
-            "replay_buffer_capacity",
-            self.replay_buffer_capacity,
-            MAX_BUFFER_CAPACITY,
-        )?;
+        // `replay_buffer_capacity` carries no `config::` lines of its own: the
+        // floor-and-ceiling predicate is single-sourced in
+        // `UniformReplayConfig::validate`, which is the same check the buffer
+        // this field feeds runs at construction. The error is relabelled to
+        // name *this* config's field, so what the caller sees is byte-identical
+        // to the two hand-written lines it replaces — only `kind` passes
+        // through, and only the predicate's home moved (ADR 0050).
+        UniformReplayConfig {
+            capacity: self.replay_buffer_capacity,
+        }
+        .validate()
+        .map_err(|e| ConfigError {
+            config: C,
+            field: "replay_buffer_capacity",
+            ..e
+        })?;
         config::nonzero(C, "train_frequency", self.train_frequency)?;
         config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
         config::at_least(C, "num_atoms", self.num_atoms, 2)?;
@@ -405,6 +418,7 @@ mod tests {
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
     use super::*;
+    use crate::MAX_BUFFER_CAPACITY;
     use rlevo_core::config::ConstraintKind;
 
     #[test]
