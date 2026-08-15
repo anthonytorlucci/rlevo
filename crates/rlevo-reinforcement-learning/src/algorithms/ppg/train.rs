@@ -60,24 +60,24 @@ use crate::algorithms::shared::LogWatermark;
 /// # Type parameters
 ///
 /// - `B` — Burn autodiff backend.
-/// - `P` — Policy network: must implement `PpoPolicy<B, DB>` and
-///   `PpgAuxValueHead<B, DB>`.
-/// - `V` — Main value network implementing `PpoValue<B, DB>`.
+/// - `P` — Policy network: must implement `PpoPolicy<B, BOR>` and
+///   `PpgAuxValueHead<B, BOR>`.
+/// - `V` — Main value network implementing `PpoValue<B, BOR>`.
 /// - `E` — Environment with `ObservationType = O`, `ActionType = A`,
-///   `RewardType = R`, and an action space of rank `1` (discrete).
-/// - `O` — Observation type convertible to a rank-`DO` tensor.
+///   `RewardType = Rew`, and an action space of rank `1` (discrete).
+/// - `O` — Observation type convertible to a rank-`OR` tensor.
 /// - `A` — Discrete action implementing `DiscreteAction<1>`.
-/// - `R` — Scalar reward implementing `Reward + Copy`.
-/// - `DO` — Observation tensor rank.
-/// - `SD` — State tensor rank (consumed by the environment bound only).
-/// - `DB` — Batched observation tensor rank (`DO + 1`).
+/// - `Rew` — Scalar reward implementing `Reward + Copy`.
+/// - `OR` — Observation tensor rank.
+/// - `SR` — State tensor rank (consumed by the environment bound only).
+/// - `BOR` — Batched observation tensor rank (`R + 1`).
 // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
 // f32. This is the intended narrowing point, and the values are hyperparameters
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
-    agent: &mut PpgAgent<B, P, V, O, DO, DB>,
+pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+    agent: &mut PpgAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
@@ -85,12 +85,12 @@ pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, con
 ) -> Result<(), PpgAgentError>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    E: Environment<DO, SD, 1, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
     A: DiscreteAction<1>,
-    R: Reward + Copy,
+    Rew: Reward + Copy,
 {
     let rollout_len = agent.config().ppo.num_steps;
 
@@ -231,17 +231,17 @@ where
 /// `aux` is the *most recent* iteration's auxiliary-phase result: `None` means
 /// the auxiliary buffer was not yet full on that iteration, which is the normal
 /// case for `n_iteration - 1` out of every `n_iteration` rollouts.
-fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
-    agent: &PpgAgent<B, P, V, O, DO, DB>,
+fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
+    agent: &PpgAgent<B, P, V, O, OR, BOR>,
     stats: &PpoUpdateStats,
     aux: Option<AuxPhaseStats>,
     global_step: usize,
     total_timesteps: usize,
 ) where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     let avg = agent
         .stats()

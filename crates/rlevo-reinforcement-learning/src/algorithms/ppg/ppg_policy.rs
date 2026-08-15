@@ -30,21 +30,21 @@ use burn::tensor::backend::AutodiffBackend;
 /// expected to also implement
 /// [`PpoPolicy`](crate::algorithms::ppo::ppo_policy::PpoPolicy) so the policy
 /// phase runs unchanged.
-pub trait PpgAuxValueHead<B: AutodiffBackend, const DB: usize>:
+pub trait PpgAuxValueHead<B: AutodiffBackend, const BOR: usize>:
     burn::module::AutodiffModule<B>
 {
     /// Auxiliary value prediction, shape `(batch,)`.
     ///
     /// Trained in the auxiliary phase against the same target returns as the
     /// main value network. Unused during the policy phase.
-    fn aux_value(&self, obs: Tensor<B, DB>) -> Tensor<B, 1>;
+    fn aux_value(&self, obs: Tensor<B, BOR>) -> Tensor<B, 1>;
 
-    /// Raw policy logits, shape `(batch, num_actions)`.
+    /// Raw policy logits, shape `(batch_size, num_actions)`.
     ///
     /// Exposed so the auxiliary phase can compute
     /// `$KL(\pi_{old} \Vert \pi_{new}) = \sum \text{softmax}(\text{old\_logits}) \cdot (\text{log\_softmax}(\text{old\_logits}) - \text{log\_softmax}(\text{new\_logits}))$`
     /// for distillation. Returning logits (rather than pre-computed
     /// log-probs) keeps the KL kernel decoupled from how the network
     /// internally parameterises its distribution.
-    fn logits(&self, obs: Tensor<B, DB>) -> Tensor<B, 2>;
+    fn logits(&self, obs: Tensor<B, BOR>) -> Tensor<B, 2>;
 }

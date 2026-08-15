@@ -198,12 +198,12 @@ pub struct AuxPhaseStats {
 /// # Type parameters
 ///
 /// - `B` — Burn autodiff backend.
-/// - `P` — Policy network module implementing both `PpoPolicy<B, DB>` and
-///   `PpgAuxValueHead<B, DB>`.
-/// - `V` — Main value network implementing `PpoValue<B, DB>`.
-/// - `O` — Observation type; must be convertible to a rank-`DO` tensor.
-/// - `DO` — Rank of the observation tensor (e.g. `1` for flat vectors).
-/// - `DB` — Rank of the batched observation tensor (`DO + 1`; e.g. `2` for a
+/// - `P` — Policy network module implementing both `PpoPolicy<B, BOR>` and
+///   `PpgAuxValueHead<B, BOR>`.
+/// - `V` — Main value network implementing `PpoValue<B, BOR>`.
+/// - `O` — Observation type; must be convertible to a rank-`OR` tensor.
+/// - `OR` — Rank of the observation tensor (e.g. `1` for flat vectors).
+/// - `BOR` — Rank of the batched observation tensor (`R + 1`; e.g. `2` for a
 ///   batch of flat vectors).
 ///
 /// # Usage
@@ -223,12 +223,12 @@ pub struct AuxPhaseStats {
 /// usable. Only a panic *inside* the optimizer step itself poisons a slot; that
 /// window is irreducible and terminal for the agent (see the
 /// [`shared`](crate::algorithms::shared) module docs).
-pub struct PpgAgent<B, P, V, O, const DO: usize, const DB: usize>
+pub struct PpgAgent<B, P, V, O, const OR: usize, const BOR: usize>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     policy: Slot<P>,
     value: Slot<V>,
@@ -266,12 +266,13 @@ where
     aux_total_guard: FiniteLossGuard,
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug for PpgAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug
+    for PpgAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpgAgent")
@@ -285,12 +286,12 @@ where
     }
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> PpgAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> PpgAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
 {
     /// Snapshots the policy onto the inner (non-autodiff) backend for repeated
     /// greedy inference.
@@ -312,18 +313,18 @@ where
     /// discrete head) but skips per-step autodiff-graph construction, which
     /// dominates cost at batch size 1. Use this for evaluation and throughput.
     pub fn act_greedy_env_row_with(&self, net: &P::InnerModule, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
         P::deterministic_env_row_inner(net, batched)
     }
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> PpgAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> PpgAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     /// Construct a new agent from a pre-built policy and value network.
     ///
@@ -632,9 +633,9 @@ where
     /// For evaluation use [`act_greedy`](Self::act_greedy) (no exploration
     /// noise) or [`act_greedy_env_row_with`](Self::act_greedy_env_row_with)
     /// (no autodiff graph overhead).
-    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> ActOutcome {
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
 
         let sample = self.policy().sample_with_logprob(batched.clone(), rng);
         let raw_row = P::action_row_from_tensor(&sample.action, 0);
@@ -643,8 +644,8 @@ where
         let log_prob = sample.log_prob.into_scalar().elem::<f32>();
         let entropy = sample.entropy.into_scalar().elem::<f32>();
 
-        let value_raw: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let value_t: Tensor<B, DB> = value_raw.unsqueeze::<DB>();
+        let value_raw: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let value_t: Tensor<B, BOR> = value_raw.unsqueeze::<BOR>();
         let value = self.value().forward(value_t).into_scalar().elem::<f32>();
 
         ActOutcome {
@@ -669,8 +670,8 @@ where
     /// distribution mean.
     #[allow(clippy::cast_precision_loss)]
     pub fn act_greedy(&self, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
         let logits: Tensor<B, 2> = PpgAuxValueHead::logits(self.policy(), batched); // (1, A)
         let idx = logits.argmax(1).into_scalar().elem::<i64>();
         let action = P::action_tensor_from_flat(&[idx as f32], 1, &self.device);
@@ -713,8 +714,8 @@ where
 
     /// One main-value-network forward on a single observation.
     fn value_of(&self, obs: &O) -> f32 {
-        let t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = t.unsqueeze::<DB>();
+        let t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = t.unsqueeze::<BOR>();
         self.value().forward(batched).into_scalar().elem::<f32>()
     }
 
@@ -777,7 +778,7 @@ where
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    pub fn policy_phase_update<R: Rng + ?Sized>(&mut self, rng: &mut R) -> PpoUpdateStats {
+    pub fn policy_phase_update(&mut self, rng: &mut (impl Rng + ?Sized)) -> PpoUpdateStats {
         let cfg = self.config.ppo.clone();
         let batch_size = self.buffer.len();
         let mb_size = (batch_size / cfg.num_minibatches.max(1)).max(1);
@@ -819,10 +820,10 @@ where
                 for &i in chunk {
                     self.buffer.obs()[i].write_host_row(&mut obs_flat);
                 }
-                let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+                let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
                 batched_shape.push(n);
                 batched_shape.extend_from_slice(&obs_shape);
-                let obs_batch: Tensor<B, DB> =
+                let obs_batch: Tensor<B, BOR> =
                     Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
 
                 let action_flat = self.buffer.gather_action_flat(chunk);
@@ -988,7 +989,7 @@ where
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    pub fn maybe_aux_phase<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<AuxPhaseStats> {
+    pub fn maybe_aux_phase(&mut self, rng: &mut (impl Rng + ?Sized)) -> Option<AuxPhaseStats> {
         if !self.aux_buffer.is_ready(self.config.n_iteration) {
             return None;
         }
@@ -1029,7 +1030,7 @@ where
                 }
                 let (obs_t, returns_t) = self
                     .aux_buffer
-                    .gather_minibatch::<DO, DB>(chunk, &self.device);
+                    .gather_minibatch::<OR, BOR>(chunk, &self.device);
 
                 let mut old_logits_mb: Vec<f32> = Vec::with_capacity(chunk.len() * num_actions);
                 for &global in chunk {
@@ -1138,10 +1139,10 @@ where
             for g in start..end {
                 self.aux_buffer.obs_at(g).write_host_row(&mut obs_flat);
             }
-            let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+            let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
             batched_shape.push(n);
             batched_shape.extend_from_slice(&obs_shape);
-            let obs_batch: Tensor<B, DB> =
+            let obs_batch: Tensor<B, BOR> =
                 Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
             let logits = PpgAuxValueHead::logits(self.policy(), obs_batch);
             let logits_data = logits.into_data().convert::<f32>();
@@ -1171,11 +1172,11 @@ mod tests {
     use crate::algorithms::ppg::ppg_config::PpgConfigBuilder;
     use crate::algorithms::ppo::ppo_config::PpoTrainingConfig;
 
-    type TestBackend = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
     type TestAgent = PpgAgent<
-        TestBackend,
-        PpgCategoricalPolicyHead<TestBackend>,
-        TestValue<TestBackend>,
+        TestAdBackend,
+        PpgCategoricalPolicyHead<TestAdBackend>,
+        TestValue<TestAdBackend>,
         TestObs,
         1,
         2,
@@ -1235,14 +1236,14 @@ mod tests {
     /// leaving every other knob at its default.
     fn agent_with_clip_grad(clip_grad: Option<GradientClippingConfig>) -> TestAgent {
         let device = Default::default();
-        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+        let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .with_ppo(|p| PpoTrainingConfig { clip_grad, ..p })
             .build()
@@ -1251,7 +1252,7 @@ mod tests {
     }
 
     #[test]
-    fn error_display_uses_thiserror_messages() {
+    fn test_ppg_agent_error_display_uses_thiserror_messages() {
         let err = PpgAgentError::Environment("boom".into());
         assert_eq!(err.to_string(), "Environment error: boom");
     }
@@ -1260,7 +1261,7 @@ mod tests {
     /// `config.ppo.clip_grad` itself rather than delegating to `PpoAgent`, so
     /// this wiring can rot independently of the PPO copy — assert it here too.
     #[test]
-    fn clip_grad_none_leaves_both_optimizers_unclipped() {
+    fn test_ppg_agent_clip_grad_none_leaves_both_optimizers_unclipped() {
         let agent = agent_with_clip_grad(None);
         assert!(
             !agent.policy_optim.has_gradient_clipping(),
@@ -1273,7 +1274,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_grad_some_reaches_both_optimizers() {
+    fn test_ppg_agent_clip_grad_some_reaches_both_optimizers() {
         let agent = agent_with_clip_grad(Some(GradientClippingConfig::Norm(0.5)));
         assert!(
             agent.policy_optim.has_gradient_clipping(),
@@ -1366,14 +1367,14 @@ mod tests {
     /// so a single `snapshot_into_aux_buffer` makes the auxiliary phase ready.
     fn primed_ppg_agent() -> TestAgent {
         let device = Default::default();
-        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+        let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .n_iteration(1)
             .e_aux(1)
@@ -1402,7 +1403,7 @@ mod tests {
     /// `0.0` all-skipped sentinel, and the value site must still learn.
     #[test]
     #[allow(clippy::float_cmp)]
-    fn ppg_policy_phase_nonfinite_policy_loss_skips_and_warns() {
+    fn test_ppg_agent_policy_phase_nonfinite_policy_loss_skips_and_warns() {
         let mut agent = primed_ppg_agent();
         let value_before = value_weights(agent.value.get());
 
@@ -1465,7 +1466,7 @@ mod tests {
     /// aux-total site's healthy denominator).
     #[test]
     #[allow(clippy::float_cmp)]
-    fn ppg_aux_phase_nonfinite_total_loss_skips_and_warns() {
+    fn test_ppg_agent_aux_phase_nonfinite_total_loss_skips_and_warns() {
         let mut agent = primed_ppg_agent();
         // Snapshot the finalized rollout; `n_iteration = 1` arms the aux phase.
         agent.snapshot_into_aux_buffer();
@@ -1539,14 +1540,14 @@ mod tests {
         aux_batch_size: usize,
     ) -> TestAgent {
         let device = Default::default();
-        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+        let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .n_iteration(1)
             .e_aux(1)
@@ -1577,7 +1578,7 @@ mod tests {
     /// latch reads identically for 1 skip and for 8.
     #[test]
     #[allow(clippy::float_cmp)]
-    fn ppg_counts_repeated_loss_skips() {
+    fn test_ppg_agent_counts_repeated_loss_skips() {
         // 4 rollout steps / num_minibatches = 4 → mb_size = 1 → 4 minibatches
         // per epoch; × update_epochs = 2 → 8 guarded policy attempts.
         const EXPECTED_SKIPS: u64 = 8;
@@ -1624,7 +1625,7 @@ mod tests {
     }
 
     /// The aggregate must sum **four distinct** per-site counters, each exactly
-    /// once (ADR 0072 §3). Constructed so all four terms are different *and*
+    /// once (ADR 0072). Constructed so all four terms are different *and*
     /// none is zero — 2, 6, 4, 8, aggregate **20** — because the two properties
     /// close two different holes:
     ///
@@ -1653,7 +1654,7 @@ mod tests {
     /// critic would store `NaN` values, hence `NaN` advantages, and the policy
     /// site would skip too, collapsing the two terms back together.
     #[test]
-    fn ppg_skipped_updates_aggregates_unequal_per_site_counts() {
+    fn test_ppg_agent_skipped_updates_aggregates_unequal_per_site_counts() {
         // Policy phase #1: 2 minibatches × 1 epoch = 2 guarded policy attempts,
         // all NaN (policy poisoned).
         const POLICY_SKIPS: u64 = 2;
@@ -1768,14 +1769,14 @@ mod tests {
     /// to the caller so several phases can be driven in sequence.
     fn annealing_ppg_agent(total_iterations: usize) -> TestAgent {
         let device = Default::default();
-        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+        let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .n_iteration(1)
             .e_aux(1)
@@ -1806,7 +1807,7 @@ mod tests {
     // `current_learning_rate()` return value, not a recomputation. A tolerance
     // would let the one-tick offset this test exists to catch slip through.
     #[allow(clippy::float_cmp)]
-    fn ppg_policy_phase_lr_trails_current_learning_rate_by_one_tick() {
+    fn test_ppg_agent_policy_phase_lr_trails_current_learning_rate_by_one_tick() {
         const TOTAL_ITERATIONS: usize = 4;
         let mut agent = annealing_ppg_agent(TOTAL_ITERATIONS);
         let mut rng = StdRng::seed_from_u64(9);
@@ -1848,7 +1849,7 @@ mod tests {
     }
 
     /// Behavioral companion to
-    /// [`ppg_policy_phase_lr_trails_current_learning_rate_by_one_tick`]: the
+    /// [`test_ppg_agent_policy_phase_lr_trails_current_learning_rate_by_one_tick`]: the
     /// aligned rate must actually *move parameters*, not merely be positive.
     ///
     /// Measures a host-side weight delta across the terminal auxiliary phase —
@@ -1873,7 +1874,7 @@ mod tests {
     // iteration is the precondition that makes this #324's failing
     // configuration rather than an ordinary interior phase.
     #[allow(clippy::float_cmp)]
-    fn ppg_aux_phase_at_nonzero_lr_moves_policy_parameters() {
+    fn test_ppg_agent_aux_phase_at_nonzero_lr_moves_policy_parameters() {
         const TOTAL_ITERATIONS: usize = 4;
         let mut agent = annealing_ppg_agent(TOTAL_ITERATIONS);
         let mut rng = StdRng::seed_from_u64(9);
