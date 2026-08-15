@@ -138,9 +138,9 @@ pub struct LearnOutcome {
 ///
 /// # Const generics
 ///
-/// - `DO` — rank of a single observation tensor (e.g. `1` for vector
+/// - `OR` — rank of a single observation tensor (e.g. `1` for vector
 ///   observations of shape `[features]`).
-/// - `DB` — rank of a batched observation tensor (= `DO + 1`).
+/// - `BOR` — rank of a batched observation tensor (= `R + 1`).
 ///
 /// # Field notes
 ///
@@ -154,11 +154,11 @@ pub struct LearnOutcome {
 ///   documented on [`Slot`].
 /// - `target_net` lives on `B::InnerBackend` (the non-autodiff backend) so that
 ///   computing bootstrap quantiles never builds an autodiff graph.
-pub struct QrDqnAgent<B, M, O, A, const DO: usize, const DB: usize>
+pub struct QrDqnAgent<B, M, O, A, const OR: usize, const BOR: usize>
 where
     B: AutodiffBackend,
-    M: QrDqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: QrDqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     policy_net: Slot<M>,
@@ -204,12 +204,12 @@ where
     _action: PhantomData<A>,
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> std::fmt::Debug
-    for QrDqnAgent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug
+    for QrDqnAgent<B, M, O, A, OR, BOR>
 where
     B: AutodiffBackend,
-    M: QrDqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: QrDqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -223,11 +223,11 @@ where
     }
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> QrDqnAgent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const OR: usize, const BOR: usize> QrDqnAgent<B, M, O, A, OR, BOR>
 where
     B: AutodiffBackend,
-    M: QrDqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: QrDqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     /// Constructs a new agent from a pre-built policy network and config.
@@ -391,7 +391,7 @@ where
     /// [`act_greedy`](Self::act_greedy) for the full reasoning and
     /// [`degenerate_action_selections`](Self::degenerate_action_selections) for
     /// the counter.
-    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> A {
+    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> A {
         if self.exploration.should_explore(rng) {
             // Guarded here rather than once at the top of the function: the
             // greedy path below delegates to `act_greedy`, which guards itself,
@@ -454,8 +454,8 @@ where
         // (ADR 0067 §Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
         let quantiles: Tensor<B, 3> = self.policy().forward(batched); // (1, A, N)
         let q: Tensor<B, 2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
         let idx = q.argmax(1).into_scalar();
@@ -495,8 +495,8 @@ where
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
         let quantiles: Tensor<B::InnerBackend, 3> = M::forward_inner(net, batched); // (1, A, N)
         let q: Tensor<B::InnerBackend, 2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
         let idx = q.argmax(1).into_scalar();
@@ -739,9 +739,9 @@ where
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    pub fn learn_step<R: Rng + ?Sized>(
+    pub fn learn_step(
         &mut self,
-        rng: &mut R,
+        rng: &mut (impl Rng + ?Sized),
     ) -> Result<Option<LearnOutcome>, QrDqnAgentError> {
         if !self.can_learn() {
             return Ok(None);
@@ -782,14 +782,14 @@ where
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
-        let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+        let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
         batched_shape.push(batch_size);
         batched_shape.extend_from_slice(&obs_shape);
 
         let device = self.device.clone();
-        let obs_tensor: Tensor<B, DB> =
+        let obs_tensor: Tensor<B, BOR> =
             Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<B::InnerBackend, DB> =
+        let next_tensor_inner: Tensor<B::InnerBackend, BOR> =
             Tensor::from_data(TensorData::new(next_flat, batched_shape), &device);
 
         let action_tensor_1: Tensor<B, 1, Int> =
@@ -959,7 +959,7 @@ mod tests {
     use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
 
-    type TestBackend = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
 
     const TEST_OBS_FEATURES: usize = 4; // CartPoleObservation is [4].
     const TEST_ACTIONS: usize = 2;
@@ -1020,8 +1020,8 @@ mod tests {
     }
 
     type TestAgent = QrDqnAgent<
-        TestBackend,
-        TestQrDqnNet<TestBackend>,
+        TestAdBackend,
+        TestQrDqnNet<TestAdBackend>,
         CartPoleObservation,
         CartPoleAction,
         1,
@@ -1070,7 +1070,7 @@ mod tests {
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
     fn primed_agent(rule: TargetUpdate) -> TestAgent {
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
         let config = QrDqnTrainingConfigBuilder::new()
             .target_update(rule)
@@ -1080,7 +1080,7 @@ mod tests {
             .num_quantiles(TEST_QUANTILES)
             .build()
             .expect("valid config");
-        let policy: TestQrDqnNet<TestBackend> = TestQrDqnNet::new(0.1, &device);
+        let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(0.1, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4 {
             let x = i as f32;
@@ -1102,7 +1102,7 @@ mod tests {
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
     fn primed_prioritized_agent() -> TestAgent {
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
         let config = QrDqnTrainingConfigBuilder::new()
             .target_update(TargetUpdate::polyak(0.005, 1))
@@ -1116,7 +1116,7 @@ mod tests {
             })
             .build()
             .expect("valid prioritized config");
-        let policy: TestQrDqnNet<TestBackend> = TestQrDqnNet::new(0.1, &device);
+        let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(0.1, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4 {
             let x = i as f32;
@@ -1131,7 +1131,7 @@ mod tests {
     }
 
     #[test]
-    fn qrdqn_defaults_to_uniform_replay() {
+    fn test_qrdqn_agent_defaults_to_uniform_replay() {
         let agent = primed_agent(TargetUpdate::polyak(0.005, 1));
         assert!(
             !agent.buffer.is_prioritized(),
@@ -1143,7 +1143,7 @@ mod tests {
     /// the config rustdoc): a learn step rewrites the sampled transitions'
     /// priorities off the running-max seed, moving the total mass.
     #[test]
-    fn qrdqn_priority_writeback_runs_after_learn_step() {
+    fn test_qrdqn_agent_priority_writeback_runs_after_learn_step() {
         let mut agent = primed_prioritized_agent();
         assert!(
             agent.buffer.is_prioritized(),
@@ -1206,7 +1206,7 @@ mod tests {
     /// RNG does and the reported loss is a deterministic function of the
     /// Bellman target.
     fn bellman_agent(terminated: bool) -> TestAgent {
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
         let config = QrDqnTrainingConfigBuilder::new()
             .target_update(TargetUpdate::polyak(0.005, 1))
@@ -1216,7 +1216,7 @@ mod tests {
             .num_quantiles(TEST_QUANTILES)
             .build()
             .expect("valid config");
-        let policy: TestQrDqnNet<TestBackend> = TestQrDqnNet::new(BELLMAN_FILL, &device);
+        let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(BELLMAN_FILL, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         // obs(1.0) -> every predicted quantile is 1.0.
         // obs(2.0) -> every target-network quantile is 2.0.
@@ -1267,7 +1267,7 @@ mod tests {
     /// 0.5 · 2.0 = 2.0` and the non-terminal target `0.0 + 0.5 · 2.0 = 1.0`,
     /// i.e. losses of `1.0` and `0.0` against the `3.0` and `5.0` asserted here.
     #[test]
-    fn qrdqn_learn_step_pins_the_bellman_target_through_the_loss() {
+    fn test_qrdqn_agent_learn_step_pins_the_bellman_target_through_the_loss() {
         let (terminal_loss, q_mean) = bellman_learn_once(true);
         // Precondition: the network really is the hand-set constant net, so the
         // closed form above applies. Every predicted quantile is 1.0, hence
@@ -1321,7 +1321,7 @@ mod tests {
     /// on **every** learn step, by exactly τ toward the post-step policy, and
     /// stays lagged behind it rather than being copied onto it.
     #[test]
-    fn qrdqn_polyak_default_moves_target_on_every_learn_step() {
+    fn test_qrdqn_agent_polyak_default_moves_target_on_every_learn_step() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
         let tau = 0.005_f32;
         let mut rng = StdRng::seed_from_u64(11);
@@ -1362,7 +1362,7 @@ mod tests {
     /// policy at one (the old `hard_copies` property), now counted in gradient
     /// updates.
     #[test]
-    fn qrdqn_hard_cadence_holds_target_between_firings_then_copies() {
+    fn test_qrdqn_agent_hard_cadence_holds_target_between_firings_then_copies() {
         let mut agent = primed_agent(TargetUpdate::hard(3));
         let mut rng = StdRng::seed_from_u64(12);
         let initial = weights_of(agent.target_net());
@@ -1401,7 +1401,7 @@ mod tests {
         );
     }
 
-    /// ADR 0059 §4: the counter must advance even when the non-finite-loss
+    /// ADR 0059: the counter must advance even when the non-finite-loss
     /// guard skips the optimizer step, or a diverging run silently stretches
     /// the target cadence. The three skips consume updates 1–3, so the healthy
     /// step lands on update 4 and `hard(2)` fires.
@@ -1412,7 +1412,7 @@ mod tests {
     /// counter alone can express it, and `applied = attempts − skipped` is only
     /// meaningful if both move on the same events.
     #[test]
-    fn qrdqn_gradient_counter_advances_through_a_nonfinite_loss_skip() {
+    fn test_qrdqn_agent_gradient_counter_advances_through_a_nonfinite_loss_skip() {
         let mut agent = primed_agent(TargetUpdate::hard(2));
         let healthy_policy = agent.policy().clone();
         let target_before = weights_of(agent.target_net());
@@ -1476,7 +1476,7 @@ mod tests {
     /// read in env steps instead of gradient updates silently rescales every
     /// target update in the run by `train_frequency` and the warm-up.
     #[test]
-    fn qrdqn_gradient_counter_is_not_the_env_step_counter() {
+    fn test_qrdqn_agent_gradient_counter_is_not_the_env_step_counter() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
         for _ in 0..5 {
             agent.on_env_step();
@@ -1506,7 +1506,7 @@ mod tests {
     }
 
     #[test]
-    fn metrics_performance_record_returns_reward_and_steps() {
+    fn test_qrdqn_metrics_performance_record_returns_reward_and_steps() {
         let m = QrDqnMetrics {
             reward: 42.0,
             steps: 7,
@@ -1520,7 +1520,7 @@ mod tests {
     }
 
     #[test]
-    fn error_display_uses_thiserror_messages() {
+    fn test_qrdqn_agent_error_display_uses_thiserror_messages() {
         let err = QrDqnAgentError::InvalidAction("bad index".into());
         assert_eq!(err.to_string(), "Invalid action: bad index");
     }
@@ -1546,7 +1546,7 @@ mod tests {
     /// must fire, `learn_step` must return `None`, and the target must stay
     /// untouched and finite.
     #[test]
-    fn qrdqn_nonfinite_loss_skips_step_and_warns() {
+    fn test_qrdqn_agent_nonfinite_loss_skips_step_and_warns() {
         let mut agent = primed_prioritized_agent();
         // The target net is the healthy sibling: a skipped step leaves it intact.
         let target_before = weights_of(&agent.target_net);
@@ -1590,7 +1590,7 @@ mod tests {
     /// that hiccupped once, which is exactly the distinction ADR 0072 exists to
     /// preserve.
     #[test]
-    fn qrdqn_counts_repeated_loss_skips() {
+    fn test_qrdqn_agent_counts_repeated_loss_skips() {
         let mut agent = primed_prioritized_agent();
 
         // Poison a *clone* of the live policy so its `ParamId`s are preserved.
@@ -1634,15 +1634,15 @@ mod tests {
     // noticed. A per-file test is what makes agent #7's author notice.
 
     #[test]
-    fn qrdqn_remember_drops_a_nonfinite_reward() {
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+    fn test_qrdqn_agent_remember_drops_a_nonfinite_reward() {
+        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
         let config = QrDqnTrainingConfigBuilder::new()
             .num_quantiles(TEST_QUANTILES)
             .build()
             .expect("valid config");
         let mut agent: TestAgent = QrDqnAgent::new(
-            TestQrDqnNet::<TestBackend>::new(0.1, &device),
+            TestQrDqnNet::<TestAdBackend>::new(0.1, &device),
             config,
             device,
         )
@@ -1694,14 +1694,14 @@ mod tests {
     }
 
     fn obs_guard_agent() -> TestAgent {
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
         let config = QrDqnTrainingConfigBuilder::new()
             .num_quantiles(TEST_QUANTILES)
             .build()
             .expect("valid config");
         QrDqnAgent::new(
-            TestQrDqnNet::<TestBackend>::new(0.1, &device),
+            TestQrDqnNet::<TestAdBackend>::new(0.1, &device),
             config,
             device,
         )
@@ -1709,7 +1709,7 @@ mod tests {
     }
 
     #[test]
-    fn qrdqn_remember_drops_a_nonfinite_obs() {
+    fn test_qrdqn_agent_remember_drops_a_nonfinite_obs() {
         let mut agent = obs_guard_agent();
 
         agent.remember(nan_obs(), &CartPoleAction::Left, 1.0, obs(1.0), false);
@@ -1754,7 +1754,7 @@ mod tests {
     /// early, so a doubly-bad transition is counted once, on the reward side.
     /// Both accessors' rustdoc states this; this test is what keeps it true.
     #[test]
-    fn qrdqn_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
+    fn test_qrdqn_agent_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
         let mut agent = obs_guard_agent();
 
         agent.remember(nan_obs(), &CartPoleAction::Left, f32::NAN, nan_obs(), false);
@@ -1776,7 +1776,7 @@ mod tests {
     /// The decision under test is that the agent does **not** substitute: the
     /// counter moves and an action still comes back, at all three `act` sites.
     #[test]
-    fn qrdqn_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
+    fn test_qrdqn_agent_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(7);
         let count = <CartPoleAction as DiscreteAction<1>>::ACTION_COUNT;
@@ -1837,7 +1837,7 @@ mod tests {
     /// hand `new` a bad capacity, and a test that went through it would be
     /// asserting on the builder instead of on this constructor.
     #[test]
-    fn new_rejects_out_of_range_replay_buffer_capacity() {
+    fn test_qrdqn_agent_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;
         let cases = [
             (0usize, ConstraintKind::Zero),
@@ -1851,7 +1851,7 @@ mod tests {
         ];
 
         for (capacity, kind) in cases {
-            let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+            let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
                 Default::default();
             let config = QrDqnTrainingConfig {
                 replay_buffer_capacity: capacity,

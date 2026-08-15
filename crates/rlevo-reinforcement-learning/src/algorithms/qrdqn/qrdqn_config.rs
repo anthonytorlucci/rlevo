@@ -505,17 +505,17 @@ mod tests {
     use crate::MAX_BUFFER_CAPACITY;
     use burn::backend::Flex;
 
-    type B = Flex;
+    type TestBackend = Flex;
 
     #[test]
-    fn defaults_are_200_quantiles_with_kappa_1() {
+    fn test_qrdqn_config_defaults_are_200_quantiles_with_kappa_1() {
         let cfg = QrDqnTrainingConfig::default();
         assert_eq!(cfg.num_quantiles, 200);
         assert!((cfg.kappa - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn builder_round_trips_distributional_fields() {
+    fn test_qrdqn_config_builder_round_trips_distributional_fields() {
         let cfg = QrDqnTrainingConfigBuilder::new()
             .num_quantiles(51)
             .kappa(0.5)
@@ -528,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn default_config_is_valid() {
+    fn test_qrdqn_config_default_config_is_valid() {
         assert!(QrDqnTrainingConfig::default().validate().is_ok());
     }
 
@@ -540,7 +540,7 @@ mod tests {
     /// returned error rather than using `#[should_panic]`: a panic here would
     /// be the bug, not the fix.
     #[test]
-    fn rejects_replay_buffer_capacity_above_ceiling() {
+    fn test_qrdqn_config_rejects_replay_buffer_capacity_above_ceiling() {
         let err = QrDqnTrainingConfigBuilder::new()
             .replay_buffer_capacity(usize::MAX)
             .build()
@@ -554,7 +554,7 @@ mod tests {
     /// The boundary is inclusive: the ceiling itself is a legal (if
     /// unallocatable) capacity, so the guard cannot be off by one.
     #[test]
-    fn accepts_replay_buffer_capacity_at_ceiling() {
+    fn test_qrdqn_config_accepts_replay_buffer_capacity_at_ceiling() {
         let cfg = QrDqnTrainingConfigBuilder::new()
             .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
             .build()
@@ -563,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_quantiles() {
+    fn test_qrdqn_config_rejects_zero_quantiles() {
         let err = QrDqnTrainingConfigBuilder::new()
             .num_quantiles(0)
             .build()
@@ -575,7 +575,7 @@ mod tests {
     /// ran inside *every* learn step with the hard path inert, which in
     /// gradient-update units is `every = 1` (ADR 0059 §Consequences).
     #[test]
-    fn default_target_update_is_polyak_every_gradient_update() {
+    fn test_qrdqn_config_default_target_update_is_polyak_every_gradient_update() {
         let cfg = QrDqnTrainingConfig::default();
         assert_eq!(cfg.target_update, TargetUpdate::polyak(0.005, 1));
         assert_eq!(cfg.target_update.every(), 1);
@@ -584,7 +584,7 @@ mod tests {
     /// κ = 0 makes Dabney et al. (2018) Eq. (10) evaluate `0/0`: the loss
     /// divides by κ, so the config boundary — not the loss — must reject it.
     #[test]
-    fn rejects_zero_kappa() {
+    fn test_qrdqn_config_rejects_zero_kappa() {
         let err = QrDqnTrainingConfigBuilder::new()
             .kappa(0.0)
             .build()
@@ -601,7 +601,7 @@ mod tests {
     /// Regression guard: a negative Huber threshold was already rejected and
     /// must stay rejected.
     #[test]
-    fn rejects_negative_kappa() {
+    fn test_qrdqn_config_rejects_negative_kappa() {
         let err = QrDqnTrainingConfigBuilder::new()
             .kappa(-1.0)
             .build()
@@ -621,7 +621,7 @@ mod tests {
     /// now, but it reaches that verdict having previously been the overflow
     /// guard's job (see `rejects_overflowing_kappa`).
     #[test]
-    fn rejects_non_finite_kappa() {
+    fn test_qrdqn_config_rejects_non_finite_kappa() {
         for bad in [f32::NAN, f32::NEG_INFINITY] {
             let err = QrDqnTrainingConfigBuilder::new()
                 .kappa(bad)
@@ -651,7 +651,7 @@ mod tests {
     /// `2.608_763_7e19` — i.e. the guard `!(0.5·κ²).is_finite()` is exact to
     /// the ULP, not merely conservative.
     #[test]
-    fn rejects_overflowing_kappa() {
+    fn test_qrdqn_config_rejects_overflowing_kappa() {
         // Bit-search the exact f32 boundary rather than transcribing a
         // literal: `√(2 · f32::MAX)` is not representable by a computation
         // that stays in f32, and a transcribed decimal could land on either
@@ -723,7 +723,7 @@ mod tests {
     /// §Consequences). That is strictly stronger: the old check could be
     /// bypassed by struct-update syntax on the two `pub` scalar fields.
     #[test]
-    fn frozen_target_is_unreachable_through_the_type() {
+    fn test_qrdqn_config_frozen_target_is_unreachable_through_the_type() {
         assert!(
             TargetUpdate::try_polyak(0.0, 1).is_err(),
             "τ = 0 fires on schedule and moves nothing — a frozen target"
@@ -743,7 +743,7 @@ mod tests {
     /// mechanism now, so the property is simply: anything constructible is
     /// valid — hard included, since hard is `$\tau = 1.0$` on the same rule.
     #[test]
-    fn every_constructible_target_update_yields_a_valid_config() {
+    fn test_qrdqn_config_every_constructible_target_update_yields_a_valid_config() {
         for rule in [
             TargetUpdate::polyak(0.005, 1),
             TargetUpdate::polyak(0.01, 100),
@@ -759,14 +759,15 @@ mod tests {
     }
 
     #[test]
-    fn taus_midpoints_match_dabney_eq_9_for_n_4() {
+    fn test_qrdqn_config_taus_midpoints_match_dabney_eq_9_for_n_4() {
         // N = 4 ⇒ τ_i = (i + 0.5) / 4 ⇒ {0.125, 0.375, 0.625, 0.875}.
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+            Default::default();
         let cfg = QrDqnTrainingConfigBuilder::new()
             .num_quantiles(4)
             .build()
             .expect("valid config");
-        let taus: Tensor<B, 1> = cfg.quantile_taus::<B>(&device);
+        let taus: Tensor<TestBackend, 1> = cfg.quantile_taus::<TestBackend>(&device);
         let v: Vec<f32> = taus
             .into_data()
             .convert::<f32>()

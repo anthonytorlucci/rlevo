@@ -59,8 +59,8 @@ use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
-    agent: &mut QrDqnAgent<B, M, O, A, DO, DB>,
+pub fn train<B, M, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+    agent: &mut QrDqnAgent<B, M, O, A, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
@@ -68,11 +68,11 @@ pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize
 ) -> Result<(), QrDqnAgentError>
 where
     B: AutodiffBackend,
-    M: QrDqnModel<B, DB>,
-    E: Environment<DO, SD, 1, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: QrDqnModel<B, BOR>,
+    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
-    R: Reward + Copy,
+    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(io_from_env)?;
     let mut episode_reward = 0.0_f32;
@@ -113,7 +113,7 @@ where
         agent.on_env_step();
 
         // DELIBERATE: `reward_f32` is accumulated raw, *including* a non-finite
-        // value that `remember` just refused to store (ADR 0065 §Decision 4,
+        // value that `remember` just refused to store (ADR 0065 Decision 4,
         // #352). Do not "fix" this to skip a NaN. A NaN episode return is a
         // true statement about a run whose environment emitted NaN, and it is a
         // second surfacing channel that does not share the guard's decade warn
@@ -191,7 +191,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rlevo_core::environment::EpisodeStatus;
 
-    type TestBackend = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -215,10 +215,10 @@ mod tests {
             replay_buffer_capacity: 64,
             ..QrDqnTrainingConfig::default()
         };
-        let net = AtomNet::<TestBackend>::new(config.num_quantiles, &device);
+        let net = AtomNet::<TestAdBackend>::new(config.num_quantiles, &device);
         let mut agent = QrDqnAgent::<
-            TestBackend,
-            AtomNet<TestBackend>,
+            TestAdBackend,
+            AtomNet<TestAdBackend>,
             MaskObservation,
             MaskDiscreteAction,
             1,

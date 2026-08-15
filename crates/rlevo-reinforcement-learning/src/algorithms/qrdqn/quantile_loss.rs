@@ -136,20 +136,20 @@ mod tests {
     use burn::backend::Flex;
     use burn::tensor::TensorData;
 
-    type B = Flex;
+    type TestBackend = Flex;
 
-    fn tensor_1d(data: Vec<f32>) -> Tensor<B, 1> {
-        let device = <B as burn::tensor::backend::BackendTypes>::Device::default();
+    fn tensor_1d(data: Vec<f32>) -> Tensor<TestBackend, 1> {
+        let device = <TestBackend as burn::tensor::backend::BackendTypes>::Device::default();
         let n = data.len();
         Tensor::from_data(TensorData::new(data, vec![n]), &device)
     }
 
-    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<B, 2> {
-        let device = <B as burn::tensor::backend::BackendTypes>::Device::default();
+    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<TestBackend, 2> {
+        let device = <TestBackend as burn::tensor::backend::BackendTypes>::Device::default();
         Tensor::from_data(TensorData::new(data, vec![rows, cols]), &device)
     }
 
-    fn scalar(t: Tensor<B, 1>) -> f32 {
+    fn scalar(t: Tensor<TestBackend, 1>) -> f32 {
         t.into_data()
             .convert::<f32>()
             .into_vec::<f32>()
@@ -157,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn loss_is_unreduced_over_batch() {
+    fn test_quantile_loss_is_unreduced_over_batch() {
         // The return must carry the batch axis: a 3-row input yields 3 values,
         // and their mean must equal the pre-ADR-0050 reduced-in-callee value.
         let batch = 3;
@@ -195,9 +195,9 @@ mod tests {
     }
 
     #[test]
-    fn huber_zero_on_zero_input() {
+    fn test_quantile_loss_huber_zero_on_zero_input() {
         let u = tensor_2d(vec![0.0; 6], 2, 3);
-        let h = huber::<B, 2>(u, 1.0);
+        let h = huber::<TestBackend, 2>(u, 1.0);
         let v: Vec<f32> = h
             .into_data()
             .convert::<f32>()
@@ -209,10 +209,10 @@ mod tests {
     }
 
     #[test]
-    fn huber_quadratic_below_kappa() {
+    fn test_quantile_loss_huber_quadratic_below_kappa() {
         // |u| < kappa ⇒ 0.5 u²
         let u = tensor_2d(vec![0.2_f32, -0.5, 0.75, -0.9], 2, 2);
-        let h = huber::<B, 2>(u, 1.0);
+        let h = huber::<TestBackend, 2>(u, 1.0);
         let v: Vec<f32> = h
             .into_data()
             .convert::<f32>()
@@ -225,10 +225,10 @@ mod tests {
     }
 
     #[test]
-    fn huber_linear_above_kappa() {
+    fn test_quantile_loss_huber_linear_above_kappa() {
         // |u| > kappa ⇒ kappa*(|u| − 0.5*kappa) with kappa=1.0 ⇒ |u| − 0.5
         let u = tensor_2d(vec![2.0_f32, -3.0, 5.0, -1.5], 2, 2);
-        let h = huber::<B, 2>(u, 1.0);
+        let h = huber::<TestBackend, 2>(u, 1.0);
         let v: Vec<f32> = h
             .into_data()
             .convert::<f32>()
@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn loss_zero_on_constant_distribution() {
+    fn test_quantile_loss_zero_on_constant_distribution() {
         // If every predicted and target quantile equals the same constant,
         // `u_ij = target_j − pred_i = 0` for all (i, j), so the loss is 0.
         // Note: pred == target alone is NOT sufficient — off-diagonal terms
@@ -255,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn loss_nonnegative_on_random_inputs() {
+    fn test_quantile_loss_nonnegative_on_random_inputs() {
         // Any finite pred/target should yield non-negative loss.
         let pred = tensor_2d(vec![0.3_f32, -0.5, 1.1, 0.4, -0.2, 0.9], 2, 3);
         let target = tensor_2d(vec![0.1_f32, 0.2, 0.8, -0.3, 0.5, 1.0], 2, 3);
@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn symmetric_at_median_tau_matches_mean_huber() {
+    fn test_quantile_loss_symmetric_at_median_tau_matches_mean_huber() {
         // With N=1 and τ=0.5, |τ − 𝟙{u<0}| is always 0.5, so the quantile
         // Huber loss reduces to 0.5 · L_κ(u) / κ. Verify against a
         // hand-computed scalar reference: pred=1.0, target=0.5 ⇒ u=−0.5,

@@ -25,18 +25,18 @@ use crate::utils::PolyakError;
 /// - [`soft_update`](Self::soft_update) — Polyak averaging of the target
 ///   network: `target ← (1 − τ) · target + τ · active`.
 ///
-/// The `DB` const generic is the observation tensor rank *including* the
-/// leading batch dimension (e.g. `DB = 2` for vector observations of shape
+/// The `BOR` const generic is the observation tensor rank *including* the
+/// leading batch dimension (e.g. `BOR = 2` for vector observations of shape
 /// `[batch, features]`).
-pub trait QrDqnModel<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
+pub trait QrDqnModel<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     /// Autodiff forward pass: quantile values of shape
-    /// `(batch, num_actions, num_quantiles)`.
-    fn forward(&self, observations: Tensor<B, DB>) -> Tensor<B, 3>;
+    /// `(batch_size, num_actions, num_quantiles)`.
+    fn forward(&self, observations: Tensor<B, BOR>) -> Tensor<B, 3>;
 
     /// Forward pass against the inner (non-autodiff) target module.
     fn forward_inner(
         inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, DB>,
+        observations: Tensor<B::InnerBackend, BOR>,
     ) -> Tensor<B::InnerBackend, 3>;
 
     /// Polyak-averages `active` into `target` with coefficient `tau` and
