@@ -46,9 +46,9 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 ///
 /// | Parameter | Meaning |
 /// |-----------|---------|
-/// | `DO`      | Rank of a single observation tensor (e.g. `1` for flat vectors). |
-/// | `SD`      | Rank of a single state tensor (passed through to the `Environment` bound). |
-/// | `DB`      | Rank of a batched observation tensor (`= DO + 1`). |
+/// | `OR`      | Rank of a single observation tensor (e.g. `1` for flat vectors). |
+/// | `SR`      | Rank of a single state tensor (passed through to the `Environment` bound). |
+/// | `BOR`     | Rank of a batched observation tensor (`= R + 1`). |
 ///
 /// # Arguments
 ///
@@ -73,8 +73,8 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
-    agent: &mut DqnAgent<B, M, O, A, DO, DB>,
+pub fn train<B, M, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+    agent: &mut DqnAgent<B, M, O, A, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
@@ -82,11 +82,11 @@ pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize
 ) -> Result<(), DqnAgentError>
 where
     B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    E: Environment<DO, SD, 1, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: DqnModel<B, BOR>,
+    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
-    R: Reward + Copy,
+    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(io_from_env)?;
     let mut episode_reward = 0.0_f32;
@@ -226,7 +226,7 @@ mod tests {
     };
     use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 
-    type TestBackend = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -245,10 +245,10 @@ mod tests {
             replay_buffer_capacity: 64,
             ..DqnTrainingConfig::default()
         };
-        let net = FlatNet::<TestBackend>::new(ACTIONS, &device);
+        let net = FlatNet::<TestAdBackend>::new(ACTIONS, &device);
         let mut agent = DqnAgent::<
-            TestBackend,
-            FlatNet<TestBackend>,
+            TestAdBackend,
+            FlatNet<TestAdBackend>,
             MaskObservation,
             MaskDiscreteAction,
             1,
@@ -272,7 +272,7 @@ mod tests {
     /// truncation test below non-vacuous: it proves three of these nine steps
     /// really do end an episode.
     #[test]
-    fn test_train_termination_sets_bootstrap_mask() {
+    fn test_dqn_train_termination_sets_bootstrap_mask() {
         assert_eq!(
             recorded_masks(EpisodeStatus::Terminated),
             episode_end_steps(),
@@ -287,7 +287,7 @@ mod tests {
     /// reproduce `episode_end_steps()` and bias every Q-value downward on any
     /// time-limited env (Pardo et al., ICML 2018, Eq. 6).
     #[test]
-    fn test_train_truncation_leaves_bootstrap_mask_clear() {
+    fn test_dqn_train_truncation_leaves_bootstrap_mask_clear() {
         let flags = recorded_masks(EpisodeStatus::Truncated);
         assert_eq!(
             flags.len(),
@@ -310,7 +310,7 @@ mod tests {
     /// same-seed self-consistency, which a deterministic `NaN` satisfies
     /// perfectly. This asserts the output side.
     #[test]
-    fn test_train_drops_a_nonfinite_reward_without_panicking() {
+    fn test_dqn_train_drops_a_nonfinite_reward_without_panicking() {
         /// The one step (1-based, from construction) whose reward is `NaN`.
         const NAN_STEP: usize = 4;
 
@@ -320,10 +320,10 @@ mod tests {
             replay_buffer_capacity: 64,
             ..DqnTrainingConfig::default()
         };
-        let net = FlatNet::<TestBackend>::new(ACTIONS, &device);
+        let net = FlatNet::<TestAdBackend>::new(ACTIONS, &device);
         let mut agent = DqnAgent::<
-            TestBackend,
-            FlatNet<TestBackend>,
+            TestAdBackend,
+            FlatNet<TestAdBackend>,
             MaskObservation,
             MaskDiscreteAction,
             1,

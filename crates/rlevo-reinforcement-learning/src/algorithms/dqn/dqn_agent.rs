@@ -142,10 +142,10 @@ pub struct LearnOutcome {
 ///
 /// # Const generics
 ///
-/// - `DO` — rank of a *single* observation tensor (e.g. `1` for a flat vector
+/// - `R` — rank of a *single* observation tensor (e.g. `1` for a flat vector
 ///   of shape `[features]`, `3` for an image of shape `[channels, H, W]`).
-/// - `DB` — rank of a *batched* observation tensor (`= DO + 1`; e.g. `2` for
-///   `[batch, features]`). Rust's const-generic system cannot express `DO + 1`
+/// - `BR` — rank of a *batched* observation tensor (`= R + 1`; e.g. `2` for
+///   `[batch, features]`). Rust's const-generic system cannot express `R + 1`
 ///   in generic position on stable, so the caller supplies both.
 ///
 /// # Field notes
@@ -164,11 +164,11 @@ pub struct LearnOutcome {
 ///   `train_frequency`; `gradient_updates` counts **optimizer** steps and
 ///   drives the target-update cadence. The two units are deliberately distinct
 ///   (ADR 0059) — see [`gradient_updates`](Self::gradient_updates).
-pub struct DqnAgent<B, M, O, A, const DO: usize, const DB: usize>
+pub struct DqnAgent<B, M, O, A, const OR: usize, const BOR: usize>
 where
     B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: DqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     policy_net: Slot<M>,
@@ -214,11 +214,12 @@ where
     _action: PhantomData<A>,
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> std::fmt::Debug for DqnAgent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug
+    for DqnAgent<B, M, O, A, OR, BOR>
 where
     B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: DqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -232,11 +233,11 @@ where
     }
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> DqnAgent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const OR: usize, const BOR: usize> DqnAgent<B, M, O, A, OR, BOR>
 where
     B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: DqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     /// Constructs a new agent from a pre-built policy network and training config.
@@ -418,7 +419,7 @@ where
     /// [`act_greedy`](Self::act_greedy) for the full reasoning and
     /// [`degenerate_action_selections`](Self::degenerate_action_selections) for
     /// the counter.
-    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> A {
+    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> A {
         if self.exploration.should_explore(rng) {
             // Guarded here rather than once at the top of the function: the
             // greedy branch below delegates to `act_greedy`, which guards
@@ -481,8 +482,8 @@ where
         // (ADR 0067 §Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
         let q_values: Tensor<B, 2> = self.policy().forward(batched);
         let idx = q_values.argmax(1).into_scalar();
         A::from_index(idx.elem::<i64>() as usize)
@@ -521,8 +522,8 @@ where
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
         let q_values: Tensor<B::InnerBackend, 2> = M::forward_inner(net, batched);
         let idx = q_values.argmax(1).into_scalar();
         A::from_index(idx.elem::<i64>() as usize)
@@ -770,9 +771,9 @@ where
         clippy::cast_possible_wrap,
         clippy::too_many_lines
     )]
-    pub fn learn_step<R: Rng + ?Sized>(
+    pub fn learn_step(
         &mut self,
-        rng: &mut R,
+        rng: &mut (impl Rng + ?Sized),
     ) -> Result<Option<LearnOutcome>, DqnAgentError> {
         if !self.can_learn() {
             return Ok(None);
@@ -812,14 +813,14 @@ where
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
-        let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+        let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
         batched_shape.push(batch_size);
         batched_shape.extend_from_slice(&obs_shape);
 
         let device = self.device.clone();
-        let obs_tensor: Tensor<B, DB> =
+        let obs_tensor: Tensor<B, BOR> =
             Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<B::InnerBackend, DB> =
+        let next_tensor_inner: Tensor<B::InnerBackend, BOR> =
             Tensor::from_data(TensorData::new(next_flat, batched_shape), &device);
 
         let action_tensor_1: Tensor<B, 1, Int> =
@@ -970,9 +971,9 @@ mod tests {
     use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
 
-    type TestBackend = Autodiff<Flex>;
-    type TestInner = <TestBackend as AutodiffBackend>::InnerBackend;
-    type TestAgent = DqnAgent<TestBackend, TestNet<TestBackend>, TestObs, TestAction, 1, 2>;
+    type TestAdBackend = Autodiff<Flex>;
+    type TestInner = <TestAdBackend as AutodiffBackend>::InnerBackend;
+    type TestAgent = DqnAgent<TestAdBackend, TestNet<TestAdBackend>, TestObs, TestAction, 1, 2>;
 
     /// Minimal two-in/two-out linear Q-network used by the target-sync tests.
     ///
@@ -1111,7 +1112,7 @@ mod tests {
             })
             .build()
             .expect("valid prioritized config");
-        let policy: TestNet<TestBackend> = TestNet::constant(&device, 0.5);
+        let policy: TestNet<TestAdBackend> = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
             let x = i as f32;
@@ -1127,7 +1128,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dqn_defaults_to_uniform_replay() {
+    fn test_dqn_agent_defaults_to_uniform_replay() {
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
         let agent = TestAgent::new(
             TestNet::constant(&device, 0.5),
@@ -1142,7 +1143,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dqn_prioritized_opt_in_selects_prioritized_replay() {
+    fn test_dqn_agent_prioritized_opt_in_selects_prioritized_replay() {
         let agent = primed_prioritized_agent();
         assert!(
             agent.buffer.is_prioritized(),
@@ -1154,7 +1155,7 @@ mod tests {
     /// have been rewritten from the initial running-max seed, so the total
     /// sampling mass moves. A uniform buffer's `learn_step` cannot do this.
     #[test]
-    fn test_dqn_priority_writeback_runs_after_learn_step() {
+    fn test_dqn_agent_priority_writeback_runs_after_learn_step() {
         let mut agent = primed_prioritized_agent();
         let before = agent
             .buffer
@@ -1178,7 +1179,7 @@ mod tests {
     }
 
     #[test]
-    fn metrics_performance_record_returns_reward_and_steps() {
+    fn test_dqn_agent_metrics_performance_record_returns_reward_and_steps() {
         let m = DqnMetrics {
             reward: 42.0,
             steps: 7,
@@ -1191,7 +1192,7 @@ mod tests {
     }
 
     #[test]
-    fn error_display_uses_thiserror_messages() {
+    fn test_dqn_agent_error_display_uses_thiserror_messages() {
         let err = DqnAgentError::InvalidAction("bad index".into());
         assert_eq!(err.to_string(), "Invalid action: bad index");
     }
@@ -1228,7 +1229,7 @@ mod tests {
             .target_update(rule)
             .build()
             .expect("valid config");
-        let policy: TestNet<TestBackend> = TestNet::constant(&device, 0.5);
+        let policy: TestNet<TestAdBackend> = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
             let x = i as f32;
@@ -1262,7 +1263,7 @@ mod tests {
     /// must return `None`, the target must stay untouched and finite, and the
     /// agent must remain usable.
     #[test]
-    fn dqn_nonfinite_loss_skips_step_and_warns() {
+    fn test_dqn_agent_nonfinite_loss_skips_step_and_warns() {
         let mut agent = primed_uniform_agent();
         // The target net is the healthy sibling: a skipped step leaves it intact.
         let target_before = weights(&agent.target_net);
@@ -1310,7 +1311,7 @@ mod tests {
     /// run: `applied = gradient_updates() - skipped_updates() = 0`, i.e.
     /// attempts advanced (ADR 0059 §Decision 4) and none of them was applied.
     #[test]
-    fn dqn_counts_repeated_loss_skips() {
+    fn test_dqn_agent_counts_repeated_loss_skips() {
         const SKIPS: usize = 3;
 
         let mut agent = primed_uniform_agent();
@@ -1368,7 +1369,7 @@ mod tests {
     /// returns `Err` without mutating; this proves the agent propagates that
     /// `Err` through `?` *before* the `self.target_net = …` reassignment.
     #[test]
-    fn dqn_soft_update_err_leaves_target_untouched() {
+    fn test_dqn_agent_soft_update_err_leaves_target_untouched() {
         let mut agent = primed_uniform_agent();
         assert_eq!(
             agent.config.target_update.every(),
@@ -1421,7 +1422,7 @@ mod tests {
     /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves
     /// on **every** learn step, by exactly τ toward the post-step policy.
     #[test]
-    fn dqn_polyak_default_moves_target_on_every_learn_step() {
+    fn test_dqn_agent_polyak_default_moves_target_on_every_learn_step() {
         let mut agent = primed_uniform_agent();
         let tau = 0.005_f32;
         let mut rng = StdRng::seed_from_u64(3);
@@ -1464,7 +1465,7 @@ mod tests {
     /// `tau = 0.0` + `target_update_frequency = n` pair expressed, now counted
     /// in gradient updates rather than env steps.
     #[test]
-    fn dqn_hard_cadence_holds_target_between_firings_then_copies() {
+    fn test_dqn_agent_hard_cadence_holds_target_between_firings_then_copies() {
         let mut agent = primed_uniform_agent_with(TargetUpdate::hard(3));
         let mut rng = StdRng::seed_from_u64(4);
         let initial = weights(agent.target_net());
@@ -1507,7 +1508,7 @@ mod tests {
     /// step and one healthy step through `hard(2)`: the skip consumes update 1,
     /// so the healthy step lands on update 2 and fires.
     #[test]
-    fn dqn_gradient_counter_advances_through_a_nonfinite_loss_skip() {
+    fn test_dqn_agent_gradient_counter_advances_through_a_nonfinite_loss_skip() {
         let mut agent = primed_uniform_agent_with(TargetUpdate::hard(2));
         let healthy_policy = agent.policy().clone();
         let target_before = weights(agent.target_net());
@@ -1568,7 +1569,7 @@ mod tests {
     /// it, and a `learn_step` that cannot learn must not either. If these two
     /// drifted together the ADR 0059 unit change would be invisible.
     #[test]
-    fn dqn_gradient_counter_is_not_the_env_step_counter() {
+    fn test_dqn_agent_gradient_counter_is_not_the_env_step_counter() {
         let mut agent = primed_uniform_agent();
         for _ in 0..5 {
             agent.on_env_step();
@@ -1605,7 +1606,7 @@ mod tests {
     // noticed. A per-file test is what makes agent #7's author notice.
 
     #[test]
-    fn dqn_remember_drops_a_nonfinite_reward() {
+    fn test_dqn_agent_remember_drops_a_nonfinite_reward() {
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
         let mut agent = TestAgent::new(
             TestNet::constant(&device, 0.5),
@@ -1677,7 +1678,7 @@ mod tests {
     }
 
     #[test]
-    fn dqn_remember_drops_a_nonfinite_obs() {
+    fn test_dqn_agent_remember_drops_a_nonfinite_obs() {
         let mut agent = obs_guard_agent();
 
         agent.remember(nan_obs(), &TestAction(0), 1.0, TestObs([1.0, 0.0]), false);
@@ -1728,7 +1729,7 @@ mod tests {
     /// early, so a doubly-bad transition is counted once, on the reward side.
     /// Both accessors' rustdoc states this; this test is what keeps it true.
     #[test]
-    fn dqn_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
+    fn test_dqn_agent_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
         let mut agent = obs_guard_agent();
 
         agent.remember(nan_obs(), &TestAction(0), f32::NAN, nan_obs(), false);
@@ -1750,7 +1751,7 @@ mod tests {
     /// The decision under test is that the agent does **not** substitute: the
     /// counter moves and an action still comes back, at all three `act` sites.
     #[test]
-    fn dqn_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
+    fn test_dqn_agent_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(7);
 
@@ -1807,7 +1808,7 @@ mod tests {
     /// hand `new` a bad capacity, and a test that went through it would be
     /// asserting on the builder instead of on this constructor.
     #[test]
-    fn new_rejects_out_of_range_replay_buffer_capacity() {
+    fn test_dqn_agent_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;
         let cases = [
             (0usize, ConstraintKind::Zero),
