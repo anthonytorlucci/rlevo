@@ -17,8 +17,6 @@ patterns.
 |-----|---------|
 | [`docs/rules.md`](docs/rules.md) | Hard constraints and conventions — **read before implementing anything** |
 | [`docs/adr/`](docs/adr/) | Immutable architectural decision records ([annotated index](docs/adr/README.md)) |
-| [`docs/user-book/`](docs/user-book/) | User / researcher guide (mdBook) |
-| [`docs/contributor-book/`](docs/contributor-book/) | Developer / contributor guide (mdBook) |
 
 ## Constraints
 
@@ -40,10 +38,6 @@ it.
 Standard cargo invocations. Formatting is enforced in CI (`cargo fmt --all --check`,
 `.github/workflows/fmt.yml`) and the toolchain is pinned in `rust-toolchain.toml` so
 local and CI rustfmt agree — run `cargo fmt --all` before pushing.
-
-Adding an environment or an RL algorithm: see the contributor book,
-[ch05](docs/contributor-book/src/ch05-adding-an-environment.md) and
-[ch07](docs/contributor-book/src/ch07-adding-an-rl-algorithm.md).
 
 ## Working with the Codebase
 
