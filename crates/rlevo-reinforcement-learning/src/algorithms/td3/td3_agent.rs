@@ -176,7 +176,7 @@ pub(crate) fn compute_twin_critic_target<BK: Backend>(
 ///
 /// Same layout as [`DdpgAgent`](crate::algorithms::ddpg::ddpg_agent::DdpgAgent):
 /// - `OR` — rank of a single observation tensor.
-/// - `BS` — size of a batched observation tensor (= `R + 1`).
+/// - `BOR` — rank of a batched observation tensor (= `OR + 1`).
 /// - `AR` — rank of a single action tensor.
 /// - `BAR` — rank of a batched action tensor (= `AR + 1`).
 ///
@@ -208,13 +208,13 @@ pub struct Td3Agent<
     O,
     A,
     const OR: usize,
-    const BS: usize,
+    const BOR: usize,
     const AR: usize,
     const BAR: usize,
 > where
     B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, BS, BAR>,
-    Critic: ContinuousQ<B, BS, BAR>,
+    Actor: DeterministicPolicy<B, BOR, BAR>,
+    Critic: ContinuousQ<B, BOR, BAR>,
     O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: BoundedAction<AR>,
 {
@@ -274,7 +274,7 @@ pub struct Td3Agent<
     /// Non-finite-observation guard for the action-selection sites
     /// ([`act`](Self::act), [`act_with`](Self::act_with)). Detect-and-report
     /// only: it counts and warns, and the action is returned unchanged (ADR
-    /// 0067 §Decision 4).
+    /// 0067 Decision 4).
     act_obs_guard: FiniteObsGuard,
     /// Reusable host staging buffer for the ingestion-side row-finiteness
     /// check. `remember` takes `&mut self`, so it can own one buffer and
@@ -284,12 +284,12 @@ pub struct Td3Agent<
     _action: PhantomData<A>,
 }
 
-impl<B, Actor, Critic, O, A, const OR: usize, const BS: usize, const AR: usize, const BAR: usize>
-    std::fmt::Debug for Td3Agent<B, Actor, Critic, O, A, OR, BS, AR, BAR>
+impl<B, Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    std::fmt::Debug for Td3Agent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
     B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, BS, BAR>,
-    Critic: ContinuousQ<B, BS, BAR>,
+    Actor: DeterministicPolicy<B, BOR, BAR>,
+    Critic: ContinuousQ<B, BOR, BAR>,
     O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: BoundedAction<AR>,
 {
@@ -306,12 +306,12 @@ where
     }
 }
 
-impl<B, Actor, Critic, O, A, const OR: usize, const BS: usize, const AR: usize, const BAR: usize>
-    Td3Agent<B, Actor, Critic, O, A, OR, BS, AR, BAR>
+impl<B, Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    Td3Agent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
     B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, BS, BAR>,
-    Critic: ContinuousQ<B, BS, BAR>,
+    Actor: DeterministicPolicy<B, BOR, BAR>,
+    Critic: ContinuousQ<B, BOR, BAR>,
     O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: BoundedAction<AR>,
 {
@@ -551,7 +551,7 @@ where
     /// The observation row is checked for finiteness before it reaches the
     /// actor. A `NaN` / `±Inf` row is **counted and warned about, and the
     /// action is returned unchanged** — nothing is substituted, no fallback is
-    /// returned, and the clamping is not altered (ADR 0067 §Decision 4). Read
+    /// returned, and the clamping is not altered (ADR 0067 Decision 4). Read
     /// the count with
     /// [`degenerate_action_selections`](Self::degenerate_action_selections).
     ///
@@ -626,7 +626,7 @@ where
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
         let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, BS> = obs_t.unsqueeze::<BS>();
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
         let raw: Tensor<B, BAR> = self.actor.get().forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
@@ -686,7 +686,7 @@ where
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
         let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, BS> = obs_t.unsqueeze::<BS>();
+        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
         let raw: Tensor<B::InnerBackend, BAR> = Actor::forward_inner(net, batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
@@ -988,18 +988,18 @@ where
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
-        let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(BS);
+        let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(BOR);
         batched_obs_shape.push(batch_size);
         batched_obs_shape.extend_from_slice(&obs_shape);
         let mut batched_action_shape: Vec<usize> = Vec::with_capacity(BAR);
         batched_action_shape.push(batch_size);
         batched_action_shape.extend_from_slice(&action_shape);
 
-        let obs_t: Tensor<B, BS> = Tensor::from_data(
+        let obs_t: Tensor<B, BOR> = Tensor::from_data(
             TensorData::new(obs_flat, batched_obs_shape.clone()),
             &device,
         );
-        let next_t_inner: Tensor<B::InnerBackend, BS> =
+        let next_t_inner: Tensor<B::InnerBackend, BOR> =
             Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &device);
         let action_t: Tensor<B, BAR> =
             Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
