@@ -34,12 +34,12 @@ use crate::algorithms::sac::sac_model::{ContinuousQ, SquashedGaussianPolicy};
 ///
 /// # Const generics
 ///
-/// - `DO` — rank of a single observation tensor.
-/// - `SD` — rank of the environment's state tensor (passed through to the
-///   `Environment` bound; typically `DO`).
-/// - `DB` — rank of a batched observation tensor (`DO + 1`).
-/// - `DA` — rank of a single action tensor.
-/// - `DAB` — rank of a batched action tensor (`DA + 1`).
+/// - `OR` — rank of a single observation tensor.
+/// - `SR` — rank of the environment's state tensor (passed through to the
+///   `Environment` bound; typically `OR`).
+/// - `BS` — size of a batched observation tensor (`R + 1`).
+/// - `AR` — rank of a single action tensor.
+/// - `BAR` — rank of a batched action tensor (`AR + 1`).
 ///
 /// # Arguments
 ///
@@ -64,14 +64,14 @@ pub fn train<
     E,
     O,
     A,
-    R,
-    const DO: usize,
-    const SD: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
+    Rew,
+    const OR: usize,
+    const SR: usize,
+    const BS: usize,
+    const AR: usize,
+    const BAR: usize,
 >(
-    agent: &mut SacAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>,
+    agent: &mut SacAgent<B, Actor, Critic, O, A, OR, BS, AR, BAR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
@@ -79,12 +79,12 @@ pub fn train<
 ) -> Result<(), SacAgentError>
 where
     B: AutodiffBackend,
-    Actor: SquashedGaussianPolicy<B, DB, DAB>,
-    Critic: ContinuousQ<B, DB, DAB>,
-    E: Environment<DO, SD, DA, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
-    A: BoundedAction<DA>,
-    R: Reward + Copy,
+    Actor: SquashedGaussianPolicy<B, BS, BAR>,
+    Critic: ContinuousQ<B, BS, BAR>,
+    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
+    A: BoundedAction<AR>,
+    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(env_to_err)?;
     let mut episode_reward = 0.0_f32;

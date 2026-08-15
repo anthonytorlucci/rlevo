@@ -424,7 +424,7 @@ mod tests {
     /// With `$\log \pi$` well below `target_entropy` (i.e. `$\log \pi + \bar{H} < 0$`), the
     /// closed-form gradient is positive so Adam pushes `$\log \alpha$` down.
     #[test]
-    fn auto_alpha_decreases_when_logp_is_below_target_entropy() {
+    fn test_sac_auto_alpha_decreases_when_logp_is_below_target_entropy() {
         let mut la = LogAlpha::new(0.0);
         let before = la.log_alpha();
         la.adam_step(-5.0, -2.0, 1e-1);
@@ -436,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_alpha_increases_when_logp_is_above_target_entropy() {
+    fn test_sac_auto_alpha_increases_when_logp_is_above_target_entropy() {
         let mut la = LogAlpha::new(0.0);
         let before = la.log_alpha();
         la.adam_step(3.0, -2.0, 1e-1);
@@ -448,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn alpha_matches_exp_of_log_alpha() {
+    fn test_sac_alpha_matches_exp_of_log_alpha() {
         let la = LogAlpha::new(0.5);
         let got = la.alpha();
         let expected = 0.5_f32.exp();
@@ -485,7 +485,7 @@ mod tests {
     /// A `NaN` `log_prob_mean` makes `grad` `NaN`; folding that into the EMAs
     /// would be unrecoverable, so the whole step must be a no-op.
     #[test]
-    fn nan_log_prob_leaves_adam_state_untouched() {
+    fn test_sac_nan_log_prob_leaves_adam_state_untouched() {
         let mut la = LogAlpha::new(0.0);
         // Take one healthy step first so the state under test is non-trivial.
         la.adam_step(3.0, -2.0, 1e-2);
@@ -499,7 +499,7 @@ mod tests {
     /// Both infinities take the same path: `grad` is `±inf`, and `v` would
     /// become `inf` (and `m_hat/v_hat` `NaN`) if the step were applied.
     #[test]
-    fn infinite_log_prob_leaves_adam_state_untouched() {
+    fn test_sac_infinite_log_prob_leaves_adam_state_untouched() {
         for (case, lp) in [("+inf", f32::INFINITY), ("-inf", f32::NEG_INFINITY)] {
             let mut la = LogAlpha::new(0.0);
             la.adam_step(3.0, -2.0, 1e-2);
@@ -518,7 +518,7 @@ mod tests {
     /// later `log_alpha` is `NaN` — so the finiteness assertion *and* the
     /// direction assertion both fail.
     #[test]
-    fn optimizer_recovers_after_a_non_finite_gradient() {
+    fn test_sac_optimizer_recovers_after_a_non_finite_gradient() {
         let mut la = LogAlpha::new(0.0);
         let before = la.log_alpha();
 
@@ -548,7 +548,7 @@ mod tests {
     /// The warning is a one-shot latch, so a run that emits `NaN` on every
     /// update logs once rather than flooding.
     #[test]
-    fn nonfinite_grad_warning_latches_after_first_occurrence() {
+    fn test_sac_nonfinite_grad_warning_latches_after_first_occurrence() {
         let mut la = LogAlpha::new(0.0);
         assert!(
             !la.nonfinite_grad_warning_fired(),
@@ -583,7 +583,7 @@ mod tests {
     /// to `+inf`. The guard on `grad` alone does not catch this, so the moments
     /// must be checked after they are computed.
     #[test]
-    fn overflowing_but_finite_gradient_leaves_adam_state_untouched() {
+    fn test_sac_overflowing_but_finite_gradient_leaves_adam_state_untouched() {
         // grad = -(log_prob_mean + target_entropy), so this is grad = -1e21.
         let log_prob_mean = 1e21_f32;
         assert!(
@@ -613,7 +613,7 @@ mod tests {
     /// exactly `0` — `log_alpha` stays finite but never moves again. Asserting
     /// finiteness alone would not catch that, so assert **movement**.
     #[test]
-    fn optimizer_recovers_after_an_overflowing_gradient() {
+    fn test_sac_optimizer_recovers_after_an_overflowing_gradient() {
         let mut la = LogAlpha::new(0.0);
         let before = la.log_alpha();
 
@@ -639,7 +639,7 @@ mod tests {
     /// non-finite-gradient warning cannot suppress the (silent, and therefore
     /// more important) overflow warning.
     #[test]
-    fn moment_overflow_warning_latches_independently_and_once() {
+    fn test_sac_moment_overflow_warning_latches_independently_and_once() {
         let mut la = LogAlpha::new(0.0);
         la.adam_step(f32::NAN, -2.0, 1e-2);
         assert!(la.nonfinite_grad_warning_fired());
@@ -678,7 +678,7 @@ mod tests {
     /// Asserts the chosen semantics exactly: option (a), full rollback, so
     /// nothing at all is committed.
     #[test]
-    fn bias_correction_overflow_rolls_back_the_entire_step() {
+    fn test_sac_bias_correction_overflow_rolls_back_the_entire_step() {
         for grad_mag in [3e19_f32, 5e19, 1e20, 3e20, 5e20] {
             // Confirm the precondition: this band really does clear the guards
             // above, otherwise the test would be exercising the wrong branch.
@@ -716,7 +716,7 @@ mod tests {
     /// finite, so `log_alpha` stays finite while the step size is exactly `0`
     /// for hundreds of updates — assert **movement**, which is what breaks.
     #[test]
-    fn optimizer_recovers_after_a_bias_correction_overflow() {
+    fn test_sac_optimizer_recovers_after_a_bias_correction_overflow() {
         let mut la = LogAlpha::new(0.0);
         let before = la.log_alpha();
 
@@ -741,7 +741,7 @@ mod tests {
     /// step must be applied normally. Guards that trip early would silently
     /// discard legitimate gradients.
     #[test]
-    fn gradients_below_the_overflow_band_are_applied_normally() {
+    fn test_sac_gradients_below_the_overflow_band_are_applied_normally() {
         let mut la = LogAlpha::new(0.0);
         let before = la.log_alpha();
 
@@ -765,7 +765,7 @@ mod tests {
     /// `exp` overflows around `$\log \alpha \approx 88.7$`, so an absurd `$\log \alpha$` — reachable
     /// only via a pathological gradient sequence — must still yield a finite α.
     #[test]
-    fn alpha_is_finite_for_absurd_log_alpha_magnitudes() {
+    fn test_sac_alpha_is_finite_for_absurd_log_alpha_magnitudes() {
         for init in [1e3_f32, 1e30, -1e3, -1e30, f32::MAX, f32::MIN] {
             let la = LogAlpha::new(init);
             let alpha = la.alpha();
@@ -785,7 +785,7 @@ mod tests {
     /// `inf * 0 = NaN`, and `NaN.clamp(..)` propagates `NaN` — so the clamp is
     /// not a sufficient backstop and `lr` is checked up front instead.
     #[test]
-    fn non_finite_lr_is_rejected_rather_than_clamped() {
+    fn test_sac_non_finite_lr_is_rejected_rather_than_clamped() {
         for lr in [f32::INFINITY, f32::NEG_INFINITY, f32::NAN] {
             // grad != 0 (the case the clamp would have caught anyway) and
             // grad == 0 (the case it would not).
@@ -816,7 +816,7 @@ mod tests {
     /// configuration bug rather than surface it. If a future caller can supply
     /// `NaN`, validate at that boundary.
     #[test]
-    fn new_does_not_sanitize_a_nan_seed() {
+    fn test_sac_new_does_not_sanitize_a_nan_seed() {
         let la = LogAlpha::new(f32::NAN);
         assert!(
             la.log_alpha().is_nan(),
@@ -835,7 +835,7 @@ mod tests {
     /// Repeated steps must drive `$\log \alpha$` well inside the clamp: the bound is a
     /// backstop for pathological runs, not part of the normal control loop.
     #[test]
-    fn clamp_does_not_bind_in_a_realistic_run() {
+    fn test_sac_clamp_does_not_bind_in_a_realistic_run() {
         // target_entropy = -dim(A) for a 6-DoF action space, with log-probs in
         // the range a converging squashed-Gaussian actually produces.
         let target_entropy = -6.0;

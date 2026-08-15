@@ -163,15 +163,15 @@ pub struct LearnOutcome {
 ///
 /// Exposed at crate visibility so the unit tests can exercise the SAC
 /// entropy-augmented backup without standing up a full agent.
-pub(crate) fn compute_sac_target<BI: Backend>(
-    rewards: Tensor<BI, 1>,
-    next_q1: Tensor<BI, 1>,
-    next_q2: Tensor<BI, 1>,
-    next_log_prob: Tensor<BI, 1>,
+pub(crate) fn compute_sac_target<BK: Backend>(
+    rewards: Tensor<BK, 1>,
+    next_q1: Tensor<BK, 1>,
+    next_q2: Tensor<BK, 1>,
+    next_log_prob: Tensor<BK, 1>,
     alpha: f32,
-    terminated: Tensor<BI, 1>,
+    terminated: Tensor<BK, 1>,
     gamma: f32,
-) -> Tensor<BI, 1> {
+) -> Tensor<BK, 1> {
     let min_q = next_q1.min_pair(next_q2);
     let entropy_adjusted = min_q - next_log_prob.mul_scalar(alpha);
     compute_target_q_values(rewards, entropy_adjusted, terminated, gamma)
@@ -182,10 +182,10 @@ pub(crate) fn compute_sac_target<BI: Backend>(
 /// # Const generics
 ///
 /// Same layout as [`Td3Agent`](crate::algorithms::td3::td3_agent::Td3Agent):
-/// - `DO` — rank of a single observation tensor.
-/// - `DB` — rank of a batched observation tensor (= `DO + 1`).
-/// - `DA` — rank of a single action tensor.
-/// - `DAB` — rank of a batched action tensor (= `DA + 1`).
+/// - `OR` — rank of a single observation tensor.
+/// - `BOR` — rank of a batched observation tensor (= `R + 1`).
+/// - `AR` — rank of a single action tensor.
+/// - `BAR` — rank of a batched action tensor (= `AR + 1`).
 ///
 /// # Network ownership
 ///
@@ -208,16 +208,16 @@ pub struct SacAgent<
     Critic,
     O,
     A,
-    const DO: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
+    const OR: usize,
+    const BOR: usize,
+    const AR: usize,
+    const BAR: usize,
 > where
     B: AutodiffBackend,
-    Actor: SquashedGaussianPolicy<B, DB, DAB>,
-    Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
-    A: BoundedAction<DA>,
+    Actor: SquashedGaussianPolicy<B, BOR, BAR>,
+    Critic: ContinuousQ<B, BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    A: BoundedAction<AR>,
 {
     actor: Slot<Actor>,
     // Inner-backend snapshot of `actor`, refreshed after each actor update
@@ -289,14 +289,14 @@ pub struct SacAgent<
     _action: PhantomData<A>,
 }
 
-impl<B, Actor, Critic, O, A, const DO: usize, const DB: usize, const DA: usize, const DAB: usize>
-    std::fmt::Debug for SacAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
+impl<B, Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    std::fmt::Debug for SacAgent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
     B: AutodiffBackend,
-    Actor: SquashedGaussianPolicy<B, DB, DAB>,
-    Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
-    A: BoundedAction<DA>,
+    Actor: SquashedGaussianPolicy<B, BOR, BAR>,
+    Critic: ContinuousQ<B, BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    A: BoundedAction<AR>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SacAgent")
@@ -312,14 +312,14 @@ where
     }
 }
 
-impl<B, Actor, Critic, O, A, const DO: usize, const DB: usize, const DA: usize, const DAB: usize>
-    SacAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
+impl<B, Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    SacAgent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
     B: AutodiffBackend,
-    Actor: SquashedGaussianPolicy<B, DB, DAB>,
-    Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
-    A: BoundedAction<DA>,
+    Actor: SquashedGaussianPolicy<B, BOR, BAR>,
+    Critic: ContinuousQ<B, BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    A: BoundedAction<AR>,
 {
     /// Constructs a new agent from pre-built actor and two independent
     /// critic networks.
@@ -352,7 +352,7 @@ where
         device: B::Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
-        assert_bounds_match_components::<DA, A>();
+        assert_bounds_match_components::<AR, A>();
         let actor_snapshot = actor.valid();
         let target_critic_1 = critic_1.valid();
         let target_critic_2 = critic_2.valid();
@@ -642,7 +642,7 @@ where
     /// invariant, the form `docs/rules.md` §4 sanctions here because `act`
     /// returns a bare action and so has no error channel to report the failure
     /// through — issue #317 tracks making the path fallible.
-    pub fn act<R: Rng + ?Sized>(&self, obs: &O, training: bool, rng: &mut R) -> A {
+    pub fn act(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::COMPONENTS)
                 .map(|i| rng.random_range(self.low[i]..=self.high[i]))
@@ -664,12 +664,12 @@ where
         // isn't expanded every env step — the result is never `.backward`'d
         // and the orphan graphs otherwise accumulate in Burn 0.20's shared
         // server (and interfere with later critic backwards).
-        let obs_inner: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
-        let batched_inner: Tensor<B::InnerBackend, DB> = obs_inner.unsqueeze::<DB>();
+        let obs_inner: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
+        let batched_inner: Tensor<B::InnerBackend, BOR> = obs_inner.unsqueeze::<BOR>();
 
         let action_dim = self.actor.get().action_dim();
-        let eps: Tensor<B::InnerBackend, DAB> = if training {
-            sample_noise::<B::InnerBackend, R, DAB>(1, action_dim, &self.device, rng)
+        let eps: Tensor<B::InnerBackend, BAR> = if training {
+            sample_noise::<B::InnerBackend, BAR>(1, action_dim, &self.device, rng)
         } else {
             // ε = 0 ⇒ z = μ, which matches `deterministic_action` for a
             // squashed-Gaussian policy (both evaluate to `scale·tanh(μ)`).
@@ -678,7 +678,7 @@ where
                 &self.device,
             )
         };
-        let raw: Tensor<B::InnerBackend, DAB> =
+        let raw: Tensor<B::InnerBackend, BAR> =
             Actor::forward_sample_inner(&self.actor_snapshot, batched_inner, eps).action;
 
         let data = raw.into_data().convert::<f32>();
@@ -943,9 +943,9 @@ where
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn learn_step<R: Rng + ?Sized>(
+    pub fn learn_step(
         &mut self,
-        rng: &mut R,
+        rng: &mut (impl Rng + ?Sized),
     ) -> Result<Option<LearnOutcome>, SacAgentError> {
         if !self.can_learn() {
             return Ok(None);
@@ -983,20 +983,20 @@ where
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
-        let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(DB);
+        let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(BOR);
         batched_obs_shape.push(batch_size);
         batched_obs_shape.extend_from_slice(&obs_shape);
-        let mut batched_action_shape: Vec<usize> = Vec::with_capacity(DAB);
+        let mut batched_action_shape: Vec<usize> = Vec::with_capacity(BAR);
         batched_action_shape.push(batch_size);
         batched_action_shape.extend_from_slice(&action_shape);
 
-        let obs_t: Tensor<B, DB> = Tensor::from_data(
+        let obs_t: Tensor<B, BOR> = Tensor::from_data(
             TensorData::new(obs_flat, batched_obs_shape.clone()),
             &device,
         );
-        let next_t_inner: Tensor<B::InnerBackend, DB> =
+        let next_t_inner: Tensor<B::InnerBackend, BOR> =
             Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &device);
-        let action_t: Tensor<B, DAB> =
+        let action_t: Tensor<B, BAR> =
             Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
         let rewards_inner: Tensor<B::InnerBackend, 1> =
@@ -1006,8 +1006,8 @@ where
 
         // --- Target computation (no autodiff) ---
         let action_dim = self.actor.get().action_dim();
-        let next_eps: Tensor<B::InnerBackend, DAB> =
-            sample_noise::<B::InnerBackend, R, DAB>(batch_size, action_dim, &device, rng);
+        let next_eps: Tensor<B::InnerBackend, BAR> =
+            sample_noise::<B::InnerBackend, BAR>(batch_size, action_dim, &device, rng);
         let next_sample =
             Actor::forward_sample_inner(&self.actor_snapshot, next_t_inner.clone(), next_eps);
         let next_action = next_sample.action;
@@ -1101,8 +1101,7 @@ where
             .critic_updates
             .is_multiple_of(self.config.policy_frequency)
         {
-            let eps: Tensor<B, DAB> =
-                sample_noise::<B, R, DAB>(batch_size, action_dim, &device, rng);
+            let eps: Tensor<B, BAR> = sample_noise::<B, BAR>(batch_size, action_dim, &device, rng);
             let sample = self.actor.get().forward_sample(obs_t.clone(), eps);
             let log_prob = sample.log_prob;
             // NOTE: canonical SAC uses `min(Q1(s,a), Q2(s,a))` in the actor
@@ -1199,20 +1198,20 @@ where
 }
 
 /// Draws `rows × cols` iid standard-normal samples on CPU and assembles them
-/// into a rank-`DAB` tensor of shape `[rows, cols]`. The built-in
+/// into a rank-`BAR` tensor of shape `[rows, cols]`. The built-in
 /// [`SquashedGaussianPolicyHead`](crate::algorithms::sac::sac_policy::SquashedGaussianPolicyHead)
-/// uses `DAB = 2`; the agent stays generic so higher-rank action layouts can
-/// plug in a custom policy and their own `DAB`.
+/// uses `BAR = 2`; the agent stays generic so higher-rank action layouts can
+/// plug in a custom policy and their own `BAR`.
 // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
 #[allow(clippy::cast_possible_truncation)]
-fn sample_noise<BB: Backend, R: Rng + ?Sized, const DAB: usize>(
+fn sample_noise<BK: Backend, const BAR: usize>(
     rows: usize,
     cols: usize,
-    device: &<BB as burn::tensor::backend::BackendTypes>::Device,
-    rng: &mut R,
-) -> Tensor<BB, DAB> {
+    device: &<BK as burn::tensor::backend::BackendTypes>::Device,
+    rng: &mut (impl Rng + ?Sized),
+) -> Tensor<BK, BAR> {
     use rand_distr::{Distribution, StandardNormal};
     let mut data: Vec<f32> = Vec::with_capacity(rows * cols);
     let normal = StandardNormal;
@@ -1220,7 +1219,7 @@ fn sample_noise<BB: Backend, R: Rng + ?Sized, const DAB: usize>(
         let x: f64 = normal.sample(rng);
         data.push(x as f32);
     }
-    Tensor::<BB, DAB>::from_data(TensorData::new(data, vec![rows, cols]), device)
+    Tensor::<BK, BAR>::from_data(TensorData::new(data, vec![rows, cols]), device)
 }
 
 #[cfg(test)]
@@ -1236,10 +1235,10 @@ mod tests {
     use burn::backend::Flex;
     use rlevo_core::config::ConstraintKind;
 
-    type BI = Flex;
+    type TestBackend = Flex;
 
     #[test]
-    fn metrics_performance_record_returns_reward_and_steps() {
+    fn test_sac_metrics_performance_record_returns_reward_and_steps() {
         let m = SacMetrics {
             reward: 3.5,
             steps: 42,
@@ -1254,7 +1253,7 @@ mod tests {
     }
 
     #[test]
-    fn error_display_uses_thiserror_messages() {
+    fn test_sac_agent_error_display_uses_thiserror_messages() {
         let err = SacAgentError::InvalidAction("bad slice".into());
         assert_eq!(err.to_string(), "Invalid action: bad slice");
     }
@@ -1268,18 +1267,28 @@ mod tests {
     ///   y              = [0.1 + 0.9·1.95, 0.2 + 0.9·0.40, 0.3 + 0·3.85]
     ///                  = [1.855, 0.560, 0.300]
     #[test]
-    fn sac_target_includes_entropy_term() {
+    fn test_sac_target_includes_entropy_term() {
         let device = Default::default();
-        let rewards =
-            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]), &device);
-        let next_q1 =
-            Tensor::<BI, 1>::from_data(TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]), &device);
-        let next_q2 =
-            Tensor::<BI, 1>::from_data(TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]), &device);
-        let next_logp =
-            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]), &device);
-        let terminated =
-            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]), &device);
+        let rewards = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]),
+            &device,
+        );
+        let next_q1 = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]),
+            &device,
+        );
+        let next_q2 = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]),
+            &device,
+        );
+        let next_logp = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]),
+            &device,
+        );
+        let terminated = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]),
+            &device,
+        );
 
         let target = compute_sac_target(rewards, next_q1, next_q2, next_logp, 0.5, terminated, 0.9);
         let data = target.into_data().convert::<f32>();
@@ -1294,11 +1303,18 @@ mod tests {
     #[test]
     fn actor_loss_penalizes_higher_log_prob() {
         let device = Default::default();
-        let min_q = Tensor::<BI, 1>::from_data(TensorData::new(vec![1.0_f32; 4], vec![4]), &device);
-        let logp_low =
-            Tensor::<BI, 1>::from_data(TensorData::new(vec![-0.5_f32; 4], vec![4]), &device);
-        let logp_high =
-            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.5_f32; 4], vec![4]), &device);
+        let min_q = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![1.0_f32; 4], vec![4]),
+            &device,
+        );
+        let logp_low = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![-0.5_f32; 4], vec![4]),
+            &device,
+        );
+        let logp_high = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![0.5_f32; 4], vec![4]),
+            &device,
+        );
         let alpha = 0.3_f32;
         let low_loss = (logp_low.mul_scalar(alpha) - min_q.clone())
             .mean()
@@ -1325,11 +1341,11 @@ mod tests {
     use rand::rngs::StdRng;
     use rlevo_core::action::ContinuousAction;
 
-    type Ad = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
     type GuardAgent = SacAgent<
-        Ad,
-        TinySacActor<Ad>,
-        TinyCritic<Ad>,
+        TestAdBackend,
+        TinySacActor<TestAdBackend>,
+        TinyCritic<TestAdBackend>,
         MaskObservation,
         MaskContinuousAction,
         1,
@@ -1354,17 +1370,24 @@ mod tests {
     /// `TensorConvertible` seam (its fields are private to `bootstrap_mask`).
     fn make_obs(a: f32, b: f32) -> MaskObservation {
         let device = Default::default();
-        let t = Tensor::<Ad, 1>::from_data(TensorData::new(vec![a, b], vec![2]), &device);
-        <MaskObservation as TensorConvertible<1, Ad>>::from_tensor(t).expect("obs from tensor")
+        let t =
+            Tensor::<TestAdBackend, 1>::from_data(TensorData::new(vec![a, b], vec![2]), &device);
+        <MaskObservation as TensorConvertible<1, TestAdBackend>>::from_tensor(t)
+            .expect("obs from tensor")
     }
 
     /// Evaluates critic-2 on a fixed (obs, action) pair and reads the scalar
     /// back — a change across a learn step proves the weights were updated.
     fn critic_2_probe(agent: &GuardAgent) -> f32 {
         let device = Default::default();
-        let obs =
-            Tensor::<Ad, 2>::from_data(TensorData::new(vec![0.3_f32, 0.7], vec![1, 2]), &device);
-        let act = Tensor::<Ad, 2>::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
+        let obs = Tensor::<TestAdBackend, 2>::from_data(
+            TensorData::new(vec![0.3_f32, 0.7], vec![1, 2]),
+            &device,
+        );
+        let act = Tensor::<TestAdBackend, 2>::from_data(
+            TensorData::new(vec![0.0_f32], vec![1, 1]),
+            &device,
+        );
         agent
             .critic_2
             .get()
@@ -1381,7 +1404,7 @@ mod tests {
     /// on independent graphs, so a non-finite loss in critic-1 must skip only
     /// critic-1's update while critic-2 still learns and the agent stays finite.
     #[test]
-    fn sac_one_nonfinite_critic_skips_only_that_critic() {
+    fn test_sac_agent_one_nonfinite_critic_skips_only_that_critic() {
         let device = Default::default();
         let config = SacTrainingConfigBuilder::new()
             .batch_size(2)
@@ -1396,9 +1419,9 @@ mod tests {
             .expect("valid config");
 
         let mut agent = GuardAgent::new(
-            TinySacActor::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
+            TinySacActor::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
             config,
             device,
         )
@@ -1523,9 +1546,9 @@ mod tests {
             .expect("valid config");
 
         let mut agent = GuardAgent::new(
-            TinySacActor::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
+            TinySacActor::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
             config,
             device,
         )
@@ -1554,7 +1577,7 @@ mod tests {
     /// bool-to-counter mistranslation (a latch that sets the count to `1` and
     /// never advances), which is the exact defect the counter replaced.
     #[test]
-    fn sac_counts_repeated_loss_skips() {
+    fn test_sac_agent_counts_repeated_loss_skips() {
         // policy_frequency = 8 keeps the actor cadence off all three steps, so
         // the only site that can skip is critic-1 and the aggregate is
         // unambiguous.
@@ -1653,7 +1676,7 @@ mod tests {
     /// intermediate `critic-2 == 0` assertion below, which holds right up to the
     /// step where critic-2 is diverged deliberately.
     #[test]
-    fn sac_aggregate_skip_count_sums_unequal_sites() {
+    fn test_sac_agent_aggregate_skip_count_sums_unequal_sites() {
         let mut agent = poisoned_critic_1_agent(4);
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -1765,9 +1788,9 @@ mod tests {
             .expect("valid config");
 
         let mut agent = GuardAgent::new(
-            TinySacActor::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
+            TinySacActor::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
             config,
             device,
         )
@@ -1813,7 +1836,7 @@ mod tests {
     /// The pre-ADR-0058 gate was `critic_updates.is_multiple_of(1)`, a no-op
     /// that no test varied — so "every step" was assumed, never observed.
     #[test]
-    fn sac_default_cadence_fires_on_every_critic_update() {
+    fn test_sac_agent_default_cadence_fires_on_every_critic_update() {
         let rule = TargetUpdate::polyak(0.005, 1);
         let tau = rule.tau();
         let mut agent = cadence_agent(rule);
@@ -1842,7 +1865,7 @@ mod tests {
     /// A cadence SAC's flat `target_update_frequency` could express but nothing
     /// in-tree ever exercised: every second critic update, silent in between.
     #[test]
-    fn sac_cadence_of_two_skips_odd_critic_updates() {
+    fn test_sac_agent_cadence_of_two_skips_odd_critic_updates() {
         let rule = TargetUpdate::polyak(0.005, 2);
         let tau = rule.tau();
         let mut agent = cadence_agent(rule);
@@ -1885,15 +1908,15 @@ mod tests {
     // noticed. A per-file test is what makes agent #7's author notice.
 
     #[test]
-    fn sac_remember_drops_a_nonfinite_reward() {
+    fn test_sac_agent_remember_drops_a_nonfinite_reward() {
         let device = Default::default();
         let config = SacTrainingConfigBuilder::new()
             .build()
             .expect("valid config");
         let mut agent = GuardAgent::new(
-            TinySacActor::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
+            TinySacActor::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
             config,
             device,
         )
@@ -1947,9 +1970,9 @@ mod tests {
             .build()
             .expect("valid config");
         GuardAgent::new(
-            TinySacActor::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
-            TinyCritic::<Ad>::new(&device),
+            TinySacActor::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
+            TinyCritic::<TestAdBackend>::new(&device),
             config,
             device,
         )
@@ -1957,7 +1980,7 @@ mod tests {
     }
 
     #[test]
-    fn sac_remember_drops_a_nonfinite_obs() {
+    fn test_sac_agent_remember_drops_a_nonfinite_obs() {
         let mut agent = obs_guard_agent();
         let action = MaskContinuousAction::from_slice(&[0.0]);
 
@@ -1998,7 +2021,7 @@ mod tests {
     }
 
     #[test]
-    fn sac_remember_drops_a_nonfinite_next_obs() {
+    fn test_sac_agent_remember_drops_a_nonfinite_next_obs() {
         let mut agent = obs_guard_agent();
         let action = MaskContinuousAction::from_slice(&[0.0]);
 
@@ -2038,7 +2061,7 @@ mod tests {
     /// `dropped_transitions`. This test pins that ordering — it is the reason
     /// the two counters legitimately disagree, and both accessors document it.
     #[test]
-    fn sac_remember_both_bad_counts_only_the_reward_drop() {
+    fn test_sac_agent_remember_both_bad_counts_only_the_reward_drop() {
         let mut agent = obs_guard_agent();
         let action = MaskContinuousAction::from_slice(&[0.0]);
 
@@ -2067,7 +2090,7 @@ mod tests {
     /// action anyway**. Not substituting is the decision under test, so the
     /// assertion that an action comes back is as load-bearing as the counter.
     #[test]
-    fn sac_act_counts_a_nonfinite_obs_and_still_returns_an_action() {
+    fn test_sac_agent_act_counts_a_nonfinite_obs_and_still_returns_an_action() {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -2106,7 +2129,7 @@ mod tests {
     /// hand `new` a bad capacity, and a test that went through it would be
     /// asserting on the builder instead of on this constructor.
     #[test]
-    fn new_rejects_out_of_range_replay_buffer_capacity() {
+    fn test_sac_agent_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;
         let cases = [
             (0usize, ConstraintKind::Zero),
@@ -2126,9 +2149,9 @@ mod tests {
                 ..SacTrainingConfig::default()
             };
             let Err(err) = GuardAgent::new(
-                TinySacActor::<Ad>::new(&device),
-                TinyCritic::<Ad>::new(&device),
-                TinyCritic::<Ad>::new(&device),
+                TinySacActor::<TestAdBackend>::new(&device),
+                TinyCritic::<TestAdBackend>::new(&device),
+                TinyCritic::<TestAdBackend>::new(&device),
                 config,
                 device,
             ) else {

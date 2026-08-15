@@ -229,13 +229,13 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
 // history length, iteration number. All are bounded by configured sizes far
 // below f32's 2^24 (f64's 2^53) exact-integer limit.
 #[allow(clippy::cast_precision_loss)]
-fn squashed_sample_log_prob<BB: Backend>(
-    mean: Tensor<BB, 2>,
-    log_std: Tensor<BB, 2>,
-    eps: Tensor<BB, 2>,
+fn squashed_sample_log_prob<BK: Backend>(
+    mean: Tensor<BK, 2>,
+    log_std: Tensor<BK, 2>,
+    eps: Tensor<BK, 2>,
     action_scale: f32,
     action_bias: f32,
-) -> (Tensor<BB, 2>, Tensor<BB, 1>) {
+) -> (Tensor<BK, 2>, Tensor<BK, 1>) {
     let action_dim = mean.dims()[1];
     // z = μ + σ·ε
     let std = log_std.clone().exp();
@@ -246,7 +246,7 @@ fn squashed_sample_log_prob<BB: Backend>(
     let scaled = diff / log_std.clone().exp();
     let scaled_sq = scaled.clone() * scaled;
     let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-    let per_dim_gauss: Tensor<BB, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
+    let per_dim_gauss: Tensor<BK, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
 
     // Tanh Jacobian per dim: log(1 − tanh²(z)) = 2·(ln 2 − z − softplus(−2z))
     // Additionally, `action = scale·tanh(z) + bias` introduces a `log|scale|`
@@ -254,7 +254,7 @@ fn squashed_sample_log_prob<BB: Backend>(
     let ln_2 = std::f32::consts::LN_2;
     let neg_two_z = z.clone().mul_scalar(-2.0);
     let sp = softplus(neg_two_z, 1.0);
-    let per_dim_jac: Tensor<BB, 2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
+    let per_dim_jac: Tensor<BK, 2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
 
     let per_dim = per_dim_gauss - per_dim_jac;
     let log_prob_z = per_dim.sum_dim(1).squeeze_dim::<1>(1);
@@ -305,11 +305,11 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for SquashedGaussianPol
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
 #[allow(clippy::cast_possible_truncation)]
-pub fn standard_normal_tensor<B: Backend, R: rand::Rng + ?Sized>(
+pub fn standard_normal_tensor<B: Backend>(
     rows: usize,
     cols: usize,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    rng: &mut R,
+    rng: &mut (impl rand::Rng + ?Sized),
 ) -> Tensor<B, 2> {
     use rand_distr::{Distribution, StandardNormal};
     let mut data: Vec<f32> = Vec::with_capacity(rows * cols);
@@ -330,8 +330,8 @@ mod tests {
     use rand::rngs::StdRng;
     use rlevo_core::config::ConstraintKind;
 
-    type B = Autodiff<Flex>;
-    type BI = Flex;
+    type TestAdBackend = Autodiff<Flex>;
+    type TestBackend = Flex;
 
     /// A config template with valid values; individual tests perturb one field.
     fn valid_cfg() -> SquashedGaussianPolicyHeadConfig {
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn representative_head_config_is_valid() {
+    fn test_sac_policy_representative_head_config_is_valid() {
         assert!(valid_cfg().validate().is_ok());
     }
 
@@ -360,7 +360,7 @@ mod tests {
     /// this rejection subsumes it — if `Bounds` ever started accepting an
     /// inverted range, SAC would silently lose the guard entirely.
     #[test]
-    fn inverted_log_std_bounds_are_unrepresentable() {
+    fn test_sac_policy_inverted_log_std_bounds_are_unrepresentable() {
         assert!(
             Bounds::try_new(5.0, -5.0).is_err(),
             "an inverted log_std range must not be constructible"
@@ -375,7 +375,7 @@ mod tests {
     /// `config::ordered` rejected this as a side effect; the explicit
     /// `config::nondegenerate_bounds` check preserves it.
     #[test]
-    fn validate_rejects_equal_log_std_bounds() {
+    fn test_sac_policy_validate_rejects_equal_log_std_bounds() {
         let cfg = SquashedGaussianPolicyHeadConfig {
             log_std: Bounds::new(1.0, 1.0),
             ..valid_cfg()
@@ -389,13 +389,13 @@ mod tests {
     /// not merely by a `validate()` call a caller might never make — that
     /// bypass is the whole subject of #386.
     #[test]
-    fn try_init_rejects_equal_log_std_bounds() {
+    fn test_sac_policy_try_init_rejects_equal_log_std_bounds() {
         let device = Default::default();
         let cfg = SquashedGaussianPolicyHeadConfig {
             log_std: Bounds::new(1.0, 1.0),
             ..valid_cfg()
         };
-        let err = cfg.try_init::<B>(&device).unwrap_err();
+        let err = cfg.try_init::<TestAdBackend>(&device).unwrap_err();
         assert_eq!(err.config, "SquashedGaussianPolicyHeadConfig");
         assert_eq!(err.field, "log_std");
         assert_eq!(err.kind, ConstraintKind::DegenerateInterval { value: 1.0 });
@@ -408,13 +408,13 @@ mod tests {
     /// zero-width `LinearConfig::new(0, hidden)` builds silently, so without
     /// this check the defect merely changes shape rather than going away.
     #[test]
-    fn try_init_rejects_zero_obs_dim() {
+    fn test_sac_policy_try_init_rejects_zero_obs_dim() {
         let device = Default::default();
         let cfg = SquashedGaussianPolicyHeadConfig {
             obs_dim: 0,
             ..valid_cfg()
         };
-        let err = cfg.try_init::<B>(&device).unwrap_err();
+        let err = cfg.try_init::<TestAdBackend>(&device).unwrap_err();
         assert_eq!(err.config, "SquashedGaussianPolicyHeadConfig");
         assert_eq!(err.field, "obs_dim");
         assert_eq!(err.kind, ConstraintKind::Zero);
@@ -423,7 +423,7 @@ mod tests {
     /// Every remaining `validate()` invariant must be reachable through
     /// `try_init`, not just the first one.
     #[test]
-    fn try_init_rejects_every_invalid_field() {
+    fn test_sac_policy_try_init_rejects_every_invalid_field() {
         let device = Default::default();
         let cases: [(SquashedGaussianPolicyHeadConfig, &str); 4] = [
             (
@@ -457,7 +457,7 @@ mod tests {
         ];
         for (cfg, field) in cases {
             let err = cfg
-                .try_init::<B>(&device)
+                .try_init::<TestAdBackend>(&device)
                 .expect_err("invalid config must not build a head");
             assert_eq!(err.field, field);
         }
@@ -465,10 +465,10 @@ mod tests {
 
     /// A valid config still builds, and the bounds land on the head in order.
     #[test]
-    fn try_init_accepts_a_valid_config_and_carries_the_bounds() {
+    fn test_sac_policy_try_init_accepts_a_valid_config_and_carries_the_bounds() {
         let device = Default::default();
-        let head: SquashedGaussianPolicyHead<B> = valid_cfg()
-            .try_init::<B>(&device)
+        let head: SquashedGaussianPolicyHead<TestAdBackend> = valid_cfg()
+            .try_init::<TestAdBackend>(&device)
             .expect("valid head config");
         assert!((head.log_std_min() - (-5.0)).abs() < f32::EPSILON);
         assert!((head.log_std_max() - 2.0).abs() < f32::EPSILON);
@@ -484,15 +484,22 @@ mod tests {
     ///   − log|1 − tanh²(0.5)| (two terms since `action_dim=2` and we feed the
     ///   same values twice → just double the single-dim result).
     #[test]
-    fn squashed_gaussian_logprob_matches_hand_roll_at_pinned_inputs() {
+    fn test_sac_policy_squashed_gaussian_logprob_matches_hand_roll_at_pinned_inputs() {
         let device = Default::default();
-        let mean =
-            Tensor::<BI, 2>::from_data(TensorData::new(vec![0.0_f32, 0.0], vec![1, 2]), &device);
-        let log_std =
-            Tensor::<BI, 2>::from_data(TensorData::new(vec![0.0_f32, 0.0], vec![1, 2]), &device);
-        let eps =
-            Tensor::<BI, 2>::from_data(TensorData::new(vec![0.5_f32, 0.5], vec![1, 2]), &device);
-        let (action, log_prob) = squashed_sample_log_prob::<BI>(mean, log_std, eps, 1.0, 0.0);
+        let mean = Tensor::<TestBackend, 2>::from_data(
+            TensorData::new(vec![0.0_f32, 0.0], vec![1, 2]),
+            &device,
+        );
+        let log_std = Tensor::<TestBackend, 2>::from_data(
+            TensorData::new(vec![0.0_f32, 0.0], vec![1, 2]),
+            &device,
+        );
+        let eps = Tensor::<TestBackend, 2>::from_data(
+            TensorData::new(vec![0.5_f32, 0.5], vec![1, 2]),
+            &device,
+        );
+        let (action, log_prob) =
+            squashed_sample_log_prob::<TestBackend>(mean, log_std, eps, 1.0, 0.0);
 
         let z = 0.5_f32;
         let gauss_per_dim = -0.5 * (2.0_f32 * std::f32::consts::PI).ln() - 0.5 * z * z;
@@ -515,7 +522,7 @@ mod tests {
     /// Evaluating `deterministic_action` yields `scale·tanh(μ) + bias` and
     /// ignores any ε / `log_std` contribution.
     #[test]
-    fn deterministic_action_applies_scale_and_bias() {
+    fn test_sac_policy_deterministic_action_applies_scale_and_bias() {
         let device = Default::default();
         let cfg = SquashedGaussianPolicyHeadConfig {
             obs_dim: 1,
@@ -525,9 +532,13 @@ mod tests {
             action_scale: 2.0,
             action_bias: 0.5,
         };
-        let head: SquashedGaussianPolicyHead<B> =
-            cfg.try_init::<B>(&device).expect("valid head config");
-        let obs = Tensor::<B, 2>::from_data(TensorData::new(vec![0.1_f32], vec![1, 1]), &device);
+        let head: SquashedGaussianPolicyHead<TestAdBackend> = cfg
+            .try_init::<TestAdBackend>(&device)
+            .expect("valid head config");
+        let obs = Tensor::<TestAdBackend, 2>::from_data(
+            TensorData::new(vec![0.1_f32], vec![1, 1]),
+            &device,
+        );
         let det = head.deterministic_action(obs.clone());
         let (mean, _) = head.mean_and_log_std(obs);
         let expected = tanh(mean).mul_scalar(2.0).add_scalar(0.5);
@@ -538,7 +549,7 @@ mod tests {
 
     /// Two calls with the same ε produce identical samples and log-probs.
     #[test]
-    fn forward_sample_is_deterministic_under_same_eps() {
+    fn test_sac_policy_forward_sample_is_deterministic_under_same_eps() {
         let device = Default::default();
         let cfg = SquashedGaussianPolicyHeadConfig {
             obs_dim: 2,
@@ -548,12 +559,15 @@ mod tests {
             action_scale: 1.0,
             action_bias: 0.0,
         };
-        let head: SquashedGaussianPolicyHead<B> =
-            cfg.try_init::<B>(&device).expect("valid head config");
-        let obs =
-            Tensor::<B, 2>::from_data(TensorData::new(vec![0.2_f32, -0.3], vec![1, 2]), &device);
+        let head: SquashedGaussianPolicyHead<TestAdBackend> = cfg
+            .try_init::<TestAdBackend>(&device)
+            .expect("valid head config");
+        let obs = Tensor::<TestAdBackend, 2>::from_data(
+            TensorData::new(vec![0.2_f32, -0.3], vec![1, 2]),
+            &device,
+        );
         let mut rng = StdRng::seed_from_u64(9);
-        let eps1: Tensor<B, 2> = standard_normal_tensor(1, 1, &device, &mut rng);
+        let eps1: Tensor<TestAdBackend, 2> = standard_normal_tensor(1, 1, &device, &mut rng);
         let eps2 = eps1.clone();
         let o1 = head.forward_sample(obs.clone(), eps1);
         let o2 = head.forward_sample(obs, eps2);
