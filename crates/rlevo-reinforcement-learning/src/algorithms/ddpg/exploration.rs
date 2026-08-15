@@ -10,6 +10,8 @@
 use rand::Rng;
 use rand_distr::{Distribution, StandardNormal};
 
+// todo! consider moving GaussianNoise to utils
+
 /// Per-component Gaussian exploration noise with a fixed standard deviation.
 #[derive(Clone, Copy, Debug)]
 pub struct GaussianNoise {
@@ -78,7 +80,7 @@ mod tests {
     use rand::rngs::StdRng;
 
     #[test]
-    fn gaussian_noise_zero_sigma_is_identity_then_clip() {
+    fn test_gaussian_noise_zero_sigma_is_identity_then_clip() {
         let noise = GaussianNoise::new(0.0);
         let mut rng = StdRng::seed_from_u64(42);
         let out = noise.apply(&[0.3, -0.7], &[-1.0, -1.0], &[1.0, 1.0], &mut rng);
@@ -86,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn gaussian_noise_respects_clip_bounds() {
+    fn test_gaussian_noise_respects_clip_bounds() {
         // Huge sigma → noise will frequently exceed bounds; every emitted
         // component must still land inside [low, high].
         let noise = GaussianNoise::new(100.0);
@@ -104,13 +106,13 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "sigma must be non-negative")]
-    fn gaussian_noise_rejects_negative_sigma() {
+    fn test_gaussian_noise_rejects_negative_sigma() {
         let _ = GaussianNoise::new(-0.1);
     }
 
     #[test]
     #[should_panic(expected = "mean/low length mismatch")]
-    fn gaussian_noise_rejects_length_mismatch() {
+    fn test_gaussian_noise_rejects_length_mismatch() {
         let noise = GaussianNoise::new(0.1);
         let mut rng = StdRng::seed_from_u64(0);
         let _ = noise.apply(&[0.0, 1.0], &[-1.0], &[1.0, 1.0], &mut rng);
