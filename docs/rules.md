@@ -151,7 +151,7 @@ applies is decided by the *kind* of struct, not case by case:
 | Trait | Invariant |
 |-------|-----------|
 | `State<SR>` | `shape().iter().product::<usize>() == numel()` |
-| `Observation<R>` | `shape().iter().product::<usize>() == RANK`; the supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here (ADR 0064) |
+| `Observation<OR>` | `shape().iter().product::<usize>() == RANK`; the supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here (ADR 0064) |
 | `DiscreteAction<AR>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
 | `ContinuousAction<AR>` | `as_slice().len() == COMPONENTS` always, and `from_slice` accepts exactly `COMPONENTS` values — `AR` is the tensor rank, never the component count (ADR 0038) |
 | `BoundedAction<AR>` | `low().len() == high().len() == COMPONENTS` (**not** `AR`), and `low()[i] < high()[i]` for all `i` (ADR 0053) |
@@ -160,7 +160,7 @@ applies is decided by the *kind* of struct, not case by case:
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |
 | `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
 | `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted (ADR 0050) |
-| `PrioritizedReplay<T>` | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` (ADR 0050 §8) |
+| `PrioritizedReplay<T>` | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` (ADR 0050) |
 
 ### Optimisation direction — maximise-native (ADR 0023)
 
