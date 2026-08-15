@@ -3,12 +3,12 @@
 //! Given the target distribution (see
 //! [`crate::algorithms::c51::projection::project_distribution`]) and the
 //! policy network's **log-probabilities** for the taken action, this returns
-//! the **per-sample** cross-entropy `$-\sum_i \text{target}_i \cdot \log p_i$`, one value per
+//! the **per-sample** cross-entropy \\(-\sum_i \text{target}_i \cdot \log p_i\\), one value per
 //! batch element. Reduction is the caller's job.
 //!
 //! Leaving the batch axis unreduced is what lets a caller multiply by a
-//! per-sample importance-sampling weight *before* reducing (ADR 0050 §14);
-//! at `w ≡ 1` the caller's `.mean()` is bit-identical to reducing here.
+//! per-sample importance-sampling weight *before* reducing (ADR 0050);
+//! at \\(\omega \equiv  1\\) the caller's `.mean()` is bit-identical to reducing here.
 //!
 //! Kept separate from the agent struct so it can be reused from benchmarks
 //! and unit-tested independently.
@@ -51,7 +51,7 @@ pub fn categorical_cross_entropy_per_sample<B: Backend>(
 /// backed-up value lands in, so this guard is load-bearing, not defensive.
 const KL_LOG_FLOOR: f32 = 1e-30;
 
-/// Per-sample KL divergence `$D_{KL}(\text{target} \parallel \text{pred})$` — C51's **priority** signal
+/// Per-sample KL divergence \((D_{KL}(\text{target} \parallel \text{pred})\\) — C51's **priority** signal
 /// for prioritized replay (Rainbow), which is deliberately *not* the
 /// cross-entropy the gradient uses.
 ///
@@ -104,10 +104,10 @@ mod tests {
     use burn::tensor::TensorData;
     use burn::tensor::activation;
 
-    type B = Flex;
+    type BE = Flex;
 
-    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<B, 2> {
-        let device = <B as burn::tensor::backend::BackendTypes>::Device::default();
+    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<BE, 2> {
+        let device = <BE as burn::tensor::backend::BackendTypes>::Device::default();
         Tensor::from_data(TensorData::new(data, vec![rows, cols]), &device)
     }
 
@@ -178,7 +178,7 @@ mod tests {
     }
 
     /// Reads a `[batch]` loss tensor to a host `Vec<f32>`.
-    fn to_vec(t: Tensor<B, 1>) -> Vec<f32> {
+    fn to_vec(t: Tensor<BE, 1>) -> Vec<f32> {
         t.into_data()
             .convert::<f32>()
             .into_vec::<f32>()
@@ -187,7 +187,7 @@ mod tests {
 
     /// Builds `predicted_log_probs` from explicit probabilities by taking their
     /// natural log — the exact log-probs the KL formula expects.
-    fn log_of(probs: Vec<f32>, rows: usize, cols: usize) -> Tensor<B, 2> {
+    fn log_of(probs: Vec<f32>, rows: usize, cols: usize) -> Tensor<BE, 2> {
         tensor_2d(probs, rows, cols).log()
     }
 

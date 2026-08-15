@@ -40,11 +40,11 @@ use crate::algorithms::c51::c51_model::C51Model;
 ///
 /// # Const generics
 ///
-/// - `DO` — rank of a single observation tensor (e.g. `1` for flat vector
+/// - `R` — rank of a single observation tensor (e.g. `1` for flat vector
 ///   observations).
-/// - `SD` — rank of the state tensor (unused by the loop itself; forwarded to
+/// - `SR` — rank of the state tensor (unused by the loop itself; forwarded to
 ///   the environment bound).
-/// - `DB` — rank of a batched observation tensor (`DO + 1`).
+/// - `BR` — rank of a batched observation tensor (`R + 1`).
 ///
 /// # Arguments
 ///
@@ -66,8 +66,8 @@ use crate::algorithms::c51::c51_model::C51Model;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
-    agent: &mut C51Agent<B, M, O, A, DO, DB>,
+pub fn train<B, M, E, O, A, Rew, const R: usize, const SR: usize, const BR: usize>(
+    agent: &mut C51Agent<B, M, O, A, R, BR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
@@ -75,11 +75,11 @@ pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize
 ) -> Result<(), C51AgentError>
 where
     B: AutodiffBackend,
-    M: C51Model<B, DB>,
-    E: Environment<DO, SD, 1, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: C51Model<B, BR>,
+    E: Environment<R, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<R> + TensorConvertible<R, B> + TensorConvertible<R, B::InnerBackend>,
     A: DiscreteAction<1>,
-    R: Reward + Copy,
+    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(io_from_env)?;
     let mut episode_reward = 0.0_f32;
