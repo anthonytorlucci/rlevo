@@ -55,17 +55,16 @@ use crate::algorithms::shared::clip_to_action_bounds;
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
 #[allow(clippy::cast_possible_truncation)]
-pub fn smoothed_target_action<BI, R, const DAB: usize>(
-    target_action: Tensor<BI, DAB>,
+pub fn smoothed_target_action<BK, const BAR: usize>(
+    target_action: Tensor<BK, BAR>,
     policy_noise: f32,
     noise_clip: f32,
-    low: Tensor<BI, DAB>,
-    high: Tensor<BI, DAB>,
-    rng: &mut R,
-) -> Tensor<BI, DAB>
+    low: Tensor<BK, BAR>,
+    high: Tensor<BK, BAR>,
+    rng: &mut (impl Rng + ?Sized),
+) -> Tensor<BK, BAR>
 where
-    BI: Backend,
-    R: Rng + ?Sized,
+    BK: Backend,
 {
     assert!(
         policy_noise.is_finite() && policy_noise >= 0.0,
@@ -77,7 +76,7 @@ where
     );
 
     let device = target_action.device();
-    let dims: [usize; DAB] = target_action.dims();
+    let dims: [usize; BAR] = target_action.dims();
     let numel: usize = dims.iter().product();
 
     let normal = StandardNormal;
@@ -88,7 +87,7 @@ where
             scaled.clamp(-noise_clip, noise_clip)
         })
         .collect();
-    let noise_tensor: Tensor<BI, DAB> =
+    let noise_tensor: Tensor<BK, BAR> =
         Tensor::from_data(TensorData::new(noise_vec, dims.to_vec()), &device);
 
     clip_to_action_bounds(target_action + noise_tensor, low, high)
@@ -126,7 +125,7 @@ mod tests {
             Tensor::from_data(TensorData::new(vec![0.3_f32, -5.0], vec![1, 2]), &device);
         let mut rng = StdRng::seed_from_u64(42);
         let (low, high) = uniform_bounds(-1.0, 1.0, 2);
-        let out = smoothed_target_action::<B, _, 2>(action, 0.0, 0.5, low, high, &mut rng);
+        let out = smoothed_target_action::<B, 2>(action, 0.0, 0.5, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
         // `0.3` passes through; `-5.0` clips to `-1.0`.
@@ -147,7 +146,7 @@ mod tests {
             let action: Tensor<B, 2> = Tensor::zeros([4, 2], &device);
             let (low, high) = uniform_bounds(-100.0, 100.0, 2);
             let out =
-                smoothed_target_action::<B, _, 2>(action, 100.0, noise_clip, low, high, &mut rng);
+                smoothed_target_action::<B, 2>(action, 100.0, noise_clip, low, high, &mut rng);
             let data = out.into_data().convert::<f32>();
             for v in data.as_slice::<f32>().unwrap() {
                 assert!(
@@ -168,7 +167,7 @@ mod tests {
         let action: Tensor<B, 2> =
             Tensor::from_data(TensorData::new(vec![10.0_f32; 6], vec![3, 2]), &device);
         let (low, high) = uniform_bounds(-1.0, high_value, 2);
-        let out = smoothed_target_action::<B, _, 2>(action, 0.1, 0.1, low, high, &mut rng);
+        let out = smoothed_target_action::<B, 2>(action, 0.1, 0.1, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         for v in data.as_slice::<f32>().unwrap() {
             assert!(
@@ -197,7 +196,7 @@ mod tests {
             &device,
         );
         // Zero policy noise isolates the outer clip from the smoothing.
-        let out = smoothed_target_action::<B, _, 2>(action, 0.0, 0.5, low, high, &mut rng);
+        let out = smoothed_target_action::<B, 2>(action, 0.0, 0.5, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
 
@@ -229,7 +228,7 @@ mod tests {
         let action: Tensor<B, 2> = Tensor::zeros([1, 1], &device);
         let mut rng = StdRng::seed_from_u64(0);
         let (low, high) = uniform_bounds(-1.0, 1.0, 1);
-        let _ = smoothed_target_action::<B, _, 2>(action, -0.1, 0.5, low, high, &mut rng);
+        let _ = smoothed_target_action::<B, 2>(action, -0.1, 0.5, low, high, &mut rng);
     }
 
     #[test]
@@ -239,6 +238,6 @@ mod tests {
         let action: Tensor<B, 2> = Tensor::zeros([1, 1], &device);
         let mut rng = StdRng::seed_from_u64(0);
         let (low, high) = uniform_bounds(-1.0, 1.0, 1);
-        let _ = smoothed_target_action::<B, _, 2>(action, 0.2, -0.1, low, high, &mut rng);
+        let _ = smoothed_target_action::<B, 2>(action, 0.2, -0.1, low, high, &mut rng);
     }
 }

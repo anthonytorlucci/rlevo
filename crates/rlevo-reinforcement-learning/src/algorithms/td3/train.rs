@@ -50,14 +50,14 @@ pub fn train<
     E,
     O,
     A,
-    R,
-    const DO: usize,
-    const SD: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
+    Rew,
+    const OR: usize,
+    const SR: usize,
+    const BS: usize,
+    const AR: usize,
+    const BAR: usize,
 >(
-    agent: &mut Td3Agent<B, Actor, Critic, O, A, DO, DB, DA, DAB>,
+    agent: &mut Td3Agent<B, Actor, Critic, O, A, OR, BS, AR, BAR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
@@ -65,12 +65,12 @@ pub fn train<
 ) -> Result<(), Td3AgentError>
 where
     B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, DB, DAB>,
-    Critic: ContinuousQ<B, DB, DAB>,
-    E: Environment<DO, SD, DA, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
-    A: BoundedAction<DA>,
-    R: Reward + Copy,
+    Actor: DeterministicPolicy<B, BS, BAR>,
+    Critic: ContinuousQ<B, BS, BAR>,
+    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
+    A: BoundedAction<AR>,
+    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(env_to_err)?;
     let mut episode_reward = 0.0_f32;
@@ -92,7 +92,7 @@ where
         // `terminated` is the Bellman bootstrap mask and is true only for an
         // *environmental* termination. On a truncation (time-limit cutoff) the
         // MDP has not ended, so `next_obs` is a real continuation state and
-        // `γ · V(next_obs)` must survive in the target. Masking on `done` here
+        // \\(\gamma · V(next_obs)\\) must survive in the target. Masking on `done` here
         // would zero the bootstrap at every timeout and bias Q downward on any
         // time-limited env (Pardo et al., "Time Limits in Reinforcement
         // Learning", ICML 2018, Eq. 6 — partial-episode bootstrapping).
