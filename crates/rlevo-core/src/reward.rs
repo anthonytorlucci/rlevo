@@ -9,8 +9,8 @@
 //! [`Reward`]: crate::base::Reward
 //!
 //! ```
-//! use rlevo_core::base::Reward;
-//! use rlevo_core::reward::ScalarReward;
+//! use rlevo::core::base::Reward;
+//! use rlevo::core::reward::ScalarReward;
 //!
 //! let total = ScalarReward::new(1.5) + ScalarReward::new(-0.5);
 //! assert_eq!(f32::from(total), 1.0);
@@ -35,9 +35,9 @@ impl ScalarReward {
     /// # Examples
     ///
     /// ```
-    /// use rlevo_core::reward::ScalarReward;
+    /// use rlevo::core::reward::ScalarReward;
     ///
-    /// let r = ScalarReward::new(-1.0);
+    /// let reward = ScalarReward::new(-1.0);
     /// assert_eq!(f32::from(r), -1.0_f32);
     /// ```
     #[must_use]
@@ -50,9 +50,9 @@ impl ScalarReward {
     /// # Examples
     ///
     /// ```
-    /// use rlevo_core::reward::ScalarReward;
+    /// use rlevo::core::reward::ScalarReward;
     ///
-    /// let r = ScalarReward::new(3.14);
+    /// let reward = ScalarReward::new(3.14);
     /// assert!((r.value() - 3.14_f32).abs() < 1e-6);
     /// ```
     #[must_use]
@@ -98,9 +98,9 @@ mod tests {
     #[test]
     fn zero_is_additive_identity() {
         let zero = ScalarReward::zero();
-        let r = ScalarReward::new(42.5);
-        assert_eq!(zero + r, r);
-        assert_eq!(r + zero, r);
+        let reward = ScalarReward::new(42.5);
+        assert_eq!(zero + reward, reward);
+        assert_eq!(reward + zero, reward);
     }
 
     #[test]
@@ -111,19 +111,19 @@ mod tests {
 
     #[test]
     fn into_f32() {
-        let f: f32 = ScalarReward::new(4.25).into();
-        assert!((f - 4.25).abs() < 1e-6);
+        let reward: f32 = ScalarReward::new(4.25).into();
+        assert!((reward - 4.25).abs() < 1e-6);
     }
 
     #[test]
     fn from_f32() {
-        let r: ScalarReward = 1.5_f32.into();
-        assert_eq!(r, ScalarReward::new(1.5));
+        let reward: ScalarReward = 1.5_f32.into();
+        assert_eq!(reward, ScalarReward::new(1.5));
     }
 
     #[test]
     fn value_accessor_matches_inner() {
-        let r = ScalarReward::new(-1.5);
-        assert_eq!(r.value(), -1.5);
+        let reward = ScalarReward::new(-1.5);
+        assert_eq!(reward.value(), -1.5);
     }
 }

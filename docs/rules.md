@@ -2,7 +2,7 @@
 project: rlevo
 status: active
 type: reference
-date: 2026-05-31
+date: 2026-08-15
 tags: [rules, conventions, constraints, architecture]
 ---
 
@@ -118,14 +118,14 @@ applies is decided by the *kind* of struct, not case by case:
 
 ### Constants and Associated Constants
 - Constants: `UPPER_SNAKE_CASE` (e.g., `ACTION_COUNT`, `MAX_STEPS`, `GOAL_STATE`).
-- Const generic parameters: `D` (observation/state rank), `AD` (action rank), `SD` (state rank).
-- Batch ranks are always `BD = D + 1`, `BAD = AD + 1` — never any other offset.
-- Reified const generic: `const DIM: usize = D` (reify inside trait body for ergonomic access).
+- Const generic parameters: `R` (observation rank), `SR` (state rank), `AR` (action rank) — never overlap. The pre-rename identifiers (`D`/`DIM`/`SD`/`AD`/`BD`/`BAD`) are gone from the code as of release 0.2.0.
+- Batch ranks are always `BR = R + 1`, `BAR = AR + 1`, `BSR = SR + 1` — never any other offset.
+- Reified const generic: `const RANK: usize = R` for `Observation`/`Snapshot`/`TensorConvertible`/`HostRow`; `const RANK: usize = SR` for `State`; `const RANK: usize = AR` for action traits. Inside a trait body the reified name is always `RANK`, never the parameter letter (so `RANK` as a self-citing name reads correctly regardless of the parameter letter at the impl site).
 
 ### Generic Parameters
 - Burn backend: `B: Backend` (always single letter `B`).
-- Domain bounds: `O: Observation<D>`, `A: Action<AD>`, `S: State<SD>`, `R: Reward`.
-- Const generic ordering in signatures: `<const D: usize, const SD: usize, const AD: usize>`.
+- Domain bounds: `O: Observation<R>`, `A: Action<AR>`, `S: State<SR>`, `Rew: Reward` (the trait-bound type ident is `Rew`, not `R`, so it does not collide with the const-generic `R` from §2 above; the `R` namespace in Rust can hold both, but the same letter in two roles is a routine review stumble).
+- Const generic ordering in signatures: `<const R: usize, const SR: usize, const AR: usize>` — observe rank, state rank, action rank. Use this order in every new trait, struct, and impl.
 - Place all non-trivial bounds in a `where` clause, not inline.
 
 ---
@@ -150,13 +150,13 @@ applies is decided by the *kind* of struct, not case by case:
 
 | Trait | Invariant |
 |-------|-----------|
-| `State<D>` | `shape().iter().product::<usize>() == numel()` |
-| `Observation<D>` | `shape().iter().product::<usize>() == DIM`; the supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here (ADR 0064) |
-| `DiscreteAction<D>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
-| `ContinuousAction<D>` | `as_slice().len() == COMPONENTS` always, and `from_slice` accepts exactly `COMPONENTS` values — `D` is the tensor rank, never the component count (ADR 0038) |
-| `BoundedAction<D>` | `low().len() == high().len() == COMPONENTS` (**not** `D`), and `low()[i] < high()[i]` for all `i` (ADR 0053) |
-| `HostRow<D>` | `write_host_row` pushes exactly `row_shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `D` |
-| `TensorConvertible<D, B>` | Two clauses, for all valid `x`: **(1) tensor-image fidelity** — `from_tensor(x.to_tensor(d))?.to_tensor(d) == x.to_tensor(d)`, i.e. decode-then-re-encode is a no-op on the tensor; **(2) no fabrication** — any field `write_host_row` does not write must decode to a value *representing absence* (`None`, or a dedicated "unknown" variant), never to a plausible in-domain value. A type whose `write_host_row` covers every field meets (1) in the stronger form `from_tensor(x.to_tensor(d)) == Ok(x)` and meets (2) vacuously — that is the expected case, and (1) is a **floor**, not licence to be partial. The row-writer half of the contract lives on the backend-independent `HostRow<D>` supertrait; `to_tensor` is derived from it and must not be overridden |
+| `State<SR>` | `shape().iter().product::<usize>() == numel()` |
+| `Observation<R>` | `shape().iter().product::<usize>() == RANK`; the supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here (ADR 0064) |
+| `DiscreteAction<AR>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
+| `ContinuousAction<AR>` | `as_slice().len() == COMPONENTS` always, and `from_slice` accepts exactly `COMPONENTS` values — `AR` is the tensor rank, never the component count (ADR 0038) |
+| `BoundedAction<AR>` | `low().len() == high().len() == COMPONENTS` (**not** `AR`), and `low()[i] < high()[i]` for all `i` (ADR 0053) |
+| `HostRow<R>` | `write_host_row` pushes exactly `row_shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `R` |
+| `TensorConvertible<R, B>` | Two clauses, for all valid `x`: **(1) tensor-image fidelity** — `from_tensor(x.to_tensor(r))?.to_tensor(r) == x.to_tensor(r)`, i.e. decode-then-re-encode is a no-op on the tensor; **(2) no fabrication** — any field `write_host_row` does not write must decode to a value *representing absence* (`None`, or a dedicated "unknown" variant), never to a plausible in-domain value. A type whose `write_host_row` covers every field meets (1) in the stronger form `from_tensor(x.to_tensor(r)) == Ok(x)` and meets (2) vacuously — that is the expected case, and (1) is a **floor**, not licence to be partial. The row-writer half of the contract lives on the backend-independent `HostRow<R>` supertrait; `to_tensor` is derived from it and must not be overridden |
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |
 | `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
 | `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted (ADR 0050) |
@@ -279,7 +279,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | Site | Condition |
 |------|-----------|
 | `DiscreteAction::from_index(i)` | `i >= ACTION_COUNT` |
-| `ContinuousAction::from_slice(v)` | `v.len() != COMPONENTS` (**not** `D`, the tensor rank — ADR 0038/0053) |
+| `ContinuousAction::from_slice(v)` | `v.len() != COMPONENTS` (**not** `AR`, the tensor rank — ADR 0038/0053) |
 | `MultiDiscreteAction::from_indices(arr)` | any `arr[i] >= space[i]` |
 | `UniformReplay::new(capacity)` / `ReplayKind::uniform(capacity)` | `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` |
 | `SumTree::new(capacity)` | `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` — crate-internal defence in depth; `PrioritizedReplayConfig::validate` rejects both first, so no public call path reaches it |
@@ -300,7 +300,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `HillClimbingParams::with_max_iters` | `max_iters == 0` |
 | `HillClimbingParams::with_step_size` | `step_size` not finite or not `> 0` |
 | `HillClimbingParams::with_step_decay` | `step_decay` not finite, `<= 0`, or `> 1` |
-| Batch rank assertion | `BD != D + 1` or `BAD != AD + 1` |
+| Batch rank assertion | `BR != R + 1`, `BAR != AR + 1`, or `BSR != SR + 1` |
 | `ops::selection::tournament_*` | `fitness.is_empty()` or `tournament_size < 2` |
 | `ops::selection::truncation_*` | `fitness.is_empty()` or `top_k > fitness.len()` |
 | `ops::selection::{tournament_select, truncation_select}` | `population.dims()[0] != fitness.len()` |
@@ -463,7 +463,7 @@ example is not a test, and a bench is not an example with timing prints.
 | Integration test | **one crate's** public surface                              | `<crate>/tests/`                               | `cargo test -p <crate>`                        |
 | Integration test | **≥2 crates** together                                      | `crates/rlevo/tests/` (flat)                   | `cargo test -p rlevo`                          |
 | Bench            | **one crate's** hot path                                    | `<crate>/benches/` + `[[bench]]` in that crate | `cargo bench -p <crate>`                       |
-| Bench            | **cross-crate** throughput (e.g. `cartpole_record.rs`)      | `crates/rlevo/benches/`                        | `cargo bench -p rlevo`                         |
+| Bench            | **cross-crate** throughput (env + agent + record sink)      | `crates/rlevo/benches/`                        | `cargo bench -p rlevo`                         |
 | Example          | imports **only the 5 library crates**                       | `crates/rlevo/examples/`                       | `cargo run -p rlevo --example <name>`          |
 | Example          | imports `rlevo-benchmarks` or any **tui/record/report** dep | `crates/rlevo-examples/examples/`              | `cargo run -p rlevo-examples --example <name>` |
 
@@ -497,7 +497,7 @@ Supplementary rules:
 
 - **Scope of `benches` (cargo bench).** A `[[bench]]` target exists to **micro-benchmark core logic** and must **strictly measure execution time or resource allocation** (CPU time, throughput, allocations/peak memory) under `criterion`. It is not a correctness test, not a demo, and not an evaluation run of an agent against an environment (that is `rlevo-benchmarks`). If a "bench" asserts a result or prints a story instead of producing timing/allocation numbers, it is misfiled — move it to a test or an example.
 - **`[[bench]]` entries stay in their owning crate** when measuring a single-crate hot path; declare `criterion` as a `dev-dependency` there.
-- **Cross-crate throughput benches** (those that drive an env + agent + record sink together, e.g. `cartpole_record.rs`) live in `crates/rlevo/benches/`.
+- **Cross-crate throughput benches** (those that drive an env + agent + record sink together) live in `crates/rlevo/benches/`.
 - A bench that needs `rlevo-benchmarks` evaluation-harness machinery is **not** a `[[bench]]` target — it is either a `rlevo-examples` program or a harness-internal helper. Do not smuggle it into a `benches/` dir.
 - `harness = true` (libtest) benches are forbidden; all benches use the `criterion` harness (`harness = false`).
 
@@ -545,11 +545,11 @@ Supplementary rules:
 
 ## 7. Const Generics and Type-Level Constraints
 
-- The const generic `D` always represents the **tensor rank** of an observation or state, not the element count.
-- Batch ranks `BD` and `BAD` must be validated at the call site with `assert_eq!` when the caller supplies them, not silently inferred.
-- Never use `D` for the number of elements; use `numel()` or `shape().iter().product()` for that.
-- Associated type bounds cascade: if `Environment<D, SD, AD>` is parameterised, all five associated types must be consistent with those parameters.
-- `PhantomData<(O, A, R)>` is the approved pattern to carry erased generic parameters in builder/wrapper types.
+- The const generic `R` is the **observation rank** (a *tensor* rank, not an element count) — `SR` is the **state rank** (tensor rank, not the number of elements) — and `AR` is the **action rank** (role varies by action trait: tensor rank on `Action`, tensor rank on `BoundedAction`, but *not* the component count on `ContinuousAction`/`BoundedAction`, which is `COMPONENTS` — see §3). The three are independent: `Environment<R, SR, AR>` permits `R != SR` (ADR 0019 modality-changing POMDPs; ADR 0047's `Sensor<OR, AR, SR>` is the later shaping).
+- Batch ranks `BR`, `BAR`, and `BSR` must be validated at the call site with `assert_eq!` when the caller supplies them, not silently inferred. The pre-rename identifiers (`BD`, `BAD`) are gone as of release 0.2.0; ADR 0052 controls the `BR = R + 1` chokepoint for `TensorConvertible`-derived batches.
+- Never use `R`, `SR`, or `AR` for the number of elements; use `numel()` or `shape().iter().product()` for that. The element count is *always* reachable from the rank plus a `shape()` — and where `shape()` is not faithful to storage (Convention B in ADR 0038), use the trait-declared constant (`COMPONENTS` for `ContinuousAction`/`BoundedAction`).
+- Associated type bounds cascade: if `Environment<R, SR, AR>` is parameterised, all four associated types (`StateType: State<SR>`, `ObservationType: Observation<R>`, `ActionType: Action<AR>`, `SnapshotType: Snapshot<R, …>`) must each carry the corresponding rank through its bound. The fifth type (`RewardType`) is rank-independent. ADR 0047 also folds the observation emission into a `Sensor<OR, AR, SR>` impl on the env, with `OR` set to the same `R` as `ObservationType` in the full-state case.
+- `PhantomData<(O, A, Rew)>` is the approved pattern to carry erased generic parameters in builder/wrapper types — `Rew: Reward`, not `R`, for the same collision reason as §2.
 
 ---
 
@@ -631,10 +631,10 @@ generation-to-generation) diversity the caller relies on.
 - `rlevo-core` must have zero knowledge of any RL algorithm or environment implementation — it defines the contract only.
 - **Construction is separated from the `Environment` behaviour contract.** `Environment` has **no** `new(render: bool)` method (removed by ADR 0011, accepted PR2 2026-06-03). Constructing an environment goes through the standalone `ConstructableEnv` factory trait, which is **not** a supertrait of `Environment`. The `render: bool` parameter survives on `ConstructableEnv::new` as a hint to the `record` feature for frame capture; the live TUI no longer uses it (ADR 0013 removed the env panel). Environments must not require a global runtime or external process at construction time. Do not add `new(render: bool)` to environments or to decorator/wrapper types such as `RecordingTap` or `TuiEnvTap`. (ADR 0011)
 - `EpisodeStatus` is the single source of truth for episode termination; never check done-ness by any other means.
-- **`SnapshotBase` is the only `Snapshot` implementation in the workspace.** It carries optional `SnapshotMetadata` via a fluent `with_metadata(self, SnapshotMetadata) -> Self` builder and overrides `Snapshot::metadata()` to expose it, so needing named reward components or positions is **not** a reason to hand-roll a `Snapshot` impl. A bespoke `SnapshotType` forfeits composition with `TimeLimit` (`wrappers/time_limit.rs` binds its inner env's `SnapshotType = SnapshotBase<D, Obs, Rew>` to mutate `.status` in place) — and every future wrapper bound to `SnapshotBase` the same way. When a family of environments needs a named shape for its snapshot, define a local type alias (`pub type LocomotionSnapshot<O> = SnapshotBase<1, O, ScalarReward>;`), not a new `Snapshot` impl. (ADR 0042)
+- **`SnapshotBase` is the only `Snapshot` implementation in the workspace.** It carries optional `SnapshotMetadata` via a fluent `with_metadata(self, SnapshotMetadata) -> Self` builder and overrides `Snapshot::metadata()` to expose it, so needing named reward components or positions is **not** a reason to hand-roll a `Snapshot` impl. A bespoke `SnapshotType` forfeits composition with `TimeLimit` (`wrappers/time_limit.rs` binds its inner env's `SnapshotType = SnapshotBase<R, Obs, Rew>` to mutate `.status` in place) — and every future wrapper bound to `SnapshotBase` the same way. When a family of environments needs a named shape for its snapshot, define a local type alias (`pub type LocomotionSnapshot<O> = SnapshotBase<1, O, ScalarReward>;`), not a new `Snapshot` impl. (ADR 0042)
 - Replay buffers must maintain `priorities.len() == buffer.len()` as a hard invariant and enforce capacity via explicit `pop_front()` eviction — never rely on `VecDeque`'s internal capacity.
 - All environment `step()` implementations must be deterministic given the same initial state and action sequence. Recording/visualisation taps (`RecordingTap`, `TuiEnvTap`) must never alter env dynamics — observing an environment must not change its trajectory. (ADR 0011/0013)
-- Tensor conversion round-trips (`to_tensor` → `from_tensor`) obey the two-clause `TensorConvertible` contract in §3: decode-then-re-encode is a no-op on the tensor, and any field the row writer omits decodes to an explicit *absence* rather than a fabricated value. Losslessness (`from_tensor(x.to_tensor(d)) == Ok(x)`) is the expected shape and what a type whose `write_host_row` covers every field gets for free. A type that cannot meet even the two clauses — one whose decode would have to invent in-domain data — must not implement `TensorConvertible`.
+- Tensor conversion round-trips (`to_tensor` → `from_tensor`) obey the two-clause `TensorConvertible` contract in §3: decode-then-re-encode is a no-op on the tensor, and any field the row writer omits decodes to an explicit *absence* rather than a fabricated value. Losslessness (`from_tensor(x.to_tensor(r)) == Ok(x)`) is the expected shape and what a type whose `write_host_row` covers every field gets for free. A type that cannot meet even the two clauses — one whose decode would have to invent in-domain data — must not implement `TensorConvertible`.
 - **Visualisation is two products, not a library invariant.** (1) a live **metrics-only** `ratatui` TUI (no env panel), and (2) post-run replay driven by an `EpisodeRecord`, rendered by the static-HTML report from structured per-family env state. The `EpisodeRecord` seam is the canonical path for env playback. (ADR 0013, supersedes 0008)
 - **`AsciiRenderable` is demoted to an optional debug helper.** It is no longer a library-level rendering contract: env families are **not** required to implement it, and there is no `Visualize` supertrait of `Environment`. Implement it only as an ad-hoc debugging aid. (ADR 0013, supersedes 0008)
 - **The render type vocabulary lives in `rlevo-core::render`.** `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, `palette`, `AsciiRenderable`, and `AsciiRenderer` are all defined there. `rlevo-environments::render` is a re-export shim only — do not define new render types in `rlevo-environments`. (ADR 0009)
