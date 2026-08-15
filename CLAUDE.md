@@ -41,14 +41,26 @@ local and CI rustfmt agree — run `cargo fmt --all` before pushing.
 
 ## Working with the Codebase
 
+### Common Generic Types
+
+| Symbol | Type | Description |
+| --- | --- | --- |
+| `OR` | `Observation` | rank of the representative observation tensor |
+| `SR` | `State` | rank of the representative state tensor |
+| `AR` | `Action` | rank of the representative action tensor |
+| `E` | Environment | - |
+| `Rew` | Reward | - |
+| `B` | Burn Autodiff Backend | - |
+| `BK` | Burn Backend | - |
+| `BS` | Batch size | - |
+
 ### Const Generics and Type Inference
 
 When working with const generic dimensions:
-- State order `SR` must match across `State`, its `Observation`, and `Snapshot`
-  for the same-modality case; `Environment<R, SR, AR>` permits `R != SR` for
+- `Environment<OR, SR, AR>` permits `OR != SR` for
   modality-changing POMDPs (see `Observable<OR>`, ADR 0019).
 - Action order `AR` must be consistent with `Action<AR>`.
-- Environment's `R`, `SR`, `AR` parameters create a type-level constraint system.
+- Environment's `OR`, `SR`, `AR` parameters create a type-level constraint system.
 
 If you encounter dimension mismatch errors, verify:
 1. The const generic parameters match across all trait bounds
