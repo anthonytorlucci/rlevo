@@ -182,7 +182,7 @@ pub(crate) const UNIFORM_REPLAY_BETA: ImportanceExponent = ImportanceExponent::O
 ///
 /// Panics if `A::low().len()` or `A::high().len()` differs from
 /// `A::COMPONENTS`, or if `A::low()[i] >= A::high()[i]` for any component `i`.
-pub(crate) fn assert_bounds_match_components<const DA: usize, A: BoundedAction<DA>>() {
+pub(crate) fn assert_bounds_match_components<const AR: usize, A: BoundedAction<AR>>() {
     assert_eq!(
         A::low().len(),
         A::COMPONENTS,
@@ -228,12 +228,12 @@ pub(crate) fn assert_bounds_match_components<const DA: usize, A: BoundedAction<D
 /// `COMPONENTS` long — so an action using ADR 0053 §8's Convention B (rank > 1
 /// with a non-matching `shape()` product) is unusable with these agents, and
 /// says so here rather than as a `TensorData` shape error.
-pub(crate) fn action_bound_tensors<BI, A, const DA: usize, const DAB: usize>(
-    device: &BI::Device,
-) -> (Tensor<BI, DAB>, Tensor<BI, DAB>)
+pub(crate) fn action_bound_tensors<B, A, const AR: usize, const BAR: usize>(
+    device: &B::Device,
+) -> (Tensor<B, BAR>, Tensor<B, BAR>)
 where
-    BI: Backend,
-    A: BoundedAction<DA>,
+    B: Backend,
+    A: BoundedAction<AR>,
 {
     let action_shape = A::shape();
     let numel: usize = action_shape.iter().product();
@@ -245,7 +245,7 @@ where
         A::COMPONENTS,
     );
 
-    let mut shape: Vec<usize> = Vec::with_capacity(DAB);
+    let mut shape: Vec<usize> = Vec::with_capacity(BAR);
     shape.push(1);
     shape.extend_from_slice(&action_shape);
 
@@ -265,13 +265,13 @@ where
 /// `E: ElementConversion` and cannot express one limit per component, so this
 /// is `max_pair` followed by `min_pair` — two broadcast elementwise ops rather
 /// than one fused scalar clamp, over the same `[batch, ..action_shape]` data.
-pub(crate) fn clip_to_action_bounds<BI, const DAB: usize>(
-    actions: Tensor<BI, DAB>,
-    low: Tensor<BI, DAB>,
-    high: Tensor<BI, DAB>,
-) -> Tensor<BI, DAB>
+pub(crate) fn clip_to_action_bounds<B, const BAR: usize>(
+    actions: Tensor<B, BAR>,
+    low: Tensor<B, BAR>,
+    high: Tensor<B, BAR>,
+) -> Tensor<B, BAR>
 where
-    BI: Backend,
+    B: Backend,
 {
     actions.max_pair(low).min_pair(high)
 }
@@ -293,7 +293,7 @@ where
 ///   that sample's contribution to both loss and gradient.
 ///
 /// The largest weight in a prioritized batch is exactly `1.0`, so a batch drawn
-/// with `$\beta = 0$` (all weights `1.0`) also reduces to a plain mean.
+/// with \\(\beta = 0\\) (all weights `1.0`) also reduces to a plain mean.
 pub(crate) fn reduce_weighted_loss<B: Backend>(
     per_sample: Tensor<B, 1>,
     batch: &SampledBatch,
