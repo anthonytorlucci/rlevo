@@ -9,8 +9,8 @@
 //! [`Reward`]: crate::base::Reward
 //!
 //! ```
-//! use rlevo::core::base::Reward;
-//! use rlevo::core::reward::ScalarReward;
+//! use rlevo_core::base::Reward;
+//! use rlevo_core::reward::ScalarReward;
 //!
 //! let total = ScalarReward::new(1.5) + ScalarReward::new(-0.5);
 //! assert_eq!(f32::from(total), 1.0);
@@ -35,7 +35,7 @@ impl ScalarReward {
     /// # Examples
     ///
     /// ```
-    /// use rlevo::core::reward::ScalarReward;
+    /// use rlevo_core::reward::ScalarReward;
     ///
     /// let reward = ScalarReward::new(-1.0);
     /// assert_eq!(f32::from(r), -1.0_f32);
@@ -50,7 +50,7 @@ impl ScalarReward {
     /// # Examples
     ///
     /// ```
-    /// use rlevo::core::reward::ScalarReward;
+    /// use rlevo_core::reward::ScalarReward;
     ///
     /// let reward = ScalarReward::new(3.14);
     /// assert!((r.value() - 3.14_f32).abs() < 1e-6);
