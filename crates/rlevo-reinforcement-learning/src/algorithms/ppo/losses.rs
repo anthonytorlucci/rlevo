@@ -192,15 +192,18 @@ mod tests {
     use burn::backend::Flex;
     use burn::tensor::TensorData;
 
-    type B = Flex;
+    type TestBackend = Flex;
 
-    fn t1(data: &[f32]) -> Tensor<B, 1> {
+    fn t1(data: &[f32]) -> Tensor<TestBackend, 1> {
         let device = Default::default();
-        Tensor::<B, 1>::from_data(TensorData::new(data.to_vec(), vec![data.len()]), &device)
+        Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(data.to_vec(), vec![data.len()]),
+            &device,
+        )
     }
 
     #[test]
-    fn ppo_clipped_obj_hand_rolled() {
+    fn test_ppo_losses_clipped_obj_hand_rolled() {
         // ratio = [1.5, 0.5], advantages = [1.0, -1.0], clip = 0.2
         // new_lp − old_lp = ln(ratio) ⇒ use old_lp=0, new_lp=ln(r).
         let new_lp = t1(&[1.5_f32.ln(), 0.5_f32.ln()]);
@@ -222,7 +225,7 @@ mod tests {
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    fn advantage_norm_has_unit_var() {
+    fn test_ppo_losses_advantage_norm_has_unit_var() {
         let advs = t1(&[1.0, 2.0, 3.0, 4.0, 5.0]);
         let norm = normalize_advantages(advs);
         let data = norm.into_data();
@@ -234,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn unclipped_value_loss_is_half_mse() {
+    fn test_ppo_losses_unclipped_value_loss_is_half_mse() {
         let v = t1(&[0.0, 2.0]);
         let r = t1(&[1.0, 0.0]);
         // (v - r) = [-1, 2] → sq = [1, 4] → mean = 2.5 → × 0.5 = 1.25
@@ -243,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn clipped_value_loss_limits_update() {
+    fn test_ppo_losses_clipped_value_loss_limits_update() {
         // old_v = [0], new_v = [10], returns = [0], clip = 0.5
         // unclipped sq = 100
         // clipped_v = old + clamp(new - old, ±0.5) = 0 + 0.5 = 0.5, sq = 0.25
@@ -257,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn approx_kl_nonnegative_for_shifted_distribution() {
+    fn test_ppo_losses_approx_kl_nonnegative_for_shifted_distribution() {
         let new_lp = t1(&[0.6_f32.ln(), 0.4_f32.ln()]);
         let old_lp = t1(&[0.5_f32.ln(), 0.5_f32.ln()]);
         let kl = approx_kl(new_lp, old_lp);
@@ -265,14 +268,14 @@ mod tests {
     }
 
     #[test]
-    fn approx_kl_zero_when_identical() {
+    fn test_ppo_losses_approx_kl_zero_when_identical() {
         let lp = t1(&[0.1_f32.ln(), 0.9_f32.ln()]);
         let kl = approx_kl(lp.clone(), lp);
         assert!(kl.abs() < 1e-6, "expected 0 kl, got {kl}");
     }
 
     #[test]
-    fn old_approx_kl_is_mean_neg_logratio() {
+    fn test_ppo_losses_old_approx_kl_is_mean_neg_logratio() {
         // old_lp = 0, new_lp = ln(r) ⇒ old_approx_kl = mean(−ln r)
         let new_lp = t1(&[2.0_f32.ln(), 0.5_f32.ln()]);
         let old_lp = t1(&[0.0, 0.0]);
@@ -282,14 +285,14 @@ mod tests {
     }
 
     #[test]
-    fn explained_variance_perfect_fit_is_one() {
+    fn test_ppo_losses_explained_variance_perfect_fit_is_one() {
         let returns = [1.0, 2.0, 3.0, 4.0];
         let values = [1.0, 2.0, 3.0, 4.0];
         assert!((explained_variance(&returns, &values) - 1.0).abs() < 1e-6);
     }
 
     #[test]
-    fn explained_variance_mean_predictor_is_zero() {
+    fn test_ppo_losses_explained_variance_mean_predictor_is_zero() {
         // Predicting the constant mean explains none of the variance.
         let returns = [1.0, 2.0, 3.0, 4.0];
         let mean = 2.5;
@@ -298,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn explained_variance_penalises_constant_bias_cleanrl_convention() {
+    fn test_ppo_losses_explained_variance_penalises_constant_bias_cleanrl_convention() {
         // Perfectly-shaped value net with a constant +1 offset. The scikit R²
         // (centered) form would give 1.0; the CleanRL non-centered form we use
         // penalises the bias. returns var = 2/3, residual mean-sq = 1.0 ⇒
@@ -313,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn explained_variance_zero_variance_returns_zero_not_nan() {
+    fn test_ppo_losses_explained_variance_zero_variance_returns_zero_not_nan() {
         let returns = [5.0; 8];
         let values = [3.0; 8];
         let ev = explained_variance(&returns, &values);
@@ -322,12 +325,12 @@ mod tests {
     }
 
     #[test]
-    fn explained_variance_empty_is_zero() {
+    fn test_ppo_losses_explained_variance_empty_is_zero() {
         assert_eq!(explained_variance(&[], &[]), 0.0);
     }
 
     #[test]
-    fn clip_fraction_counts_both_sides() {
+    fn test_ppo_losses_clip_fraction_counts_both_sides() {
         // ratios [0.5, 1.0, 1.5], clip 0.2 → below 0.8 and above 1.2 → 2/3
         let new_lp = t1(&[0.5_f32.ln(), 1.0_f32.ln(), 1.5_f32.ln()]);
         let old_lp = t1(&[0.0, 0.0, 0.0]);

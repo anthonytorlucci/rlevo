@@ -7,13 +7,13 @@
 //! "store-on-CPU, materialise-on-device" pattern and avoids holding a live
 //! autodiff graph on the GPU across multiple update epochs.
 //!
-//! # GAE
+//! # GAE - Generalized Advantage Estimation
 //!
 //! [`compute_gae`] follows Schulman et al. 2016 with **partial-episode
 //! bootstrapping** (Pardo et al. 2018, Eq. 6) at truncations, per ADR 0048.
 //! A truncated step bootstraps its delta from `V(s_continuation)` while its
 //! λ-recursion is cut; a terminated step does neither. This deliberately
-//! diverges from `CleanRL`'s default PPO, which ORs the two flags.
+//! diverges from `CleanRL`'s default PPO.
 //!
 //! # Indexing convention
 //!
@@ -395,8 +395,10 @@ pub fn compute_gae(
 mod tests {
     use super::*;
 
+    type TestBackend = burn::backend::Flex;
+
     #[test]
-    fn gae_matches_reference_trajectory_no_termination() {
+    fn test_rollout_gae_matches_reference_trajectory_no_termination() {
         // 5-step rollout, no mid-rollout episode boundary.
         //
         // `values` is deliberately non-constant: a flat critic makes both the
@@ -453,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn gae_handles_terminated_mid_rollout() {
+    fn test_rollout_gae_handles_terminated_mid_rollout() {
         // 3-step rollout. `term[1] == true` means the transition *out of* step 1
         // terminated the episode, so the bootstrap is cut after step 1 — not
         // after step 0.
@@ -501,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn gae_bootstraps_truncation_value_mid_rollout() {
+    fn test_rollout_gae_bootstraps_truncation_value_mid_rollout() {
         // Same 3-step rollout as `gae_handles_terminated_mid_rollout`, but the
         // transition out of step 1 was *truncated* (a time limit fired) with
         // V(s_continuation) = 2.0. Partial-episode bootstrapping splits the
@@ -552,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn gae_truncation_differs_from_termination() {
+    fn test_rollout_gae_truncation_differs_from_termination() {
         // The same boundary at the same index, differing only in *why* the
         // episode ended, must produce different advantages. Under the old
         // `terminated || truncated` collapse these were identical.
@@ -593,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    fn gae_terminal_final_step_zeros_bootstrap() {
+    fn test_rollout_gae_terminal_final_step_zeros_bootstrap() {
         // Single-step rollout whose one transition terminated. The final step's
         // own stored status — not a separate `last_done` argument — is what
         // zeroes the bootstrap, so the supplied `last_value` is ignored.
@@ -615,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    fn gae_running_final_step_uses_last_value() {
+    fn test_rollout_gae_running_final_step_uses_last_value() {
         // Same rollout, but the episode is still `Running`, so `last_value`
         // *is* the bootstrap: δ₀ = 1 + 0.99·10 − 0.5 = 10.4
         let (advs, _) = compute_gae(&[1.0], &[0.5], &[false], &[None], 10.0, 0.99, 0.95);
@@ -628,23 +630,21 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "capacity must be in 1..=")]
-    fn new_rejects_zero_capacity() {
-        type B = burn::backend::Flex;
-        let _: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(0, 1);
+    fn test_rollout_buffer_new_rejects_zero_capacity() {
+        let _: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(0, 1);
     }
 
     #[test]
     #[should_panic(expected = "capacity must be in 1..=")]
-    fn new_rejects_capacity_above_ceiling() {
-        type B = burn::backend::Flex;
-        let _: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(MAX_BUFFER_CAPACITY + 1, 1);
+    fn test_rollout_buffer_new_rejects_capacity_above_ceiling() {
+        let _: RolloutBuffer<TestBackend, [f32; 1]> =
+            RolloutBuffer::new(MAX_BUFFER_CAPACITY + 1, 1);
     }
 
     #[test]
     #[should_panic(expected = "action_dim must be in 1..=")]
-    fn new_rejects_zero_action_dim() {
-        type B = burn::backend::Flex;
-        let _: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(4, 0);
+    fn test_roolout_buffer_new_rejects_zero_action_dim() {
+        let _: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(4, 0);
     }
 
     /// Neither factor is out of range on its own — both are far below
@@ -653,12 +653,11 @@ mod tests {
     /// only checked the two arguments individually would accept this.
     #[test]
     #[should_panic(expected = "capacity * action_dim must be at most")]
-    fn new_rejects_product_above_ceiling() {
-        type B = burn::backend::Flex;
+    fn test_rollout_buffer_new_rejects_product_above_ceiling() {
         // Both arguments pass the per-argument checks; only the product fails.
         let capacity = MAX_BUFFER_CAPACITY / 2;
         let action_dim = 4;
-        let _: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(capacity, action_dim);
+        let _: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(capacity, action_dim);
     }
 
     /// Same defect class as above, one step further out: the product does not
@@ -667,18 +666,16 @@ mod tests {
     /// `Vec::with_capacity` a silently wrong allocation.
     #[test]
     #[should_panic(expected = "overflows usize")]
-    fn new_rejects_product_overflowing_usize() {
-        type B = burn::backend::Flex;
+    fn test_rollout_buffer_new_rejects_product_overflowing_usize() {
         // 2^32 * 2^32 == 2^64: each factor is exactly at the ceiling and so
         // passes its own check, while the product wraps to 0.
-        let _: RolloutBuffer<B, [f32; 1]> =
+        let _: RolloutBuffer<TestBackend, [f32; 1]> =
             RolloutBuffer::new(MAX_BUFFER_CAPACITY, MAX_BUFFER_CAPACITY);
     }
 
     #[test]
-    fn last_step_ended_tracks_final_status() {
-        type B = burn::backend::Flex;
-        let mut buf: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(4, 1);
+    fn test_rollout_buffer_last_step_ended_tracks_final_status() {
+        let mut buf: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(4, 1);
         assert!(!buf.last_step_ended(), "empty buffer has no final step");
         buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, StepEnd::Running);
         assert!(!buf.last_step_ended(), "running final step has not ended");
@@ -698,9 +695,8 @@ mod tests {
     }
 
     #[test]
-    fn buffer_push_and_indices() {
-        type B = burn::backend::Flex;
-        let mut buf: RolloutBuffer<B, [f32; 2]> = RolloutBuffer::new(4, 1);
+    fn test_rollout_buffer_push_and_indices() {
+        let mut buf: RolloutBuffer<TestBackend, [f32; 2]> = RolloutBuffer::new(4, 1);
         buf.push_step([0.0, 0.0], &[0.0], 0.0, 0.0, 1.0, StepEnd::Running);
         buf.push_step([1.0, 1.0], &[1.0], -0.1, 0.1, 1.0, StepEnd::Running);
         buf.push_step([2.0, 2.0], &[2.0], -0.2, 0.2, 1.0, StepEnd::Terminated);
@@ -714,9 +710,8 @@ mod tests {
     }
 
     #[test]
-    fn gather_action_flat_rows_concatenate() {
-        type B = burn::backend::Flex;
-        let mut buf: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(4, 2);
+    fn test_rollout_buffer_gather_action_flat_rows_concatenate() {
+        let mut buf: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(4, 2);
         buf.push_step([0.0], &[1.0, 2.0], 0.0, 0.0, 0.0, StepEnd::Running);
         buf.push_step([0.0], &[3.0, 4.0], 0.0, 0.0, 0.0, StepEnd::Running);
         buf.push_step([0.0], &[5.0, 6.0], 0.0, 0.0, 0.0, StepEnd::Running);

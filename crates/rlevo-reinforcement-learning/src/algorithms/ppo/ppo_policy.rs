@@ -32,9 +32,9 @@ use rand::Rng;
 /// Result of sampling from a policy: action tensor plus its log-probability
 /// and entropy under the current policy.
 #[derive(Debug, Clone)]
-pub struct PolicyOutput<B: Backend, T> {
+pub struct PolicyOutput<B: Backend, A> {
     /// Sampled action batch. Shape and dtype are policy-specific.
-    pub action: T,
+    pub action: A,
     /// Log-probability of each sampled action under the policy that produced
     /// it, shape `(batch,)`.
     pub log_prob: Tensor<B, 1>,
@@ -53,9 +53,9 @@ pub struct LogProbEntropy<B: Backend> {
 
 /// Contract implemented by any network usable as a PPO policy.
 ///
-/// The `DB` const generic is the batched observation tensor rank (usually
+/// The `BOR` const generic is the batched observation tensor rank (usually
 /// `2` for vector observations of shape `[batch, features]`).
-pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
+pub trait PpoPolicy<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     /// The tensor type produced by [`sample_with_logprob`](Self::sample_with_logprob)
     /// and consumed by [`evaluate`](Self::evaluate).
     type ActionTensor: Clone;
@@ -68,16 +68,16 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
     /// Samples actions for each row of `obs`, returning action, log-prob, and
     /// entropy. Implementations must thread `rng` explicitly rather than
     /// relying on thread-local state.
-    fn sample_with_logprob<R: Rng + ?Sized>(
+    fn sample_with_logprob(
         &self,
-        obs: Tensor<B, DB>,
-        rng: &mut R,
+        obs: Tensor<B, BOR>,
+        rng: &mut (impl Rng + ?Sized),
     ) -> PolicyOutput<B, Self::ActionTensor>;
 
     /// Evaluates log-probability and entropy of `actions` under the current
     /// policy. Used by the PPO update loop to compute the new log-probs for
     /// importance weighting.
-    fn evaluate(&self, obs: Tensor<B, DB>, actions: Self::ActionTensor) -> LogProbEntropy<B>;
+    fn evaluate(&self, obs: Tensor<B, BOR>, actions: Self::ActionTensor) -> LogProbEntropy<B>;
 
     /// Extracts one action row from the sampled tensor as `action_dim()`
     /// f32s in the **buffer representation**. For the tanh-squashed
@@ -163,6 +163,6 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
     /// [`AutodiffModule::valid`] and reuse it across many steps.
     fn deterministic_env_row_inner(
         inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, DB>,
+        obs: Tensor<B::InnerBackend, BOR>,
     ) -> Vec<f32>;
 }
