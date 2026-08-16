@@ -332,7 +332,8 @@ pub(crate) fn sanitize_fitness(f: f32) -> f32 {
 /// sanitized `+∞` is not excluded from a sum, it *joins* it. And
 /// `f32::MAX + f32::MAX == f32::INFINITY`: **two** saturated members are enough
 /// to blow an `f32` accumulator to `+∞`, producing exactly the infinite mean the
-/// clamp is often assumed to prevent (issue #132, issue #1062).
+/// clamp is often assumed to prevent — a pattern that recurred at more than one
+/// call site before it was generalized here rather than patched locally again.
 ///
 /// The clamp and the accumulator width answer two different questions. The clamp
 /// bounds one *value*, so it can be compared, stored, and summed **at all**; only

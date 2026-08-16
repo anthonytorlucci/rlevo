@@ -339,8 +339,8 @@ where
         mut state: PsoState<B>,
         _rng: &mut dyn Rng,
     ) -> (PsoState<B>, StrategyMetrics) {
-        // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3,
-        // issue #131): the harness chokepoint already applies
+        // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3):
+        // the harness chokepoint already applies
         // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
         // a direct `ask`/`tell` driver can hand us a raw `NaN`. PSO latches
         // fitness into the persistent `personal_best_fitness` cache and
@@ -642,7 +642,7 @@ mod tests {
         assert!(m.broken_count() >= 1, "the NaN row must be counted broken");
     }
 
-    /// Regression for the ADR 0034 decision-3 bypass hole (issue #131): a
+    /// Regression for the ADR 0034 decision-3 bypass hole: a
     /// driver calling `init → ask → tell` directly gets no harness sanitize, so
     /// a raw `NaN` used to latch into `personal_best_fitness[0]` and freeze
     /// that particle's personal best permanently — `x > NaN` is false for every

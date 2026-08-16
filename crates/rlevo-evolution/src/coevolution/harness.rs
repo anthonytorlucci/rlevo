@@ -315,7 +315,7 @@ mod tests {
     /// A `NaN` fitness from a [`CoupledFitness`] impl cannot make the harness
     /// reward `NaN`: the coupled-fitness chokepoint sanitizes before `best_a`/
     /// `best_b` are computed, so `min(best_a, best_b)` is finite-or-`−∞`.
-    /// Regression for issue #134 (harness §1.1) / ADR 0034.
+    /// Pins this guarantee per ADR 0034's chokepoint convention.
     #[test]
     fn harness_reward_is_never_nan_with_nan_fitness() {
         let device = Default::default();

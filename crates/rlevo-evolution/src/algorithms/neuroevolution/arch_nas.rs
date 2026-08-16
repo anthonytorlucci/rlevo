@@ -1148,7 +1148,7 @@ mod tests {
         assert_eq!(state.generation(), 7);
     }
 
-    /// Regression (ADR 0034, issue #133): `tell` is the `ArchNasStrategy` chokepoint
+    /// Regression (ADR 0034): `tell` is the `ArchNasStrategy` chokepoint
     /// and must sanitize non-finite fitness before `update_best`/store. A `NaN`
     /// member must never become the champion nor survive into the next ask's
     /// selection; a `+∞` member must rank top but as a **finite** value

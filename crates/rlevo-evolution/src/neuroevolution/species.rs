@@ -302,10 +302,10 @@ pub fn speciate(
         // The accumulator width — not the ADR 0034 clamp — is what keeps the mean
         // finite: a sanitized `+∞` arrives as the *finite* `f32::MAX` and so joins
         // the sum, and *two* such members saturate an `f32` accumulator
-        // (`f32::MAX + f32::MAX == f32::INFINITY`, issue #1062), handing
-        // `allocate_offspring` an infinite `total` that erases fitness-proportional
-        // apportionment for the whole population. The rationale lives on the
-        // primitive; only the site-specific consequences are noted here.
+        // (`f32::MAX + f32::MAX == f32::INFINITY`), handing `allocate_offspring`
+        // an infinite `total` that erases fitness-proportional apportionment for
+        // the whole population. The rationale lives on the primitive; only the
+        // site-specific consequences are noted here.
         //
         // Site-specific: a broken (sanitized-to-`−∞`) member still drives this
         // species' mean to `−∞`, which the downstream `.max(0.0)` in
@@ -382,8 +382,9 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
     // species of values each bounded by `f32::MAX` (ADR 0034 clamps a raw `+∞` to
     // that finite value, so it joins the sum rather than being excluded). Two such
     // species overflow an `f32` accumulator to `+∞` even though every term is
-    // finite — this is issue #1062's *second*, independent overflow, and it fires
-    // even when `speciate` gave every species an individually finite mean.
+    // finite — a second, independent overflow site distinct from `speciate`'s
+    // per-species mean above, and one that fires even when `speciate` gave every
+    // species an individually finite mean.
     //
     // What an infinite `total` costs: it slips past the `total <= 0.0` guard
     // below, every share then evaluates to `x / ∞ == 0.0`, every `base` floors to
@@ -785,7 +786,7 @@ mod tests {
         );
     }
 
-    /// Regression (ADR 0034, issue #133): `speciate` sanitizes each member's
+    /// Regression (ADR 0034): `speciate` sanitizes each member's
     /// fitness before the per-species best / `adjusted_fitness_sum` reductions.
     /// A raw `NaN` must not become a species best nor poison the size-adjusted
     /// mean (which would corrupt offspring apportionment for the whole run); a
@@ -868,7 +869,7 @@ mod tests {
         species
     }
 
-    /// Regression (issue #1062): **two** `+∞` members in one species must not
+    /// Regression (ADR 0069): **two** `+∞` members in one species must not
     /// overflow `adjusted_fitness_sum` to `+∞`.
     ///
     /// ADR 0034 sanitizes `+∞` to `f32::MAX`, which is *finite* and therefore
@@ -900,7 +901,7 @@ mod tests {
         approx::assert_relative_eq!(species[0].adjusted_fitness_sum, expected);
     }
 
-    /// Regression (issue #1062): a species poisoned by two `+∞` members must not
+    /// Regression (ADR 0069): a species poisoned by two `+∞` members must not
     /// erase fitness-proportional apportionment for the **whole** population.
     ///
     /// This is the **end-to-end** assertion: `speciate` must not hand
@@ -951,7 +952,7 @@ mod tests {
         );
     }
 
-    /// Regression (issue #1062): `allocate_offspring`'s `total` overflows
+    /// Regression (ADR 0069): `allocate_offspring`'s `total` overflows
     /// **independently** of `speciate`. Each species' `adjusted_fitness_sum` here
     /// is individually finite, yet their sum saturates an `f32` accumulator — so
     /// `total` must be accumulated *and kept* in `f64`.

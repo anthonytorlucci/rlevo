@@ -1,4 +1,6 @@
-//! Integration test for bounded architecture NAS (issue #42).
+//! Integration test for bounded architecture NAS: a fixed menu of network
+//! topology variants (as opposed to open-ended topology search) with
+//! evolution selecting among them and co-evolving weights per variant.
 //!
 //! Mirrors the structure of `neuroevolution_supervised.rs` but drives the
 //! custom [`ArchNasStrategy`] harness directly (it is **not** a `Strategy<B>`,

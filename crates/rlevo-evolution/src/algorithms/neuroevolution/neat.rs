@@ -1262,7 +1262,7 @@ mod tests {
         assert!(best >= 2.0, "best rewards enabled connections; got {best}");
     }
 
-    /// Regression (ADR 0034, issue #133): `tell` is NEAT's driver chokepoint and
+    /// Regression (ADR 0034): `tell` is NEAT's driver chokepoint and
     /// must sanitize non-finite fitness before storing/speciating. A `NaN` member
     /// must never become the champion nor poison per-species bookkeeping, and a
     /// `+∞` member must rank top but as a **finite** value (`f32::MAX`).

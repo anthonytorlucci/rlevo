@@ -322,7 +322,8 @@ mod tests {
     /// A `NaN` fitness from a [`CoupledFitness`] impl is sanitized to `−∞` at
     /// the chokepoint, so it can neither become the champion nor blank a mean:
     /// the finite ramp maximum (`POP - 1`) is `best`, and the mean is finite
-    /// (averaged over the finite members only). Regression for issue #134.
+    /// (averaged over the finite members only). Pins the ADR 0034
+    /// canonicalise-then-sanitize chokepoint on the coevolution path.
     #[test]
     fn nan_row_is_not_crowned_and_mean_stays_finite() {
         let m = run_one_step(PoisonRow0 { poison: f32::NAN });

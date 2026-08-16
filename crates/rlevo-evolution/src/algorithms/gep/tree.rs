@@ -291,12 +291,12 @@ mod tests {
 
     // §7.2 -----------------------------------------------------------------
 
-    /// Regression for issue #147 §1.1. A contract-violating genome — one that
-    /// breaks Ferreira's head/tail rule (eq. 3.4) and so leaves an unfilled
-    /// child slot — is built here directly via `from_parts`, bypassing the
-    /// decoder's `debug_assert!`. Its child range `1..3` overruns the single
-    /// node. Before the fix, `eval` sliced `results[1..3]` out of bounds and
-    /// panicked; the defensive clamp now degrades it to a finite value.
+    /// A contract-violating genome — one that breaks Ferreira's head/tail
+    /// rule (eq. 3.4) and so leaves an unfilled child slot — is built here
+    /// directly via `from_parts`, bypassing the decoder's `debug_assert!`.
+    /// Its child range `1..3` overruns the single node. Before the fix,
+    /// `eval` sliced `results[1..3]` out of bounds and panicked; the
+    /// defensive clamp now degrades it to a finite value.
     #[test]
     fn eval_does_not_panic_on_out_of_bounds_child_range() {
         let a = alphabet(1);

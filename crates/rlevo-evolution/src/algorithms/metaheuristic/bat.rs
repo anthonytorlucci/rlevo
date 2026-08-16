@@ -458,7 +458,7 @@ where
         // per-site correctness floor for callers that bypass
         // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
         // so a hand-rolled `ask`/`tell` driver reaches this line with raw
-        // values (ADR 0034 decision 3, issue #131). One sanitise here covers
+        // values (ADR 0034 decision 3). One sanitise here covers
         // both the bootstrap seed of `state.fitness` and the accept-store
         // below; a raw `NaN` latched into a bat's cache loses every later
         // `fitness_host[i] >= state.fitness[i]` comparison, and BA has no
@@ -873,9 +873,10 @@ mod tests {
         assert!(m.broken_count() > 0, "expected a broken (NaN) member");
     }
 
-    // Regression for issue #131. `nan_fitness_survives_harness` above covers
-    // the harness path; this covers the documented bypass hole (ADR 0034
-    // decision 3) — a direct `init` → `ask` → `tell` driver. A raw `NaN`
+    // Regression for the per-slot fitness-cache freeze on a bypass `tell`.
+    // `nan_fitness_survives_harness` above covers the harness path; this
+    // covers the documented bypass hole (ADR 0034 decision 3) — a direct
+    // `init` → `ask` → `tell` driver. A raw `NaN`
     // latched into `state.fitness` loses every later
     // `fitness_host[i] >= state.fitness[i]` comparison, so bat 0 freezes
     // permanently: BA has no scout or abandonment mechanism to rescue a dead

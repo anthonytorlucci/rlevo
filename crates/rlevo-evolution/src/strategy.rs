@@ -157,8 +157,8 @@ pub trait Strategy<B: Backend>: Send + Sync {
     /// internally, so a direct `ask`/`tell` caller of that family need not
     /// pre-sanitize. Coverage stops at the tensor argument, though: a `NaN` written
     /// straight into a state's fitness cache via the `pub` `*State::try_new`
-    /// constructors (or `PsoState`'s `pub` fields) is never re-sanitized and still
-    /// freezes that slot for the run (issue #1064).
+    /// constructors (or `PsoState`'s `pub` fields) bypasses `tell` entirely, is
+    /// never re-sanitized, and still freezes that slot for the run.
     ///
     /// [`algorithms::metaheuristic`]: crate::algorithms::metaheuristic
     fn tell(
@@ -303,8 +303,8 @@ impl StrategyMetrics {
             }
         }
         // The mean *is* a reduction, and it runs through `sanitized_mean`: `f64`
-        // accumulator, one narrowing after the division (ADR 0069 §Decision 2,
-        // issue #132). The primitive averages every value it is given, so the
+        // accumulator, one narrowing after the division (ADR 0069 §Decision 2).
+        // The primitive averages every value it is given, so the
         // mean-over-finite-members semantics is expressed by the `filter` — a
         // sanitized `−∞` is excluded here and counted as broken above, whereas a
         // sanitized `+∞` is `f32::MAX`, is finite, and *is* averaged in.
@@ -982,7 +982,7 @@ mod tests {
 
     #[test]
     fn from_host_fitness_two_pos_inf_members_keep_mean_finite() {
-        // Regression (issue #132): ADR 0034 maps `+∞ → f32::MAX` and claims the
+        // Regression: ADR 0034 maps `+∞ → f32::MAX` and claims the
         // clamped value "cannot blow a mean up". `f32::MAX` passes `is_finite()`,
         // so it is admitted into the accumulator — and *two* such members
         // saturate an `f32` sum: `f32::MAX + f32::MAX == f32::INFINITY`. The
@@ -1353,9 +1353,9 @@ mod tests {
         /// **finite** `mean_fitness` whenever every member is finite — including
         /// an all-`f32::MAX` population.
         ///
-        /// This is the property that fails on issue #132. `f32::MAX` is finite, so
-        /// ADR 0034's sanitized `+∞` *joins* the sum rather than being excluded
-        /// from it, and `f32::MAX + f32::MAX == f32::INFINITY`: an `f32`
+        /// This is the property that fails with an `f32` accumulator: `f32::MAX`
+        /// is finite, so ADR 0034's sanitized `+∞` *joins* the sum rather than
+        /// being excluded from it, and `f32::MAX + f32::MAX == f32::INFINITY`: an `f32`
         /// accumulator reports `mean_fitness = +∞` for a population of two optimal
         /// individuals. Only §Decision 1's `f64` accumulator width makes the
         /// reduction safe; the clamp bounds a value, not a fold.

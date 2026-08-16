@@ -733,7 +733,7 @@ mod tests {
 
     /// `genome_dim == 0` makes `tau = 1/sqrt(2·sqrt(0)) = +∞`; the config guard
     /// must reject it at construction (ADR 0026) so the non-finite τ never
-    /// reaches the first `ask` (issue #132, `es_classical` §1.1 / `ep` §1.2).
+    /// reaches the first `ask`.
     #[test]
     fn rejects_zero_genome_dim() {
         let cfg = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 0);

@@ -586,10 +586,10 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "rows");
     }
 
-    /// Defensive guard for the empty input pool (issue #154, `gp_cgp` §5.2).
-    /// With `n_inputs == 0` and `col == 0` both the built pool and the fallback
-    /// are empty, so the raw `random_range(0..0)` would panic. A direct caller
-    /// bypassing the validating harness must get a benign `(0, 0)` instead.
+    /// Defensive guard for the empty input pool. With `n_inputs == 0` and
+    /// `col == 0` both the built pool and the fallback are empty, so the raw
+    /// `random_range(0..0)` would panic. A direct caller bypassing the
+    /// validating harness must get a benign `(0, 0)` instead.
     #[test]
     fn sample_input_pair_empty_pool_returns_benign_zero() {
         use rand::SeedableRng;
@@ -603,11 +603,11 @@ mod tests {
         assert_eq!(super::sample_input_pair(0, &cfg, &mut rng), (0, 0));
     }
 
-    /// Defensive guard for the empty `fitness_host` (issue #154, `gp_cgp` §5.3).
-    /// A generation with no offspring (`lambda == 0`) makes both the bootstrap
-    /// and selection paths index `fitness_host[0]` and panic. A direct caller
-    /// bypassing the validating harness must instead advance the generation
-    /// counter and return without touching selection or the parent fitness.
+    /// Defensive guard for the empty `fitness_host`. A generation with no
+    /// offspring (`lambda == 0`) makes both the bootstrap and selection paths
+    /// index `fitness_host[0]` and panic. A direct caller bypassing the
+    /// validating harness must instead advance the generation counter and
+    /// return without touching selection or the parent fitness.
     #[test]
     fn tell_empty_fitness_does_not_panic() {
         use rand::SeedableRng;
@@ -650,9 +650,9 @@ mod tests {
     }
 
     /// Regression for the `is_finite()` bootstrap sentinel vs the sanitize-to-`−∞`
-    /// convention (issue #132, `gp_cgp` §1.1 / ADR 0034). A canonical `−∞` parent
-    /// fitness (a `Minimize` `+∞` cost canonicalizes to `−∞`) must not re-trigger
-    /// the bootstrap branch: the `$(1+\lambda)$` loop has to keep emitting λ offspring.
+    /// convention (ADR 0034). A canonical `−∞` parent fitness (a `Minimize`
+    /// `+∞` cost canonicalizes to `−∞`) must not re-trigger the bootstrap
+    /// branch: the `$(1+\lambda)$` loop has to keep emitting λ offspring.
     #[test]
     fn neg_inf_parent_fitness_does_not_collapse_lambda_loop() {
         use rand::SeedableRng;
@@ -691,9 +691,9 @@ mod tests {
         );
     }
 
-    /// `update_best` treats a sanitized `−∞` fitness as the worst value (never a
-    /// champion) yet still promotes a finite winner in the same generation
-    /// (issue #132, `gp_cgp` §1.1).
+    /// `update_best` treats a sanitized `−∞` fitness (ADR 0034) as the worst
+    /// value (never a champion) yet still promotes a finite winner in the
+    /// same generation.
     #[test]
     fn update_best_treats_neg_inf_as_worst() {
         let device = Default::default();

@@ -351,9 +351,9 @@ where
         // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
         // per-site correctness floor for a caller driving `ask`/`tell`
         // directly instead of `EvolutionaryHarness::step`, which already
-        // sanitizes (the ADR 0034 decision-3 bypass hole, issue #131):
-        // the local `sane` derivations below only fix the *ranking*, while the
-        // stored `state.archive_fitness` would still carry the raw NaN.
+        // sanitizes (the ADR 0034 decision-3 bypass hole): the local `sane`
+        // derivations below only fix the *ranking*, while the stored
+        // `state.archive_fitness` would still carry the raw NaN.
         // `sanitize_fitness` is idempotent, so on the harness path this is a
         // provable no-op — not redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
@@ -743,8 +743,8 @@ mod tests {
         );
     }
 
-    // Gap (d'): the `genome_dim = 1` case (issue #233). The σ reduction
-    // `diffs.sum_dim(0).squeeze_dim::<2>(0)` now removes only the reduced axis,
+    // The `genome_dim = 1` case: the σ reduction
+    // `diffs.sum_dim(0).squeeze_dim::<2>(0)` removes only the reduced axis,
     // so the `(1, k, 1)` intermediate correctly collapses to `(k, 1)` instead of
     // panicking inside burn's `Squeeze` rank-check. Runs a full harness to
     // completion and asserts a finite best.
