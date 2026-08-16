@@ -1,17 +1,21 @@
-//! Cost measurement for the proposed **observation finiteness guard** (issue
-//! #1043): should `NaN`/`Inf` observations be rejected at replay ingestion
-//! (`remember`), or at the batch-staging seam inside `learn_step`?
-//!
-//! This file measures only. **No guard is added to `src/` by this change** --
-//! every checked variant below is a bench-local prototype, so the numbers
-//! describe a guard that does not exist yet.
+//! Cost measurement that decided where an **observation finiteness guard**
+//! should live: at replay ingestion (`remember`), or at the batch-staging
+//! seam inside `learn_step`? `FiniteObsGuard` has since shipped on the
+//! ingestion seam this bench recommended (ADR 0067,
+//! `docs/adr/0067-non-finite-observations-are-dropped-at-replay-ingestion.md`)
+//! -- this file predates that landing and is kept as the empirical
+//! justification for the choice, not as a live prototype of an undecided
+//! design. **No guard is added to `src/` by this bench itself** -- every
+//! checked variant below is a bench-local mirror of the production code paths
+//! it measured, not the shipped guard.
 //!
 //! # What the source actually does (verified, not assumed)
 //!
-//! Issue #1043 speculates that "`Observation`/`HostRow<R>` may allow the check
-//! to ride the existing `write_host_row` traversal at near-zero marginal cost
-//! -- the row is already being walked". That is **true at one seam and false at
-//! the other**, and the split is the whole reason this bench has four arms:
+//! The original speculation was that `Observation`/`HostRow<R>` might let the
+//! check ride the existing `write_host_row` traversal at near-zero marginal
+//! cost -- the row is already being walked. That is **true at one seam and
+//! false at the other**, and the split is the whole reason this bench has
+//! four arms:
 //!
 //! - **Ingestion (`remember`) -- no traversal to fuse into.**
 //!   `dqn_agent.rs::remember` (lines 386-397 in this checkout) runs the

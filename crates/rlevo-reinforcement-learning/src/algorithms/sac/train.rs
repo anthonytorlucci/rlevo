@@ -182,7 +182,9 @@ where
                 // Aggregate over all three loss guards (critic-1, critic-2,
                 // actor) — read from the agent, never threaded through a stats
                 // struct, so a future fourth guard site is picked up here for
-                // free (ADR 0072 §3). Excludes α-update skips (#184).
+                // free (ADR 0072 §3). Excludes α-update skips: those go
+                // through a separate closed-form scalar Adam guard
+                // (`LogAlpha::adam_step`) that isn't one of the three.
                 skipped_updates = agent.skipped_updates(),
                 "sac training progress"
             );
