@@ -171,22 +171,22 @@ impl<T: PerformanceRecord> AgentStats<T> {
     /// Unlike [`Self::avg_score`], the best score is never evicted by the
     /// sliding window.
     ///
-    /// # A `+∞` score latches here permanently, by decision
+    /// # A `$+\infty$` score latches here permanently, by decision
     ///
     /// [`Self::record`] folds this with `f32::max`, which **discards** a `NaN`
     /// operand — pinned by the tests `nan_score_does_not_poison_best_score` and
     /// `nan_as_first_record_does_not_latch_best_score`, which cover the argument
-    /// and receiver positions of the fold separately — but **propagates** `+∞`,
-    /// in either operand position, because `+∞` compares greater than every
+    /// and receiver positions of the fold separately — but **propagates** `$+\infty$`,
+    /// in either operand position, because `$+\infty$` compares greater than every
     /// finite value.
     ///
-    /// Combined with "never evicted" above, a single `+∞` episode pins this
-    /// accessor at `+∞` for the entire remaining lifetime of the agent, with no
+    /// Combined with "never evicted" above, a single `$+\infty$` episode pins this
+    /// accessor at `$+\infty$` for the entire remaining lifetime of the agent, with no
     /// self-healing of any kind. That is strictly worse than [`Self::avg_score`]'s
     /// transit of a non-finite score, which heals within one
     /// [`Self::window_size`] as the offending episode rolls out of the window.
     ///
-    /// **This is not filtered, and must not be.** `+∞` genuinely *is* the true
+    /// **This is not filtered, and must not be.** `$+\infty$` genuinely *is* the true
     /// maximum score observed, and reporting something smaller under the name
     /// "best score" is exactly the fabrication ADR 0061 forbids and ADR 0070
     /// §Rejected alternatives ruled out for the mean.
@@ -198,14 +198,14 @@ impl<T: PerformanceRecord> AgentStats<T> {
     ///   per-step reward, but all eight training loops still accumulate
     ///   `episode_reward += reward_f32` unconditionally and by design (ADR 0065
     ///   §Decision 4), precisely so the bad value still surfaces as a statistic.
-    ///   A single `+∞` environment reward therefore reaches [`Self::record`]
+    ///   A single `$+\infty$` environment reward therefore reaches [`Self::record`]
     ///   even with every ingestion guard in place.
     /// - A long episode of entirely *finite* rewards can saturate the `f32`
-    ///   `episode_reward` accumulator to `+∞` by ordinary accumulation. There is
+    ///   `episode_reward` accumulator to `$+\infty$` by ordinary accumulation. There is
     ///   no non-finite reward anywhere on that path, `dropped_transitions()`
     ///   reads zero, and no `warn!` fires (ADR 0070 §Context 4).
     ///
-    /// `-∞` is harmless here: `f32::max` discards it as the smaller operand at
+    /// `$-\infty$` is harmless here: `f32::max` discards it as the smaller operand at
     /// the first finite episode.
     ///
     /// # When you want the hardened statistic instead
@@ -223,7 +223,7 @@ impl<T: PerformanceRecord> AgentStats<T> {
     /// across all recorded episodes, or `None` when no finite score has ever
     /// been recorded.
     ///
-    /// This is the hardened counterpart to [`Self::best_score`]: a single `+∞`
+    /// This is the hardened counterpart to [`Self::best_score`]: a single `$+\infty$`
     /// episode cannot latch it for the lifetime of the agent. Ship it with
     /// [`Self::non_finite_episodes`], which reports how many episodes this
     /// maximum excluded; a hardened maximum *without* its exclusion count is the
@@ -231,11 +231,11 @@ impl<T: PerformanceRecord> AgentStats<T> {
     ///
     /// # Why the predicate is `is_finite`, not `!is_nan`
     ///
-    /// The mean side ([`Self::finite_avg_score`]) argues this from `±∞`
+    /// The mean side ([`Self::finite_avg_score`]) argues this from `$\pm\infty$`
     /// destroying a mean. The maximum side has a sharper argument of its own:
     /// `f32::max` **already** discards `NaN` for free, so a `!is_nan()`
     /// predicate here would make this method observationally identical to
-    /// [`Self::best_score`] at every input *except* the one — `+∞` — that this
+    /// [`Self::best_score`] at every input *except* the one — `$+\infty$` — that this
     /// method exists for. That is a hardened name over an unhardened statistic,
     /// which is the worst available outcome (ADR 0070 §Decision 3).
     ///
@@ -287,12 +287,12 @@ impl<T: PerformanceRecord> AgentStats<T> {
         self.finite_best_score
     }
 
-    /// Returns how many recorded episodes carried a non-finite (`NaN` or `±∞`)
+    /// Returns how many recorded episodes carried a non-finite (`NaN` or `$\pm\infty$`)
     /// [`PerformanceRecord::score`], over all of history.
     ///
     /// This is the count of exactly what [`Self::finite_best_score`] excluded,
     /// and the two are one decision rather than two. The count carries what a
-    /// maximum cannot: whether the `+∞` latch on [`Self::best_score`] came from
+    /// maximum cannot: whether the `$+\infty$` latch on [`Self::best_score`] came from
     /// one episode in a million or from a third of the run. Unlike a windowed
     /// mean, a maximum gives no other signal about how often the bad value
     /// occurred — once latched it never moves again, so its value is identical
@@ -387,7 +387,7 @@ impl<T: PerformanceRecord> AgentStats<T> {
     ///
     /// # Non-finite scores transit this average, by decision
     ///
-    /// A `NaN` or `±∞` score is **not** filtered out. It propagates into the
+    /// A `NaN` or `$\pm\infty$` score is **not** filtered out. It propagates into the
     /// mean and stays there until the sliding window rolls past the offending
     /// episode, so this method can return `Some(NaN)` or `Some(±∞)` even though
     /// [`Self::best_score`] does not — [`Self::record`] folds the best with
@@ -455,12 +455,12 @@ impl<T: PerformanceRecord> AgentStats<T> {
     /// # Why the predicate is `is_finite`, not `!is_nan`
     ///
     /// An earlier design excluded `NaN` only. This method is deliberately
-    /// stronger and excludes `±∞` as well, for two reasons:
+    /// stronger and excludes `$\pm\infty$` as well, for two reasons:
     ///
-    /// - `±∞` destroys a mean as thoroughly as `NaN` does, and it is what
+    /// - `$\pm\infty$` destroys a mean as thoroughly as `NaN` does, and it is what
     ///   ADR 0065's own `FiniteRewardGuard` tests for — a `!is_nan` predicate
     ///   here would disagree with the ingestion guard about what "bad" means.
-    /// - `±∞` is reachable in a training loop's `episode_reward` from a run of
+    /// - `$\pm\infty$` is reachable in a training loop's `episode_reward` from a run of
     ///   entirely *finite* per-step rewards, by `f32` saturation over a long
     ///   episode. No ingestion guard covers that path, because every
     ///   individual reward it inspected was finite; the overflow happens in
@@ -471,7 +471,7 @@ impl<T: PerformanceRecord> AgentStats<T> {
     /// The sum is accumulated in `f64` and narrowed to `f32` exactly once,
     /// after the division — the same shape as `rlevo-evolution`'s
     /// `sanitized_mean` (ADR 0069 §Decision 1). An `f32` accumulator can
-    /// saturate to `+∞` partway through a window of large-but-finite scores
+    /// saturate to `$+\infty$` partway through a window of large-but-finite scores
     /// and so manufacture the very non-finite value this method exists to
     /// exclude. On the healthy path the wider accumulator changes nothing the
     /// caller can observe at exactly-representable inputs.
@@ -524,7 +524,7 @@ impl<T: PerformanceRecord> AgentStats<T> {
     }
 
     /// Returns how many entries of the sliding window carry a non-finite
-    /// (`NaN` or `±∞`) [`PerformanceRecord::score`].
+    /// (`NaN` or `$\pm\infty$`) [`PerformanceRecord::score`].
     ///
     /// This is the count of exactly what [`Self::finite_avg_score`] excluded,
     /// and shipping the two together is the load-bearing half of the pair: a
@@ -902,7 +902,7 @@ mod tests {
     /// an earlier design originally proposed (ADR 0070).
     ///
     /// Mutant killed: swapping either new method's predicate to `!is_nan()`.
-    /// Such an implementation admits `+∞` into the sum and returns
+    /// Such an implementation admits `$+\infty$` into the sum and returns
     /// `Some(f32::INFINITY)` with a count of `0`, so the assertions are on
     /// exact values — an `is_finite()` check on the result would pass against
     /// the mutant for the count and only accidentally fail for the mean.
@@ -1042,7 +1042,7 @@ mod tests {
     }
 
     /// The executable form of ADR 0070 §Correction (b) and of the decision that
-    /// the latch is *kept*: `best_score` reports `+∞` forever, and the hardened
+    /// the latch is *kept*: `best_score` reports `$+\infty$` forever, and the hardened
     /// sibling advances past it.
     ///
     /// Mutants killed:
@@ -1050,12 +1050,12 @@ mod tests {
     ///     assertion fails, which is what makes the ADR 0061 no-fabrication
     ///     ruling executable rather than prose;
     /// (b) folding the raw score into `finite_best_score` outside the
-    ///     `is_finite` guard — the accumulator latches at `+∞` and the second
+    ///     `is_finite` guard — the accumulator latches at `$+\infty$` and the second
     ///     assertion reads `Some(f32::INFINITY)`, not `Some(100.0)`;
     /// (c) seeding `finite_best_score` from `best_score` rather than from the
     ///     first finite score.
     ///
-    /// The `100.0` episode arrives **after** the `+∞` on purpose: it proves the
+    /// The `100.0` episode arrives **after** the `$+\infty$` on purpose: it proves the
     /// finite maximum still advances once the raw one has latched.
     #[test]
     fn positive_infinity_latches_best_score_but_not_finite_best_score() {
@@ -1072,7 +1072,7 @@ mod tests {
         assert_eq!(stats.total_episodes(), 4);
     }
 
-    /// `-∞` is the non-finite value `f32::max` handles *correctly* on the raw
+    /// `$-\infty$` is the non-finite value `f32::max` handles *correctly* on the raw
     /// side — it is discarded as the smaller operand — which is exactly why the
     /// hardened side must still exclude and count it.
     ///
@@ -1106,7 +1106,7 @@ mod tests {
     /// mutant (b) — an unguarded fold into `finite_best_score`. A `NaN`
     /// accumulator heals through `.max` on the very next finite episode, so the
     /// unguarded fold would still report `Some(5.0)` here and pass. That
-    /// asymmetry between `NaN` and `+∞` is why both tests exist.
+    /// asymmetry between `NaN` and `$+\infty$` is why both tests exist.
     #[test]
     fn nan_is_excluded_from_finite_best_and_counted() {
         let mut stats = AgentStats::<TestRecord>::new(4);
@@ -1125,7 +1125,7 @@ mod tests {
     /// history: `!is_nan()` → `1`, `is_infinite()` → `2`, `is_finite()` → `3`.
     ///
     /// The two finite episodes that follow keep the hardened maximum
-    /// observable (`7.0`) and distinct from the raw one (`+∞`), so no pair of
+    /// observable (`7.0`) and distinct from the raw one (`$+\infty$`), so no pair of
     /// accessors can be transposed and still satisfy every assertion.
     #[test]
     fn all_three_non_finite_kinds_are_excluded_and_counted() {

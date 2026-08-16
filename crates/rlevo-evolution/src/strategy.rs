@@ -143,7 +143,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
     ///
     /// When driven by [`EvolutionaryHarness`], the `fitness` tensor is
     /// **canonical (maximise) and sanitized** (ADR 0034): every element is finite
-    /// or `f32::NEG_INFINITY` — no `NaN`, no `+∞`. A `tell` impl may therefore
+    /// or `f32::NEG_INFINITY` — no `NaN`, no `$+\infty$`. A `tell` impl may therefore
     /// build leaders / personal-best / global-best directly from it without a
     /// finite check.
     ///
@@ -231,12 +231,12 @@ pub struct StrategyMetrics {
     /// optimum is known (e.g. Ackley → 0), the harness-reported value tells
     /// you how close the algorithm got to the theoretical optimum.
     best_fitness_ever: f32,
-    /// Number of individuals whose sanitized fitness was non-finite (`−∞`) in
+    /// Number of individuals whose sanitized fitness was non-finite (`$-\infty$`) in
     /// this generation — i.e. members that evaluated to `NaN` (or a genuine
-    /// worst-sentinel `−∞`) and were therefore **excluded from
+    /// worst-sentinel `$-\infty$`) and were therefore **excluded from
     /// [`mean_fitness`](Self::mean_fitness)** (ADR 0034). Zero on a healthy run;
     /// a non-zero value flags a population carrying broken individuals without
-    /// letting them blank the mean to `−∞`.
+    /// letting them blank the mean to `$-\infty$`.
     broken_count: usize,
 }
 
@@ -245,18 +245,19 @@ impl StrategyMetrics {
     ///
     /// Each value is passed through the crate's fitness-hygiene primitive
     /// `sanitize_fitness` before folding, so
-    /// `NaN → −∞` and `+∞ → f32::MAX` (the maximise convention, ADR 0023/0034)
+    /// `$\text{NaN} \to -\infty$` and `$+\infty \to \texttt{f32::MAX}$` (the
+    /// maximise convention, ADR 0023/0034)
     /// *consistently* across every statistic — `best`/`worst` can no longer
     /// silently drop a `NaN` (comparisons against `NaN` are false) while the sum
     /// propagates it.
     ///
     /// `mean_fitness` is computed **over the finite members only**: a sanitized
-    /// `−∞` member (a `NaN` evaluation, or a genuine worst-sentinel) is excluded
+    /// `$-\infty$` member (a `NaN` evaluation, or a genuine worst-sentinel) is excluded
     /// from the average and counted in [`broken_count`](Self::broken_count)
     /// instead (ADR 0034). This keeps a single broken individual from blanking
-    /// the whole mean to `−∞` while still surfacing that the population is
-    /// unhealthy. `+∞ → f32::MAX` members are finite and *are* included. If
-    /// *every* member is broken, `mean_fitness = −∞` (degenerate but
+    /// the whole mean to `$-\infty$` while still surfacing that the population is
+    /// unhealthy. `$+\infty \to \texttt{f32::MAX}$` members are finite and *are* included. If
+    /// *every* member is broken, `$\text{mean\_fitness} = -\infty$` (degenerate but
     /// well-defined).
     ///
     /// The mean is **accumulated in `f64`** and narrowed to `f32` once, after the
@@ -264,8 +265,9 @@ impl StrategyMetrics {
     /// The clamp alone does not make the mean safe: `f32::MAX` is finite and
     /// therefore admitted into the sum, but *two* clamped members saturate an
     /// `f32` accumulator (`f32::MAX + f32::MAX == f32::INFINITY`), which would
-    /// report `mean_fitness = +∞` for a population of optimal individuals. `f64`
-    /// carries the widened sum (`≈ 6.8e38` per pair, far below `f64::MAX`), so it
+    /// report `$\text{mean\_fitness} = +\infty$` for a population of optimal individuals. `f64`
+    /// carries the widened sum (`$\approx 6.8 \times 10^{38}$` per pair, far
+    /// below `f64::MAX`), so it
     /// is the accumulator width — not the clamp — that delivers ADR 0034's
     /// "cannot blow a mean up" guarantee. Averaging in `f64` also removes the ~1
     /// ULP-per-addition drift an `f32` sum accrues over a large population.
@@ -353,7 +355,7 @@ impl StrategyMetrics {
 
     /// Mean fitness across this generation's population.
     ///
-    /// Averaged over the **finite** members only; broken (`−∞`) members are
+    /// Averaged over the **finite** members only; broken (`$-\infty$`) members are
     /// excluded and reported by [`broken_count`](Self::broken_count) (ADR 0034).
     #[must_use]
     pub fn mean_fitness(&self) -> f32 {
@@ -363,7 +365,7 @@ impl StrategyMetrics {
     /// Number of non-finite (broken) individuals excluded from
     /// [`mean_fitness`](Self::mean_fitness) this generation (ADR 0034).
     ///
-    /// Zero on a healthy run; non-zero flags a population carrying `NaN`/`−∞`
+    /// Zero on a healthy run; non-zero flags a population carrying `NaN`/`$-\infty$`
     /// members.
     #[must_use]
     pub fn broken_count(&self) -> usize {
@@ -1017,7 +1019,7 @@ mod tests {
         assert!(m.mean_fitness().is_infinite() && m.mean_fitness().is_sign_negative());
     }
 
-    /// A misbehaving objective: row 0 → `NaN`, row 1 → `+∞`, the rest finite.
+    /// A misbehaving objective: row 0 → `NaN`, row 1 → `$+\infty$`, the rest finite.
     /// `Maximize` so natural == canonical (no `neg()` obscuring the sanitize).
     struct NonFiniteFitness;
     impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NonFiniteFitness {
@@ -1336,8 +1338,8 @@ mod tests {
     // would collide with the `rlevo_core`/`rand` `Rng` pulled in by `use super::*`.
     use proptest::prelude::{ProptestConfig, any, prop_assert, prop_assert_eq, proptest};
 
-    /// `f32::MAX · 2^-e`, built in `f64` so the shift is exact and `e` may reach
-    /// past `f32`'s exponent range without an intermediate `2^e` overflowing.
+    /// `$\texttt{f32::MAX} \cdot 2^{-e}$`, built in `f64` so the shift is exact and `e` may reach
+    /// past `f32`'s exponent range without an intermediate `$2^e$` overflowing.
     fn scaled_max(e: u32, negative: bool) -> f32 {
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let m = (f64::from(f32::MAX) * 0.5_f64.powi(e as i32)) as f32;
@@ -1354,23 +1356,23 @@ mod tests {
         /// an all-`f32::MAX` population.
         ///
         /// This is the property that fails with an `f32` accumulator: `f32::MAX`
-        /// is finite, so ADR 0034's sanitized `+∞` *joins* the sum rather than
+        /// is finite, so ADR 0034's sanitized `$+\infty$` *joins* the sum rather than
         /// being excluded from it, and `f32::MAX + f32::MAX == f32::INFINITY`: an `f32`
-        /// accumulator reports `mean_fitness = +∞` for a population of two optimal
+        /// accumulator reports `$\text{mean\_fitness} = +\infty$` for a population of two optimal
         /// individuals. Only §Decision 1's `f64` accumulator width makes the
         /// reduction safe; the clamp bounds a value, not a fold.
         ///
-        /// Magnitudes are generated as `f32::MAX · 2^-e` so the top of the `f32`
+        /// Magnitudes are generated as `$\texttt{f32::MAX} \cdot 2^{-e}$` so the top of the `f32`
         /// range — where the defect lives — is sampled directly rather than being
         /// reached by luck. The all-`f32::MAX` population §Decision 5 names is
-        /// asserted **deterministically on every case** (at length `n + 1 ≥ 2`,
+        /// asserted **deterministically on every case** (at length `$n + 1 \geq 2$`,
         /// since a single member cannot overflow anything).
         ///
         /// The mean is also bracketed by `[worst, best]`: finiteness alone is
         /// satisfied by any constant, and the bracket is the cheapest assertion
         /// that a *mean* is what was computed. The slack is a relative ULP
         /// allowance for the single narrowing at the end of the reduction, taken
-        /// against the `f64` span so `best − worst` cannot itself overflow.
+        /// against the `f64` span so `$\text{best} - \text{worst}$` cannot itself overflow.
         #[test]
         fn prop_mean_fitness_is_finite_for_a_finite_population(
             members in prop_vec((0u32..=140, any::<bool>()), 1..=64),

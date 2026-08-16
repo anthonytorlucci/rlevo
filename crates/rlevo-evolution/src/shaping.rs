@@ -33,11 +33,11 @@ const STD_FLOOR: f32 = 1e-8;
 ///
 /// # Saturated fitness
 ///
-/// ADR 0034 maps a raw `+∞` fitness to `f32::MAX`, which is *finite* and so
+/// ADR 0034 maps a raw `$+\infty$` fitness to `f32::MAX`, which is *finite* and so
 /// flows into this reduction. Computing the variance directly in `f32` overflows
-/// **the individual squared term** for such a member — `(f32::MAX − mean)² = +∞`
+/// **the individual squared term** for such a member — `$(\text{f32::MAX} - \text{mean})^2 = +\infty$`
 /// — at `N = 1` saturated member, before any accumulation happens. That drives
-/// `std` to `+∞` and collapses *every* output element to `±0.0`: a finite,
+/// `std` to `$+\infty$` and collapses *every* output element to `$\pm 0.0$`: a finite,
 /// plausible, silent zero gradient for the ES update this transform feeds.
 ///
 /// ADR 0069 §Decision 1's remedy — accumulate in `f64` — is not reachable
@@ -45,11 +45,11 @@ const STD_FLOOR: f32 = 1e-8;
 /// the backend. The equivalent guarantee is obtained here by **bounding the
 /// terms instead of widening the accumulator**: the population is divided by its
 /// own max-abs magnitude before the reduction, so every scaled value lies in
-/// `[−1, 1]`, the mean in `[−1, 1]`, and every squared centred term in `[0, 4]`.
+/// `$[-1, 1]$`, the mean in `$[-1, 1]$`, and every squared centred term in `[0, 4]`.
 /// For a **finite** population neither the mean nor the variance can then
 /// overflow at any size that fits in memory — on this backend or on a narrower
 /// one. The bound is conditional: a non-finite max-abs falls back to a scale of
-/// `1.0` and the guarantee lapses, which is exactly the `−∞` case described
+/// `1.0` and the guarantee lapses, which is exactly the `$-\infty$` case described
 /// under *Non-finite inputs* below. z-scoring is invariant
 /// to a positive rescale, so the mathematical result is unchanged (the extra
 /// division perturbs ordinary inputs by at most a few ULP), and the `1e-8` floor
@@ -62,14 +62,14 @@ const STD_FLOOR: f32 = 1e-8;
 ///
 /// # Non-finite inputs
 ///
-/// A `−∞` member is legal here — it is ADR 0034's worst-value sentinel and
+/// A `$-\infty$` member is legal here — it is ADR 0034's worst-value sentinel and
 /// passes sanitization through unchanged. `z_score` does **not** handle it and
-/// never has: the mean is `−∞`, so every finite member centres to `+∞` and the
-/// `−∞` member itself centres to `NaN`. That behaviour is unchanged by the
+/// never has: the mean is `$-\infty$`, so every finite member centres to `$+\infty$` and the
+/// `$-\infty$` member itself centres to `NaN`. That behaviour is unchanged by the
 /// saturation fix above (a non-finite max-abs falls back to a scale of `1.0`,
 /// reproducing the original arithmetic exactly) and is pinned by
 /// `z_score_negative_infinity_member_is_unchanged_by_the_saturation_fix`.
-/// Deciding what a `−∞` member *should* shape to is a separate question.
+/// Deciding what a `$-\infty$` member *should* shape to is a separate question.
 ///
 /// # Examples
 ///
@@ -238,10 +238,10 @@ mod tests {
         approx::assert_relative_eq!(values[9], 3.0, epsilon = 1e-5);
     }
 
-    /// A **single** `f32::MAX` member (ADR 0034's sanitized `+∞`) must shape
+    /// A **single** `f32::MAX` member (ADR 0034's sanitized `$+\infty$`) must shape
     /// identically to the control above — `powf_scalar(2.0)` overflows that one
-    /// member's squared term to `+∞` before any accumulation, so the `f32`
-    /// formula collapses the whole vector to `±0.0` at `N = 1` saturated member.
+    /// member's squared term to `$+\infty$` before any accumulation, so the `f32`
+    /// formula collapses the whole vector to `$\pm 0.0$` at `N = 1` saturated member.
     /// A silent zero gradient, not a `NaN`. (ADR 0069 §Decision 4.)
     #[test]
     fn z_score_single_saturated_member_matches_control() {
@@ -258,7 +258,7 @@ mod tests {
     /// An entirely saturated population is *degenerate*, not pathological: every
     /// member is equal, so the documented all-equal behaviour (a vector of zeros
     /// via the std-dev floor) is the correct answer. The `f32` formula instead
-    /// blows the mean to `+∞` at `N = 2` and yields `NaN`.
+    /// blows the mean to `$+\infty$` at `N = 2` and yields `NaN`.
     #[test]
     fn z_score_all_saturated_is_degenerate_zeros() {
         let device = Default::default();
@@ -348,14 +348,14 @@ mod tests {
         }
     }
 
-    /// **Pin, not a fix.** `−∞` is a legal input here (ADR 0034's worst-value
+    /// **Pin, not a fix.** `$-\infty$` is a legal input here (ADR 0034's worst-value
     /// sentinel passes through sanitization), and `z_score` has never handled it:
-    /// the mean is `−∞`, so every finite member centres to `+∞` and the `−∞`
+    /// the mean is `$-\infty$`, so every finite member centres to `$+\infty$` and the `$-\infty$`
     /// member itself centres to `NaN`. This test records that pre-existing
     /// behaviour verbatim so the saturation fix is visibly *not* changing it —
-    /// deciding what a `−∞` member should shape to is a separate, still-open
+    /// deciding what a `$-\infty$` member should shape to is a separate, still-open
     /// policy question (`rules.md` §12). When it's settled, this test flips
-    /// from pinning `[+∞, +∞, NaN]` to asserting the chosen semantics.
+    /// from pinning `$[+\infty, +\infty, \text{NaN}]$` to asserting the chosen semantics.
     #[test]
     fn z_score_negative_infinity_member_is_unchanged_by_the_saturation_fix() {
         let device = Default::default();
@@ -433,7 +433,7 @@ mod tests {
     // proptest modules.
     use proptest::prelude::{ProptestConfig, prop_assert, prop_assume, proptest};
 
-    /// Population standard deviation of `xs`, in `f64`. This is the σ the bound
+    /// Population standard deviation of `xs`, in `f64`. This is the `$\sigma$` the bound
     /// on `c` is stated against; it is computed on the host in double precision
     /// precisely so it is independent of the `f32` device reduction under test.
     fn population_std(xs: &[f32]) -> f64 {
@@ -459,7 +459,7 @@ mod tests {
         })]
 
         /// **ADR 0069 §Decision 5, property 3.** `z_score` is invariant to a
-        /// positive affine rescale `x ↦ c·(x + d)` of its input — **bounded in
+        /// positive affine rescale `$x \mapsto c \cdot (x + d)$` of its input — **bounded in
         /// `c`**, for the reason derived below.
         ///
         /// This is a **device** reduction, so §Decision 4 applies rather than
@@ -470,20 +470,20 @@ mod tests {
         ///
         /// # The bound on `c`
         ///
-        /// Derived from `z_score`'s own arithmetic. Writing `σ` for the
+        /// Derived from `z_score`'s own arithmetic. Writing `$\sigma$` for the
         /// population std of the *raw* input and `M` for its max-abs magnitude:
         ///
-        /// - `scale = M`, so `scaled = x / M` and the std of `scaled` is `σ / M`.
-        /// - Under `x ↦ c·(x + d)` the scale becomes `M' = c·max|x + d|` and the
-        ///   std of `scaled` becomes `c·σ / M'` — the shift cancels in the
+        /// - `scale = M`, so `scaled = x / M` and the std of `scaled` is `$\sigma / M$`.
+        /// - Under `$x \mapsto c \cdot (x + d)$` the scale becomes `$M' = c \cdot \max|x + d|$` and the
+        ///   std of `scaled` becomes `$c \cdot \sigma / M'$` — the shift cancels in the
         ///   centering and the `c` cancels against `M'`, so the *scaled* std is
         ///   invariant. That is what makes the transform a no-op.
         /// - The floor is not invariant: `floor = STD_FLOOR / M'`. It fires when
-        ///   `floor > c·σ / M'`, i.e. when **`c·σ < STD_FLOOR = 1e-8`**.
+        ///   `$\text{floor} > c \cdot \sigma / M'$`, i.e. when **`$c \cdot \sigma < \text{STD\_FLOOR} = \text{1e-8}$`**.
         ///
         /// So the admissible range is
         ///
-        /// > `STD_FLOOR / σ  ≤  c  ≤  f32::MAX / max|x|`
+        /// > `$\text{STD\_FLOOR} / \sigma \le c \le \text{f32::MAX} / \max|x|$`
         ///
         /// — read as: the transformed population's spread must stay at or above
         /// the `1e-8` **raw-fitness-unit** floor, and the transformed values must
@@ -491,27 +491,27 @@ mod tests {
         /// returns the degenerate all-zeros answer, so a property asserting
         /// unconditional invariance would fail on *correct* code; above the upper
         /// bound the input is no longer a rescaled population but a vector of
-        /// `±∞`. The test takes `c` as a power of two in `[2^k_min, 2^k_max]`
+        /// `$\pm\infty$`. The test takes `c` as a power of two in `[2^k_min, 2^k_max]`
         /// with a factor-2 margin on the lower end.
         ///
         /// The second clamp, `.max(f32::MIN_POSITIVE)`, is **`c`-independent**:
-        /// it fires when `σ / M < f32::MIN_POSITIVE`, a property of the shape of
-        /// `x` alone. Small-integer inputs keep `σ / M ≥ ~1e-3`, far clear of it.
+        /// it fires when `$\sigma / M < \text{f32::MIN\_POSITIVE}$`, a property of the shape of
+        /// `x` alone. Small-integer inputs keep `$\sigma / M \gtrsim \text{1e-3}$`, far clear of it.
         ///
         /// # Why the offset is inside the scale
         ///
-        /// The transform is written `c·(x + d)`, not `c·x + d`, and the
+        /// The transform is written `$c \cdot (x + d)$`, not `$c \cdot x + d$`, and the
         /// difference is not cosmetic — the second form has a **bound of its
         /// own**, which ADR 0069 §Decision 5 does not mention and which this
         /// property discovered while being written. An offset applied *after* the
         /// scale annihilates the population's spread in `f32` once
-        /// `c·σ ≲ f32::EPSILON·|d|`: at `c = 2^-24`, `d = 1`, `x = [0, 1]`, both
+        /// `$c \cdot \sigma \lesssim \text{f32::EPSILON} \cdot |d|$`: at `c = 2^-24`, `d = 1`, `x = [0, 1]`, both
         /// members round to exactly `1.0`, and `z_score` correctly returns the
         /// degenerate all-zeros answer for a population that really has become
         /// degenerate. That is a representability limit of the *input*, not a
         /// property of `z_score`, so folding the offset into the scale removes it
         /// rather than papering over it with a tolerance — and for integer `x`,
-        /// integer `d` and a power-of-two `c`, `c·(x + d)` is computed with **no
+        /// integer `d` and a power-of-two `c`, `$c \cdot (x + d)$` is computed with **no
         /// rounding at all**.
         ///
         /// `2^k_max` — where the members sit at the very top of the `f32` range
