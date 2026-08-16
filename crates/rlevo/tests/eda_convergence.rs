@@ -199,7 +199,7 @@ fn all_five_models_reach_sphere_threshold() {
     );
 }
 
-/// Issue #37 discriminating gate: BOA solves the deceptive trap-5 × 4
+/// The BOA-vs-univariate-models discriminating gate: BOA solves the deceptive trap-5 × 4
 /// (`dim = 20`) to cost 0 (all-ones) while UMDA and MIMIC stall at/near
 /// the all-zeros basin (cost ≈ 4 = `num_blocks`).
 ///

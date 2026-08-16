@@ -323,7 +323,7 @@ fn calibration_explorer() {
 // Headline acceptance test (the only test that runs by default).
 //
 // Provenance (re-pinned from `calibration_explorer` output, 2026-06-12, after
-// `refine_with_known_fitness` eliminated the per-refine seeding eval, issue #30):
+// `refine_with_known_fitness` eliminated the per-refine seeding eval):
 //   backend:   Flex (ndarray), rayon pinned to 1 thread, release profile.
 //   seed:      7
 //   target:    Rastrigin-D10 best_fitness_ever < 30.0

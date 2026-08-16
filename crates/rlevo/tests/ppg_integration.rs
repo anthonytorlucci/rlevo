@@ -179,28 +179,32 @@ fn ppg_without_aux_phase_matches_ppo_baseline() {
 }
 
 /// The auxiliary phase must fire *and* move the policy — including on the
-/// terminal iteration (issues #319, #324).
+/// terminal iteration, where a since-fixed schedule-offset bug made the
+/// terminal phase a guaranteed no-op.
 ///
 /// `total / num_steps = 2048 / 128 = 16` policy-phase iterations with
 /// `n_iteration = 4`, so `16 % 4 == 0` and the aux phase this test inspects via
 /// [`PpgAgent::last_aux_phase`] is the **terminal** one, at
-/// `iteration == total_iterations`. That is exactly #324's trigger: the phase
-/// used to read the annealed learning rate one schedule tick ahead of the
-/// policy phase it accompanies, and at the terminal tick the anneal is exactly
-/// `0.0`, so every minibatch stepped by nothing.
+/// `iteration == total_iterations`. That is exactly the bug's trigger: the
+/// phase used to read the annealed learning rate one schedule tick ahead of
+/// the policy phase it accompanies, and at the terminal tick the anneal is
+/// exactly `0.0`, so every minibatch stepped by nothing.
 ///
 /// This test previously asserted only `aux_value_loss.is_finite()` and
 /// `policy_kl.is_finite()`. `0.0` is finite, so a bit-exactly zero `policy_kl`
-/// — the precise signature of the #324 no-op — satisfied both: the test passed
-/// against the bug it is positioned to guard (recorded in #319's closing
-/// comment). #319 also warned that asserting `policy_kl > 0.0` would fail for a
-/// benign reason; #324's fix is what retired that warning, since the terminal
-/// phase now steps at the rate of the policy phase it accompanies.
+/// — the precise signature of that no-op — satisfied both: the test passed
+/// against the bug it is positioned to guard. An earlier triage of an
+/// instrumented run showing this same all-zero KL had warned that asserting
+/// `policy_kl > 0.0` here would fail for a benign reason (the terminal aux
+/// phase legitimately annealing to `lr = 0.0`); the schedule-offset fix is
+/// what retired that warning, since the terminal phase now steps at the rate
+/// of the policy phase it accompanies — a zero terminal-phase KL is now a
+/// regression signal, not a benign floor.
 ///
 /// The `> 0.0` form is now load-bearing here, and it rests on the
 /// more-than-one-minibatch precondition asserted in the body.
 #[test]
-#[ignore = "2 048-step PPG run (n_iteration=4) verifying the terminal aux phase fires and moves the policy at a nonzero learning rate (#324) — run with `cargo test -- --ignored`"]
+#[ignore = "2 048-step PPG run (n_iteration=4) verifying the terminal aux phase fires and moves the policy at a nonzero learning rate — run with `cargo test -- --ignored`"]
 fn ppg_aux_phase_actually_runs() {
     let _guard = flex_guard();
     // Use a small n_iteration so the aux phase fires within a tiny budget.
@@ -238,27 +242,29 @@ fn ppg_aux_phase_actually_runs() {
          minibatch (the first minibatch's KL is structurally zero — π_old is snapshotted \
          before the epoch loop); got {} minibatches, so shrinking the aux step count or \
          growing `aux_batch_size` into a single chunk has invalidated this test rather \
-         than regressed #324",
+         than regressed the terminal-phase learning-rate fix this test guards",
         aux.minibatches
     );
-    // Guards the #318 all-minibatches-skipped path, which reports both aux
-    // losses as a literal `0.0` sentinel rather than NaN: an aux-value MSE
-    // against CartPole returns is bounded below by 0 and can only *be* 0 on a
+    // Guards the non-finite-loss guard's (`FiniteLossGuard`, ADR 0056)
+    // all-minibatches-skipped path, which reports both aux losses as a
+    // literal `0.0` sentinel rather than NaN: an aux-value MSE against
+    // CartPole returns is bounded below by 0 and can only *be* 0 on a
     // bit-exact perfect regression, which a freshly initialised head does not
     // achieve.
     assert!(
         aux.aux_value_loss > 0.0,
         "the aux-value MSE must be strictly positive; `0.0` is also the sentinel reported \
-         when every minibatch was skipped as non-finite (#318), got {}",
+         when every minibatch was skipped as non-finite by the loss-finiteness guard, got {}",
         aux.aux_value_loss
     );
-    // The #324 assertion. `is_finite()` alone passed on the bit-exactly zero
-    // KL that the terminal aux phase produced when it ran at `lr == 0.0`.
+    // The terminal-phase learning-rate assertion. `is_finite()` alone passed
+    // on the bit-exactly zero KL that the terminal aux phase produced when it
+    // ran at `lr == 0.0`.
     assert!(
         aux.policy_kl > 0.0,
         "the terminal aux phase moved the policy by exactly nothing (policy_kl = {}), \
          which means it ran at lr = 0.0 — it must step at the rate of the policy phase it \
-         accompanies (#324); `is_finite()` alone does not catch this (#319)",
+         accompanies; `is_finite()` alone does not catch a bit-exact zero-rate no-op",
         aux.policy_kl
     );
 }
@@ -293,16 +299,16 @@ fn ppg_cartpole_produces_finite_rewards() {
 }
 
 // ---------------------------------------------------------------------------
-// Auxiliary-phase learning rate (issue #324)
+// Auxiliary-phase learning rate (terminal-iteration schedule offset)
 // ---------------------------------------------------------------------------
 
-/// Regression (issue #324): the auxiliary phase used to read the *annealed*
-/// learning rate after `policy_phase_update` had already bumped the iteration
-/// counter, so it ran one schedule tick ahead of the policy phase it
-/// accompanies. Whenever `total_iterations % n_iteration == 0` the final
-/// auxiliary phase therefore landed on `iteration == total_iterations`, where
-/// the anneal is exactly `0.0` — its minibatches moved no parameter and its
-/// reported `policy_kl` was bit-exactly zero.
+/// Regression: the auxiliary phase used to read the *annealed* learning rate
+/// after `policy_phase_update` had already bumped the iteration counter, so
+/// it ran one schedule tick ahead of the policy phase it accompanies.
+/// Whenever `total_iterations % n_iteration == 0` the final auxiliary phase
+/// therefore landed on `iteration == total_iterations`, where the anneal is
+/// exactly `0.0` — its minibatches moved no parameter and its reported
+/// `policy_kl` was bit-exactly zero.
 ///
 /// This is that configuration, minimised: `total / num_steps = 4` iterations
 /// with `n_iteration = 2`, so auxiliary phases fire at iterations 2 and 4 and
@@ -349,7 +355,7 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     // The load-bearing assertion, and deliberately a check on the *rate* rather
     // than on any downstream numeric effect of it.
     //
-    // #324 is a bit-exact defect: the terminal aux phase read
+    // This is a bit-exact defect: the terminal aux phase used to read
     // `current_learning_rate()` after `policy_phase_update` had bumped
     // `iteration`, so it ran at an anneal of exactly `0.0`. `learning_rate` is a
     // copy of the `f64` the optimizer steps were handed, not a recomputation, so
@@ -361,9 +367,14 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     // `f32` mean of log-differences between near-identical logits. The healthy
     // margin here measures ~4.1e-7, about 3.4× `f32::EPSILON`, so a backend with
     // a different reduction order or fused multiply-add could round a *healthy*
-    // phase to zero and fail this test for a reason unrelated to #324. That
-    // exposure became live when the `rlevo` crate joined the PR gate (#519) and
-    // these tests started running on hardware other than the author's.
+    // phase to zero and fail this test for a reason unrelated to the
+    // learning-rate bug. That exposure became live once this crate's
+    // non-ignored tests actually started running on hardware other than the
+    // author's: `rlevo`'s eight `*_integration.rs` suites used to fall between
+    // the PR-gate matrix (which omitted the `rlevo` crate) and the weekly job
+    // (which passes `-- --ignored`, so it runs only the heavy `#[ignore]`d
+    // tests), leaving this fast regression test executing in no CI workflow
+    // until the `rlevo` crate was added to the PR-gate matrix.
     //
     // The behavioral half — that a nonzero rate actually moves parameters — is
     // asserted directly, and deterministically, by
@@ -373,7 +384,7 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     assert!(
         aux.learning_rate > 0.0,
         "the final aux phase ran at lr = {}; it must step at the rate of the policy phase \
-         it accompanies, which is nonzero at every iteration (#324)",
+         it accompanies, which is nonzero at every iteration",
         aux.learning_rate
     );
     assert!(
@@ -430,7 +441,7 @@ rl_learning_test! {
 }
 
 // ---------------------------------------------------------------------------
-// Progress-logging cadence (issue #321)
+// Progress-logging cadence (log_every/num_steps divisibility)
 // ---------------------------------------------------------------------------
 //
 // PPG shares the PPO watermark, so this is the twin of
@@ -444,8 +455,9 @@ rl_learning_test! {
 
 #[test]
 fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
-    // The canonical #321 configuration: `lcm(128, 100) = 3200`, so the old
-    // divisibility gate emitted ZERO lines for a run this short.
+    // The configuration that exposed the old cadence bug: `lcm(128, 100) =
+    // 3200`, so the old divisibility gate emitted ZERO lines for a run this
+    // short.
     const NUM_STEPS: usize = 128;
     const LOG_EVERY: usize = 100;
     // Chosen so that no boundary of the run -- 128, 256, 384, 512, 640, 650 --
@@ -473,7 +485,8 @@ fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
 
     let steps = capture.values();
 
-    // (1) The literal #321 regression: zero lines under the old gate.
+    // (1) The literal regression this test guards: zero lines under the old
+    // gate.
     assert!(
         !steps.is_empty(),
         "a {TOTAL}-step PPG run with log_every = {LOG_EVERY} must emit at least one progress \

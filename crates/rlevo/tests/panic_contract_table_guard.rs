@@ -10,7 +10,10 @@
 //! second (every panic site appears as a row) — that requires deciding which
 //! `panic!`/`assert!`/`unwrap` is a *contract* rather than an internal
 //! invariant, which is a judgement no text scan makes well, and a guard that
-//! makes it badly gets deleted. #1108 stays a review concern.
+//! makes it badly gets deleted. Missing rows — a `HillClimbingParams::with_*`
+//! setter panicking exactly like its tabled `SimulatedAnnealingParams::with_*`
+//! sibling but never earning a row — stay a review concern this guard does not
+//! check.
 //!
 //! # Scope: the table, and nothing but the table
 //!
@@ -342,9 +345,9 @@ fn table_rows() -> Vec<TableRow> {
             panic!(
                 "docs/rules.md: heading `{TABLE_HEADING}` not found. The panic-contract \
                  table is what this guard checks; if the heading was reworded, update \
-                 TABLE_HEADING. If the table was deleted, delete this file too — but read \
-                 issue #1085 first: prose-only panic contracts are how two dead rows \
-                 survived a module deletion for months."
+                 TABLE_HEADING. If the table was deleted, delete this file too — but note \
+                 prose-only panic contracts have already let two dead rows (naming a module \
+                 ADR 0050 deleted) survive undetected for months before this guard existed."
             )
         });
 
@@ -706,7 +709,8 @@ fn cfg_test_regions(relative: &str, lines: &[&str]) -> Vec<(usize, usize)> {
                 "{relative}: the `#[cfg(test)]` at line {} never terminates. This guard \
                  refuses to skip to end-of-file, because doing so would hide every \
                  production `fn` below it and let a test-only function satisfy a \
-                 documented panic contract (issue #1109).",
+                 documented panic contract — precisely the failure mode this guard file \
+                 exists to close.",
                 index + 1,
             )
         });
@@ -1010,9 +1014,9 @@ fn how_to_fix() -> String {
      call sites). It is not a way to silence a rename, and \
      `no_exempted_row_names_an_identifier` will reject an exemption whose cell \
      still names something.\n\n\
-     Issue #1085 is why this exists: two rows of this table named a module that \
-     had been deleted, and they stayed there for months because nothing but a \
-     human reading carefully could notice. Do not delete this assertion."
+     This assertion exists because two rows of this table once named a module \
+     that had been deleted, and they stayed there for months because nothing but \
+     a human reading carefully could notice. Do not delete this assertion."
         .to_owned()
 }
 
@@ -1234,7 +1238,8 @@ fn relative_path(root: &Path, path: &Path) -> String {
 /// **The guard.** Every Site cell in the panic-contract table names something
 /// that exists in production source, or carries an [`UNRESOLVABLE_SITES`] row.
 ///
-/// This is the check issue #1085 needed and did not have.
+/// This is the mechanical check the table lacked: without it, a row can go on
+/// naming a deleted module indefinitely, since prose alone never fails a build.
 #[test]
 fn every_panic_contract_row_names_a_live_item() {
     let rows = table_rows();

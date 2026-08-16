@@ -1,7 +1,9 @@
 //! Cross-crate proof that an [`Environment`] can expose an observation whose
 //! tensor order differs from its state's order (`R != SR`), driven by an env-side
-//! [`Sensor`] that delegates to the [`Observable`] projection trait (issue #62,
-//! ADR 0019; the seam moved to `Sensor` in ADR 0047, #329).
+//! [`Sensor`] that delegates to the [`Observable`] projection trait
+//! (ADR 0019; the seam moved to `Sensor` in ADR 0047, which relocated the
+//! observation function off `State` entirely since observability is a
+//! property of the environment, not a state value).
 //!
 //! The environment holds a compact rank-1 `MockRamState` and builds every
 //! snapshot from its `Sensor<2, 1, 1>` impl, whose body is `state.project()` —
