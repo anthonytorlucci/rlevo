@@ -45,7 +45,7 @@ impl PpgCategoricalPolicyHeadConfig {
     /// `LinearConfig::new(0, hidden)` builds a zero-width layer silently. This
     /// is the *only* constructor: there is deliberately no infallible `init`,
     /// because an unchecked path would reinstate the bypass this method exists
-    /// to close (#386). The `try_` prefix marks the departure from Burn's own
+    /// to close. The `try_` prefix marks the departure from Burn's own
     /// infallible `*Config::init` idiom.
     ///
     /// # Errors
@@ -302,12 +302,14 @@ mod tests {
         assert!(cfg.validate().is_ok());
     }
 
-    /// The regression lock for #386. PPG's head has no `log_std`, so it escapes
-    /// the numerical failure that motivated the issue — but it shares the
-    /// structural bypass: `LinearConfig::new(0, hidden)` builds a zero-width
-    /// layer without complaint, so an unvalidated `init` yields a silently
-    /// degenerate head. `try_init` must reach every invariant `validate()`
-    /// already checked, including the `aux_value_head` fed off the same trunk.
+    /// The regression lock for the zero-width-head bypass. PPG's head has no
+    /// `log_std`, so it escapes the numerical failure that motivated the
+    /// original issue — but it has the same *structural* bypass:
+    /// `LinearConfig::new(0, hidden)` builds a zero-width layer without
+    /// complaint, so an unvalidated `init` yields a head that is silently
+    /// degenerate rather than rejected. `try_init` must reach every invariant
+    /// `validate()` already checked, including the `aux_value_head` fed off
+    /// the same trunk.
     #[test]
     fn test_ppg_policies_categorical_try_init_rejects_every_zero_dimension() {
         let device = Default::default();

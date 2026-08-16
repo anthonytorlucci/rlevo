@@ -143,8 +143,9 @@ impl C51TrainingConfig {
     /// # Returns
     /// The uniform atom spacing, or [`f32::NAN`] for a degenerate
     /// `num_atoms < 2` (a spacing is undefined with fewer than two atoms).
-    /// [`Validate`] rejects such a config, but a struct literal can bypass the
-    /// builder, so this stays total rather than panicking (see issue #326).
+    /// [`Validate`] rejects such a config, but a struct literal can bypass
+    /// the builder — not the `with_config` chokepoint that runs it — so this
+    /// can't assume validation ran and stays total rather than panicking.
     #[must_use]
     pub fn delta_z(&self) -> f32 {
         atom_spacing(self.v_min, self.v_max, self.num_atoms)

@@ -54,8 +54,8 @@ use crate::utils::{PolyakError, compute_target_quantiles};
 /// infallible form that `docs/rules.md` §4 sanctions for a read that "cannot
 /// fail by construction (e.g. a tensor the same function just built)".
 ///
-/// Making action selection fallible is a breaking change, deferred and tracked
-/// as #317. When it lands, the variant that returns must carry
+/// Making action selection fallible is a breaking change, deferred and
+/// tracked separately. When it lands, the variant that returns must carry
 /// [`rlevo_core::base::TensorConversionError`] as a `#[from]` payload, not a
 /// `String`: §4 prefers structured error types over string-based ones, and
 /// names `TensorConversionError` as the domain type for tensor ops.
@@ -174,17 +174,17 @@ where
     /// unconditionally, including on a non-finite-loss skip.
     gradient_updates: usize,
     stats: AgentStats<QrDqnMetrics>,
-    /// Non-finite-loss guard for the quantile-Huber loss site (ADR 0056, #318).
+    /// Non-finite-loss guard for the quantile-Huber loss site (ADR 0056).
     /// Skips the update on every occurrence; the `warn!` escalates by decades —
     /// skips 1, 10, 100, … — each carrying the running total (ADR 0072 §1),
     /// readable via [`Self::skipped_updates`].
     loss_guard: FiniteLossGuard,
-    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
-    /// #352). Drops the transition on every occurrence; the `warn!` escalates
+    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065).
+    /// Drops the transition on every occurrence; the `warn!` escalates
     /// by decades.
     reward_guard: FiniteRewardGuard,
     /// Non-finite-**observation** guard for the `remember` ingestion site (ADR
-    /// 0067, #1043). Drops the transition on every occurrence — `obs` and
+    /// 0067). Drops the transition on every occurrence — `obs` and
     /// `next_obs` are checked together, so one guard covers both rows. Distinct
     /// from `reward_guard`, and its counter is not a subset of that one: see
     /// [`dropped_observations`](Self::dropped_observations).
@@ -366,8 +366,8 @@ where
     ///
     /// The observation seam for the target-update rule: with it, a caller — or
     /// a test — can check *that* a target update fired on the expected gradient
-    /// update and moved the weights by the expected τ. Issue #182's
-    /// double-update defect survived its own test suite precisely because no
+    /// update and moved the weights by the expected τ. The double-update
+    /// defect survived its own test suite precisely because no
     /// such seam existed, so every assertion had to be made through Q-values,
     /// which are a lossy function of the weights.
     ///
@@ -434,7 +434,7 @@ where
     ///    index on `wgpu`. So the discrete failure is CPU-specific and
     ///    invisible — and CPU is the backend CI runs.
     ///
-    /// The `argmax` behaviour itself is issue #1050 and is deliberately **not**
+    /// The `argmax` behaviour itself is deliberately **not**
     /// fixed here; this guard only makes it attributable.
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
@@ -525,7 +525,7 @@ where
     /// a no-op. Storing it would let every minibatch that later resampled it
     /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
     /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065, issue #352). A `tracing::warn!` fires on the 1st,
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
     /// 10th, 100th, … drop; use
     /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
     /// programmatically.
@@ -533,8 +533,7 @@ where
     /// A non-finite **observation** — a `NaN` or `±Inf` anywhere in the host row
     /// of *either* `obs` or `next_obs` — is discarded on the same terms, and
     /// counted separately by
-    /// [`dropped_observations`](Self::dropped_observations) (ADR 0067, issue
-    /// #1043).
+    /// [`dropped_observations`](Self::dropped_observations) (ADR 0067).
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if !self.reward_guard.admit(reward) {
             return;
@@ -701,7 +700,7 @@ where
     /// small or fewer than `learning_starts` steps taken), and also when the
     /// computed loss is non-finite (NaN/±Inf): in that case the backward pass,
     /// optimizer step, target update, and PER writeback are all skipped (ADR
-    /// 0056, #318) and [`skipped_updates`](Self::skipped_updates) advances, so
+    /// 0056) and [`skipped_updates`](Self::skipped_updates) advances, so
     /// the caller keeps its last healthy reported metrics rather than folding a
     /// NaN into them. The accompanying `warn!` fires on a decade schedule —
     /// skips 1, 10, 100, … — each line carrying the running total (ADR 0072
@@ -817,7 +816,7 @@ where
         // non-terminal transition, and T θ_j = r on a terminal one — the
         // bootstrap is *masked away* there, not scaled by (1 − terminated).
         // Scaling would let a non-finite target-network quantile survive the
-        // terminal transition, since NaN · 0.0 == NaN (issue #357).
+        // terminal transition, since NaN · 0.0 == NaN.
         let rewards_bn: Tensor<B::InnerBackend, 2> = rewards_inner.unsqueeze_dim::<2>(1); // (B, 1)
         let terminated_bn: Tensor<B::InnerBackend, 2> = terminated_inner.unsqueeze_dim::<2>(1); // (B, 1)
         let gamma = self.config.gamma as f32;
@@ -872,7 +871,7 @@ where
         // exactly when stability matters most.
         self.gradient_updates += 1;
 
-        // #318 / ADR 0056: `loss_value` is already host-resident, so the
+        // ADR 0056: `loss_value` is already host-resident, so the
         // finiteness check costs no extra sync. A non-finite loss skips
         // `backward()`, the optimizer step, the target soft-update, and the PER
         // writeback (Burn would otherwise fold NaN into the weights silently),
@@ -1170,7 +1169,7 @@ mod tests {
         );
     }
 
-    // -------- Bellman target reaches the loss (#357 call site) --------
+    // -------- Bellman target reaches the loss --------
     //
     // `learn_step` hands `(rewards, next_quantiles, terminated, gamma)` to
     // `compute_target_quantiles`, and `rewards` and `terminated` are both
@@ -1308,14 +1307,14 @@ mod tests {
 
     // -------- target-update cadence (ADR 0058 / 0059) --------
     //
-    // These replace the three `sync_target` tests that pinned issue #182's
+    // These replace the three `sync_target` tests that pinned the
     // two-mechanism gate. `sync_target` is gone; the cadence gate lives inside
     // `learn_step`, so the same three properties — no-op off-cadence, exact
     // copy on-cadence, Polyak lag preserved — are asserted against gradient
     // updates rather than env steps, with `TargetUpdate::hard(n)` expressing
     // what `tau = 0.0, target_update_frequency = n` used to. They read the
-    // target through `target_net()`, the seam whose absence let the #182 defect
-    // pass a Q-value-only suite.
+    // target through `target_net()`, the seam whose absence let the
+    // double-update defect pass a Q-value-only suite.
 
     /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves
     /// on **every** learn step, by exactly τ toward the post-step policy, and
@@ -1525,7 +1524,7 @@ mod tests {
         assert_eq!(err.to_string(), "Invalid action: bad index");
     }
 
-    // -------- non-finite-loss guard (ADR 0056, #318) --------
+    // -------- non-finite-loss guard (ADR 0056) --------
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// policy network that has diverged to non-finite weights — the realistic
@@ -1542,7 +1541,7 @@ mod tests {
 
     /// QR-DQN shares DQN's single-loss shape: a non-finite quantile-Huber loss
     /// must skip `backward`, the optimizer step, and the soft target sync (ADR
-    /// 0056, #318). Diverging the policy net to NaN forces a NaN loss; the guard
+    /// 0056). Diverging the policy net to NaN forces a NaN loss; the guard
     /// must fire, `learn_step` must return `None`, and the target must stay
     /// untouched and finite.
     #[test]
@@ -1626,7 +1625,7 @@ mod tests {
         );
     }
 
-    // ---- ADR 0065 / #352: non-finite reward is dropped at ingestion ----
+    // ---- ADR 0065: non-finite reward is dropped at ingestion ----
     //
     // Every off-policy agent needs its OWN copy of this test. The defect had
     // six sites, not the four the issue named, precisely because C51 and
@@ -1673,7 +1672,7 @@ mod tests {
         );
     }
 
-    // ---- ADR 0067 / #1043: non-finite observation ----
+    // ---- ADR 0067: non-finite observation ----
     //
     // Per-file, for the same reason as the ADR 0065 block above: six sites, and
     // a shared test would not notice a `remember` copied without its guard.

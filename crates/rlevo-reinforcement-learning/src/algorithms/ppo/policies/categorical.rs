@@ -35,7 +35,7 @@ impl CategoricalPolicyHeadConfig {
     /// `LinearConfig::new(0, hidden)` builds a zero-width layer silently. This
     /// is the *only* constructor: there is deliberately no infallible `init`,
     /// because an unchecked path would reinstate the bypass this method exists
-    /// to close (#386). The `try_` prefix marks the departure from Burn's own
+    /// to close. The `try_` prefix marks the departure from Burn's own
     /// infallible `*Config::init` idiom.
     ///
     /// `CleanRL`'s orthogonal-init detail is a deferred follow-up; users who
@@ -298,12 +298,13 @@ mod tests {
         assert!(cfg.validate().is_ok());
     }
 
-    /// The regression lock for #386. A categorical head has no `log_std`, so it
-    /// escapes the numerical failure that motivated the issue — but it has the
-    /// same *structural* bypass: `LinearConfig::new(0, hidden)` builds a
-    /// zero-width layer without complaint, so an unvalidated `init` yields a
-    /// head that is silently degenerate rather than rejected. `try_init` must
-    /// reach every invariant `validate()` already checked.
+    /// The regression lock for the zero-width-head bypass. A categorical head
+    /// has no `log_std`, so it escapes the numerical failure that motivated
+    /// the original issue — but it has the same *structural* bypass:
+    /// `LinearConfig::new(0, hidden)` builds a zero-width layer without
+    /// complaint, so an unvalidated `init` yields a head that is silently
+    /// degenerate rather than rejected. `try_init` must reach every invariant
+    /// `validate()` already checked.
     #[test]
     fn test_ppo_categorical_try_init_rejects_every_zero_dimension() {
         let device = Default::default();

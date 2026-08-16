@@ -162,7 +162,7 @@ where
     // Watermark, not `global_step % log_every`: the step counter is only
     // sampled at rollout boundaries (multiples of `num_steps`), so a
     // divisibility test would fire on `lcm(num_steps, log_every)` — see
-    // `LogWatermark` and issue #321.
+    // `LogWatermark`.
     let mut log_watermark = LogWatermark::new(log_every);
     let loop_start = Instant::now();
 
@@ -195,12 +195,12 @@ where
             // non-finite value. Do not "fix" this to skip a NaN: a poisoned
             // episode return is a true statement about a run whose environment
             // emitted NaN, and `AgentStats::avg_score` transits it as a
-            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070,
-            // #409). Unlike the off-policy agents, nothing was dropped
+            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070).
+            // Unlike the off-policy agents, nothing was dropped
             // upstream: ADR 0065 scopes only those six, so this path has no
             // `FiniteRewardGuard` at all, and the same reward also
             // reaches `compute_gae`, whose reverse recursion poisons the whole
-            // rollout's advantages. That ingestion gap is open, see #1042.
+            // rollout's advantages. That ingestion gap is open and unaddressed.
             episode_reward += reward_f32;
             episode_steps += 1;
 
@@ -321,8 +321,10 @@ fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
         old_approx_kl = stats.old_approx_kl,
         clip_frac = stats.clip_frac,
         explained_variance = stats.explained_variance,
-        // The ADR 0049 §4 metric channel, which no shipped loop emitted until
-        // #347. `?` (Debug) rather than a `f32` field because both are
+        // The ADR 0049 §4 metric channel, which no shipped loop emitted
+        // before this: earlier the only signal on a clamp crossing was a
+        // one-shot per-head warning log, not a per-iteration metric.
+        // `?` (Debug) rather than a `f32` field because both are
         // `Option<f32>`: a categorical run renders `None`, which is the honest
         // reading, where a `map_or(0.0, ..)` would print a `log σ` of zero
         // (σ = 1) for a policy that has no σ at all. Both extrema are logged —

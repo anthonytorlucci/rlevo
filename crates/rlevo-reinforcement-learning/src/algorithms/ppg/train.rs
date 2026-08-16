@@ -107,7 +107,7 @@ where
     // Watermark, not `global_step % log_every`: the step counter is only
     // sampled at rollout boundaries (multiples of `num_steps`), so a
     // divisibility test would fire on `lcm(num_steps, log_every)` — see
-    // `LogWatermark` and issue #321.
+    // `LogWatermark`.
     let mut log_watermark = LogWatermark::new(log_every);
 
     while global_step < total_timesteps {
@@ -136,14 +136,14 @@ where
             // non-finite value. Do not "fix" this to skip a NaN: a poisoned
             // episode return is a true statement about a run whose environment
             // emitted NaN, and `AgentStats::avg_score` transits it as a
-            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070,
-            // #409). Unlike the off-policy agents, nothing was dropped
+            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070).
+            // Unlike the off-policy agents, nothing was dropped
             // upstream: ADR 0065 scopes only those six, so this path has no
             // `FiniteRewardGuard` at all, and the same reward also
             // reaches `compute_gae`, whose reverse recursion poisons the whole
-            // rollout's advantages. That ingestion gap is open, see #1042.
-            // #1051 adds the PPG-specific tail: the aux buffer is snapshotted
-            // before the rollout clear, so a poisoned rollout lingers for up to
+            // rollout's advantages. That ingestion gap is open and unaddressed.
+            // The PPG-specific tail: the aux buffer is snapshotted before the
+            // rollout clear, so a poisoned rollout lingers for up to
             // `n_iteration` rollouts rather than one.
             episode_reward += reward_f32;
             episode_steps += 1;
@@ -260,7 +260,7 @@ fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
         // The ADR 0049 §4 metric channel. Both read `None` for every PPG run
         // today — PPG is discrete-only in v1 — and are emitted anyway so that a
         // future Gaussian PPG head is observable the moment it lands, rather
-        // than shipping a silent trap door (#347). `?` (Debug) renders the
+        // than shipping a silent trap door. `?` (Debug) renders the
         // `Option` honestly instead of fabricating a `0.0` for a policy with no
         // σ.
         min_log_std = ?stats.min_log_std,

@@ -66,7 +66,11 @@ pub struct PpoTrainingConfig {
     /// *not* rescale against the global norm of the flattened parameter
     /// vector, so it does **not** reproduce Huang et al. detail #10
     /// (global-norm clipping at `0.5`, as in `CleanRL`). True global-norm
-    /// clipping is tracked in issue #328.
+    /// clipping — reducing over the whole flattened parameter vector instead
+    /// of one tensor at a time — is not implemented: Burn's optimizer hook
+    /// has no built-in way to reduce across `GradientsParams` before
+    /// `step_with`, so it would need a manual accumulation pass inserted
+    /// there.
     pub clip_grad: Option<GradientClippingConfig>,
 
     // ----- objective -----
@@ -383,9 +387,10 @@ mod tests {
         assert_eq!(cfg.gae_lambda, 0.95);
         assert_eq!(cfg.gamma, 0.99);
         // CleanRL clips at norm 0.5, but rlevo ships clipping *off* by
-        // default; the docs must keep saying so. Asserted because the
-        // neighbouring dead `max_grad_norm` field (issue #183) made the
-        // default look like it was 0.5.
+        // default; the docs must keep saying so. Asserted because a
+        // now-removed dead `max_grad_norm` field defaulted to `0.5`,
+        // making the default look like clipping was on when `clip_grad`
+        // was actually `None`.
         assert!(cfg.clip_grad.is_none());
     }
 
@@ -403,8 +408,8 @@ mod tests {
 
     #[test]
     fn test_ppo_config_minibatch_size_never_zero() {
-        // Regression for #166: num_minibatches > batch_size must floor to 1,
-        // matching PpoAgent::update's mb_size, not integer-divide to 0.
+        // num_minibatches > batch_size must floor to 1, matching
+        // PpoAgent::update's mb_size, not integer-divide to 0.
         let cfg = PpoTrainingConfigBuilder::new()
             .num_envs(1)
             .num_steps(10)

@@ -70,9 +70,9 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// construction — the tensor being read is one the same function just built on
 /// the same device.
 ///
-/// Making those signatures fallible is tracked as issue #317 (see ADR 0057,
+/// Making those signatures fallible is tracked separately (see ADR 0057,
 /// which resolved the off-policy half and left `act` and the on-policy agents
-/// panic-based as the explicit residual). When #317 lands, the variant returns
+/// panic-based as the explicit residual). When that lands, the variant returns
 /// carrying [`rlevo_core::base::TensorConversionError`] via `#[from]` — a
 /// structured payload, **not** a `String`. `docs/rules.md` §4 prefers
 /// structured variants over string-based errors and names
@@ -107,7 +107,7 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// `docs/rules.md` §4 would prefer `Environment(#[from] EnvironmentError)`.
 /// `train.rs` currently calls `err.to_string()`, discarding the structured
 /// error and its [`source`](std::error::Error::source) chain. This is **known
-/// and tracked as #171**, which scopes the same fix across all eight
+/// and tracked**, scoped as the same fix across all eight
 /// algorithms — it is a breaking change to the payload type and is
 /// deliberately out of scope here. Do not read the `String` as endorsed.
 ///
@@ -176,7 +176,7 @@ pub struct AuxPhaseStats {
     /// Minibatches processed.
     pub minibatches: usize,
     /// Learning rate both optimizer steps ran at — the rate the accompanying
-    /// policy phase applied, not the next tick's (#324).
+    /// policy phase applied, not the next tick's.
     ///
     /// Reported so callers can tell a phase that *ran but moved nothing*
     /// (`learning_rate == 0.0`) from one that moved the policy imperceptibly.
@@ -246,13 +246,13 @@ where
     /// The auxiliary phase belongs to the policy phase it follows, so it steps
     /// at this rate rather than at `current_learning_rate()` — which, read from
     /// [`maybe_aux_phase`](Self::maybe_aux_phase), has already advanced one
-    /// annealing tick (#324).
+    /// annealing tick.
     policy_phase_lr: f64,
     step: usize,
     stats: AgentStats<PpgMetrics>,
     last_aux: Option<AuxPhaseStats>,
-    /// Non-finite-loss guard for the policy-phase policy-loss site (ADR 0056,
-    /// #318). Consulted once per minibatch: the skip fires on every non-finite
+    /// Non-finite-loss guard for the policy-phase policy-loss site (ADR 0056).
+    /// Consulted once per minibatch: the skip fires on every non-finite
     /// occurrence, the `warn!` escalates by decades (ADR 0072). Surfaced by
     /// [`skipped_policy_updates`](Self::skipped_policy_updates).
     policy_loss_guard: FiniteLossGuard,
@@ -610,7 +610,7 @@ where
     /// tick *past* the rate that update applied — and at the end of a run it
     /// reports `0.0`. Anything that must step at the rate of the phase that just
     /// ran reads `policy_phase_lr` instead; that is exactly what the auxiliary
-    /// phase does (see [`maybe_aux_phase`](Self::maybe_aux_phase), #324).
+    /// phase does (see [`maybe_aux_phase`](Self::maybe_aux_phase)).
     pub fn current_learning_rate(&self) -> f64 {
         if self.config.ppo.anneal_lr {
             annealed_learning_rate(
@@ -767,7 +767,7 @@ where
     ///
     /// The annealed learning rate is snapshotted once, *before* the increment,
     /// and retained in `policy_phase_lr` so the auxiliary phase that may follow
-    /// this update steps at the same rate (#324).
+    /// this update steps at the same rate.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
@@ -784,7 +784,7 @@ where
         let mb_size = (batch_size / cfg.num_minibatches.max(1)).max(1);
         // Read before `self.iteration += 1` below, so this is the rate for the
         // phase about to run. Retained for the auxiliary phase, which belongs to
-        // this policy phase and must not anneal ahead of it (#324).
+        // this policy phase and must not anneal ahead of it.
         let lr = self.current_learning_rate();
         self.policy_phase_lr = lr;
 
@@ -796,7 +796,7 @@ where
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
         // Denominators for the two gated means: only minibatches whose loss was
-        // finite and applied (#318, ADR 0056 §3). `mb_count` still denominates
+        // finite and applied (ADR 0056 §3). `mb_count` still denominates
         // the ungated diagnostics.
         let mut policy_healthy = 0_usize;
         let mut value_healthy = 0_usize;
@@ -863,7 +863,7 @@ where
                 kl_sum += kl;
                 kl_count += 1;
 
-                // #318 / ADR 0056: `policy_loss_val` is already host-resident,
+                // ADR 0056: `policy_loss_val` is already host-resident,
                 // so the finiteness check costs no extra sync. A non-finite
                 // loss skips `backward()` + the optimizer step and is excluded
                 // from the reported mean.
@@ -885,7 +885,7 @@ where
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(cfg.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
-                // #318 / ADR 0056: same guard type for the value site, counted
+                // ADR 0056: same guard type for the value site, counted
                 // separately from the policy site — its own per-site total
                 // (`skipped_value_updates`) and its own decade `warn!` schedule,
                 // and, like the policy site, its skip fires on every non-finite
@@ -924,7 +924,7 @@ where
         // inherit its log_std bound and its one-shot-per-bound clamp warnings
         // here — the ceiling half included, which is why `max_log_std` is wired
         // now alongside the minimum rather than left for that head to add
-        // (#347, ADR 0049 §4).
+        // later (ADR 0049 §4).
         let min_log_std = self.policy().min_log_std();
         let max_log_std = self.policy().max_log_std();
 
@@ -933,7 +933,7 @@ where
 
         // The two gated losses divide by their own healthy counts (`0.0`, not
         // NaN, when every minibatch skipped); the ungated diagnostics keep the
-        // total minibatch denominator (#318, ADR 0056 §3).
+        // total minibatch denominator (ADR 0056 §3).
         let denom = mb_count.max(1) as f32;
         PpoUpdateStats {
             policy_loss: if policy_healthy == 0 {
@@ -984,7 +984,7 @@ where
     /// than after a schedule tick. Reading the annealed rate here instead made
     /// every auxiliary phase run one tick early and, whenever
     /// `total_iterations % n_iteration == 0`, made the final one a bit-exact
-    /// no-op at `lr == 0.0` (#324).
+    /// no-op at `lr == 0.0`.
     // Divisor/normalizer derived from a count -- batch size, minibatch count,
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
@@ -994,7 +994,7 @@ where
             return None;
         }
         let cfg = self.config.clone();
-        // The accompanying policy phase's rate, not the next one's (#324).
+        // The accompanying policy phase's rate, not the next one's.
         let lr = self.policy_phase_lr;
         let total_steps = self.aux_buffer.len_steps();
         if total_steps == 0 {
@@ -1013,8 +1013,8 @@ where
         let mut kl_acc = 0.0_f32;
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
-        // Healthy-minibatch denominators for the two gated aux losses (#318,
-        // ADR 0056 §3). The main-value site feeds `main_v_acc`; the combined
+        // Healthy-minibatch denominators for the two gated aux losses
+        // (ADR 0056 §3). The main-value site feeds `main_v_acc`; the combined
         // aux site feeds both `aux_v_acc` and `kl_acc`, so they share a count.
         let mut main_v_healthy = 0_usize;
         let mut aux_total_healthy = 0_usize;
@@ -1048,7 +1048,7 @@ where
                 let new_v = self.value().forward(obs_t.clone());
                 let v_loss = unclipped_value_loss(new_v, returns_t.clone());
                 let v_loss_val = v_loss.clone().into_scalar().elem::<f32>();
-                // #318 / ADR 0056: skip backward + step on a non-finite
+                // ADR 0056: skip backward + step on a non-finite
                 // main-value loss; exclude it from the reported mean.
                 if self.aux_main_value_guard.check(v_loss_val) {
                     let grads = v_loss.backward();
@@ -1067,7 +1067,7 @@ where
                 let aux_v_loss_val = aux_v_loss.clone().into_scalar().elem::<f32>();
                 let kl_val = kl.clone().into_scalar().elem::<f32>();
                 let total = aux_v_loss + kl.mul_scalar(cfg.beta_clone);
-                // #318 / ADR 0056: `total = aux_v_loss + β·kl` is never read
+                // ADR 0056: `total = aux_v_loss + β·kl` is never read
                 // host-side, so guard on the host-*derived* scalar built from
                 // its two already-read summands — no extra device→host sync.
                 // Both accumulators this site feeds are excluded on a skip.
@@ -1090,7 +1090,7 @@ where
 
         // Each gated loss divides by its own healthy count (`0.0`, not NaN,
         // when every minibatch skipped); `minibatches` still reports the total
-        // count attempted (#318, ADR 0056 §3).
+        // count attempted (ADR 0056 §3).
         let stats = AuxPhaseStats {
             main_value_loss: if main_v_healthy == 0 {
                 0.0
@@ -1257,7 +1257,7 @@ mod tests {
         assert_eq!(err.to_string(), "Environment error: boom");
     }
 
-    /// Regression (issue #183): PPG builds its optimizers from
+    /// Regression: PPG builds its optimizers from
     /// `config.ppo.clip_grad` itself rather than delegating to `PpoAgent`, so
     /// this wiring can rot independently of the PPO copy — assert it here too.
     #[test]
@@ -1286,7 +1286,7 @@ mod tests {
         );
     }
 
-    // -------- non-finite-loss guard (ADR 0056, #318) --------
+    // -------- non-finite-loss guard (ADR 0056) --------
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// network that has diverged to non-finite weights — the realistic source
@@ -1398,7 +1398,7 @@ mod tests {
 
     /// Policy-phase site: a non-finite policy loss must skip the policy
     /// `backward` + optimizer step and be excluded from the reported mean (ADR
-    /// 0056, #318). Diverging the policy net to NaN forces a NaN clipped
+    /// 0056). Diverging the policy net to NaN forces a NaN clipped
     /// surrogate; the guard must fire, the reported `policy_loss` must be the
     /// `0.0` all-skipped sentinel, and the value site must still learn.
     #[test]
@@ -1762,7 +1762,7 @@ mod tests {
         );
     }
 
-    // -------- auxiliary-phase learning-rate alignment (#324) --------
+    // -------- auxiliary-phase learning-rate alignment --------
 
     /// Builds an empty agent with LR annealing **on** over `total_iterations`
     /// policy phases. Mirrors [`primed_ppg_agent`]'s shapes; the rollout is left
@@ -1794,7 +1794,7 @@ mod tests {
         TestAgent::new(policy, value, config, device, total_iterations).expect("valid config")
     }
 
-    /// Regression (issue #324): the auxiliary phase must step at the learning
+    /// Regression: the auxiliary phase must step at the learning
     /// rate of the policy phase it accompanies, so `policy_phase_lr` has to hold
     /// the rate read *before* `policy_phase_update` bumped `iteration` — one
     /// tick behind `current_learning_rate()`. On the final iteration that
@@ -1853,14 +1853,14 @@ mod tests {
     /// aligned rate must actually *move parameters*, not merely be positive.
     ///
     /// Measures a host-side weight delta across the terminal auxiliary phase —
-    /// the phase #324 turned into a bit-exact no-op. A weight delta is
-    /// `lr · step`, linear in the learning rate and here ~1e-4 against weights
-    /// of order 1e-1, so it clears `f32` resolution by several orders of
-    /// magnitude.
+    /// the phase the one-tick offset above turned into a bit-exact no-op. A
+    /// weight delta is `lr · step`, linear in the learning rate and here
+    /// ~1e-4 against weights of order 1e-1, so it clears `f32` resolution by
+    /// several orders of magnitude.
     ///
     /// This exists because the equivalent end-to-end check in
     /// `crates/rlevo/tests/ppg_integration.rs` used to assert
-    /// `AuxPhaseStats::policy_kl > 0.0`. That also catches #324 — at `lr == 0.0`
+    /// `AuxPhaseStats::policy_kl > 0.0`. That also catches the regression — at `lr == 0.0`
     /// the parameters are bitwise unchanged and every minibatch's KL is an exact
     /// zero — but it decides the question through an `f32` mean of
     /// log-differences between near-identical logits, measured at ~3.4×
@@ -1871,7 +1871,7 @@ mod tests {
     /// has margin to spare.
     #[test]
     // `current_learning_rate()` landing on *exactly* 0.0 at the terminal
-    // iteration is the precondition that makes this #324's failing
+    // iteration is the precondition that makes this the regression's failing
     // configuration rather than an ordinary interior phase.
     #[allow(clippy::float_cmp)]
     fn test_ppg_agent_aux_phase_at_nonzero_lr_moves_policy_parameters() {
@@ -1901,7 +1901,7 @@ mod tests {
             agent.current_learning_rate(),
             0.0,
             "the anneal must land on exactly 0.0 at the terminal iteration, or this is not \
-             the configuration #324 broke"
+             the configuration the regression broke"
         );
         assert!(
             stats.learning_rate > 0.0,
@@ -1922,7 +1922,7 @@ mod tests {
         assert!(
             max_delta > 0.0,
             "the terminal auxiliary phase left every policy parameter bit-exactly unchanged \
-             (max |Δw| = {max_delta}) — that is what stepping at lr = 0.0 does (#324)"
+             (max |Δw| = {max_delta}) — that is what stepping at lr = 0.0 does"
         );
     }
 }

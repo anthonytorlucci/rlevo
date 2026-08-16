@@ -53,9 +53,9 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// host-read that cannot fail by construction — the tensor being read is one
 /// the same function just built on the same device.
 ///
-/// Making those signatures fallible is tracked as issue #317 (see ADR 0057,
-/// which resolved the off-policy half and left `act` and the on-policy agents
-/// panic-based as the explicit residual). When #317 lands, the variant returns
+/// Making those signatures fallible would resolve this (see ADR 0057, which
+/// resolved the off-policy half and left `act` and the on-policy agents
+/// panic-based as the explicit residual). When that lands, the variant returns
 /// carrying [`rlevo_core::base::TensorConversionError`] via `#[from]` — a
 /// structured payload, **not** a `String`. `docs/rules.md` §4 prefers
 /// structured variants over string-based errors and names
@@ -90,10 +90,10 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// [`rlevo_core::environment::EnvironmentError`] is the domain type;
 /// `docs/rules.md` §4 would prefer `Environment(#[from] EnvironmentError)`.
 /// `train.rs` currently calls `err.to_string()`, discarding the structured
-/// error and its [`source`](std::error::Error::source) chain. This is **known
-/// and tracked as #171**, which scopes the same fix across all eight
-/// algorithms — it is a breaking change to the payload type and is
-/// deliberately out of scope here. Do not read the `String` as endorsed.
+/// error and its [`source`](std::error::Error::source) chain. This is a known
+/// gap that scopes the same fix across all eight algorithms — it is a
+/// breaking change to the payload type and is deliberately out of scope
+/// here. Do not read the `String` as endorsed.
 ///
 /// # Adding a variant
 ///
@@ -181,7 +181,7 @@ pub struct ActOutcome {
 /// This change adds the [`Default`] impl at the same time, so `#[non_exhaustive]`
 /// removes nothing and the placeholders shrink to `PpoUpdateStats::default()`.
 ///
-/// The concrete purchase: adding `max_log_std` here (#347) would otherwise be a
+/// The concrete purchase: adding `max_log_std` here would otherwise be a
 /// breaking change to every downstream struct literal, and so would the next
 /// diagnostic. A metrics record grows — pinning it closed on the assumption
 /// that it will not is how a report type becomes the reason a diagnostic ships
@@ -230,8 +230,8 @@ pub struct PpoUpdateStats {
     /// The ceiling-side counterpart to [`min_log_std`](Self::min_log_std), and
     /// not redundant with it: a minimum reports the *healthiest* dim, so a head
     /// with one dim pinned at `log_std_max` reads perfectly normal on
-    /// `min_log_std` while that dim is frozen and sampling near-uniform noise
-    /// (#347). A value drifting up toward the head's `log_std_max` is the
+    /// `min_log_std` while that dim is frozen and sampling near-uniform
+    /// noise. A value drifting up toward the head's `log_std_max` is the
     /// policy diverging rather than collapsing, and reaching the bound freezes
     /// the parameter just as permanently. The head emits its own one-shot
     /// `tracing::warn!` per bound when that happens.
@@ -302,12 +302,12 @@ where
     total_iterations: usize,
     step: usize,
     stats: AgentStats<PpoMetrics>,
-    /// Non-finite-loss guard for the policy-loss site (ADR 0056, #318). Skips
+    /// Non-finite-loss guard for the policy-loss site (ADR 0056). Skips
     /// the update on every occurrence; the `warn!` escalates by decades — skips
     /// 1, 10, 100, … — each carrying the running total (ADR 0072 §1), readable
     /// via [`Self::skipped_policy_updates`].
     policy_loss_guard: FiniteLossGuard,
-    /// Non-finite-loss guard for the value-loss site (ADR 0056, #318), counting
+    /// Non-finite-loss guard for the value-loss site (ADR 0056), counting
     /// and escalating independently of [`Self::policy_loss_guard`]. See
     /// [`Self::skipped_value_updates`].
     value_loss_guard: FiniteLossGuard,
@@ -517,7 +517,7 @@ where
     /// `value_healthy` minibatch counts and uses them as the **denominators**
     /// for the two gated means it reports in [`PpoUpdateStats`], so that a
     /// skipped minibatch cannot re-poison `policy_loss` / `value_loss`
-    /// (#318, ADR 0056 §3). Those are per-`update`, live only for the duration
+    /// (ADR 0056 §3). Those are per-`update`, live only for the duration
     /// of the call, and answer "what did this update apply?". These accessors
     /// are the **lifetime** skip totals and answer "how much has this run lost
     /// in aggregate?". They are complements, not duplicates: neither can be
@@ -699,8 +699,8 @@ where
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
         // Count only the minibatches whose loss was finite and therefore
-        // actually applied — the denominators for the two gated means (#318,
-        // ADR 0056 §3). `mb_count` still denominates the ungated diagnostics.
+        // actually applied — the denominators for the two gated means
+        // (ADR 0056 §3). `mb_count` still denominates the ungated diagnostics.
         let mut policy_healthy = 0_usize;
         let mut value_healthy = 0_usize;
 
@@ -783,7 +783,7 @@ where
                 kl_sum += kl;
                 kl_count += 1;
 
-                // #318 / ADR 0056: `policy_loss_val` is already host-resident,
+                // ADR 0056: `policy_loss_val` is already host-resident,
                 // so the finiteness check costs no extra sync. A non-finite
                 // loss skips `backward()` + the optimizer step (Burn would
                 // otherwise fold NaN into the weights silently) and is excluded
@@ -806,7 +806,7 @@ where
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(self.config.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
-                // #318 / ADR 0056: same guard for the value site, counted and
+                // ADR 0056: same guard for the value site, counted and
                 // warned separately (ADR 0072 §1) so one site's failure cannot
                 // silence or inflate the other's diagnostic.
                 if self.value_loss_guard.check(v_loss_val) {
@@ -848,7 +848,7 @@ where
         // one-shot-per-bound "the log_std clamp has bound" warnings —
         // deliberately here rather than in the forward pass, which would sync on
         // every rollout step. Both extrema are reported because a minimum alone
-        // is blind to a dim pinned at the ceiling (#347, ADR 0049 §4).
+        // is blind to a dim pinned at the ceiling (ADR 0049 §4).
         let min_log_std = self.policy().min_log_std();
         let max_log_std = self.policy().max_log_std();
 
@@ -857,7 +857,7 @@ where
 
         // Ungated diagnostics divide by the total minibatch count; the two
         // gated losses divide by their own healthy counts, reporting `0.0`
-        // (not NaN) when every minibatch skipped (#318, ADR 0056 §3).
+        // (not NaN) when every minibatch skipped (ADR 0056 §3).
         let denom = mb_count.max(1) as f32;
         PpoUpdateStats {
             policy_loss: if policy_healthy == 0 {
@@ -984,7 +984,7 @@ mod tests {
         assert_eq!(err.to_string(), "Environment error: boom");
     }
 
-    /// Regression (issue #183): `clip_grad` must reach *both* optimizers.
+    /// Regression: `clip_grad` must reach *both* optimizers.
     ///
     /// The sibling field `max_grad_norm` was dead `pub` state that no lint
     /// could catch — clippy's `dead_code` does not fire on unread `pub` fields
@@ -1016,7 +1016,7 @@ mod tests {
         );
     }
 
-    // -------- non-finite-loss guard (ADR 0056, #318) --------
+    // -------- non-finite-loss guard (ADR 0056) --------
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// network that has diverged to non-finite weights — the realistic source
@@ -1114,7 +1114,7 @@ mod tests {
     }
 
     /// A non-finite policy loss must skip the policy `backward` + optimizer step
-    /// and be excluded from the reported mean (ADR 0056, #318). Diverging the
+    /// and be excluded from the reported mean (ADR 0056). Diverging the
     /// policy net to NaN forces a NaN clipped-surrogate loss; the guard must
     /// fire, the reported `policy_loss` must be the `0.0` all-skipped sentinel
     /// (never a propagated NaN), and the independent value site must still learn.

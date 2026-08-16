@@ -94,9 +94,15 @@
 //!
 //! The idiom is precedented outside RL by `PyTorch` AMP's `GradScaler`, which
 //! skips `optimizer.step()` when the unscaled gradients contain `inf`/`NaN`.
-//! Because `g` is already a host `f32`, the check costs no device sync — the
-//! objection raised against the tensor-side guard debated in #173 does not
-//! apply here.
+//! A crate-wide version of this guard was proposed and rejected on
+//! throughput grounds: reading a loss tensor host-side via `into_scalar` to
+//! test it for non-finiteness was thought to force an extra device→host
+//! sync per step on wgpu (that premise was later shown false — the read
+//! already happens unconditionally for diagnostics before every
+//! `backward()`, so the guard rides an existing sync rather than adding
+//! one). Because `g` here is already a host `f32` with no tensor read of
+//! its own, neither the original objection nor its rebuttal is relevant:
+//! there is no sync to add or ride in the first place.
 //!
 //! ## 2. Clamping `$\log \alpha$` as a backstop
 //!
@@ -387,8 +393,17 @@ impl LogAlpha {
     /// does: `policies::gaussian`'s test module installs a hand-rolled
     /// `tracing::Subscriber` via `tracing::subscriber::with_default` and
     /// asserts on the emitted events, which needs no capture dependency
-    /// because `tracing` is already a direct dependency. This latch would
-    /// benefit from the same treatment; it has not been converted (see #347).
+    /// because `tracing` is already a direct dependency. PPO switched
+    /// because a boolean latch cannot distinguish a warning that fired once
+    /// as intended from one that fired once and then wrongly stayed silent:
+    /// its latch spent itself on the first out-of-bounds action dimension
+    /// and produced no further `warn!` when a second, independent dimension
+    /// later crossed the opposite bound — a gap only a `Subscriber` counting
+    /// actual events could catch. `LogAlpha` has only one scalar
+    /// `$\log \alpha$`, so that particular multi-dimension gap does not
+    /// apply here, but the underlying weakness — asserting the latch
+    /// instead of the event — does. This latch would benefit from the same
+    /// `Subscriber`-based treatment; it has not been converted.
     #[cfg(test)]
     pub(crate) fn nonfinite_grad_warning_fired(&self) -> bool {
         self.nonfinite_grad_warned

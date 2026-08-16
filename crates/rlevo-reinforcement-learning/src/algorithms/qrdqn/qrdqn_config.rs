@@ -133,8 +133,8 @@ pub struct QrDqnTrainingConfig {
     /// # What an invalid κ actually costs
     ///
     /// It does **not** corrupt the weights. Every QR-DQN update reads its loss
-    /// scalar host-side and passes it through `FiniteLossGuard` (ADR 0056,
-    /// issue #318) *before* `backward()`, so a `NaN` loss skips the backward
+    /// scalar host-side and passes it through `FiniteLossGuard` (ADR 0056)
+    /// *before* `backward()`, so a `NaN` loss skips the backward
     /// pass, the optimizer step, the target update, and the PER writeback. The
     /// failure mode is quieter than corruption and harder to spot: every
     /// update becomes a no-op while `gradient_updates` keeps advancing, so
@@ -277,7 +277,7 @@ impl Validate for QrDqnTrainingConfig {
         // would accept. κ = 0 makes the loss evaluate `0/0` → NaN, reported as
         // `NotPositive`. This half also catches every non-finite κ — `NaN`,
         // `−∞`, and `+∞` alike — which `config::positive` reports as
-        // `NotFinite` (issue #353), a distinct kind from κ = 0's.
+        // `NotFinite`, a distinct kind from κ = 0's.
         config::positive(C, "kappa", f64::from(self.kappa))?;
         // The upper bound is not a range check but the precondition of
         // `huber`'s eagerly-evaluated linear branch: it computes
@@ -615,7 +615,7 @@ mod tests {
     }
 
     /// `NaN` and `$-\infty$` are caught by `config::positive`, but as `NotFinite`
-    /// (issue #353) — a *different* kind from κ = 0's `NotPositive`, because
+    /// — a *different* kind from κ = 0's `NotPositive`, because
     /// "not a number" and "not above zero" are different complaints. Asserted
     /// per value rather than in one loop with `$+\infty$`: `$+\infty$` is also `NotFinite`
     /// now, but it reaches that verdict having previously been the overflow
@@ -690,8 +690,8 @@ mod tests {
 
         // `+∞` used to be listed above, because `config::positive` waved it
         // through (`f64::INFINITY > 0.0`) and this overflow guard was the only
-        // thing that stopped it. Issue #353 moved that verdict one line
-        // earlier: `+∞` is not a config *value* at all, so it is now
+        // thing that stopped it. That verdict now applies one line earlier:
+        // `+∞` is not a config *value* at all, so it is now
         // `NotFinite`. Still rejected, still at the same chokepoint — but the
         // overflow guard is no longer load-bearing for it, and the four
         // huge-but-*finite* κ above are the cases only it catches.

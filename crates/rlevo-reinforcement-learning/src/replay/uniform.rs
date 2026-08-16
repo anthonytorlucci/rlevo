@@ -95,8 +95,11 @@ impl<T> UniformReplay<T> {
     /// Both are programming errors, never user data: every in-crate call site
     /// passes either a literal or a config field that [`Validate`] has already
     /// rejected zero and over-large values for. That is why this stays
-    /// infallible, following the #190/#191 precedent that a config-validated
-    /// constructor does not re-litigate its input in the type system.
+    /// infallible: [`AgentStats::new`](crate::metrics::AgentStats::new) and
+    /// [`History::new`](crate::experience::History::new) reject the same
+    /// zero/over-large capacity with a panic rather than a `try_new`, on the
+    /// same reasoning — a config-validated constructor does not re-litigate
+    /// its input in the type system.
     ///
     /// # Choosing between `new` and [`from_config`](Self::from_config)
     ///
@@ -298,9 +301,9 @@ mod tests {
         let _: UniformReplay<u32> = UniformReplay::new(0);
     }
 
-    /// Issue #404: `VecDeque::with_capacity(usize::MAX)` aborts the process on
-    /// a failed allocation rather than unwinding, so an over-large capacity had
-    /// no diagnosable failure mode at all. It is now a named panic.
+    /// `VecDeque::with_capacity(usize::MAX)` aborts the process on a failed
+    /// allocation rather than unwinding, so an over-large capacity had no
+    /// diagnosable failure mode at all. It is now a named panic.
     #[test]
     #[should_panic(expected = "exceeds MAX_BUFFER_CAPACITY")]
     fn test_uniform_replay_new_rejects_capacity_above_ceiling() {

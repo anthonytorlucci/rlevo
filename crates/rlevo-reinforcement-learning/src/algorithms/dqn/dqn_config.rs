@@ -325,7 +325,9 @@ impl DqnTrainingConfigBuilder {
     ///
     /// That `10_000` is the Atari-derived figure: at the default
     /// `train_frequency: 4` it is about 40 000 environment steps, so a
-    /// classic-control run wants a much smaller cadence (issue #337).
+    /// classic-control run wants a much smaller cadence — the right value
+    /// for that scale is still an open question rather than a settled
+    /// recommendation.
     #[must_use]
     pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
         self.config.target_update = target_update;

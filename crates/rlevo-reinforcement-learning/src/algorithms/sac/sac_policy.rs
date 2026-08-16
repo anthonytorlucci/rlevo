@@ -69,7 +69,7 @@ impl SquashedGaussianPolicyHeadConfig {
     /// [`validate`](Validate::validate) runs first, so an invalid config can
     /// never reach a built head. This is the *only* constructor: there is
     /// deliberately no infallible `init`, because an unchecked path would
-    /// simply reinstate the bypass this method exists to close (#386). The
+    /// simply reinstate the bypass this method exists to close. The
     /// `try_` prefix marks the departure from Burn's own infallible
     /// `*Config::init` idiom.
     ///
@@ -350,7 +350,7 @@ mod tests {
         assert!(valid_cfg().validate().is_ok());
     }
 
-    /// The inverted-bounds case that motivated #386 is no longer a *config*
+    /// The inverted-bounds case this fix targeted is no longer a *config*
     /// error, because it is no longer a constructible config: `Bounds` rejects
     /// `lo > hi` at its own boundary, so the head cannot be reached at all.
     ///
@@ -386,8 +386,8 @@ mod tests {
     }
 
     /// The degenerate range must be rejected at the *construction* path too,
-    /// not merely by a `validate()` call a caller might never make — that
-    /// bypass is the whole subject of #386.
+    /// not merely by a `validate()` call a caller might never make — closing
+    /// that bypass is what `try_init` exists to do.
     #[test]
     fn test_sac_policy_try_init_rejects_equal_log_std_bounds() {
         let device = Default::default();
@@ -401,7 +401,7 @@ mod tests {
         assert_eq!(err.kind, ConstraintKind::DegenerateInterval { value: 1.0 });
     }
 
-    /// `try_init` is the whole point of #386: the validation that already
+    /// The whole point of `try_init` is that the validation that already
     /// existed must now be *reachable* from the construction path.
     ///
     /// `obs_dim: 0` is the case that survives the `Bounds` migration — a

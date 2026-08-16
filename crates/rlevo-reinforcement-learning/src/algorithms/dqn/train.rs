@@ -127,7 +127,7 @@ where
         agent.on_env_step();
 
         // DELIBERATE: `reward_f32` is accumulated raw, *including* a non-finite
-        // value that `remember` just refused to store (ADR 0065, #352). Do not
+        // value that `remember` just refused to store (ADR 0065). Do not
         // "fix" this to skip a NaN. A NaN episode return is a true statement
         // about a run whose environment emitted NaN, and it is a second
         // surfacing channel that does not share the guard's decade warn
@@ -300,7 +300,7 @@ mod tests {
         );
     }
 
-    /// The regression test for issue #352: a single non-finite reward emitted
+    /// The regression test guarding that a single non-finite reward emitted
     /// mid-run must never reach the replay buffer.
     ///
     /// Nothing caught the original defect because no test had ever asserted

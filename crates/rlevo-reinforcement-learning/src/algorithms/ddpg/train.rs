@@ -119,13 +119,13 @@ where
         agent.on_env_step();
 
         // DELIBERATE: `reward_f32` is accumulated raw, *including* a non-finite
-        // value that `remember` just refused to store (ADR 0065 §Decision 4,
-        // #352). Do not "fix" this to skip a NaN. A NaN episode return is a
+        // value that `remember` just refused to store (ADR 0065 §Decision 4).
+        // Do not "fix" this to skip a NaN. A NaN episode return is a
         // true statement about a run whose environment emitted NaN, and it is a
         // second surfacing channel that does not share the guard's decade warn
         // schedule — a run whose first drop was logged 100 000 steps ago still
         // reports a NaN score for every affected episode.
-        // `AgentStats::avg_score` transits it on purpose (ADR 0070, #409).
+        // `AgentStats::avg_score` transits it on purpose (ADR 0070).
         episode_reward += reward_f32;
         episode_steps += 1;
 

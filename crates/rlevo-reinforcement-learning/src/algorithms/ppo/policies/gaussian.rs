@@ -87,7 +87,7 @@
 //!    permanently frozen. The floor and the ceiling latch **independently**:
 //!    they are opposite failures (σ collapsing to a point mass vs σ exploding
 //!    into pure noise) with different repairs, so silencing one because the
-//!    other already fired would hide the second diagnosis entirely (#347).
+//!    other already fired would hide the second diagnosis entirely.
 //! 2. **Two per-update metrics** — the minimum and the maximum clamped `$\log \sigma$`
 //!    across action dims — surfaced on
 //!    [`PpoUpdateStats`](crate::algorithms::ppo::ppo_agent::PpoUpdateStats) so
@@ -211,8 +211,9 @@ const MAX_LOG_STD_SPAN: f32 = 40.0;
 /// σ collapsing to a point mass versus σ exploding into pure noise — and they
 /// carry different repairs, so a single shared latch would let whichever bound
 /// crossed first permanently silence the diagnosis of the other. That is
-/// exactly the defect #347 records: a 2-dim head crossing the floor on dim 0
-/// and the ceiling on dim 1 emitted one warning naming only the floor.
+/// exactly the failure a single shared latch produced before this split: a
+/// 2-dim head crossing the floor on dim 0 and the ceiling on dim 1 emitted
+/// one warning naming only the floor.
 ///
 /// Both fields use [`Ordering::Relaxed`]: each flag guards nothing but itself,
 /// and the only requirement is that exactly one `swap` per flag observes
@@ -237,7 +238,7 @@ impl TanhGaussianPolicyHeadConfig {
     /// the absolute `$\log \sigma$` floor, the maximum span, or the `log_std_init`
     /// range can never reach a built head. This is the *only* constructor:
     /// there is deliberately no infallible `init`, because an unchecked path
-    /// would simply reinstate the bypass this method exists to close (#386).
+    /// would simply reinstate the bypass this method exists to close.
     /// The `try_` prefix marks the departure from Burn's own infallible
     /// `*Config::init` idiom.
     ///
@@ -387,7 +388,7 @@ pub struct TanhGaussianPolicyHead<B: Backend> {
     /// population of policies, or simply another test in the same binary)
     /// would be silenced by the first one's warning. Per-head state is the
     /// correct granularity — and, within a head, per-*bound* state is the
-    /// correct granularity below that (#347).
+    /// correct granularity below that.
     ///
     /// Two consequences follow from `Arc` being *shared* on clone, and both are
     /// wanted: [`valid()`](burn::module::AutodiffModule::valid) snapshots share
@@ -501,7 +502,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         // distinct repairs and they can bind in the same call (dim 0 collapsed,
         // dim 1 exploded), so each gets its own `swap`: exactly one caller per
         // bound observes `false`, and neither bound can silence the other
-        // (#347, ADR 0049 §4). Emitting the crossing dims keeps the claim scoped
+        // (ADR 0049 §4). Emitting the crossing dims keeps the claim scoped
         // to the dims that actually froze.
         let action_dim = raw.len();
         if !below_dims.is_empty() && !self.clamp_warned.below.swap(true, Ordering::Relaxed) {
@@ -568,7 +569,8 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
     /// once-only latch is asserted directly rather than by scraping log output.
     /// Split per bound because the property under test is that the two latches
     /// are *independent* — a single combined accessor could not distinguish
-    /// "both fired" from "one fired", which is precisely the #347 defect.
+    /// "both fired" from "one fired", which is precisely the defect a shared
+    /// latch reintroduces.
     #[cfg(test)]
     pub(crate) fn clamp_warning_below_fired(&self) -> bool {
         self.clamp_warned.below.load(Ordering::Relaxed)
@@ -716,7 +718,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     ///
     /// A minimum cannot see a diverging dim: with `[-20, 2]` bounds and one dim
     /// pinned at `2`, `min_log_std` reports whatever the *healthiest* dim is
-    /// doing (ADR 0049 §4, #347). Costs one device→host sync; call once per
+    /// doing (ADR 0049 §4). Costs one device→host sync; call once per
     /// update, never per step.
     fn max_log_std(&self) -> Option<f32> {
         Some(self.read_log_std_extrema_and_warn().1)
@@ -1091,7 +1093,8 @@ mod tests {
     /// [`try_init`](TanhGaussianPolicyHeadConfig::try_init) runs `validate()`
     /// first and is the only constructor, so the rejected `-110` head is no
     /// longer reachable through the public API at all — which is the whole
-    /// point of #386. The below-floor case is therefore reconstructed here by
+    /// point of validating on the construction path rather than leaving an
+    /// infallible bypass. The below-floor case is therefore reconstructed here by
     /// writing the head's private bound fields directly, a bypass available
     /// only to this in-module test. When it is reached, `log_prob` is
     /// non-finite exactly as the ADR predicts; at the floor (`-35`) with the
@@ -1185,9 +1188,10 @@ mod tests {
         }
     }
 
-    /// The regression lock for #386: `validate()` was correct all along, but
-    /// nothing on the construction path called it. Every invariant it checks
-    /// must now be reachable through `try_init`, which is the only constructor.
+    /// The regression this test locks down: `validate()` was correct all
+    /// along, but nothing on the construction path called it. Every invariant
+    /// it checks must now be reachable through `try_init`, which is the only
+    /// constructor.
     #[test]
     fn test_ppo_gaussian_policy_try_init_rejects_every_invalid_config() {
         let device = Default::default();
@@ -1626,10 +1630,10 @@ mod tests {
         );
     }
 
-    /// The regression #347 was filed for: a single call in which one dim is
-    /// below the floor **and** another is above the ceiling must emit **two**
-    /// `WARN` events, one naming each bound, each carrying the dims that
-    /// crossed it.
+    /// The regression this test guards against: a single call in which one
+    /// dim is below the floor **and** another is above the ceiling must emit
+    /// **two** `WARN` events, one naming each bound, each carrying the dims
+    /// that crossed it.
     ///
     /// Under the old single-`AtomicBool` latch this call emitted exactly one
     /// event, and — because the emitting branch was `if below { .. } else
@@ -1697,7 +1701,7 @@ mod tests {
         assert_eq!(
             ceiling.dims.as_deref(),
             Some("[1]"),
-            "the ceiling warning must name the dim that exploded — this is #347"
+            "the ceiling warning must name the dim that exploded"
         );
         assert_eq!(ceiling.action_dim, Some(2));
         // The two messages must be genuinely different prose, not the floor's

@@ -80,9 +80,9 @@ pub fn compute_target_q_values<B: Backend>(
 ///
 /// # Non-finite hardening
 ///
-/// The bootstrap is **masked**, not scaled by `$(1 - \text{terminated})$`
-/// (issue #357). The two agree exactly for finite inputs, but scaling
-/// propagates poison: IEEE-754 gives `NaN · 0.0 == NaN` and `inf · 0.0 == NaN`,
+/// The bootstrap is **masked**, not scaled by `$(1 - \text{terminated})$`. The
+/// two agree exactly for finite inputs, but scaling propagates poison:
+/// IEEE-754 gives `NaN · 0.0 == NaN` and `inf · 0.0 == NaN`,
 /// so one non-finite entry anywhere in `next_quantiles` — a target-network
 /// output, and therefore data, not configuration — would survive a terminal
 /// transition and contaminate a target whose correct value (the reward alone)
@@ -129,8 +129,8 @@ pub fn compute_target_quantiles<B: Backend>(
     // result through `mask.into_linear_view_like(&input)` with no explicit
     // broadcast call, and the behaviour is documented nowhere in the trait — so
     // relying on it would make this helper depend on an undocumented,
-    // backend-varying implementation detail, in a code path with a #1044-shaped
-    // history (a Metal-only `clamp` NaN divergence in the C51 projection).
+    // backend-varying implementation detail, in a code path that has already
+    // produced a Metal-only `clamp` NaN divergence in the C51 projection.
     // Expanding to (B, N) here costs one cheap op and removes that dependency.
     let is_terminal = terminated.equal_elem(1.0).repeat_dim(1, num_quantiles);
     let bootstrap = next_quantiles.mul_scalar(gamma).mask_fill(is_terminal, 0.0);
@@ -152,15 +152,15 @@ pub fn compute_target_quantiles<B: Backend>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum PolyakError {
     /// A `target` parameter has no counterpart in `active` — the modules were
-    /// built independently (issue #341 defect 1). Names the offending id.
+    /// built independently. Names the offending id.
     #[error(
         "polyak_update: target parameter {0:?} has no counterpart in the active network; \
          the modules were built independently — build target by cloning active"
     )]
     MissingActive(ParamId),
-    /// An `active` parameter was never consumed by any `target` field — `target`
-    /// is a strict subset of `active` (issue #341 defect 3). Applying only the
-    /// overlap would be a silent partial update, so this is surfaced instead.
+    /// An `active` parameter was never consumed by any `target` field —
+    /// `target` is a strict subset of `active`. Applying only the overlap
+    /// would be a silent partial update, so this is surfaced instead.
     #[error(
         "polyak_update: active parameter {0:?} has no counterpart in target — target is a \
          strict subset of active; a partial update would be silent"
@@ -177,8 +177,8 @@ impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
     fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
         // Store the rank-erased on-device primitive handle, not a host
         // `TensorData` readback: keeping the value on-device avoids a
-        // gratuitous device→host→device round-trip on every soft update
-        // (issue #322). Both networks live on the same backend/device.
+        // gratuitous device→host→device round-trip on every soft update.
+        // Both networks live on the same backend/device.
         self.tensors.insert(param.id, param.val().into_primitive());
     }
 }
@@ -212,7 +212,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
         param.map(move |target_tensor| {
             // Rewrap the stored on-device primitive as a rank-`D` tensor; `D`
             // is inferred from this `map_float<D>` call site and the primitive
-            // carries the real shape. No host upload occurs (issue #322).
+            // carries the real shape. No host upload occurs.
             let active_tensor = Tensor::<B, D>::from_primitive(active);
             target_tensor.mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
         })
@@ -422,7 +422,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // compute_target_quantiles (issue #357)
+    // compute_target_quantiles
     // -----------------------------------------------------------------------
 
     /// Builds a rank-2 `f32` tensor of shape `(ROWS, COLS)` on the default test
@@ -444,7 +444,8 @@ mod tests {
 
     /// The pre-hardening rank-2 formula, kept verbatim as the reference oracle
     /// for the "finite inputs are unchanged" test. This is exactly what
-    /// `qrdqn_agent` computed inline before issue #357.
+    /// `qrdqn_agent` computed inline before the masked-bootstrap fix now
+    /// applied by [`compute_target_quantiles`].
     fn scaled_reference_2d(
         rewards: Tensor<TestBackend, 2>,
         next_quantiles: Tensor<TestBackend, 2>,
@@ -597,7 +598,7 @@ mod tests {
 
     // Hand-set constant weights. `active` and `target` differ in *every*
     // element, which is what lets the tau = 0 and tau = 0.25 tests distinguish
-    // "did nothing" from "blended correctly" (see issue #336).
+    // "did nothing" from "blended correctly".
     const ACTIVE_WEIGHT: [[f32; 3]; 2] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
     const ACTIVE_BIAS: [f32; 2] = [0.5, -0.5];
     const TARGET_WEIGHT: [[f32; 3]; 2] = [[-1.0, -2.0, -3.0], [-4.0, -5.0, -6.0]];
@@ -683,7 +684,8 @@ mod tests {
     ///
     /// Without this, "return `target` untouched" and "return `active`
     /// outright" both pass a tau = 0 / tau = 1 / tau = 0.25 suite built on
-    /// equal inputs. That vacuity is how issue #182 survived.
+    /// equal inputs — the same equal-inputs vacuity that once let a stuck
+    /// target-network update schedule pass its own test suite unnoticed.
     fn assert_nets_differ(active: &TestNet<TestBackend>, target: &TestNet<TestBackend>) {
         let (a, t) = (active.flat(), target.flat());
         assert_eq!(
@@ -841,7 +843,6 @@ mod tests {
 
     // -----------------------------------------------------------------------
     // ParamId topology: tied weights, foreign target params, strict subsets
-    // (issue #341)
     // -----------------------------------------------------------------------
 
     /// Two same-typed [`Param`] fields, so a fixture can make them share one
@@ -1025,7 +1026,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // On-device transport (issue #322)
+    // On-device transport
     // -----------------------------------------------------------------------
 
     #[test]

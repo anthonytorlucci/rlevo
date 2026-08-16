@@ -22,7 +22,7 @@
 //! The implementation is fully vectorised; all batched bin updates use a
 //! single call to [`Tensor::scatter`] per neighbour.
 //!
-//! # Non-finite inputs (issue #1044)
+//! # Non-finite inputs
 //!
 //! This is the only place in the workspace where a float tensor is converted to
 //! `Int` and fed to a `scatter`, so it is the only place where a non-finite
@@ -118,7 +118,7 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 /// A `(batch_size, num_atoms)` tensor of projected probabilities. Rows sum to ≈1 for
 /// finite inputs. A row whose reward was `NaN` is **non-finite** on every
 /// backend — see the module docs; do not postcondition on the row sum, which is
-/// exactly what the pre-#1044 GPU path satisfied while being wrong.
+/// exactly what the old, incorrect GPU path satisfied while being wrong.
 ///
 /// # Panics
 /// - If `num_atoms < 2`. A categorical support needs at least two atoms for the
@@ -193,7 +193,7 @@ pub fn project_distribution<B: Backend>(
     // `clamp_preserving_nan`, not `clamp`: on wgpu/Metal the plain clamp
     // rescues a NaN reward to `v_min`, producing a projected row that sums to
     // exactly 1.0 and asserts certainty of the worst return, with no NaN left
-    // for any downstream guard to catch (issue #1044). ±inf is untouched by the
+    // for any downstream guard to catch. ±inf is untouched by the
     // wrapper and still pins to v_min/v_max, which is the intended semantics.
     let tz = clamp_preserving_nan(tz, v_min, v_max);
 
@@ -224,7 +224,7 @@ pub fn project_distribution<B: Backend>(
     // does not panic there, it writes into whatever tensor shares the memory
     // pool at that offset. The clamp on the derived Int indices is what makes
     // that unreachable, and it is load-bearing: keeping the NaN-preserving
-    // clamps without it would be strictly worse than the pre-#1044 code.
+    // clamps without it would be strictly worse than the earlier, unguarded code.
     // Measured, by deleting just the index clamp and running
     // `tests/c51_projection_backend_parity.rs` on an Apple M2 Pro / Metal 4:
     // the NaN row came back all ZEROS on wgpu (the NaN weights were written
@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_projection_handles_f32_rounding_at_top_atom() {
-        // Regression, issue #180. On this *valid* support the continuous atom
+        // Regression: on this *valid* support the continuous atom
         // coordinate rounds to b = 7.000000477 > N-1 = 7, so `ceil(b) = 8`
         // scattered off the end of a size-8 axis and panicked. Note the
         // default support (-10, 10, 51) cannot catch this: it lands on 50.0
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_projection_handles_f32_rounding_on_symmetric_support() {
-        // Second known overflow from the #180 sweep: (-13, 13, 12) yields
+        // Second known f32-rounding overflow case: (-13, 13, 12) yields
         // b = 11.000000954 against a max valid index of 11.
         let v = project_saturated_row(-13.0, 13.0, 12, 100.0);
 
@@ -476,8 +476,8 @@ mod tests {
 
     #[test]
     fn test_projection_preserves_mass_across_overflowing_supports() {
-        // A spread of (v_min, v_max, N) triples from the #180 sweep, every one
-        // of which passes `C51TrainingConfig::validate` and every one of which
+        // A spread of (v_min, v_max, N) triples, each of which
+        // passes `C51TrainingConfig::validate` and each of which
         // panicked before the clamp. Mass must land wholly on the top atom.
         let supports = [
             (-10.0_f32, 0.1_f32, 8_usize),
@@ -502,7 +502,7 @@ mod tests {
         }
     }
 
-    // -------- non-finite rewards (issue #1044) --------
+    // -------- non-finite rewards --------
 
     /// Projects one row per entry of `rewards` on the `(v_min, v_max, n)`
     /// support, with a uniform `next_probs` and `terminated = 0`.
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn test_projection_nan_reward_yields_a_non_finite_row() {
-        // Regression, issue #1044. The postcondition is FINITENESS, never the
+        // Regression: the postcondition is FINITENESS, never the
         // row sum: before the fix this row summed to exactly 1.0 on wgpu/Metal
         // — a well-formed probability vector claiming certainty of the worst
         // return — because Metal's `clamp` lowers to `fmin(fmax(..))` and

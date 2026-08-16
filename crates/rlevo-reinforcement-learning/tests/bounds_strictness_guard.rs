@@ -1,7 +1,7 @@
-//! Crate-scoped regression net for issue #387 — folding an `config::ordered`
-//! scalar pair into one [`Bounds`](rlevo_core::bounds::Bounds) field discharges
-//! the **ordering** half of the old check and silently drops the
-//! **strictness** half.
+//! Crate-scoped regression net: folding a `config::ordered` scalar pair into
+//! one [`Bounds`](rlevo_core::bounds::Bounds) field discharges the
+//! **ordering** half of the old check and silently drops the **strictness**
+//! half.
 //!
 //! ADR 0068 §Decision 2
 //! (`docs/adr/0068-bounds-strictness-enforcement-is-crate-asymmetric.md`)
@@ -255,8 +255,8 @@ struct StrictnessCallSite {
     field: String,
 }
 
-/// The heart of #387: a `Bounds` field whose config never re-asserts the
-/// strictness the migration dropped.
+/// The core failure mode this guard catches: a `Bounds` field whose config
+/// never re-asserts the strictness the migration dropped.
 #[test]
 fn every_bounds_field_asserts_strictness() {
     let sites = bounds_field_sites();
@@ -274,7 +274,7 @@ fn every_bounds_field_asserts_strictness() {
          `Bounds::try_new` accepts `lo <= hi` and deliberately permits the degenerate \
          `lo == hi` (ADR 0027 §2), so a `Bounds` field discharges only the *ordering* half \
          of the `config::ordered` check it replaced. The strictness half must be written \
-         back explicitly — issue #387, ADR 0068 §Decision 1.\n\n\
+         back explicitly — see ADR 0068 §Decision 1.\n\n\
          Add to that config's `validate()`:\n    \
          config::nondegenerate_bounds(C, \"<field>\", self.<field>)?;\n\n\
          In this crate a zero-width range is never a usable setting: it collapses `log σ` \
@@ -456,8 +456,9 @@ fn sites_in_file(relative: &str, text: &str) -> Vec<BoundsFieldSite> {
                 Owner::Unresolved => panic!(
                     "src/{relative}:{}: cannot resolve the item owning `{}`. This guard \
                      refuses to guess: a `Bounds` field whose owner it cannot name is a \
-                     field it cannot check, and dropping it silently is how issue #387 \
-                     comes back. Is the file rustfmt-formatted?",
+                     field it cannot check, and dropping it silently re-opens the \
+                     strictness gap this guard exists to close. Is the file \
+                     rustfmt-formatted?",
                     index + 1,
                     lines[index].trim(),
                 ),
@@ -841,7 +842,8 @@ fn cfg_test_regions(relative: &str, lines: &[&str]) -> Vec<(usize, usize)> {
             panic!(
                 "src/{relative}: the `#[cfg(test)]` at line {} never terminates. This \
                  guard refuses to skip to end-of-file, because doing so would hide every \
-                 production `Bounds` field below it (issue #387).",
+                 production `Bounds` field below it, undoing the check this file exists \
+                 to run.",
                 index + 1,
             )
         });

@@ -57,10 +57,10 @@ use crate::utils::{PolyakError, compute_target_q_values};
 /// read is an `.expect` on a named invariant, which is precisely the form
 /// `docs/rules.md` §4 sanctions for a host-read that "cannot fail by
 /// construction": the tensor is one the same function just built from its own
-/// actor. Issue #317 tracks making that path fallible and is an explicitly
-/// deferred breaking change.
+/// actor. Making that path fallible is a breaking change, deferred and
+/// tracked separately.
 ///
-/// When #317 lands, the variant returns as
+/// When it lands, the variant returns as
 /// `#[from]` [`rlevo_core::base::TensorConversionError`] — not as a `String`.
 /// §4 prefers structured variants over string-based errors and names that type
 /// as the tensor-op error domain, so re-introducing a `String` payload would
@@ -213,9 +213,9 @@ pub struct DdpgAgent<
     stats: AgentStats<DdpgMetrics>,
     last_actor_loss: f32,
     /// Most recent *applied* critic loss — carried forward across a non-finite
-    /// skip so the reported metric never folds in a NaN (#318, ADR 0056 §3).
+    /// skip so the reported metric never folds in a NaN (ADR 0056 §3).
     last_critic_loss: f32,
-    /// Non-finite-loss guard for the critic loss site (ADR 0056, #318). Skips
+    /// Non-finite-loss guard for the critic loss site (ADR 0056). Skips
     /// the update on every occurrence; the `warn!` escalates by decades — skips
     /// 1, 10, 100, … — each carrying the running total (ADR 0072 §1), readable
     /// via [`Self::skipped_critic_updates`].
@@ -224,12 +224,12 @@ pub struct DdpgAgent<
     /// independently of [`Self::critic_guard`]. See
     /// [`Self::skipped_actor_updates`].
     actor_guard: FiniteLossGuard,
-    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
-    /// #352). Drops the transition on every occurrence; the `warn!` escalates
+    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065).
+    /// Drops the transition on every occurrence; the `warn!` escalates
     /// by decades.
     reward_guard: FiniteRewardGuard,
     /// Non-finite-**observation** guard for the `remember` ingestion site (ADR
-    /// 0067, #1043). Drops the transition on every occurrence; the `warn!`
+    /// 0067). Drops the transition on every occurrence; the `warn!`
     /// escalates by decades. Runs *after* [`Self::reward_guard`], which returns
     /// early — so the two counters are not additive (see
     /// [`dropped_observations`](Self::dropped_observations)).
@@ -543,7 +543,8 @@ where
     /// panics if the actor's output tensor is not `f32`: that host-read is an
     /// `.expect` on a named invariant, the form `docs/rules.md` §4 sanctions
     /// here because `act` returns a bare action and so has no error channel to
-    /// report the failure through — issue #317 tracks making the path fallible.
+    /// report the failure through — making the path fallible is a breaking
+    /// change, deferred and tracked separately.
     pub fn act(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::COMPONENTS)
@@ -614,8 +615,9 @@ where
     ///
     /// Panics if the actor's output tensor is not `f32`, or if it yields fewer
     /// than `A::COMPONENTS` values. Both indicate the supplied `net` does not
-    /// match the action type this agent was built for. Issue #317 tracks making
-    /// this path fallible so the first of those becomes an `Err` instead.
+    /// match the action type this agent was built for. Making this path
+    /// fallible so the first of those becomes an `Err` instead is deferred
+    /// and tracked separately.
     pub fn act_with(&self, net: &Actor::InnerModule, obs: &O) -> A {
         // Function-local for the same `&self` / `Sync` reason as `act`.
         let mut scratch: Vec<f32> = Vec::new();
@@ -654,7 +656,7 @@ where
     /// a no-op. Storing it would let every minibatch that later resampled it
     /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
     /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065, issue #352). A `tracing::warn!` fires on the 1st,
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
     /// 10th, 100th, … drop; use
     /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
     /// programmatically.
@@ -662,7 +664,7 @@ where
     /// A non-finite **observation** — on either `obs` or `next_obs` — is
     /// discarded the same way, with its own counter
     /// ([`dropped_observations`](Self::dropped_observations)) and its own
-    /// decade-scheduled `warn!` (ADR 0067, issue #1043). The reward check runs
+    /// decade-scheduled `warn!` (ADR 0067). The reward check runs
     /// **first** and returns early, so a transition that is bad in both ways
     /// increments only `dropped_transitions`.
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
@@ -802,8 +804,8 @@ where
     /// `[target_actor, target_critic]`.
     ///
     /// The target-network observation seam of ADR 0058: nothing else in this
-    /// crate can read a target's weights, which is how the issue-#182
-    /// two-schedule defect survived its tests. Paired with
+    /// crate can read a target's weights, which is how the two-schedule
+    /// defect survived its tests. Paired with
     /// [`live_checksums`](Self::live_checksums) it makes a target update's
     /// *cadence* and *magnitude* both assertable — see
     /// [`param_checksum`](crate::algorithms::shared::param_checksum) for why a
@@ -962,7 +964,7 @@ where
         let critic_loss_tensor = td_error.powi_scalar(2).mean();
         let critic_loss = critic_loss_tensor.clone().into_scalar().elem::<f32>();
 
-        // #318 / ADR 0056: `critic_loss` is already host-resident, so the
+        // ADR 0056: `critic_loss` is already host-resident, so the
         // finiteness check costs no extra sync. A non-finite loss skips the
         // critic `backward()` + optimizer step (Burn would otherwise fold NaN
         // into the weights silently); the value is excluded from the reported
@@ -989,7 +991,7 @@ where
             let actor_loss_tensor = q_actor.mean().neg();
             let actor_loss_value = actor_loss_tensor.clone().into_scalar().elem::<f32>();
 
-            // #318 / ADR 0056: guard the actor site. A non-finite actor loss
+            // ADR 0056: guard the actor site. A non-finite actor loss
             // skips the actor `backward()` + optimizer step and leaves
             // `actor_loss` reported as `None` this iteration (mirroring the
             // delayed-update skip) rather than folding a NaN into
@@ -1040,7 +1042,7 @@ where
         Ok(Some(LearnOutcome {
             // Report the most recent *applied* critic loss so a skipped
             // (non-finite) step carries its last healthy value forward rather
-            // than poisoning the metric with a NaN (#318, ADR 0056 §3).
+            // than poisoning the metric with a NaN (ADR 0056 §3).
             critic_loss: self.last_critic_loss,
             actor_loss: actor_loss_opt,
             q_mean,
@@ -1084,7 +1086,7 @@ mod tests {
         assert_eq!(err.to_string(), "Invalid action: bad slice");
     }
 
-    // -------- non-finite-loss guard (ADR 0056, #318) --------
+    // -------- non-finite-loss guard (ADR 0056) --------
 
     use crate::algorithms::bootstrap_mask::{
         MaskContinuousAction, MaskObservation, TinyActor, TinyCritic,
@@ -1133,7 +1135,7 @@ mod tests {
     }
 
     /// A non-finite critic loss must skip the critic `backward` + optimizer step
-    /// (ADR 0056, #318). Diverging the critic to NaN forces a NaN loss; the
+    /// (ADR 0056). Diverging the critic to NaN forces a NaN loss; the
     /// critic guard must fire, the skipped value must not poison the reported
     /// metric, and — with the actor + target update held off this step — the
     /// actor stays finite and untouched.
@@ -1338,7 +1340,7 @@ mod tests {
         );
     }
 
-    // -------- target-update cadence (ADR 0058 / 0059, #334) --------
+    // -------- target-update cadence (ADR 0058 / 0059) --------
 
     use crate::target::TargetUpdate;
     use approx::assert_abs_diff_eq;
@@ -1355,9 +1357,9 @@ mod tests {
     /// Both targets are built by cloning their live network, so they start
     /// *identical* — and a Polyak blend between identical networks is a no-op
     /// that every "did the target move, and by how much?" assertion would pass
-    /// vacuously. That exact vacuity is how the issue-#182 defect survived its
-    /// tests; this mapper removes it by opening a known gap. It maps a *clone*,
-    /// so `ParamId`s are preserved and the Polyak pairing stays valid.
+    /// vacuously. That exact vacuity is how the two-schedule defect survived
+    /// its tests; this mapper removes it by opening a known gap. It maps a
+    /// *clone*, so `ParamId`s are preserved and the Polyak pairing stays valid.
     struct AddConstant(f32);
 
     impl<B: Backend> ModuleMapper<B> for AddConstant {
@@ -1519,10 +1521,10 @@ mod tests {
         );
     }
 
-    // ---- ADR 0065 / #352: non-finite reward is dropped at ingestion ----
+    // ---- ADR 0065: non-finite reward is dropped at ingestion ----
     //
     // Every off-policy agent needs its OWN copy of this test. The defect had
-    // six sites, not the four the issue named, precisely because C51 and
+    // six sites, not the four originally named, precisely because C51 and
     // QR-DQN were added by copying an unguarded `remember` and no shared test
     // noticed. A per-file test is what makes agent #7's author notice.
 
@@ -1572,7 +1574,7 @@ mod tests {
         );
     }
 
-    // ---- ADR 0067 / #1043: non-finite observation ----
+    // ---- ADR 0067: non-finite observation ----
     //
     // Same per-file rule as the reward test above: each agent carries its own
     // copy rather than trusting one shared test to stand in for three call

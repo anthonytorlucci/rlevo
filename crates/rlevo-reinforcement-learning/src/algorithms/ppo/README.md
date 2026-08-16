@@ -55,7 +55,9 @@ critical subset):
   when set, Burn's `GradientClippingConfig::Norm` rescales each parameter
   tensor against its *own* L2 norm. Detail #10 requires rescaling against the
   norm of the entire flattened parameter vector, which Burn's optimizer hook
-  cannot express. Tracked in issue #328.
+  cannot express. Whether to build true global-norm clipping — a manual
+  reduction across every parameter's gradient before the optimizer step — is
+  an open, undecided design question.
 - #11 Vectorised reset handling — N/A while sequential.
 - Running observation normalization / returns-based reward scaling — a
   follow-up. Pendulum reward targets note the expected gap.

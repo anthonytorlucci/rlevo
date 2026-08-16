@@ -454,7 +454,7 @@ impl<T: PerformanceRecord> AgentStats<T> {
     ///
     /// # Why the predicate is `is_finite`, not `!is_nan`
     ///
-    /// Issue #409 proposed excluding `NaN` only. This method is deliberately
+    /// An earlier design excluded `NaN` only. This method is deliberately
     /// stronger and excludes `±∞` as well, for two reasons:
     ///
     /// - `±∞` destroys a mean as thoroughly as `NaN` does, and it is what
@@ -755,7 +755,7 @@ mod tests {
     /// row 1.2b ("NaN transits `avg_score`") is *decided*, not open pending a
     /// fix: `avg_score` admits the NaN deliberately, as one of ADR 0065
     /// §Decision 4's surfacing channels for a non-finite episode return.
-    /// ADR 0070 (issue #409) revisited it and re-affirmed the behaviour rather
+    /// ADR 0070 revisited it and re-affirmed the behaviour rather
     /// than filtering, adding [`AgentStats::finite_avg_score`] and
     /// [`AgentStats::non_finite_recent_len`] alongside for callers that want
     /// the hardened statistic. **Do not "fix" `avg_score` to satisfy this line
@@ -899,7 +899,7 @@ mod tests {
     }
 
     /// The test that separates `is_finite()` from the `!is_nan()` predicate
-    /// issue #409 originally proposed (ADR 0070).
+    /// an earlier design originally proposed (ADR 0070).
     ///
     /// Mutant killed: swapping either new method's predicate to `!is_nan()`.
     /// Such an implementation admits `+∞` into the sum and returns
@@ -1194,8 +1194,9 @@ mod tests {
         assert_eq!(stats.finite_best_score(), Some(3.0));
     }
 
-    /// The third lifetime counter clamps at `usize::MAX` like the two settled
-    /// under #408, and for the same reason — see
+    /// The third lifetime counter clamps at `usize::MAX` like the two other
+    /// lifetime counters, already settled on saturating (not wrapping)
+    /// arithmetic, and for the same reason — see
     /// [`total_steps_saturates_instead_of_wrapping`] for the house explanation
     /// of why the pre-saturation state is installed by assigning the private
     /// field directly, and why the assertion is on the *value*.
