@@ -471,13 +471,27 @@ mod tests {
         }
     }
 
-    // ── post-terminal step guard (issue #292) ────────────────────────────────
+    // ── post-terminal step guard (ADR 0044, issue #292) ──────────────────────
+    //
+    // Before this guard, `step` only checked `action.0.iter().all(f32::is_finite)`
+    // — nothing rejected a call made after the episode had already ended. Since
+    // `steps >= max_steps` keeps holding past the cap, an unguarded post-terminal
+    // step kept integrating the Rapier physics sim for another `dt * frame_skip`,
+    // so the observation drifted further with every extra call instead of
+    // staying pinned at the terminal state. The fix: `self.guard.check()?` runs
+    // first in `step`, ahead of the action-finiteness check and the physics
+    // substeps (see `step`'s doc comment); `self.guard.record(status)` is called
+    // on the single snapshot-producing return path; and `reset` clears the guard
+    // (ADR 0044 §6) so a truncated episode becomes steppable again.
     //
     // Reacher has NO `Terminated` path: the arm has neither a goal nor a
     // failure predicate, and `step` only ever emits `Running` or `Truncated`.
     // Truncation at `steps >= max_steps` is therefore the only ending, and the
     // guard tests drive to it with a deliberately tiny `max_steps` (the default
-    // is 50 physics steps, which is slow to burn through repeatedly).
+    // is 50 physics steps, which is slow to burn through repeatedly). The tests
+    // below combine the shared conformance check
+    // (`crate::episode::assert_rejects_post_terminal_step`) with Reacher-specific
+    // regressions pinning exactly what an unguarded step would have mutated.
 
     /// Step budget for the guard tests.
     const GUARD_MAX_STEPS: usize = 3;
@@ -915,8 +929,24 @@ mod tests {
 
     #[test]
     fn constant_torque_does_not_accumulate() {
-        // Regression for #98 (ADR 0037): a constant actuator torque must live
+        // Regression test (ADR 0037): a constant actuator torque must live
         // exactly ONE integration step and must not accumulate across env steps.
+        //
+        // Rapier's vendored 0.32 doc comment claimed applied forces/torques are
+        // auto-cleared each step; that claim is false (verified against Rapier's
+        // actual source). Every env that steers via `add_force`/`add_torque` was
+        // instead integrating a monotonically growing torque, a silent,
+        // deterministic corruption of the control dynamics that the existing
+        // tests couldn't catch because they only checked qualitative movement,
+        // never whether the applied torque itself stayed bounded. `reacher`
+        // wasn't in the original bug report's file list, but it shares the same
+        // Rapier torque-application path as `swimmer` and was affected
+        // identically, so it was fixed and re-tuned alongside the others. The
+        // fix landed once, in the shared Rapier backend's `step_once` (which
+        // now calls `reset_external_forces` after the pipeline step, see
+        // below), paired with re-tuned per-env force/torque constants since
+        // the old constants were implicitly tuned around the accumulation
+        // bug.
         //
         // We assert the invariant *directly* rather than through emergent
         // dynamics. The reacher is a chaotic, numerically stiff double pendulum:

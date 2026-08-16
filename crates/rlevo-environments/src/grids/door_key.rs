@@ -1295,8 +1295,12 @@ mod tests {
         env
     }
 
-    /// End-to-end reproducer for #1027: `AgentState::carrying` must reach the
-    /// emitted observation.
+    /// End-to-end reproducer: `AgentState::carrying` must reach the emitted
+    /// observation, not just gate `toggle()`'s unlock check internally. This
+    /// was a genuine POMDP defect — `toggle()` gates unlocking on
+    /// `agent.carrying == Some(Entity::Key(color))`, but until the fix below
+    /// nothing in the observation ever reflected that hand state, so a policy
+    /// had no observable channel for state its own actions depended on.
     ///
     /// Driven through the **real dynamics** — no hand-built `GridState`, no
     /// direct `stamp_carried` call. The board is the seed-3 layout the module
@@ -1492,9 +1496,15 @@ mod tests {
     /// terminal snapshot.
     ///
     /// Termination is by *reaching the goal*, not by exhausting `max_steps`:
-    /// `grids/core/mod.rs`'s `build_snapshot` currently maps a step-limit cutoff
-    /// to `Terminated` rather than `Truncated` (#1028), so a step-limit ending
-    /// would pin the wrong status through this guard.
+    /// [`step`](Environment::step) collapses the step-limit cutoff into the
+    /// same `done: bool` as a genuine terminal outcome before it ever reaches
+    /// `grids/core/mod.rs`'s `build_snapshot`, and `build_snapshot` maps that
+    /// bare bool straight to `Terminated`/running — it has no `Truncated` arm.
+    /// So today a step-limit ending is reported as `Terminated` (no future
+    /// value) rather than `Truncated` (future value cut off by the time
+    /// limit), which would bias value-function bootstrapping downstream; it
+    /// would also pin the wrong status through this guard, since the guard
+    /// only checks *that* the episode ended, not *why*.
     ///
     /// The board (see the module docs) is agent `(1, 1)` facing North, key
     /// `(1, 2)`, locked door `(2, 1)`, goal `(3, 3)`.

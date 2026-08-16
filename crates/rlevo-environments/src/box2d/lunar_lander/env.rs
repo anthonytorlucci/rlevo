@@ -1113,12 +1113,15 @@ mod tests {
     /// crashes the hull into the ground, which must `Terminated` (not truncate)
     /// before `max_steps` and apply the −100 crash penalty.
     ///
-    /// This is the regression for issue #122: the crash branch was previously
-    /// gated on `pos.y < 0.1`, which Rapier's solver never reaches (a hull
-    /// resting on the ground settles at `$\text{pos.y} \approx 0.78$`), so the branch was dead
-    /// and the episode silently ran to `Truncated`. Against the old code this
-    /// test fails (free-fall never terminates, so `terminal` stays `None` and
-    /// the `expect` panics); with the hull-contact check it passes.
+    /// This is a regression test for a fixed crash-termination bug: the crash
+    /// branch was previously gated on `pos.y < 0.1`, which the solid ground
+    /// collider makes physically unreachable — Rapier's solver never lets a
+    /// resting hull settle below `$\text{pos.y} \approx 0.78$` — so the branch
+    /// was dead and every crash silently ran to `Truncated`, changing the MDP
+    /// and its reward signal. The fix replaced the positional check with a
+    /// contact-query check mirroring `update_contacts`. Against the old code
+    /// this test fails (free-fall never terminates, so `terminal` stays `None`
+    /// and the `expect` panics); with the hull-contact check it passes.
     ///
     /// The terminal reward is exactly −100.0: rlevo matches Gymnasium's
     /// **overwrite** semantics, where a terminal step's reward is *set to*
@@ -1157,14 +1160,16 @@ mod tests {
         approx::assert_relative_eq!(reward, -100.0, epsilon = 1e-4);
     }
 
-    // Landing test (issue #122 §7.1 test 3) intentionally omitted: a soft
-    // landing that reports `is_terminated()` with reward ≈ +100 requires a
-    // control policy to null out velocity/angle and let the legs settle at
-    // rest (leg1_contact && leg2_contact && |vx|,|vy|,|angle| < 0.1). The
-    // discrete actions cannot deterministically achieve this within a fixed,
-    // hand-written script without flakiness, so the landing branch is left to
-    // integration-level policy tests. Tests 1 and 2 above are deterministic and
-    // directly exercise the truncation and (newly live) hull-crash branches.
+    // Landing test intentionally omitted: the crash-termination fix above is
+    // scoped to reachability of the crash branch, not landing-success
+    // behaviour, so a soft landing that reports `is_terminated()` with reward
+    // ≈ +100 is not covered here. It requires a control policy to null out
+    // velocity/angle and let the legs settle at rest (leg1_contact &&
+    // leg2_contact && |vx|,|vy|,|angle| < 0.1). The discrete actions cannot
+    // deterministically achieve this within a fixed, hand-written script
+    // without flakiness, so the landing branch is left to integration-level
+    // policy tests. Tests 1 and 2 above are deterministic and directly
+    // exercise the truncation and (newly live) hull-crash branches.
 
     // ── post-terminal step guard (ADR 0044) ───────────────────────────────
     //
@@ -1252,12 +1257,14 @@ mod tests {
         );
     }
 
-    /// Regression for the reward pump behind issue #122.
+    /// Regression test for the "reward pump" that the crash-termination fix
+    /// above introduced as a second-order defect.
     ///
     /// `step_common` **overwrites** a terminal step's reward with −100,
-    /// discarding the shaping delta. The crash predicate is a live test —
-    /// `hull_in_contact()` — not a latch, and a crashed hull stays on the
-    /// ground, so before the guard every further step re-ran the physics,
+    /// discarding the shaping delta — correct overwrite semantics, unchanged
+    /// here. But the crash predicate is a live test — `hull_in_contact()` —
+    /// not a latch, and a crashed hull stays on the ground, so before the
+    /// `EpisodeGuard` (ADR 0044) every further step re-ran the physics,
     /// re-satisfied the predicate and re-emitted a fresh `Terminated` snapshot
     /// paying another −100. Measured against the pre-guard code (seed 0, free
     /// fall, both variants): terminal at step 135 with reward −100, then −100

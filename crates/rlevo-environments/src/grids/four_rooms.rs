@@ -1388,10 +1388,13 @@ mod tests {
     /// Drives `env` to a **goal** termination through real `step()` calls.
     ///
     /// Ends the episode by reaching the goal rather than by exhausting
-    /// `max_steps`: the step-limit path currently maps a cutoff to `Terminated`
-    /// rather than `Truncated` (`grids/core/mod.rs`, `build_snapshot`; GitHub
-    /// #1028), and no guard test should be written against a status that a bug
-    /// fix is expected to change. The route is derived from the board the env
+    /// `max_steps`: `build_snapshot` (`grids/core/mod.rs`) takes a bare
+    /// `done: bool`, and every grid env ORs its genuine terminal condition
+    /// with the step-limit cutoff into that same collapsed bool before
+    /// calling it, so hitting `max_steps` is currently reported as
+    /// `Terminated` rather than `Truncated`. A guard test must not assert on
+    /// that status, since the status itself is the defect a future fix is
+    /// expected to change. The route is derived from the board the env
     /// actually drew, so this does not encode one seed's geometry.
     fn drive_to_goal(env: &mut FourRoomsEnv) -> GridSnapshot {
         env.reset_with_seed(3).expect("reset must succeed");

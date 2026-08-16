@@ -20,8 +20,13 @@
 //! equal-width rooms, every door at `height / 2`, every door [`Color::Grey`].
 //! The board is identical on every reset, so a policy can memorize it instead
 //! of learning to explore; treat results here as a probe of planning and credit
-//! assignment, not as comparable to published `MultiRoom` numbers. Procedural
-//! generation is tracked in issue #1021.
+//! assignment, not as comparable to published `MultiRoom` numbers. Porting the
+//! generator is a distinct, larger piece of work than randomizing an env that
+//! already ignores its `seed` (the family of fixes that gave other grid envs a
+//! working `_rng`): it needs recursive room placement with overlap-rejection
+//! backtracking and a connectivity guarantee, plus a decision on which
+//! upstream target to reproduce — `MiniGrid-MultiRoom-N4-S5-v0` is misconfigured
+//! for 6 rooms per its own docstring, while `-v1` corrects it to 4.
 //!
 //! ## Layout (3 rooms, `room_width` = 5, height = 5 — default)
 //!
@@ -120,9 +125,12 @@ pub struct MultiRoomConfig {
     /// room's size and position, and every door's wall, position and color on
     /// each reset. Here the strip, the doors (all at `height / 2`, all
     /// [`Color::Grey`]), the agent and the goal are the same on every reset, so
-    /// a policy can memorize a single board. Procedural generation is tracked in
-    /// issue #1021; until then this value cannot change any observation, reward,
-    /// or transition.
+    /// a policy can memorize a single board. The layout builder is a pure
+    /// function of `num_rooms` / `room_width` / `height` and never reads this
+    /// field; a future procedural generator (recursive room placement with
+    /// backtracking, resampled door walls/positions/colors) would be what
+    /// finally reads it to seed those draws. Until such a generator exists,
+    /// this value cannot change any observation, reward, or transition.
     ///
     /// The field is kept so every grid env presents the same config surface.
     pub seed: u64,
@@ -606,10 +614,15 @@ mod tests {
     /// Drives `env` to termination **by reaching the goal**, through real
     /// `step()` calls only, and returns the terminal snapshot.
     ///
-    /// Deliberately not the step-limit ending: `build_snapshot` maps a
-    /// `max_steps` cutoff to `Terminated` rather than `Truncated` (issue #1028,
-    /// out of scope here), so a timeout-driven test would bake that bug into an
-    /// assertion.
+    /// Deliberately not the step-limit ending: `step` folds a `max_steps`
+    /// cutoff into the same `done` bool as a genuine terminal
+    /// (`ReachedGoal`/`HitLava`) before handing it to `build_snapshot`, which
+    /// maps every `done` to `Terminated` — there is no `Truncated` status to
+    /// tell a timeout apart from a real terminal, even though the distinction
+    /// matters for value-function bootstrapping (a truncated episode still has
+    /// future value; a terminated one does not). A timeout-driven test here
+    /// would bake that collapsed signal into an assertion instead of exercising
+    /// the intended termination path.
     fn drive_to_goal(env: &mut MultiRoomEnv) -> GridSnapshot {
         env.reset().expect("reset must succeed");
         let mut last = None;
@@ -655,12 +668,12 @@ mod tests {
         );
     }
 
-    /// Issue #106: the three structural floors were enforced only in
-    /// [`FromStr`], so a config built by `Deserialize` or struct-update syntax
-    /// reached `build`. Measured: `num_rooms = 1` produced a silent single-room
-    /// env whose `wall_columns()` was empty — no dividing wall, no door, the
-    /// whole task gone. The guard now lives in [`Validate`], which `with_config`
-    /// runs (ADR 0026 chokepoint).
+    /// The three structural floors were enforced only in [`FromStr`], so a
+    /// config built by `Deserialize` or struct-update syntax reached `build`.
+    /// Measured: `num_rooms = 1` produced a silent single-room env whose
+    /// `wall_columns()` was empty — no dividing wall, no door, the whole task
+    /// gone. The guard now lives in [`Validate`], which `with_config` runs
+    /// (ADR 0026 chokepoint).
     #[test]
     fn with_config_rejects_num_rooms_below_min() {
         let bad = MultiRoomConfig {

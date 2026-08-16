@@ -13,8 +13,18 @@
 //! env-side [`Sensor`] delegates to it, so every snapshot is built from
 //! [`Observable::project`] rather than from the state's own rank. It is the
 //! production counterpart to the `MockRam` integration test that proved the
-//! [`Observable`] contract (issue #62, ADR 0019), and resolves issue #65. This
-//! is the reference "sensor delegates to `Observable`" pattern (ADR 0047).
+//! [`Observable`] contract: `State<SR>` used to pin its observation to its own
+//! rank (`Observation: Observation<SR>`), so a modality change — a low-rank
+//! RAM-like state observed as a rendered image — had no typed home, unlike
+//! same-modality partial observability, which `observe()` already covers.
+//! [`Observable<OR>`] (ADR 0019) is the purely-additive projection trait that
+//! resolves that gap with an infallible [`Observable::project`] and no
+//! blanket impl. This module is that trait's first real consumer: a compact
+//! rank-1 grid state (agent + goal indices) rendered to a small rank-2/3
+//! pixel observation, chosen because it is cheap, dependency-free, and fully
+//! reproducible while still exercising the exact `R != SR` wiring a future
+//! Atari backend would need. It is the reference "sensor delegates to
+//! `Observable`" pattern (ADR 0047).
 //!
 //! ## Why not fold into [`grids`](crate::grids)
 //!
@@ -308,8 +318,15 @@ impl Observable<3> for PixelGridState {
 /// Total in `cell`: an index outside `0..CELL_COUNT` paints nothing and the
 /// block is left as background. Callers should have upheld the range
 /// invariant — a violation trips the `debug_assert!` — but a release build
-/// renders the degraded frame rather than panicking on an out-of-bounds slice
-/// (issue #542).
+/// renders the degraded frame rather than panicking on an out-of-bounds slice.
+/// This guard is why: `new()` did not validate indices and `project()` never
+/// checked `is_valid()`, so a state with `agent >= CELL_COUNT` drove this
+/// function to compute a pixel offset past `PIXEL_COUNT`, panicking on the
+/// slice write (also reachable through `Sensor::observe`/`observe_reset`,
+/// ADR 0047, which call `project()` the same unguarded way). `apply_move`
+/// always clamps in-bounds, so the risk is external construction — a buggy
+/// wrapper, a deserialized checkpoint, a hand-built state — crashing the
+/// process instead of surfacing a normal error.
 ///
 /// The guard must stay *ahead of the divide*. On a target with 32-bit `usize`,
 /// a `cell` near `usize::MAX` makes `crow * CELL_PX + dr` wrap, which can land
@@ -1142,7 +1159,11 @@ mod tests {
         assert_eq!(state.numel(), 2);
     }
 
-    // ── cell-index range invariant (issue #542) ──────────────────────────────
+    // ── cell-index range invariant ───────────────────────────────────────────
+    // `new()` used to skip index validation and `project()` never checked
+    // `is_valid()`, so an out-of-range state reached `paint_cell` and panicked
+    // on the slice write. The tests below pin both halves of the fix: `new`
+    // now rejects out-of-range indices, and `is_valid` recognizes them.
 
     /// `new` is the only public construction path, so it is where the
     /// `0..CELL_COUNT` invariant is enforced. The accepting side of `is_valid`
@@ -1236,8 +1257,9 @@ mod tests {
         ]
     }
 
-    /// The issue #542 reproducer: `PixelGridState::new(25, 0).project()` used to
-    /// panic with `range end index 1203 out of range for slice of length 1200`.
+    /// Confirmed reproducer for the out-of-range panic:
+    /// `PixelGridState::new(25, 0).project()` used to panic with `range end
+    /// index 1203 out of range for slice of length 1200`.
     ///
     /// `new` now rejects those indices, so the invalid state is built by
     /// in-module struct literal — the only remaining way to produce one.

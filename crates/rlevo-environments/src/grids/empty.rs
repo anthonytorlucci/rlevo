@@ -671,8 +671,14 @@ mod tests {
     /// Drives a fresh 5×5 episode to the goal with real `step()` calls.
     ///
     /// The termination is a **goal arrival**, deliberately not a step-limit
-    /// cutoff: `grids::core::build_snapshot` currently reports a timeout as
-    /// `Terminated` (issue #1028), and these tests must not bake that in.
+    /// cutoff: `step()` OR-s the genuine terminal condition (goal reached)
+    /// with the `steps >= max_steps` cutoff into one collapsed `done: bool`,
+    /// and `grids::core::build_snapshot` maps that bool straight to
+    /// `Terminated`/`running` with no `Truncated` arm — so a timeout reaches
+    /// the same terminal status as a real win, biasing the value target for
+    /// any bootstrapping agent. A timeout-driven test here would bake that
+    /// wrong status into the assertion instead of exercising the intended
+    /// termination path.
     fn drive_to_goal(env: &mut EmptyEnv) -> SnapshotBase<3, GridObservation, ScalarReward> {
         env.reset().expect("reset must succeed");
         // Agent at (1,1) facing East, goal at (3,3).

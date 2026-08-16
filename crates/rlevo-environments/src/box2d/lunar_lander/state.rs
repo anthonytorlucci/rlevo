@@ -21,8 +21,14 @@ use rlevo_core::base::State;
 /// twist) live *behind* the handles, read live out of the world each step —
 /// they are not values in this struct.
 ///
-/// This aliasing is resolved by issue #256 (ADR 0039), which moves the handles
-/// onto the env core and makes the state own its DOFs as values.
+/// Per ADR 0039, the canonical Gymnasium `LunarLander` state equals its
+/// observation: an 8-dim vector of pose (x, y, angle), twist (vx, vy,
+/// angular velocity), and the two leg-contact booleans already stored here.
+/// The planned fix promotes those 8 scalars to named owned fields on this
+/// struct and moves the four Rapier handles onto the env core (which already
+/// holds some physics state, so this also normalizes an existing
+/// state/env-core split); `is_valid()` then checks DOF finiteness/ranges
+/// instead of handle validity.
 ///
 /// [`RapierWorld`]: crate::box2d::physics::RapierWorld
 #[derive(Debug, Clone)]

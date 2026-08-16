@@ -420,7 +420,22 @@ mod tests {
         assert!(s3.is_terminated());
     }
 
-    // ── post-terminal step guard (issue #295, ADR 0044) ──────────────────────
+    // ── post-terminal step guard ──────────────────────────────────────────
+    //
+    // This env used to carry a `done: bool` field that was written but never
+    // read by `step()`. Nothing stopped a caller from stepping again after
+    // termination: `steps` kept incrementing, `steps >= max_steps` stayed
+    // true, and every extra call sampled a *fresh* random reward and emitted
+    // a *new* `Terminated` snapshot — silently fabricating trajectory data
+    // past the end of the episode. `EpisodeGuard` (ADR 0044) replaces that
+    // field as the single source of truth for done-ness (`docs/rules.md`
+    // §10): `guard.check()?` runs first in `step()`, before the arm index is
+    // validated and before `sample_reward`/`drift_arm_means` touch the RNG,
+    // so a rejected call advances neither the reward stream nor the drift.
+    // The tests below pin both halves of that contract: rejection itself,
+    // and that a rejected call is a true no-op (no step-counter tick, no
+    // arm-mean drift, no RNG advance — see
+    // `rejected_step_does_not_advance_the_rng_stream`).
 
     /// Step budget for the guard tests: small enough to burn through quickly.
     const GUARD_MAX_STEPS: usize = 3;

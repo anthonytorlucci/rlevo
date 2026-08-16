@@ -1243,10 +1243,17 @@ mod tests {
     /// Reset to a known board and walk the derived route to the **goal**,
     /// returning the terminal snapshot.
     ///
-    /// Terminating on the goal rather than on the step budget is deliberate:
-    /// `grids/core::build_snapshot` currently maps a step-limit cutoff to
-    /// `Terminated` rather than `Truncated` (#1028, out of scope here), so a
-    /// budget-driven ending would bake that bug into these assertions.
+    /// Terminating on the goal rather than on the step budget is deliberate.
+    /// `step` above ORs the step-limit cutoff (`self.steps >=
+    /// self.config.max_steps`) into the same `done` bool as a genuine
+    /// terminal (goal / lava), and `grids/core::build_snapshot` maps every
+    /// `done == true` to `Terminated` — there is no `Truncated` arm. A
+    /// step-limit cutoff therefore reads as "no future value" instead of
+    /// "future value cut off by a time limit" (`docs/rules.md` §10), which
+    /// would bias value-function bootstrapping if a caller trusted it.
+    /// Fixing that is out of scope here; a budget-driven ending would just
+    /// bake the mislabeling into these assertions, so the tests below drive
+    /// to a real terminal instead.
     fn drive_to_goal(env: &mut LavaGapEnv) -> GridSnapshot {
         env.reset_with_seed(0).expect("reset");
         let script = route_to_goal(env);

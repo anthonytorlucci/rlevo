@@ -548,7 +548,19 @@ mod tests {
         }
     }
 
-    // ── post-terminal step guard (issue #292) ────────────────────────────────
+    // ── post-terminal step guard (ADR 0044, issue #292) ──────────────────────
+    //
+    // Before this guard, `step` only checked
+    // `action.0.iter().copied().all(f32::is_finite)` — nothing rejected a call
+    // made after the episode had already ended. Since `steps >= max_steps`
+    // keeps holding past the cap, an unguarded post-terminal step kept
+    // integrating the Rapier physics sim for another `dt * frame_skip`, so the
+    // observation drifted further with every extra call instead of staying
+    // pinned at the terminal state. The fix: `self.guard.check()?` runs first
+    // in `step`, ahead of the action-finiteness check and the physics substeps
+    // (see `step`'s doc comment); `self.guard.record(status)` is called on the
+    // single snapshot-producing return path; and `reset` clears the guard
+    // (ADR 0044 §6) so a truncated episode becomes steppable again.
     //
     // Swimmer has NO `Terminated` path: there is no health condition and no
     // goal, and `step` only ever emits `Running` or `Truncated`. Truncation at

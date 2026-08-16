@@ -499,7 +499,23 @@ mod tests {
         assert!(s3.is_terminated());
     }
 
-    // ── post-terminal step guard (issue #295, ADR 0044) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
+    //
+    // This bandit family used to carry a `done: bool` field that `step()`
+    // wrote but never read, so a `step()` call taken after `steps >=
+    // max_steps` still ran to completion: `self.steps` kept incrementing and
+    // a fresh `Terminated` snapshot was emitted on every extra call. For this
+    // env specifically that meant the deterministic reward schedule kept
+    // sliding forward (see `reward_at`, which indexes on `self.steps`)
+    // instead of staying pinned at the step where the episode actually ended.
+    // `EpisodeGuard` replaces the dead field as the single source of truth
+    // for done-ness (`docs/rules.md` §10): `guard.check()` runs first in
+    // `step()`, before `self.steps` is touched, so a rejected call leaves the
+    // schedule un-advanced. Sibling bandits in this family (`k_armed.rs`,
+    // `contextual.rs`, `non_stationary.rs`) sample rewards from an RNG on
+    // each step, so the same check-before-anything-else ordering also keeps
+    // a rejected step from consuming a draw off that RNG stream. The tests
+    // below exercise both properties for this env.
 
     /// Step budget for the guard tests: small enough to burn through quickly.
     const GUARD_MAX_STEPS: usize = 3;

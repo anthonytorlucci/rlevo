@@ -20,9 +20,19 @@ use rlevo_core::base::State;
 /// [`Visibility`](super::Visibility) policy, which a `&self`-only
 /// [`project`](rlevo_core::state::Observable::project) cannot read — and an
 /// unparameterised projection would be an *unoccluded* view, correct for the
-/// see-through environments and silently wrong for the occluded majority. Call
-/// [`observe_grid`](super::observe_grid) with the environment's policy instead
-/// (ADR 0047, issue #281).
+/// see-through environments and silently wrong for the occluded majority.
+///
+/// That majority case used to be broken: the egocentric view builder read
+/// every cell of the rotated view window straight from the [`Grid`], so walls
+/// never blocked line of sight and `see_through_walls` was effectively always
+/// `true` across all grid environments. The fix ports Minigrid's
+/// shadow-casting visibility pass — walls (and other entities that don't
+/// "see behind" themselves) occlude cells behind them, and occluded cells are
+/// erased from the observation — gated per environment by
+/// [`Visibility`](super::Visibility) rather than hard-coded, since canonical
+/// environments disagree on the default (e.g. `GoToDoor` is see-through,
+/// `Memory` is occluded). Call [`observe_grid`](super::observe_grid) with the
+/// environment's policy instead (ADR 0047).
 #[derive(Debug, Clone)]
 pub struct GridState {
     /// The world grid.

@@ -21,7 +21,10 @@
 //!
 //! ## Known deviations from upstream `Unlock`
 //!
-//! Two of them, both tracked in issue #1020:
+//! Two of them, both stemming from the same layout builder shortcut — the
+//! deviation is a topology change (two rooms sharing an interior wall, not a
+//! single perimeter room), so fixing it moves `MIN_SIZE` and the solvability
+//! oracle rather than a coordinate:
 //!
 //! 1. **The topology is wrong.** Farama's `MiniGrid-Unlock-v0` is a *two-room*
 //!    task (a `1 × 2` `RoomGrid` of `room_size = 6`) whose locked door sits on
@@ -105,17 +108,19 @@ pub struct UnlockConfig {
     /// Accepted but unused: this environment makes no random draws.
     ///
     /// rlevo's `Unlock` **deviates from upstream** `MiniGrid-Unlock-v0` in two
-    /// ways, both tracked in issue #1020. The layout is fixed — upstream
-    /// randomizes the door's position on the interior wall, the door color, the
-    /// key position and the agent's pose, while every reset here yields the
-    /// identical board. And the door placement is wrong: upstream is a two-room
-    /// task with the locked door on the wall *between* the rooms, whereas
-    /// [`UnlockEnv`]'s layout builder draws one perimeter-walled room and puts
-    /// the door at `(1, 0)`, inside that perimeter.
+    /// ways. The layout is fixed — upstream randomizes the door's position on
+    /// the interior wall, the door color, the key position and the agent's
+    /// pose, while every reset here yields the identical board. And the door
+    /// placement is wrong: upstream is a two-room task with the locked door on
+    /// the wall *between* the rooms, whereas [`UnlockEnv`]'s layout builder
+    /// draws one perimeter-walled room and puts the door at `(1, 0)`, inside
+    /// that perimeter — the row `draw_walls()` just filled, with no second
+    /// room behind it.
     ///
-    /// Until #1020 lands, this value cannot change any observation, reward, or
-    /// transition. The field is kept so every grid env presents the same config
-    /// surface.
+    /// Until the layout builder is reworked to place two rooms with an
+    /// interior dividing wall, this value cannot change any observation,
+    /// reward, or transition. The field is kept so every grid env presents the
+    /// same config surface.
     pub seed: u64,
 }
 
@@ -575,7 +580,7 @@ mod tests {
         assert!("2".parse::<UnlockConfig>().is_err());
     }
 
-    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
+    /// The `MIN_SIZE` validation-bypass fix: it was enforced only in [`FromStr`], so a config
     /// built by `Deserialize` or struct-update syntax reached `build`, which
     /// panicked in `Grid::set` placing the door at `(1, 0)` (`size = 1`) or the
     /// key at `(2, 1)` (`size = 2`), and silently produced an unsolvable board
@@ -684,13 +689,14 @@ mod tests {
     ///
     /// That is a consequence of a *known deviation*, not of the shadow cast.
     /// rlevo's `Unlock` draws **one** perimeter-walled room and writes the door
-    /// into the outer north wall (module docs, issue #1020); upstream
-    /// `MiniGrid-Unlock-v0` is a two-room `RoomGrid` whose locked door sits on
-    /// the wall *between* the rooms, with a whole room behind it to hide. Here
-    /// the interior is a plain rectangle of transparent cells and `process_vis`
-    /// is a forward flood fill, so every in-room cell — the key included — is lit
-    /// from every pose. When #1020 lands and the door moves onto an interior
-    /// wall, this test should be replaced by one that names the far room.
+    /// into the outer north wall — see the module docs' "Known deviations"
+    /// section; upstream `MiniGrid-Unlock-v0` is a two-room `RoomGrid` whose
+    /// locked door sits on the wall *between* the rooms, with a whole room
+    /// behind it to hide. Here the interior is a plain rectangle of
+    /// transparent cells and `process_vis` is a forward flood fill, so every
+    /// in-room cell — the key included — is lit from every pose. Once the
+    /// layout builder places the door on an interior wall between two rooms,
+    /// this test should be replaced by one that names the far room.
     ///
     /// Deliberately **not** a substitute for
     /// `test_unlock_occlusion_is_carried_entirely_by_the_locked_door`: this
@@ -743,8 +749,9 @@ mod tests {
     ///
     /// What lies behind that door is the outside of the world rather than a
     /// second room, for the reason
-    /// `test_unlock_occlusion_never_hides_an_in_room_cell` documents (issue
-    /// #1020). This is therefore the strongest honest assertion available for
+    /// `test_unlock_occlusion_never_hides_an_in_room_cell` documents: the door
+    /// sits in the perimeter wall rather than an interior wall between two
+    /// rooms. This is therefore the strongest honest assertion available for
     /// this environment, and it is still a real one: flip
     /// [`UnlockEnv::VISIBILITY`] to [`Visibility::SeeThrough`] and it fails.
     #[test]
@@ -866,8 +873,8 @@ mod tests {
         );
     }
 
-    /// Issue #1027, end to end: [`AgentState::carrying`] must reach the emitted
-    /// observation.
+    /// The carried-item visibility fix, end to end: [`AgentState::carrying`]
+    /// must reach the emitted observation.
     ///
     /// Before the fix, `mask_view` returned the masked window untouched and the
     /// agent's own cell reported the *world* tile it stands on, so picking the
@@ -957,10 +964,14 @@ mod tests {
     /// through real `step()` calls, ending by **unlocking and opening the door**
     /// rather than by exhausting `max_steps`.
     ///
-    /// The step-limit ending is deliberately avoided: `build_snapshot` maps a
-    /// budget cutoff to `Terminated` rather than `Truncated` (issue #1028), so a
-    /// timeout-driven conformance test would bake in a status the environment
-    /// gets wrong. Opening the door is a genuine termination.
+    /// The step-limit ending is deliberately avoided: `step()` OR-s the
+    /// genuine terminal condition (door open) with the `steps >= max_steps`
+    /// cutoff into one collapsed `done: bool`, and `build_snapshot` maps that
+    /// bool straight to `Terminated`/`running` with no `Truncated` arm — so a
+    /// timeout reaches the same terminal status as a real win, biasing the
+    /// value target for any bootstrapping agent. A timeout-driven conformance
+    /// test would bake in that wrong status. Opening the door is a genuine
+    /// termination.
     fn drive_to_open_door(env: &mut UnlockEnv) -> GridSnapshot {
         env.reset().expect("reset must succeed");
         let script = [

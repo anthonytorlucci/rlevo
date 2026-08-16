@@ -1089,7 +1089,16 @@ mod tests {
         assert!((run() - run()).abs() < 1e-5, "determinism check failed");
     }
 
-    // ── post-terminal step guard (issue #105) ────────────────────────────────
+    // ── post-terminal step guard ─────────────────────────────────────────────
+    //
+    // Before this guard, `Taxi` tracked no `done` state at all: a `step()`
+    // called after a correct dropoff (or after any other terminating action)
+    // would keep driving the taxi, mutating passenger/destination state, and
+    // paying out fresh rewards as though the episode were still running.
+    // `EpisodeGuard` closes that hole — `step()` calls `guard.check()` first
+    // and short-circuits with `StepAfterEpisodeEnd` once terminated, then
+    // `guard.record(status)` from the emitted snapshot so the guard and the
+    // snapshot can never disagree (see `EpisodeGuard`, ADR 0044).
 
     #[test]
     /// Verifies that stepping after a correct dropoff is rejected with

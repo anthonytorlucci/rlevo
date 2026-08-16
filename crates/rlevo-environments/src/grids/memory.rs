@@ -43,7 +43,11 @@
 //!    facing, while the cue (`x = 1`) and the fork (`x = size - 2 >= 9`) are at
 //!    least eight columns apart. A memoryless, single-observation policy thus
 //!    can never see the cue and the choice at the same time, and cannot beat
-//!    chance — which is exactly the property issue #109 was about.
+//!    chance — which is exactly the property a prior dead-RNG bug destroyed:
+//!    the cue type was never drawn from `_rng` in `reset`, so the fork match
+//!    didn't depend on the cue at all and a memoryless policy could win by
+//!    keying on coordinate alone. Sampling the cue from `_rng` (and the
+//!    fork-invariance regression test in this module) closed that gap.
 //!
 //! Both are pinned by the test
 //! `test_memory_env_cue_leak_zone_is_bounded_and_decision_region_is_clean`,
@@ -107,7 +111,11 @@
 //! environment emits.
 //!
 //! Invariant M is *not* satisfied automatically, and — contrary to what ADR
-//! 0043 §3 and issue #281 both predicted — **occlusion does not buy it**. rlevo
+//! 0043 §3 predicted, and contrary to what the earlier occlusion gap implied
+//! it would take (`egocentric_view` applied no visibility masking at all, so
+//! this environment had to fall back on raw distance instead of walls,
+//! forcing `MIN_SIZE = 11` rather than canonical's occlusion-reliant S7/S9) —
+//! now that occlusion is actually implemented, **it still does not buy it**. rlevo
 //! runs the canonical shadow cast (`see_through_walls=False`), and an executed
 //! sweep over every decision-region cell × facing at sizes **7 and 9** finds the
 //! cue visible under [`Visibility::Occluded`] in exactly the same (cell, facing)
@@ -281,7 +289,12 @@ const VIEW_REACH: usize = VIEW_SIZE - 1;
 // at column `size - 2`; hiding the cue from the fork needs
 // `(MIN_SIZE - 2) - VIEW_REACH > 1`. If `VIEW_SIZE` ever grows, or someone
 // lowers `MIN_SIZE` to match canonical Minigrid's S7/S9, the build fails here
-// instead of silently re-opening issue #109.
+// instead of silently re-opening the "recall task structurally defeated"
+// failure mode this environment was fixed for — where a memoryless policy
+// can win because the answer is readable from a single observation (there:
+// the cue type was never sampled from the RNG, so the fork match didn't
+// depend on it; here it would be geometry letting one view see both the cue
+// and the fork).
 //
 // This assertion survived the arrival of occlusion unchanged, and that is the
 // correct outcome rather than an oversight: ADR 0063 Decision 6 said it would
@@ -1304,7 +1317,10 @@ mod tests {
     /// ADR 0063 Decision 6, executed: does occlusion relax `MIN_SIZE` to 7?
     ///
     /// **It does not.** ADR 0043 §3 called the 11 → 7 relaxation "a one-line
-    /// change" and issue #281 carried it as an acceptance bullet; this sweep is
+    /// change", and the report that tracked the missing-occlusion gap in
+    /// `egocentric_view` (walls never blocked line of sight, so this
+    /// environment had to rely on distance instead) carried that same 11 → 7
+    /// relaxation as an acceptance bullet once occlusion landed; this sweep is
     /// the evidence that refutes it. At sizes 7 and 9 the cue is visible from
     /// the decision region under [`Visibility::Occluded`] in exactly the same
     /// (cell, facing) pairs as under [`Visibility::SeeThrough`] — the shadow
@@ -1592,7 +1608,9 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // The acceptance test for issue #109
+    // The acceptance test for the dead-RNG recall bug: the cue type was never
+    // sampled from `_rng` in `reset`, so the fork match didn't depend on the
+    // cue and the "memory" task was winnable without remembering anything.
     // ---------------------------------------------------------------------
 
     /// Locate two seeds whose episodes share a fork order but differ in cue.
@@ -1627,8 +1645,10 @@ mod tests {
     ///
     /// This is a mechanical proof that no reactive (memoryless) policy can beat
     /// chance here: at the decision point the two worlds are indistinguishable
-    /// from the observation alone. It fails on the pre-#109 environment, and it
-    /// would still fail after a naive "just sample the cue" fix on the old 7×5
+    /// from the observation alone. It fails on the environment as it stood
+    /// before the cue was sampled from `_rng` (the fork match didn't depend on
+    /// the cue, so both episodes demanded the same action), and it would still
+    /// fail after a naive "just sample the cue" fix on the old 7×5
     /// layout — the cue was re-readable from the fork. It also only passes
     /// because every object is green.
     #[test]
@@ -1936,8 +1956,15 @@ mod tests {
     /// terminal snapshot, no poking at `env.state`. With `correct = true` the
     /// agent turns toward the matching object (success terminal); with `false`
     /// it turns toward the distractor (failure terminal). Both are genuine
-    /// `Done` terminations, so neither depends on the step-limit status bug
-    /// (GitHub #1028) that maps a budget cutoff to `Terminated`.
+    /// `Done` terminations, reached well inside the step budget, so neither
+    /// exercises `step()`'s other exit path: a `max_steps` cutoff (see the
+    /// `done` computation in [`MemoryEnv::step`]) currently folds into the
+    /// same bare `bool` as a real terminal, and `build_snapshot`
+    /// (`grids/core/mod.rs`) has no `Truncated` arm to route it to — so a
+    /// timed-out episode is reported as `Terminated`, not `Truncated`. That
+    /// mislabels the value-function bootstrap target: a truncated episode
+    /// still has future value, a true terminal has none (`docs/rules.md`
+    /// §10, `EpisodeStatus`).
     fn drive_to_commit(env: &mut MemoryEnv, correct: bool) -> GridSnapshot {
         env.reset().expect("reset");
         drive_to_junction(env);

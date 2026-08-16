@@ -622,9 +622,16 @@ mod tests {
 
     #[test]
     fn constant_force_does_not_accumulate() {
-        // Regression for #98 (ADR 0037): a constant action must produce a
-        // stationary per-step cart-velocity increment. With the pre-fix bug
-        // the cart force accumulated across steps, so Δvx grew ~linearly.
+        // Regression test (ADR 0037): a constant action must produce a
+        // stationary per-step cart-velocity increment. Rapier does not
+        // auto-clear applied forces each step despite the vendored 0.32 doc
+        // comment's claim to the contrary, so an unguarded `add_force` call
+        // accumulated across steps and silently corrupted the control
+        // dynamics; qualitative "did the joint move" tests stayed green
+        // throughout. Fixed once in `RapierWorld::step()` (reset forces and
+        // torques every step) with per-env force constants re-tuned
+        // afterward. Without that fix, Δvx grows ~linearly instead of
+        // holding steady.
         let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
             reset_noise_scale: 0.0,
             termination: TerminationMode::Never,
@@ -692,7 +699,20 @@ mod tests {
         );
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #292) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
+    //
+    // `step` used to check only `action.is_valid()`; nothing rejected a call
+    // made after the episode had already ended. A post-terminal step kept
+    // integrating the Rapier simulation, so the observation drifted past the
+    // point where the episode should have stopped. The fix — shared across
+    // the whole locomotion family (`inverted_double_pendulum`, `reacher`,
+    // `swimmer`) — holds an `EpisodeGuard` per environment: `step` calls
+    // `guard.check()?` before touching the physics world (see the ordering
+    // rationale above `step`, ADR 0029), and `guard.record(status)` on the
+    // single snapshot-producing exit path; `reset` reopens the guard. The
+    // tests below drive that behavior through
+    // `crate::episode::assert_rejects_post_terminal_step` plus a direct
+    // no-mutation check.
 
     /// Upper bound on the steps the kicked pendulum may take before the test
     /// calls it a regression. `max_steps` is set well above it so truncation

@@ -1033,8 +1033,14 @@ mod tests {
     /// whose very next (illegal) step used to duplicate an obstacle.
     ///
     /// Pinned deliberately: collision endings are the interesting terminal
-    /// route here, and step-limit endings are avoided because `build_snapshot`
-    /// labels truncation as `Terminated` (#1028, out of scope).
+    /// route here, and step-limit endings are avoided as a fixture because
+    /// `step()` currently OR-s the step-limit cutoff into the same `done`
+    /// bool as a genuine collision, and `build_snapshot` has no `Truncated`
+    /// arm — it maps every `done` straight to `Terminated`. A step-limit
+    /// ending would therefore be reported as terminal (no future value)
+    /// rather than truncated (future value cut off by the time limit),
+    /// biasing value-function bootstrapping; distinguishing the two is out
+    /// of scope for this test.
     const COLLISION_CFG: DynamicObstaclesConfig = DynamicObstaclesConfig::new(5, 4, 200, 37);
 
     /// Drives a fresh episode to its **collision**-terminal snapshot through

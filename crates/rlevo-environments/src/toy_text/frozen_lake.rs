@@ -1286,13 +1286,20 @@ mod tests {
         assert!((run() - run()).abs() < 1e-5, "determinism check failed");
     }
 
-    // ── post-terminal step guard (issue #105) ────────────────────────────────
+    // ── post-terminal step guard ─────────────────────────────────────────────
     //
-    // On termination the agent is left standing *on* the Hole/Goal tile. An
-    // unguarded `step()` walks it back onto a frozen neighbour and reports
-    // `Running`, resurrecting a finished episode — hence the `EpisodeGuard`.
-    // All of these use the non-slippery 4×4 preset so the terminal tile is
-    // reached deterministically.
+    // Before this guard, `FrozenLake` tracked no `done` state at all: on
+    // termination the agent is left standing *on* the Hole/Goal tile, and an
+    // unguarded `step()` would walk it back off onto a frozen neighbour,
+    // report `Running`, and keep paying out rewards — resurrecting a finished
+    // episode, including the possibility of re-triggering a fresh
+    // "fell in a hole" or "reached goal" transition on a later step.
+    // `EpisodeGuard` closes that hole — `step()` calls `guard.check()` first
+    // and short-circuits with `StepAfterEpisodeEnd` once terminated, then
+    // `guard.record(status)` from the emitted snapshot so the guard and the
+    // snapshot can never disagree (see `EpisodeGuard`, ADR 0044). All of
+    // these use the non-slippery 4×4 preset so the terminal tile is reached
+    // deterministically.
 
     #[test]
     /// Verifies a `step()` after falling into a hole is rejected, and that the

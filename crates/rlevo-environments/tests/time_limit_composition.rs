@@ -4,7 +4,20 @@
 //! The unit tests in `wrappers/time_limit.rs` deliberately wrap an *unguarded*
 //! stub, which isolates the wrapper's own [`EpisodeGuard`] and proves it works
 //! alone. This file covers the case those tests cannot: the double guard, where
-//! the inner environment carries a guard of its own (issue #105 / ADR 0044).
+//! the inner environment carries a guard of its own.
+//!
+//! `CliffWalking` is one of the four `toy_text` environments (alongside
+//! `Blackjack`, `FrozenLake`, and `Taxi`) that originally tracked no `done`
+//! state at all: stepping after termination could silently "resurrect" an
+//! episode. Concretely, a post-terminal step in `CliffWalking` could walk the
+//! agent off the terminal cell via the cliff-teleport, and `Blackjack`'s
+//! natural/terminal ambiguity made the same gap worse. The fix added a `done`
+//! flag per environment, then generalized it crate-wide into the
+//! [`EpisodeGuard`] type, formalized in ADR 0044. That generalization is why
+//! this file exists: once every environment carries its own guard, a
+//! composable wrapper like [`TimeLimit`] must be proven not to conflict with,
+//! double-reject, or mislabel the inner guard's status — that composition is
+//! what the tests below check.
 //!
 //! [`CliffWalking`] is the inner env because it is fully deterministic in its
 //! default (non-slippery) config, so a fixed action script is an exact oracle:

@@ -35,8 +35,13 @@
 //!
 //! rlevo keeps its own coverage-threshold termination
 //! (`$\text{tiles\_visited} \geq \text{lap\_complete\_percent} \times \text{total\_tiles}$`) rather than gym's
-//! re-cross-tile-0 rule, which couples completion to a single tile and makes
-//! `lap_complete_percent` a near-no-op (upstream Gymnasium issue #1269). The
+//! re-cross-tile-0 rule. In canonical Gymnasium, `CarRacing` resets a few
+//! physics steps *before* the agent re-crosses the start/finish tile whenever
+//! not every tile has been visited, so the lap-completion check races the
+//! reset and rarely gets a chance to evaluate true — a known upstream
+//! limitation (Gymnasium issue #1269) that makes `lap_complete_percent` a
+//! near-no-op in practice. rlevo's threshold check runs every step against
+//! `tiles_visited` directly, so it isn't subject to that race. The
 //! sweep makes laps *reachable in principle*; it does not make them *easy* —
 //! dynamic difficulty under the fragile stiff-joint physics is a separate,
 //! pre-existing concern.

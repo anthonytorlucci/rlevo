@@ -1,5 +1,13 @@
-//! Crate-wide regression net for issue #282 — an environment that re-seeds its
-//! RNG inside `reset()` replays one bit-identical episode forever.
+//! Crate-wide regression net for the dead-`_rng`-reseed defect: nine grid
+//! environments (`crossing`, `dist_shift`, `door_key`, `empty`, `four_rooms`,
+//! `lava_gap`, `multi_room`, `unlock`, `unlock_pickup`) stored an `_rng` field
+//! that was re-seeded on every `reset()` and never read. The `seed` config
+//! field was inert on nearly the whole family, and the latent hazard was
+//! worse than dead code: the moment sampling was added without deleting the
+//! reseed line, every episode would draw an identical layout while a "the env
+//! samples from its RNG" test stayed green. More generally, an environment
+//! that re-seeds its RNG inside `reset()` replays one bit-identical episode
+//! forever.
 //!
 //! ADR 0029 §1 and ADR 0062 §2
 //! (`docs/adr/0062-grid-layout-fidelity-and-no-dead-rng.md`)
@@ -14,9 +22,11 @@
 //! `self.rng = StdRng::seed_from_u64(self.config.seed);`. The environment is
 //! then provably calling its RNG *and* provably producing an identical layout
 //! every episode, and both facts are consistent with a green suite. Nine grid
-//! environments sat in exactly that pre-state until ADR 0062; #104 put the same
-//! line in `toy_text/`, `classic/` and `locomotion/`. Prose did not stop it
-//! twice, so ADR 0062 §4 requires this mechanical guard.
+//! environments sat in exactly that pre-state until ADR 0062; the same reseed
+//! line resurfaced afterward in `pixel_grid.rs` and the `locomotion` family
+//! (`reacher`, `inverted_pendulum`, `inverted_double_pendulum`), where every
+//! episode replayed bit-identical noise. Prose did not stop it twice, so
+//! ADR 0062 §4 requires this mechanical guard.
 //!
 //! # What the guard does
 //!
@@ -166,8 +176,9 @@ static ALLOWED_SEEDERS: &[AllowedSeeder] = &[
         why: "`BipedalWalker`'s private constructor, shared by `with_config` and \
               `with_terrain`. Scoped to one file on purpose: in `grids/`, `build` is \
               the per-episode layout builder that must *receive* `rng: &mut R` and \
-              never seed one — allowlisting the bare name crate-wide would open a \
-              hole exactly where issue #282 lives",
+              never seed one — allowlisting the bare name crate-wide would reopen the \
+              dead-`_rng`-reseed hole ADR 0062 closed: a `build` that seeds its own \
+              RNG on every `reset()` instead of receiving the persistent stream",
     },
 ];
 
@@ -213,8 +224,8 @@ impl AllowedSeeder {
     }
 }
 
-/// The heart of #282: a seed drawn anywhere but a constructor or the replay
-/// hatch — above all, one drawn inside `reset()`.
+/// The heart of the dead-`_rng`-reseed defect: a seed drawn anywhere but a
+/// constructor or the replay hatch — above all, one drawn inside `reset()`.
 #[test]
 fn every_seed_from_u64_sits_in_an_allowlisted_constructor() {
     let sites = production_seeding_sites();
@@ -233,7 +244,8 @@ fn every_seed_from_u64_sits_in_an_allowlisted_constructor() {
          docs/rules.md §8 (\"Host-RNG seeding convention\").\n\
          Re-seeding inside `reset()` replays one bit-identical episode forever, and \
          does so while a test asserting \"the env samples from its RNG\" stays green \
-         (ADR 0062 Context §4, issue #282).\n\n\
+         (ADR 0062 Context §4 — nine grid envs sat in exactly this pre-state, an \
+         unread `_rng` re-seeded on every `reset()`, before the fix).\n\n\
          If a site above is genuinely a constructor or an explicit replay hatch, add a \
          row to ALLOWED_SEEDERS in tests/rng_seeding_guards.rs stating why.\n\
          If it is inside `reset()`, delete it: the replay hatch is the inherent \
@@ -394,7 +406,8 @@ fn cfg_test_regions(relative: &str, lines: &[&str]) -> Vec<(usize, usize)> {
             panic!(
                 "src/{relative}: the `#[cfg(test)]` at line {} never terminates. This \
                  guard refuses to skip to end-of-file, because doing so would hide every \
-                 production `{SEED_CALL}` below it (issue #282).",
+                 production `{SEED_CALL}` below it — the dead-`_rng`-reseed pattern \
+                 ADR 0062 exists to catch.",
                 index + 1,
             )
         });
