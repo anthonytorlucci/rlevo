@@ -3,7 +3,7 @@ project: rlevo
 status: active
 type: decision
 date: 2026-08-09
-tags: [adr, decision, numerical-stability, nan, loss, telemetry, metrics-registry, ppo, ppg, dqn, c51, qrdqn, sac, ddpg, td3, issue-346]
+tags: [adr, decision, numerical-stability, nan, loss, telemetry, metrics-registry, ppo, ppg, dqn, c51, qrdqn, sac, ddpg, td3]
 ---
 
 # ADR 0072: Loss skips are counted per site, warned on a decade schedule, and surfaced as one canonical metric

@@ -1,15 +1,9 @@
-//! Workspace-scoped guard for issue #1109 — the "Documented Panic Contracts"
-//! table in `docs/rules.md` §4 is **prose**, and prose does not fail CI.
+//! Workspace-scoped guard for issue — the "Documented Panic Contracts"
+//! table in `docs/rules.md` is **prose**, and prose does not fail CI.
 //!
 //! The table is the repo's single index of every place a `rlevo` API is allowed
 //! to panic. Nothing compiles it, so nothing notices when the code underneath a
-//! row moves. Two failures already happened:
-//!
-//! - **#1085**: a module was deleted and **two rows outlived it by months**,
-//!   naming items that no longer existed anywhere in the workspace. Readers were
-//!   consulting a contract for code that had been gone since before the release.
-//! - **#1108**: a whole module's four panic contracts were **never listed at
-//!   all**.
+//! row moves.
 //!
 //! This guard closes the **first** direction only: *every row names something
 //! that resolves in the workspace*. It deliberately does **not** attempt the
@@ -23,7 +17,7 @@
 //! Checked: the rows between `### Documented Panic Contracts` and the first
 //! non-`|` line after them, **Site column only**.
 //!
-//! Not checked: §4's surrounding prose. Its backticked identifiers
+//! Not checked: `include_str!("../../docs/rules.md")` surrounding prose. Its backticked identifiers
 //! (`Box<dyn Error>`, `map_err`, `.unwrap_or_default()`, `EnvironmentError`, …)
 //! are *illustrative mentions*, not contract claims. Feeding them to a resolver
 //! would force an allowlist of "this backtick is prose" rows — and a guard whose
@@ -32,7 +26,7 @@
 //!
 //! The **Condition** column is likewise never parsed. It contains things that
 //! cannot resolve and must not be attempted: `ACTION_COUNT` (an associated const
-//! on a user's own type), `u64::MAX`, `λ < μ`. Only field index 1 of each row —
+//! on a user's own type), `u64::MAX`, \\(\lambda < \mu\\). Only field index 1 of each row —
 //! the Site cell — reaches the resolver.
 //!
 //! # Why `fs::read_to_string` and never `include_str!`
@@ -41,7 +35,7 @@
 //! outside the package root, so it works locally and forever, and then breaks
 //! exactly once: inside `cargo package`'s verify build, which compiles from a
 //! tarball that cannot contain files above the crate root.
-//! `rlevo-core/Cargo.toml:24-29` already records this failure class for the
+//! `rlevo-core/Cargo.toml` already records this failure class for the
 //! `KaTeX` header (`--html-in-header` with a `../../` path "silently works
 //! locally but 404s on docs.rs"). Same trap, same crate family, second
 //! occurrence. [`RULES_MD`] is therefore read from disk **at test time**, where

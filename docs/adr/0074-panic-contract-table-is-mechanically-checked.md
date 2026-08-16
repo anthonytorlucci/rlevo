@@ -3,14 +3,14 @@ project: rlevo
 status: active
 type: decision
 date: 2026-08-11
-tags: [adr, decision, docs, testing, guard-test, rules-md, panic-contracts, issue-1109, issue-1085, issue-1108]
+tags: [adr, decision, docs, testing, guard-test, rules-md, panic-contracts]
 ---
 
 # ADR 0074: The `rules.md` panic-contract table is mechanically checked in the dead-row direction only, workspace-wide
 
 ## Status
 
-**Accepted (2026-08-11).** Resolves issue #1109. `docs/rules.md` §4's
+**Accepted (2026-08-11).** Resolves issue #1109. `docs/rules.md`
 "Documented Panic Contracts" table is the repo's single index of every place
 a `rlevo` API is allowed to panic, and until now it was prose: nothing
 compiled it, nothing failed when the code underneath a row moved. Two
@@ -19,7 +19,7 @@ failures already happened because of that:
 - **#1085**: a module was deleted and two rows — `Builder with_capacity(n)`
   and `Builder with_alpha(x)` — outlived it by months, naming a type that no
   longer existed anywhere in the workspace. ADR [0050](0050-replay-strategy-seam.md)
-  §8 even wrote the remediation down at the time (`with_alpha` retires with
+  even wrote the remediation down at the time (`with_alpha` retires with
   the builder, `with_capacity` survives renamed to the replay builders) and it
   went unexecuted, because nothing failed when it did not happen.
 - **#1108**: a whole module's four panic contracts (three
@@ -27,7 +27,7 @@ failures already happened because of that:
   `refine`/`refine_with_known_fitness`) were never listed at all.
 
 **Supersedes nothing.** It is a sibling of ADR [0068](0068-bounds-strictness-enforcement-is-crate-asymmetric.md),
-applying ADR [0062](0062-grid-layout-fidelity-and-no-dead-rng.md) §4's
+applying ADR [0062](0062-grid-layout-fidelity-and-no-dead-rng.md)
 precedent — a source-text guard's scope is an architectural decision — to a
 population that is workspace-shaped rather than crate-shaped, which is why
 this ADR's scope call is the mirror image of 0068's.
@@ -37,7 +37,7 @@ this ADR's scope call is the mirror image of 0068's.
 1. A workspace-wide source-text guard,
    `crates/rlevo/tests/panic_contract_table_guard.rs` (5 tests), reading
    `docs/rules.md` and every `crates/*/src/**/*.rs` file at test time.
-2. Scope is the table's **Site** column only — never the surrounding §4
+2. Scope is the table's **Site** column only — never the surrounding
    prose, never the Condition column.
 3. Only the **dead-row direction** (#1085: does every row still name
    something?) is mechanized. The **missing-row direction** (#1108: does
@@ -46,7 +46,8 @@ this ADR's scope call is the mirror image of 0068's.
    both for staleness and for having quietly become resolvable.
 
 Additive: no production code changes, no public API changes. The guard can
-be deleted at zero cost if its assumptions stop holding — see §Assumptions.
+be deleted at zero cost if its assumptions stop holding — see the section 
+*Assumptions*.
 
 ## Context
 
@@ -55,10 +56,10 @@ be deleted at zero cost if its assumptions stop holding — see §Assumptions.
 ADR 0068 scoped its `Bounds`-strictness guard to one crate,
 `rlevo-reinforcement-learning`, and its reasoning was explicit about why: a
 workspace-wide scan of that property would have needed roughly 30 allowlist
-rows, 94% of them restating "zero width is fine here, see ADR 0027 §2" — and
+rows, 94% of them restating "zero width is fine here, see ADR 0027" — and
 "a guard whose rows are 94% 'this one is fine' trains its readers to add a
 row without thinking, which is the state in which it stops catching
-anything" (0068 §Context, §Alternatives).
+anything" (0068 - Context, Alternatives).
 
 The panic-contract table does not have that shape. Its 30 rows already span
 `rlevo-core` (`DiscreteAction`, `ContinuousAction`, `MultiDiscreteAction`,
@@ -73,7 +74,7 @@ by one function) is **1 row out of 30 — about 3%**, the near-opposite ratio
 of 0068's rejected workspace-wide alternative. 0068's argument against a
 workspace scan and this ADR's argument for one are the same argument,
 reaching opposite conclusions because the two populations are shaped
-oppositely — which is the point ADR 0062 §4 makes generally and 0068 §Decision
+oppositely — which is the point ADR 0062 makes generally and 0068 Decision
 2 restates for its own case.
 
 **Reopen trigger:** a second `UNRESOLVABLE_SITES` row, or the exemption list
@@ -84,7 +85,7 @@ guard's premise — that the table is mostly a list of resolvable identifiers
 
 ### The table's prose is out of scope, and that has a known, named cost
 
-`docs/rules.md` §4's prose around the table is dense with illustrative
+`docs/rules.md` prose around the table is dense with illustrative
 backticked identifiers — `config::ordered`, `Bounds::try_new`,
 `.unwrap_or_default()`, `EnvironmentError` — that are *mentions*, not
 contract claims. A resolver that could not tell a claim from a mention would
@@ -98,8 +99,8 @@ This has a real, already-observed cost, and it is recorded here rather than
 implied: `docs/rules.md:116` cites `C51Config::delta_z` as the reference
 implementation for "an accessor on a config must be total," and the type is
 actually named `C51TrainingConfig`
-(`crates/rlevo-reinforcement-learning/src/algorithms/c51/c51_config.rs:25`).
-That citation sits in §3 prose, not in the §4 table, so this guard does not
+(`crates/rlevo-reinforcement-learning/src/algorithms/c51/c51_config.rs`).
+That citation sits in prose, not in the table, so this guard does not
 and will not catch it, or any future citation error like it, anywhere
 outside the table.
 
