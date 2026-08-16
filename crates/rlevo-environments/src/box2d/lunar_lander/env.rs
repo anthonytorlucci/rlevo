@@ -27,7 +27,7 @@
 //! (crash / out-of-bounds), replacing that step's shaping delta and control
 //! cost — matching Gymnasium `LunarLander`.
 //!
-//! The **absolute potential Φ(t)** (not the difference that enters `reward`) is
+//! The **absolute potential `$\Phi(t)$`** (not the difference that enters `reward`) is
 //! surfaced through step metadata under
 //! [`METADATA_KEY_SHAPING`](super::snapshot::METADATA_KEY_SHAPING); see that
 //! constant's docs for the reconstruction rule and the terminal-step caveat.
@@ -925,11 +925,14 @@ mod tests {
         );
     }
 
-    /// Issue #128: `LunarLanderSnapshot` is now a `SnapshotBase` alias, so the
-    /// env composes with [`TimeLimit`] (which is bound to `SnapshotType =
-    /// SnapshotBase`). Previously this did not compile at all. The wrapper must
-    /// truncate at its own cap *and* preserve the shaping metadata the inner env
-    /// attached.
+    /// `LunarLanderSnapshot` used to be a hand-rolled `impl Snapshot`,
+    /// byte-for-byte identical to the generic `LocomotionSnapshot<O>`;
+    /// consolidating it into a `SnapshotBase` type alias (issue #128) is what
+    /// makes this test possible at all — before the alias, `LunarLanderEnv`
+    /// could not compose with [`TimeLimit`] (which is generically bound to
+    /// `SnapshotType = SnapshotBase`); it simply did not compile. The wrapper
+    /// must truncate at its own cap *and* preserve the shaping metadata the
+    /// inner env attached.
     #[test]
     fn test_time_limit_wraps_and_preserves_metadata() {
         use crate::wrappers::TimeLimit;
@@ -1305,9 +1308,12 @@ mod tests {
         }
     }
 
-    /// Continuous counterpart of the #122 reward-pump regression; the pre-guard
-    /// numbers were identical (−100 at step 135, then −100 per post-terminal
-    /// step, total −600 over five).
+    /// Continuous counterpart of
+    /// `test_lunar_lander_discrete_post_terminal_step_does_not_repay_crash_penalty`
+    /// above: same defect (a crashed hull stays in contact, so an unguarded
+    /// post-terminal `step()` re-emitted a fresh −100 every call) and the same
+    /// pre-guard numbers (−100 at step 135, then −100 per post-terminal step,
+    /// total −600 over five).
     #[test]
     fn test_lunar_lander_continuous_post_terminal_step_does_not_repay_crash_penalty() {
         let mut env = LunarLanderContinuous::with_config(guard_cfg()).expect("valid config");

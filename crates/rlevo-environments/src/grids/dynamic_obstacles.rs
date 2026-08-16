@@ -897,17 +897,19 @@ mod tests {
         n
     }
 
-    /// `(size, num_obstacles)` layouts swept by the #125 regression tests,
-    /// spanning a range of obstacle densities. `(8, 4)` is the original repro.
+    /// `(size, num_obstacles)` layouts swept to regress against obstacles
+    /// merging into the same cell, spanning a range of obstacle densities.
+    /// `(8, 4)` is the original repro.
     const REGRESSION_LAYOUTS: [(usize, usize); 4] = [(6, 3), (6, 5), (8, 4), (10, 8)];
-    /// Seeds swept by the #125 regression tests. Seed 7 is the original repro
-    /// and must stay pinned.
+    /// Seeds swept to regress against obstacles merging into the same cell.
+    /// Seed 7 is the original repro and must stay pinned.
     const REGRESSION_SEEDS: [u64; 5] = [0, 1, 7, 42, 123];
     /// Episode budget per swept configuration — kept short so the sweep stays
     /// unit-test cheap.
     const REGRESSION_MAX_STEPS: usize = 200;
 
-    /// Every `(layout, seed)` pair the #125 regression tests sweep.
+    /// Every `(layout, seed)` pair swept to regress against obstacles merging
+    /// into the same cell.
     fn regression_configs() -> impl Iterator<Item = DynamicObstaclesConfig> {
         REGRESSION_LAYOUTS
             .into_iter()
@@ -920,7 +922,7 @@ mod tests {
 
     #[test]
     fn obstacles_stay_distinct_across_steps() {
-        // Regression for #125: two obstacles adjacent to the same free cell
+        // Regression: two obstacles adjacent to the same free cell
         // could both claim it, merging into one cell and leaving duplicate
         // entries in `obstacles()`. Impossible at the default 1 obstacle, so
         // sweep several seeds and densities rather than a single repro.

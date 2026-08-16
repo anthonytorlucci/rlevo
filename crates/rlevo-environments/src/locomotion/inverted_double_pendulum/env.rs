@@ -683,15 +683,16 @@ mod tests {
 
     #[test]
     fn jointed_neighbor_contacts_produce_no_wrench() {
-        // Regression for #123 (ADR 0041). Pole1's top cap and pole2's bottom
-        // cap both extend `pole_radius` past the shared elbow anchor, so with
-        // rapier's default `contacts_enabled = true` the solver generated
-        // permanent internal contacts between the jointed neighbours. That
-        // internal wrench leaked into `contact_force(pole2)` — packed as
-        // observation index 8. MuJoCo's parent–child contact filter excludes
-        // exactly these pairs ("avoid permanent contacts within bodies and
-        // joints"); disabling jointed-neighbour contacts restores parity and
-        // drives the wrench to ~0 in normal operation.
+        // Regression test for the self-collision wrench bug (ADR 0041):
+        // pole1's top cap and pole2's bottom cap both extend `pole_radius`
+        // past the shared elbow anchor, so with rapier's default
+        // `contacts_enabled = true` the solver generated permanent internal
+        // contacts between the jointed neighbours. That internal wrench
+        // leaked into `contact_force(pole2)` — packed as observation index
+        // 8. MuJoCo's parent–child contact filter excludes exactly these
+        // pairs ("avoid permanent contacts within bodies and joints");
+        // disabling jointed-neighbour contacts restores parity and drives
+        // the wrench to ~0 in normal operation.
         let mut env =
             InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
