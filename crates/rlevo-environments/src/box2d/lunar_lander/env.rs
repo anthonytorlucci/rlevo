@@ -1036,10 +1036,10 @@ mod tests {
     /// vendored 0.32 doc comment claiming it is auto-cleared each step was
     /// false. The shared [`RapierWorld::step`] now calls `reset_forces`/
     /// `reset_torques` after integrating, so the net (thrust − gravity) force
-    /// stays constant and the per-step Δ(vertical velocity) stays
+    /// stays constant and the per-step `$\Delta v_y$` stays
     /// bounded/decaying under damping. Before the fix, uncleared force
     /// accumulated every step the main engine fired, so the *effective*
-    /// thrust grew step over step and Δvy grew ~linearly, causing runaway
+    /// thrust grew step over step and `$\Delta v_y$` grew ~linearly, causing runaway
     /// acceleration unrelated to the commanded throttle.
     #[test]
     fn test_constant_main_engine_delta_vy_does_not_grow() {

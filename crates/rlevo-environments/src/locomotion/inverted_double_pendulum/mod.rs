@@ -43,12 +43,12 @@
 //!   Known open deviation: jointed-neighbour contacts are disabled on both
 //!   revolute joints for `MuJoCo` parent–child contact-filter parity (ADR
 //!   0041), so pole2 touches nothing in normal operation and `obs[8]` is
-//!   `≈ 0` in practice — a dead dimension, versus Gymnasium's genuinely
-//!   informative constraint-force signal. This has not been fixed: either
-//!   re-model `obs[8]` as the true slider-DOF constraint-force analogue
-//!   (read the cart slider joint's constraint impulse from Rapier, divide
-//!   by substep `dt`, clip to `±10`), or explicitly document the deviation
-//!   as deliberate.
+//!   `$\approx 0$` in practice — a dead dimension, versus Gymnasium's
+//!   genuinely informative constraint-force signal. This has not been
+//!   fixed: either re-model `obs[8]` as the true slider-DOF constraint-force
+//!   analogue (read the cart slider joint's constraint impulse from Rapier,
+//!   divide by substep `dt`, clip to `$\pm 10$`), or explicitly document the
+//!   deviation as deliberate.
 //! * `$\omega_2$` is reported as world-frame angular velocity (not relative to pole1),
 //!   matching `MuJoCo`'s `qvel` for the second hinge — i.e. it is the body's
 //!   absolute rate, not the rate of the relative joint angle.

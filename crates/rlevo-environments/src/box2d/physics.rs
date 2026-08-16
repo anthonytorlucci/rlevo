@@ -341,7 +341,7 @@ mod tests {
     /// the body until something explicitly zeroes it. Before
     /// [`RapierWorld::step`] started clearing external forces after
     /// integrating, a constant `add_force` re-applied every step accumulated
-    /// instead of staying constant, so Δv grew ~linearly with the step count
+    /// instead of staying constant, so `$\Delta v$` grew ~linearly with the step count
     /// — silent, deterministic corruption of every env that steers via
     /// `add_force`/`add_torque`. This test asserts a constant per-step force
     /// now produces a stationary per-step velocity change.

@@ -246,7 +246,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
     /// the cart's slider DOF. These are semantically distinct quantities: this slot is
     /// not a stand-in for the Gymnasium value, it measures something else entirely.
     /// With jointed-neighbour contacts disabled for `MuJoCo` parent–child filter parity
-    /// (ADR 0041), pole2 touches nothing in normal operation, so `obs[8]` is `≈ 0` in
+    /// (ADR 0041), pole2 touches nothing in normal operation, so `obs[8]` is `$\approx 0$` in
     /// practice — a dead observation dimension versus Gymnasium's informative
     /// constraint-force signal. This deviation is currently unresolved: either
     /// `obs[8]` should be re-modeled as the true slider-DOF constraint-force analogue,
