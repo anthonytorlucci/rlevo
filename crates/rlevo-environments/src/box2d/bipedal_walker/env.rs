@@ -184,8 +184,12 @@ impl BipedalWalker {
         self.world = RapierWorld::new(Vector::new(0.0, self.config.gravity), self.config.dt);
         let pts: Vec<[f32; 2]> = self.terrain.generate(&mut self.rng);
         // Validate the generator output contract (ADR 0040): at least two
-        // points, x non-decreasing left-to-right. A violation would build a
-        // backwards or zero-length ground collider (#120).
+        // points, x non-decreasing left-to-right. Hardcore terrain generation
+        // can backtrack its final point for some seeds, producing a
+        // non-monotonic x-sequence; building a ground collider straight from
+        // those points would yield a backwards or zero-length segment. This
+        // check is the chokepoint that catches that before any collider is
+        // built.
         if pts.len() < 2 || pts.windows(2).any(|w| w[0][0] > w[1][0]) {
             return Err(ConfigError {
                 config: "BipedalWalker",
@@ -841,8 +845,10 @@ mod tests {
 
     #[test]
     fn test_joint_obs_not_dead() {
-        // Regression (#119): joint angle/speed dims must be live, not constants.
-        // Dims [4,6,9,11] are joint angles; [5,7,10,12] are joint speeds.
+        // Regression: joint angle/speed observations used to be hardcoded
+        // constants unrelated to the actual physics state; this test pins
+        // them as live. Dims [4,6,9,11] are joint angles; [5,7,10,12] are
+        // joint speeds.
         let mut env = make_env();
         let reset_snap = env.reset().unwrap();
         let reset_obs = reset_snap.observation().values;
@@ -886,7 +892,9 @@ mod tests {
 
     #[test]
     fn test_hip_speed_obs_normalized_by_speed_const() {
-        // Regression (#119): the joint-speed dims must divide the raw relative
+        // Regression: joint-speed observations used to be dead/constant
+        // rather than derived from real physics state; this test pins the
+        // requirement that the reported dims divide the raw relative
         // angular velocity by the joint's speed constant.
         //
         // `speed_hip` appears in BOTH `apply_motors` (motor target = action *
@@ -1011,8 +1019,10 @@ mod tests {
 
     #[test]
     fn test_rebuild_world_rejects_invalid_terrain() {
-        // #120 / ADR 0040: the rebuild_world chokepoint rejects a generator that
-        // violates the output contract. Construction routes through build ->
+        // Regression / ADR 0040: the rebuild_world chokepoint rejects a
+        // generator that violates the output contract (guarding against the
+        // non-monotonic-terrain defect that could otherwise produce a
+        // backwards ground collider). Construction routes through build ->
         // rebuild_world, so both sub-cases surface as Err(ConfigError) at
         // with_terrain time.
         let cfg_a: BipedalWalkerConfig = BipedalWalkerConfig::default();
@@ -1034,9 +1044,9 @@ mod tests {
 
     #[test]
     fn test_reset_maps_invalid_terrain_to_config_error() {
-        // #120 / ADR 0040: a generator valid at construction but invalid on the
-        // reset rebuild must surface as EnvironmentError::Config(_) — exercising
-        // the `#[from] ConfigError` conversion in `reset()`.
+        // Regression / ADR 0040: a generator valid at construction but invalid
+        // on the reset rebuild must surface as EnvironmentError::Config(_) —
+        // exercising the `#[from] ConfigError` conversion in `reset()`.
         let cfg: BipedalWalkerConfig = BipedalWalkerConfig::default();
         let terrain = Box::new(ValidThenInvalidTerrain {
             calls: std::sync::atomic::AtomicUsize::new(0),
@@ -1052,9 +1062,9 @@ mod tests {
 
     #[test]
     fn test_reset_finite_obs_all_terrains() {
-        // #120: reset() must succeed and yield finite observations for every
-        // terrain preset. Hardcore is swept over several seeds because its
-        // procedural geometry (and the old backwards-collider bug) is
+        // Regression: reset() must succeed and yield finite observations for
+        // every terrain preset. Hardcore is swept over several seeds because
+        // its procedural geometry (and the old backwards-collider bug) is
         // seed-dependent.
         use crate::box2d::bipedal_walker::config::BipedalTerrain;
 

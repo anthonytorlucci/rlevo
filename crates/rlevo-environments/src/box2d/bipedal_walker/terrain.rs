@@ -320,8 +320,12 @@ impl TerrainGenerator for HardcoreTerrain {
         let span: f32 = TERRAIN_END_X - OBSTACLE_START_X;
         // The smallest obstacle advance is a stump (STUMP_WIDTH), so bound the
         // iteration count by that; each iteration pushes at most 4 points, plus
-        // the pad and the terminal cap (#120 §2.1 — the old `n + 20` estimate
-        // under-reserved).
+        // the pad and the terminal cap (§2.1: the old `n + 20` capacity estimate
+        // assumed at most one point per unit of `span`, but a pit or stump
+        // iteration advances `x` by a whole obstacle width while still pushing
+        // 4 points — undercounting the true point/x-advance ratio and
+        // under-reserving `pts`, forcing reallocation partway through
+        // generation).
         let max_iters: usize = (span / STUMP_WIDTH).ceil() as usize;
         let mut pts: Vec<[f32; 2]> = Vec::with_capacity(SPAWN_PAD + max_iters * 4 + 1);
 
@@ -363,7 +367,10 @@ impl TerrainGenerator for HardcoreTerrain {
         // already reach or overshoot TERRAIN_END_X. A wide pit near the boundary
         // can push the last point past 190; unconditionally appending [190, 0]
         // then would land LEFT of it and build a backwards, overlapping cuboid
-        // (#120 §1.1 — the regression this whole refactor targets).
+        // (§1.1: for certain seeds the unconditional terminal push broke the
+        // strictly-increasing-x invariant, producing non-monotonic terrain
+        // that Box2D would build as a backwards/self-overlapping collider —
+        // this conditional is the fix).
         if pts
             .last()
             .is_some_and(|&[last_x, _]| last_x < TERRAIN_END_X)
@@ -437,10 +444,11 @@ mod tests {
 
     #[test]
     fn test_hardcore_x_non_decreasing_all_seeds() {
-        // §7.1: the regression test for #120 §1.1. A wide pit near the boundary
-        // could previously push x past 190; the unconditional terminal push of
-        // [190, 0] then landed LEFT of it, breaking monotonicity. Sweep many
-        // seeds so at least one hits that boundary-overshoot case.
+        // §7.1: regression test for the §1.1 non-monotonic-terrain defect. A
+        // wide pit near the boundary could previously push x past 190; the
+        // unconditional terminal push of [190, 0] then landed LEFT of it,
+        // breaking monotonicity. Sweep many seeds so at least one hits that
+        // boundary-overshoot case.
         for seed in 0..512u64 {
             let mut rng = StdRng::seed_from_u64(seed);
             let pts = HardcoreTerrain::default().generate(&mut rng);
