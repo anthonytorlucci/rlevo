@@ -289,8 +289,8 @@ where
 ///   **This bounds one *value*; it does not bound a *reduction* over values.**
 ///   Because `f32::MAX` is finite, a sanitized `+∞` *joins* a sum instead of
 ///   being excluded from it, and `f32::MAX + f32::MAX == f32::INFINITY` — two
-///   saturated members suffice to drive an `f32` mean to `+∞` (issues #132,
-///   #1062), and squaring one suffices for an `f32` variance. What bounds a
+///   saturated members suffice to drive an `f32` mean to `+∞`, and squaring
+///   one suffices for an `f32` variance. What bounds a
 ///   reduction is the **accumulator width**, not this clamp; no finite sentinel
 ///   could substitute. Reduce fitness with [`sanitized_mean`] or
 ///   [`sanitized_sum`], which accumulate in `f64` and narrow at most once, after
