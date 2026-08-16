@@ -1,8 +1,10 @@
 //! End-to-end `learn_step`-shaped A/B bench: staging strategy vs. the full
 //! update (stage -> forward -> loss -> backward -> optimizer step), so the
 //! staging delta from `staging_bench.rs` can be reported as a **percentage of
-//! a real `learn_step`** instead of extrapolated arithmetic (issue #365 step
-//! 3, closing the gap left by #362's ~192 ms-at-batch-64 estimate).
+//! a real `learn_step`** instead of extrapolated arithmetic -- the original
+//! host-side-staging fix estimated its saving at ~192 ms at batch 64 by
+//! extrapolating from the isolated round-trip cost rather than measuring a
+//! real end-to-end `learn_step`, and this file closes that gap.
 //!
 //! # Why this file exists alongside `staging_bench.rs`
 //!
@@ -15,19 +17,19 @@
 //! *hide* some staging cost behind work that was going to sync anyway. This
 //! file runs the full update, with staging strategy as the only swappable
 //! variable, so one criterion run yields both arms under identical
-//! conditions -- see #365 step 3.
+//! conditions.
 //!
 //! # This checkout's actual state
 //!
 //! `dqn_agent.rs::learn_step` in this checkout already uses
-//! `write_host_row` (commit `57dd565`, resolving #187/#362) -- see the
+//! `write_host_row` (commit `57dd565`) -- see the
 //! [`Staging::HostRow`] arm below, which reproduces that production code
 //! path. [`Staging::Roundtrip`] reintroduces the pre-fix per-row
 //! `to_tensor` + `into_data()` round trip **inside this bench only**, for
 //! comparison; no `src/` file is touched. Everything downstream of staging
 //! (forward, target, loss, backward, optimizer step, soft update) is
 //! identical between the two arms -- only the staging loop differs, exactly
-//! mirroring `dqn_agent.rs::learn_step` (~line 390 onward) so the delta this
+//! mirroring `dqn_agent.rs::learn_step` (~line 390 onward), so the delta this
 //! bench measures is attributable to staging alone.
 //!
 //! # What is *not* reproduced from `dqn_agent.rs::learn_step`
@@ -152,9 +154,10 @@ use rlevo_reinforcement_learning::utils::{PolyakError, compute_target_q_values, 
 use bench_backend::BenchBackend;
 
 /// Batch sizes swept per (network, backend) combination. 64 matches
-/// `dqn_bench.rs`'s `dqn_learn_step_batch64`; 256 is added per #365 step 3
-/// ("if time allows") since the roundtrip arm at 256 is where step 1's
-/// unexplained non-completion showed up.
+/// `dqn_bench.rs`'s `dqn_learn_step_batch64`; 256 is added to check whether
+/// staging's cost holds at a larger batch, since `staging_bench.rs`'s
+/// isolated round-trip micro-benchmark did not complete at batch 256 for
+/// reasons not yet diagnosed.
 const BATCH_SIZES: [usize; 2] = [64, 256];
 
 /// DQN default `gamma` (`DqnTrainingConfig::default()`).
@@ -178,8 +181,8 @@ const PIXEL_ACTIONS: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Staging {
     /// Per-row `to_tensor(device)` then `.into_data()` -- upload-then-
-    /// download-unchanged, one wgpu sync point per row. The pre-#187/#362
-    /// behaviour, reproduced verbatim from `57dd565`'s parent.
+    /// download-unchanged, one wgpu sync point per row. The behaviour before
+    /// the host-side staging fix, reproduced verbatim from `57dd565`'s parent.
     Roundtrip,
     /// `HostRow::write_host_row` -- pure host staging, one batched
     /// upload. The strategy `dqn_agent.rs::learn_step` uses today.
@@ -396,9 +399,8 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for SmallMlp<B> {
     }
 }
 
-/// Wider/deeper MLP, `4 -> 512 -> 512 -> 512 -> 2` -- the #365 step-3 request
-/// to check whether staging's dominance survives more compute to compete
-/// with.
+/// Wider/deeper MLP, `4 -> 512 -> 512 -> 512 -> 2` -- checks whether
+/// staging's dominance survives more compute to compete with.
 #[derive(Module, Debug)]
 struct WideMlp<B: Backend> {
     l1: Linear<B>,
@@ -454,7 +456,8 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for WideMlp<B> {
 }
 
 /// Small conv net over `PixelObservation` (`[20, 20, 3]`) -- the case the
-/// library is named for (#365 step 2 begins here). Two `Conv2d` layers,
+/// library is named for, and the first deep-network benchmark in this suite.
+/// Two `Conv2d` layers,
 /// adaptive-average-pooled to a fixed `4x4` spatial size (so the head's
 /// input width is independent of any future change to `IMG_SIDE`), then two
 /// `Linear` layers down to the 4-way pixel-grid action space.

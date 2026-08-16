@@ -1,9 +1,10 @@
 //! A/B micro-bench of the minibatch observation-staging seam: the device
 //! round trip (`obs.to_tensor(device)` then immediately `.into_data()`,
 //! upload-then-download-unchanged) vs. `HostRow::write_host_row`
-//! (pure host staging, one batched upload). Answers #187 / #362's open
-//! measurement question (issue #365 step 1): both strategies are implemented
-//! **inline, in this file**, so a single `cargo bench` run yields the delta.
+//! (pure host staging, one batched upload). Answers the open question of how
+//! much the host-side staging fix (below) actually saves versus the round
+//! trip it replaced: both strategies are implemented **inline, in this
+//! file**, so a single `cargo bench` run yields the delta.
 //!
 //! # This checkout's actual state
 //!
@@ -34,8 +35,8 @@
 //! Both are generic over the row type `T: TensorConvertible<R, B>` and the
 //! backend `B`, so one implementation covers `CartPoleObservation` (`R = 1`,
 //! 4 floats/row) and `PixelObservation` (`R = 3`, 1200 floats/row) and both
-//! `Flex` and `Wgpu`, per the #365 sweep requirement (sync count is invariant
-//! to row size; bytes moved are not).
+//! `Flex` and `Wgpu`, so the sweep covers both axes that matter: sync count
+//! is invariant to row size, but bytes moved are not.
 //!
 //! # Methodology — forcing completion inside the timed region
 //!
@@ -71,9 +72,8 @@
 //!
 //! Results are backend- and hardware-scoped by construction: every criterion
 //! group name carries the backend label (`flex` / `wgpu`), and `wgpu` on this
-//! development machine is Metal on an Apple M2 Pro (verified independently —
-//! see the step-0 smoke test in the #365 session notes). A `wgpu` number here
-//! does not transfer to CUDA or any other machine.
+//! development machine is Metal on an Apple M2 Pro (verified independently).
+//! A `wgpu` number here does not transfer to CUDA or any other machine.
 
 #[path = "support/bench_backend.rs"]
 mod bench_backend;
@@ -100,9 +100,8 @@ use bench_backend::BenchBackend;
 /// Device type alias so generic signatures below don't repeat the projection.
 type DeviceOf<B> = <B as BackendTypes>::Device;
 
-/// Batch sizes swept per (observation, backend) combination — at least
-/// 32/64/256 per the #365 request; 64 matches the existing `dqn_bench.rs`
-/// `dqn_learn_step_batch64`.
+/// Batch sizes swept per (observation, backend) combination — 32/64/256; 64
+/// matches the existing `dqn_bench.rs` `dqn_learn_step_batch64`.
 const BATCH_SIZES: [usize; 3] = [32, 64, 256];
 
 // ---------------------------------------------------------------------------

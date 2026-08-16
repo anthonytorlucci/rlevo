@@ -169,12 +169,17 @@ The continuous head's `log_std` initialisation and action scale (`log_std_init`,
 training-config fields — they live on `TanhGaussianPolicyHeadConfig`, the config
 consumed to build the head and where the `scale · tanh(z)` squash is applied
 (ADR 0049). Build the head with `try_init`, which validates the config first;
-there is no infallible `init` (#386).
+there is deliberately no infallible `init`, since that would reopen the same
+bypass — a config with `log_std_min == log_std_max` reaching a built head.
 
 `clip_grad` is the only gradient-clipping knob and is **off by default**. Burn's
 `GradientClippingConfig::Norm` clips per tensor, not across the global flattened
 parameter vector, so setting it does not reproduce Huang et al. #10
-(global-norm clipping). True global-norm clipping is tracked in issue #328.
+(global-norm clipping). True global-norm clipping — reducing over the whole
+flattened parameter vector rather than per-tensor — isn't implemented because
+Burn's optimizer hook has no built-in reduction across `GradientsParams`
+before `step_with`; it would need a manual accumulation pass, which is an
+open design question rather than a settled plan.
 
 **References**
 
@@ -325,7 +330,9 @@ The squashed-Gaussian head's `log σ` clamp range (`log_std: Bounds::new(-5.0,
 2.0)`, CleanRL) is **not** a training-config field — it lives on
 `SquashedGaussianPolicyHeadConfig`, the config consumed to build the head and
 where the clamp is applied. Build the head with `try_init`, which validates the
-config first; there is no infallible `init` (#386).
+config first; there is deliberately no infallible `init`, since that would
+reopen the same bypass — a config with `log_std_min == log_std_max` reaching
+a built head.
 
 **References**
 
