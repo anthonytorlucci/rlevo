@@ -4,7 +4,7 @@
 //! empty, but a configurable number of [`Ball`] entities perform a
 //! random-walk after every agent action. Balls are *not* passable — the agent
 //! cannot step onto them — but a ball can move *onto the agent's cell*,
-//! which yields a reward of `−1.0` and terminates the episode.
+//! which yields a reward of `$-1.0$` and terminates the episode.
 //!
 //! Balls are spawned in random interior cells (excluding the agent start and
 //! goal) during `reset`. The RNG is seeded, so resets are deterministic and
@@ -31,7 +31,7 @@
 //! | Condition | Reward | Done |
 //! |---|---|---|
 //! | Agent reaches goal | `success_reward(steps, max_steps)` | `true` |
-//! | Ball moves onto agent | `−1.0` | `true` |
+//! | Ball moves onto agent | `$-1.0$` | `true` |
 //! | Step budget exceeded | `0.0` | `true` |
 //!
 //! ## Observation and action spaces
@@ -586,7 +586,7 @@ impl Sensor<3, 1, 3> for DynamicObstaclesEnv {
     type State = GridState;
     type Observation = GridObservation;
 
-    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
     /// `next_state` alone, so this forwards to the same projection as
     /// [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
@@ -1047,7 +1047,7 @@ mod tests {
 
     /// Drives a fresh episode to its **collision**-terminal snapshot through
     /// real `step()` calls, and asserts the ending really was a collision (the
-    /// `−1.0` reward) rather than the step budget running out.
+    /// `$-1.0$` reward) rather than the step budget running out.
     fn drive_to_collision(env: &mut DynamicObstaclesEnv) -> GridSnapshot {
         let cfg = *env.config();
         env.reset().expect("reset must succeed");

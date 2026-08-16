@@ -17,7 +17,7 @@
 //! The cue does **not** vanish for good once the agent leaves the start room.
 //! From any ordinary corridor cell at column `x <= 7` the agent can turn to face
 //! **West** and simply re-read the cue. This *leak zone* is set by the view's
-//! 6-cell reach from the cue's fixed column (`x = 1`): `x - 6 <= 1  ⇒  x <= 7`.
+//! 6-cell reach from the cue's fixed column (`x = 1`): `$x - 6 \leq 1 \implies x \leq 7$`.
 //! It is **independent of `size`** — growing the grid does not shrink it.
 //!
 //! **Occlusion does not close the leak.** This environment emits an *occluded*
@@ -177,7 +177,7 @@
 //!   centerline (canonical placement). Note it is *not* the occlusion that this
 //!   offset buys: the shadow cast lights it anyway, via the open start room.
 //! - `>` — agent start at `(1, height/2)` facing East, with the cue in view.
-//! - `O` — the two **fork objects** at `(size - 2, height/2 ∓ 2)`; one Key, one
+//! - `O` — the two **fork objects** at `$(\text{size} - 2, \text{height}/2 \mp 2)$`; one Key, one
 //!   Ball, both green, order randomized.
 //! - `J` — the fork **junction** `(size - 2, height/2)`, reached by walking East.
 //! - `d` — the two **decision cells**: `Done` from here, facing the adjacent
@@ -866,7 +866,7 @@ impl Sensor<3, 1, 3> for MemoryEnv {
     type State = GridState;
     type Observation = GridObservation;
 
-    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
     /// `next_state` alone, so this forwards to the same projection as
     /// [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
