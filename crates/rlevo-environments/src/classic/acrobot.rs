@@ -1324,7 +1324,7 @@ mod tests {
         );
     }
 
-    // ── post-terminal step guard (issue #290) ────────────────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────
 
     #[test]
     /// Verifies `Acrobot` satisfies the shared post-terminal conformance check:

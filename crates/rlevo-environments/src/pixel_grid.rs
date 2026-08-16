@@ -906,7 +906,7 @@ mod tests {
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::EpisodeStatus;
 
-    // ── post-terminal step guard (issue #294) ────────────────────────────────
+    // ── post-terminal step guard (ADR 0044) ──────────────────────────────────
     //
     // `PixelGridEnv` has both done paths, and they fail differently, so both are
     // covered: `Terminated` when the agent stands on the goal (`at_goal()` is a

@@ -1166,7 +1166,13 @@ mod tests {
     // integration-level policy tests. Tests 1 and 2 above are deterministic and
     // directly exercise the truncation and (newly live) hull-crash branches.
 
-    // ── post-terminal step guard (issue #293, regression for #122) ───────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────
+    //
+    // lunar_lander needs extra care here: the crash terminal reward is
+    // overwritten (not accumulated) to exactly −100, and `hull_in_contact()`
+    // is a live physics read rather than a latch, so a crashed hull stays in
+    // contact and an unguarded post-terminal step re-emitted a fresh −100 on
+    // every further call. The guard below closes that path.
 
     /// Deterministic config shared by the guard tests: seed 0 free-falls into
     /// the hull-crash terminal at step 135, well inside `max_steps` (1000).

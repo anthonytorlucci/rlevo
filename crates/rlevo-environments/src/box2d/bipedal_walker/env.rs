@@ -1087,7 +1087,7 @@ mod tests {
         }
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #293) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// Upper bound on the steps the zero-action walker may take before the test
     /// calls it a regression. Measured on the default flat-terrain config: the

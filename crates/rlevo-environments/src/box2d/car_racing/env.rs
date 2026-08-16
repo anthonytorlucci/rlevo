@@ -616,7 +616,7 @@ mod tests {
         CarRacing::with_config(CarRacingConfig::default()).expect("valid config")
     }
 
-    // ── post-terminal step guard (issue #293) ────────────────────────────────
+    // ── post-terminal step guard (ADR 0044) ──────────────────────────────────
 
     /// Step budget for the guard tests. Each step rasterizes a 96×96×3 frame, so
     /// the budget is kept tiny; truncation is a pure step-counter fact and does
