@@ -349,7 +349,9 @@ mod tests {
     ///
     /// Note the scope: clamping bounds one *value*, not a *reduction* over
     /// values. `f32::MAX` is finite and so joins a sum, and two saturated
-    /// members overflow an `f32` accumulator (issues #132, #1062). This test
+    /// members overflow an `f32` accumulator — the same class of bug found at
+    /// `StrategyMetrics::from_host_fitness` and `species.rs`'s per-species
+    /// sum. This test
     /// holds because it poisons a single row and because the mean it checks is
     /// computed in `f64` — not because the clamp makes reductions safe. See
     /// ADR 0069 §Decision 1 and [`sanitize_fitness`](crate::fitness::sanitize_fitness).

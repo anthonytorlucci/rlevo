@@ -527,7 +527,8 @@ mod tests {
 
     #[test]
     fn spiral_factor_stays_finite_under_overflow() {
-        // Deterministic reproducer for #156 (WOA): the spiral factor
+        // Deterministic reproducer for the spiral-exponent overflow producing
+        // inf/NaN: the spiral factor
         // `exp(b·l)·cos(2π·l)`. A large `b` drives `exp(b·l)` past f32's
         // overflow threshold (≈ e^88.7). At `l = 0.75`, `cos(2π·0.75)` is
         // (numerically) zero, so the *un-clamped* product is `inf · 0 = NaN`;

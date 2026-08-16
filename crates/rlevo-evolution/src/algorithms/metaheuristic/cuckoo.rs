@@ -609,8 +609,8 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)] // exact by design: 0.0 fold + byte-identical pass-through
     fn levy_step_folds_pathological_denominator_to_zero() {
-        // Deterministic reproducer for #156 (Cuckoo): the Lévy step
-        // component `u / |w|^(1/β)`. A zero Normal draw `w` makes the
+        // Deterministic reproducer for the Lévy-step denominator hitting 0/NaN:
+        // the step component `u / |w|^(1/β)`. A zero Normal draw `w` makes the
         // denominator zero; un-guarded, `0/0` is `NaN` and `x/0` is `±inf`.
         // Both survive the bounds clamp and permanently poison a nest slot,
         // so `levy_step` folds any non-finite/zero-denominator case to `0.0`.

@@ -353,9 +353,9 @@ mod tests {
     /// the mean is `−∞`, so every finite member centres to `+∞` and the `−∞`
     /// member itself centres to `NaN`. This test records that pre-existing
     /// behaviour verbatim so the saturation fix is visibly *not* changing it —
-    /// deciding what a `−∞` member should shape to is a separate question,
-    /// tracked as #1068 (`rules.md` §12). When that lands, this test flips from
-    /// pinning `[+∞, +∞, NaN]` to asserting the chosen semantics.
+    /// deciding what a `−∞` member should shape to is a separate, still-open
+    /// policy question (`rules.md` §12). When it's settled, this test flips
+    /// from pinning `[+∞, +∞, NaN]` to asserting the chosen semantics.
     #[test]
     fn z_score_negative_infinity_member_is_unchanged_by_the_saturation_fix() {
         let device = Default::default();

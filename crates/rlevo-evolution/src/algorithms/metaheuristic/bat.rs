@@ -648,8 +648,8 @@ mod tests {
 
     #[test]
     fn velocities_stay_finite_and_bounded_under_pinning() {
-        // Regression for #156 (Bat §1.1). The velocity update
-        // `v ← v + (x − x_best)·f` is repulsive for a bat sitting away
+        // Regression for velocities drifting unclamped to ±infinity/NaN. The
+        // velocity update `v ← v + (x − x_best)·f` is repulsive for a bat sitting away
         // from `x_best`, and `ask` rewrites `state.velocities` every
         // generation regardless of `tell`'s acceptance gate. A bat whose
         // position stays fixed while `x_best` sits elsewhere therefore

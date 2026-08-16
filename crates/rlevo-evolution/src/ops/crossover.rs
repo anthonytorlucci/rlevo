@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn nan_and_inf_rates_are_unconstructable() {
-        // Regression for #144 (ADR 0031): the crossover/mutation rate scalars
+        // Regression (ADR 0031): the crossover/mutation rate scalars
         // used to be bare `f32`s, so a NaN silently degenerated `u.lower_elem(p)`
         // to an all-false mask (a no-op / one-parent clone) and a NaN/Inf BLX-α
         // poisoned the whole offspring tensor. The operators now take validated
