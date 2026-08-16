@@ -1238,8 +1238,8 @@ mod tests {
     }
 
     /// Occlusion is not decoration here: a cell that encoded a real entity under
-    /// the pre-#281 (see-through) emission model must now be able to encode as
-    /// *unseen*.
+    /// the old see-through emission model (walls did not block sight) must now
+    /// be able to encode as *unseen*.
     ///
     /// The key is the interesting case — it is the object the whole task is
     /// about, and the split wall is exactly what is supposed to withhold it.
@@ -1269,7 +1269,7 @@ mod tests {
         assert_eq!(
             see_through.view[row][col][0],
             Entity::Key(Color::Yellow).type_u8(),
-            "the pre-#281 emission model reported the key through the split wall"
+            "the old see-through emission model reported the key through the split wall"
         );
         assert_eq!(
             occluded.view[row][col],

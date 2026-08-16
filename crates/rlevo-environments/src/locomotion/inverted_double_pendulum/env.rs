@@ -805,9 +805,17 @@ mod tests {
 
     #[test]
     fn constant_force_does_not_accumulate() {
-        // Regression for #98 (ADR 0037): a constant action must produce a
-        // stationary per-step cart-velocity increment. With the pre-fix bug the
-        // cart force accumulated across steps, so Δvx grew ~linearly.
+        // Regression test (ADR 0037): a constant action must produce a
+        // stationary per-step cart-velocity increment. Rapier's `user_force`
+        // does not auto-clear each step despite the vendored 0.32 doc comment
+        // claiming otherwise; an unguarded `add_force` therefore accumulated
+        // across steps, so Δvx grew ~linearly and silently corrupted the
+        // control dynamics — existing tests stayed green because they only
+        // checked qualitative movement, not whether the applied force stayed
+        // bounded. Fixed once in the shared `RapierWorld::step()` (calling
+        // `reset_forces`/`reset_torques` each step), with per-env force
+        // constants re-tuned since the old values were implicitly tuned
+        // around the accumulation bug.
         let mut env = InvertedDoublePendulumRapier::with_config(InvertedDoublePendulumConfig {
             seed: 1,
             reset_noise_scale: 0.0,

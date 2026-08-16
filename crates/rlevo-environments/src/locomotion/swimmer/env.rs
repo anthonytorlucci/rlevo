@@ -278,10 +278,11 @@ impl Swimmer<Rapier3DBackend> {
     /// Pure: the torques are *applied* inside the `step_physics` substep hook so
     /// they are re-applied fresh each substep (ADR 0037 force-lifetime contract).
     ///
-    /// gear is frozen at its current value here; re-tuning it toward the
-    /// canonical Swimmer-v5 value (`gear [150, 150]`) is deferred to a follow-up
-    /// issue — #98 fixes only force accumulation and must not silently change
-    /// gear.
+    /// `gear` is intentionally left untouched here: the ADR 0037 force-lifetime
+    /// fix (see `step_physics` below) is scoped to clearing stale
+    /// forces/torques each step, not to re-tuning actuator gains. Re-tuning
+    /// `gear` toward the canonical Swimmer-v5 value (`gear [150, 150]`) is
+    /// deferred to a separate follow-up issue.
     fn control_torques(&self, action: SwimmerAction) -> [f32; 2] {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
@@ -1085,9 +1086,20 @@ mod tests {
 
     #[test]
     fn constant_action_does_not_accumulate() {
-        // Regression for #98 (ADR 0037): a constant actuator torque must live
-        // exactly ONE integration step and must not accumulate across substeps
-        // or env steps.
+        // Regression test (ADR 0037): a constant actuator torque must live
+        // exactly ONE integration step and must not accumulate across
+        // substeps or env steps.
+        //
+        // Rapier's vendored 0.32 doc comment claimed applied forces/torques
+        // are auto-cleared each step; that claim is false (verified against
+        // Rapier's actual source). An unguarded `add_torque` call was instead
+        // integrating a monotonically growing torque each substep — a
+        // silent, deterministic corruption of the control dynamics that the
+        // existing tests couldn't catch, since they only checked qualitative
+        // movement, never whether the applied torque itself stayed bounded.
+        // Fixed once in the shared `RapierWorld::step()` (which now calls
+        // `reset_forces`/`reset_torques` after integrating), paired with
+        // re-tuned per-env force/torque constants.
         //
         // We assert the invariant *directly* via the residual `user_torque`
         // accumulator rather than through the chain's emergent angular velocity.

@@ -1638,7 +1638,7 @@ mod tests {
         assert_eq!(
             see_through.view[row][col][0],
             Entity::Goal.type_u8(),
-            "the pre-#281 emission model reported the goal from this pose"
+            "the see-through emission model reports the goal from this pose"
         );
         assert_eq!(
             occluded.view[row][col],

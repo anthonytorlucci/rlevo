@@ -836,8 +836,8 @@ mod tests {
     }
 
     /// Occlusion is not decoration here: a cell that encoded a real entity under
-    /// the pre-#281 (see-through) emission model must now be able to encode as
-    /// *unseen*.
+    /// the previous, unoccluded (see-through) emission model must now be able
+    /// to encode as *unseen*.
     ///
     /// The pose is the one that decides the task. The agent is driven through
     /// the real dynamics — open door one, walk into room two, stop nose-to-nose
@@ -901,7 +901,7 @@ mod tests {
         assert_eq!(
             see_through.view[row][col][0],
             Entity::Goal.type_u8(),
-            "the pre-#281 emission model reported the goal through two rooms of wall"
+            "the unoccluded (see-through) emission model reported the goal through two rooms of wall"
         );
         assert_eq!(
             occluded.view[row][col],

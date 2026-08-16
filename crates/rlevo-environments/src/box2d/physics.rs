@@ -334,10 +334,17 @@ mod tests {
         assert!(s.contains("RapierWorld"));
     }
 
-    /// Regression (#98, ADR 0037): a constant `add_force` re-applied every step
-    /// must produce a stationary per-step velocity change. Before the wrapper
-    /// cleared `user_force`, rapier2d accumulated the force so Δv grew ~linearly
-    /// with the step count (silent, deterministic corruption).
+    /// Regression test for the force-accumulation defect closed by ADR 0037.
+    ///
+    /// rapier2d 0.32's own doc comment for `add_force` claims the force is
+    /// cleared automatically each step; it is not — `user_force` persists on
+    /// the body until something explicitly zeroes it. Before
+    /// [`RapierWorld::step`] started clearing external forces after
+    /// integrating, a constant `add_force` re-applied every step accumulated
+    /// instead of staying constant, so Δv grew ~linearly with the step count
+    /// — silent, deterministic corruption of every env that steers via
+    /// `add_force`/`add_torque`. This test asserts a constant per-step force
+    /// now produces a stationary per-step velocity change.
     #[test]
     fn test_constant_force_gives_stationary_delta_v() {
         // Zero gravity so linvel change comes only from the applied force.
@@ -375,8 +382,12 @@ mod tests {
         }
     }
 
-    /// Regression (#98, ADR 0037): a one-shot `add_force` must not persist. The
-    /// step after the force is applied — with no new force — must show ~zero
+    /// Regression test for the force-accumulation defect closed by ADR 0037.
+    ///
+    /// A one-shot `add_force` must not persist past the step it was applied
+    /// on. [`RapierWorld::step`] clears external forces/torques after
+    /// integrating each step (see `reset_external_forces`), so the step
+    /// after a one-shot force — with no new force applied — must show ~zero
     /// velocity change.
     #[test]
     fn test_one_shot_force_does_not_persist() {

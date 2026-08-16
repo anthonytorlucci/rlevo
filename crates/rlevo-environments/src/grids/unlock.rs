@@ -810,7 +810,7 @@ mod tests {
             assert_eq!(
                 see_through.view[row][col][0],
                 Entity::Wall.type_u8(),
-                "the pre-#281 emission model reported straight through the locked door"
+                "the old see-through model reported straight through the locked door"
             );
         }
 

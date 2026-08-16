@@ -1540,8 +1540,8 @@ mod tests {
     }
 
     /// Occlusion is not decoration here: a cell that encoded a real entity under
-    /// the pre-#281 (see-through) emission model must now be able to encode as
-    /// *unseen*.
+    /// the old see-through emission model (no visibility masking, walls never
+    /// blocked line of sight) must now be able to encode as *unseen*.
     ///
     /// The interesting case is the goal, because that is task-relevant
     /// information the cross walls are supposed to withhold until the agent
@@ -1578,7 +1578,7 @@ mod tests {
         assert_eq!(
             see_through.view[row][col][0],
             Entity::Goal.type_u8(),
-            "the pre-#281 emission model reported the goal from this pose"
+            "the see-through emission model (no occlusion) reported the goal from this pose"
         );
         assert_eq!(
             occluded.view[row][col],

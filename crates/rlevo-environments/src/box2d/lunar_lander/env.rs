@@ -1030,12 +1030,17 @@ mod tests {
         assert_eq!(run(&actions), run(&actions));
     }
 
-    /// Regression (#98, ADR 0037): firing the main engine at constant thrust
-    /// each step must not integrate a monotonically growing force. The shared
-    /// [`RapierWorld::step`] clears external forces after integrating, so the
-    /// net (thrust − gravity) force is constant and the per-step Δ(vertical
-    /// velocity) stays bounded/decaying under damping. With the accumulation
-    /// bug the effective thrust grew each step, so Δvy grew ~linearly.
+    /// Regression (ADR 0037): firing the main engine at constant thrust each
+    /// step must not integrate a monotonically growing force. Rapier's
+    /// `user_force` accumulates across steps unless explicitly cleared; the
+    /// vendored 0.32 doc comment claiming it is auto-cleared each step was
+    /// false. The shared [`RapierWorld::step`] now calls `reset_forces`/
+    /// `reset_torques` after integrating, so the net (thrust − gravity) force
+    /// stays constant and the per-step Δ(vertical velocity) stays
+    /// bounded/decaying under damping. Before the fix, uncleared force
+    /// accumulated every step the main engine fired, so the *effective*
+    /// thrust grew step over step and Δvy grew ~linearly, causing runaway
+    /// acceleration unrelated to the commanded throttle.
     #[test]
     fn test_constant_main_engine_delta_vy_does_not_grow() {
         let cfg = LunarLanderConfig::builder()
