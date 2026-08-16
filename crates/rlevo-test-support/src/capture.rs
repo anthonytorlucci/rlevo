@@ -4,7 +4,7 @@
 //! A few are about what it **emits**: a training loop's periodic progress line
 //! is a documented part of its contract (`log_every`), and a loop can satisfy
 //! every numeric assertion while silently logging nothing at all. That is not
-//! hypothetical — issue #321 was exactly this failure: PPO/PPG gated progress
+//! hypothetical — this is exactly the failure PPO/PPG once had: gating progress
 //! on `global_step % log_every == 0` at a rollout boundary, so any `log_every`
 //! that did not divide `num_steps` fired on `lcm(num_steps, log_every)` and a
 //! short run emitted zero lines. Nothing panicked, no metric moved, and every
