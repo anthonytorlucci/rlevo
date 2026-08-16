@@ -148,7 +148,7 @@ pub struct LearnOutcome {
 }
 
 /// Computes the twin-critic TD target:
-/// `y = r + γ · (1 − terminated) · min(next_q1, next_q2)`.
+/// `$y = r + \gamma \cdot (1 - \text{terminated}) \cdot \min(Q_1', Q_2')$`.
 ///
 /// Exposed at crate visibility so the unit tests can cover the core TD3
 /// invariant without standing up a full agent.
@@ -909,8 +909,8 @@ where
     /// 1. Samples a uniformly random batch of size `batch_size` (with
     ///    replacement) from the replay buffer.
     /// 2. Builds the twin-critic TD target on the inner (non-autodiff) backend:
-    ///    `y = r + γ(1−d)·min(target_q1(s', ã), target_q2(s', ã))`
-    ///    where `ã = clip(target_actor(s') + clip(N(0, σ²), −c, c), low, high)`
+    ///    `$y = r + \gamma(1-d) \cdot \min(Q_1'(s', a'), Q_2'(s', a'))$`
+    ///    where `$a' = \text{clip}(\text{target\_actor}(s') + \text{clip}(\mathcal{N}(0, \sigma^2), -c, c), \text{low}, \text{high})$`
     ///    (target-policy smoothing; see [`super::target_smoothing`]).
     /// 3. Runs an independent backward pass and Adam step for each critic.
     /// 4. Every `policy_frequency`-th critic step, updates the actor with
@@ -1563,7 +1563,7 @@ mod tests {
     ///   terms unequal; poisoning both at step 0 would give `5 / 5 / 1` and
     ///   re-open the duplication hole between them.
     /// - the actor sits behind `policy_frequency = 4`, so it is attempted only
-    ///   on critic update 4, where its loss is `−mean(critic_1(s, π(s)))` and
+    ///   on critic update 4, where its loss is `$-\text{mean}(\text{critic\_1}(s, \pi(s)))$` and
     ///   therefore `NaN`: one attempt, **one** skip.
     ///
     /// This does not weaken the sibling-isolation property pinned by
@@ -1644,7 +1644,7 @@ mod tests {
     /// Slack for the Polyak identity below. Each checksum is an `f32` device
     /// reduction over a handful of parameters and each blended parameter costs
     /// two `f32` roundings, so ~2e-6 is the realistic worst case; the smallest
-    /// signal any assertion here reads is `τ · gap ≈ 7.5e-3`, three orders of
+    /// signal any assertion here reads is `$\tau \cdot \text{gap} \approx \text{7.5e-3}$`, three orders of
     /// magnitude larger.
     const CHECKSUM_EPS: f64 = 1e-5;
 
@@ -1726,7 +1726,7 @@ mod tests {
     }
 
     /// Asserts that a fired Polyak update landed exactly where the rule says:
-    /// `target ← (1 − τ)·target + τ·active`, and that it moved at all.
+    /// `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`, and that it moved at all.
     fn assert_fired(before: [f64; 3], after: [f64; 3], live: [f64; 3], tau: f64) {
         for (i, ((&b, &a), &l)) in before.iter().zip(after.iter()).zip(live.iter()).enumerate() {
             assert_abs_diff_eq!(a, (1.0 - tau) * b + tau * l, epsilon = CHECKSUM_EPS);
