@@ -6,12 +6,12 @@ date: 2026-07-21
 tags: [adr, decision, numerical-stability, nan, loss, ppo, ppg, dqn, c51, qrdqn, sac, ddpg, td3, issue-318]
 ---
 
-# ADR 0056: Non-finite loss ⇒ skip the step + warn once, keyed on the already-host-resident loss scalar
+# ADR 0056: Non-finite loss $\Rightarrow$ skip the step + warn once, keyed on the already-host-resident loss scalar
 
 ## Status
 
 **Accepted (2026-07-21).** Resolves issue #318 ("[rl] NaN silently propagates
-through training instead of surfacing"). **Generalizes** the SAC-α optimizer
+through training instead of surfacing"). **Generalizes** the SAC-$\alpha$ optimizer
 guard (#184, `sac_alpha.rs:248`) from one hand-rolled optimizer to every agent's
 learn step. **Builds on** ADR 0046 (`Slot` take/restore window) by placing the
 guard strictly *before* that window is entered. Purely additive — supersedes
@@ -31,8 +31,8 @@ so a single NaN cannot re-poison an otherwise-finite reported mean.
 ## Context
 
 Burn does not panic on NaN — it propagates it silently (unlike the #167 defect,
-which failed loudly). A NaN entering a loss (PPO `ratio = exp(new−old)` overflow
-when `new−old > ~88`; degenerate `log`/`div` in an entropy or log-prob term;
+which failed loudly). A NaN entering a loss (PPO $\text{ratio} = \exp(\text{new} - \text{old})$ overflow
+when $\text{new} - \text{old} > \sim 88$; degenerate `log`/`div` in an entropy or log-prob term;
 exploding gradients) is folded into the weights by the optimizer step. Training
 continues, reports finite-looking bookkeeping, and learns nothing. Existing tests
 miss it structurally: cross-crate `*_produces_finite_rewards` checks *reward*
@@ -61,7 +61,7 @@ iteration" [2]. Provenance and full citations:
 
 1. **Home & shape.** `FiniteLossGuard { warned: bool, label: &'static str }` in
    `algorithms/shared.rs`, with `check(&mut self, loss: f32) -> bool` (returns
-   `true` ⇒ proceed to backward+step; `false` ⇒ skip both) and a
+   `true` $\Rightarrow$ proceed to backward+step; `false` $\Rightarrow$ skip both) and a
    `#[cfg(test)] warning_fired(&self) -> bool` accessor mirroring
    `sac_alpha.rs:385`. Each agent holds one guard field per distinct loss site.
 
@@ -76,7 +76,7 @@ iteration" [2]. Provenance and full citations:
    run that emits NaN every step must be protected every step. Latching the skip
    would be a correctness defect. Only the `warn!` is one-shot (per-run, per loss
    site). Cadence/LR/iteration counters advance independently of skips (the
-   actor/α cadence is a rhythm over update *attempts*; LR anneals per `update`
+   actor/$\alpha$ cadence is a rhythm over update *attempts*; LR anneals per `update`
    call, not per minibatch). A skipped loss value is **excluded** from its
    epoch-mean accumulator (denominator counts healthy contributions; `denom==0`
    is guarded) so the reported mean is not re-poisoned — the `warn!`, not a NaN
@@ -89,7 +89,7 @@ iteration" [2]. Provenance and full citations:
 5. **Scope: all 8 agents, one latch per loss site (17 total).** PPO (policy,
    value); PPG (policy, value, aux-value, aux-total — the aux-total input is
    host-*derived* from its two already-read summands, adding no sync); DQN; C51;
-   QR-DQN; SAC (critic_1, critic_2, actor — α keeps its own #184 guard); DDPG
+   QR-DQN; SAC (critic_1, critic_2, actor — $\alpha$ keeps its own #184 guard); DDPG
    (critic, actor); TD3 (critic_1, critic_2, actor).
 
 ## Consequences & honest limits
@@ -99,7 +99,7 @@ iteration" [2]. Provenance and full citations:
   dominant real-world mode (PPO `exp` overflow, `log(0)`, TD-target blowup):
   `backward()` never runs, weights stay clean, the next minibatch can recover.
   It is **blind to finite-loss → NaN-gradient** cases (`torch.where`/masked
-  `0·∞` in `Normal`/`Categorical` backward; PyTorch issues #16317, #52248,
+  $0 \cdot \infty$ in `Normal`/`Categorical` backward; PyTorch issues #16317, #52248,
   #156212 [4]); there it catches the NaN one step *late*, once poisoned weights
   make the next loss NaN, and can then only surface-and-stop, not recover. That
   gradient-origin case, and grad-norm handling generally, are **#328's**
@@ -110,7 +110,7 @@ iteration" [2]. Provenance and full citations:
   grad-finiteness / grad-norm clipping (**#328**); a PPO `log_ratio` clamp before
   `exp` (non-canonical — no reference PPO impl clamps it [7][8][9][10]; and
   `min(unclamped, clamped)` masks `Inf` but not `NaN`, so the loss guard is the
-  correct catch-all). The existing SAC-α guard is **not** refactored into
+  correct catch-all). The existing SAC-$\alpha$ guard is **not** refactored into
   `FiniteLossGuard`: it guards closed-form Adam moment overflow with bespoke
   messages, a different shape in a different module.
 

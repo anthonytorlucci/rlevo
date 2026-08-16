@@ -100,7 +100,7 @@ design invariants in part 7.**
    part 1; `core_metrics()` at trial completion is retained as the cross-seed summary.
 
 3. **Episode wall-clock via a terminal metric, not a new record type.**
-   The Gymnasium `(r, l, t)` triple is mostly already recoverable — return = Σ frame
+   The Gymnasium `(r, l, t)` triple is mostly already recoverable — return = $\sum$ frame
    rewards, length = frame count — so only the wall-clock `t` is genuinely new. Rather
    than add an episode-summary chunk, the recording surface emits a terminal
    `episode_wall_clock_secs` (and, for convenience and eval episodes, `episode_return` /

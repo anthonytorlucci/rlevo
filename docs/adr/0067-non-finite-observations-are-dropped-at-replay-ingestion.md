@@ -90,9 +90,9 @@ arms host-only; `learn_step` denominators on both `flex` (CPU) and `wgpu`
 
 The predicate's *spelling* dominates its cost.
 `buf.iter().all(|v| v.is_finite())` runs at ~9 GB/s against a ~62 GB/s memcpy —
-8× the write it fuses into — because `Iterator::all` must short-circuit and so
+$8\times$ the write it fuses into — because `Iterator::all` must short-circuit and so
 cannot lower to a horizontal reduction. A branchless `u32::max` reduction over
-the IEEE-754 exponent field restores ~1× fusion (0.057 ns/elem against a
+the IEEE-754 exponent field restores ~$1\times$ fusion (0.057 ns/elem against a
 0.065 ns/elem write) and is data-independent.
 
 ### The workspace splits cleanly, and the split decides the design
@@ -103,10 +103,10 @@ incapable of carrying a non-finite value:
 
 | type | shape | backing |
 |---|---|---|
-| `CarRacingObservation` | 96×96×3 = 27 648 | `Arc<[u8; 27648]>` |
-| `PixelObservation` | `IMG_SIDE²×3` | `u8` → `f32::from(b) / 255.0` |
-| `GridObservation` | 7×7×3 = 147 | `f32::from(channel)` |
-| `GoToDoorObservation` | 7×7×4 = 196 | `f32::from(channel)` |
+| `CarRacingObservation` | $96\times96\times3$ = 27 648 | `Arc<[u8; 27648]>` |
+| `PixelObservation` | $\text{IMG\_SIDE}^2 \times 3$ | `u8` → `f32::from(b) / 255.0` |
+| `GridObservation` | $7\times7\times3$ = 147 | `f32::from(channel)` |
+| `GoToDoorObservation` | $7\times7\times4$ = 196 | `f32::from(channel)` |
 
 Every observation that *can* go non-finite is a small f32 feature vector: 24
 (`bipedal_walker`), 10 (`reacher`), 9 (`inverted_double_pendulum`), 8
@@ -135,7 +135,7 @@ A **provided** method, so all 42 existing `HostRow` impls compile unchanged.
 The default body clears `scratch`, calls `write_host_row`, and runs the
 branchless exponent-field reduction. The IEEE-754 derivation is documented
 inline: this is exactly the code a well-meaning reviewer will "simplify" back
-to `.all(is_finite)`, reintroducing an 8× cost and a data-dependent timing.
+to `.all(is_finite)`, reintroducing an $8\times$ cost and a data-dependent timing.
 
 The `scratch: &mut Vec<f32>` parameter is taken **now**, not later. The default
 body otherwise allocates per call, and the first f32-backed image observation
@@ -266,6 +266,6 @@ here; the rustdoc is worded as a statement about *rows*, not observations.
 
 A proptest oracle pinning each override against the default body is worth
 adding as a tripwire, but **not** as the guarantee. `proptest`'s `any::<f32>()`
-excludes NaN and ±Inf by default, so the obvious spelling passes vacuously —
+excludes NaN and $\pm$Inf by default, so the obvious spelling passes vacuously —
 coverage that looks real. The strategy must explicitly request
 `f32::INFINITE | f32::QUIET_NAN`. The witness is the guarantee.

@@ -72,7 +72,7 @@ fn apply_joint_torque(
 ```
 
 `torque` is the **generalized force on a revolute joint's single free angular
-DOF** — the analogue of a MuJoCo `motor` actuator on a hinge (`gear × ctrl`).
+DOF** — the analogue of a MuJoCo `motor` actuator on a hinge ($\text{gear} \times \text{ctrl}$).
 **Gear scaling stays the caller's responsibility**, unchanged. The torque lives
 exactly **one physics substep** (ADR 0037): callers hold it across `frame_skip`
 by re-applying inside `Rapier3DWorld::step_actuated`.
@@ -82,18 +82,18 @@ vs reduced-coordinate mechanics differ):
 
 - **`Impulse` (maximal coordinates).** Both bodies are free and the solver
   enforces the hinge, so apply **equal-and-opposite** world-axis torques:
-  `add_torque(+τ·â)` to `body2` and `add_torque(−τ·â)` to `body1`. The pair
+  $\text{add\_torque}(+\tau \cdot \hat{a})$ to `body2` and $\text{add\_torque}(-\tau \cdot \hat{a})$ to `body1`. The pair
   injects **zero net external torque**, so the generalized force lands on the
   hinge DOF alone (regression-tested via angular-momentum cancellation).
 - **`Multibody` (reduced coordinates).** The hinge is baked into the
   parameterization, so torque the **child only** (`body2` of the parent→child
-  insertion): `add_torque(+τ·â)` on the child projects onto the hinge DOF and
+  insertion): $\text{add\_torque}(+\tau \cdot \hat{a})$ on the child projects onto the hinge DOF and
   the solver supplies the parent reaction. Also torquing the parent would inject
   spurious generalized force on upstream DOFs — this is the existing
   `swimmer/env.rs` child-only convention (its "double-torquing" warning).
 
-**Sign convention.** A positive `τ` drives `body2` positively about the joint's
-free axis `+â` relative to `body1`, where `â` = `body1`'s world rotation applied
+**Sign convention.** A positive $\tau$ drives `body2` positively about the joint's
+free axis $+\hat{a}$ relative to `body1`, where $\hat{a}$ = `body1`'s world rotation applied
 to the unit hinge axis.
 
 **Insertion invariant.** Multibody joints are inserted **parent→child**
@@ -103,10 +103,10 @@ callers (reacher, swimmer, …) already follow this.
 
 **Axis extraction — avoid `local_axis1()`.** Because `local_axis1()` is anchor-
 contaminated under the glam backend (see Context), the world hinge axis is
-computed from the **rotation only**: `â = R_body1 · (local_frame1.rotation · X)`.
+computed from the **rotation only**: $\hat{a} = R_{\text{body1}} \cdot (\text{local\_frame1.rotation} \cdot X)$.
 This yields the correct **unit** axis regardless of anchor offset. Using
 `local_axis1()` instead would scale the applied torque by the anchor magnitude
-(a `1.5×` error in the two-body regression) and, for off-axis anchors, tilt the
+(a $1.5\times$ error in the two-body regression) and, for off-axis anchors, tilt the
 axis outright.
 
 ### 2. Revolute-only domain; `Result`-based rejection
@@ -119,7 +119,7 @@ domain is **revolute joints only**. `BackendError` (new, in `backend/mod.rs`,
 - `InvalidJointHandle` — stale/unknown handle, or a missing attached body.
 - `UnsupportedJoint(&'static str)` — no single free angular axis (prismatic,
   spherical, fixed). Detection: all linear axes locked **and** exactly one free
-  angular axis (`ANG_AXES − locked_axes` has one bit) — accepts rapier's
+  angular axis ($\text{ANG\_AXES} - \text{locked\_axes}$ has one bit) — accepts rapier's
   `LOCKED_REVOLUTE_AXES`, rejects the rest.
 
 Rejecting rather than mis-actuating honours docs/rules.md's Error Handling
@@ -136,10 +136,10 @@ The *time-scaling* arithmetic is **not** touched (the filed review's feared
 rewritten and pinning tests added. The **sign attribution was subsequently
 corrected under this same issue** (see Negative / accepted costs): the returned
 wrench is the external contact force-torque acting **ON the queried body**, so a
-resting ball reports `wrench[2] ≈ +m·g`. Precise semantics:
+resting ball reports $\text{wrench}[2] \approx +m \cdot g$. Precise semantics:
 
-- **Sign — force ON the queried body.** `−force_mag·normal` when the body owns
-  `collider1`, `+force_mag·normal` when it owns `collider2`; insertion-order
+- **Sign — force ON the queried body.** $-\text{force\_mag} \cdot \text{normal}$ when the body owns
+  `collider1`, $+\text{force\_mag} \cdot \text{normal}$ when it owns `collider2`; insertion-order
   invariant; Newton's-third-law antisymmetric across a contacting pair.
 
 - **Instantaneous last-substep force.** Per-substep average
@@ -200,16 +200,16 @@ issue; this ADR records the convention — reacher/swimmer already cite ADR 0041
   That restriction was subsequently lifted **for the sign only**, and the
   attribution is now corrected: `contact_force` returns the external contact
   force-torque acting **ON the queried body**, so a resting ball reports
-  `wrench[2] ≈ +m·g`. Root cause was a two-branch sign inversion in the `n`
+  $\text{wrench}[2] \approx +m \cdot g$. Root cause was a two-branch sign inversion in the `n`
   computation: parry's manifold normal points from `collider1` toward
   `collider2` (parry3d-0.26.1 `contact_manifolds/contact_manifold.rs:449`) and
-  the solver drives the non-negative `contact.data.impulse` along `dir1 =
-  −normal` on collider1's body / `+normal` on collider2's body
+  the solver drives the non-negative `contact.data.impulse` along $\text{dir1} =
+  -\text{normal}$ on collider1's body / $+\text{normal}$ on collider2's body
   (`solver/contact_constraint/contact_with_coulomb_friction.rs:83`,
   `contact_constraint_element.rs:282`/`285`), so the force ON the queried body is
-  `−force_mag·normal` when it owns `collider1` and `+force_mag·normal` when it
+  $-\text{force\_mag} \cdot \text{normal}$ when it owns `collider1` and $+\text{force\_mag} \cdot \text{normal}$ when it
   owns `collider2` — both branches were previously reversed. The fix flips
-  `InvertedDoublePendulum`'s `obs[8]` sign, which is ≈ 0 in normal operation
+  `InvertedDoublePendulum`'s `obs[8]` sign, which is $\approx 0$ in normal operation
   (jointed contacts disabled), and is `contact_cost`-neutral (that squares the
   wrench). Pinned by a resting-ball sign test, a Newton's-third-law antisymmetry
   test, and an insertion-order-robustness test.
@@ -220,7 +220,7 @@ issue; this ADR records the convention — reacher/swimmer already cite ADR 0041
   pinned by the insertion-order-robustness test (ground-first vs ball-first both
   yield `wrench[2] > 0`).
 - `contact_force` magnitude carries rapier's steady-state penetration bias
-  (~1.25× m·g at rest), so the magnitude test asserts a band, not equality.
+  (~$1.25 \times m \cdot g$ at rest), so the magnitude test asserts a band, not equality.
 
 ## Alternatives considered
 

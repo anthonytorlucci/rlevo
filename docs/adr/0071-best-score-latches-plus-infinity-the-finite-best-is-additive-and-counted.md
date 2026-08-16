@@ -6,7 +6,7 @@ date: 2026-08-09
 tags: [adr, decision, numerical-stability, infinity, order-statistic, metrics, agent-stats, best-score, episode-return, rlevo-reinforcement-learning, issue-1078]
 ---
 
-# ADR 0071: `best_score` latches `+∞` permanently — the finite best is additive, and it is counted
+# ADR 0071: `best_score` latches $+\infty$ permanently — the finite best is additive, and it is counted
 
 ## Status
 
@@ -80,11 +80,11 @@ part 1, found for #409: **every load-bearing claim in #1078 verified.**
 
 - `AgentStats::record` folds the best with `f32::max`
   (`metrics.rs:131`), which **discards** a `NaN` operand but **propagates**
-  `+∞` — correctly, because `+∞` compares greater than every finite value.
+  $+\infty$ — correctly, because $+\infty$ compares greater than every finite value.
 - `best_score` is never evicted by the sliding window (stated in its own
   rustdoc, `metrics.rs:171-172`; pinned by
   `best_score_survives_eviction_while_average_does_not`, `metrics.rs:886`).
-- Therefore one `+∞` episode pins `best_score()` at `+∞` for the entire
+- Therefore one $+\infty$ episode pins `best_score()` at $+\infty$ for the entire
   remaining lifetime of the agent, with no self-healing of any kind.
 - The severity ranking against #409 is correct: this is **strictly worse** than
   the `avg_score` case, which recovers within one `window_size` (this ADR's own
@@ -101,7 +101,7 @@ answers it: the latch stays because it is true, and a sibling ships because
 0070 discovered this defect while correcting one sentence of 0065, and filed it
 out of scope **by name**, for a reason it stated precisely:
 
-> the remedy is a genuine policy question rather than a mechanical fix: `+∞` may
+> the remedy is a genuine policy question rather than a mechanical fix: $+\infty$ may
 > be the *true* best score of an episode that really did saturate, in which case
 > latching it is correct reporting and a `best_finite_score` sibling is the
 > answer; or the latch may be judged a defect in its own right.
@@ -109,7 +109,7 @@ out of scope **by name**, for a reason it stated precisely:
 0070's third reopen trigger then pre-authorised both this ADR's **existence**
 and its **scope**:
 
-> **The `best_score` `+∞` latch (this ADR's own Correction (b), above) is
+> **The `best_score` $+\infty$ latch (this ADR's own Correction (b), above) is
 > fixed in a way that introduces its own finite/raw pair** … At that point
 > `AgentStats` carries two independent finite/raw pairings, and they should be
 > unified in naming, predicate, and empty-case behaviour rather than each
@@ -135,14 +135,14 @@ resident while they matter.
 
 `best_score` has no window. The episode that set it may have been evicted ten
 thousand episodes ago; the *value* survives in a field. There is nothing left to
-scan. A latched `+∞` is therefore both permanent and underivable, and the
+scan. A latched $+\infty$ is therefore both permanent and underivable, and the
 derive-on-call shape of 0070's no-stored-state decision (Decision 5) — the
 obvious thing to reach for by analogy — is not merely inefficient here, it is
 **wrong**, in the sense of computing a different quantity. It is pinned as
 wrong by `finite_best_score_survives_eviction` (`metrics.rs:1160`), whose doc
 comment names that mutant as "the most important mutant of the whole change".
 
-### 4. `+∞` is far more reachable than ADR 0070's Context, part 4, said
+### 4. $+\infty$ is far more reachable than ADR 0070's Context, part 4, said
 
 This is the substantive new context, and it is what moves this defect from
 "theoretically reachable" to "reachable on a correctly configured, fully guarded
@@ -172,12 +172,12 @@ the reported curve:
 | C51 | `algorithms/c51/train.rs:122` | `:130` |
 | QR-DQN | `algorithms/qrdqn/train.rs:115` | `:123` |
 
-**Consequence: a single `+∞` environment reward reaches `AgentStats::record` on
+**Consequence: a single $+\infty$ environment reward reaches `AgentStats::record` on
 an agent with every ingestion guard in place — and `dropped_transitions()` reads
 `1`, not zero.** That is the exact inverse of the saturation path's telemetry
 signature. The guard fired, the `warn!` fired, the operator was told, the
 transition never entered replay — and `best_score()` is nonetheless pinned at
-`+∞` for the rest of the run, long after the environment was fixed and the run
+$+\infty$ for the rest of the run, long after the environment was fixed and the run
 recovered. The one accessor that cannot recover is the one no guard protects,
 because it is downstream of every guard by design.
 
@@ -188,10 +188,10 @@ Two independent paths, opposite telemetry, same latch:
 | non-finite env reward (0065's bookkeeping decision, Decision 4) | `>= 1` | yes (decade schedule) | yes |
 | `f32` accumulator saturation (0070's Context, part 4) | `0` | no | yes |
 
-**`−∞` is harmless here, and the asymmetry is worth stating** because it does
-not exist on the `avg_score` side. `f32::max` discards `−∞` as the smaller
+**$-\infty$ is harmless here, and the asymmetry is worth stating** because it does
+not exist on the `avg_score` side. `f32::max` discards $-\infty$ as the smaller
 operand at the first finite episode, so the raw best is unaffected by it. On the
-mean side, `−∞` is exactly as destructive as `+∞`. This is the first place in
+mean side, $-\infty$ is exactly as destructive as $+\infty$. This is the first place in
 the workspace where the two infinities behave differently, which is one more
 reason the predicate must be spelled out rather than inferred from the operation
 (this ADR's own Decision 3, below). It is pinned by
@@ -221,7 +221,7 @@ Neither changes, and neither would have caught anything. The risk #1078 names is
 **forward-looking and precise**: `best_score` is documented on
 `PerformanceRecord::score` itself as "the primary scalar metric used for
 checkpointing and best-model tracking" (`metrics.rs:11-12`). It is where a
-checkpoint-on-best feature *would* read. `+∞` there does not read as "corrupt";
+checkpoint-on-best feature *would* read. $+\infty$ there does not read as "corrupt";
 it reads as **"new best, forever"** — every subsequent comparison against it
 fails, so the checkpoint freezes at the saturating episode's weights and never
 updates again. A latch in a reporting field is a bad number; a latch in a
@@ -248,7 +248,7 @@ Those assertions gate on the **average**, never on the best:
 `rg 'best_score' crates/rlevo-test-support/` returns nothing. **No acceptance
 gate anywhere in the workspace reads `best_score`.** So unlike #409, there was
 no net to blind — and, more importantly, no net to rely on. A run whose
-`best_score` latched at `+∞` passes the entire suite green: the `avg_score`
+`best_score` latched at $+\infty$ passes the entire suite green: the `avg_score`
 assertions see a healthy mean once the window rolls, the reproducibility `bits`
 arm bit-compares two deterministically identical latched values, and nothing
 looks at the latched field at all.
@@ -263,7 +263,7 @@ it.
 ### 1. `best_score` keeps the latch; its contract moves onto its own rustdoc
 
 No filtering, no predicate, no signature change. The body is byte-for-byte
-unchanged (`metrics.rs:217-220`). `+∞` **is** the true maximum score observed —
+unchanged (`metrics.rs:217-220`). $+\infty$ **is** the true maximum score observed —
 the episode really did return it — and reporting something smaller under the
 name "best score" is exactly the fabrication ADR
 [0061](0061-optional-facing-and-tensorconvertible-no-fabrication.md) forbids and
@@ -285,7 +285,7 @@ latches here permanently, by decision`", covering: which operand positions
 propagate and which discard, the "never evicted" interaction that makes it
 permanent, the comparison to `avg_score`'s self-healing transit, the explicit
 "this is not filtered, and must not be", both reachability paths from this
-ADR's own Context, part 4, above, the `−∞` asymmetry, and a pointer to the
+ADR's own Context, part 4, above, the $-\infty$ asymmetry, and a pointer to the
 hardened pair.
 
 ### 2. Two additive accessors, and the pair is the decision
@@ -320,7 +320,7 @@ extra (this ADR's own Literature section, third bullet, below).
 
 ### 3. The predicate is `is_finite()`
 
-Adopted from 0070's Decision 3 rather than re-argued: `±∞` is as destructive as
+Adopted from 0070's Decision 3 rather than re-argued: $\pm\infty$ is as destructive as
 `NaN` to the statistics that consume it, `FiniteRewardGuard::admit` is
 `if reward.is_finite()` (`shared.rs:715-716`), and the three predicates must
 agree about what "bad" means rather than each carrying a private definition.
@@ -328,7 +328,7 @@ agree about what "bad" means rather than each carrying a private definition.
 The argument **unique to the maximum side**, and the one that makes the choice
 not merely conventional but forced: `f32::max` already discards `NaN` for free.
 A `!is_nan()` predicate here would therefore make `finite_best_score`
-observationally identical to `best_score` at **every input except the one — `+∞`
+observationally identical to `best_score` at **every input except the one — $+\infty$
 — that it exists for.** It would be pure decoration: a new public accessor, a
 new field, a new rustdoc, and a hardened name over a statistic hardened against
 nothing that was not already handled. Pinned by
@@ -343,12 +343,12 @@ no finite score has ever been recorded. The rejections from 0070's Decision 4
 are inherited unchanged:
 
 - **`Some(0.0)`** fabricates a score the agent never earned (ADR 0061).
-- **ADR 0069's `−∞` sentinel** (`crates/rlevo-evolution/src/fitness.rs:367-384`,
-  empty branch `:374-375`) is deliberately **not** adopted. `−∞` is meaningful in
+- **ADR 0069's $-\infty$ sentinel** (`crates/rlevo-evolution/src/fitness.rs:367-384`,
+  empty branch `:374-375`) is deliberately **not** adopted. $-\infty$ is meaningful in
   `rlevo-evolution` only because ADR
   [0023](0023-objective-sense-and-maximize-convention.md) makes it the
   maximise-native worst value; `rlevo-reinforcement-learning` has no
-  objective-sense convention, so `−∞` there is a claim about the *agent*, not
+  objective-sense convention, so $-\infty$ there is a claim about the *agent*, not
   about the *absence of data*.
 
 Both are pinned by `all_non_finite_history_has_no_finite_best`
@@ -485,7 +485,7 @@ Three grounds, each sufficient:
    `FiniteRewardGuard::dropped()`), on a type that has no `usize` sibling to
    stay consistent with. Different quantity, different neighbours, no shared
    invariant. Copying its width here would be cargo-culting a type the way
-   0070's Decision 4 declined to cargo-cult 0069's `−∞` constant.
+   0070's Decision 4 declined to cargo-cult 0069's $-\infty$ constant.
 
 ### 9. No `f64`, and no numerics change anywhere
 
@@ -512,13 +512,13 @@ change.
 
 - **Filter inside `best_score` itself** — the one-line "obvious" fix, and the
   primary rejection. Three grounds:
-  1. **It fabricates.** `+∞` is the true maximum observed. Returning the
+  1. **It fabricates.** $+\infty$ is the true maximum observed. Returning the
      second-highest value under the name "best score" reports a number the agent
      never earned, which is ADR 0061's rule stated for a metric rather than a
      tensor decode.
-  2. **It destroys ADR 0065's second detection channel for `+∞`** with nothing
+  2. **It destroys ADR 0065's second detection channel for $+\infty$** with nothing
      shipped alongside to say what was excluded. After the filter, no accessor
-     on the type would report that a `+∞` episode ever happened — the raw value
+     on the type would report that a $+\infty$ episode ever happened — the raw value
      is gone and there is no count. The `avg_score` channel does not cover it
      either, because it self-heals within one `window_size`.
   3. **It silently changes the meaning of an existing public accessor.** Every
@@ -545,7 +545,7 @@ change.
   - **It would make the accessor self-heal**, which is precisely the property
     the defect does not have. A telemetry channel that heals from a latch is
     worse than no channel: it would report zero excluded episodes next to a
-    `best_score` still pinned at `+∞`, actively contradicting the value it
+    `best_score` still pinned at $+\infty$, actively contradicting the value it
     exists to explain. This is the mutant
     `non_finite_episodes_is_a_lifetime_count_not_a_window_count`
     (`metrics.rs:1181`) kills.
@@ -553,7 +553,7 @@ change.
 - **`!is_nan()` as the predicate.** As this ADR's own Decision 3 (above)
   explains: `f32::max` already handles the `NaN` half, so this predicate
   produces an accessor observationally identical to the one it is meant to
-  harden at every input but `+∞`.
+  harden at every input but $+\infty$.
 
 - **A bundled metrics struct**, e.g. `finite_score_summary() ->
   FiniteScoreSummary { best, mean, excluded }`. ADR 0070's three grounds carry
@@ -576,7 +576,7 @@ change.
   and this ADR answers it with a tighter successor trigger rather than a
   struct.
 
-- **Clamping `+∞` to `f32::MAX`**, the shape ADR 0034's metrics decision
+- **Clamping $+\infty$ to `f32::MAX`**, the shape ADR 0034's metrics decision
   (Decision 4) uses for fitness. Rejected specifically *because* this is a
   maximum. Clamping
   fabricates a score of `3.4e38` that ranks **above every real episode** while
@@ -628,7 +628,7 @@ change.
 ### Negative / accepted costs — do not soften any of these
 
 - **`AgentStats` now carries eleven accessors split along two orthogonal axes**
-  (finite/raw × windowed/lifetime), four of which encode the split in their
+  (finite/raw $\times$ windowed/lifetime), four of which encode the split in their
   names: `total_episodes`, `total_steps`, `best_score`, `finite_best_score`,
   `non_finite_episodes`, `recent_history`, `recent_len`, `window_size`,
   `avg_score`, `finite_avg_score`, `non_finite_recent_len`. And the two *count*
@@ -655,7 +655,7 @@ change.
   nothing to a caller who
   never calls. The bundled-struct alternative *would* have enforced it and was
   rejected on other grounds — that trade is real and is not being papered over.
-- **`best_score()` still latches at `+∞`, forever.** This ADR **does not fix the
+- **`best_score()` still latches at $+\infty$, forever.** This ADR **does not fix the
   reported symptom.** It makes the symptom legible and offers an alternative
   beside it. A user who reads only `best_score()`, or an existing call site that
   is not updated, sees exactly what #1078 reported, in exactly the same
@@ -689,7 +689,7 @@ Any one of these reopens this ADR:
    rather than inherit this ADR's rejection of it.
 2. **A checkpoint-on-best-score feature lands.** It must read
    `finite_best_score()`, not `best_score()` — this ADR's own Context, part 5,
-   above — and the question of whether a run that produced a `+∞` episode
+   above — and the question of whether a run that produced a $+\infty$ episode
    should be *checkpointable at all* is a policy question this ADR does not
    answer and should not be assumed to. It deserves its own record.
 3. **Anything in this crate begins to branch on `non_finite_episodes`.** The
@@ -816,13 +816,13 @@ Deliberately short, and built on ADR 0070's own Literature section and ADR
   **why the `NaN` half of this defect does not exist** — the fold discards a
   `NaN` in either operand position, which is what `metrics.rs:774` and `:820`
   pin. The standard says nothing about infinities for the simple reason that
-  there is nothing to say: **`+∞` *is* the correct maximum**, and propagating it
+  there is nothing to say: **$+\infty$ *is* the correct maximum**, and propagating it
   is the operation performing exactly to specification. The defect is not in
   `f32::max`; it is in reading a correct maximum as a usable one.
 
   ADR 0070's own Literature section had already named the complementarity —
-  "clipping neutralises `±∞` but not `NaN`; `f32::max` neutralises `NaN` but
-  not `+∞`" — and filed the second half as a live gap. **This ADR is that
+  "clipping neutralises $\pm\infty$ but not `NaN`; `f32::max` neutralises `NaN` but
+  not $+\infty$" — and filed the second half as a live gap. **This ADR is that
   sentence coming due.** The general ruling is ADR 0066's, unchanged: where
   correctness depends on a non-finite value's fate, pin it with an explicit
   predicate rather than relying on an operation's implicit behaviour. This
@@ -835,7 +835,7 @@ Deliberately short, and built on ADR 0070's own Literature section and ADR
   contamination **dilutes and then vanishes** as the window rolls past it. Its
   breakdown behaviour is bounded in both magnitude and time. A maximum is an
   **order statistic**: it selects a single term, so an extreme value is diluted
-  by nothing at all, and once `+∞` is selected **no subsequent observation of any
+  by nothing at all, and once $+\infty$ is selected **no subsequent observation of any
   magnitude can displace it** — the selection is absorbing. Classical robust
   statistics puts the two at opposite ends of the same scale: the mean has a
   breakdown point of 0 but recovers as data ages out; the maximum has a
@@ -900,7 +900,7 @@ Deliberately short, and built on ADR 0070's own Literature section and ADR
   section.
 - ADR [0069](0069-sanitized-fitness-is-reduced-in-f64.md) — the `f64`
   accumulator rule this ADR's own Decision 9 (above) shows has **no purchase**
-  on a selection, and the `−∞` empty-case sentinel this ADR's own Decision 4
+  on a selection, and the $-\infty$ empty-case sentinel this ADR's own Decision 4
   (above) again declines to adopt
   (`crates/rlevo-evolution/src/fitness.rs:367-384`, empty branch `:374-375`).
 - ADR [0056](0056-non-finite-loss-skip-and-warn-guard.md)'s unconditional-
@@ -914,7 +914,7 @@ Deliberately short, and built on ADR 0070's own Literature section and ADR
   a later one, including the guard that cited line numbers resolve only against
   the commit that wrote them.
 - ADR [0023](0023-objective-sense-and-maximize-convention.md) — the
-  maximise-native `−∞` worst-value convention that
+  maximise-native $-\infty$ worst-value convention that
   `rlevo-reinforcement-learning` does **not** have, which is why this ADR's own
   Decision 4 (above) returns `None`.
 - ADR [0015](0015-shared-typed-metric-registry-crate.md) — why `StrategyMetrics`
@@ -980,6 +980,6 @@ Deliberately short, and built on ADR 0070's own Literature section and ADR
   above).
 - `crates/rlevo-evolution/src/strategy.rs:359,369` — `mean_fitness` /
   `broken_count`; `crates/rlevo-evolution/src/fitness.rs:367-384` —
-  `sanitized_mean` and its `−∞` empty branch at `:374-375`.
+  `sanitized_mean` and its $-\infty$ empty branch at `:374-375`.
 - IEEE 754-2008 — `minNum`/`maxNum`, the NaN-suppressing variants whose
   guarantee covers exactly half of this defect's domain.

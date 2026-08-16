@@ -39,8 +39,7 @@ classes** wearing one label:
    maximise space, or an argmax initialized from `fitness[0]` instead of `−∞`. A
    perfectly sanitized tensor still selects the wrong individual. **Not**
    chokepoint-fixable.
-3. **Parameter-numerics / config guards** — e.g. an unfloored `σ`, `genome_dim == 0
-   ⇒ tau = inf`, a dataset silently zero-padded into `NaN` fitness. These are
+3. **Parameter-numerics / config guards** — e.g. an unfloored $\sigma$, `genome_dim == 0` $\Rightarrow$ `tau = inf`, a dataset silently zero-padded into `NaN` fitness. These are
    construction-time (`Validate`, ADR 0026) or field-newtype (ADR 0027/0031)
    concerns applied *before* fitness exists. **Not** chokepoint-fixable.
 

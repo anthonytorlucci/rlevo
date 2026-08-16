@@ -94,7 +94,7 @@ mapping:
 
 - **Ingest:** the harness reads `fitness_fn.sense()` and applies `to_canonical`
   to the fitness tensor before `tell` — a `Minimize` objective is negated so the
-  maximise engine optimises `−cost`.
+  maximise engine optimises $-\text{cost}$.
 - **Report:** the harness applies `from_canonical` when surfacing
   `best_fitness`/`best()`/records, so a `Minimize` landscape reads as its natural
   cost (Sphere → 0). Because canonical space is already higher-is-better, the old
@@ -121,7 +121,7 @@ Maximize` and returns the natural return; its hand-negation is deleted.
 `ObjectiveSense` is designed as the K = 1 case of a per-objective sense vector.
 The `MultiFitness` trait that ADR 0002 deleted as dead code is the natural home
 when NSGA-II/SPEA2 land: `objectives()` + `senses()`, with dominance
-canonicalising every objective to maximise then applying "≥ on all, > on one".
+canonicalising every objective to maximise then applying "$\ge$ on all, $>$ on one".
 This ADR does not build MOO; it guarantees MOO is additive.
 
 ### 6. Downstream: schema v7
@@ -130,7 +130,7 @@ Add `objective_sense: Option<ObjectiveSense>` (serde-default) to **`RunManifest`
 — *not* `MetricDescriptor`, which is `#![no_std]` zero-dep (ADR 0015) and holds
 metric vocabulary, not a run's direction (RD-3). Bump `FORMAT_VERSION` 6→7
 (`record/schema.rs` + report-client `wire.rs` + `MIN_SUPPORTED_VERSION` + the
-compat test); no migration logic (no pre-1.0 back-compat). `None` ⇒ `Maximize`
+compat test); no migration logic (no pre-1.0 back-compat). `None` $\Rightarrow$ `Maximize`
 (canonical default), so RL and unspecified runs render correctly. The report
 client's three direction-hardcoded transforms read the manifest field.
 
@@ -160,7 +160,7 @@ client's three direction-hardcoded transforms read the manifest field.
   split-brain and the NEAT exception are gone. A contributor reads `de.rs` /
   `ga.rs` and sees the EC-textbook direction.
 - **Hand-negation eliminated from user space.** The only negation left is the
-  honest cost↔canonical mapping, confined to two chokepoint layers and
+  honest cost $\leftrightarrow$ canonical mapping, confined to two chokepoint layers and
   `grep`-able.
 - **Results read naturally.** `best_fitness` is the user's value in the user's
   sense; the report can label direction instead of assuming it.
@@ -172,7 +172,7 @@ client's three direction-hardcoded transforms read the manifest field.
 
 - **A large, correctness-sensitive one-time flip** (~30 strategy files + ops +
   shaping + metrics + harness), several sites non-mechanical (CMA-ES/CMSA-ES/ES
-  rank-µ recombination ordering, NES shaping utilities, EDA winner/loser and
+  rank-$\mu$ recombination ordering, NES shaping utilities, EDA winner/loser and
   truncation, local-search accept rules, the `NaN` sentinel). Mitigated by a
   behaviour-preserving characterization baseline plus targeted unit tests per
   subtle site.

@@ -22,13 +22,13 @@ an obstacle cursor in a mixed loop/world coordinate convention (a `-10.0`
 offset applied at every push). Three defects followed from that shape:
 
 1. **Non-monotone x (High).** The loop ran `while x < 200.0` (loop space) but a
-   pit advanced `x += width` with `width ∈ [2, 5)`, so `x` could overshoot the
+   pit advanced `x += width` with $\text{width} \in [2, 5)$, so `x` could overshoot the
    boundary. The function then *unconditionally* pushed a terminal `[190.0, 0.0]`
    point, which could land LEFT of the previous point. `build_ground`'s
    `windows(2)` then built a backwards, overlapping cuboid collider — the
    invalid geometry the issue reports.
 2. **Spawn-time collision (High).** The walker spawns at world x = 0, but the
-   flat lead-in only covered x ∈ [-10, 0); obstacles and roughness began *at*
+   flat lead-in only covered $x \in [-10, 0)$; obstacles and roughness began *at*
    the spawn point. The reference Gymnasium env holds `TERRAIN_STARTPAD = 20`
    flat steps and spawns at the **middle** of the pad, ahead of the hull.
 3. **Panic on invalid config (High).** `RoughTerrain::generate` called
@@ -116,7 +116,7 @@ and `HardcoreTerrain` adopt the ADR 0026 shape:
 
 Two local helpers (`nonneg_finite`, `positive_finite`) fill the gap the shared
 `config` helpers leave: `config::positive` and `config::in_range` with an
-infinite bound both accept `+∞`, which terrain geometry cannot use.
+infinite bound both accept $+\infty$, which terrain geometry cannot use.
 
 ## Consequences
 

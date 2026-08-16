@@ -29,7 +29,7 @@ al.'s *time-unlimited* case (ii), for which the correct learning target is
 > y = { r, at environmental terminations; r + γ v̂_π(s′), otherwise (including timeouts) }
 
 Gymnasium (Towers et al. 2025) states the same rule in boolean form: the
-bootstrap mask is `¬terminated`, **never** `¬done`.
+bootstrap mask is $\neg\text{terminated}$, **never** $\neg\text{done}$.
 
 ### What the code does instead
 
@@ -60,7 +60,7 @@ Two of that comment's claims do not survive contact with the evidence:
    collapses where PEB "significantly outperform[s]" it. Their own Section
    2.4 empirical comparison further notes that time-awareness helps
    "especially for the case with a large discount factor," and `rlevo`
-   defaults to γ = 0.99.
+   defaults to $\gamma = 0.99$.
 2. **The buffer API cannot be preserved.** The comment assumes the fix is a
    *mask* change. It is not — it is a **missing value**. `ppo/train.rs`
    discards `next_snapshot` on a done step before its value is ever computed;
@@ -76,7 +76,7 @@ At a truncated step the correct treatment splits:
 
 - the **delta** bootstraps from `V(s_continuation)` — the agent's future is
   real, the clock merely stopped;
-- the **λ-recursion is cut** — the trajectory genuinely ended and advantage
+- the **$\lambda$-recursion is cut** — the trajectory genuinely ended and advantage
   must not propagate across the boundary.
 
 A single `next_nonterminal` factor multiplies both terms and therefore cannot
@@ -137,7 +137,7 @@ reasons:
   ever sees the value. That makes folding *currently harmless*, not *correct*:
   `RolloutBuffer` is `pub`, and the first `rewards()` accessor added for reward
   normalisation, a reward-model diagnostic, or a sequence buffer would silently
-  read γ-contaminated numbers with no compile error and no test failure.
+  read $\gamma$-contaminated numbers with no compile error and no test failure.
 - **Testability.** Under the two-mask form the entire truncation rule lives
   inside a pure function of plain slices, unit-testable with a hand-computed
   expected value and no environment, agent, or backend. Under reward folding the
@@ -339,7 +339,7 @@ filed as its own issue.
   Environments.* NeurIPS 2025. arXiv:2407.17032v4 —
   <https://arxiv.org/abs/2407.17032>. (Section 4.2 — argued in prose, with no
   numbered equations in this paper — states the bootstrap mask is
-  `¬terminated` and discusses libraries conflating the two.) Source of the
+  $\neg\text{terminated}$ and discusses libraries conflating the two.) Source of the
   `terminated`/`truncated` vocabulary `EpisodeStatus` mirrors, and of the
   ecosystem-level statement that conflating them is a defect.
 - Fujimoto, van Hoof, Meger. *Addressing Function Approximation Error in

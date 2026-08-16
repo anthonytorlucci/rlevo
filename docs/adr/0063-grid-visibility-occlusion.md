@@ -46,7 +46,7 @@ already removed on this branch — see Context).
 ### The gap ADR 0043 recorded and deferred
 
 ADR 0043's own Decision 3 stated the fact plainly: rlevo's `egocentric_view` read every
-cell of the rotated `7×7` window unconditionally — `see_through_walls` was
+cell of the rotated $7 \times 7$ window unconditionally — `see_through_walls` was
 effectively `true` for all 12 environments, opposite of canonical Minigrid's
 own default. It deferred a fix because "the blast radius is all 12 grid
 envs' observation semantics at once" and because a correct fix "needs a
@@ -427,7 +427,7 @@ policy cannot be bypassed even from within the crate without going through
 ADR 0043's own Decision 3 called the 11 → 7 relaxation "a one-line
 change." **It is wrong, and this is no longer a hypothesis — it has been
 tested and it failed.** The sweep ADR 0043's Decision 3 deferred to a
-future occlusion ADR has been executed: every decision-region cell × all
+future occlusion ADR has been executed: every decision-region cell $\times$ all
 four facings, at every size the
 question is meaningful for, comparing `Visibility::Occluded` against
 `Visibility::SeeThrough` on the identical board:
@@ -550,7 +550,7 @@ surface.
   `UnlockPickup` were not swept the same way for this ADR, but they share the
   same doorway-as-flood-fill-conduit geometry `FourRooms` does, so the same
   tempering effect should be expected there rather than the naive "occlusion
-  ⇒ proportionally harder" reading. Any policy or hyperparameter tuned
+  $\Rightarrow$ proportionally harder" reading. Any policy or hyperparameter tuned
   against the prior see-through behaviour is still tuned against a somewhat
   different problem — the direction of the change is real — but the
   magnitude is measured smaller than the layout alone predicts.

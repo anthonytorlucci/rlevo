@@ -47,7 +47,7 @@ Verified facts that scope the fix:
   clone is a **latent hazard**. But the state model is a one-way door per env, so
   the target deserves a recorded decision.
 - CarRacing was forced to `Environment<3,3,1>` (its "state" typed as the
-  96×96×3 pixel buffer) **only because `Observable<OR>` (ADR 0019) did not exist
+  $96\times96\times3$ pixel buffer) **only because `Observable<OR>` (ADR 0019) did not exist
   yet** (session 2026-04-17). That constraint is now lifted; `PixelGridEnv`
   (ADR 0020) is the first synthetic `Observable` consumer (#65, closed).
 

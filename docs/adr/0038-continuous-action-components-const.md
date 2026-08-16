@@ -163,8 +163,8 @@ on the trait.
    valid range is symmetric about zero and equal to `[-1, 1)`; an
    implementor whose action space is not symmetric **must** override
    `random()`. `CarRacingAction` is the canonical case: its Gymnasium action
-   space is `Box([-1,0,0], [1,1,1], (3,))` — steer `∈ [-1,1]` but gas and
-   brake `∈ [0,1]` (asymmetric) [2]. It overrides `random()` to sample
+   space is `Box([-1,0,0], [1,1,1], (3,))` — steer $\in [-1,1]$ but gas and
+   brake $\in [0,1]$ (asymmetric) [2]. It overrides `random()` to sample
    within its true per-component bounds rather than relying on the default.
    "No panic" (component count, fixed universally by `COMPONENTS`) and
    "correct distribution" (bounds, still a per-type concern) are separate
@@ -251,7 +251,7 @@ agents already consume `A::RANK` as if it were `A::COMPONENTS` on
   `crates/rlevo-reinforcement-learning/src/algorithms/sac/sac_agent.rs:275`:
   `config.target_entropy.unwrap_or_else(|| -(A::RANK as f32))`, documented at
   `sac_config.rs:43` as "the common heuristic from Haarnoja et al. 2018b."
-  The canonical heuristic is `−dim(action_space)` — negative **component
+  The canonical heuristic is $-\dim(\text{action\_space})$ — negative **component
   count** — not negative rank.
 
 All four sites are **coincidentally correct today only** because every

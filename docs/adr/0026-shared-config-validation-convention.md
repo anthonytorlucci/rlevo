@@ -37,7 +37,7 @@ Contracts table (#1085, #1106). Superseded here: the "setter-guard panic
 rows retained" clause above; this ADR's own Context section's claim that the
 table "further blesses `with_capacity(n)` … and `with_alpha(x)`"; this ADR's
 own Decision 3 sentence that "the existing `with_capacity(0)` /
-`with_alpha(x ∉ [0,1])` rows … stay valid"; and this ADR's own Decision 4's
+`with_alpha(x)` with $x \notin [0,1]$ rows … stay valid"; and this ADR's own Decision 4's
 **Keep** bullet instructing that those rows be kept. **This ADR's own
 Decision 3's general rule is unaffected and stands as written** — a single
 guarded setter or constructor taking a compile-time-known value may still
@@ -84,7 +84,7 @@ reimplementations.
   `Err(...)` instead."*
 
 The **Documented Panic Contracts** table further blesses `with_capacity(n)`
-panicking on `n == 0` and `with_alpha(x)` panicking on `x ∉ [0, 1]`.
+panicking on `n == 0` and `with_alpha(x)` panicking on $x \notin [0, 1]$.
 
 A hyperparameter config is *both* things at once, so the two clauses point in
 opposite directions. The tie-breaker is already in the codebase and is not a
@@ -170,7 +170,7 @@ Error Handling section). `Display` reads e.g. `C51Config.v_max: value must
 differ from v_min (both 0)`.
 
 `ConstraintKind` covers every example the review surfaced (`lo > hi`,
-`pop_size == 0`, `tau ∉ [0, 1]`, `v_min == v_max`) with `Custom(&'static str)`
+`pop_size == 0`, `tau` with $\tau \notin [0, 1]$, `v_min == v_max`) with `Custom(&'static str)`
 for the tail — no `String`, so the type stays cheap and `PartialEq`, and
 validation on the `Default` happy path costs nothing.
 
@@ -199,7 +199,7 @@ section:
 - **Setter guard → panic (kept).** A single `with_x(v)` builder method whose
   only job is to reject an out-of-domain `v` at the exact call site may panic.
   The panic points at the offending literal; the argument is right there. The
-  existing `with_capacity(0)` / `with_alpha(x ∉ [0,1])` rows in the panic table
+  existing `with_capacity(0)` / `with_alpha(x)` with $x \notin [0,1]$ rows in the panic table
   stay valid — they are localized setter guards, an *additive* fail-fast
   convenience.
 - **Assembled config → `Result` (new).** Validating a config *as a whole* —
@@ -253,8 +253,8 @@ issues, each routing through `validate()`.
   hyperparameters are rejected at construction with a field-named error
   instead of a deep panic.
 - Resolves the standing self-contradiction in `rules.md`'s Error Handling
-  section on the codebase's own terms (configs are `Deserialize`-able ⇒
-  user data ⇒ `Result`).
+  section on the codebase's own terms (configs are `Deserialize`-able $\Rightarrow$
+  user data $\Rightarrow$ `Result`).
 - `ConfigError` is allocation-free and `PartialEq`, so validation is trivially
   unit-testable and cheap on the `Default` path.
 - Trait-shaped, so a construction chokepoint can bound generically on

@@ -32,7 +32,7 @@ benchmarks (Tiger, partially-observable grid worlds, RockSample, LQG, contact
 manipulation) against the tension produced the load-bearing finding, recorded in
 rank-vs-dimensionality-in-pomdp-observations: **"rank" is overloaded across
 three meanings** — tensor order (ndim, the const generics), matrix rank
-(linear-algebra, e.g. LQG's `C ∈ ℝᵐˣⁿ`), and axis cardinality (`shape()`). Almost
+(linear-algebra, e.g. LQG's $C \in \mathbb{R}^{m \times n}$), and axis cardinality (`shape()`). Almost
 every canonical example reduces *cardinality* or applies *stochastic emission* at
 **constant tensor order** — including LQG, whose "rank `m`" is the matrix rank of `C`
 over two rank-1 tensors. All of those are already expressible through `observe()`

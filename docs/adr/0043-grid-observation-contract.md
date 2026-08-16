@@ -29,21 +29,21 @@ object *type* carries signal.
 
 A second, deeper defect was missed by the original code review: rlevo's
 `egocentric_view` (`crates/rlevo-environments/src/grids/core/grid.rs:108`)
-applies **no occlusion** — it reads every cell of the rotated `7×7` window
+applies **no occlusion** — it reads every cell of the rotated $7\times7$ window
 straight from the grid; walls never block line of sight. Canonical Minigrid
 sets `see_through_walls=False` for `MemoryEnv` and runs
 `Grid.process_vis` shadow-casting every observation. Canonical guarantees the
 recall property by **two** mechanisms: (a) occlusion plus placing the cue off
 the corridor centerline behind a doorway wall, and (b) at larger sizes, raw
 distance — the backward view reach from the fork is exactly 6 cells, and for
-S11+ the cue at `x=1` falls outside it. rlevo's fixed `7×5` layout put the
+S11+ the cue at `x=1` falls outside it. rlevo's fixed $7\times5$ layout put the
 cue *on* the centerline only 4 cells from the fork, so even after sampling
 the cue, an agent could turn and simply re-read it — sampling alone is
 necessary but not sufficient to restore the recall property.
 
 **`GoToDoorEnv` advertised "instruction-conditioned policies" but the
 mission never reached the policy.** `build_snapshot` emits only
-`GridObservation` (the shared `7×7×3` egocentric view,
+`GridObservation` (the shared $7\times7\times3$ egocentric view,
 `crates/rlevo-environments/src/grids/core/observation.rs`, channels
 `[type, color, state]` per `Entity::color_u8`,
 `crates/rlevo-environments/src/grids/core/entity.rs:106`) plus a non-tensor
@@ -71,7 +71,7 @@ impl (ADR 0026) **rejects `size < 11`**.
 Derivation of the 11: the agent sits at view cell `[6][3]` (`VIEW_SIZE = 7`,
 so `agent_row = VIEW_SIZE - 1 = 6`, `agent_col = VIEW_SIZE / 2 = 3`) looking
 toward row 0, giving a forward/backward reach of 6 and a lateral reach of
-±3. The cue is at `x = 1`; the fork column is `size - 2`. Requiring
+$\pm 3$. The cue is at `x = 1`; the fork column is `size - 2`. Requiring
 `(size - 2) - 6 > 1` gives `size >= 11` (rounded up to the next odd value).
 
 rlevo therefore ships a **strict subset** of canonical configs: S11 and S13

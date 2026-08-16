@@ -24,7 +24,7 @@ ended silently resurrected it:
 
 - **`cliff_walking`.** The goal is `(3, 11)`. A `Left` from the goal lands on
   `(3, 10)`, which *is* cliff — so the agent teleports to the start and the
-  env emits **−100 on a `Running` snapshot**. A finished episode becomes a
+  env emits **$-100$ on a `Running` snapshot**. A finished episode becomes a
   fresh one carrying a fabricated penalty.
 - **`blackjack` (the High finding).** A post-terminal `Hit` keeps pushing
   cards onto `player_hand`, and `hand_value` summed the pips into a **`u8`**.

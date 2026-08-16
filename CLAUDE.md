@@ -67,6 +67,19 @@ If you encounter dimension mismatch errors, verify:
 2. `shape()` implementations return arrays of correct length
 3. Tensor conversions preserve dimensionality
 
+### Mathematical Notation in Docs
+
+Every crate ships a hand-synced `katex-header.html`
+(`crates/<crate>/katex-header.html`, wired via
+`[package.metadata.docs.rs] rustdoc-args`) that renders KaTeX in `cargo doc`
+output. Rustdoc and ADR/markdown docs need **different** math syntax — see
+[`docs/rules.md`](docs/rules.md)'s Documentation section ("Mathematical
+notation" subsection) before writing or editing either. Short version: rustdoc
+math is backtick-wrapped (`` `$...$` `` inline, ` ```math ` fenced for
+display); ADR/markdown math is bare (`$...$` / `$$...$$`). In both, convert
+only genuine formula content — never touch ASCII diagrams, real code fences,
+verbatim quotes, or a plain `→` used as flow/rename shorthand.
+
 ## Key Files and Patterns
 
 ### Critical Trait Definitions

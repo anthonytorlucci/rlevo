@@ -20,7 +20,7 @@ cross-crate parent.
 module — an inclusive range that is **valid by construction**: the whole
 invariant is `lo <= hi`, which rejects `lo > hi` and `NaN` (a `NaN` fails the
 comparison) while permitting a degenerate single point (`lo == hi`) and a
-one-sided infinite range (`[0.7, ∞)`). It *complements* the ADR 0026 `Validate`
+one-sided infinite range ($[0.7, \infty)$). It *complements* the ADR 0026 `Validate`
 convention rather than replacing it: a config field of type `Bounds` is
 self-validating, so the config's `validate()` no longer repeats a
 `config::ordered(…, "bounds", …)` check for that field. This ADR lands the type
@@ -129,9 +129,9 @@ pub struct BoundsError {
 ```
 
 A one-sided **infinite** endpoint is deliberately permitted: `HealthyCheck`
-expresses "healthy above 0.7, no ceiling" as `z_range: Some((0.7, ∞))`, and
+expresses "healthy above 0.7, no ceiling" as `z_range: Some((0.7, ` $\infty$ `))`, and
 `f32::clamp` panics only on `min > max` or `NaN`, never on an infinity. The
-`lo <= hi` invariant admits it (`0.7 <= ∞`) while still rejecting `NaN`.
+`lo <= hi` invariant admits it ($0.7 \le \infty$) while still rejecting `NaN`.
 
 ### 2. Inclusive invariant, and the divergence from `config::ordered`
 
@@ -157,8 +157,8 @@ A `Bounds` field is self-validating, so adopting it **removes** the paired
 of every `validate()` is unchanged — `Bounds` narrows one field's invariant into
 the type system; it does not discharge the config's other cross-field checks.
 Configs keep implementing `Validate`. Where a config still needs the field's
-scalars for a *cross-field* check (e.g. mountain-car `goal_position ∈
-[pos.lo(), pos.hi()]`), it reads them back through the accessors.
+scalars for a *cross-field* check (e.g. mountain-car
+$\text{goal\_position} \in [\text{pos.lo()}, \text{pos.hi()}]$), it reads them back through the accessors.
 
 ### 4. serde: validated deserialization
 

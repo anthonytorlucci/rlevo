@@ -69,7 +69,7 @@ strategies.
 
 ### 3. The RNG boundary is a HARD RULE (cite ADR 0029)
 
-**proptest generates host config only** — `λ`, `D`, structural sizes, and a
+**proptest generates host config only** — $\lambda$, `D`, structural sizes, and a
 `seed: u64`. The test body routes **all** algorithm randomness through
 `seed_stream(seed, generation, SeedPurpose::_)`, exactly as production does.
 `B::seed` + `Tensor::random` is forbidden in property bodies as it is everywhere

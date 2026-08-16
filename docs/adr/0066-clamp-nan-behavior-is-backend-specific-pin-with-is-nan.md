@@ -170,7 +170,7 @@ diverging reward into a confident, undetectable target distribution, which is
 the defect this ADR exists to close. Landing one without the other is a
 regression, not a partial fix.
 
-`is_nan` is used rather than `is_finite` deliberately: `±inf` is handled
+`is_nan` is used rather than `is_finite` deliberately: $\pm\infty$ is handled
 correctly and identically by the ordinary clamp on both backends measured here
 — an unbounded coordinate saturates to `v_min`/`v_max` exactly as intended,
 which *is* the algorithm's semantics (Bellemare et al. 2017 Algorithm 1's
@@ -265,7 +265,7 @@ Each is to be filed as its own issue rather than bundled in.
   **persistent, gradient-updated** module parameter, not a transient
   per-batch value — a materially different risk profile than a one-shot
   projection. On the wgpu/Metal backend a NaN gradient step could rescue
-  `log_std` to `log_std_min`, giving `σ = exp(-20) ≈ 2.06e-9` — finite,
+  `log_std` to `log_std_min`, giving $\sigma = \exp(-20) \approx 2.06 \times 10^{-9}$ — finite,
   plausible, and consumed **consistently** by both sampling and log-prob
   evaluation, so nothing downstream ever disagrees with anything else. Worse,
   the ADR 0049/#347 host-side warn scan (`gaussian.rs:497,499`) uses `v <

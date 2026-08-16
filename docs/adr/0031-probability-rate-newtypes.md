@@ -34,7 +34,7 @@ The mutation/crossover **rate** scalars (`rate`, `p`, `alpha`, `mutation_rate`,
 - **CGP host comparison** (`rng >= mutation_rate`, `gp_cgp.rs`): the sense is
   inverted, so a `NaN` skips the `continue` and mutates **every** gene — the
   opposite outcome from the tensor operators, an inconsistency in itself.
-- **BLX-α arithmetic** (`ops/crossover.rs`): a `NaN`/`Inf` `alpha` multiplies
+- **BLX-$\alpha$ arithmetic** (`ops/crossover.rs`): a `NaN`/`Inf` `alpha` multiplies
   into the interval and poisons the entire offspring tensor.
 
 Validation lived only at the config layer via `config::in_range` (which *does*
@@ -62,7 +62,7 @@ construction has no config/field name to report (ADR 0027's own Decision 5,
 
 `rlevo_core::probability::Probability` — invariant `0.0 <= p <= 1.0`; a `NaN` or
 `Inf` fails the comparison and is rejected. `rlevo_core::rate::NonNegativeRate` —
-invariant `is_finite() && r >= 0.0`; rejects `NaN`, `±Inf`, and negatives. Both
+invariant `is_finite() && r >= 0.0`; rejects `NaN`, $\pm\infty$, and negatives. Both
 carry the full `Bounds` surface: `const fn new` (panicking, for literals /
 `Default`s), `try_new -> Result<_, {Probability,NonNegativeRate}Error>`, `const
 fn get`, `#[serde(try_from = "f32", into = "f32")]` + `TryFrom<f32>` / `From`,
@@ -180,6 +180,6 @@ checks remain until a follow-up migrates them.
   rule that motivates this ADR's own Decision 4 ("serde").
 - Code: `crates/rlevo-core/src/probability.rs`,
   `crates/rlevo-core/src/rate.rs`, `crates/rlevo-evolution/src/ops/crossover.rs`
-  (the High-severity BLX-α site flagged at the code review's section 1.3),
+  (the High-severity BLX-$\alpha$ site flagged at the code review's section 1.3),
   `crates/rlevo-evolution/src/algorithms/gp_cgp.rs`
   (the inverted-sense CGP host comparison).

@@ -54,7 +54,7 @@ rank 3 regardless of channel count, so the Atari backend needs no rank change.
 
 ### 3. Separate concept module, not folded into `grids/`
 
-The `grids/` family shares an *egocentric* `7×7×3` `core/` with `R == SR` and 7-action
+The `grids/` family shares an *egocentric* $7 \times 7 \times 3$ `core/` with `R == SR` and 7-action
 turn/forward dynamics. This task is *allocentric*, 4-way Cartesian, and modality-changing — it
 reuses none of that core. It lives in its own singular-noun concept module `pixel_grid.rs`
 (docs/rules.md's Naming Conventions section — concept modules take a singular noun). If a second
@@ -64,7 +64,7 @@ modality-changing env (Atari) lands, promote to a family folder then.
 
 `GRID_SIDE = 5`, `CELL_PX = 4`, `CHANNELS = 3` → `[20, 20, 3]`, as compile-time constants
 (`Observation::shape()` must be const, per docs/rules.md's Const Generics and Type-Level Constraints
-section; matches the `grids` 7×7×3 precedent). Const-generic `G`/`S`/`C` parameterization is
+section; matches the `grids` $7 \times 7 \times 3$ precedent). Const-generic `G`/`S`/`C` parameterization is
 deferred.
 
 ### 5. Dual `State<1>` + `Observable<3>` on one state type
@@ -83,7 +83,7 @@ claim real. The latent observation does not get a `TensorConvertible` impl (add 
 ### 7. Dynamics and reward
 
 4-way Cartesian moves with wall clamping ("bump and hold"); `terminated` on `agent == goal` with
-the grids `success_reward` formula (`1 - 0.9·step/max_steps`), `truncated` at `max_steps` with
+the grids `success_reward` formula ($1 - 0.9 \cdot \text{step}/\text{max\_steps}$), `truncated` at `max_steps` with
 reward `0.0`. Placement is fixed corners by default (deterministic) or seeded-random distinct cells
 via host-side `StdRng` (host-RNG convention — never `B::seed`/global RNG).
 

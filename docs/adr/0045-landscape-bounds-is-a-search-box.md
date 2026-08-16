@@ -19,18 +19,18 @@ unrepresentable, and therefore what forces this decision.
 ## Context
 
 `Branin::bounds()` returned `(-5.0, 10.0)`. Branin's published domain is
-**asymmetric** — `x₁ ∈ [-5, 10]`, `x₂ ∈ [0, 15]` — and the returned pair was the
-`x₁` range. But a `bounds()` pair is applied to **every** coordinate, so the
-effective search box was `[-5, 10]²`, which **excludes the certified global
-optimum `(−π, 12.275)`** (`x₂ = 12.275 > 10`). One of Branin's three global
+**asymmetric** — $x_1 \in [-5, 10]$, $x_2 \in [0, 15]$ — and the returned pair was the
+$x_1$ range. But a `bounds()` pair is applied to **every** coordinate, so the
+effective search box was $[-5, 10]^2$, which **excludes the certified global
+optimum $(-\pi, 12.275)$** ($x_2 = 12.275 > 10$). One of Branin's three global
 minima was outside the search space: unreachable by any optimiser, at any budget,
 forever.
 
 `Trefethen::bounds()` had the identical defect in the other direction — it
-returned the `x₂` range `(-4.5, 4.5)`, clipping `x₁ ∈ [-6.5, 6.5]`.
+returned the $x_2$ range `(-4.5, 4.5)`, clipping $x_1 \in [-6.5, 6.5]$.
 
-`Bukin6` had independently got it **right**: its domain is `x₁ ∈ [-15, -5]`,
-`x₂ ∈ [-3, 3]`, and it returned the square hull `(-15.0, 3.0)`, with in-source
+`Bukin6` had independently got it **right**: its domain is $x_1 \in [-15, -5]$,
+$x_2 \in [-3, 3]$, and it returned the square hull `(-15.0, 3.0)`, with in-source
 tests asserting the box reaches the optimum and admits nothing better. But its
 convention was never written down anywhere — not in `rules.md`, not in an ADR,
 not in the `Landscape` trait docs. So two of its siblings diverged from it and
@@ -42,7 +42,7 @@ Two facts explain why the bug was invisible for as long as it was:
    three independent judgment calls, one of them correct. There was no rule to
    cite in review.
 2. **No test asserted the box could reach the optima.** Every landscape had
-   value tests (`evaluate(optimum) ≈ f*`) — evaluating *at* a point says nothing
+   value tests ($\texttt{evaluate(optimum)} \approx f^*$) — evaluating *at* a point says nothing
    about whether a search can *reach* it. Bukin6 had the reachability test; the
    other two did not.
 
@@ -95,17 +95,17 @@ the proof — the proof is the comment.
 
 ### 3. Two conforming shapes, neither an exception to the other
 
-**Square hull of an asymmetric domain.** Branin `(-5, 15)` (hull of `[-5,10] ×
-[0,15]`), Trefethen `(-6.5, 6.5)`, Bukin6 `(-15, 3)`. A hull **does** admit
-points outside the published rectangle — Bukin6's hull admits `x₁ = +2`, well
+**Square hull of an asymmetric domain.** Branin `(-5, 15)` (hull of $[-5,10] \times
+[0,15]$), Trefethen `(-6.5, 6.5)`, Bukin6 `(-15, 3)`. A hull **does** admit
+points outside the published rectangle — Bukin6's hull admits $x_1 = +2$, well
 outside its `[-15, -5]` — and that is exactly what **O2 certifies as harmless**:
 the extra area contains nothing better than `f*`, so it costs search effort, not
 correctness.
 
 **Cited reduced range of an impractically large canonical domain.**
-RosenbrockFlat `(-30, 30)`, reduced from the canonical `[-2000, 2000]ⁿ`
+RosenbrockFlat `(-30, 30)`, reduced from the canonical $[-2000, 2000]^n$
 (Monismith 2010) after Chen (1997); Six-Hump Camel `(-2, 2)`, reduced from the
-canonical `[-5, 5]²` (Al-Roomi) to the window that actually shows the six-hump
+canonical $[-5, 5]^2$ (Al-Roomi) to the window that actually shows the six-hump
 structure. Same two obligations, same citation requirement.
 
 These are **two legitimate shapes of the same rule**, not a rule and an
@@ -136,8 +136,8 @@ representable, at which point one rectangle type serves both (Open questions).
 
 ### Positive
 
-- Branin's third global minimum `(−π, 12.275)` is inside the search box for the
-  first time; Trefethen's `x₁` range is no longer clipped. Both landscapes are
+- Branin's third global minimum $(-\pi, 12.275)$ is inside the search box for the
+  first time; Trefethen's $x_1$ range is no longer clipped. Both landscapes are
   now solvable in principle, which they were not.
 - The rule Bukin6 was already following is now **written down**, with a
   falsifiable test for each of its two obligations. The next asymmetric landscape
@@ -158,9 +158,9 @@ representable, at which point one rectangle type serves both (Open questions).
   *every* result ever reported on that landscape, since the "optimum" the runs
   are scored against would no longer be the optimum. **O2 is the guard, and it
   must be discharged analytically, not assumed.** For the record, both widenings
-  in this ADR are provably safe: Branin's `f* = 10/(8π)` is the global infimum
-  over all of ℝ² (`a² ≥ 0`, `cos x₁ ≥ −1`), so no box can beat it; and any point
-  beating Trefethen's `f*` must lie within radius ≈ 0.817 of the origin, well
+  in this ADR are provably safe: Branin's $f^* = 10/(8\pi)$ is the global infimum
+  over all of $\mathbb{R}^2$ ($a^2 \ge 0$, $\cos x_1 \ge -1$), so no box can beat it; and any point
+  beating Trefethen's `f*` must lie within radius $\approx 0.817$ of the origin, well
   inside the hull.
 - **Showcase mutation strength shifts.** The `mutation_sigma` constants in
   `crates/rlevo/examples/evo/*_showcase.rs` are **absolute**, not box-relative,
@@ -257,25 +257,25 @@ representable, at which point one rectangle type serves both (Open questions).
   mutation_sigma, landscape)` — the hand-wired, absolute `mutation_sigma`).
 - Dixon, L.C.W. & Szegő, G.P. (1978), "The global optimization problem: an
   introduction", *Towards Global Optimization 2*, pp. 1–15, North-Holland — the
-  source of Branin's asymmetric domain `[-5,10] × [0,15]` and its three certified
-  minima `(−π, 12.275)`, `(π, 2.275)`, `(3π, 2.475)`.
+  source of Branin's asymmetric domain $[-5,10] \times [0,15]$ and its three certified
+  minima $(-\pi, 12.275)$, $(\pi, 2.275)$, $(3\pi, 2.475)$.
 - Trefethen, L.N. (2002), "A Hundred-dollar, Hundred-digit Challenge",
   *SIAM News* 35(1) — Problem 4. Cited for the **function and its certified
-  `f* ≈ −3.306868647475` at `(−0.024403, 0.210612)`**, and for what it does *not*
+  $f^* \approx -3.306868647475$ at $(-0.024403, 0.210612)$**, and for what it does *not*
   say: the original problem is **unconstrained** (well-posed anyway — the
-  `(x₁²+x₂²)/4` term is coercive), so it is not the source of any box.
+  $(x_1^2+x_2^2)/4$ term is coercive), so it is not the source of any box.
 - Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions
   Repository*, propagated via Gavana's `benchmark_functions` (2013) — source of
-  Trefethen's **asymmetric benchmark box** `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5,
-  4.5]`, whose square hull `(-6.5, 6.5)` this ADR adopts. Al-Roomi's page lists
+  Trefethen's **asymmetric benchmark box** $x_1 \in [-6.5, 6.5]$, $x_2 \in [-4.5,
+  4.5]$, whose square hull `(-6.5, 6.5)` this ADR adopts. Al-Roomi's page lists
   Mishra, S. (2006), *"Some New Test Functions for Global Optimization and
   Performance of Repulsive Particle Swarm Method"*, MPRA Paper 2718, among its
   references, but Mishra's paper does not itself discuss the Trefethen
   function or these bounds — the box is attributed here to Al-Roomi/Gavana,
   not to Mishra.
-- Monismith, D. (2010) — the canonical `[-2000, 2000]ⁿ` side constraints of the
+- Monismith, D. (2010) — the canonical $[-2000, 2000]^n$ side constraints of the
   modified (flat) Rosenbrock; Chen, Y. (1997) — the reduced `[-30, 30]` range
   adopted here under this ADR's own Decision 3.
 - Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions
-  Repository* — the canonical `[-5, 5]²` domain of Six-Hump Camel-Back
+  Repository* — the canonical $[-5, 5]^2$ domain of Six-Hump Camel-Back
   (function #23), reduced here to `(-2, 2)` under this ADR's own Decision 3.

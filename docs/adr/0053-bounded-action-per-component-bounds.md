@@ -146,8 +146,8 @@ algorithms that consume this trait:
 - TD3 (Fujimoto et al. 2018, Eq. 14) clips the smoothed target action against
   the Gym `Box(low, high)` vectors [5].
 - SAC (Haarnoja et al. 2018b, Appendix C) applies `tanh` elementwise to
-  `u ∈ R^D` with a per-index log-prob correction; Appendix D Table 1 gives the
-  entropy target as `−dim(A)`, the action-space **dimensionality**, e.g. `−6`
+  $u \in \mathbb{R}^D$ with a per-index log-prob correction; Appendix D Table 1 gives the
+  entropy target as $-\dim(A)$, the action-space **dimensionality**, e.g. $-6$
   for HalfCheetah-v1 [6].
 
 Note that the SAC target-entropy sub-claim attached to #253 is **already
@@ -398,7 +398,7 @@ break, and there are none in-workspace.
   same contract test as Option B, and Option A's extra compile-time strength
   reduces to "the two bound arrays are the same length as a number the
   implementor typed twice." For that it costs: a change to the trait's generic
-  arity, edits to all 12 `A: BoundedAction<DA>` plumbing sites (three agents ×
+  arity, edits to all 12 `A: BoundedAction<DA>` plumbing sites (three agents $\times$
   three sites, three `train.rs`, plus `baseline.rs`), a breaking arity change on
   both public export paths, and a second const parameter that every future
   bound must thread. Additionally, a wrong `C` would be *silently* wrong (bounds
@@ -471,7 +471,7 @@ break, and there are none in-workspace.
   against the `Box(low, high)` vectors; scalar noise clip is separate.
 - [6] Haarnoja et al., "Soft Actor-Critic Algorithms and Applications",
   arXiv:1812.05905, Appendix C (elementwise `tanh` with per-index log-prob
-  correction) and Appendix D Table 1 (entropy target `−dim(A)`).
+  correction) and Appendix D Table 1 (entropy target $-\dim(A)$).
 - Burn 0.21 `burn-tensor/src/tensor/api/orderable.rs`: `clamp` (:986),
   `clamp_min` (:1022), `clamp_max` (:1054) are scalar-only; `max_pair` (:722),
   `min_pair` (:950) take tensor operands.

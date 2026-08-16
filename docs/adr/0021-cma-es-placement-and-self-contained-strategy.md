@@ -3,21 +3,20 @@ project: rlevo
 status: active
 type: decision
 date: 2026-06-18
-tags: [evolution, cma-es, cmsa-es, strategy, probability-model, placement, phase-3]
+tags: [evolution, cma-es, cmsa-es, strategy, probability-model, placement]
 ---
 
 # ADR 0021: CMA-ES / CMSA-ES placement and self-contained `Strategy` (not `ProbabilityModel`)
 
 ## Status
 
-Active. Adopted 2026-06-18. Implements the deferred CMA-ES half of the phase-3
-advanced-EA roadmap, the co-author partner of ADR 0017. Ships two
-covariance-matrix evolution strategies — `CmaEs` (Hansen & Ostermeier 2001) and
-`CmsaEs` (Beyer & Sendhoff 2008) — each a self-contained `Strategy<B>`. Purely
-additive: no change to `Strategy`, `EvolutionaryHarness`, `ProbabilityModel`,
-`EdaStrategy`, any existing algorithm file, or any manifest; no new dependency.
-**Does not supersede ADR 0017** — it *refines* the forward-looking expectation in
-ADR 0017's own Decision, part 9 (see Decision part 2 below). Tracks issue #59.
+Active. Adopted 2026-06-18. Ships the covariance-matrix evolution strategies
+deferred by ADR 0017: `CmaEs` (Hansen & Ostermeier 2001) and `CmsaEs` (Beyer &
+Sendhoff 2008), each a self-contained `Strategy<B>`. Purely additive: no
+change to `Strategy`, `EvolutionaryHarness`, `ProbabilityModel`, `EdaStrategy`,
+any existing algorithm file, or any manifest; no new dependency. **Does not
+supersede ADR 0017** — it *refines* the forward-looking expectation in ADR
+0017's own Decision, part 9 (see Decision part 2 below).
 
 ## Context
 
@@ -25,12 +24,13 @@ CMA-ES is the canonical black-box optimiser for continuous, non-separable,
 ill-conditioned landscapes; CMSA-ES is its evolution-path-free sibling. Two
 design questions need an immutable record before code:
 
-1. **Placement.** Issue #59 says add `pub mod cma_es;` / `pub mod cmsa_es;`
-   "alongside the existing entries" in `algorithms/mod.rs` (flat). Early
-   design work (never an ADR) tentatively proposed an `es_advanced/` submodule
-   "because evolution paths are the identity-defining machinery." ADR 0017's
-   own Decision, part 9, deferred placement to "elsewhere
-   (`algorithms/cma_es.rs`)". The two readings (flat vs submodule) must be settled.
+1. **Placement.** The straightforward reading is to add `pub mod cma_es;` /
+   `pub mod cmsa_es;` alongside the existing entries in `algorithms/mod.rs`
+   (flat). Early design work (never an ADR) tentatively proposed an
+   `es_advanced/` submodule "because evolution paths are the
+   identity-defining machinery." ADR 0017's own Decision, part 9, deferred
+   placement to "elsewhere (`algorithms/cma_es.rs`)". The two readings (flat
+   vs submodule) must be settled.
 
 2. **Trait reuse.** ADR 0017 was co-designed so "CMA-ES can reuse
    [`ProbabilityModel<B>`] later without a signature break," and its own
@@ -44,7 +44,7 @@ Three live-API facts constrain the design (the same frozen surface ADR 0016/0017
 verified):
 
 - **`Strategy::tell` takes `&self`**, no interior mutability — instances
-  parallelise without locks. CMA-ES/CMSA-ES carry all adaptive state (`C`, σ,
+  parallelise without locks. CMA-ES/CMSA-ES carry all adaptive state (`C`, $\sigma$,
   paths) in `State`, so this holds trivially.
 - **All randomness is host-side via `seed_stream(base, generation, SeedPurpose)`**
   (`crates/rlevo-evolution/src/rng.rs`); `B::seed` / `Tensor::random` forbidden.
@@ -63,19 +63,17 @@ additive.**
 
 ### 1. Placement — flat `algorithms/{cma_es,cmsa_es}.rs`, not `es_advanced/`
 
-- Honours issue #59's explicit instruction.
 - Matches the tree's *actual* convention: submodules (`eda/`, `gep/`,
   `metaheuristic/`, `neuroevolution/`) exist only for **multi-file** families;
   single-file families are flat (`es_classical.rs`, `de.rs`, `ep.rs`,
   `gp_cgp.rs`). Two sibling files have the same cardinality as
   `ga.rs` + `ga_binary.rs`, which are flat siblings — not a `ga/` directory.
-- The `es_advanced/` proposal in the boundary note was motivated by
-  *intellectual* separation from `eda/`, not by file count. That separation is
-  real and is carried by **module rustdoc** in `cma_es.rs` citing the EDA/ES
-  boundary, not by a directory that would currently hold exactly two files.
-- **This resolves the boundary note's open module-layout question.** The note is a
-  draft research artefact; on acceptance of this ADR its `es_advanced/` lines are
-  struck as superseded.
+- Early design work tentatively proposed an `es_advanced/` submodule, motivated
+  by *intellectual* separation from `eda/` rather than file count. That
+  separation is real and is carried by **module rustdoc** in `cma_es.rs`
+  citing the EDA/ES boundary, not by a directory that would currently hold
+  exactly two files. This ADR settles the module-layout question the earlier
+  proposal left open, superseding it.
 - If a third+ covariance-ES variant lands later (Separable-CMA, Cholesky-CMA,
   LM-CMA — all deferred), promoting the pair into `es_advanced/` becomes a
   justified mechanical move at *that* point.
@@ -90,28 +88,28 @@ Decision, part 9.
   `ProbabilityModel::fit(population, fitness, prev) → State` /
   `sample(state) → population` is a pure density-estimation seam. CMA-ES's
   *identity* is the machinery that is **not** density estimation: cumulative
-  step-size adaptation (CSA), the two evolution paths `p_σ`/`p_c`, and the
-  *learning-rate-blended* rank-1 + rank-μ covariance update. CMSA-ES's identity is
-  per-individual log-normal σ self-adaptation. Forcing either through `fit`/`sample`
-  would (a) leak ES strategy state (`σ`, paths, per-individual σ_i) into the model
+  step-size adaptation (CSA), the two evolution paths $p_\sigma$/`p_c`, and the
+  *learning-rate-blended* rank-1 + rank-$\mu$ covariance update. CMSA-ES's identity is
+  per-individual log-normal $\sigma$ self-adaptation. Forcing either through `fit`/`sample`
+  would (a) leak ES strategy state (`σ`, paths, per-individual $\sigma_i$) into the model
   `State`, and (b) split one algorithm awkwardly across `fit` and a `tell` overlay
   for no expressive gain.
-- **The boundary note's own heuristic points here:** "EDA uses the model *only* to
-  sample; CMA-ES layers paths on top" — i.e. the right seam is the *`Strategy`*,
-  not the *model*.
-- **ADR 0017's reuse goal is satisfied in its correct sense.** The EDA spec's open
-  acceptance criterion 3 ("CMA-ES spec demonstrates trait reuse — no *divergent*
-  parallel implementation") holds: there is **no divergent `ProbabilityModel`**,
-  the trait was genuinely co-designed with CMA-ES in view, and the
-  `prev: Option<&State>` incremental seam (ADR 0017 part 1) **exists and remains
-  available** for path/rank-μ updates. What this ADR declines is the stronger
-  reading "CMA-ES must *instantiate* the trait." This mirrors the
-  **"available but deliberately unused"** precedent ADR 0018 set for the same seam.
-- **Clean future bridge (out of scope).** A `MultivariateGaussian` model (≈ EMNA,
+- **The natural design heuristic points here:** EDA uses the model *only* to
+  sample; CMA-ES layers paths on top — i.e. the right seam is the
+  *`Strategy`*, not the *model*.
+- **ADR 0017's reuse goal is satisfied in its correct sense.** The intent
+  behind co-designing the trait with CMA-ES in view was to avoid a *divergent*
+  parallel implementation, and that holds: there is **no divergent
+  `ProbabilityModel`**, and the `prev: Option<&State>` incremental seam (ADR
+  0017 part 1) **exists and remains available** for path/rank-$\mu$ updates. What
+  this ADR declines is the stronger reading "CMA-ES must *instantiate* the
+  trait." This mirrors the **"available but deliberately unused"** precedent
+  ADR 0018 set for the same seam.
+- **Clean future bridge (out of scope).** A `MultivariateGaussian` model ($\approx$ EMNA,
   the pure-MLE full-covariance EDA) *could* implement `ProbabilityModel<B>` in
   `eda/` and would genuinely exercise the trait at the multivariate-Gaussian end of
   the continuum — demonstrating reuse in the strong form **without** contorting
-  CMA-ES. Noted as the clean way to close criterion 3 strongly; not built here.
+  CMA-ES. Noted as the clean way to demonstrate strong trait reuse; not built here.
 
 ### 3. Host-side numerics, hand-rolled Jacobi — no new dependency
 
@@ -119,26 +117,26 @@ Decomposition + sampling are host-side `Vec<f32>`; the
 eigensolver is a hand-rolled cyclic **Jacobi** routine (it ports the canonical
 `pycma` `eigen()` for bit-validation, needs no dependency, and has better
 small-eigenvalue accuracy than QR — which matters for the narrow-axis-collapse
-failure mode). `nalgebra` rejected for v1 (new dep, a logged 4×4 correctness bug
+failure mode). `nalgebra` rejected for v1 (new dep, a logged $4\times4$ correctness bug
 dimforge/nalgebra #1109, strong perf only via non-portable `nalgebra-lapack`,
-negligible gain at D≤30). CMSA-ES needs only a Cholesky factor (no `C^{-1/2}`);
+negligible gain at $D \le 30$). CMSA-ES needs only a Cholesky factor (no `C^{-1/2}`);
 CMA-ES reuses the Jacobi eigendecomposition for both sampling and `C^{-1/2}`. The
 device→host fitness sync per generation is the only GPU-specific cost and is
-bounded by λ — cheap on both PCIe and unified-memory backends.
+bounded by $\lambda$ — cheap on both PCIe and unified-memory backends.
 
 ### 4. `SeedPurpose::CmaSampling = 11` — one additive variant
 
-Multivariate sampling (and CMSA-ES's per-individual log-normal σ draw) draw from
+Multivariate sampling (and CMSA-ES's per-individual log-normal $\sigma$ draw) draw from
 `seed_stream(base, generation, SeedPurpose::CmaSampling)`, disjoint from every
 other operator stream. Additive; the only exhaustive match is `constant()` in
 `rng.rs`, extended by one arm, plus one assertion in the purpose-stream test —
 continuing the numbering ADR 0017 left at `EdaSampling = 8` (`Representative = 9`,
 `Transposition = 10` shipped since).
 
-### 5. CMSA-ES reuses the `es_classical` σ rule
+### 5. CMSA-ES reuses the `es_classical` $\sigma$ rule
 
-CMSA-ES's log-normal self-adaptation uses `τ = 1/√(2D)`, the same rule and
-default as `EsConfig::default_for` (Beyer & Schwefel 2002). The two σ-adaptation
+CMSA-ES's log-normal self-adaptation uses $\tau = 1/\sqrt{2D}$, the same rule and
+default as `EsConfig::default_for` (Beyer & Schwefel 2002). The two $\sigma$-adaptation
 families (CSA in CMA-ES, self-adaptation in CMSA-ES/`es_classical`) thus share one
 formula across the crate.
 
@@ -159,8 +157,8 @@ formula across the crate.
   matches the reference literature line-for-line and eases validation against
   `pycma`.
 - **The trait stays honestly general.** Declining to force CMA-ES through it
-  *confirms* the boundary (ADR 0017 part 9 / the research note) rather than blurs
-  it; the `prev` seam remains the real reuse point for a future EMNA model.
+  *confirms* the boundary drawn in ADR 0017 part 9 rather than blurs it; the
+  `prev` seam remains the real reuse point for a future EMNA model.
 
 **Negative / accepted costs**
 
@@ -168,11 +166,11 @@ formula across the crate.
   "will reuse `ProbabilityModel`"; this ADR declines instantiation. Accepted and explicitly
   recorded as a *refinement* (the seam remains available-but-unused, ADR 0018
   precedent), not a silent reversal. ADR 0017 is immutable and unchanged.
-- **EDA-spec criterion 3 closes only in the weak sense.** "No divergent
-  implementation" holds; "CMA-ES instantiates the trait" does not. Strong-form
-  closure waits on the optional `MultivariateGaussian`/EMNA model.
+- **Trait reuse closes only in the weak sense.** "No divergent implementation"
+  holds; "CMA-ES instantiates the trait" does not. Strong-form closure waits
+  on the optional `MultivariateGaussian`/EMNA model.
 - **Host-side decomposition forces one device→host sync per generation** on GPU
-  backends. Accepted: payload is λ floats (bytes), dominated by the host O(D³)
+  backends. Accepted: payload is $\lambda$ floats (bytes), dominated by the host $O(D^3)$
   decomposition, and free on the `ndarray` backend the convergence tests use.
 
 **Neutral**
@@ -214,7 +212,7 @@ formula across the crate.
 
 ## Alternatives considered
 
-**`es_advanced/{cma_es,cmsa_es}.rs` submodule (the boundary-note proposal).**
+**`es_advanced/{cma_es,cmsa_es}.rs` submodule (the earlier design-sketch proposal).**
 Rejected for v1: the tree reserves submodules for multi-file families; two files
 is a flat-sibling cardinality (cf. `ga.rs`/`ga_binary.rs`). The intellectual
 separation is carried by module rustdoc. Revisit on the third covariance-ES
@@ -225,12 +223,12 @@ a `tell` overlay (the letter of ADR 0017's own Decision, part 9).** Rejected:
 CSA, evolution paths, and the learning-rate-blended covariance update are not
 density estimation; threading them through `fit`/`sample` leaks ES state into
 the model and fractures one algorithm across two seams. The `Strategy` is the
-correct seam (the boundary note's own
-heuristic). The trait stays available for a genuine EMNA model instead.
+correct seam by the same heuristic used in Decision part 2. The trait stays
+available for a genuine EMNA model instead.
 
 **A new dependency (`nalgebra` / `nalgebra-lapack`) for the eigensolver.**
 Rejected for v1: new dep, a logged small-matrix correctness bug (#1109), strong
-perf only via non-portable LAPACK bindings, negligible gain at D≤30. Hand-rolled
+perf only via non-portable LAPACK bindings, negligible gain at $D \le 30$. Hand-rolled
 Jacobi ports the `pycma` reference and adds nothing to the dep graph.
 
 **Reuse `SeedPurpose::EdaSampling` or `Other` for the multivariate draw.**
@@ -240,8 +238,6 @@ self-documenting, matching the per-purpose isolation rationale in `rng.rs`.
 
 ## References
 
-- Issue #59 — `feat(evo): implement CMA-ES and CMSA-ES`; specifies flat
-  `pub mod cma_es; pub mod cmsa_es;` and the host-RNG/determinism constraints.
 - The two open design questions this ADR resolves (placement and trait reuse)
   are already fully worked through in this ADR's own Decision parts 1 and 2
   above.

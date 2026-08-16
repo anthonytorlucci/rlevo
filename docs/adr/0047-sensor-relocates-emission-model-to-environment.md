@@ -43,8 +43,8 @@ pub trait State<const R: usize>: … {
 }
 ```
 
-In the POMDP tuple ⟨S, A, T, R, Ω, O⟩ the emission model `O: S × A → Π(Ω)` is a
-property of the **problem** (the environment), not of a point `s ∈ S` in state
+In the POMDP tuple $\langle S, A, T, R, \Omega, O \rangle$ the emission model $O: S \times A \to \Pi(\Omega)$ is a
+property of the **problem** (the environment), not of a point $s \in S$ in state
 space. Hanging `O` on `State` was a category error that produced three
 documented symptoms:
 
@@ -52,7 +52,7 @@ documented symptoms:
    state's own order (`type Observation: Observation<R>` at the same `R`). To
    observe a compact physics state as a pixel frame, the state had to *pretend*
    to be that frame — CarRacing was forced to `Environment<3,3,1>`, its state
-   masquerading as a `96×96×3` buffer (research:
+   masquerading as a $96 \times 96 \times 3$ buffer (research:
    `2026-07-09-issue-117-box2d-state-ownership`).
 2. **`&self`-only weakness → the cache hack.** A bare state value cannot see the
    simulator world, so ADR 0039 cached world-derived sensor readings (lidar
@@ -142,7 +142,7 @@ retired.
 ### 5. Grid family: the shared `build_snapshot` chokepoint (documented exception)
 
 The eleven gridworld environments share **one** observation projection that is a
-pure function of `GridState` (the `7×7×3` egocentric view). Rather than eleven
+pure function of `GridState` (the $7 \times 7 \times 3$ egocentric view). Rather than eleven
 identical `Sensor` impls, `GridState` implements `Observable<3>` (the projection,
 moved verbatim from the old `State::observe` body) and the shared free function
 `grids/core/mod.rs::build_snapshot` builds every grid snapshot via

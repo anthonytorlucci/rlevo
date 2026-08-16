@@ -66,7 +66,7 @@ The same is true of `AsciiRenderer: Renderer<E>` which sits next to it — `Rend
 
 ### What the ADR 0004 test says
 
-[0004-move-bench-traits-into-rlevo-core](0004-move-bench-traits-into-rlevo-core.md) established the test: **a trait moves to `rlevo-core` when it has ≥1 stable downstream consumer with shared vocabulary**. The styled-render surface qualifies cleanly:
+[0004-move-bench-traits-into-rlevo-core](0004-move-bench-traits-into-rlevo-core.md) established the test: **a trait moves to `rlevo-core` when it has $\ge 1$ stable downstream consumer with shared vocabulary**. The styled-render surface qualifies cleanly:
 
 | Crate                                | Uses                                                          |
 | ------------------------------------ | ------------------------------------------------------------- |

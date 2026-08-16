@@ -77,7 +77,7 @@ Four independent defects, any one of which forecloses a drop-in swap:
 
 1. **It is not PER.** There is no `update_priorities`. Priorities are
    write-once at insert (`memory.rs:233-249`), so the TD error never feeds
-   back. Schaul's `p_i = |δ_i| + ε` is the entire algorithm; without the
+   back. Schaul's $p_i = |\delta_i| + \varepsilon$ is the entire algorithm; without the
    feedback edge this is a weighted-random buffer wearing PER's name.
 2. **It is unseedable.** `sample_batch` calls `rand::rng()` internally
    (`memory.rs:311`). Every agent's `learn_step` takes `rng: &mut R` from the
@@ -90,12 +90,12 @@ Four independent defects, any one of which forecloses a drop-in swap:
    (`dqn_agent.rs`, `q_all.gather(1, action_tensor)`). One `TrainingBatch`
    cannot serve both the discrete and the continuous family.
 4. **Its sampling semantics differ from the agents'.** It samples *without*
-   replacement via an O(n·k) scan-and-`swap_remove`; all six agents sample
+   replacement via an $O(n \cdot k)$ scan-and-`swap_remove`; all six agents sample
    *with* replacement. Substituting it is a behavioural change, not a
    refactor.
 
 Add the fidelity gaps the literature review (`docs/.private/research/
-per-schaul-2016-fidelity.md`) enumerates: no ε floor, no IS weights, no β, no
+per-schaul-2016-fidelity.md`) enumerates: no $\varepsilon$ floor, no IS weights, no $\beta$, no
 max-normalization, i.i.d. draws instead of Schaul's stratified one-per-segment
 scheme, and no finiteness guard on priorities (a `NaN` priority produces `NaN`
 probabilities and silently pins `selected_pos` at `0`).
@@ -123,7 +123,7 @@ Two future strategies must not force a second breaking change:
   metadata after insert.
 - **HER** needs goal relabeling. Note carefully what Andrychowicz et al. (2017)
   Algorithm 1 actually does: for each visited state it **stores additional
-  relabeled transitions** (`store (s_t‖g′, a_t, r′, s_{t+1}‖g′) in R`). It does
+  relabeled transitions** ($\text{store}(s_t \Vert g',\ a_t,\ r',\ s_{t+1} \Vert g')$ in $R$). It does
   not overwrite the original. HER's real demands on a replay seam are
   (a) ordinary `push` and (b) a goal-conditioned observation type — the latter
   is a change to `O` and to the stored transition, which **no seam shape can
@@ -209,19 +209,19 @@ defect (2).
 `UniformReplay<T>` and `PrioritizedReplay<T>` are separate types behind
 `ReplayStrategy<T>`.
 
-Schaul Eq. 1 makes uniform the `α = 0` special case *mathematically*. That is
+Schaul Eq. 1 makes uniform the $\alpha = 0$ special case *mathematically*. That is
 not an implementation mandate, and unifying costs real money on the hottest
 loop in the library:
 
-- At `α = 0` a prioritized implementation still walks the whole buffer to build
+- At $\alpha = 0$ a prioritized implementation still walks the whole buffer to build
   the sampling distribution — O(n) per learn step, with `n` = capacity
-  (10³–10⁶ in the shipped configs), versus O(k) for `k` `random_range` draws.
+  ($10^3$–$10^6$ in the shipped configs), versus O(k) for `k` `random_range` draws.
 - The prioritized path carries a sum-tree (2N floats) and a running max that
   uniform has no use for.
 - The two have **different draw semantics**: uniform is i.i.d. with
   replacement; Schaul's is stratified, one draw per equal-mass segment
   (Appendix B.2.1), deliberately *without* the i.i.d. property, "to balance out
-  the minibatch." A single α-parameterised implementation must pick one, and
+  the minibatch." A single $\alpha$-parameterised implementation must pick one, and
   either choice silently changes the other's behaviour.
 
 The second reason is decisive on its own, independent of cost.
@@ -335,20 +335,20 @@ complaint in #188.
 
 Follows Schaul et al. 2016, proportional variant, with every deviation named:
 
-- **Priority** `p_i = |δ_i| + ε`, ε = `1e-6`. **Schaul gives no value for ε**
+- **Priority** $p_i = |\delta_i| + \varepsilon$, $\varepsilon$ = `1e-6`. **Schaul gives no value for $\varepsilon$**
   (it is not in the grid search); `1e-6` is *our* choice and the rustdoc says so.
-- **Sampling** `P(i) = p_i^α / Σ p_k^α` via a sum-tree, drawn by Schaul's
+- **Sampling** $P(i) = p_i^\alpha / \sum_k p_k^\alpha$ via a sum-tree, drawn by Schaul's
   **stratified** scheme: `[0, p_total]` split into `k` equal ranges, one uniform
   draw per range. Not i.i.d. categorical draws.
 - **New transitions** get the **running max over priorities seen so far**
   (Algorithm 1 line 6), tracked as an incremental `f32` — not a constant, and
   not a max over live buffer contents.
-- **IS weights** `w_i = (1/N · 1/P(i))^β`, **max-normalized over the sampled
+- **IS weights** $w_i = (1/N \cdot 1/P(i))^\beta$, **max-normalized over the sampled
   minibatch** (Algorithm 1 line 10), not over a whole-buffer priority bound.
 - **`w_i` scales the per-sample loss only.** It must never enter the target
-  computation and must never alter `δ` itself. This is the implementer bug class
+  computation and must never alter $\delta$ itself. This is the implementer bug class
   the research note names.
-- **α ∈ [0, 1]**, **β ∈ [0, 1]**, defaults `α = 0.6`, `β₀ = 0.4 → 1.0` linear
+- **$\alpha \in [0, 1]$**, **$\beta \in [0, 1]$**, defaults $\alpha = 0.6$, $\beta_0 = 0.4 \to 1.0$ linear
   (Table 3, proportional row).
 
 **Priorities are validated by construction.** A new `Priority` newtype
@@ -357,12 +357,12 @@ Follows Schaul et al. 2016, proportional variant, with every deviation named:
 defect unrepresentable rather than guarded. A `NaN` TD error off a diverging
 network is *reachable in production*, not theoretical.
 
-### 11. β annealing: schedule on the config, application in the buffer
+### 11. $\beta$ annealing: schedule on the config, application in the buffer
 
-Appendix B.2.1: "this normalization interacts with annealing on β." The two are
+Appendix B.2.1: "this normalization interacts with annealing on $\beta$." The two are
 **not independent knobs**, so they must not be settable independently.
 
-- The buffer computes `w_i` at the passed β **and** max-normalizes in the same
+- The buffer computes `w_i` at the passed $\beta$ **and** max-normalizes in the same
   expression. A caller cannot obtain unnormalized weights; there is no knob.
 - The **schedule** lives on the agent config
   (`beta_start`, `beta_end`, `beta_anneal_steps`) and the agent passes
@@ -373,7 +373,7 @@ giving it one duplicates the agent's — a second source of truth, the exact
 shape rules.md's Architecture Invariants section forbids for episode
 termination. It is also wrong the moment two learners share one buffer
 (the distributed-replay roadmap item). The
-accepted cost is that a caller can pass a nonsense β; `Validate` on the config
+accepted cost is that a caller can pass a nonsense $\beta$; `Validate` on the config
 and the three in-crate call sites are the mitigation.
 
 ### 12. Naming — `alpha` is not available
@@ -384,9 +384,9 @@ vocabulary and the collision is in the reader's head, not the compiler's. So:
 
 | Schaul symbol | Field name |
 |---|---|
-| α (priority exponent) | `priority_exponent` |
-| β (IS exponent) | `importance_exponent` / `beta_start`, `beta_end` |
-| ε (priority floor) | `priority_epsilon` |
+| $\alpha$ (priority exponent) | `priority_exponent` |
+| $\beta$ (IS exponent) | `importance_exponent` / `beta_start`, `beta_end` |
+| $\varepsilon$ (priority floor) | `priority_epsilon` |
 
 Config type is `PrioritizedReplayConfig`, not `PerConfig` ("per" reads as the
 English word at every call site). The Greek letters appear in the rustdoc,
@@ -396,15 +396,15 @@ mapped to Schaul's equations, and nowhere else.
 
 | Agent | Priority | Provenance |
 |---|---|---|
-| DQN | `\|δ\|` from the per-sample Huber residual | Schaul Section 3.3, direct |
+| DQN | $\lvert\delta\rvert$ from the per-sample Huber residual | Schaul Section 3.3, direct |
 | C51 | **KL**, not cross-entropy | Rainbow, verbatim: "prioritize transitions by the KL loss" |
 | QR-DQN | per-sample quantile Huber loss | **By analogy only** |
 
 **C51 requires an explicit correction.** `categorical_cross_entropy`
-(`c51/loss.rs:26-30`) returns `−Σ target·log pred`. Rainbow specifies
-`D_KL(target ‖ pred) = CE − H(target)`. `H(target)` is constant with respect to
-θ but **varies across samples**, so using CE as the priority is *not* Rainbow's
-priority. The KL priority must subtract `Σ target·log target` explicitly.
+(`c51/loss.rs:26-30`) returns $-\sum \text{target} \cdot \log \text{pred}$. Rainbow specifies
+$D_{KL}(\text{target} \Vert \text{pred}) = CE - H(\text{target})$. `H(target)` is constant with respect to
+$\theta$ but **varies across samples**, so using CE as the priority is *not* Rainbow's
+priority. The KL priority must subtract $\sum \text{target} \cdot \log \text{target}$ explicitly.
 
 **QR-DQN's priority is uncited and ships labelled as such.** Dabney et al.
 (2018) explicitly decline the combination: "in our evaluations we compare the
@@ -414,7 +414,7 @@ Huber loss as the priority extrapolates Rainbow's stated *principle*
 is opt-in and its rustdoc says, in these terms, that it is a design choice by
 analogy and not a literature result.
 
-### 14. The loss-site restructure is bit-identical at `w ≡ 1`
+### 14. The loss-site restructure is bit-identical at $w \equiv 1$
 
 Verified against `burn-nn-0.21.0`: `HuberLoss::forward(p, t, Reduction::Mean)`
 is *literally* `self.forward_no_reduction(p, t).mean()`
@@ -512,9 +512,9 @@ staging path anyway, so a typed `A` would be converted to the erased form at
 every sample. Paying a `Clone + 'static` bound on every downstream action type
 to store data that is immediately erased is a cost with no purchaser.
 
-**One `ReplayStrategy` with `α = 0` as the uniform case (Schaul Eq. 1).**
+**One `ReplayStrategy` with $\alpha = 0$ as the uniform case (Schaul Eq. 1).**
 Rejected on two grounds, the second sufficient alone: (a) O(n) distribution
-construction per learn step against O(k) draws, at capacities up to 10⁶; (b)
+construction per learn step against O(k) draws, at capacities up to $10^6$; (b)
 uniform draws i.i.d. with replacement while Schaul's scheme is stratified
 without it, so one implementation cannot honour both and either choice silently
 changes the other's semantics. Elegance loses to a behavioural difference.
@@ -580,7 +580,7 @@ argument** — no IS weight exists yet.
 `Priority` newtype; `PrioritizedReplayConfig` + `Validate`; sum-tree;
 stratified sampling; running max; IS weights with minibatch max-normalization.
 Zero agent changes. **Acceptance: unit tests against Schaul's equations —
-α = 0 recovers the uniform marginal, weights are max-normalized to 1,
+$\alpha = 0$ recovers the uniform marginal, weights are max-normalized to 1,
 stratification puts exactly one draw per segment, an evicted `TransitionId`
 resolves to `None`, `Priority::try_new` rejects `NaN`/`0`/negative.** Land the
 O(n) prefix-scan version first if the sum-tree is not review-ready; swap behind
@@ -642,6 +642,6 @@ Handling section panic-contract row, `CLAUDE.md`'s Key Files table, and
   `.../src/experience.rs` (untouched); `.../src/algorithms/{dqn,c51,qrdqn,
   ddpg,td3,sac}/*_agent.rs`; `.../src/algorithms/c51/loss.rs`;
   `.../src/algorithms/qrdqn/quantile_loss.rs`;
-  `burn-nn-0.21.0/src/loss/huber.rs:86-98` (`forward(.., Mean)` ≡
+  `burn-nn-0.21.0/src/loss/huber.rs:86-98` (`forward(.., Mean)` $\equiv$
   `forward_no_reduction(..).mean()`, the basis of this ADR's own Decision 14
   bit-identity claim).

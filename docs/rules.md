@@ -320,6 +320,65 @@ Supplementary rules:
 - Use `[`Type`]` syntax for intra-doc links to types in scope; use fully-qualified paths for cross-crate links.
 - Document all trait invariants in the trait's doc comment under an `# Invariants` heading.
 
+### Mathematical notation
+
+Two rendering pipelines are in play, and they require **different** syntax —
+using the wrong one fails silently (KaTeX is loaded with `throwOnError: false`,
+so a mis-escaped formula just prints as raw text with no build error to catch
+it).
+
+**In rustdoc** (`///`/`//!` comments), rendered by each crate's
+`katex-header.html` (`[package.metadata.docs.rs] rustdoc-args`; the five
+copies — `rlevo-core`, `rlevo-environments`, `rlevo-evolution`,
+`rlevo-benchmarks`, `rlevo-reinforcement-learning` — are hand-synced and must
+stay byte-identical; edit all five together):
+
+- **Inline math is backtick-wrapped: `` `$...$` ``** — e.g.
+  `` `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$` `` (`algorithms/ep.rs`).
+  The backticks are load-bearing, not decorative: rustdoc runs doc comments
+  through markdown before KaTeX ever sees them, and a bare `$...$` in prose
+  lets markdown mangle `_` (subscripts read as italics) and eat a stray `\`.
+  The header's `auto-render` pass explicitly ignores `<code>` elements for
+  exactly this reason, and a second script specifically unwraps `` `$...$` ``
+  spans.
+- **Display math is a fenced ` ```math ` block** (not ` ```text `, not bare
+  `$$...$$`), rendered verbatim so markdown never touches it — see
+  `algorithms/eda/dependency_chain.rs` for the reference shape.
+- Never write bare `$...$` / `$$...$$` in doc-comment prose outside a code
+  span or a ` ```math ` fence — it renders as literal dollar signs.
+- `cargo doc` only renders this locally with
+  `RUSTDOCFLAGS="--html-in-header crates/<crate>/katex-header.html"` (or
+  equivalent); a plain local `cargo doc --open` shows the raw un-rendered
+  source, which is expected and not a bug.
+
+**In ADRs (`docs/adr/*.md`) and other prose markdown**, the doc viewer renders
+KaTeX directly with no markdown-escaping hazard, so inline math is bare
+`$...$` and display math is bare `$$...$$` — never backtick-wrapped, never in
+a code fence. When adding or editing prose, convert non-English mathematical
+notation to KaTeX wherever it is genuine formula content — Greek letters used
+as variables (`α β σ τ λ κ μ …`), operators/relations
+(`√ ≤ ≥ ≈ × ÷ ± ∝ ≡ ≠ ∈ ⊆ ⇒`), sub/superscripts, `∞`, `Σ`/`∏` as operators —
+including a whole expression that is wrapped in backticks only because there
+was no KaTeX support at the time it was written (convert the whole span and
+drop the backticks; don't just swap the one symbol inside).
+**Read the surrounding sentence before converting anything — do not
+pattern-replace.** Leave alone:
+  - typography (em/en dashes, ellipses, curly quotes) and accented Latin
+    letters in citation author names;
+  - anything inside a fenced ASCII-art/box-drawing diagram, or inside a
+    fenced block of real quoted source code — both must render as literal
+    monospace text, and KaTeX does not render inside code fences anyway;
+  - a character inside a verbatim quotation from an external source —
+    citation fidelity (byte-identical to what is being quoted) beats
+    notational consistency, even for something as small as a minus sign;
+  - a plain `→` used as engineering shorthand for a rename, a call/process
+    chain, or a cross-reference pointer (`old_field → new_field`,
+    `ask → evaluate_batch → tell`, `ADR 0033 → 0004`) — convert an arrow only
+    when it is unambiguously a logical connective (`⇒`) or a numeric formula
+    range (`β₀ = 0.4 → 1.0`);
+  - inside a markdown table cell, never introduce a literal unescaped `|` —
+    use `\lvert...\rvert` / `\Vert` instead of a literal `|` / `‖`.
+
 ---
 
 ## 7. Const Generics and Type-Level Constraints

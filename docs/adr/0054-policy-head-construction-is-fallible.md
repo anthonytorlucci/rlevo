@@ -56,7 +56,7 @@ common symptom to grep for:
 
 - On the default `Autodiff<Flex>` clamp path, Burn's default `float_clamp`
   implementation is `clamp_min(clamp_max(x, max), min)`. With inverted
-  bounds this silently **pins every `log σ` to `log_std_min`** — a
+  bounds this silently **pins every $\log \sigma$ to `log_std_min`** — a
   gradient-dead policy collapse with no `NaN` and no panic. A run in this
   state looks like a stuck policy, not a bug.
 - On the raw `Flex` path, the backend's overridden `float_clamp` delegates
@@ -141,8 +141,8 @@ Consequences). The removal covers only half of the old check: `config::ordered`
 was strict (`lo < hi`) and therefore also rejected the degenerate `lo == hi`,
 whereas `Bounds::try_new` deliberately permits it. Both Gaussian configs
 therefore carry an explicit `config::distinct(C, "log_std", ..)` line to
-preserve the prior semantics — a zero-width `log σ` range is a silent σ
-collapse (a frozen shared `Param` on PPO, a state-independent constant σ on
+preserve the prior semantics — a zero-width $\log \sigma$ range is a silent $\sigma$
+collapse (a frozen shared `Param` on PPO, a state-independent constant $\sigma$ on
 SAC), not a usable setting. This is a field-shape change to both configs' public surface
 and their serialized form; accepted pre-1.0.
 
@@ -207,8 +207,8 @@ Burn readers already trust.
 - **`Bounds` does NOT subsume `validate()`.** Adopting `log_std: Bounds`
   removes only the *ordering* check. ADR 0049's floor (`log_std_min >=
   -35`) and span (`< 40`) checks are not expressible as a `Bounds`
-  invariant — `Bounds` only knows `lo <= hi`, not "a floor below which `σ`
-  underflows to `0.0` in f32" or "a span past which a ratio of two `σ`s
+  invariant — `Bounds` only knows `lo <= hi`, not "a floor below which $\sigma$
+  underflows to `0.0` in f32" or "a span past which a ratio of two $\sigma$s
   overflows." Both checks stay in `validate()`, with `Bounds::span()` now
   serving the span check directly instead of `hi - lo` computed by hand.
   ADR 0049's own counterexample makes the point concrete: `log_std_min =

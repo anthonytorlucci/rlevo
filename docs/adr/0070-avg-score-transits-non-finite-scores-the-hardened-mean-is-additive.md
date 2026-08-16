@@ -144,13 +144,13 @@ reports the mean over finite members **and** a `broken_count` of the rest, "so
 a single broken individual flags the population without blanking the mean" —
 and the shape transfers without modification.
 
-### 4. `±∞` is reachable with no non-finite reward anywhere
+### 4. $\pm\infty$ is reachable with no non-finite reward anywhere
 
 This is the observation that settles the predicate chosen in this ADR's own
 Decision 3, below, and it is not in #409.
 
 `episode_reward` is an `f32` accumulating over an episode of unbounded length. A
-long episode of **entirely finite** rewards can saturate it to `±∞` by ordinary
+long episode of **entirely finite** rewards can saturate it to $\pm\infty$ by ordinary
 accumulation — no divergence, no NaN, no defect in the environment.
 `FiniteRewardGuard` (`crates/rlevo-reinforcement-learning/src/algorithms/
 shared.rs:681,715`) never sees this, and correctly so: every individual reward
@@ -158,7 +158,7 @@ crossed `remember` finite, was admitted, and is sitting in the replay buffer as
 valid data. `dropped_transitions()` reads zero. The `warn!` never fires. The
 user-book's three channels report a healthy run.
 
-The score handed to `AgentStats::record` is nonetheless `±∞`, and it poisons the
+The score handed to `AgentStats::record` is nonetheless $\pm\infty$, and it poisons the
 window exactly as a NaN would. This is a **distinct failure mode from 0065's**,
 with a distinct cause and no overlap in telemetry, and it is why the predicate
 below is `is_finite()` rather than `!is_nan()`.
@@ -235,11 +235,11 @@ decision (Decision 4) exactly, and the naming deliberately echoes
 
 Two independent reasons, either sufficient:
 
-- **`±∞` destroys a mean as thoroughly as `NaN` does**, and it is what this
+- **$\pm\infty$ destroys a mean as thoroughly as `NaN` does**, and it is what this
   workspace's own guard tests for: `FiniteRewardGuard::admit` is
   `if reward.is_finite()` (`shared.rs:715-716`), not an `is_nan` check. A
-  `!is_nan()` filter would pass an `+∞` entry straight into the sum and produce
-  an `+∞` mean from a "hardened" accessor — the worst available outcome, because
+  `!is_nan()` filter would pass an $+\infty$ entry straight into the sum and produce
+  an $+\infty$ mean from a "hardened" accessor — the worst available outcome, because
   it is a hardened name over an unhardened statistic.
 - **The path from this ADR's own Context, part 4, above, is unguarded and
   distinct.** An episode whose `f32` return saturates carries no NaN anywhere,
@@ -268,11 +268,11 @@ reason:
 an oversight.** ADR 0069's empty-case decision (Decision 2) fixes
 `sanitized_mean([]) == f32::NEG_INFINITY`
 (`crates/rlevo-evolution/src/fitness.rs:367-384`, the empty branch at
-`:374-375`). That sentinel is *not* adopted here. `−∞` is meaningful
+`:374-375`). That sentinel is *not* adopted here. $-\infty$ is meaningful
 in `rlevo-evolution` because ADR 0023 makes it the maximise-native worst value,
 and `from_host_fitness` already returned it for an all-broken population.
 `rlevo-reinforcement-learning` has **no objective-sense convention** — a return
-of `−∞` there means "unboundedly bad", which is a claim about the agent, not
+of $-\infty$ there means "unboundedly bad", which is a claim about the agent, not
 about the absence of data. Borrowing 0069's number while leaving the convention
 that gives it meaning behind would be cargo-culting a constant. `Option` already
 expresses "no data" in this API (`avg_score`, `best_score`), so the type that is
@@ -295,7 +295,7 @@ field**, and `record` (`metrics.rs:119-131`) is not touched.
 - The cost is O(window) per call. `window_size` is bounded by
   `MAX_BUFFER_CAPACITY` at construction (`metrics.rs:93-99`) and is a hard-coded
   `100` at every in-crate call site, and the call site is a once-per-episode
-  reporting path. A ≤100-element scan there is not a cost worth buying an
+  reporting path. A $\le 100$-element scan there is not a cost worth buying an
   invariant with.
 
 `finite_avg_score` and `non_finite_recent_len` each walk the window
@@ -377,7 +377,7 @@ numbers in the last ULP for existing runs, for a statistic whose contract is
   no-op protects nothing. Recorded so it is not re-proposed a third time.
 
 - **`!is_nan()` as the predicate**, as #409 spells it. See this ADR's own
-  Decision 3, above: it admits `+∞` into a mean advertised as hardened, and it
+  Decision 3, above: it admits $+\infty$ into a mean advertised as hardened, and it
   misses the path from this ADR's own Context, part 4, entirely.
 
 - **A bundled return, e.g. `finite_score_summary() -> Option<FiniteScoreSummary
@@ -390,7 +390,7 @@ numbers in the last ULP for existing runs, for a statistic whose contract is
   `#[non_exhaustive]` reasoning as a new public type in a pre-1.0 crate, which is
   a decision with a longer tail than the one being made here. And its one
   concrete advantage, a single pass instead of two, is worth nothing on a
-  once-per-episode call over a ≤100-entry deque (this ADR's own Decision 5,
+  once-per-episode call over a $\le 100$-entry deque (this ADR's own Decision 5,
   above). `StrategyMetrics` bundles for a reason `AgentStats` does not
   share: it is a snapshot value type
   that crosses crate boundaries (ADR [0015](0015-shared-typed-metric-registry-crate.md)),
@@ -448,7 +448,7 @@ window in `f32` — only their coordinates moved. This is unlike ADR 0066, which
 corrected a *premise* 0065 reasoned from; nothing here changes what 0065
 concluded or why.
 
-### (b) One 0065 sentence narrows: `best_score` is NaN-immune but **not** `+∞`-immune
+### (b) One 0065 sentence narrows: `best_score` is NaN-immune but **not** $+\infty$-immune
 
 `0065:178-180` reads:
 
@@ -458,18 +458,18 @@ concluded or why.
 
 True of `NaN`, and pinned as true by two tests
 (`metrics.rs:402,447`, which cover the argument and receiver positions of the
-fold separately). **False of `+∞`.** `f32::max` has no NaN-suppression story for
-infinities — it propagates `+∞` correctly, because `+∞` *is* the maximum — and
+fold separately). **False of $+\infty$.** `f32::max` has no NaN-suppression story for
+infinities — it propagates $+\infty$ correctly, because $+\infty$ *is* the maximum — and
 `best_score` is explicitly never evicted by the window (`metrics.rs:159-160`).
-So a single `+∞` episode, of the kind this ADR's own Context, part 4, shows
-is reachable with no non-finite reward anywhere, latches `best_score` at `+∞`
+So a single $+\infty$ episode, of the kind this ADR's own Context, part 4, shows
+is reachable with no non-finite reward anywhere, latches `best_score` at $+\infty$
 for the remaining lifetime of the agent. The sentence should read "cannot corrupt the best-ever
 record *with a `NaN`*."
 
 **Explicitly out of scope for this ADR**, and filed as a follow-up issue. It
 touches `record` rather than a read accessor, which is the one function this ADR
 commits to not modifying (this ADR's own Decision 5, above), and the remedy
-is a genuine policy question rather than a mechanical fix: `+∞` may be the *true* best score of an
+is a genuine policy question rather than a mechanical fix: $+\infty$ may be the *true* best score of an
 episode that really did saturate, in which case latching it is correct
 reporting and a `best_finite_score` sibling is the answer; or the latch may be
 judged a defect in its own right. That is the same finite/raw pairing this ADR
@@ -487,10 +487,10 @@ Context section, both of which this ADR builds on rather than restates.
   NaN-suppressing `minNum`/`maxNum` precisely because plain `min`/`max` are not
   NaN-safe, and Rust's `f32::max` follows the NaN-suppressing form. The
   consequence for this ADR is a clean complementarity: **clipping neutralises
-  `±∞` but not `NaN`** (0065's Literature section states this precisely,
-  quoting Mnih et al. 2013 on reward clipping as an ∞-and-magnitude
+  $\pm\infty$ but not `NaN`** (0065's Literature section states this precisely,
+  quoting Mnih et al. 2013 on reward clipping as an $\infty$-and-magnitude
   mitigation rather than a NaN one), while **`f32::max` neutralises `NaN`
-  but not `+∞`** (this ADR's own Correction (b), below, is that gap, live in
+  but not $+\infty$** (this ADR's own Correction (b), below, is that gap, live in
   this crate). Neither operation's implicit handling is total over the
   non-finite domain. Only an explicit `is_finite` predicate is — which is
   this ADR's own Decision 3, above, and which is also ADR 0066's general
@@ -580,7 +580,7 @@ Any one of these reopens this ADR:
    a lifetime statistic cannot be derived from state that has been evicted, so
    this ADR's own Decision 5 falls and `record` must maintain state after
    all — with the counter/eviction invariant that decision exists to avoid.
-3. **The `best_score` `+∞` latch (this ADR's own Correction (b), above) is
+3. **The `best_score` $+\infty$ latch (this ADR's own Correction (b), above) is
    fixed in a way that introduces its own finite/raw pair** — e.g. a
    `best_finite_score` alongside
    `best_score`. At that point `AgentStats` carries two independent finite/raw
@@ -632,9 +632,9 @@ Any one of these reopens this ADR:
   a later one, including the guard that cited line numbers resolve only against
   the commit that wrote them.
 - ADR [0023](0023-objective-sense-and-maximize-convention.md) — the
-  maximise-native `−∞` worst-value convention that `rlevo-reinforcement-learning`
+  maximise-native $-\infty$ worst-value convention that `rlevo-reinforcement-learning`
   does **not** have, which is why this ADR's own Decision 4 returns `None`
-  rather than 0069's `−∞`. 0023's RL-exemption sub-decision (RD-4) is the
+  rather than 0069's $-\infty$. 0023's RL-exemption sub-decision (RD-4) is the
   clause #409 correctly cites and then draws the wrong conclusion from.
 - ADR [0015](0015-shared-typed-metric-registry-crate.md) — why `StrategyMetrics`
   bundles its fields and `AgentStats` need not.
@@ -648,7 +648,7 @@ Any one of these reopens this ADR:
   `broken_count`, the accessor pair this ADR's own Decision 2 mirrors).
 - `crates/rlevo-evolution/src/fitness.rs:367-384` — `sanitized_mean`: the
   `f64`-accumulator-narrowed-once shape (`:378`, `:381` — the two `#[allow]`s
-  #409 believed the widening would remove) and the `−∞` empty contract at
+  #409 believed the widening would remove) and the $-\infty$ empty contract at
   `:374-375` that this ADR's own Decision 4 deliberately does not adopt.
 - The eight unguarded `episode_reward +=` sites, enumerated in this ADR's own
   Context, part 1; `crates/rlevo-reinforcement-learning/src/algorithms/

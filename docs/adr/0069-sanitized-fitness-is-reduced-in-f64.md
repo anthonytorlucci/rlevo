@@ -260,7 +260,7 @@ accumulator width as the whole of the change. At `allocate_offspring` it is not.
 Sanitizing `total` while leaving the share *numerator* unsanitized makes a `+∞`
 term divide a now-**finite** total, yielding an infinite share; `∞.floor() as
 usize` saturates to `usize::MAX`, and the overshoot-reclaim loop then runs
-`usize::MAX − pop_size` times. That is a **hang**, not a wrong answer, and it was
+$\texttt{usize::MAX} - \texttt{pop\_size}$ times. That is a **hang**, not a wrong answer, and it was
 hit live during implementation (`test_allocate_offspring_poisoned_species_keeps_
 proportionality has been running for over 60 seconds`). The remedy is a single
 shared `share_term` closure feeding both the total and every numerator, so
@@ -319,7 +319,7 @@ force an `expect` on a read that genuinely can fail, contrary to
 
 On-device, the equivalent guarantee comes from **bounding the terms rather than
 widening the accumulator**: divide by the population's max-abs magnitude before
-centering, so every scaled value lies in `[−1, 1]`, the mean in `[−1, 1]`, and
+centering, so every scaled value lies in $[-1, 1]$, the mean in $[-1, 1]$, and
 every squared centered term in `[0, 4]`. For a **finite** population neither the
 mean nor the variance can then overflow at any size that fits in memory, and
 z-scoring is invariant to a positive rescale, so the result is unchanged.
@@ -342,8 +342,8 @@ formula at fitness $\approx 256$ — and it removes the overflow at its actual s
 squared term overflows at `N = 1`, *before* any accumulation, so accumulator
 width was never the binding constraint at this site. A hybrid (host-`f64`
 reduction, device-`f32` elementwise application) was also rejected and is worth
-recording as rejected: for `[f32::MAX, f32::MAX, −f32::MAX]` the on-device
-`centered` term is `−4.54e38`, which overflows `f32` no matter how the mean was
+recording as rejected: for $[\texttt{f32::MAX}, \texttt{f32::MAX}, -\texttt{f32::MAX}]$ the on-device
+`centered` term is $-4.54 \times 10^{38}$, which overflows `f32` no matter how the mean was
 obtained.
 
 Generalised, and binding on future sites:
@@ -598,8 +598,8 @@ keep; the ratio, not the principle, is what was decided.
   `f64`. Its in-file comment already documents this ADR's mechanism, locally.
 - Issue **#1062** — the second and third instances (`speciate`,
   `allocate_offspring`), verified by execution to collapse NEAT's
-  fitness-proportional apportionment population-wide (`[27, 3, 0] → [10, 10,
-  10]`), with `allocate_offspring`'s `total` overflowing independently of the
+  fitness-proportional apportionment population-wide ($[27, 3, 0] \to [10, 10,
+  10]$), with `allocate_offspring`'s `total` overflowing independently of the
   per-species means.
 - Issue **#131** — the per-slot fitness caches whose stored `f32` fields are part
   of this ADR's own Alternatives-considered section's newtype blast radius.

@@ -287,7 +287,7 @@ reason: 12 `Observation` types in the workspace (`FrozenLakeObservation`,
 layout — one-hot, ordinal index-as-float, or something else — is a **design
 question with learning consequences**, not a mechanical migration. ADR 0028's
 own Decision 4 already notes that `f32` represents integers exactly only to
-2²⁴, which bears directly on the ordinal option. Forcing that decision as a side effect of a trait-split PR
+$2^{24}$, which bears directly on the ordinal option. Forcing that decision as a side effect of a trait-split PR
 would be the wrong sequencing.
 
 One limitation to record so the follow-up does not over-promise: the supertrait

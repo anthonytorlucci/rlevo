@@ -46,7 +46,7 @@ that need is not specific to RL, it is intrinsic to the per-binary layout.
 Before this crate existed, the eight RL files independently duplicated:
 
 1. **A ~140-line synthetic `LinearEnv`** — the 1-D continuous tracking fixture
-   (`reward = -(a - x)²`) — copied verbatim into each continuous-control test
+   ($\text{reward} = -(a - x)^2$) — copied verbatim into each continuous-control test
    (DDPG / TD3 / SAC).
 2. **The Burn `Flex` determinism preamble.** `Flex` exposes a *process-global*
    RNG for weight init and dispatches through `rayon` whose float reduction

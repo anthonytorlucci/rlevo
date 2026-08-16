@@ -208,7 +208,7 @@ is therefore **declined** here: no impl consumes it today, and blocking the
 batch seam on an unused feature is unwarranted. If an `Int`/`Bool` observation
 path ever lands, it is the prerequisite and the batch seam is redesigned against
 the generalised trait at that time. (Pre-existing and independent of this work:
-`f32` represents integers exactly only to 2²⁴, so a large discrete
+`f32` represents integers exactly only to $2^{24}$, so a large discrete
 encoding-as-float is already lossy under the current trait.)
 
 ### 5. The inverse batch path is deferred, not designed-in

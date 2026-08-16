@@ -88,9 +88,9 @@ excluding `tests/`, `examples/`, `benches/`). 32 fields:
 
 | crate | fields | zero width legitimate? |
 |---|---|---|
-| `rlevo-environments` | 10 — 4 `action_clip` (`reacher`, `swimmer`, `inverted_pendulum`, `inverted_double_pendulum`), 3 `HealthyCheck` `Option<Bounds>` ranges (`locomotion/common.rs:107,109,112`), 3 mountain-car (`pos_bounds` ×2, `action_bounds`) | **Yes** — a pinned clamp is meaningful |
+| `rlevo-environments` | 10 — 4 `action_clip` (`reacher`, `swimmer`, `inverted_pendulum`, `inverted_double_pendulum`), 3 `HealthyCheck` `Option<Bounds>` ranges (`locomotion/common.rs:107,109,112`), 3 mountain-car (`pos_bounds` $\times 2$, `action_bounds`) | **Yes** — a pinned clamp is meaningful |
 | `rlevo-evolution` | 20 — 18 `pub bounds` on the metaheuristic/EA configs, plus 2 **private** `bounds` on `HillClimbingParams` (`hill_climbing.rs:50`) and `SimulatedAnnealingParams` (`simulated_annealing.rs:53`) | **Yes** — a zero-width search space is degenerate-but-safe (ADR 0027's inclusive-invariant decision, Decision 2) |
-| `rlevo-reinforcement-learning` | 2 — `log_std` on `TanhGaussianPolicyHeadConfig` and `SquashedGaussianPolicyHeadConfig` | **No** — a zero-width `log σ` range is a silent σ collapse |
+| `rlevo-reinforcement-learning` | 2 — `log_std` on `TanhGaussianPolicyHeadConfig` and `SquashedGaussianPolicyHeadConfig` | **No** — a zero-width $\log \sigma$ range is a silent $\sigma$ collapse |
 | `rlevo-core`, `rlevo-hybrid`, `rlevo-benchmarks` | 0 | — |
 
 **The minority is not scattered. It is one crate.** That fact, not the 2-vs-30
@@ -110,13 +110,13 @@ as complete. Second, `crates/rlevo-core/src/config.rs` matches the same regex
 on `nondegenerate_bounds`'s own `b: Bounds` **parameter** — the guard resolves
 matches to struct fields, not to any `: Bounds` occurrence.
 
-### Why the σ collapse is not merely "useless"
+### Why the $\sigma$ collapse is not merely "useless"
 
 Both RL sites already document this in-file, and it is the reason the two-item
 minority is worth mechanizing at all rather than left to review:
 
 - **PPO** (`gaussian.rs`): `log_std` is a *single shared `Param`*. Pinning it to
-  a constant freezes σ **and its gradient** from step 0, with no path back.
+  a constant freezes $\sigma$ **and its gradient** from step 0, with no path back.
 - **SAC** (`sac_policy.rs`): the `log_std` head still receives gradient through
   the mean path, so nothing is permanently frozen — but the policy becomes
   state-independently deterministic in scale, which is precisely the quantity
@@ -158,9 +158,9 @@ Three consequences of the delegation, all intended:
   non-finite endpoint too. Per ADR 0060 that is correct: a `Bounds` **field of a
   config** is a config *value*, not `in_range`'s schema-level bound.
 - **The name is therefore slightly wider than the check.** "Nondegenerate" also
-  excludes `±∞`. This naming wart is documented at the helper rather than
+  excludes $\pm\infty$. This naming wart is documented at the helper rather than
   papered over; a field whose legitimate domain *includes* a one-sided infinite
-  range — `HealthyCheck::z_range`'s `[0.7, ∞)` — simply does not call this
+  range — `HealthyCheck::z_range`'s $[0.7, \infty)$ — simply does not call this
   helper and relies on the `Bounds` invariant alone.
 - **Error semantics are preserved byte-for-byte** against the two lines from
   ADR 0054's Bounds-field decision (Decision 3) it replaces: same
@@ -308,7 +308,7 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   documentation: `nondegenerate_bounds` contains no comparison of its own, so
   there is one predicate with three entry points, not three predicates.
 - **The helper's name over-promises slightly** (this ADR's own Decision 1):
-  it also rejects `±∞`. A reader who wants "nonzero span, infinity allowed"
+  it also rejects $\pm\infty$. A reader who wants "nonzero span, infinity allowed"
   must notice this. The wart is documented at the helper; the alternative —
   a helper that permits an infinite endpoint — is the loosening the helper
   exists to prevent.
@@ -427,7 +427,7 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   would not have retired.
 - ADR [0060](0060-config-values-must-be-finite.md) — the finiteness guard on
   `ordered`/`distinct` that `nondegenerate_bounds` inherits, and the
-  value-versus-schema distinction that makes rejecting `±∞` correct here while
+  value-versus-schema distinction that makes rejecting $\pm\infty$ correct here while
   `Bounds::new(0.7, f32::INFINITY)` stays legitimate elsewhere.
 - ADR [0026](0026-shared-config-validation-convention.md), ADR
   [0055](0055-config-invariant-enforcement-allocation.md) — the `Validate`
@@ -451,7 +451,7 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   and `crates/rlevo-reinforcement-learning/src/algorithms/sac/sac_policy.rs:123`
   (the lines from ADR 0054's Bounds-field decision, Decision 3, with the
   in-file comments explaining PPO's frozen shared `Param` and SAC's
-  state-independent σ).
+  state-independent $\sigma$).
 - Code — the permissive population's live mitigation:
   `crates/rlevo-evolution/src/local_search/simulated_annealing.rs:79`,
   `crates/rlevo-evolution/src/local_search/random_restart.rs:83` (ADR 0027's

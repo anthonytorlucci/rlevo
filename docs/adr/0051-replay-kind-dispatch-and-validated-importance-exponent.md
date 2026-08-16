@@ -6,12 +6,12 @@ date: 2026-07-18
 tags: [adr, decision, reinforcement-learning, replay, per, her, issue-188, numerical-stability]
 ---
 
-# ADR 0051: `ReplayKind` dispatch, and β is a validated newtype
+# ADR 0051: `ReplayKind` dispatch, and $\beta$ is a validated newtype
 
 ## Status
 
 **Accepted (2026-07-18).** **Corrects ADR
-[0050](0050-replay-strategy-seam.md)'s own Decision 3 (the `ReplayStrategy` trait sketch), Decision 11 (β annealing), and Decision 13 (per-agent priority signal)** — three statements that
+[0050](0050-replay-strategy-seam.md)'s own Decision 3 (the `ReplayStrategy` trait sketch), Decision 11 ($\beta$ annealing), and Decision 13 (per-agent priority signal)** — three statements that
 did not survive contact with the implementation. Does not supersede 0050; its
 decision (a replay-strategy seam, PER rebuilt rather than finished) stands
 unchanged. ADRs are immutable, so the corrections are recorded here rather than
@@ -90,8 +90,8 @@ and through it `Bounds` / `Probability` / `NonNegativeRate` (ADR 0027 / 0031):
 ImportanceExponentError>` with a `Copy` error, `const fn get`, and a named
 `ImportanceExponent::ONE` for the annealed endpoint.
 
-`sample` deliberately does **not** gain a `Result` for a bad β. `UniformReplay`
-ignores β entirely, so a fallible signature would force it to carry an error
+`sample` deliberately does **not** gain a `Result` for a bad $\beta$. `UniformReplay`
+ignores $\beta$ entirely, so a fallible signature would force it to carry an error
 variant it can never produce — the "field meaningless for half the callers"
 shape that retired `TrainingBatch` in ADR 0050's own Decision 7. The invariant is carried by
 the type instead, so no implementation re-checks it.
@@ -114,7 +114,7 @@ beta_start + (beta_end - beta_start) * limit(step as f32 / anneal_steps as f32)
 ```
 
 With `beta_anneal_steps == 0` the fraction is `0.0 / 0.0` = `NaN` at `step == 0`
-and `+∞` thereafter, **while every endpoint is individually valid**. A `Validate`
+and $+\infty$ thereafter, **while every endpoint is individually valid**. A `Validate`
 impl inspecting endpoints has nothing to reject. Validating endpoints cannot
 establish a property of the evaluated value.
 
@@ -128,7 +128,7 @@ that read as interchangeable silently decides whether the buffer receives a
 `NaN`. Pinned by
 `test_importance_exponent_rejects_an_evaluated_zero_anneal_schedule`.
 
-The consequence had β reached `(min_mass / m).powf(beta)` is the same
+The consequence had $\beta$ reached `(min_mass / m).powf(beta)` is the same
 NaN-propagation shape that made #188 worth filing: `NaN` weights → `NaN`
 per-sample loss → `NaN` through `backward()` → every parameter the optimizer
 touches next is permanently poisoned, with no panic, no error, and no log line.
@@ -143,7 +143,7 @@ Three things therefore ship together, and none is sufficient alone:
 - The schedule evaluator **clamps** before construction, so an in-range value is
   produced by construction rather than by luck.
 - `ImportanceExponent` turns any *residual* bug — a fourth spelling, a caller
-  bypassing the evaluator, a deserialized β — into a **loud panic at a named
+  bypassing the evaluator, a deserialized $\beta$ — into a **loud panic at a named
   construction site**, rather than `NaN` weights poisoning gradients twenty steps
   later at a site that names nothing.
 
@@ -169,11 +169,11 @@ stale. Recorded here; 0050 is not edited.
 - A future third strategy cannot silently swallow a priority writeback. The
   question "what does this strategy do with `update_priorities`?" is asked by the
   compiler, at the moment the variant is added.
-- A non-finite or out-of-range β is unrepresentable at `sample`, closing the
+- A non-finite or out-of-range $\beta$ is unrepresentable at `sample`, closing the
   release-build NaN path that the `debug_assert!` left open.
 - PER stays a **config-level** opt-in, as ADR 0050 requires, rather than becoming
   a type-level one.
-- `UniformReplay::sample` keeps its infallible-in-β signature and gains no error
+- `UniformReplay::sample` keeps its infallible-in-$\beta$ signature and gains no error
   variant it cannot produce.
 
 ### Negative / accepted costs
@@ -196,7 +196,7 @@ stale. Recorded here; 0050 is not edited.
 
 - The `ImportanceExponent` change is a **strict behavioural no-op**: no RNG draw
   moves and no arithmetic changes. `UniformReplay`'s pinned draw-order contract
-  (ADR 0050's own Decision 5) is untouched; only the call's β argument is retyped.
+  (ADR 0050's own Decision 5) is untouched; only the call's $\beta$ argument is retyped.
 - Nothing is serialized. No record `FORMAT_VERSION` bump.
 
 ## Alternatives considered
@@ -204,14 +204,14 @@ stale. Recorded here; 0050 is not edited.
 **Keep the `debug_assert!` and document the contract harder.** Rejected — it is
 the status quo whose failure mode this ADR exists to close. A guard that
 disappears in release builds is not a guard on a code path whose failures take
-`~10⁵` steps to appear.
+~$10^5$ steps to appear.
 
 **Return `Result<SampledBatch, _>` with a `BadBeta` variant.** Rejected — ADR
-0050's own Decision 7 reasoning, applied to an error enum: `UniformReplay` ignores β, so the
+0050's own Decision 7 reasoning, applied to an error enum: `UniformReplay` ignores $\beta$, so the
 variant is unconstructible for half the implementors, and every call site pays a
 `?` for a case that cannot arise there.
 
-**Validate β on the agent config only, and keep `f32`.** Rejected — this is
+**Validate $\beta$ on the agent config only, and keep `f32`.** Rejected — this is
 precisely the withdrawn Decision 11 mitigation from ADR 0050. Endpoints are not the evaluated value
 (this ADR's own Decision 3).
 
@@ -242,8 +242,8 @@ requirement.
   because the value there is a learned `Param`, not an argument.
 - Issue #188 — the NaN-propagation shape this ADR's own Decision 3 refuses to ship inside its own fix.
 - Schaul, Quan, Antonoglou, Silver (2016). *Prioritized Experience Replay.*
-  ICLR 2016, arXiv:1511.05952v4. Section 3.4 (`w_i = (1/N · 1/P(i))^β`), Table 3
-  (`β₀ = 0.4 → 1.0`, the `ImportanceExponent::ONE` endpoint).
+  ICLR 2016, arXiv:1511.05952v4. Section 3.4 ($w_i = (1/N \cdot 1/P(i))^\beta$), Table 3
+  ($\beta_0 = 0.4 \to 1.0$, the `ImportanceExponent::ONE` endpoint).
 - Code: `crates/rlevo-reinforcement-learning/src/replay/importance_exponent.rs`
   (the newtype and the zero-anneal test); `.../replay/mod.rs`
   (`ReplayStrategy::sample`); `.../replay/prioritized.rs` (the removed

@@ -102,7 +102,7 @@ differently-scoped change than closing #352.
 ### The tightest in-repo precedent is `Priority`, not ADR 0060
 
 `Priority::try_new` (`replay/priority.rs:115`) and `from_td_error`
-(`replay/priority.rs:142`) already reject NaN/±Inf on a **runtime-derived**
+(`replay/priority.rs:142`) already reject NaN/$\pm\infty$ on a **runtime-derived**
 float at a buffer boundary, with a typed error, and
 `update_priorities_from_td_errors` (`prioritized.rs:337`) writes nothing when
 one is bad. This is structurally the same problem this ADR solves — a
@@ -118,7 +118,7 @@ data stream. Lead with `Priority` as precedent, not with 0060.
 
 `FiniteRewardGuard { dropped: u64, next_threshold: u64, label: &'static str }`
 in `algorithms/shared.rs`, alongside `FiniteLossGuard` (ADR 0056). `admit(&mut
-self, reward: f32) -> bool` returns `true` ⇒ proceed with `push`; `false` ⇒
+self, reward: f32) -> bool` returns `true` $\Rightarrow$ proceed with `push`; `false` $\Rightarrow$
 skip it. `dropped_transitions(&self) -> u64` is a public, non-`#[cfg(test)]`
 accessor (unlike `FiniteLossGuard::warning_fired`, this one is operationally
 useful outside tests — it is the surfacing channel a caller can poll without
@@ -139,7 +139,7 @@ protected every step, and latching the drop would silently readmit poison
 after the first occurrence. What is scheduled is only the `warn!`: it fires
 at `dropped_transitions() == 1, 10, 100, 1000, …` (i.e. on powers of ten),
 each time reporting the running total. This bounds log volume to
-~log₁₀(n) lines — at most about 7 over a run reaching a billion dropped
+~$\log_{10}(n)$ lines — at most about 7 over a run reaching a billion dropped
 transitions — while still surfacing magnitude, not just occurrence. See this
 ADR's own Literature section, below, for why magnitude specifically, not just
 an occurrence flag, is the thing that must be observable.
@@ -149,7 +149,7 @@ an occurrence flag, is the thing that must be observable.
 - **Env-step counter is unaffected.** `on_env_step()` is a separate call
   (`dqn/train.rs:127`) made *after* `remember` (`dqn/train.rs:120`). The
   environment step genuinely happened regardless of whether the reward was
-  admitted. ε-decay, `learning_starts`, and ADR 0059's gradient-update-keyed
+  admitted. $\varepsilon$-decay, `learning_starts`, and ADR 0059's gradient-update-keyed
   target cadence all advance exactly as if the drop had not occurred.
 - **`can_learn` is correctly delayed by the drop count.** You cannot learn
   from data you refused to accept, so a dropped transition does not count
@@ -202,7 +202,7 @@ catch.
 - **Sanitize to `0.0` / clamp.** `f32::clamp` propagates NaN
   (`c51/projection.rs:97` already documents this in-tree), so a naive
   `reward.clamp(lo, hi)` is a silent no-op against NaN specifically — see
-  this ADR's own Literature section, below, for the ∞-vs-NaN distinction. A
+  this ADR's own Literature section, below, for the $\infty$-vs-NaN distinction. A
   *deliberate* NaN→`0.0`
   substitution is worse than doing nothing: it manufactures a reward the
   environment never emitted and is indistinguishable downstream from a
@@ -256,19 +256,19 @@ note, which deferred this issue by number).
   honest framing is the stronger argument: none of the surveyed
   implementations check, and that absence is itself the gap this ADR closes.
 - **Reward clipping does not subsume this guard, stated precisely.**
-  `Inf.clamp(-1.0, 1.0)` correctly returns `1.0` — ±∞ orders normally under
+  `Inf.clamp(-1.0, 1.0)` correctly returns `1.0` — $\pm\infty$ orders normally under
   IEEE 754, so clipping *does* neutralize infinities. `NaN.clamp(-1.0, 1.0)`
   returns `NaN`, because IEEE 754 makes every ordering comparison against
   NaN false, which is exactly why IEEE 754-2008 introduced the
   NaN-suppressing `minNum`/`maxNum` as operations distinct from plain
-  `min`/`max`. So clipping subsumes an ∞ guard but not a NaN guard — not
+  `min`/`max`. So clipping subsumes an $\infty$ guard but not a NaN guard — not
   overclaiming this: Mnih et al. (*Playing Atari with Deep Reinforcement
   Learning*, NIPS DL Workshop 2013, arXiv:1312.5602; restated in the 2015
   Nature Methods section) state, verbatim: "we fixed all positive rewards to
   be 1 and all negative rewards to be −1, leaving 0 rewards unchanged,"
   because "clipping the rewards in this manner limits the scale of the error
   derivatives and makes it easier to use the same learning rate across
-  multiple games." That is an ∞-and-magnitude mitigation, not a NaN one, and
+  multiple games." That is an $\infty$-and-magnitude mitigation, not a NaN one, and
   rlevo does not clip rewards by default regardless.
 - **The AMP/`GradScaler` precedent transfers as analogy, not authority — a
   deliberate departure from how 0056 used it.** Micikevicius et al. (*Mixed
@@ -326,7 +326,7 @@ reasoning.
   `compute_gae:349`). Filed as **#1042**. The reason is not
   convenience — the blast radius per occurrence is *larger* here than in the
   off-policy case: the reverse GAE recursion carries one NaN reward to every
-  timestep `t' ≤ t` in the rollout, and `normalize_advantages`
+  timestep $t' \le t$ in the rollout, and `normalize_advantages`
   (`ppo/losses.rs:72-77`) then takes a batch mean and spreads it to every
   advantage in the batch, so one bad reward destroys the whole rollout's
   advantage estimates. But this ADR's semantic — "don't push the tuple" —
@@ -374,7 +374,7 @@ reasoning.
   on a drop) confirms advances unaffected by a drop.
 - `crates/rlevo-reinforcement-learning/src/replay/priority.rs:115,142` —
   `Priority::try_new` / `from_td_error`, the tightest in-repo precedent:
-  rejecting NaN/±Inf on a runtime-derived float at a buffer boundary.
+  rejecting NaN/$\pm\infty$ on a runtime-derived float at a buffer boundary.
 - `crates/rlevo-reinforcement-learning/src/replay/transition.rs:34-75` — the
   fully-`pub` `Transition<O, P>` and its struct-literal doctest, the reason a
   validating constructor there is unenforceable.

@@ -14,17 +14,16 @@ tags:
   - rlevo
 ---
 
-# ADR 0016: Memetic wrapper and host-side local-search seam (phase 3a)
+# ADR 0016: Memetic wrapper and host-side local-search seam
 
 ## Status
 
-Active. Adopted 2026-06-10. Implements phase 3a of the advanced-EA roadmap,
-with both internal research gates closed: one commits the four-searcher v1
-inventory (`HillClimbing`, `NelderMead`, `SimulatedAnnealing`, `RandomRestart`;
-BFGS / Powell / `argmin` deferred) and the other commits
-`WritebackPolicy::Partial(0.5)` as the default writeback. Purely additive: no
-changes to the `Strategy` trait, `EvolutionaryHarness`, or any existing
-algorithm file. Does not supersede any prior ADR; extends the host-RNG /
+Active. Adopted 2026-06-10. Ships an initial four-searcher inventory
+(`HillClimbing`, `NelderMead`, `SimulatedAnnealing`, `RandomRestart`;
+BFGS / Powell / `argmin` deferred) with `WritebackPolicy::Partial(0.5)` as the
+default writeback. Purely additive: no changes to the `Strategy` trait,
+`EvolutionaryHarness`, or any existing algorithm file. Does not supersede any
+prior ADR; extends the host-RNG /
 `seed_stream` convention (all EA randomness is host-sampled, `B::seed` /
 `Tensor::random` / `thread_rng` forbidden — later codified as ADR
 [0029](0029-host-rng-seeding-convention.md)) and the `parking_lot` unification
@@ -33,7 +32,7 @@ of [0010-unify-on-parking-lot-across-viz-stack](0010-unify-on-parking-lot-across
 ## Context
 
 Memetic algorithms hybridise a population-level evolutionary search with a
-per-individual local-refinement step. The phase-3a goal is narrow and concrete:
+per-individual local-refinement step. The goal here is narrow and concrete:
 make local refinement a **composable, zero-cost-to-adopt** upgrade for any existing
 `rlevo-evolution` strategy, such that `MemeticWrapper<DE, HillClimbing>` reaches a
 target Rastrigin (D=10) fitness in *fewer fitness evaluations* than bare DE,
@@ -75,7 +74,7 @@ to drive its batch loop. This ADR adopts option (a).
 
 ## Decision
 
-**Ship phase 3a as a host-side local-search seam plus a `Strategy`-implementing
+**Ship a host-side local-search seam plus a `Strategy`-implementing
 `MemeticWrapper`. The wrapper owns refinement inside its own `tell` (option (a)),
 reconciles `tell(&self)` against `evaluate_*(&mut self)` via a `parking_lot::Mutex<F>`
 field, drives refinement through a `LocalSearch<B>` trait over host-side `Vec<f32>`
@@ -130,8 +129,8 @@ and `CoveragePolicy::TopK { k: 1 }` are the defaults. All changes are additive.*
    is reused for the mask.
 
 4. **`LocalSearch<B>` is a host-side trait over `Vec<f32>` genomes.** The trait's
-   `refine` consumes a host genome `Vec<f32>` and a `&mut dyn FitnessFn<Vec<f32>>`
-   (the spec-frozen signature), returning the refined `(Vec<f32>, f32)`. The wrapper
+   `refine` consumes a host genome `Vec<f32>` and a `&mut dyn FitnessFn<Vec<f32>>`,
+   returning the refined `(Vec<f32>, f32)`. The wrapper
    bridges the batch world to this scalar world through a private `RowFitness` adapter
    that wraps `&mut F` + `&Device`, builds a `[1, D]` tensor per `evaluate_one`, calls
    `evaluate_batch`, and pulls the scalar back. The `B` type parameter on
@@ -141,9 +140,9 @@ and `CoveragePolicy::TopK { k: 1 }` are the defaults. All changes are additive.*
    refined row is **accepted debt** — refinement is deliberately the slow path, gated
    by `CoveragePolicy`.
 
-5. **Four searchers in v1 (3a-R1), each monotone-non-worsening and fresh-fitness.**
+5. **Four searchers ship initially, each monotone-non-worsening and fresh-fitness.**
    `HillClimbing` (FirstImprovement / BestImprovement, decaying step), `NelderMead`
-   (standard α/γ/ρ/σ, budget-counted simplex init, degenerate-budget safety),
+   (standard $\alpha$/$\gamma$/$\rho$/$\sigma$, budget-counted simplex init, degenerate-budget safety),
    `SimulatedAnnealing` (geometric / linear cooling, Gaussian proposal, returns
    best-so-far not the walker), and `RandomRestart<L>` (run 0 unperturbed for
    monotonicity, runs 1..=k perturbed, argmin). Every searcher's first action is to
@@ -156,8 +155,8 @@ and `CoveragePolicy::TopK { k: 1 }` are the defaults. All changes are additive.*
    constructor mirroring `DeConfig::default_for`.
 
 6. **Policy enums and defaults.**
-   `WritebackPolicy { Lamarckian, Baldwinian, Partial(f32) }`, `Default = Partial(0.5)`
-   (3a-R2). Lamarckian writes refined genomes back into the population (`slice_assign`
+   `WritebackPolicy { Lamarckian, Baldwinian, Partial(f32) }`, `Default = Partial(0.5)`.
+   Lamarckian writes refined genomes back into the population (`slice_assign`
    on refined rows); Baldwinian keeps the genome but hands `S::tell` the refined
    *fitness* (the ask tensor is passed through bit-identically); `Partial(p)` makes the
    choice per row from `mask_rng`. `CoveragePolicy { Full, TopK { k } }`,
@@ -184,7 +183,7 @@ and `CoveragePolicy::TopK { k: 1 }` are the defaults. All changes are additive.*
   an optional refinement hook to `EvolutionaryHarness` that threads the single
   harness-owned `F` into local search. This re-opens the frozen harness, so it is a
   deliberate later decision, not a default.
-- If the **per-refine input re-evaluation cost** (every `refine` burns ≥1 eval
+- If the **per-refine input re-evaluation cost** (every `refine` burns $\ge 1$ eval
   re-scoring its own input because the signature carries no input fitness) dominates a
   real budget, add a `refine_with_known_fitness(genome, fitness, …)` default method to
   `LocalSearch<B>` that skips the seeding eval. This is **additive** — a defaulted
@@ -202,8 +201,8 @@ and `CoveragePolicy::TopK { k: 1 }` are the defaults. All changes are additive.*
   `Strategy`*, so it composes with DE, GA, and any future strategy for free, and runs
   through the existing harness and benchmark plumbing unmodified.
 - **Reproducibility is structural, not best-effort.** The single-draw two-stream scheme
-  makes writeback policy a stream-position-invariant overlay, so `Partial(1.0)≡Lamarckian`
-  / `Partial(0.0)≡Baldwinian` hold *bit-identically* and are pinned by test. The whole
+  makes writeback policy a stream-position-invariant overlay, so `Partial(1.0)` $\equiv$ `Lamarckian`
+  / `Partial(0.0)` $\equiv$ `Baldwinian` hold *bit-identically* and are pinned by test. The whole
   feature stays inside the host-RNG convention; no new global-RNG hazard is introduced.
 - **The slow path is opt-in and bounded.** `CoveragePolicy::TopK{1}` default means a
   default memetic run refines exactly one individual per generation; the cost scales
@@ -211,7 +210,8 @@ and `CoveragePolicy::TopK { k: 1 }` are the defaults. All changes are additive.*
 - **The seam extends cleanly.** The unused `B` on `LocalSearch<B>` reserves the
   on-device-searcher escape hatch; the defaulted `refine_with_known_fitness` extension
   is pre-cleared; the `LocalSearch` + `MemeticWrapper` split is the same
-  trait-over-host-genomes shape that phase 3b/3c (EDA, CoEA) can reuse without a
+  trait-over-host-genomes shape that future population-search variants (e.g.
+  estimation-of-distribution or coevolutionary algorithms) can reuse without a
   signature break.
 
 **Negative / accepted costs**
@@ -227,7 +227,7 @@ and `CoveragePolicy::TopK { k: 1 }` are the defaults. All changes are additive.*
   fitness: invisible. Stateful fitness: divergent unless the caller shares state via
   interior-mutable handles. Documented at `MemeticWrapper::new`; the headline test
   demonstrates the `Arc<AtomicUsize>` sharing pattern.
-- **Per-refine input re-evaluation.** Each `refine` spends ≥1 eval re-scoring its input
+- **Per-refine input re-evaluation.** Each `refine` spends $\ge 1$ eval re-scoring its input
   because the frozen signature carries no input fitness. With the `TopK{1}` default the
   waste is one eval/generation; the `refine_with_known_fitness` reversal path is the
   documented mitigation when coverage is wide.
@@ -290,7 +290,7 @@ and `CoveragePolicy::TopK { k: 1 }` are the defaults. All changes are additive.*
 **Option (b): make the harness memetic-aware.** Add a refinement hook to
 `EvolutionaryHarness` and thread the single harness-owned `F` into local search.
 Eliminates the second `F` instance and the `Mutex` (the harness already holds `&mut F`).
-Rejected for phase 3a: it edits the frozen `EvolutionaryHarness`, couples every run
+Rejected for now: it edits the frozen `EvolutionaryHarness`, couples every run
 path to a memetic concept most runs do not use, and forfeits the "the wrapper is just
 another `Strategy`" composability that makes adoption zero-cost. Retained as the
 reversal path if the two-instance edge proves painful.
@@ -305,8 +305,9 @@ is neither, and cloning a fitness function per generation is wrong. `F` belongs 
 struct.
 
 **Bake an input-fitness argument into `LocalSearch::refine` now** (skip the seeding
-re-eval). Rejected for v1: the spec froze the signature, and the re-eval cost is one
-eval/generation under the default coverage. The `refine_with_known_fitness` defaulted
+re-eval). Rejected for v1: it would enlarge the trait signature before any searcher
+needed it, and the re-eval cost is one eval/generation under the default coverage.
+The `refine_with_known_fitness` defaulted
 extension is the clean additive path when the cost actually hurts.
 
 **Couple the writeback mask to the refinement RNG** (one stream). Rejected: it would
@@ -316,14 +317,6 @@ determinism tests.
 
 ## References
 
-- Phase 3a of the project's advanced-EA roadmap; its corrected trait signature
-  and acceptance criteria are reproduced in this ADR's own Decision and
-  Concrete parts sections above.
-- Closed research gate 3a-R1 — committed the four-searcher v1 inventory
-  (HillClimbing, NelderMead, SimulatedAnnealing, RandomRestart; BFGS / Powell /
-  `argmin` deferred).
-- Closed research gate 3a-R2 — committed `WritebackPolicy::Partial(0.5)` as
-  default.
 - [0010-unify-on-parking-lot-across-viz-stack](0010-unify-on-parking-lot-across-viz-stack.md) — `parking_lot` already a dependency;
   the `Mutex<F>` reuses it with no manifest change.
 - The host-RNG / `seed_stream` convention the two-stream scheme obeys —

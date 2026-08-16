@@ -115,7 +115,7 @@ all existing determinism/golden tests (`rlevo/tests/determinism.rs`, the `rng`/
 - **Do nothing (keep ADR 0004 as-is).** Rejected: the drift concern is valid and
   cheaply eliminated; the "coupling" ADR 0004 protected against is, for a frozen
   algorithm, the property we actually want.
-- **Change `SeedPurpose::Other`'s constant** (which coincides with φ64). Out of
+- **Change `SeedPurpose::Other`'s constant** (which coincides with $\varphi_{64}$). Out of
   scope and rejected here: it would break the reproducibility of every strategy
   currently using `Other`. Issue #161's `Other`-caveat item asks only to
   *document* the caveat, which the same PR does on the `Other` variant.

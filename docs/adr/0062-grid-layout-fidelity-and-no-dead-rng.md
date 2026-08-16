@@ -97,9 +97,9 @@ Reconciled against Farama-Foundation/Minigrid `master` (`minigrid/envs/*.py`,
 | `Empty` | **None.** `MiniGrid-Empty-5x5/6x6/8x8/16x16` fix the agent at `(1,1)` dir `0`; only the separately-registered `-Random-` ids call `place_agent`. | agent `(1,1,East)`, goal `(size-2,size-2)` | **Faithful.** Genuinely deterministic. |
 | `DistShift` | **None** for the shipped `DistShift1/2-v0`. The lava row is a registration constant, not a draw — determinism is the experimental point of a train/test distributional-shift probe over two fixed, known boards. | variant-selected lava row, all else literal | **Faithful.** Genuinely deterministic. |
 | `LavaGap` | wall column `_rand_int(2, w-2)`, gap row `_rand_int(1, h-1)` | both pinned to `size/2` | Deviation (small). |
-| `Crossing` | `shuffle(rivers)` → take `num_crossings`; `shuffle(path)`; a `choice` per opening | exactly two strips at `mid±1` sharing one gap at `mid` | Deviation (small draws, ordering-critical — see this ADR's own Decision 4, below). |
+| `Crossing` | `shuffle(rivers)` → take `num_crossings`; `shuffle(path)`; a `choice` per opening | exactly two strips at $\text{mid} \pm 1$ sharing one gap at `mid` | Deviation (small draws, ordering-critical — see this ADR's own Decision 4, below). |
 | `DoorKey` | split column `_rand_int(2, w-2)`, door row `_rand_int(1, h-2)`, agent pose via `place_agent`, key via `place_obj` | split `size/2`, door on the diagonal at `(split, split)`, key `(1,1)`, agent `(1,2,North)` | Deviation (small). |
-| `FourRooms` | four inter-room doorway offsets; agent pose and goal via `place_agent`/`place_obj` (the 2×2 quadrant partition itself is fixed) | doorways pinned at `mid±3`; agent and goal fixed | Deviation (small). |
+| `FourRooms` | four inter-room doorway offsets; agent pose and goal via `place_agent`/`place_obj` (the $2\times2$ quadrant partition itself is fixed) | doorways pinned at $\text{mid} \pm 3$; agent and goal fixed | Deviation (small). |
 | `UnlockPickup` | door row, door colour, box colour, key and box positions in room, agent pose | all constants | Deviation (small). |
 | `Unlock` | door y on the shared **interior** wall, `_rand_color()`, key colour tied to door colour, key pos via `place_in_room` with `reject_next_to`, agent pose | door at `(1, 0)` — **inside the top perimeter wall** — key `(2,1)`, single room | Deviation, **plus an independent placement defect**. |
 | `MultiRoom` | room **count**; each room's size and position via recursive `_placeRoom` with backtracking; each door's wall side, position, and colour | uniform horizontal strip of equal-width rooms, every door at `height/2`, all one colour | Deviation, **and a different size of problem** — procedural generation, not a handful of draws. |
@@ -222,7 +222,7 @@ otherwise be re-litigated at every call site.
 **(a) Exhaustion returns `Result`, propagated with `?` — never `.expect()`.**
 The construction chokepoint (ADR 0026) validates *config*; exhaustion depends
 on config **and** the draws already made this episode. `DoorKey` at
-`MIN_SIZE = 5` has a 3×3 interior: place the agent, then place the key under a
+`MIN_SIZE = 5` has a $3\times3$ interior: place the agent, then place the key under a
 `reject_next_to` filter, and the residual free set can be empty on some draws
 from a config that is entirely valid. That is an ordinary config, not a
 pathological one, so "config validation makes this unreachable" is false.
@@ -246,7 +246,7 @@ thing in-tree: collect the free cells into a `Vec`, `rng.random_range(0..len)`,
 with "impossible"; O(area) once rather than unbounded. Upstream's loop is
 unbounded because it declines to materialize the free set — an implementation
 detail of a different language's memory posture, not a semantic. On boards of
-at most 19×19 the allocation is noise. This deviation is deliberate and is
+at most $19\times19$ the allocation is noise. This deviation is deliberate and is
 documented at the sampler so a future contributor does not "restore fidelity"
 by reintroducing an unbounded loop in `reset()`.
 
@@ -353,7 +353,7 @@ is satisfied for all seven files it names.
   (this ADR's own Decision 5). That is a real, named gap, not an oversight,
   and #282 stays open because of it.
 - **`four_rooms.rs:90-97`'s `const _: ()` assertion**, which ties `MIN_SIZE` to
-  the fixed `±3` doorway offsets and is deliberately written to break the build
+  the fixed $\pm 3$ doorway offsets and is deliberately written to break the build
   if `MIN_SIZE` drops, loses its stated justification once the offsets are
   sampled. It must be *replaced* with an assertion that the sampling range is
   non-empty at `MIN_SIZE`, not deleted.

@@ -6,7 +6,7 @@ date: 2026-07-24
 tags: [adr, decision, target-network, polyak, cadence, dqn, c51, qrdqn, ddpg, td3, sac, issue-334, issue-455, issue-182]
 ---
 
-# ADR 0058: τ and cadence are one target-update mechanism — `TargetUpdate` is its type
+# ADR 0058: $\tau$ and cadence are one target-update mechanism — `TargetUpdate` is its type
 
 ## Status
 
@@ -41,14 +41,14 @@ impl TargetUpdate {
 ```
 
 in `crates/rlevo-reinforcement-learning/src/target.rs`. Cadence (`every`) gates
-*when* an update fires; τ gates *how far* it moves the target at that firing.
-`τ = 1.0` is a hard copy **by degeneracy of the shared formula**, not by a
+*when* an update fires; $\tau$ gates *how far* it moves the target at that firing.
+$\tau = 1.0$ is a hard copy **by degeneracy of the shared formula**, not by a
 separate variant. Adopted as one field, `target_update: TargetUpdate`, on all
 six off-policy agents' configs (DQN, C51, QR-DQN, DDPG, TD3, SAC), replacing
 the two flat `pub tau` / `pub target_update_frequency` fields (or, for
 DDPG/TD3, the aliased use of `policy_frequency` — see this ADR's own Context section) on each.
 
-The **half-open** τ interval is load-bearing, not a stylistic choice: `τ = 0.0`
+The **half-open** $\tau$ interval is load-bearing, not a stylistic choice: $\tau = 0.0$
 is precisely the frozen-target state, so admitting it would falsify the
 Consequences claim below (this ADR's own Consequences section) that a
 never-updating target becomes unrepresentable —
@@ -63,7 +63,7 @@ Considered section).
 of the nine call sites. `try_polyak` takes `every: usize` rather than
 `NonZeroUsize` so that a runtime cadence of `0` is *handled* here rather than
 pushed onto the caller, and returns a single `TargetUpdateError` covering both
-failure modes (`Tau { got }`, `ZeroEvery`) — a τ-only error has no name for the
+failure modes (`Tau { got }`, `ZeroEvery`) — a $\tau$-only error has no name for the
 cadence failure. `is_hard()` keeps hard-vs-Polyak **queryable** without
 reintroducing a variant.
 
@@ -145,9 +145,9 @@ rlevo is merely borrowing.** The issue asks the ADR to record "why the
 SB3/CleanRL *semantics* were adopted but their *field shape* was not." That
 framing under-attributes the mechanism. Haarnoja et al. 2018a (SAC, ICML,
 arXiv:1801.01290), Appendix D Table 1, runs a **"SAC (hard target update)"**
-ablation — τ = 1, target update interval = 1000 — beside standard SAC — τ =
-0.005, interval = 1 — inside the SAC paper itself: the degenerate hard copy is
-obtained purely by setting τ = 1 on the soft rule, a controlled ablation, not a
+ablation — $\tau = 1$, target update interval = 1000 — beside standard SAC — $\tau =
+0.005$, interval = 1 — inside the SAC paper itself: the degenerate hard copy is
+obtained purely by setting $\tau = 1$ on the soft rule, a controlled ablation, not a
 different code path. Fujimoto et al. 2018 (TD3, ICML, arXiv:1802.09477),
 Section 3, states the same generality directly: "The weights of a target
 network are either updated periodically to exactly match the weights of the
@@ -184,10 +184,10 @@ method, not a proven equivalence. Full provenance and confidence notes:
 1. **`TargetUpdate { tau: PolyakTau, every: NonZeroUsize }`** lives in
    `crates/rlevo-reinforcement-learning/src/target.rs`. `tau` is a private
    validated `f32` newtype (`PolyakTau`, invariant `0.0 < tau <= 1.0`,
-   mirroring the ADR 0027/0031 shape) so `τ = 1.0` is representable — it is a
-   legal Polyak coefficient, not a distinct case — while `τ = 0.0`, `τ` outside
+   mirroring the ADR 0027/0031 shape) so $\tau = 1.0$ is representable — it is a
+   legal Polyak coefficient, not a distinct case — while $\tau = 0.0$, $\tau$ outside
    the interval, NaN, and infinity are not. **The lower bound is exclusive
-   because `τ = 0.0` is the frozen-target state**, the exact condition the
+   because $\tau = 0.0$ is the frozen-target state**, the exact condition the
    deleted cross-field checks existed to reject; admitting it would make
    this ADR's own Consequences section's unrepresentability claim false.
    `every: NonZeroUsize` makes
@@ -200,23 +200,23 @@ method, not a proven equivalence. Full provenance and confidence notes:
    value that did not arrive as a source literal). Both take `every: usize` and
    validate it, so a runtime `0` is rejected here rather than at the caller.
    `TargetUpdateError` is one `Copy` enum with `Tau { got }` and `ZeroEvery`;
-   τ is validated before cadence, and a test pins that ordering.
+   $\tau$ is validated before cadence, and a test pins that ordering.
 3. **`fires_at(self, updates: usize) -> Option<f64>`** is the seam every call
    site consumes: `Some(tau)` when `updates` is a multiple of `every`,
    `None` otherwise. This is a **predicate**, not an applier — see
    this ADR's own Alternatives Considered section for why the type
    deliberately does not also call
    `polyak_update`. It reproduces `usize::is_multiple_of` exactly, so
-   `fires_at(0)` is `Some(τ)` for every cadence; callers pass a **post-increment**
+   `fires_at(0)` is $\text{Some}(\tau)$ for every cadence; callers pass a **post-increment**
    counter, so index `0` is unreachable in practice. `is_hard()` reports
-   `τ == 1.0` so a caller (e.g. a metrics label) can branch on hard-vs-Polyak
+   $\tau = 1.0$ so a caller (e.g. a metrics label) can branch on hard-vs-Polyak
    without the type carrying a variant to branch on.
 4. **Adoption.** All six off-policy configs (DQN, C51, QR-DQN, DDPG, TD3, SAC)
    gain `pub target_update: TargetUpdate`, replacing `pub tau` +
    `pub target_update_frequency` (DQN/C51/QR-DQN, SAC) or the `policy_frequency`
    alias for target cadence (DDPG/TD3). **DDPG and TD3 keep `policy_frequency`
    unchanged** as the actor-delay knob (TD3's `d`, Fujimoto Section 5.2) — it now
-   governs the actor/α-analogue cadence only. `target_update` is a new,
+   governs the actor/$\alpha$-analogue cadence only. `target_update` is a new,
    independently settable field, so the aliasing identified in this ADR's
    own Context section is removed: an operator can change how often the actor updates without
    changing how often the target moves, and vice versa.
@@ -234,9 +234,9 @@ target_update_frequency == 0` cross-field blocks from DQN/C51/QR-DQN
 (`dqn_config.rs:182`, `c51_config.rs:189`, `qrdqn_config.rs:195`). The
 combination those blocks rejected — a target that can never update — becomes
 **unrepresentable**: `every: NonZeroUsize` cannot be `0`, `PolyakTau` cannot be
-`0.0`, and any valid τ combined with any valid `every` always fires eventually
+`0.0`, and any valid $\tau$ combined with any valid `every` always fires eventually
 and always moves the target when it does. Both halves of the invariant are
-required; a closed-interval τ would leave `polyak(0.0, n)` as a frozen target
+required; a closed-interval $\tau$ would leave `polyak(0.0, n)` as a frozen target
 and make this deletion a regression. This is strictly stronger than "rejected at
 construction," per the ADR 0027 pattern.
 The three regression tests that pinned the old rejection
@@ -292,24 +292,24 @@ serde adopter two encodings of one config, and it breaks a derived
 `Polyak { tau: 1.0, every: 5 }` should compare equal as configurations and
 would not, under `#[derive(PartialEq)]` on the enum.
 
-### A disjoint enum with τ restricted to the open interval `(0, 1)`
+### A disjoint enum with $\tau$ restricted to the open interval $(0, 1)$
 
-Buys disjointness by asserting something mathematically false: `τ = 1` **is**
+Buys disjointness by asserting something mathematically false: $\tau = 1$ **is**
 a legal Polyak coefficient (Haarnoja's own hard-update ablation runs it), so
 excluding it from `Polyak` is not a domain fact, it is a modelling error
 disguised as type safety. It also forces a `match` at every apply site where
-both arms perform identical arithmetic (`(1−τ)·target + τ·active` at `τ=1` is
+both arms perform identical arithmetic ($(1-\tau) \cdot \text{target} + \tau \cdot \text{active}$ at $\tau=1$ is
 exactly a copy — see `polyak_update`'s own doc comment: "Pass `tau = 1.0` for a
-hard copy"), and it makes a continuous τ sweep over `[0.001, 1.0]` —
+hard copy"), and it makes a continuous $\tau$ sweep over $[0.001, 1.0]$ —
 inexpressible across an enum boundary — unavailable to a hyperparameter search,
 which is a real operation in a research library.
 
 ### Reusing `rlevo_core::Probability`
 
 `Probability`'s invariant is `0.0 <= p <= 1.0` — admits `p = 0.0`, which for
-τ is the frozen-target state (`fires_at` would still gate correctly, but the
-degenerate case a reader most needs flagged, `τ = 0`, gets no distinguishing
-name from `τ = 0.7`). A dedicated `PolyakTau` costs one small type and buys a
+$\tau$ is the frozen-target state (`fires_at` would still gate correctly, but the
+degenerate case a reader most needs flagged, $\tau = 0$, gets no distinguishing
+name from $\tau = 0.7$). A dedicated `PolyakTau` costs one small type and buys a
 name (`PolyakTau`, `TargetUpdateError::Tau`) that a diagnostic or a doc comment can
 point at specifically, matching the ADR 0031 precedent of a dedicated rate
 newtype per distinct semantic domain rather than a shared generic

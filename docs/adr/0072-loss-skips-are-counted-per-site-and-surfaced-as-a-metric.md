@@ -137,7 +137,7 @@ excluding `shared.rs`'s own test fixtures) rather than copied from the ADR:
 17 total, matching 0056's site-count decision (Decision 5) exactly. **Five
 agents are multi-site, three are single-site**, and that split — not the
 count — is what this ADR's own per-site/aggregate decision (Decision 3, below)
-turns on. SAC's α guard (#184, `sac_alpha.rs`) is a different type in a
+turns on. SAC's $\alpha$ guard (#184, `sac_alpha.rs`) is a different type in a
 different module and is untouched here, exactly as 0056's Consequences &
 honest limits section ruled.
 
@@ -179,8 +179,8 @@ correct and this ADR does not touch it.
 
 But it leaves a reader holding a counter that means "updates *attempted*" while
 the name says "updates". Today there is no way to recover how many of those
-attempts moved the weights. After this ADR there is: `applied = attempts −
-skipped`, both terms readable from the agent. **The counter is what makes ADR
+attempts moved the weights. After this ADR there is: $\text{applied} = \text{attempts} -
+\text{skipped}$, both terms readable from the agent. **The counter is what makes ADR
 0059's counter-advance decision (Decision 4) legible rather than a source of
 confusion** — the unconditional
 advance stops being a silent approximation and becomes one half of a stated
@@ -248,9 +248,7 @@ count of updates, not of losses or of steps.
 
 **The deliberate complement to ADR 0059, stated as an identity:**
 
-```text
-applied = attempts − skipped
-```
+$$\text{applied} = \text{attempts} - \text{skipped}$$
 
 where `attempts` is 0059's `gradient_updates` / `critic_updates` and `skipped` is
 this counter. **The unconditional advance from ADR 0059's counter-advance
@@ -347,7 +345,7 @@ of one fact, one of which the compiler checks and one of which it does not.
 **On #184 as precedent.** ADR 0056's surfacing-and-latch decision (Decision 3)
 leaned on #184 ("which added no stats field") to justify log-only surfacing.
 That analogy is the weaker one here, and saying so is part of the repeal: #184
-guarded a **single closed-form scalar step** (SAC's α optimizer) where
+guarded a **single closed-form scalar step** (SAC's $\alpha$ optimizer) where
 occurrence and rate nearly coincide — one site, one hand-rolled update. This
 guard spans **17 sites across 8 agents**, and the quantity whose *magnitude* is
 the operational fact is the aggregate over them. This is the same reasoning
@@ -384,7 +382,7 @@ dropped, which no consumer can establish from the data.
   per site; the accessors and the metric convey it exactly. 1% and 40% are no
   longer byte-identical after the first line — the defect #346 names.
 - **ADR 0059's counter-advance decision (Decision 4) becomes legible.**
-  `applied = attempts − skipped` is recoverable without parsing logs, which
+  $\text{applied} = \text{attempts} - \text{skipped}$ is recoverable without parsing logs, which
   removes the standing temptation to reopen 0059 and gate the cadence on
   applied updates.
 - **The two guards now share one schedule and one shape**, adjacent in one file.
@@ -408,7 +406,7 @@ dropped, which no consumer can establish from the data.
   historical-irony section). Without that, the crate would ship two
   contradictory statements about which schedule the loss guard uses, one of them
   in a doc comment users read. The correction is to code; ADR 0065 is not edited.
-- **Per-site log volume rises from ≤1 line to ≤~7** over a run. Bounded, and the
+- **Per-site log volume rises from $\le 1$ line to $\le {\sim}7$** over a run. Bounded, and the
   point — but it is more output than before, and a run with several diverging
   sites will say so several times.
 - **22 new public methods across 8 agents** (17 per-site + 5 aggregate). They are
@@ -548,7 +546,7 @@ Any one of these reopens this ADR:
 - ADR [0059](0059-target-update-cadence-counts-gradient-updates.md)'s
   counter-advance decision (Decision 4) —
   the unconditional attempt-counter advance this counter complements and does
-  **not** change; `applied = attempts − skipped` (this ADR's own Decision 2 and
+  **not** change; $\text{applied} = \text{attempts} - \text{skipped}$ (this ADR's own Decision 2 and
   Context, part 5, above).
 - ADR [0067](0067-non-finite-observations-are-dropped-at-replay-ingestion.md) —
   the third guard in the family, whose `dropped_observations()` shares the
@@ -586,7 +584,7 @@ the time of writing; pre-change coordinates are marked and resolve against
   - `:602-611` — `FiniteLossGuard`'s new fields, with `next_warn_at`'s
     "schedules the `warn!` only — never the skip" doc.
   - `:576-591` — the "Why a decade schedule and not a one-shot latch" section.
-  - `:593-597` — the `applied = attempts − skipped` composition with ADR 0059's
+  - `:593-597` — the $\text{applied} = \text{attempts} - \text{skipped}$ composition with ADR 0059's
     counters.
   - `:629-635` — `check`'s `CRITICAL:` rustdoc reaffirming 0056's Decision 3
     skip semantics; `:636-662` — its body, with the unconditional
@@ -607,4 +605,4 @@ the time of writing; pre-change coordinates are marked and resolve against
   `AgentStats::record`, the episode-scoped entry point that makes #346's proposed
   destination a units mismatch (this ADR's own Context, part 4, above).
 - `crates/rlevo-reinforcement-learning/src/algorithms/sac/sac_alpha.rs` —
-  #184's separate α guard, untouched, including its own `warning_fired`.
+  #184's separate $\alpha$ guard, untouched, including its own `warning_fired`.
