@@ -387,8 +387,12 @@ mod tests {
 
     #[test]
     fn fit_empty_population_returns_prior() {
-        // k == 0 would index an empty `rows` and panic; the guard (#129) returns
-        // the previous probabilities unchanged.
+        // With k == 0, `population.dims()` is `[0, d]`, so the argmax/argmin
+        // loop never runs and `best_idx`/`worst_idx` stay at their initial 0 —
+        // the update loop below would then index `rows[0 * d + j]` on an
+        // empty `rows`, panicking out of bounds. `fit`'s `k == 0` guard
+        // short-circuits before that indexing and returns the previous
+        // probabilities unchanged instead.
         let device = Default::default();
         let p = UnivariateBernoulliParams::default_for(3);
         let prior = fit_prior(&p);
@@ -408,8 +412,13 @@ mod tests {
 
     #[test]
     fn nan_fitness_not_selected_as_best() {
-        // Row 0 all-ones + NaN fitness; row 1 all-zeros + finite fitness. The
-        // sanitized seam (#129) must pick row 1 as best and push prob toward 0.
+        // Row 0 all-ones + NaN fitness; row 1 all-zeros + finite fitness.
+        // `fit`'s best/worst loop runs each fitness through
+        // `crate::fitness::sanitize_fitness` before comparing, mapping the
+        // NaN to `-inf` so it can never win the `total_cmp`-based argmax
+        // (a raw NaN sorts as the largest value under `total_cmp` and would
+        // otherwise be picked as best). That seam must therefore pick row 1
+        // as best and push prob toward its all-zero genes.
         let device = Default::default();
         let p = UnivariateBernoulliParams::default_for(2);
         let prior = fit_prior(&p);

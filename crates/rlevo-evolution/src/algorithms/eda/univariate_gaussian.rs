@@ -445,9 +445,13 @@ mod tests {
 
     #[test]
     fn inf_variance_floored_to_min() {
-        // Squared deviations overflow f32 → inf MLE variance. The floor (#129)
-        // must reject the non-finite estimate instead of passing inf through to
-        // sample() (where Normal::new would then panic on a non-finite σ).
+        // Rows at +/-1e38: each `diff * diff` in the variance accumulator
+        // overflows f32 (1e38^2 exceeds f32::MAX), so the summed squared
+        // deviations land on +inf and `mle = sum / kf` is +inf, not finite.
+        // The `fit` variance loop's `mle.is_finite() && mle > min_variance`
+        // check rejects that non-finite estimate and substitutes
+        // `min_variance` instead, so the stored variance stays finite and
+        // `sample`'s `Normal::new` never sees a non-finite sigma to panic on.
         let device = Default::default();
         let p = UnivariateGaussianParams::default_for(1);
         let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
@@ -473,8 +477,13 @@ mod tests {
 
     #[test]
     fn nonfinite_gene_mean_falls_back_to_init_mean() {
-        // A NaN gene makes the column mean NaN; the guard (#129) falls back to
-        // init_mean so the fitted mean stays finite (and sampling stays sane).
+        // One row's gene is `f32::NAN`; the mean accumulator sums it in
+        // (`mean[j] += rows[i * d + j]`), so the column sum is NaN and
+        // `mu = *m / kf` is NaN too. The `fit` mean loop's
+        // `mu.is_finite()` check catches that and falls back to
+        // `params.init_mean` instead of storing the NaN, so a single
+        // corrupted genome cannot poison the fitted mean (or, downstream,
+        // every sample drawn for that dimension).
         let device = Default::default();
         let mut p = UnivariateGaussianParams::default_for(1);
         p.init_mean = 3.0;
@@ -611,7 +620,11 @@ mod tests {
         /// For ANY selected population, the fitted state has both vectors of
         /// length `genome_dim`, every mean entry finite, and every variance
         /// entry finite and floored at `min_variance` (never below, never
-        /// non-finite — the §7.1 floor / #129 guards hold universally).
+        /// non-finite — the §7.1 variance floor and non-finite-mean fallback
+        /// in `fit` hold universally over arbitrary inputs, not just on the
+        /// hand-picked overflow/NaN cases exercised by
+        /// `inf_variance_floored_to_min` and
+        /// `nonfinite_gene_mean_falls_back_to_init_mean`).
         ///
         /// RNG boundary (ADR 0029): proptest generates host config only
         /// (`data`, `d`); `fit` is a deterministic MLE update and takes no rng.

@@ -207,10 +207,22 @@ mod tests {
     use super::TuiEnvTap;
     use crate::reporter::tui::{TuiEvent, TuiHandle};
 
-    // No serde derive here, deliberately: `Observation` carries no serde
-    // supertrait (ADR 0064), nothing in this module serializes `StubObs`, and
-    // the `tui` feature does not enable `dep:serde` — so a derive here breaks
-    // `--no-default-features --features tui` (issue #1039).
+    // No serde derive here, deliberately. Before ADR 0064 removed
+    // `Observation`'s serde supertrait, this stub derived `Serialize,
+    // Deserialize` (via an unconditional `use serde::{Deserialize,
+    // Serialize};`) solely to satisfy that bound — nothing in this module
+    // ever actually serializes `StubObs`. Once the supertrait was gone, that
+    // import became dead weight, but it still compiled under the default
+    // feature set because `json` pulls in `serde` transitively, masking the
+    // gap. Isolated `cargo clippy --all-targets --no-default-features
+    // --features tui -- -D warnings` failed with `E0432 unresolved import
+    // 'serde'`: the `tui` feature alone doesn't enable `dep:serde`, and
+    // nothing else on the `tui`-only build path pulls it in. The fix is to
+    // drop the import/derives here rather than add `dep:serde` to `tui` —
+    // `StubObs` is only constructed and compared, never serialized. The
+    // default-features CI matrix links `serde` unconditionally via `json`,
+    // and the `feature-orthogonality` isolation job only covers
+    // `rlevo-environments`, so no CI job exercised this combination.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct StubObs {
         pos: i32,

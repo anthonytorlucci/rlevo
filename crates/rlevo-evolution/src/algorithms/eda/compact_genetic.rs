@@ -404,9 +404,13 @@ mod tests {
     #[test]
     fn nan_fitness_not_selected_as_winner() {
         // Row 0 all-ones with NaN fitness, row 1 all-zeros with finite fitness.
-        // Under total_cmp, an unsanitized NaN would sort as the largest value
-        // and be picked as the winner; with the seam guard (#129) the finite
-        // row is the winner and probabilities move toward 0.
+        // `total_cmp` orders NaN above +inf, so an unsanitized NaN would win
+        // the argmax scan and get treated as the "winner" despite being
+        // meaningless, biasing the probability-vector update toward the
+        // all-ones genome for no real reason. `fit`'s per-row `sanitize_fitness`
+        // call (NaN -> -inf, see the comment at its call site above) closes
+        // that seam: the NaN row can only ever lose, so the finite all-zeros
+        // row is picked as the winner and probabilities move toward 0.
         let device = Default::default();
         let p = CompactGeneticParams::default_for(2);
         let prior = fit_prior(&p);

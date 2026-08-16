@@ -491,10 +491,20 @@ mod tests {
 
     #[test]
     fn nonfinite_genome_sanitized_before_fit_yields_finite_samples() {
-        // End-to-end (#129): a population carrying NaN/±inf genes must not
-        // poison the fitted model. The `tell` backstop sanitizes the selected
-        // population, and the per-model guards floor any residual non-finite
-        // statistics, so the next `ask` draws a finite population.
+        // Each of the five EDA models was independently found susceptible to
+        // its own manifestation of the same gap: unvalidated `init_prob`/
+        // `smoothing_count` in `BayesianNetwork`, `k == 0` divisions yielding
+        // NaN probability vectors in `UnivariateBernoulli`/`DependencyChain`,
+        // unfloored non-finite MLE mean/variance here in `UnivariateGaussian`,
+        // and a non-finite `cond_mean` in `DependencyChain::sample`. This
+        // end-to-end test exercises the shared fix through `UnivariateGaussian`:
+        // `tell`'s sanitize-before-refit backstop (see `tell`'s doc comment)
+        // maps a NaN/±inf gene to a finite value before the model is fitted,
+        // and the model's own `fit` floors any residual non-finite mean/
+        // variance, so a population carrying NaN/±inf genes cannot poison the
+        // fitted state or leak a non-finite value into the next generation's
+        // `ask`-sampled population. The other four models' own finite-guards
+        // are covered by tests in their respective files.
         let device = Default::default();
         let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(1);

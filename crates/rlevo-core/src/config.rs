@@ -588,11 +588,22 @@ mod tests {
         assert!(positive(C, "dt", -1.0).is_err());
     }
 
-    /// The headline case of issue #353: `f64::INFINITY > 0.0` is `true`, so
-    /// `positive` used to hand `$+\infty$` back as a perfectly good hyperparameter at
-    /// every one of its call sites. A config *value* is never legitimately
-    /// infinite, so both infinities are now `NotFinite` — and the carried `got`
-    /// is the offending value verbatim, so the message names what arrived.
+    /// `positive` used to be `if got > 0.0 { Ok(()) } else { Err(..) }`, and
+    /// `f64::INFINITY > 0.0` is `true` — so it accepted `$+\infty$` as a perfectly
+    /// good hyperparameter, correctly rejecting `NaN` and zero/negatives but
+    /// missing the one case that mattered most. That predicate sat behind 105
+    /// call sites (learning rates, physics constants, evolution parameters),
+    /// none of which could see the bug from their own code. The concrete
+    /// failure: `SacTrainingConfig::alpha_lr` validated with `positive` let an
+    /// infinite `alpha_lr` reach the Adam optimizer, where at `grad == 0` the
+    /// step became `$\infty \cdot 0 = \text{NaN}$`, and `NaN.clamp(-88, 88)` propagates the
+    /// `NaN` rather than rescuing it — silently poisoning training instead of
+    /// failing at construction. The fix tightens the shared predicate itself to
+    /// `got > 0.0 && got.is_finite()` (below), so it closes all 105 call sites
+    /// at once rather than patching each one; a config *value* is never
+    /// legitimately infinite, so both infinities are now `NotFinite` — and the
+    /// carried `got` is the offending value verbatim, so the message names what
+    /// arrived.
     #[test]
     fn positive_rejects_infinity() {
         for got in [f64::INFINITY, f64::NEG_INFINITY] {
@@ -686,12 +697,14 @@ mod tests {
     }
 
     /// The regression guard for every `in_range(.., f64::INFINITY, ..)` call
-    /// site in the workspace (37 of them). Issue #353 tightened the rule on
-    /// config *values*; it must not have touched the rule on config *bounds*,
-    /// where `hi = f64::INFINITY` is the intended spelling of "unbounded
-    /// above". If this test ever fails, the finiteness guard has leaked from
-    /// `got` onto `lo`/`hi` and a third of the workspace's configs reject their
-    /// own defaults.
+    /// site in the workspace — a companion audit of the `positive` fix above
+    /// found 37 of them across 20 files (more than the roughly 10 originally
+    /// estimated), each relying on `hi = f64::INFINITY` as "unbounded above".
+    /// Tightening `positive`'s and `in_range`'s **value** predicate to require
+    /// finiteness must not have touched the rule on config *bounds*. If this
+    /// test ever fails, the finiteness guard has leaked from `got` onto
+    /// `lo`/`hi` and a third of the workspace's configs reject their own
+    /// defaults.
     #[test]
     fn in_range_accepts_finite_value_with_infinite_upper_bound() {
         assert!(in_range(C, "x", 0.0, f64::INFINITY, 3.0).is_ok());

@@ -1491,12 +1491,19 @@ mod tests {
                     strategy.tell(&params, population, fitness, asked, &mut rng);
 
                 let cov: &[f32] = told.cov();
-                // Invariant 2: covariance is *bit-exact* symmetric (was relative
-                // pre-#241). The rank-μ update now factors the bare
-                // outer-product term before the per-rank weight, so each (i,j)
-                // and (j,i) contribution is bit-identical, and a `symmetrize`
-                // backstop runs after the loop. Symmetry is therefore guaranteed
-                // by construction across the whole sampled space — no ULP
+                // Invariant 2: covariance is *bit-exact* symmetric. Float
+                // multiplication is commutative but not associative, so naively
+                // accumulating the rank-μ term as `(w · yi[i]) · yi[j]` for the
+                // (i,j) entry and `(w · yi[j]) · yi[i]` for its (j,i) transpose
+                // can diverge by a few ULPs — and since each `tell` feeds off the
+                // previous `C`, that drift can compound across generations. The
+                // rank-μ update now factors the bare outer-product term
+                // (`yi[i] * yi[j]`, itself exactly commutative) before applying
+                // the per-rank weight, so both triangle entries sum identical
+                // per-rank terms in the same order and land on the same bits; a
+                // `symmetrize` backstop still runs after the loop as
+                // defense-in-depth. Symmetry is therefore guaranteed by
+                // construction across the whole sampled space — no ULP
                 // divergence between the transposed triangle entries.
                 for i in 0..d {
                     for j in 0..d {

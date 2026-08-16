@@ -878,8 +878,12 @@ mod tests {
 
     #[test]
     fn nan_init_prob_clamped_on_prior() {
-        // A non-finite init_prob must not propagate into the CPTs (#129): the
-        // prior clamps it into the open interior (0, 1).
+        // Every prior CPT cell is seeded directly from `init_prob`, so an
+        // unvalidated NaN would corrupt every entry in every table, not just
+        // one. `prior_state` guards this at construction: NaN maps to the
+        // neutral 0.5 instead of propagating through `f32::clamp` (which
+        // would otherwise let it through unchanged), landing the prior in
+        // the open interior (0, 1).
         let mut p = BayesianNetworkParams::default_for(3);
         p.init_prob = f32::NAN;
         let state = fit_prior(&p);
