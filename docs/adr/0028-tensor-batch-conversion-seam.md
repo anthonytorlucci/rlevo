@@ -51,9 +51,8 @@ not this ADR's subject.
 
 Per the project convention (audit Burn built-ins before hand-rolling), the
 question "does Burn 0.21 already ship an assemble-on-host, upload-once path?"
-was researched to completion (maintainer-vault research note,
-`research/2026-07-05-burn-batched-upload.md`). Verdict: **reject the premise;
-build the helper.**
+was researched to completion. Verdict: **reject the premise; build the
+helper.**
 
 - `TensorData` has **no** host-side `stack`/`cat`/`concat`/`merge` — only
   construction, access, and dtype conversion methods.
@@ -279,7 +278,7 @@ can be added later as a **purely additive** pair (`from_host_row` +
   chosen, but also makes `from_host_row` required on all ~27 impls. Rejected in
   favour of the forward-only refinement: no consumer decodes batches, so requiring
   the inverse now is migration cost for an unused capability. It is deferred as a
-  purely additive future pair (§5).
+  purely additive future pair (this ADR's own Decision 5).
 
 - **Option C — default batch method on `TensorConvertible` itself.** Folds the
   `R + 1` problem and its assert into the existing single-item trait signature,
@@ -289,8 +288,9 @@ can be added later as a **purely additive** pair (`from_host_row` +
   rejected.
 
 - **Generalise `TensorConvertible` over tensor `Kind`.** Deferred, not chosen
-  (§4): the trait is already `Float`-locked, no impl needs `Int`/`Bool`, and the
-  batch seam should not block on an unconsumed feature.
+  (this ADR's own Decision 4): the trait is already `Float`-locked, no impl
+  needs `Int`/`Bool`, and the batch seam should not block on an unconsumed
+  feature.
 
 ## References
 
@@ -304,6 +304,5 @@ can be added later as a **purely additive** pair (`from_host_row` +
   consumer); `crates/rlevo-environments/src/pixel_grid.rs`,
   `crates/rlevo-environments/src/grids/core/observation.rs` (the two rank-3
   impls whose hand-rolled flatten the row-writer model generalises).
-- Maintainer-vault working notes (not in this repo): spec
-  `specs/2026-07-05-tensor-convertible-batch-seam/spec.md`, research
-  `research/2026-07-05-burn-batched-upload.md`.
+- The Burn reuse-or-reject audit (Options A/B/C weighing) is reproduced in
+  this ADR's own Context and Alternatives sections above.

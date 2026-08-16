@@ -16,7 +16,8 @@ separately reversible: `TargetUpdate` could have been adopted with its `every`
 field counting environment steps instead, and this decision — and only this
 one — would then need superseding. Resolves the unit question issue #334
 leaves open (`docs/.private/research/2026-07-24-issue-334-target-update-cadence-units.md`,
-§Q2). Defers the default-*value* question to issue **#337**.
+its "What unit does the cadence count" section, Q2). Defers the
+default-*value* question to issue **#337**.
 
 **Chosen shape.** `TargetUpdate::every` (ADR 0058) counts **gradient /
 optimizer updates**, uniformly, on all six off-policy agents (DQN, C51,
@@ -49,7 +50,7 @@ updates, not environment steps:
   `ψ̄ ← τψ + (1−τ)ψ̄` sits inside "for each gradient step do," nested under a
   separate "for each environment step do"; Table 1 lists "target update
   interval" beside a distinct "gradient steps" hyperparameter.
-- **Fujimoto et al. 2018** (TD3, arXiv:1802.09477) — §5.2: "only update the
+- **Fujimoto et al. 2018** (TD3, arXiv:1802.09477) — Section 5.2: "only update the
   policy and target networks after a fixed number of updates *d* to the
   critic," i.e. `d` is defined against critic (gradient) updates.
 
@@ -96,7 +97,8 @@ against the paper it is nominally citing.
    it instead of on `self.step`. SAC/DDPG/TD3 keep using `self.critic_updates`
    — already the correct unit, unchanged by this ADR.
 2. **The unit is not a config choice.** No `Cadence::EnvSteps(n) |
-   GradientSteps(n)` alternative is offered — see §Alternatives.
+   GradientSteps(n)` alternative is offered — see this ADR's own
+   Alternatives Considered section.
 3. **`learning_starts` and `train_frequency` stay in environment steps.**
    Those two gate *when the agent is allowed to act on the environment /
    collect a transition at all*, a question that has no gradient-update
@@ -139,9 +141,10 @@ crate's own train loops and tests.
 `TargetUpdate::polyak(0.005, 1)` for DQN, C51, QR-DQN, and SAC;
 `TargetUpdate::polyak(0.005, 2)` for DDPG and TD3 (matching the existing
 `policy_frequency = 2` default that used to double as the target-cadence
-alias, per ADR 0058 §Context). These are **bit-identical to today's behaviour
-at every agent's current default configuration** — DQN-family Polyak already
-runs every gradient step (`tau = 0.005`, hard path inert); SAC already gates
+alias, per ADR 0058's own Context section). These are **bit-identical to
+today's behaviour at every agent's current default configuration** —
+DQN-family Polyak already runs every gradient step (`tau = 0.005`, hard path
+inert); SAC already gates
 on 1 critic update; DDPG/TD3 already gate on `policy_frequency = 2` critic
 updates.
 
@@ -185,9 +188,9 @@ defect (an inert or aliased field) wearing a different hat.
 
 This is what the literal reading of issue #334 (which only asks about the
 soft-vs-hard field semantics, not the unit) would leave in place. Rejected on
-the evidence in §Context: every canonical paper's cadence is a gradient/
-parameter-update quantity, `train_frequency`-relative drift is a live defect
-under env-step counting, and the only precedent for env-step counting is a
+the evidence in this ADR's own Context section: every canonical paper's
+cadence is a gradient/parameter-update quantity, `train_frequency`-relative
+drift is a live defect under env-step counting, and the only precedent for env-step counting is a
 library's vecenv-plumbing artifact, not an algorithmic claim. Keeping the
 DQN family on env steps would also leave `TargetUpdate::every` meaning two
 different things depending on which agent holds it — undermining the very
@@ -200,8 +203,9 @@ the weights. Rejected: it makes the cadence a function of run health (a
 diverging run that emits non-finite losses would advance the counter more
 slowly, changing the target-update rhythm exactly when stability matters
 most), and it breaks parity with SAC/DDPG/TD3, which already advance
-unconditionally by explicit ADR 0056 §3 decision. Matching that precedent
-(§Decision, point 4) is the correct generalisation, not a new rule.
+unconditionally by explicit ADR 0056's own Decision 3. Matching that
+precedent (this ADR's own Decision section, point 4) is the correct
+generalisation, not a new rule.
 
 ## References
 
@@ -210,15 +214,16 @@ unconditionally by explicit ADR 0056 §3 decision. Matching that precedent
 - Issue #337 — target-update cadence *default values*, deferred here.
 - Issue #182 — origin of the "unit trap" observation this ADR dissolves.
 - ADR [0056](0056-non-finite-loss-skip-and-warn-guard.md) — the unconditional-
-  counter-advance-on-skip precedent (§3) this ADR extends to the DQN family's
-  new gradient-update counter.
+  counter-advance-on-skip precedent (its own Decision 3) this ADR extends to
+  the DQN family's new gradient-update counter.
 - ADR [0058](0058-target-update-type-unifies-cadence-and-tau.md) — the
   `TargetUpdate` type whose `every` field this ADR fixes the unit of.
 - `docs/.private/research/target-network-update-semantics.md` — the #182
   note; source of the "unit trap" table (Nature `C = 10,000` parameter
   updates ≡ 40,000 env steps vs. the workspace's `10_000` env-step default).
 - `docs/.private/research/2026-07-24-issue-334-target-update-cadence-units.md`
-  — the #334 note, §Q2; source of the per-source unit table (Mnih 2015,
+  — the #334 note, its "What unit does the cadence count" section (Q2);
+  source of the per-source unit table (Mnih 2015,
   Hessel 2018/Rainbow, Haarnoja 2018a/b, Fujimoto 2018, SB3, CleanRL) and the
   verdict that gradient/parameter units are the literature-dominant choice.
 - Code: `crates/rlevo-reinforcement-learning/src/algorithms/dqn/dqn_agent.rs:349-351,385-400,546-548`;

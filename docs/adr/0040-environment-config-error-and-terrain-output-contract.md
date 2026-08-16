@@ -35,8 +35,8 @@ offset applied at every push). Three defects followed from that shape:
    `rng.random_range(-roughness..=roughness)`, which panics on a negative or
    `NaN` `roughness` (empty range). The `roughness` / `step` fields were `pub`
    with no validation gate, so a struct-literal or deserialized value reached
-   the panicking draw directly — a `rules.md` §4 violation ("never panic on
-   user-supplied runtime data").
+   the panicking draw directly — a violation of `docs/rules.md`'s Error
+   Handling section ("never panic on user-supplied runtime data").
 
 Separately, the propagation seam was silent: `build_ground` early-returned on
 `pts.len() < 2`, and `rebuild_world` returned `()`, so a malformed generator

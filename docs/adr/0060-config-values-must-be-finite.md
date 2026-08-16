@@ -17,8 +17,9 @@ construction-chokepoint rule all survive unchanged; what 0026 left unstated is
 the *domain* the float predicates check over, and that is what this ADR fixes.
 Complements ADR 0027 (`Bounds`) and ADR 0031 (`NonNegativeRate`), whose
 newtypes already enforced finiteness locally, at a lower layer.
-`docs/rules.md §4` reconciled on acceptance (one bullet, and the section
-heading's ADR list).
+`docs/rules.md`'s Error Handling section (its Config Validation Contract
+subsection) reconciled on acceptance (one bullet, and the section heading's
+ADR list).
 
 **Chosen shape** — one distinction, applied to the shared predicates:
 
@@ -85,8 +86,9 @@ true.
 
 ### The `Deserialize` vector makes this live, not dormant
 
-`docs/rules.md §4` and ADR 0055 §Consequences record that **no config loader
-exists in the workspace yet** and that ~22 configs derive `Deserialize` plainly.
+`docs/rules.md`'s Error Handling section and ADR 0055's own Consequences
+section (negative cost 3) record that **no config loader exists in the
+workspace yet** and that ~22 configs derive `Deserialize` plainly.
 A non-finite float is exactly what a JSON/TOML/bincode decoder smuggles past
 validation once the first loader is written — `inf` is a representable IEEE-754
 value in every one of those encodings. Closing the predicate now means the
@@ -120,8 +122,8 @@ it also happens to fail.
 ### 4. `ConstraintKind` becomes `#[non_exhaustive]`
 
 Downstream `match` carries a trailing `_` (or `other =>`) arm. This is the
-`#[non_exhaustive]`-is-for-enums use ADR 0055 §5 blessed; it is not a struct
-adoption.
+`#[non_exhaustive]`-is-for-enums use ADR 0055's own Decision 5
+("`#[non_exhaustive]` is for enums") blessed; it is not a struct adoption.
 
 ### 5. No `finite` / `finite_nonneg` / `finite_min` helpers
 
@@ -160,7 +162,8 @@ Rejected for three independent reasons, any one of which suffices:
    "effectively frozen" exactly, without putting an infinite value in a config.
 3. **A predicate whose strictness depends on which field it guards is the
    looseness this ADR removes.** Per-field exemptions reintroduce, one level
-   down, the "two roles, one domain" defect described in §Context.
+   down, the "two roles, one domain" defect described in this ADR's own
+   Context section, above.
 
 If either sentinel is ever wanted back, this paragraph is the record of what
 would have to change — a `Bounds`-typed field or an explicit `Option` sentinel,
@@ -180,8 +183,9 @@ not a relaxed predicate.
   `value inf must be strictly positive` — a message that argues against itself
   and offers the user no repair. `NotFinite { got: inf }` renders as
   `value inf must be finite`, which names the actual fault.
-- **The `Deserialize` obligation shrinks.** The first config loader (ADR 0055
-  §Consequences, cost 3) inherits finiteness rejection rather than owning it.
+- **The `Deserialize` obligation shrinks.** The first config loader (ADR
+  0055's own Consequences section, negative cost 3) inherits finiteness
+  rejection rather than owning it.
 
 ### Negative / accepted costs
 
@@ -196,13 +200,15 @@ not a relaxed predicate.
   these inputs; only the diagnosis moves. (`config.rs`'s own
   `in_range_rejects_nan_as_out_of_range` is precisely such a test, and it
   documents in its doc comment why it pins the kind rather than `is_err()`.)
-- **`ordered` loses half-open intervals.** §6. No in-tree caller wanted one.
+- **`ordered` loses half-open intervals.** This ADR's own Decision 6, above
+  ("An infinite bound belongs in `Bounds`, never in `ordered`"). No in-tree
+  caller wanted one.
 
 ### Neutral
 
 - All helper signatures unchanged. No call-site migration. No serialized-schema
-  change (no config in the workspace is persisted — ADR 0058 §Context,
-  correction 1).
+  change (no config in the workspace is persisted — ADR 0058's own Context
+  section, "Two corrections to the issue's own premises," correction 1).
 
 ## Alternatives Considered
 
@@ -247,9 +253,10 @@ door into a scheduled one-way door, for zero benefit today.
 - ADR [0031](0031-probability-rate-newtypes.md) — `NonNegativeRate`'s
   `is_finite() && r >= 0.0`; the same rule, already enforced one layer down, for
   the subset of fields that adopted the newtype.
-- ADR [0055](0055-config-invariant-enforcement-allocation.md) — §5
-  (`#[non_exhaustive]` is for enums, which §4 above obeys) and §Consequences
-  cost 3 (the dormant, unowned `Deserialize` obligation this narrows).
+- ADR [0055](0055-config-invariant-enforcement-allocation.md) — its own
+  Decision 5 (`#[non_exhaustive]` is for enums, which this ADR's own Decision
+  4 above obeys) and its own Consequences section, negative cost 3 (the
+  dormant, unowned `Deserialize` obligation this narrows).
 - ADR [0058](0058-target-update-type-unifies-cadence-and-tau.md) — the adjacent
   precedent for *narrowing by construction* (`PolyakTau` excluding `τ = 0`) and
   for deliberately **not** narrowing `config::in_range` for one field's sake;

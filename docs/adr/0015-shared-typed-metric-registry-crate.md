@@ -19,7 +19,8 @@ tags:
 ## Status
 
 Active. Adopted 2026-06-05. Adds one crate (`rlevo-metrics-registry`) to the workspace's
-closed crate set (`rules.md §1`). Extends — does not supersede — [0013-metrics-only-live-tui](0013-metrics-only-live-tui.md)
+closed crate set (`docs/rules.md`'s Workspace Structure section). Extends — does not
+supersede — [0013-metrics-only-live-tui](0013-metrics-only-live-tui.md)
 and [0014-record-schema-v6-single-agent-richness-and-provenance](0014-record-schema-v6-single-agent-richness-and-provenance.md): the `EpisodeRecord`
 seam, `FORMAT_VERSION = 6`, and production-crate viz isolation are all preserved. Driven by
 the architecture review of the post-training-report enhancement effort.
@@ -116,6 +117,10 @@ crate added to the closed set, which this ADR authorises.
 ## References
 
 - Architecture review (2026-06-05), findings #1 (unguarded fork) and #2 (typed registry).
-- `research/2026-06-05-rl-vs-eo-learning.md` §9 — the RL/EO taxonomy the `MetricKind`
-  split encodes.
-- Implements the registry half of the rlevo-viz-overview report enhancement.
+- The RL/EO taxonomy the `MetricKind` split encodes: Group A ("Episode
+  Outcomes," always rendered) maps to `Shared`; Group B ("RL Diagnostics,"
+  rendered when `RunManifest::algorithm` is an RL algorithm) maps to `Rl`;
+  Group C ("EO Diagnostics," rendered for EA runs or any `PopulationSample`)
+  maps to `Eo`.
+- Implements the registry half of the report-enhancement effort described in
+  this ADR's own Status above.

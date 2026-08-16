@@ -10,12 +10,13 @@ tags: [adr, decision, core, environment, snapshot, metadata, time-limit, box2d, 
 
 ## Status
 
-**Accepted (2026-07-11).** Resolves issue #128. Amends `docs/rules.md §10`
-(the `SnapshotBase`/`Snapshot` bullet, reworded below). Narrows ADR 0019's
-"`State`, `Environment`, `Snapshot`, and `SnapshotBase` are byte-unchanged"
-statement — that line described **that ADR's own scope** (an additive,
-unrelated trait), not a freeze on `SnapshotBase` for all future work; this ADR
-is the first to change `SnapshotBase` itself. Supersedes nothing.
+**Accepted (2026-07-11).** Resolves issue #128. Amends `docs/rules.md`'s
+Architecture Invariants section (the `SnapshotBase`/`Snapshot` bullet,
+reworded below). Narrows ADR 0019's "`State`, `Environment`, `Snapshot`, and
+`SnapshotBase` are byte-unchanged" statement — that line described **that
+ADR's own scope** (an additive, unrelated trait), not a freeze on
+`SnapshotBase` for all future work; this ADR is the first to change
+`SnapshotBase` itself. Supersedes nothing.
 
 ## Context
 
@@ -209,7 +210,7 @@ it is no longer coupled to the two families that happened to need it first.
   shim.
 - ADR [0014](0014-record-schema-v6-single-agent-richness-and-provenance.md) —
   the record `FORMAT_VERSION` this change does not bump (no serde change).
-- `docs/rules.md §10` — Architecture Invariants, amended by this ADR.
+- `docs/rules.md`'s Architecture Invariants section — amended by this ADR.
 - Code: `crates/rlevo-core/src/environment.rs` (`SnapshotBase`,
   `SnapshotMetadata`, `Snapshot::metadata`), `crates/rlevo-core/src/evaluation.rs`
   (`BenchStep`, the metadata-dropping consumer), `crates/rlevo-environments/src/locomotion/common.rs`

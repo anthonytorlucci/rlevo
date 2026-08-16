@@ -13,10 +13,11 @@ tags: [adr, decision, config, validation, encapsulation, newtype, non-exhaustive
 **Accepted (2026-07-20).** Resolves issue #326 ("workspace: all 32 config
 structs have `pub` fields, so struct-literal construction bypasses
 `validate()`") by **refuting its premise**, not by adopting its remedies.
-`docs/rules.md §2` reconciled on acceptance (the "Struct Field Encapsulation"
-subsection now states the `*Config` exemption plainly instead of leaving it
-inferable from an absence, and adds the `#[non_exhaustive]`-is-for-enums rule).
-Extends ADR 0026 (`Validate`/`ConfigError`); depends on ADR 0027 (`Bounds`) and
+`docs/rules.md`'s Struct Field Encapsulation subsection (in its Naming
+Conventions section) reconciled on acceptance (it now states the `*Config`
+exemption plainly instead of leaving it inferable from an absence, and adds
+the `#[non_exhaustive]`-is-for-enums rule). Extends ADR 0026
+(`Validate`/`ConfigError`); depends on ADR 0027 (`Bounds`) and
 ADR 0031 (`Probability`/`NonNegativeRate`) for the layer that actually closes
 struct-literal holes. Edits neither.
 
@@ -26,12 +27,14 @@ invariant*:
 1. **`*Config` types keep `pub` fields.** They are hyperparameter data bags;
    `Config { lr: 3e-4, ..Default::default() }` is the idiom a research library
    exists to serve.
-2. **Validation is the consumer's obligation at construction** (ADR 0026 §2) —
+2. **Validation is the consumer's obligation at construction** (ADR 0026's own
+   Decision 2, "Fallibility is `Result`, and where it is enforced") —
    `config.validate()?` as the first statement of whatever consumes the config
    by value.
-3. **`*State` / `*Params` / `*Genome` encapsulate** (`rules.md §2`) — these are
-   *structural* types whose invariants (lengths agree, derived tails
-   consistent) span fields and outlive construction.
+3. **`*State` / `*Params` / `*Genome` encapsulate** (`rules.md`'s Struct
+   Field Encapsulation subsection) — these are *structural* types whose
+   invariants (lengths agree, derived tails consistent) span fields and
+   outlive construction.
 4. **Any invariant that must survive struct-literal construction is encoded in
    a validated newtype** (ADR 0027 / 0031), not enforced by hiding the field.
 
@@ -48,13 +51,16 @@ Issue #326 is filed by a reviewer who read the code carefully and could not
 recover the rule from it. That is the evidence that it needed writing down. The
 allocation was distributed across four documents, none of which states it:
 
-- `rules.md §2` "Struct Field Encapsulation" names `*State` / `*Params` /
-  `*Genome` and is silent on `*Config`. The exemption is inferable **only by
-  noticing what is absent from a list** — the weakest form a rule can take.
-- `rules.md §4` "Config Validation Contract" states the consumer obligation but
-  never says *why* that is sufficient, i.e. never says the fields stay `pub`.
-- ADR 0026 §3 names the struct-literal case explicitly and routes it to
-  `validate()`; a reader who has not read 0026 sees only `pub` fields.
+- `rules.md`'s Struct Field Encapsulation subsection names `*State` /
+  `*Params` / `*Genome` and is silent on `*Config`. The exemption is
+  inferable **only by noticing what is absent from a list** — the weakest
+  form a rule can take.
+- `rules.md`'s Config Validation Contract subsection states the consumer
+  obligation but never says *why* that is sufficient, i.e. never says the
+  fields stay `pub`.
+- ADR 0026's own Decision 3 ("Boundary with builder-setter panics") names
+  the struct-literal case explicitly and routes it to `validate()`; a reader
+  who has not read 0026 sees only `pub` fields.
 - ADR 0027 / 0031 introduce the newtype layer that closes the residual holes,
   but they are framed as *removing `validate()` lines*, not as *the answer to
   struct-literal bypass*.
@@ -67,12 +73,14 @@ outside, indistinguishable from an oversight.
 The observation is accurate. The workspace holds **71** `pub struct *Config`
 types under `crates/*/src/` — `rlevo-environments` 34, `rlevo-evolution` 20,
 `rlevo-reinforcement-learning` 13, `rlevo-benchmarks` 4 — and every one of them
-has 100% `pub` fields. (ADR 0026 §Context says 87; the count today is 71. The
-drift is consolidation and crate moves since 2026-07-04. 0026 is immutable and
-is **not** edited; the current number is recorded here.)
+has 100% `pub` fields. (ADR 0026's own Context section says 87; the count
+today is 71. The drift is consolidation and crate moves since 2026-07-04.
+0026 is immutable and is **not** edited; the current number is recorded
+here.)
 
-The inference — that this constitutes a *bypass* — is where it goes wrong. ADR
-0026 §3 already names this exact case as **in scope and handled**:
+The inference — that this constitutes a *bypass* — is where it goes wrong.
+ADR 0026's own Decision 3 already names this exact case as **in scope and
+handled**:
 
 > **Assembled config → `Result` (new).** Validating a config *as a whole* —
 > cross-field invariants (`v_min < v_max`, `low < high`), or fields set via
@@ -118,8 +126,8 @@ rather than aspirational:
       ...
   ```
   One bound, one call, every `Strategy<B>` covered — the `where C: Validate`
-  seam 0026 §Consequences named as the reason for making `Validate` a trait
-  rather than a convention.
+  seam 0026's own Consequences section named as the reason for making
+  `Validate` a trait rather than a convention.
 
 ### Defence in depth behind that chokepoint
 
@@ -213,20 +221,23 @@ GaConfig { mutation_sigma: NonNegativeRate::new(0.05), ..Default::default() }
 Field privacy converts every such site into a builder chain. The library exists
 to be tuned; the tuning idiom is not incidental ergonomics.
 
-`*Config` types are therefore bound by the `rules.md §4` Config Validation
-Contract **alone**. The §2 encapsulation rule does not apply to them.
+`*Config` types are therefore bound by `rules.md`'s Config Validation
+Contract subsection **alone**. `rules.md`'s Struct Field Encapsulation
+subsection does not apply to them.
 
 ### 2. Validation is the consumer's obligation, at construction
 
-Unchanged from ADR 0026 §2, restated because it is the load-bearing half:
-whatever consumes a caller-supplied config **by value** calls
+Unchanged from ADR 0026's own Decision 2, restated because it is the
+load-bearing half: whatever consumes a caller-supplied config **by value** calls
 `config.validate()?` as its first statement and returns
 `Result<_, ConfigError>`. New config-consuming constructors adopt this without
 exception.
 
 ### 3. `*State` / `*Params` / `*Genome` encapsulate
 
-Unchanged from `rules.md §2`. The distinction from §1 is not stylistic:
+Unchanged from `rules.md`'s Struct Field Encapsulation subsection. The
+distinction from this ADR's own Decision 1, above ("`*Config` types keep
+`pub` fields"), is not stylistic:
 
 | | `*Config` | `*State` / `*Params` / `*Genome` |
 |---|---|---|
@@ -281,11 +292,13 @@ reads `config.terrain` to select a terrain generator *before* delegating to
 becomes a defect the moment the pre-read field carries one. New code validates
 first.
 
-### 8. Reconciliation with `docs/rules.md §2` (applied on acceptance)
+### 8. Reconciliation with `docs/rules.md`'s Struct Field Encapsulation subsection (applied on acceptance)
 
-Same reconcile-on-acceptance flow as ADR 0026 §4 (rules.md is not itself
-immutable; ADRs supersede it). §2 "Struct Field Encapsulation" gains an explicit
-`*Config` clause stating the exemption and pointing at §4, a clause stating that
+Same reconcile-on-acceptance flow as ADR 0026's own Decision 4,
+"Reconciliation with `docs/rules.md`'s Error Handling section" (rules.md is
+not itself immutable; ADRs supersede it). The Struct Field Encapsulation
+subsection gains an explicit `*Config` clause stating the exemption and
+pointing at the Config Validation Contract subsection, a clause stating that
 struct-literal-surviving invariants belong in a newtype, and the
 `#[non_exhaustive]`-is-for-enums rule — replacing the current situation where the
 exemption is inferable only from `*Config`'s absence from a list.
@@ -313,16 +326,19 @@ These are real. They are accepted with reasons, not waved away.
    moves **by value** into its consumer at construction, so the window requires
    a caller to deliberately keep a mutable handle between the `validate()` call
    and the consuming call — not a shape that arises by accident. Where it
-   matters for a specific field, the mitigation is §4: put the invariant in a
-   newtype, and the post-validation mutation becomes unrepresentable rather than
-   merely unlikely.
+   matters for a specific field, the mitigation is this ADR's own Decision 4,
+   above ("Struct-literal-surviving invariants go in a newtype"): put the
+   invariant in a newtype, and the post-validation mutation becomes
+   unrepresentable rather than merely unlikely.
 
 2. **Read-before-validate is a footgun template.**
-   `bipedal_walker/env.rs:106-110` is the live instance (§7). It is harmless
-   today and is left in place rather than churned; the convention is recorded so
-   the next constructor copied from it validates first. There is no lint for
-   this — it is review-enforced, like `total_cmp` (§3) and the
-   `unwrap_or_default` rule (§4).
+   `bipedal_walker/env.rs:106-110` is the live instance (this ADR's own
+   Decision 7, "Validate first, destructure second"). It is harmless today
+   and is left in place rather than churned; the convention is recorded so
+   the next constructor copied from it validates first. There is no lint
+   for this — it is review-enforced, like the `total_cmp` rule (in
+   `rules.md`'s Trait Design Constraints section) and the
+   `unwrap_or_default` rule (in `rules.md`'s Error Handling section).
 
 3. **The `Deserialize` obligation is dormant, not satisfied.** ~22 configs
    derive `Deserialize` plainly — no `#[serde(try_from)]`, no post-decode hook.
@@ -353,7 +369,8 @@ These are real. They are accepted with reasons, not waved away.
 
 ### Neutral
 
-- Zero code change. This ADR records an allocation and reconciles `rules.md §2`.
+- Zero code change. This ADR records an allocation and reconciles
+  `rules.md`'s Struct Field Encapsulation subsection.
 - Two-way door in both directions: any individual config can later adopt a
   builder additively, and any individual field can later become a newtype
   additively. Neither requires revisiting this decision.
@@ -406,7 +423,8 @@ single generic bound at `strategy.rs:505-517`. The scattering the objection
 predicts is not observable in the tree.
 
 The one genuine "read without construction" case is an accessor like
-`delta_z()`, and §6 answers it with **totality**, not with a scattered check.
+`delta_z()`, and this ADR's own Decision 6, above ("Accessors on a config
+must be total"), answers it with **totality**, not with a scattered check.
 Rejected as a description of the problem, not as a remedy.
 
 ### Option 4 — Do nothing, leave the rule implicit
@@ -423,7 +441,8 @@ for invariants the chokepoint already reports better (a `ConfigError` naming
 `GaConfig.pop_size` beats a bare `PopSizeError`). Newtypes earn their place
 where the invariant is (a) violable by a plausible literal and (b) consumed far
 from the construction site — which is exactly the `NaN`/`Inf`/out-of-range
-*rate* case ADR 0031 already covers. Deferred to case-by-case judgment under §4.
+*rate* case ADR 0031 already covers. Deferred to case-by-case judgment under
+this ADR's own Decision 4.
 
 ## References
 
@@ -431,9 +450,9 @@ from the construction site — which is exactly the `NaN`/`Inf`/out-of-range
   construction bypasses `validate()`"; resolved by refutation. (The stated count
   of 32 is also low; the true figure is 71.)
 - ADR [0026](0026-shared-config-validation-convention.md) — `Validate` /
-  `ConfigError`; §3 already names the struct-literal case and routes it to
-  `validate()`. Immutable; its `87` config count is superseded by the `71`
-  recorded here.
+  `ConfigError`; its own Decision 3 already names the struct-literal case
+  and routes it to `validate()`. Immutable; its `87` config count is
+  superseded by the `71` recorded here.
 - ADR [0027](0027-bounds-newtype-for-closed-ranges.md) — `Bounds`; the
   valid-by-construction shape.
 - ADR [0031](0031-probability-rate-newtypes.md) — `Probability` /
@@ -443,8 +462,8 @@ from the construction site — which is exactly the `NaN`/`Inf`/out-of-range
   `EnvironmentError`, with the match-exhaustiveness reading this ADR generalises.
 - ADR [0054](0054-policy-head-construction-is-fallible.md) — the most recent
   chokepoint adoption; `try_init` validates before building.
-- `docs/rules.md §2` (Struct Field Encapsulation — reconciled here) and `§4`
-  (Config Validation Contract — unchanged).
+- `docs/rules.md`'s Struct Field Encapsulation subsection (reconciled here)
+  and its Config Validation Contract subsection (unchanged).
 - Code: `crates/rlevo-evolution/src/strategy.rs:505-517` (the generic
   chokepoint), `crates/rlevo-evolution/src/algorithms/ga.rs:73-89` and `:113-117`
   (the newtype layer, with its own rationale in a comment),

@@ -10,9 +10,10 @@ tags: [adr, decision, rng, reproducibility, rlevo-core, rlevo-evolution, dry]
 
 ## Status
 
-**Accepted (2026-07-06).** Resolves issue #161 §4.1. **Partially supersedes ADR
+**Accepted (2026-07-06).** Resolves issue #161's `rng.rs`-reimplements-`splitmix64`
+item (flagged 🔴 High as a pure duplication risk). **Partially supersedes ADR
 [0004](0004-move-bench-traits-into-rlevo-core.md)** — specifically decision point
-#6 and the "Neutral" consequence (line 95) that chose to *keep* the local
+#6 and its "Neutral" consequence that chose to *keep* the local
 `splitmix64` in `rlevo-evolution/src/rng.rs`. All other ADR 0004 decisions (the
 trait moves, typed `BenchError`, the strict-DAG dep-graph shape) remain in force;
 ADR 0004 stays `active`.
@@ -27,16 +28,18 @@ mixer, not a derivation contract.
 
 `rlevo-evolution/src/rng.rs` and `rlevo-core/src/util/seed.rs` each defined a
 private `const fn splitmix64(mut x: u64) -> u64` with **byte-identical** bodies
-(same three canonical constants, same shifts). ADR 0004 §6 accepted the
-duplication, reasoning that the two APIs are distinct (`(base, generation,
-SeedPurpose) -> StdRng` vs `(env_idx, trial_idx) -> u64`) and that they "share an
-algorithm — a consequence of using a well-known mixer — not a dependency."
+(same three canonical constants, same shifts). ADR 0004's own decision point 6
+accepted the duplication, reasoning that the two APIs are distinct
+(`(base, generation, SeedPurpose) -> StdRng` vs `(env_idx, trial_idx) -> u64`)
+and that they "share an algorithm — a consequence of using a well-known
+mixer — not a dependency."
 
-Issue #161 (🔴) revisits that call. The concern is **silent drift**: two
-hand-copied frozen constants can diverge under a well-meaning edit (a typo, or an
-"improvement" applied to one copy), and because each crate's reproducibility is
-self-contained, such a divergence breaks one crate's stored-seed reproducibility
-with no compile error and no cross-crate test to catch it.
+Issue #161's High-severity items revisit that call. The concern is **silent
+drift**: two hand-copied frozen constants can diverge under a well-meaning
+edit (a typo, or an "improvement" applied to one copy), and because each
+crate's reproducibility is self-contained, such a divergence breaks one
+crate's stored-seed reproducibility with no compile error and no cross-crate
+test to catch it.
 
 The honest weighing of the two views:
 
@@ -114,12 +117,13 @@ all existing determinism/golden tests (`rlevo/tests/determinism.rs`, the `rng`/
   algorithm, the property we actually want.
 - **Change `SeedPurpose::Other`'s constant** (which coincides with φ64). Out of
   scope and rejected here: it would break the reproducibility of every strategy
-  currently using `Other`. Issue #161 §8.1 asks only to *document* the caveat,
-  which the same PR does on the `Other` variant.
+  currently using `Other`. Issue #161's `Other`-caveat item asks only to
+  *document* the caveat, which the same PR does on the `Other` variant.
 
 ## References
-- Issue #161 — this ADR resolves §4.1 (and the same PR lands §7.1 exhaustive
-  distinctness test and §8.1 `Other` caveat docs).
+- Issue #161 — this ADR resolves the `splitmix64`-duplication item (and the
+  same PR lands the proposed exhaustive `SeedPurpose` all-pairs distinctness
+  test and the `Other`-variant caveat docs).
 - ADR [0004](0004-move-bench-traits-into-rlevo-core.md) — decision #6 / "Neutral"
   consequence (keep the local mixer), partially superseded here.
 - ADR [0029](0029-host-rng-seeding-convention.md) — the host-RNG seeding convention

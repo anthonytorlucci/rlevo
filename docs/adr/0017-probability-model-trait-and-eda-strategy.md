@@ -42,9 +42,12 @@ Three facts about the live API constrain the design (same frozen surface ADR
    SeedPurpose)`** (`crates/rlevo-evolution/src/rng.rs`); `B::seed` /
    `Tensor::random` / `thread_rng` are forbidden (process-global RNG mutex races
    parallel tests). ADR 0016 raised the max purpose tag to `LocalSearch = 7`.
-3. **`Strategy<B>` already threads `&mut dyn rand::Rng`** through ask/tell. The
-   phase-3b spec (§4) sketched a placeholder `ProbabilityModel` over `RngCore`
-   and a stateless `fit`; issue #31 §1 overrides both. This ADR records the final
+3. **`Strategy<B>` already threads `&mut dyn rand::Rng`** through ask/tell. Early
+   design work sketched a placeholder `ProbabilityModel` over `RngCore` and a
+   stateless `fit` (no prior-state parameter); issue #31's own "1.
+   `ProbabilityModel<B>` trait" deliverable overrides both — it specifies
+   `rng: &mut dyn rand::Rng` (matching `Strategy<B>`'s convention, not
+   `RngCore`) and always passes `fitness` to `fit`. This ADR records the final
    trait against the live convention.
 
 Issue #31 constraint **C9.3** ("must not add a `rlevo-core` dep to
@@ -62,7 +65,7 @@ Sampling is host-side only via `rand_distr`; Burn's PRNG kernels are explicitly
 rejected. Four concrete models ship in v1; BOA is deferred. All changes are
 additive.**
 
-### The trait (final — supersedes the spec §4 placeholder)
+### The trait (final — supersedes the original stateless-`fit` / `RngCore` placeholder)
 
 ```rust
 pub trait ProbabilityModel<B: Backend>: Send + Sync {
@@ -82,8 +85,8 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
 
 ### Concrete parts
 
-1. **`prev: Option<&Self::State>` in `fit` — the incremental seam.** The spec
-   placeholder was stateless. PBIL and cGA are *incremental*: each generation
+1. **`prev: Option<&Self::State>` in `fit` — the incremental seam.** The
+   original placeholder signature was stateless. PBIL and cGA are *incremental*: each generation
    interpolates the probability vector toward the selected sample, never
    overwriting it, so `fit` must read the prior state. Rather than add a third
    `init_state` method (the two-method cap is a deliberate trait-surface budget),
@@ -92,11 +95,13 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
    prior purely from `params`); `Some` is the per-generation incremental path.
    This is the *same seam CMA-ES needs* for its rank-μ and evolution-path updates
    — the prior covariance/path lives in `State` and is read back each `fit`. It
-   resolves umbrella-spec §9 Q1 ("does fitness belong in `fit`?") affirmatively:
-   `fitness` is a parameter; univariate models that do not weight by it ignore it
-   with `let _ = fitness;`.
+   resolves the open design question of whether fitness belongs in `fit`
+   affirmatively: `fitness` is a parameter; univariate models that do not weight
+   by it ignore it with `let _ = fitness;`.
 
-2. **`rng: &mut dyn rand::Rng`, not `RngCore` (issue #31 §1 over spec §4).**
+2. **`rng: &mut dyn rand::Rng`, not `RngCore` (issue #31's own "1.
+   `ProbabilityModel<B>` trait" deliverable overriding the original
+   placeholder).**
    `Rng` is the dyn-safe core trait in rand 0.10 and is exactly what `Strategy<B>`
    already threads through ask/tell, so the model RNG and the strategy RNG are the
    same type. No `RngCore`-vs-`Rng` impedance at the `EdaStrategy::sample` call
@@ -123,7 +128,8 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
    `random_uniform`) take **no seed or stream argument**; their only seeding path
    is the process-global `Backend::seed()` → `cubek::random::seed()`
    (`burn-cubecl/src/backend.rs:61-62`). That is incompatible with the per-purpose
-   `seed_stream` determinism scheme (rules.md §8), races parallel tests, and is
+   `seed_stream` determinism scheme (docs/rules.md's Dependency Usage section,
+   Host-RNG seeding convention subsection), races parallel tests, and is
    CubeCL-only. `burn-backend::Distribution::sampler` (host-side) *is*
    convention-compliant but is a thin wrapper over the same `rand_distr`
    primitives; this ADR samples `rand_distr` directly, matching the
@@ -148,7 +154,7 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
    fitness-weighted model may consume the order, but the ordering guarantee exists
    only to pin determinism, not as a ranking contract).
 
-9. **EDA vs CMA-ES boundary (research note `eda-vs-cma-es-boundary`).** Pure
+9. **EDA vs CMA-ES boundary.** Pure
    fit-then-sample algorithms — no per-generation path/step-size adaptation
    outside the model — live in `algorithms/eda/`. CMA-ES will live elsewhere
    (`algorithms/cma_es.rs`) but **reuse `ProbabilityModel`**: its multivariate
@@ -188,7 +194,8 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
   + a thin `tell` overlay, not a trait change.
 - **Determinism is structural.** Host-RNG sampling under a dedicated
   `EdaSampling` purpose, deterministic truncation selection, and the reused NaN
-  chokepoint mean runs reproduce bit-for-bit under the rules.md §8 scheme.
+  chokepoint mean runs reproduce bit-for-bit under docs/rules.md's Host-RNG
+  seeding convention.
 
 **Negative / accepted costs**
 
@@ -255,7 +262,7 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
 
 ## Alternatives considered
 
-**Stateless `fit` (the spec §4 placeholder).** Rejected: PBIL and cGA are
+**Stateless `fit` (the original placeholder signature).** Rejected: PBIL and cGA are
 incremental and cannot be expressed without reading the prior probability vector,
 and CMA-ES's path machinery needs the same prior thread. A stateless signature
 would force a third `init_state` method or an out-of-band state channel.
@@ -276,18 +283,20 @@ the `prev = None` bootstrap means `EdaStrategy` never needs it — keeping it ou
 `EdaParams` leaves that struct model-agnostic.
 
 **Ship CMA-ES inside `algorithms/eda/`.** Rejected: CMA-ES is not pure
-fit-then-sample (it adapts step size and an evolution path per generation). The
-research note draws the boundary at "pure fit→sample lives in `eda/`"; CMA-ES
-reuses the trait but lives elsewhere with its own `tell` overlay.
+fit-then-sample (it adapts step size and an evolution path per generation).
+The boundary drawn is "pure fit→sample lives in `eda/`"; CMA-ES reuses the
+trait but lives elsewhere with its own `tell` overlay.
 
 ## References
 
-- Issue #31 — phase-3b EDA spec; §1 overrides the spec §4 trait signature
-  (`Rng` over `RngCore`); constraint C9.3 has a stale premise (see Context).
-- Umbrella spec §4 (placeholder `ProbabilityModel`) — superseded by the trait in
-  this ADR; §9 Q1 (fitness in `fit`?) resolved affirmatively.
-- Research note `eda-vs-cma-es-boundary` — the `eda/` vs CMA-ES placement
-  resolution adopted in part 9.
+- Issue #31 — the phase-3b EDA implementation issue; its own "1. `ProbabilityModel<B>` trait"
+  deliverable overrides the original placeholder's trait signature (`Rng` over
+  `RngCore`, and always passing `fitness`); constraint C9.3 has a stale premise
+  (see Context).
+- The `eda/` vs CMA-ES placement resolution adopted in part 9 above: pure
+  fit-then-sample algorithms live in `algorithms/eda/`; CMA-ES reuses
+  `ProbabilityModel` but layers its evolution-path / step-size machinery into
+  its own `tell` elsewhere.
 - [0016-memetic-wrapper-and-local-search-seam](0016-memetic-wrapper-and-local-search-seam.md) — phase-3a; this ADR extends its
   additive-seam-on-`Strategy` pattern, reuses its `sanitize_fitness` NaN
   chokepoint, and continues the `SeedPurpose` numbering (`LocalSearch = 7` →
@@ -295,9 +304,8 @@ reuses the trait but lives elsewhere with its own `tell` overlay.
 - [0004-move-bench-traits-into-rlevo-core](0004-move-bench-traits-into-rlevo-core.md) — re-added the
   `rlevo-evolution → rlevo-core` edge for `BenchEnv`; the reason C9.3's premise is
   stale (the dep already exists on `main`).
-- project_evolution_host_rng_convention — the host-RNG / `seed_stream`
-  convention the sampling obeys; `B::seed` / `Tensor::random` / `thread_rng`
-  forbidden.
+- The host-RNG / `seed_stream` convention the sampling obeys (see Context
+  point 2 above): `B::seed` / `Tensor::random` / `thread_rng` forbidden.
 - `crates/rlevo-evolution/src/strategy.rs` — `Strategy::tell(&self)` (frozen),
   the `&mut dyn Rng` thread `EdaStrategy::sample` matches.
 - `crates/rlevo-evolution/src/rng.rs` — `seed_stream` / `SeedPurpose` (gains

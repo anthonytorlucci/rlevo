@@ -135,7 +135,8 @@ here only for completeness; it introduces no new decision.
   `Permutation` doc is now true, and the permutation ACO can build populations
   without a further storage change.
 - An empty `Population` is rejected where it is created, naming `Population` — the
-  confusing downstream panic (#158 §3.1/5.2) is closed.
+  confusing downstream panic that issue #158 flagged (its empty-`Population`
+  finding) is closed.
 - `Population<B, K>: Send + Sync` is now provable in generic code, aligning the
   container with the `Strategy: Send + Sync` contract. Two compile-time regression
   guards (`tensor_genome_storage_is_send_sync`, `population_is_send_sync`) would
@@ -173,8 +174,10 @@ here only for completeness; it introduces no new decision.
   values; deferred to the operators that will need the pheromone machinery anyway.
 
 ## References
-- Issue #158 — "[evo] Core genome/population type-safety gaps" (§6.1 GAT
-  `Send + Sync`; §8.1 `Permutation` doc/storage; §3.1/5.2 empty `Population`).
+- Issue #158 — "[evo] Core genome/population type-safety gaps", flagging three
+  findings: the missing `Send + Sync` bound on the `TensorGenome::Tensor` GAT,
+  `Permutation`'s storage doc running ahead of its implementation, and
+  `Population`'s unvalidated empty construction.
 - ADR [0022](0022-tensorgenome-gat-population-storage.md) — the `TensorGenome`
   GAT and `Population` storage this ADR extends; source of the anticipated
   `Permutation` opt-in.

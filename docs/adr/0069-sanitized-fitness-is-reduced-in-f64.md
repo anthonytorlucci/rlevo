@@ -3,7 +3,7 @@ project: rlevo
 status: active
 type: decision
 date: 2026-08-08
-tags: [adr, decision, fitness, sanitization, f32, f64, accumulator, overflow, reduction, neat, rlevo-evolution, issue-132, issue-1062]
+tags: [adr, decision, fitness, sanitization, f32, f64, accumulator, overflow, reduction, neat, rlevo-evolution]
 ---
 
 # ADR 0069: Sanitized fitness is reduced in `f64` — the `+∞ → f32::MAX` clamp bounds a *value*, not a *reduction*
@@ -23,18 +23,20 @@ while writing this ADR.
 **verbatim and unchanged**, its four driver chokepoints stand, and 0034 stays
 `active`. Nothing in `sanitize_fitness` or `sanitize_fitness_tensor` changes.
 
-**It does correct one sentence of ADR 0034's reasoning.** ADR 0034 §Decision 1
-justifies the `+∞ → f32::MAX` mapping with the parenthetical
+**It does correct one sentence of ADR 0034's reasoning.** ADR 0034's
+clamp-mapping decision (Decision 1) justifies the `+∞ → f32::MAX` mapping
+with the parenthetical
 
 > `+∞ → f32::MAX` (ranks top but **finite**, so it cannot blow a `mean`,
 > `variance`, or reward to `+∞`)
 
-That claim is false, and §Context below shows it is not merely false about
-`f32::MAX` — it is unachievable by *any* finite sentinel. Per this repository's
+That claim is false, and this ADR's own Context section, below, shows it is
+not merely false about `f32::MAX` — it is unachievable by *any* finite
+sentinel. Per this repository's
 immutability rule, ADR 0034 is **not edited**. The correction is carried by this
 ADR, by an appended clause on 0034's row in
-[`docs/adr/README.md`](README.md), by `docs/rules.md`
-§Optimisation direction, and — most importantly for a reader who will never open
+[`docs/adr/README.md`](README.md), by `docs/rules.md`'s "Optimisation
+direction" section, and — most importantly for a reader who will never open
 either — by the rustdoc on `sanitize_fitness` itself.
 
 **Chosen shape.** Four parts:
@@ -47,7 +49,8 @@ either — by the rustdoc on `sanitize_fitness` itself.
 3. The rationale correction propagated to the three editable surfaces that
    currently repeat it.
 4. A behavioural **rescale-invariance** property test as the mechanical net —
-   explicitly *not* a source-text guard, for the reason in §Decision 5.
+   explicitly *not* a source-text guard, for the reason in this ADR's own
+   Decision 5, below.
 
 ## Context
 
@@ -98,7 +101,7 @@ accumulation whose terms are fitness magnitudes — not the name
 | `shaping::z_score` | population mean **and variance** | **latent defect, found for this ADR** — see below |
 | `gep::strategy::roulette_select` | $\sum$ fitness-offset weights | the only site that anticipated it — see below |
 
-Two facts about this table decide §Decision 5.
+Two facts about this table decide this ADR's own Decision 5, below.
 
 **First: the taint is transitive through stored fields, so a name-keyed search
 cannot find it.** `allocate_offspring` sums `Species::adjusted_fitness_sum`, an
@@ -124,8 +127,8 @@ control (top = 1e18) -> [-0.33, -0.33, -0.33, -0.33, -0.33, -0.33, -0.33, -0.33,
 no infinity in the output. In a gradient-style ES update
 ($\sum_i u_i \cdot \varepsilon_i$, the exact consumer centered-rank/z-score exist
 to feed) that is a silent zero update: the strategy stops learning and reports
-finite numbers, which is the same failure class ADR 0068 §Context names for the
-$\sigma$ collapse. `z_score` is `pub` and has **no call site in the workspace
+finite numbers, which is the same failure class ADR 0068's Context section
+names for the $\sigma$ collapse. `z_score` is `pub` and has **no call site in the workspace
 today**, so this is latent, not live — but it is
 public API, and it is the instance the false parenthetical most directly
 licensed.
@@ -150,7 +153,7 @@ a convention worth mechanizing: no crash, no `NaN`, no failing assertion.
 
 ### The recurrence is not the recurrence ADR 0034 forecast
 
-ADR 0034 §Consequences names one reopen trigger — the **bypass hole** — and one
+ADR 0034's Consequences section names one reopen trigger — the **bypass hole** — and one
 escalation for it: the `CanonicalFitness<B>` newtype, "the fast-follow if a
 bypass regression recurs."
 
@@ -179,9 +182,9 @@ magnitude, and reducing over *it* is covered (this is exactly
 
 Three operations are explicitly **not** covered, and stay `f32`: ordering
 (`total_cmp`, sorts, `fold(−∞, f32::max)`), single-value comparison, and argmax.
-They are unaffected because saturation is order-preserving — the `rules.md` §3
-sanitize-then-`total_cmp` convention is complete for them and is not touched
-here.
+They are unaffected because saturation is order-preserving — `rules.md`'s
+section 3 sanitize-then-`total_cmp` convention is complete for them and is
+not touched here.
 
 `f32` remains the storage and public-API width. This ADR changes accumulator
 width only.
@@ -189,8 +192,9 @@ width only.
 This rule is stated for **host iterator reductions**, where the caller owns the
 accumulator. A reduction performed by a Burn device op does not own its
 accumulator — `Tensor::sum()` accumulates in `B::FloatElem` — and satisfies this
-ADR by bounding its terms instead. See §Decision 4, where that distinction was
-forced by the implementation rather than anticipated by this decision.
+ADR by bounding its terms instead. See this ADR's own Decision 4, below,
+where that distinction was forced by the implementation rather than
+anticipated by this decision.
 
 ### 2. Named `f64`-accumulating reduction primitives
 
@@ -206,12 +210,12 @@ pub(crate) fn sanitized_mean(values: impl IntoIterator<Item = f32>) -> f32;
 pub(crate) fn sanitized_sum(values: impl IntoIterator<Item = f32>) -> f64;
 ```
 
-This is the load-bearing half of the decision, and the reasoning is the same one
-ADR 0068 §Consequences gives for `config::nondegenerate_bounds`: **the check
-acquires a name.** The convention stops being a paragraph a contributor must
-have read and becomes the shortest correct thing to write at the call site. It is
-also what makes §Decision 5's grep viable, since the *absence* of these names in
-a fitness reduction is now the signal.
+This is the load-bearing half of the decision, and the reasoning is the same
+one ADR 0068's Consequences section gives for `config::nondegenerate_bounds`:
+**the check acquires a name.** The convention stops being a paragraph a
+contributor must have read and becomes the shortest correct thing to write at
+the call site. It is also what makes this ADR's own Decision 5's grep viable,
+since the *absence* of these names in a fitness reduction is now the signal.
 
 `sanitized_sum` returns `f64` deliberately. A `-> f32` sum would re-introduce the
 narrowing this ADR exists to move, and `allocate_offspring`'s `total` is a
@@ -223,9 +227,9 @@ panicking. `−∞` is the maximise-native worst sentinel (ADR 0023), it is alre
 what `from_host_fitness` returns for an all-broken population — so adoption is
 bit-for-bit behaviour-preserving — and the IEEE answer (`0/0 → NaN`) is the one
 value the crate's hygiene rule exists to eliminate. A panicking primitive would
-put a runtime-data panic behind `pub` reductions, contrary to `rules.md` §4.
-`sanitized_sum([]) == 0.0`, the additive identity, for which a mean has no
-analogue. If these are ever promoted past `pub(crate)` (reopen trigger 2), this
+put a runtime-data panic behind `pub` reductions, contrary to `rules.md`'s
+section 4. `sanitized_sum([]) == 0.0`, the additive identity, for which a
+mean has no analogue. If these are ever promoted past `pub(crate)` (reopen trigger 2), this
 contract is part of the public surface.
 
 `from_host_fitness`, `speciate`, and `allocate_offspring` adopt the primitives.
@@ -247,7 +251,8 @@ coincides with the old all-broken `−∞` branch, so `mean_fitness` is unchange
 bit-for-bit for every input — which matters, because it is read in five crates.
 The cost is a second pass over a once-per-generation statistic. No
 `sanitized_mean_of_finite` variant was added; `best`/`worst`/`broken_count` stay
-in their original single pass as order statistics §Decision 1 excludes.
+in their original single pass as order statistics this ADR's own Decision 1
+excludes.
 
 **Term consistency is co-equal with accumulator width — swapping in the primitive
 for a total alone is a regression.** This decision as first written treats
@@ -272,12 +277,14 @@ ADR 0034's false parenthetical is currently reproduced, near-verbatim, on three
   f32::MAX`: … so it cannot blow a population `mean`/`variance`/reward to `+∞`",
   and it is the IDE tooltip at every one of the ~90 `sanitize_fitness` call sites
   in the crate. It is the surface that misled the author of `speciate`. It must
-  say instead that the clamp makes the value *summable*, and that the reduction's
-  safety comes from §Decision 1's accumulator width.
-- **`docs/rules.md` §Optimisation direction.** The one-line summary of the hygiene
-  rule ("`+∞ → f32::MAX` (ranks top but finite, so it cannot blow a `mean`/reward
-  up)") is corrected, and §Decision 1's corollary is added as its own bullet
-  beside the existing sanitize-then-`total_cmp` bullet.
+  say instead that the clamp makes the value *summable*, and that the
+  reduction's safety comes from this ADR's own Decision 1's accumulator
+  width.
+- **`docs/rules.md`'s "Optimisation direction" section.** The one-line summary
+  of the hygiene rule ("`+∞ → f32::MAX` (ranks top but finite, so it cannot
+  blow a `mean`/reward up)") is corrected, and this ADR's own Decision 1's
+  corollary is added as its own bullet beside the existing
+  sanitize-then-`total_cmp` bullet.
 - **`docs/adr/README.md`.** 0034's row repeats the claim in its summary. The row's
   existing text is **kept** — it is a faithful summary of an immutable record and
   rewriting it would launder the history — and a `**Rationale corrected by
@@ -291,23 +298,24 @@ sentence presupposes. Amending it is not an edit to 0034.
 
 ### 4. `shaping::z_score` bounds its terms — it *cannot* widen its accumulator
 
-In scope for this ADR rather than deferred, per `rules.md` §12 ("prefer fixing
-over filing when the fix is in scope and cheap"): it is a `pub` function, it is
-the `variance` case the corrected parenthetical names, and leaving the workspace's
-own counter-example standing while the ADR that names it lands would be the worst
-of both.
+In scope for this ADR rather than deferred, per `rules.md`'s section 12
+("prefer fixing over filing when the fix is in scope and cheap"): it is a
+`pub` function, it is the `variance` case the corrected parenthetical names,
+and leaving the workspace's own counter-example standing while the ADR that
+names it lands would be the worst of both.
 
-**§Decision 1's rule does not transfer verbatim to a device reduction, and this
-was discovered while implementing it.** `Tensor::sum()` accumulates in
-`B::FloatElem`, which the *backend* fixes; Burn exposes no "sum in `f64`" knob.
-Reaching one would mean a device→host round-trip — precisely what ADR 0034
-introduced `sanitize_fitness_tensor` to avoid, and what `rules.md` §3 tells us to
-avoid for a whole `Tensor<B, 1>`. `z_score` compounds this: it has no `&Device`
-parameter (unlike `centered_rank`), so rebuilding the tensor needs
-`fitness.device()` plus a full host→device upload, and its host read is
-*fallible* on a non-`f32` `B::FloatElem` — which its signature cannot report, so
-the round-trip would force an `expect` on a read that genuinely can fail,
-contrary to `rules.md` §4.
+**This ADR's own Decision 1's rule does not transfer verbatim to a device
+reduction, and this was discovered while implementing it.** `Tensor::sum()`
+accumulates in `B::FloatElem`, which the *backend* fixes; Burn exposes no
+"sum in `f64`" knob. Reaching one would mean a device→host round-trip —
+precisely what ADR 0034 introduced `sanitize_fitness_tensor` to avoid, and
+what `rules.md`'s section 3 tells us to avoid for a whole `Tensor<B, 1>`.
+`z_score` compounds this: it has no `&Device` parameter (unlike
+`centered_rank`), so rebuilding the tensor needs `fitness.device()` plus a
+full host→device upload, and its host read is *fallible* on a non-`f32`
+`B::FloatElem` — which its signature cannot report, so the round-trip would
+force an `expect` on a read that genuinely can fail, contrary to
+`rules.md`'s section 4.
 
 On-device, the equivalent guarantee comes from **bounding the terms rather than
 widening the accumulator**: divide by the population's max-abs magnitude before
@@ -326,7 +334,7 @@ deliberate: it keeps this ADR's overflow fix from silently changing the `−∞`
 semantics, which is a separate policy question tracked as **#1068** and pinned by
 a test marked "Pin, not a fix". An unqualified "cannot overflow for any
 population" here would be a second over-strong guarantee of exactly the kind
-§Context indicts.
+this ADR's own Context section indicts.
 
 This is **strictly stronger** than `f64` accumulation would have been. It also
 survives a narrower `B::FloatElem` — an `f16` backend overflows the current
@@ -340,12 +348,12 @@ obtained.
 
 Generalised, and binding on future sites:
 
-> **§Decision 1's rule governs host iterator reductions. A device reduction
-> satisfies this ADR by bounding its terms, because its accumulator width belongs
-> to the backend, not to the caller.**
+> **This ADR's own Decision 1's rule governs host iterator reductions. A
+> device reduction satisfies this ADR by bounding its terms, because its
+> accumulator width belongs to the backend, not to the caller.**
 
-`centered_rank` is untouched — it sanitizes for *ordering* only, which
-§Decision 1 explicitly excludes.
+`centered_rank` is untouched — it sanitizes for *ordering* only, which this
+ADR's own Decision 1 explicitly excludes.
 
 ### 5. The mechanical net is a rescale-invariance property test, not a source-text guard
 
@@ -400,8 +408,9 @@ commutes with round-to-nearest through every intermediate — and assert counts 
 `==` rather than a tolerance that could hide drift.
 
 **A source-text guard in the ADR 0068 / `rng_seeding_guards.rs` shape is
-rejected, and the reason is the point of §Context.** Such a guard must key on a
-name, and the only available name is `sanitize_fitness`. Two of the four
+rejected, and the reason is the point of this ADR's own Context section.**
+Such a guard must key on a name, and the only available name is
+`sanitize_fitness`. Two of the four
 mis-widened sites — `allocate_offspring` and `z_score` — **do not contain that
 name**, and they are the two that a review pass keyed on the name has already
 missed twice. A ~900-line guard that provably misses the harder half of its own
@@ -423,12 +432,13 @@ fire on the narrowing, not on the overflow, and the workspace already
   load-bearing prose — a contributor read it and wrote a defect. rules.md can
   state a rule; only an ADR can correct the record of a decision, and this
   repository forbids the alternative of editing 0034. (b) **rules.md was already
-  tried and it was not enough.** §Optimisation direction already carried the
-  fitness-hygiene convention when #1062 was written, and it carried the *same
-  false clause* — a rules.md-only remedy would have propagated the error into the
-  document meant to prevent it. Note the choice is not exclusive: this ADR
-  *mandates* the rules.md entry (§Decision 3), following ADR 0068's shape of
-  ADR + rules.md line + one mechanical check.
+  tried and it was not enough.** `rules.md`'s "Optimisation direction" section
+  already carried the fitness-hygiene convention when #1062 was written, and
+  it carried the *same false clause* — a rules.md-only remedy would have
+  propagated the error into the document meant to prevent it. Note the choice
+  is not exclusive: this ADR *mandates* the rules.md entry (this ADR's own
+  Decision 3), following ADR 0068's shape of ADR + rules.md line + one
+  mechanical check.
 
   On weight: this is the granularity at which this workspace already writes
   ADRs. 0056 (non-finite loss skip), 0060 (config values must be finite), 0065
@@ -441,17 +451,19 @@ fire on the narrowing, not on the overflow, and the workspace already
   chokepoints, the mean-over-finite metric, and the contract amendments. Marking
   it `Superseded` tells every reader the decision is retired, which is a *worse*
   falsehood than the parenthetical it would be correcting — and it strands ADR
-  0023 (which 0034 extends and which stays `active`), `rules.md` §3's citation of
-  0034, and the ~7 in-source `ADR 0034` references. It would also force this ADR
-  to restate the whole sanitization rule to keep the record self-contained,
-  creating two documents that state one rule and can drift.
+  0023 (which 0034 extends and which stays `active`), `rules.md`'s section
+  3's citation of 0034, and the ~7 in-source `ADR 0034` references. It would
+  also force this ADR to restate the whole sanitization rule to keep the
+  record self-contained, creating two documents that state one rule and can
+  drift.
 
   0034 supplies its own precedent for the correct label: it *extends* ADR 0023
   without superseding it, and says so in its Status section in exactly the
   spelling reused here. The one thing "extends" does not do is warn a reader who
-  opens 0034 directly — which is why §Decision 3 puts the pointer on the index
-  and the corrected text in the rustdoc, and why the residual risk is recorded
-  under §Consequences rather than papered over.
+  opens 0034 directly — which is why this ADR's own Decision 3 puts the
+  pointer on the index and the corrected text in the rustdoc, and why the
+  residual risk is recorded under this ADR's own Consequences section rather
+  than papered over.
 
 - **A `SaneFitness(f32)` newtype not implementing `Sum<f32>`,** forcing an
   explicit widening at every reduction. The most attractive rejection, and the
@@ -468,9 +480,11 @@ fire on the narrowing, not on the overflow, and the workspace already
   `rlevo-benchmarks`, `rlevo`, the `#![no_std]` `rlevo-metrics-registry`, and the
   WASM `rlevo-benchmarks-report-client`, whose wire types mirror the benchmark
   crate's by hand (ADR 0015). That makes it a **one-way door on a cross-crate
-  wire surface** — the exact category §Prefer-reversible-decisions reserves for
-  extra scrutiny — bought for a defect class §Decision 2 closes at the source for
-  three call sites.
+  wire surface** — the workspace's own convention of flagging one-way-door
+  changes for extra scrutiny (used the same way in, e.g., ADR 0028's "Public
+  trait shape is a one-way door. Flagged for scrutiny") — bought for a
+  defect class this ADR's own Decision 2 closes at the source for three call
+  sites.
 
   It also would not actually forbid the bug: `.0` is one character, and a
   newtype that must be unwrapped at 90 sites trains its readers to unwrap
@@ -479,17 +493,19 @@ fire on the narrowing, not on the overflow, and the workspace already
 
 - **Lower the `+∞` sentinel below `f32::MAX`** (e.g. `f32::MAX / 1024`) so small
   sums survive. Rejected, and worth recording because it is the intuitive repair:
-  it does not achieve the property (§Context — no fixed finite `S` works for
-  unbounded `N`), it silently caps legitimate large finite fitness by making some
-  real values indistinguishable from `+∞`, and it changes a *value* convention
+  it does not achieve the property (this ADR's own Context section — no
+  fixed finite `S` works for unbounded `N`), it silently caps legitimate
+  large finite fitness by making some real values indistinguishable from
+  `+∞`, and it changes a *value* convention
   that four chokepoints and ~90 call sites already depend on, to avoid a
   one-word change to an accumulator declaration.
 
 - **Fire ADR 0034's `CanonicalFitness<B>` trigger.** Rejected as a
   mis-diagnosis: 0034's trigger is the *bypass* hole, which has not fired, and
   its remedy guards a `Tensor<B, 1>` at the `tell` boundary while all four
-  instances are host-side `f32` scalars downstream of it (§Context). It would
-  have caught none of them. 0034's deferral is neither invoked nor retired here.
+  instances are host-side `f32` scalars downstream of it (this ADR's own
+  Context section). It would have caught none of them. 0034's deferral is
+  neither invoked nor retired here.
 
 ## Consequences
 
@@ -518,17 +534,19 @@ fire on the narrowing, not on the overflow, and the workspace already
   immutability rule and the correction are in genuine tension, and this ADR
   resolves it in immutability's favour while accepting the residual. The
   mitigations are indirect on purpose (index clause, rustdoc, rules.md) and none
-  of them intercepts a direct link to `0034-fitness-hygiene-chokepoint-convention.md`
-  §Decision 1. If this shape recurs — a second accepted ADR whose *rationale*
-  needs correcting while its *decision* stands — the convention itself should be
-  revisited: a permitted, append-only `## Corrections` section would resolve it,
-  and that is a change to `CLAUDE.md` and this index's header, not something to
-  smuggle in under a numeric-hygiene ADR.
+  of them intercepts a direct link to
+  `0034-fitness-hygiene-chokepoint-convention.md`'s clamp-mapping decision
+  (Decision 1). If this shape recurs — a second accepted ADR whose
+  *rationale* needs correcting while its *decision* stands — the convention
+  itself should be revisited: a permitted, append-only `## Corrections`
+  section would resolve it, and that is a change to `CLAUDE.md` and this
+  index's header, not something to smuggle in under a numeric-hygiene ADR.
 - **Two widths now exist for one quantity.** Fitness is stored and reported in
   `f32` and reduced in `f64`. Every reduction site therefore carries a narrowing,
   and each narrowing is a place a future refactor can "simplify" back to `f32`.
-  §Decision 2's named primitives are the mitigation — the narrowing lives inside
-  `sanitized_mean` and nowhere else — but `allocate_offspring`'s `f64` `total`
+  This ADR's own Decision 2's named primitives are the mitigation — the
+  narrowing lives inside `sanitized_mean` and nowhere else — but
+  `allocate_offspring`'s `f64` `total`
   divided into `f32` shares is a genuinely mixed-width function and will read as
   untidy.
 - **The property tests are weaker than a type.** They cover the three sites
@@ -536,17 +554,18 @@ fire on the narrowing, not on the overflow, and the workspace already
   mechanical until someone writes its property — which is precisely the gap that
   produced #1062, now narrowed rather than closed. This is the cost of rejecting
   the newtype and it should not be described as anything else.
-- **The enumeration is a fact as of 2026-08-08, not a law.** §Context's "five
-  sites, four wrong" is a grep-and-read of one crate on one day, and §Decision 5's
-  choice of a per-site property test over a type rests on the population being
-  small and closed. It is exactly the kind of claim ADR 0068 §Assumptions warns
-  is load-bearing.
+- **The enumeration is a fact as of 2026-08-08, not a law.** This ADR's own
+  Context section's "five sites, four wrong" is a grep-and-read of one crate
+  on one day, and this ADR's own Decision 5's choice of a per-site property
+  test over a type rests on the population being small and closed. It is
+  exactly the kind of claim ADR 0068's Assumptions section warns is
+  load-bearing.
 
 ### Neutral
 
 - No new dependency; `proptest` is already an `rlevo-evolution` dev-dependency
-  (ADR 0036) and this is an input-space invariant, which is what §Decision 5's
-  properties are (unlike ADR 0068's source property).
+  (ADR 0036) and this is an input-space invariant, which is what this ADR's
+  own Decision 5's properties are (unlike ADR 0068's source property).
 - `sanitize_fitness` and `sanitize_fitness_tensor` are byte-for-byte unchanged,
   as are all four ADR 0034 chokepoints. `StrategyMetrics`' fields, the
   `rlevo-metrics-registry` table, and the report wire types are untouched.
@@ -556,8 +575,9 @@ fire on the narrowing, not on the overflow, and the workspace already
 **Review trigger — any one of these reopens this ADR:**
 
 1. **A fourth mis-widened reduction site**, anywhere. Three is the population
-   §Decision 5 sizes its per-site properties against; four means the properties
-   are not keeping pace with the sites and the type-level answer earns its price.
+   this ADR's own Decision 5 sizes its per-site properties against; four
+   means the properties are not keeping pace with the sites and the
+   type-level answer earns its price.
 2. **A reduce-over-fitness site outside `rlevo-evolution`** — most plausibly in
    `rlevo-hybrid`'s `RolloutFitness` or in `rlevo-benchmarks`' aggregation. This
    crosses the crate boundary the primitives' `pub(crate)` visibility assumes and
@@ -566,9 +586,9 @@ fire on the narrowing, not on the overflow, and the workspace already
    entirely and retire most of this ADR.
 
 Trigger (1) or (2) is what would revive the `SaneFitness` newtype, on the
-arithmetic §Alternatives gives: its cost is paid once per *stored fitness field*
-and per *cross-crate consumer*, while its benefit scales with the *reduction*
-population. At 3 reductions against 79 fields and 5 crates it does not earn its
+arithmetic this ADR's own Alternatives-considered section gives: its cost is
+paid once per *stored fitness field* and per *cross-crate consumer*, while
+its benefit scales with the *reduction* population. At 3 reductions against 79 fields and 5 crates it does not earn its
 keep; the ratio, not the principle, is what was decided.
 
 ## References
@@ -582,22 +602,24 @@ keep; the ratio, not the principle, is what was decided.
   10]`), with `allocate_offspring`'s `total` overflowing independently of the
   per-species means.
 - Issue **#131** — the per-slot fitness caches whose stored `f32` fields are part
-  of §Alternatives' newtype blast radius.
+  of this ADR's own Alternatives-considered section's newtype blast radius.
 - ADR [0034](0034-fitness-hygiene-chokepoint-convention.md) — the sanitization
-  rule and its four chokepoints, **extended and preserved**; §Decision 1's
-  parenthetical, corrected here; §Consequences' `CanonicalFitness<B>` deferral,
-  neither invoked nor retired.
+  rule and its four chokepoints, **extended and preserved**; its
+  clamp-mapping decision (Decision 1)'s parenthetical, corrected here; its
+  Consequences section's `CanonicalFitness<B>` deferral, neither invoked nor
+  retired.
 - ADR [0023](0023-objective-sense-and-maximize-convention.md) — the
   maximise-native canonical convention; the "extends, does not supersede"
   precedent this ADR's Status reuses.
 - ADR [0068](0068-bounds-strictness-enforcement-is-crate-asymmetric.md) — the
-  ADR + `rules.md` line + one mechanical check shape adopted here; §Context's
-  "trains and reports finite numbers" failure class; §Consequences' "the check
-  acquires a name" reasoning reused by §Decision 2; and the source-text guard
-  shape §Decision 5 deliberately declines.
-- ADR [0036](0036-adopt-proptest-for-property-tests.md) — why §Decision 5's
-  invariants are proptests (input-space) rather than a guard test (source
-  property).
+  ADR + `rules.md` line + one mechanical check shape adopted here; its
+  Context section's "trains and reports finite numbers" failure class; its
+  Consequences section's "the check acquires a name" reasoning reused by
+  this ADR's own Decision 2; and the source-text guard shape this ADR's own
+  Decision 5 deliberately declines.
+- ADR [0036](0036-adopt-proptest-for-property-tests.md) — why this ADR's own
+  Decision 5's invariants are proptests (input-space) rather than a guard
+  test (source property).
 - ADR [0015](0015-shared-typed-metric-registry-crate.md) — the hand-mirrored wire types that
   make `StrategyMetrics`' field widths a cross-crate, one-way-door concern.
 - ADR [0060](0060-config-values-must-be-finite.md), ADR
@@ -605,15 +627,17 @@ keep; the ratio, not the principle, is what was decided.
   [0066](0066-clamp-nan-behavior-is-backend-specific-pin-with-is-nan.md), ADR
   [0067](0067-non-finite-observations-are-dropped-at-replay-ingestion.md) — the
   established precedent that a single non-finite-numerics rule gets its own
-  record, which is the granularity argument in §Alternatives.
-- `docs/rules.md` §Optimisation direction — gains §Decision 1's corollary bullet;
-  its existing one-line paraphrase of the `+∞` rationale is corrected.
+  record, which is the granularity argument in this ADR's own
+  Alternatives-considered section.
+- `docs/rules.md`'s "Optimisation direction" section — gains this ADR's own
+  Decision 1's corollary bullet; its existing one-line paraphrase of the `+∞`
+  rationale is corrected.
 - `docs/adr/README.md` — 0034's row gains the appended correction clause
-  (§Decision 3).
+  (this ADR's own Decision 3).
 - Code — the primitive and its rustdoc:
   `crates/rlevo-evolution/src/fitness.rs` (`sanitize_fitness`,
-  `sanitize_fitness_tensor`, and §Decision 2's `sanitized_mean` /
-  `sanitized_sum`).
+  `sanitize_fitness_tensor`, and this ADR's own Decision 2's
+  `sanitized_mean` / `sanitized_sum`).
 - Code — the four instances: `crates/rlevo-evolution/src/strategy.rs`
   (`StrategyMetrics::from_host_fitness`),
   `crates/rlevo-evolution/src/neuroevolution/species.rs` (`speciate`,

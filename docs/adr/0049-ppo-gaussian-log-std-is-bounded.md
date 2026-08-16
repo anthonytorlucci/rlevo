@@ -53,8 +53,8 @@ determines which one this ADR must actually guard against:
    `σ_old/σ_new` normally stays close to `1` in ordinary training, so this
    mode is **not** reached by ordinary gradient drift. It **is** reachable
    through a misconfigured, overly wide `[log_std_min, log_std_max]`
-   interval — which is the entire reason the span validation in Decision §3
-   exists.
+   interval — which is the entire reason the span validation in this ADR's
+   own Decision 3 exists.
 
 **The entropy bonus does not prevent mode 1.** Gaussian entropy here is
 `Σ (log σ + ½ log(2πe))` — linear in `log σ` — so its restoring force is a
@@ -77,8 +77,8 @@ mainstream reference implementation leave it free:
 - TRPO (Schulman et al. 2015, arXiv:1502.05477, Appendix D) defines
   `stdev = exp(r)` with `r` a state-independent free parameter vector — no
   bound.
-- PPO (Schulman et al. 2017, arXiv:1707.06347, §6.1) inherits this verbatim:
-  "outputting the mean of a Gaussian distribution, with variable standard
+- PPO (Schulman et al. 2017, arXiv:1707.06347, Section 6.1) inherits this
+  verbatim: "outputting the mean of a Gaussian distribution, with variable standard
   deviations, following [Sch+15b; Dua+16]." No clamp appears anywhere in the
   paper; its Roboschool showcase (Table 4) instead used a
   `LinearAnneal(−0.7, −1.6)` **schedule**, not a clamp.
@@ -102,8 +102,9 @@ reason, and this decision knowingly removes it.
 ### Why deviate anyway
 
 Andrychowicz et al. 2021, *What Matters In On-Policy Reinforcement Learning?*
-(arXiv:2006.05990, §3.2 / App. B.8) is the one large-scale empirical study of
-this exact knob, and two of its findings carry this decision:
+(arXiv:2006.05990, Section 3.2, detailed in Appendix B.8) is the one
+large-scale empirical study of this exact knob, and two of its findings carry
+this decision:
 
 - Exponentiating an unbounded `log_std` "occasionally produced NaN values" —
   published corroboration of precisely the defect described above.
@@ -205,7 +206,7 @@ construction.
   clamp *and* the validation: the clamp alone does not deliver it, because it
   bounds `log_std` to an interval the caller chooses, and a caller may choose
   an interval in which `σ` is `0`. Mode 1 is closed by the absolute floor
-  (Decision §3), not by the clamp.
+  (this ADR's own Decision 3), not by the clamp.
 - Mode 2 (ratio overflow via a misconfigured wide bound interval) is rejected
   at construction time by the span check, rather than surfacing as an
   intermittent `NaN` deep in a training run.
@@ -229,17 +230,17 @@ construction.
   the run visibly dies. Now: a policy can be silently pinned at
   `σ ≈ 2·10⁻⁹` forever, producing plausible-looking (near-deterministic)
   actions with no crash. This is why the clamp does not ship alone —
-  Decision §4's telemetry (min `log_std` in PPO stats, a one-shot warning
-  the first time a bound binds) is part of this decision, not a follow-up;
-  the clamp by itself would be a net downgrade in debuggability.
+  this ADR's own Decision 4's telemetry (min `log_std` in PPO stats, a
+  one-shot warning the first time a bound binds) is part of this decision,
+  not a follow-up; the clamp by itself would be a net downgrade in debuggability.
 - **Breaking change.** `TanhGaussianPolicyHeadConfig` gains two required
   fields. It is a plain struct with no `Default`, and every construction
   site in the workspace uses a full struct literal, so every one of them
   must be updated in the same change (no partial migration is possible).
   Accepted: pre-1.0, all call sites are in-repo.
-- **Scope is PPO only**, per Decision §6 — recorded here as a limit, not an
-  omission: PPG's discrete head needs no change, and a future continuous PPG
-  head is the one that inherits this decision.
+- **Scope is PPO only**, per this ADR's own Decision 6 — recorded here as a
+  limit, not an omission: PPG's discrete head needs no change, and a future
+  continuous PPG head is the one that inherits this decision.
 
 ## Alternatives considered
 
@@ -274,14 +275,15 @@ construction.
   state-independent, unclamped.)
 - Schulman, Wolski, Dhariwal, Radford, Klimov. *Proximal Policy Optimization
   Algorithms.* 2017. arXiv:1707.06347 —
-  <https://arxiv.org/abs/1707.06347>. (§6.1 continuous-control setup, no
+  <https://arxiv.org/abs/1707.06347>. (Section 6.1 continuous-control setup, no
   clamp stated; Table 3 MuJoCo hyperparameters, no entropy bonus; Table 4
   Roboschool `LinearAnneal(−0.7, −1.6)` log-std schedule.)
 - Andrychowicz, Raichuk, Stańczyk, Orsini, Girgin, Marinier, Hussenot,
   Geist, Pietquin, Michalski, Gelly, Bachem. *What Matters In On-Policy
   Reinforcement Learning? A Large-Scale Empirical Study.* ICLR 2021.
-  arXiv:2006.05990 — <https://arxiv.org/abs/2006.05990>. (§3.2 / App. B.8:
-  exponentiating an unbounded `log_std` "occasionally produced NaN values";
+  arXiv:2006.05990 — <https://arxiv.org/abs/2006.05990>. (Section 3.2,
+  detailed in Appendix B.8: exponentiating an unbounded `log_std`
+  "occasionally produced NaN values";
   minimum std "matters little, if it is not set too large.") **Primary
   empirical source for this decision.**
 - Huang, Dossa, Ye, Braga, Chakraborty, Mehta, Araújo. *The 37

@@ -43,9 +43,9 @@ NaN reproduces perfectly and passes).
 The load-bearing fact that decides the design: **every agent already reads its
 loss scalar host-side (`into_scalar().elem::<f32>()`) before calling
 `loss.backward()`** — for metrics. So the guard rides an existing sync. The
-issue's own "a per-step host sync may be too costly for release builds" caveat is
-a false premise at these sites; #184's comment thread established the same for the
-loss scalar specifically.
+issue's own "a per-step host sync purely to check finiteness may be too costly
+for release builds" caveat is a false premise at these sites; #184's comment
+thread established the same for the loss scalar specifically.
 
 ### Literature
 

@@ -117,8 +117,9 @@ one-way-door part of this ADR and the main reason it needs to be recorded.
 ### 3. The occlusion gap is recorded as a stated non-decision
 
 rlevo applies no visibility masking anywhere; `see_through_walls` is
-effectively always `true` crate-wide (§Context). This is a real fidelity gap
-versus Minigrid, whose default is `false`.
+effectively always `true` crate-wide (see this ADR's own Context section
+above). This is a real fidelity gap versus Minigrid, whose default is
+`false`.
 
 This is **not fixed** by this ADR. The blast radius is all 12 grid envs'
 observation semantics at once, it invalidates every existing grid benchmark
@@ -178,7 +179,8 @@ episode draws an identical cue/mission and the #109 bug survives behind a
 passing test. Both re-seed lines are deleted; both envs gain an inherent
 `reset_with_seed` per the ADR 0029 pattern. Nine other grid envs still carry
 a dead `_rng` and the same latent re-seed hazard; that is a known gap
-tracked separately from this ADR's scope (rules.md §12 governs filing it).
+tracked separately from this ADR's scope (rules.md's Deferred Work Gets a
+GitHub Issue section governs filing it).
 
 ### Config surface: two fields removed
 
@@ -197,9 +199,9 @@ two episodes differing *only* in cue type, with the same fork order, must
 produce byte-identical observations at the decision cell while requiring
 *different* correct actions. This is a mechanical proof that no reactive
 policy can beat chance on the env. It only passes if all three objects are
-green — the all-green rule (§Context) is load-bearing, not cosmetic;
-non-green objects would let the test (and a real policy) shortcut through
-color instead of type.
+green — the all-green rule (stated in this ADR's own Context section) is
+load-bearing, not cosmetic; non-green objects would let the test (and a
+real policy) shortcut through color instead of type.
 
 ## Alternatives considered
 

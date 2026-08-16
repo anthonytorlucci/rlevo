@@ -13,8 +13,9 @@ tags: [adr, decision, reinforcement-learning, replay, per, her, issue-188, burn]
 **Accepted (2026-07-18).** Resolves issue #188 ("`rl/memory.rs`:
 `PrioritizedExperienceReplay` is dead/unfinished but the docs advertise it as the
 integration path"). Supersedes nothing. **Carries a correcting note for ADR
-[0003](0003-collapse-rl-modules-into-rlevo-reinforcement-learning.md) §Context,
-row 1** — see *Correction to ADR 0003* below.
+[0003](0003-collapse-rl-modules-into-rlevo-reinforcement-learning.md)'s own
+Context section (its workspace-wide consumer table, row 1)** — see
+*Correction to ADR 0003* below.
 
 ## Correction to ADR 0003
 
@@ -133,8 +134,10 @@ Two future strategies must not force a second breaking change:
 ### 1. `crate::replay` — a new module, not an evolution of `memory.rs`
 
 A new `crates/rlevo-reinforcement-learning/src/replay/` module hosts the seam.
-`memory.rs` is deleted (see §8). `experience.rs` is left **untouched and
-out of scope** (see §7).
+`memory.rs` is deleted (see this ADR's own Decision 8). `experience.rs`
+is left **untouched and out of scope** (see this ADR's own Decision 9 —
+note: this citation originally cited section-marker 7, a stale number
+from an earlier draft, corrected here).
 
 ### 2. One stored transition type, generic over the erased action payload
 
@@ -193,7 +196,9 @@ The seam draws the line at **which items come back and what weight each
 carries**. It never sees a `Tensor`, a `Backend`, or a device. Staging stays in
 the agent, which is the only place that knows whether an action becomes an
 `Int` index tensor or a float vector tensor. This is why `TrainingBatch` is
-retired rather than extended (§5).
+retired rather than extended (this ADR's own Decision 7 — note: this
+citation originally cited section-marker 5, a stale number from an
+earlier draft, corrected here).
 
 `sample` takes `&self` and `rng: &mut R` — matching every agent's existing
 `learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R)` signature, and fixing
@@ -294,14 +299,16 @@ no shim), and specifically ADR 0048's reasoning: a `#[deprecated]` shim
 
 The argument is stronger here. `#[deprecated]` says *this works, but prefer the
 new thing*. The type does not work: it is advertised as PER and is not PER
-(§Context defect 1). Leaving a compiling, importable, wrong-named path is worse
-for a user than a compile error that points at the replacement.
+(this ADR's own Context section, defect 1). Leaving a compiling,
+importable, wrong-named path is worse for a user than a compile error
+that points at the replacement.
 
 Retiring the builder also retires the `Builder with_alpha(x)` row from
-`docs/rules.md` §4's Documented Panic Contracts table (the `with_capacity(n)`
-row survives, now naming the replay builders). `rules.md` §3's
-`PrioritizedExperienceReplay | priorities.len() == buffer.len()` invariant row
-is restated against `PrioritizedReplay`.
+rules.md's Error Handling section's Documented Panic Contracts table (the
+`with_capacity(n)` row survives, now naming the replay builders). rules.md's
+Trait Design Constraints section's `PrioritizedExperienceReplay |
+priorities.len() == buffer.len()` invariant row is restated against
+`PrioritizedReplay`.
 
 `ReplayBufferError` — the one symbol the agents actually import — is kept, moved
 into `replay`, and re-exported from `memory`'s former path only if a
@@ -311,8 +318,9 @@ compatibility shim is wanted later. It gains no new variants for uniform;
 ### 9. `experience.rs` is out of scope
 
 `ExperienceTuple`, `History`, `HistoryRepresentation`, and `SufficientStatistic`
-are **not touched**. ADR 0003 §"conservative dead-code policy" deliberately kept
-zero-consumer roadmap markers, and `HistoryRepresentation`/`SufficientStatistic`
+are **not touched**. ADR 0003's own "Scope decision: conservative
+dead-code policy" subsection deliberately kept zero-consumer roadmap
+markers, and `HistoryRepresentation`/`SufficientStatistic`
 are structurally coupled to `History` (both take `&History` in their
 signatures), so deleting the concrete types drags the traits with them. That is
 a separate decision belonging to #190, not to this seam.
@@ -362,8 +370,9 @@ Appendix B.2.1: "this normalization interacts with annealing on β." The two are
 
 Rationale for splitting them that way: the buffer has no step counter, and
 giving it one duplicates the agent's — a second source of truth, the exact
-shape `rules.md` §10 forbids for episode termination. It is also wrong the
-moment two learners share one buffer (the distributed-replay roadmap item). The
+shape rules.md's Architecture Invariants section forbids for episode
+termination. It is also wrong the moment two learners share one buffer
+(the distributed-replay roadmap item). The
 accepted cost is that a caller can pass a nonsense β; `Validate` on the config
 and the three in-crate call sites are the mitigation.
 
@@ -387,7 +396,7 @@ mapped to Schaul's equations, and nowhere else.
 
 | Agent | Priority | Provenance |
 |---|---|---|
-| DQN | `\|δ\|` from the per-sample Huber residual | Schaul §3.3, direct |
+| DQN | `\|δ\|` from the per-sample Huber residual | Schaul Section 3.3, direct |
 | C51 | **KL**, not cross-entropy | Rainbow, verbatim: "prioritize transitions by the KL loss" |
 | QR-DQN | per-sample quantile Huber loss | **By analogy only** |
 
@@ -461,8 +470,8 @@ there is cost with no benefit.
 
 - **Breaking removal of a type that shipped in three tagged releases**, with no
   deprecation window. Any downstream user of `PrioritizedExperienceReplay` gets
-  a compile error. Accepted per §8; alpha, and the removed type does not do what
-  its name says.
+  a compile error. Accepted per this ADR's own Decision 8; alpha, and the
+  removed type does not do what its name says.
 - **Two transition models coexist until #190 closes.** `ExperienceTuple` /
   `History` remain in `experience.rs` as ADR 0003 roadmap markers while
   `replay::Transition` is the live one. Mitigated by a module-doc pointer, not
@@ -476,7 +485,8 @@ there is cost with no benefit.
 - **A sum-tree is ~150 lines of new index arithmetic** on a path where an
   off-by-one silently biases sampling rather than crashing. Mitigated by
   landing the O(n) prefix-scan version first, pinning its outputs, and swapping
-  the tree in behind identical tests (§Implementation ordering).
+  the tree in behind identical tests (see this ADR's own Implementation
+  ordering section).
 
 ### Neutral
 
@@ -515,8 +525,9 @@ staging hot path, plus an unrepresentable-state hole (a DQN agent could be
 handed a `Continuous` payload and would have to panic or misbehave). The
 generic parameter makes the same distinction at compile time for free.
 
-**Fold `SampledBatch` into ADR 0046's `Slot`.** Rejected — §6. They share a
-sentence-level description and no semantics. `Slot`'s single reason to change
+**Fold `SampledBatch` into ADR 0046's `Slot`.** Rejected — this ADR's own
+Decision 6. They share a sentence-level description and no semantics.
+`Slot`'s single reason to change
 is Burn's by-value `Optimizer::step`; giving it a second one dilutes the
 guarantee ADR 0046 bought.
 
@@ -531,13 +542,14 @@ kept because **PER's `update_priorities` is a real, present instance of
 post-insertion mutation** — that, not HER, is its justification.
 
 **Extend `TrainingBatch` with `Option<weights>` and `indices`.** Rejected —
-§7. It institutionalizes a zero-consumer type, and `Option` fields that are
-`None` for half the strategies are a smell that the type is being asked to
-serve two shapes.
+this ADR's own Decision 7. It institutionalizes a zero-consumer type, and
+`Option` fields that are `None` for half the strategies are a smell that
+the type is being asked to serve two shapes.
 
 **Wire PER into DDPG/TD3/SAC as well, "for symmetry."** Rejected on the
-literature (§Context). Symmetry across algorithm families is not a value the
-library holds; fidelity to the algorithm each family implements is.
+literature (this ADR's own Context section). Symmetry across algorithm
+families is not a value the library holds; fidelity to the algorithm each
+family implements is.
 
 ## Implementation ordering
 
@@ -547,8 +559,9 @@ must land before steps 2–4.** Steps 2, 3, and 4 are mutually independent.
 **Step 1 — seam + uniform, behavioural no-op.**
 New `replay/{mod,transition,uniform,error}.rs`; `Transition<O, P>` +
 two aliases; `ReplayStrategy<T>`; `TransitionId`/`SampledBatch`;
-`UniformReplay<T>` with the §5 pinned draw contract. Migrate all six agents'
-`buffer` field, `remember` (`dqn:326`, `c51:336`, `qrdqn:303`, `ddpg:376`,
+`UniformReplay<T>` with this ADR's own Decision 5 pinned draw contract.
+Migrate all six agents' `buffer` field, `remember` (`dqn:326`, `c51:336`,
+`qrdqn:303`, `ddpg:376`,
 `td3:418`, `sac:443`), `replay_n`, and index sites (`dqn:420`, `c51:460`,
 `qrdqn:417`, `ddpg:440`, `td3:489`, `sac:512`); delete the six private
 `Transition` definitions (`dqn:88`, `c51:79`, `qrdqn:80`, `ddpg:91`, `td3:100`,
@@ -560,8 +573,8 @@ agents** (the ADR 0046 standard).
 `c51/loss.rs:22-25` and `qrdqn/quantile_loss.rs:60-65` change return type to
 per-sample `Tensor<B, 1>`; callers (`c51_agent.rs:569`, `qrdqn_agent.rs:512`)
 add `.mean()`. `dqn_agent.rs:497-500` switches to `forward_no_reduction` +
-`.mean()`. **Acceptance: bit-identical, by the §14 argument** — no IS weight
-exists yet.
+`.mean()`. **Acceptance: bit-identical, by this ADR's own Decision 14
+argument** — no IS weight exists yet.
 
 **Step 3 — `PrioritizedReplay` in isolation.**
 `Priority` newtype; `PrioritizedReplayConfig` + `Validate`; sum-tree;
@@ -575,8 +588,9 @@ identical tests.
 
 **Step 4 — wire PER into DQN, then C51, then QR-DQN (three PRs).**
 Config fields; `SampledBatch` threaded from sample to loss; weight tensor
-upload; `update_priorities` writeback. C51's PR carries the §13 CE→KL
-correction. QR-DQN's PR carries the "by analogy, not ablated" rustdoc.
+upload; `update_priorities` writeback. C51's PR carries this ADR's own
+Decision 13 CE→KL correction. QR-DQN's PR carries the "by analogy, not
+ablated" rustdoc.
 **Acceptance: with `priority_exponent = 0.0` and `importance_exponent = 0.0`,
 the prioritized path must match the uniform path's learning curve** (not
 bit-identical — the draw scheme differs by design — but statistically
@@ -590,8 +604,9 @@ indistinguishable over seeds).
 `rlevo-core/README.md:228-230` — the latter is additionally stale, still
 pointing `rlevo-core` readers at a type ADR 0003 moved out of it),
 `docs/contributor-book/src/ch07-adding-an-rl-algorithm.md:13-14,41`,
-`docs/rules.md` §3 invariant row and §4 panic-contract row, `CLAUDE.md`'s
-Key Files table, and `CHANGELOG.md` under Unreleased/Breaking.
+rules.md's Trait Design Constraints section invariant row and its Error
+Handling section panic-contract row, `CLAUDE.md`'s Key Files table, and
+`CHANGELOG.md` under Unreleased/Breaking.
 
 ## References
 
@@ -601,8 +616,8 @@ Key Files table, and `CHANGELOG.md` under Unreleased/Breaking.
 - `docs/.private/research/per-schaul-2016-fidelity.md` — the literature
   validation this design is required to honour.
 - Schaul, Quan, Antonoglou, Silver (2016). *Prioritized Experience Replay.*
-  ICLR 2016, arXiv:1511.05952v4. §3.3, §3.4, Algorithm 1, Appendix B.2.1,
-  Table 3.
+  ICLR 2016, arXiv:1511.05952v4. Section 3.3, Section 3.4, Algorithm 1,
+  Appendix B.2.1, Table 3.
 - Hessel et al. (2018). *Rainbow.* AAAI 2018, arXiv:1710.02298 — KL priority for
   distributional agents; the seven-component ablation.
 - Dabney, Rowland, Bellemare, Munos (2018). *Distributional RL with Quantile
@@ -617,7 +632,7 @@ Key Files table, and `CHANGELOG.md` under Unreleased/Breaking.
   introduced with `memory.rs::sample_batch` as its "first consumer"; that
   consumer is retired here, and the helper's remaining users are unaffected.
 - ADR [0046](0046-slot-newtype-replaces-option-take-around-learn-step.md) —
-  `Slot<M>`; §6 records why `SampledBatch` is not one.
+  `Slot<M>`; this ADR's own Decision 6 records why `SampledBatch` is not one.
 - ADR [0027](0027-bounds-newtype-for-closed-ranges.md) /
   [0031](0031-probability-rate-newtypes.md) — the validated-newtype shape
   `Priority` follows.
@@ -628,4 +643,5 @@ Key Files table, and `CHANGELOG.md` under Unreleased/Breaking.
   ddpg,td3,sac}/*_agent.rs`; `.../src/algorithms/c51/loss.rs`;
   `.../src/algorithms/qrdqn/quantile_loss.rs`;
   `burn-nn-0.21.0/src/loss/huber.rs:86-98` (`forward(.., Mean)` ≡
-  `forward_no_reduction(..).mean()`, the basis of the §14 bit-identity claim).
+  `forward_no_reduction(..).mean()`, the basis of this ADR's own Decision 14
+  bit-identity claim).

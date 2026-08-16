@@ -17,7 +17,7 @@ covariance-matrix evolution strategies — `CmaEs` (Hansen & Ostermeier 2001) an
 additive: no change to `Strategy`, `EvolutionaryHarness`, `ProbabilityModel`,
 `EdaStrategy`, any existing algorithm file, or any manifest; no new dependency.
 **Does not supersede ADR 0017** — it *refines* the forward-looking expectation in
-ADR 0017 §Decision part 9 (see Decision part 2 below). Tracks issue #59.
+ADR 0017's own Decision, part 9 (see Decision part 2 below). Tracks issue #59.
 
 ## Context
 
@@ -26,19 +26,19 @@ ill-conditioned landscapes; CMSA-ES is its evolution-path-free sibling. Two
 design questions need an immutable record before code:
 
 1. **Placement.** Issue #59 says add `pub mod cma_es;` / `pub mod cmsa_es;`
-   "alongside the existing entries" in `algorithms/mod.rs` (flat). The research
-   note `eda-vs-cma-es-boundary` (3b-R2, a *draft* note — never an ADR) tentatively
-   proposed an `es_advanced/` submodule "because evolution paths are the
-   identity-defining machinery." ADR 0017 §9 deferred placement to "elsewhere
+   "alongside the existing entries" in `algorithms/mod.rs` (flat). Early
+   design work (never an ADR) tentatively proposed an `es_advanced/` submodule
+   "because evolution paths are the identity-defining machinery." ADR 0017's
+   own Decision, part 9, deferred placement to "elsewhere
    (`algorithms/cma_es.rs`)". The two readings (flat vs submodule) must be settled.
 
 2. **Trait reuse.** ADR 0017 was co-designed so "CMA-ES can reuse
-   [`ProbabilityModel<B>`] later without a signature break," and its §Decision
-   part 9 states CMA-ES "will live elsewhere … but **reuse `ProbabilityModel`**:
-   its multivariate Gaussian implements the trait, and the evolution-path /
-   step-size machinery is layered into CMA-ES's own `tell`." That was an
-   *anticipation* recorded before the CMA-ES design pass; this ADR is that design
-   pass and must either confirm or refine it.
+   [`ProbabilityModel<B>`] later without a signature break," and its own
+   Decision, part 9, states CMA-ES "will live elsewhere … but **reuse
+   `ProbabilityModel`**: its multivariate Gaussian implements the trait, and
+   the evolution-path / step-size machinery is layered into CMA-ES's own
+   `tell`." That was an *anticipation* recorded before the CMA-ES design
+   pass; this ADR is that design pass and must either confirm or refine it.
 
 Three live-API facts constrain the design (the same frozen surface ADR 0016/0017
 verified):
@@ -50,8 +50,7 @@ verified):
   (`crates/rlevo-evolution/src/rng.rs`); `B::seed` / `Tensor::random` forbidden.
   ADR 0017 raised the max purpose tag to `EdaSampling = 8`.
 - **Burn 0.21 ships no Cholesky or symmetric eigendecomposition**, and the
-  workspace pulls no `nalgebra` (verified in research note
-  `cma-es-sampling-and-numerics`). The decomposition must be host-side hand-rolled
+  workspace pulls no `nalgebra`. The decomposition must be host-side hand-rolled
   or a new dependency.
 
 ## Decision
@@ -70,7 +69,7 @@ additive.**
   single-file families are flat (`es_classical.rs`, `de.rs`, `ep.rs`,
   `gp_cgp.rs`). Two sibling files have the same cardinality as
   `ga.rs` + `ga_binary.rs`, which are flat siblings — not a `ga/` directory.
-- The `es_advanced/` proposal in `eda-vs-cma-es-boundary` was motivated by
+- The `es_advanced/` proposal in the boundary note was motivated by
   *intellectual* separation from `eda/`, not by file count. That separation is
   real and is carried by **module rustdoc** in `cma_es.rs` citing the EDA/ES
   boundary, not by a directory that would currently hold exactly two files.
@@ -84,7 +83,8 @@ additive.**
 ### 2. Self-contained `Strategy<B>` — `ProbabilityModel<B>` available but unused
 
 CMA-ES and CMSA-ES implement `Strategy<B>` directly and do **not** route through
-`ProbabilityModel<B>`. This **refines** the anticipation in ADR 0017 §9.
+`ProbabilityModel<B>`. This **refines** the anticipation in ADR 0017's own
+Decision, part 9.
 
 - **The fit→sample shape does not fit covariance-matrix ES.**
   `ProbabilityModel::fit(population, fitness, prev) → State` /
@@ -115,8 +115,7 @@ CMA-ES and CMSA-ES implement `Strategy<B>` directly and do **not** route through
 
 ### 3. Host-side numerics, hand-rolled Jacobi — no new dependency
 
-Resolved in research note `cma-es-sampling-and-numerics` (§L4); recorded here for
-the additive/no-dep claim. Decomposition + sampling are host-side `Vec<f32>`; the
+Decomposition + sampling are host-side `Vec<f32>`; the
 eigensolver is a hand-rolled cyclic **Jacobi** routine (it ports the canonical
 `pycma` `eigen()` for bit-validation, needs no dependency, and has better
 small-eigenvalue accuracy than QR — which matters for the narrow-axis-collapse
@@ -165,8 +164,8 @@ formula across the crate.
 
 **Negative / accepted costs**
 
-- **ADR 0017 §9's prose over-promised.** It said CMA-ES "will reuse
-  `ProbabilityModel`"; this ADR declines instantiation. Accepted and explicitly
+- **ADR 0017's own Decision, part 9's, prose over-promised.** It said CMA-ES
+  "will reuse `ProbabilityModel`"; this ADR declines instantiation. Accepted and explicitly
   recorded as a *refinement* (the seam remains available-but-unused, ADR 0018
   precedent), not a silent reversal. ADR 0017 is immutable and unchanged.
 - **EDA-spec criterion 3 closes only in the weak sense.** "No divergent
@@ -222,10 +221,11 @@ separation is carried by module rustdoc. Revisit on the third covariance-ES
 variant.
 
 **CMA-ES instantiates `ProbabilityModel<B>` (a `MultivariateGaussian` model) with
-a `tell` overlay (ADR 0017 §9's letter).** Rejected: CSA, evolution paths, and the
-learning-rate-blended covariance update are not density estimation; threading them
-through `fit`/`sample` leaks ES state into the model and fractures one algorithm
-across two seams. The `Strategy` is the correct seam (the boundary note's own
+a `tell` overlay (the letter of ADR 0017's own Decision, part 9).** Rejected:
+CSA, evolution paths, and the learning-rate-blended covariance update are not
+density estimation; threading them through `fit`/`sample` leaks ES state into
+the model and fractures one algorithm across two seams. The `Strategy` is the
+correct seam (the boundary note's own
 heuristic). The trait stays available for a genuine EMNA model instead.
 
 **A new dependency (`nalgebra` / `nalgebra-lapack`) for the eigensolver.**
@@ -242,16 +242,12 @@ self-documenting, matching the per-purpose isolation rationale in `rng.rs`.
 
 - Issue #59 — `feat(evo): implement CMA-ES and CMSA-ES`; specifies flat
   `pub mod cma_es; pub mod cmsa_es;` and the host-RNG/determinism constraints.
-- Spec `covariance-matrix-evolution-strategies` (advanced-evo-algos) — OQ-1/OQ-2
-  resolved here.
-- Research note `cma-es-module-placement` (cma-R2) — placement + trait-reuse.
-- Research note `cma-es-sampling-and-numerics` (cma-R1) — Jacobi vs `nalgebra`,
-  host/GPU cost analysis, `CmaSampling` proposal.
-- Research note `eda-vs-cma-es-boundary` (3b-R2) — the `es_advanced/` proposal this
-  ADR resolves; the "EDA samples only / CMA-ES layers paths" heuristic.
+- The two open design questions this ADR resolves (placement and trait reuse)
+  are already fully worked through in this ADR's own Decision parts 1 and 2
+  above.
 - [0017-probability-model-trait-and-eda-strategy](0017-probability-model-trait-and-eda-strategy.md)
-  — co-author partner; §Decision part 1 (the `prev: Option<&State>` seam) and
-  part 9 (the CMA-ES-reuse anticipation this ADR refines).
+  — co-author partner; its own Decision, part 1 (the `prev: Option<&State>`
+  seam) and part 9 (the CMA-ES-reuse anticipation this ADR refines).
 - [0018-boa-bayesian-network-and-concatenated-trap](0018-boa-bayesian-network-and-concatenated-trap.md)
   — the "available but deliberately unused" seam precedent.
 - [0016-memetic-wrapper-and-local-search-seam](0016-memetic-wrapper-and-local-search-seam.md)
@@ -259,4 +255,5 @@ self-documenting, matching the per-purpose isolation rationale in `rng.rs`.
 - Hansen (2016), *The CMA Evolution Strategy: A Tutorial* (arXiv:1604.00772);
   Beyer & Sendhoff (2008), *Covariance matrix adaptation revisited — CMSA-ES*.
 - `crates/rlevo-evolution/src/rng.rs` — `seed_stream` / `SeedPurpose` (gains
-  `CmaSampling = 11`); the `project_evolution_host_rng_convention` host-RNG rule.
+  `CmaSampling = 11`); the host-RNG convention this decision follows (see
+  Context above): `B::seed` / `Tensor::random` forbidden.

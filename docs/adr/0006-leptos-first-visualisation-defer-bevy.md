@@ -69,14 +69,14 @@ In each case the successor adds a *second* viewer that reuses `rlevo-viz-core`; 
 - **One window for env view + plots.** Leptos hosts both via simple layout; no second render stack.
 - **Richer plot ecosystem.** Plotly (JS interop) and leptos-chartistry (pure Rust SVG) cover convergence curves, multi-seed bands, violin/box per generation, and scatter with density overlay — uniformly better than `egui_plot`.
 - **Smaller render-side surface area.** SVG + Canvas2D, both retained-mode browser primitives, with screenshot-friendly outputs and well-trod accessibility patterns (`prefers-color-scheme`, colourblind palettes).
-- **Static-HTML export falls out naturally.** A finished run renders to a single self-contained `.html` file with the timeline functional (spec: rollout-and-replay-web).
+- **Static-HTML export falls out naturally.** A finished run renders to a single self-contained `.html` file with the timeline functional.
 - **No Bevy version churn to manage.** Bevy is pre-1.0; pinning and upgrading is real work. We skip it for now.
 
 **Negative / accepted costs**
 
 - **3D fidelity for locomotion is deferred.** The 2D projection is a stopgap. Users who want true 3D playback wait for the successor spec.
 - **Live high-bandwidth envs cost network.** A humanoid at 60 Hz with full joint state is non-trivial on the wire. Mitigated by `viz.frame_stride` (server-side decimation) and client-side frame dropping; not eliminated.
-- **Headless cinematic export is harder.** "Spin up headless Chromium, screenshot the page" is workable for static images but more work than Bevy's headless render plugin would be for MP4. Cinematic export is out of scope this milestone (spec: rollout-and-replay-web §8).
+- **Headless cinematic export is harder.** "Spin up headless Chromium, screenshot the page" is workable for static images but more work than Bevy's headless render plugin would be for MP4. Cinematic export is out of scope this milestone.
 - **Interactive control round-trips through WS.** Pause / step / reset have latency. The decision to ship a read-only browser sidesteps this for now; interactive control inherits the latency cost when it lands.
 - **One JS-interop dependency (Plotly).** Accepted for the 10% of panels (violin, box, scatter density) where pure-Rust SVG charting is genuinely worse. Capped at one library; no `charming`, no ECharts directly.
 
@@ -93,19 +93,13 @@ In each case the successor adds a *second* viewer that reuses `rlevo-viz-core`; 
 
 **`egui` standalone (with `eframe`) for a native window.** Rejected. Solves the local debugging case adequately but loses the dissemination story entirely, and the plot ecosystem (`egui_plot`) is weaker than Plotly + leptos-chartistry. Adds zero value over the Leptos shape.
 
-**`rerun.io` as the primary visualisation surface.** Rejected as primary. Genuinely strong for ML/robotics replay (3D, plots, scrubbing built in), but it is a separate viewer process, weaker for interactive control, and adopting it as primary would couple `rlevo` tightly to the `rerun` data model and protocol. Worth revisiting as an *optional secondary adapter* for offline analysis — captured in the rlevo-viz-overview Parking Lot.
+**`rerun.io` as the primary visualisation surface.** Rejected as primary. Genuinely strong for ML/robotics replay (3D, plots, scrubbing built in), but it is a separate viewer process, weaker for interactive control, and adopting it as primary would couple `rlevo` tightly to the `rerun` data model and protocol. Worth revisiting as an *optional secondary adapter* for offline analysis, but not designed further in this milestone.
 
 **Three.js via `wasm-bindgen` for a 3D panel.** Rejected. Hand-rolling Three.js interop in Rust is painful and adds a substantial JS dependency. If 3D returns, evaluate Bevy-in-WASM first.
 
 ## References
 
-- rlevo-viz-overview — env-vis umbrella spec, 2026-05-26.
-- viz-core — `rlevo-viz-core` crate spec (Visualize trait, event protocol, recorder).
-- env-visualization-web — per-family Leptos render adapters.
-- training-plots-web — chart library choice and panel inventory.
-- evolution-population-web — population, diversity, and lineage views.
-- rollout-and-replay-web — trajectory capture, scrubbing, static HTML export.
-- [0007-visualisation-crates-isolated-from-production-crates](0007-visualisation-crates-isolated-from-production-crates.md) — companion ADR on crate boundary.
-- `crates/rlevo-viz-core/`, `crates/rlevo-viz-web/` — new crates introduced by the umbrella spec.
-- `crates/rlevo-core/src/render.rs` — existing `Renderer<E>` / `NullRenderer` traits, preserved.
-- `crates/rlevo-environments/src/render/ascii.rs` — existing `AsciiRenderable` trait and `AsciiRenderer`, preserved.
+- This decision's v1 design (a `rlevo-viz-core` crate hosting a `Visualize` trait, event protocol, and recorder, consumed by a Leptos `rlevo-viz-web` client with per-family render adapters, chart panels, population/lineage views, and trajectory scrubbing/static-HTML export) did not ship: [0008-three-tier-visualisation-ratatui-live-static-report](0008-three-tier-visualisation-ratatui-live-static-report.md) replaced it with a `ratatui` live TUI plus a versioned `EpisodeRecord` seam, and [0013-metrics-only-live-tui](0013-metrics-only-live-tui.md) further collapsed that into today's two-product architecture (metrics-only live TUI + post-run report). The "no Bevy" and production-crate-isolation conclusions from this ADR carried forward; the Leptos-web-client shape did not.
+- [0007-visualisation-crates-isolated-from-production-crates](0007-visualisation-crates-isolated-from-production-crates.md) — companion ADR on crate boundary (also superseded by 0008, isolation principle preserved).
+- `crates/rlevo-core/src/render/mod.rs` — `Renderer<E>` / `NullRenderer` traits, preserved (path at ADR 0006's writing was `crates/rlevo-core/src/render.rs`; promoted to a `mod.rs` by ADR 0009).
+- `crates/rlevo-core/src/render/ascii.rs` — `AsciiRenderable` trait and `AsciiRenderer`, preserved (path at ADR 0006's writing was `crates/rlevo-environments/src/render/ascii.rs`; moved to `rlevo-core` by ADR 0009, which left a re-export shim at the old path).

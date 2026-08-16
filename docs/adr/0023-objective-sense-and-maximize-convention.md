@@ -16,8 +16,8 @@ additive** — it flips the internal direction of the entire `rlevo-evolution`
 engine (a one-time refactor) and bumps the record schema. Touches `rlevo-core`,
 `rlevo-evolution`, `rlevo-hybrid`, `rlevo-benchmarks`, the report client,
 examples, and docs. **Does not supersede** ADR 0002 — it *resurrects* the MOO
-seam that ADR 0002 deliberately deleted (see Decision §5). Extends ADR 0014
-(schema). Refines the "negate by hand" wording introduced with ADR 0004's
+seam that ADR 0002 deliberately deleted (see this ADR's own Decision 5).
+Extends ADR 0014 (schema). Refines the "negate by hand" wording introduced with ADR 0004's
 `FitnessEvaluable`/`Landscape` move.
 
 ## Context
@@ -46,9 +46,8 @@ locally reasonable — the 24 bundled benchmark landscapes are minimise-native c
 surfaces (zero at the optimum) — but it left the library split-brained against
 the two fields that name it, forced NEAT into an exception, and pushed sign-flips
 into example and bridge code. Multi-objective optimisation (on the research
-roadmap; documented in the user-book) makes a single global direction
-structurally impossible and forces the issue: dominance is defined *per objective
-sense*.
+roadmap) makes a single global direction structurally impossible and forces
+the issue: dominance is defined *per objective sense*.
 
 The project is pre-1.0 on a `pre-release` branch with API stability as an
 explicit current focus — the right time to fix the contract before it ossifies
@@ -76,7 +75,7 @@ A zero-cost `enum ObjectiveSense { Minimize, Maximize }` with an involutive
 `to_canonical(raw) → f32` (negate iff `Minimize`) and `from_canonical` inverse.
 Neutral home in `rlevo-core::objective`; consumed by evolution, hybrid, and
 benchmarks. It is the **K = 1 atom** of the future multi-objective sense vector
-(§5).
+(this ADR's own Decision 5).
 
 ### 2. The engine is maximise-native and sense-unaware
 
@@ -148,7 +147,7 @@ client's three direction-hardcoded transforms read the manifest field.
 - **RD-2.** `StrategyMetrics` is canonical from `tell` (strategies sense-unaware);
   the harness maps to natural space for `latest_metrics`/`best`/records/tracing;
   reward stays canonical. Rejected: sense-carrying metrics.
-- **RD-3.** Schema field on `RunManifest`, not the registry (see §6).
+- **RD-3.** Schema field on `RunManifest`, not the registry (see this ADR's own Decision 6).
 - **RD-4.** RL untouched — `Reward` direction-neutral, `AgentStats` `.max`; RL
   already conforms. Rejected: threading sense into `Reward`/RL metrics
   (vestigial, the ADR 0002 speculative-surface anti-pattern).
@@ -249,5 +248,8 @@ shared base, and the `rlevo-evolution → rlevo-core` dep already exists (ADR 00
 - `crates/rlevo-evolution/src/strategy.rs`, `.../fitness.rs`,
   `.../ops/{selection,replacement}.rs`, `.../shaping.rs` — the chokepoint + flip
   surface.
-- `docs/user-book/src/part-1-foundations/20-evolutionary-computation.md`
-  §Multi-Objective Optimisation.
+- The project's own reference material on multi-objective optimisation (Pareto
+  dominance, NSGA-II/SPEA2 as the canonical algorithms) frames `ObjectiveSense`
+  exactly as this ADR does: the single-objective case is deliberately the
+  *K = 1* atom of a future per-objective sense vector, so landing NSGA-II later
+  adds a path beside today's scalar contract rather than reworking it.

@@ -10,8 +10,7 @@ tags: [environments, observation, rank, modality, pomdp, pixel, issue-65]
 
 ## Status
 
-Active. Adopted 2026-06-16. Implements issue #65 per the sub-spec
-synthetic-pixel-over-grid-env (under image-observation-over-compact-state-spec).
+Active. Adopted 2026-06-16. Implements issue #65 (add a real modality-changing, pixel-over-compact-state environment).
 **Additive**: introduces one new concept module `crates/rlevo-environments/src/pixel_grid.rs`
 and changes no existing environment, trait, or manifest. Extends [0019-observable-projection-trait](0019-observable-projection-trait.md)
 by giving `Observable<OR>` its first production consumer; the `rlevo-core` contract is byte-unchanged.
@@ -24,14 +23,14 @@ already permits `R != SR` via the `MockRam` `Environment<2,1,1>` integration tes
 was a **defined-but-unconsumed seam**: no environment in `rlevo-environments` actually projected a
 rank-changing observation. Issue #65 asked for the first real consumer.
 
-The open design question was synthetic-vs-Atari. The ALE path was investigated concretely
-(canonical-modality-changing-pomdp-benchmarks): ALE's native `ALEInterface` is C++
+The open design question was synthetic-vs-Atari. The ALE path was investigated concretely:
+ALE's native `ALEInterface` is C++
 (`getRAM()` → 128-byte rank-1, `getScreenRGB()` → `[210,160,3]` rank-3), so a real Atari env is
 exactly `Environment<3,1,1>` — the *same* `R != SR` wiring. Every Rust binding crate is stale
 (`ale` v0.1.3, May 2020), so the maintainable route is fresh C-ABI FFI + a `cmake` `build.rs`,
 dragging a C++ toolchain and ROM-redistribution concerns into the lean `rlevo-environments` crate
-(rules §1, ADR 0001). Because Atari maps onto the identical shape, the synthetic env loses nothing
-by going first.
+(docs/rules.md's Workspace Structure section, ADR 0001). Because Atari maps onto the identical
+shape, the synthetic env loses nothing by going first.
 
 ## Decision
 
@@ -46,7 +45,7 @@ exact `R != SR` projection path Atari would. The Atari backend is a separate mil
 
 ### 2. Observation rank 3, RGB (`C = 3`) — not grayscale
 
-Image shape is `[20, 20, 3]`. The sub-spec originally resolved on grayscale `C = 1`; the **user
+Image shape is `[20, 20, 3]`. The design work originally settled on grayscale `C = 1`; the **user
 chose RGB `C = 3`** so a future Atari backend differs only in *resolution*, never in rank or
 channel count — `getScreenRGB` is already `[H, W, 3]`. RGB cell colors are distinct **hues**
 (background black `[0,0,0]`, goal green `[0,128,0]`, agent white `[255,255,255]`), recoverable per
@@ -58,13 +57,15 @@ rank 3 regardless of channel count, so the Atari backend needs no rank change.
 The `grids/` family shares an *egocentric* `7×7×3` `core/` with `R == SR` and 7-action
 turn/forward dynamics. This task is *allocentric*, 4-way Cartesian, and modality-changing — it
 reuses none of that core. It lives in its own singular-noun concept module `pixel_grid.rs`
-(rules §2). If a second modality-changing env (Atari) lands, promote to a family folder then.
+(docs/rules.md's Naming Conventions section — concept modules take a singular noun). If a second
+modality-changing env (Atari) lands, promote to a family folder then.
 
 ### 4. Fixed dimensions for v1
 
 `GRID_SIDE = 5`, `CELL_PX = 4`, `CHANNELS = 3` → `[20, 20, 3]`, as compile-time constants
-(`Observation::shape()` must be const, rules §7; matches the `grids` 7×7×3 precedent). Const-generic
-`G`/`S`/`C` parameterization is deferred.
+(`Observation::shape()` must be const, per docs/rules.md's Const Generics and Type-Level Constraints
+section; matches the `grids` 7×7×3 precedent). Const-generic `G`/`S`/`C` parameterization is
+deferred.
 
 ### 5. Dual `State<1>` + `Observable<3>` on one state type
 
@@ -114,13 +115,10 @@ via host-side `StdRng` (host-RNG convention — never `B::seed`/global RNG).
 
 ## References
 
-- synthetic-pixel-over-grid-env — governing sub-spec.
-- image-observation-over-compact-state-spec — parent spec.
 - [0019-observable-projection-trait](0019-observable-projection-trait.md) — the trait this env consumes.
-- canonical-modality-changing-pomdp-benchmarks — the ALE path analysis and synthetic-first call.
 - [0001-keep-environments-and-benchmarks-separate](0001-keep-environments-and-benchmarks-separate.md) — the lean-dependency posture behind deferring
   the C++ ALE toolchain.
 - `crates/rlevo-environments/src/pixel_grid.rs` — the env + in-source unit tests.
 - `crates/rlevo-environments/tests/pixel_grid_modality.rs` — the single-crate `R != SR` proof.
 - `crates/rlevo/examples/envs/pixel_grid.rs` — scripted rollout demonstration.
-- Issue #65 (this env), #64 (the trait), #62 (design tracker).
+- Issue #65 (this env), #64 (the `Observable<OR>` trait), #62 (design tracker).

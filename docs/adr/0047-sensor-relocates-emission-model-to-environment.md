@@ -259,8 +259,8 @@ where it is shared and state-pure.
 
 ## References
 
-- Sutton & Barto, *Reinforcement Learning* §3.1, §17.3 (the POMDP tuple and the
-  emission model `O`).
+- Sutton & Barto, *Reinforcement Learning* Section 3.1, Section 17.3 (the
+  POMDP tuple and the emission model `O`).
 - Issue #329 — the design tracker and locked decisions.
 - [ADR 0019](0019-observable-projection-trait.md) — superseded (the `Observable`
   modality-change trait).

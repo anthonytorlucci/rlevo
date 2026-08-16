@@ -11,8 +11,7 @@ tags: [evolution, eda, boa, bayesian-network, landscape, trap, phase-3b]
 ## Status
 
 Active. Adopted 2026-06-12. Implements issue #37 (the BOA item descoped from
-issue #31 / PR #38) per the sub-spec
-boa-bayesian-network-eda. **Additive**: extends
+issue #31 / PR #38). **Additive**: extends
 [0017-probability-model-trait-and-eda-strategy](0017-probability-model-trait-and-eda-strategy.md) without superseding it — the
 `ProbabilityModel<B>` trait, `EdaStrategy`, `Strategy`, the harness, and every
 manifest are byte-unchanged. No new dependency.
@@ -35,7 +34,7 @@ first: `ConcatenatedTrap`, the canonical Deb & Goldberg (1992) deceptive trap
 (`cost(u) = 0` if `u == k` else `u + 1`, summed over contiguous
 `block_size`-bit blocks; global optimum all-ones, deceptive basin all-zeros).
 
-Research note eda-probability-model-taxonomy (3b-R1) left two BOA
+Earlier research into the EDA probability-model taxonomy left two BOA
 questions open: whether structure learning needs a trait hook, and how to
 regularise spurious edges (the shipped MIMIC was strictly worse than UMDA
 until a `|r| < 2/√k` significance filter was added). Both are resolved here.
@@ -71,9 +70,8 @@ score(v, Pa) = Σ_c Σ_{x∈{0,1}} N(c,x)·ln(N(c,x)/N(c))  −  (ln N / 2)·2^|
   toward the `2^|Pa|` penalty.
 - The `½·ln(N)·2^q` complexity penalty **is** the spurious-edge guard — the
   structural analogue of MIMIC's `2/√k` significance filter, baked into the
-  metric rather than bolted on (per feedback_resolve_dont_just_document).
-  K2 has no built-in penalty and would need an ad-hoc minimum-gain threshold
-  grafted on; rejected.
+  metric rather than bolted on. K2 has no built-in penalty and would need an
+  ad-hoc minimum-gain threshold grafted on; rejected.
 - Greedy edge addition: lexicographic `(u, v)` candidate scan, strict-`>`
   best-gain selection (first candidate wins ties → deterministic), stop when
   no strictly positive gain remains. Acyclicity by upward DFS through
@@ -180,7 +178,8 @@ example therefore compares the full-refit trio (UMDA / MIMIC / BOA).
   result (Pelikan, Goldberg & Cantú-Paz 2000), not an implementation
   artifact, and the runtime stays inside the test budget.
 - Block-aligned (tight) encoding only; a bit-permuted (loose) trap variant is
-  a stronger structure-learning test and stays deferred (spec §7).
+  a stronger structure-learning test and stays deferred as a documented open
+  question for a follow-up.
 
 **Neutral**
 
@@ -225,11 +224,10 @@ replacement policy changes would need their own ADR.
   order-5 trap population-scaling result cited above.
 - Deb & Goldberg (1992), *Analyzing deception in trap functions.*
 - Schwarz (1978), *Estimating the dimension of a model* (BIC).
-- boa-bayesian-network-eda — governing sub-spec (type designs §3.3/§4.2).
 - [0017-probability-model-trait-and-eda-strategy](0017-probability-model-trait-and-eda-strategy.md) — the frozen trait this
   ADR extends; host-RNG and `SeedPurpose::EdaSampling` conventions.
-- eda-probability-model-taxonomy — 3b-R1; its OPEN BOA items are resolved
-  by parts 1–2.
+- The two open BOA questions this ADR resolves (structure-fit trait hook,
+  spurious-edge regularisation) are stated in this ADR's own Context above.
 - `crates/rlevo-evolution/src/algorithms/eda/bayesian_network.rs` — the model.
 - `crates/rlevo-environments/src/landscapes/concatenated_trap.rs` — the
   landscape.

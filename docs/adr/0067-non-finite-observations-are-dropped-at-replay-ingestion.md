@@ -3,7 +3,7 @@ project: rlevo
 status: active
 type: decision
 date: 2026-07-28
-tags: [adr, decision, numerical-stability, nan, observation, replay, hostrow, dqn, c51, qrdqn, sac, ddpg, td3, issue-1043]
+tags: [adr, decision, numerical-stability, nan, observation, replay, hostrow, dqn, c51, qrdqn, sac, ddpg, td3]
 ---
 
 # ADR 0067: A non-finite observation is dropped at replay ingestion, counted, and reported at `act`
@@ -11,10 +11,12 @@ tags: [adr, decision, numerical-stability, nan, observation, replay, hostrow, dq
 ## Status
 
 **Accepted (2026-07-28).** Resolves issue #1043. **Counterpart to ADR 0065**,
-which deliberately deferred observation finiteness by number (0065 §Out of
-scope: "left for a separate issue (**#1043**)"). Supersedes nothing; nothing in
-0065's §Decision is reversed. Two sentences of 0065's §Out of scope are
-corrected below (§Correction) — 0065 itself is not edited.
+which deliberately deferred observation finiteness by number (0065's own "Out
+of scope, deliberately" section: "left for a separate issue (**#1043**)").
+Supersedes nothing; nothing in 0065's own Decision section is reversed. Two
+sentences of 0065's "Out of scope, deliberately" section are corrected below
+(this ADR's own "Correction to ADR 0065" section) — 0065 itself is not
+edited.
 
 Additive: no public API signature changes, no healthy-step numerics change.
 `HostRow` gains one **provided** method, so no existing implementor breaks.
@@ -162,9 +164,9 @@ through `f32::from` or an `Into<f32>` bound: `impl<T> From<T> for T` means
 `f32: Into<f32>`, so those spellings keep compiling after an f32 refactor and
 guarantee nothing.
 
-This follows the precedent `rules.md` §4 already blesses for derived constants
-(`const _: () = assert!(..)`, "so lowering it breaks the build rather than the
-output").
+This follows the precedent `rules.md`'s Error Handling section already
+blesses for derived constants (`const _: () = assert!(..)`, "so lowering it
+breaks the build rather than the output").
 
 ### 3. The guard sits at `remember`. Not at staging. Not both.
 
@@ -200,8 +202,8 @@ This clause is the most open to challenge and is flagged as such.
 
 ## Correction to ADR 0065
 
-0065 is not edited. Two of its §Out of scope sentences are incomplete in light
-of the benchmark at `a5a927d`:
+0065 is not edited. Two sentences of its "Out of scope, deliberately" section
+are incomplete in light of the benchmark at `a5a927d`:
 
 1. *"checking an observation is a per-element tensor scan, not one `f32`
    register compare — so it is a different cost/benefit call."* True as stated,
@@ -220,7 +222,8 @@ Each of the six agent files carries its own drop test, per 0065's reasoning
 that a copy-paste omission is exactly how two of six sites went missing the
 first time.
 
-Under `PrioritizedReplay` (ADR 0050 §10) a new transition enters at running-max
+Under `PrioritizedReplay` (ADR 0050's fidelity-contract decision, Decision 10)
+a new transition enters at running-max
 priority. A poisoned row yields a NaN TD error, `Priority::try_new` rejects it,
 the writeback is dropped, and the priority stays **pinned at max** — the poison
 is resampled more often than average and never decays. This is an independent
@@ -246,8 +249,10 @@ defect, so the decade `warn!` is doing more work in this ADR than in 0065.
   forward pass producing `bootstrap_value`, which seeds the GAE backward
   recursion. 0065's #1042 reasoning transfers unchanged.
 - Evaluation-only rollouts that call `act` without `remember`; covered by
-  §Decision 4's detection but by no drop.
-- `Observation<R>: HostRow<R>` (ADR 0052 §8), still open, 12 affected types.
+  this ADR's own Decision 4 ("detect and report; do not substitute") but by
+  no drop.
+- `Observation<R>: HostRow<R>` (ADR 0052's Decision 8, "deferred to a
+  follow-up"), still open, 12 affected types.
 - `ContinuousAction::from_slice` being unchecked by contract, which bypasses
   the action types' own NaN validation (`PendulumAction::new` rejects NaN; no
   agent calls it).
@@ -256,7 +261,7 @@ defect, so the decade `warn!` is doing more work in this ADR than in 0065.
 
 `row_is_finite` lands on ~12 action impls and `BootstrapMask`, where the
 question is well-formed but pointless. The natural home is `Observation<R>`,
-which ADR 0052 §8 made expressible but deferred. That is not forced as a rider
+which ADR 0052's Decision 8 made expressible but deferred. That is not forced as a rider
 here; the rustdoc is worded as a statement about *rows*, not observations.
 
 A proptest oracle pinning each override against the default body is worth

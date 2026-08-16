@@ -202,9 +202,9 @@ representable, at which point one rectangle type serves both (Open questions).
 - **Add a `domain() -> [(f64, f64); N]` accessor alongside `bounds()`.**
   Rejected for now: it has no consumer. The EA configs cannot hold it (ADR 0027 —
   one scalar `Bounds`), and after the O1 fix the renderer no longer needs it
-  (§4). Shipping it would add a second rectangle convention colliding with
-  `Landscape2DSnapshot`'s search-domain `bounds_x`/`bounds_y` and the planned
-  candidate overlay.
+  (this ADR's own Decision 4). Shipping it would add a second rectangle
+  convention colliding with `Landscape2DSnapshot`'s search-domain
+  `bounds_x`/`bounds_y` and the planned candidate overlay.
 - **Ship a per-axis renderer only.** Rejected on the same collision: a
   true-domain ASCII frame and a search-box report frame would disagree about the
   same landscape, and candidate markers live in search-box space. Purely cosmetic
@@ -233,8 +233,9 @@ representable, at which point one rectangle type serves both (Open questions).
   `Bounds` newtype every EA config holds, applied per-coordinate via
   `clamp_vec`; the constraint that makes a per-axis search rectangle
   unrepresentable and therefore forces the square-box convention recorded here.
-  (§Scope of migration also explicitly excluded the `landscapes/render`
-  `(f64, f64)` heatmap bounds from that migration — they are still raw pairs.)
+  (ADR 0027's own Scope of migration section also explicitly excluded the
+  `landscapes/render` `(f64, f64)` heatmap bounds from that migration — they
+  are still raw pairs.)
 - ADR [0023](0023-objective-sense-and-maximize-convention.md) — `Landscape`
   defaults to `ObjectiveSense::Minimize`; a landscape is a cost surface, which is
   why O2 is phrased as "no point with `f < f*`".
@@ -274,7 +275,7 @@ representable, at which point one rectangle type serves both (Open questions).
   not to Mishra.
 - Monismith, D. (2010) — the canonical `[-2000, 2000]ⁿ` side constraints of the
   modified (flat) Rosenbrock; Chen, Y. (1997) — the reduced `[-30, 30]` range
-  adopted here under §3.
+  adopted here under this ADR's own Decision 3.
 - Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions
   Repository* — the canonical `[-5, 5]²` domain of Six-Hump Camel-Back
-  (function #23), reduced here to `(-2, 2)` under §3.
+  (function #23), reduced here to `(-2, 2)` under this ADR's own Decision 3.

@@ -234,9 +234,9 @@ removing that capability; it is deleting a doc comment that promised it falsely.
 
 `&'static [f32]` gives up the compiler's guarantee that `low()` and `high()`
 have equal length. This ADR accepts that loss because **the guarantee that
-matters was never available in either option** — see §Alternatives A. The
-replacement is a contract test, extending the ADR 0038 `COMPONENTS` test to
-every `BoundedAction` impl:
+matters was never available in either option** — see this ADR's own
+Alternatives section, item A. The replacement is a contract test, extending
+the ADR 0038 `COMPONENTS` test to every `BoundedAction` impl:
 
 ```rust
 assert_eq!(T::low().len(), T::COMPONENTS);
@@ -248,8 +248,9 @@ Additionally, the agents `assert_eq!` the stored bound lengths against
 `A::COMPONENTS` **at construction**, so a nonconforming impl fails loudly at
 agent-build time rather than mid-episode.
 
-`docs/rules.md` §3's Core Trait Invariants table row for `BoundedAction<D>` is
-updated from `low()[i] < high()[i]` to include the length agreement.
+`docs/rules.md`'s Trait Design Constraints section, Core Trait Invariants
+table row for `BoundedAction<D>`, is updated from `low()[i] < high()[i]` to
+include the length agreement.
 
 ### 5. All `A::RANK`-keyed action loops migrate to `A::COMPONENTS`
 
@@ -290,7 +291,7 @@ deliberate departure from Eq. 14.
 SAC needs no equivalent change: it has no bound-clipping target path (the
 squashed-Gaussian `tanh` handles bounding), and its `act()` clamp at
 `sac_agent.rs:401-402` is already per-component — it only needs the
-`RANK → COMPONENTS` fix from §5.
+`RANK → COMPONENTS` fix from this ADR's own Decision 5.
 
 ### 7. The five blocked impls land as the final step of this work
 
@@ -298,10 +299,11 @@ squashed-Gaussian `tanh` handles bounding), and its `act()` clamp at
 `ReacherAction`, and `SwimmerAction` get `BoundedAction<1>` impls in the same
 change series, as its last step. Rationale: a component-correct trait with zero
 multi-component implementors is unfalsifiable. `CarRacingAction`
-(`[-1,0,0] .. [1,1,1]`) is specifically the regression witness for §6 — it is
-the only action in the workspace whose components disagree on their bounds, and
-therefore the only one that can distinguish a correct per-component target clip
-from the scalar collapse. Landing the fix without it would leave §6 untested.
+(`[-1,0,0] .. [1,1,1]`) is specifically the regression witness for this ADR's
+own Decision 6 — it is the only action in the workspace whose components
+disagree on their bounds, and therefore the only one that can distinguish a
+correct per-component target clip from the scalar collapse. Landing the fix
+without it would leave this ADR's own Decision 6 untested.
 
 They land as a separate, final PR so the mechanical trait migration and the
 agent-semantics change can be reviewed independently.
@@ -360,9 +362,10 @@ break, and there are none in-workspace.
 
 - **Compile-time length agreement between `low()` and `high()` is lost.**
   Replaced by a contract test plus a construction-time `assert_eq!` in each
-  agent. See §Alternatives A for why this costs less than it appears to.
+  agent. See this ADR's own Alternatives section, item A, for why this
+  costs less than it appears to.
 - **Breaking change on two public export paths.** Mechanical, compiler-guided,
-  acceptable in alpha (§9).
+  acceptable in alpha (this ADR's own Decision 9).
 - **A bounds tensor is now built per agent** (two small `[1, C]` tensors, once
   at construction). Negligible memory; one extra device allocation per agent.
 - **`max_pair`/`min_pair` replace `clamp`** in the DDPG/TD3 target path — two
@@ -372,12 +375,13 @@ break, and there are none in-workspace.
   to the surrounding critic forward pass.
 - **`&'static` forecloses computed bounds** without an `OnceLock`/`Box::leak`
   escape hatch. Nothing needs it today, and the capability the old docs claimed
-  (per-instance config-derived bounds) was never actually reachable (§3).
+  (per-instance config-derived bounds) was never actually reachable (this
+  ADR's own Decision 3).
 
 ### Neutral
 
-- Convention B survives (§8); `ContinuousActionTest` needs only the return-type
-  edit.
+- Convention B survives (this ADR's own Decision 8); `ContinuousActionTest`
+  needs only the return-type edit.
 - ADR 0038 is untouched and remains accepted; this ADR discharges the follow-up
   it named.
 
@@ -433,11 +437,12 @@ break, and there are none in-workspace.
 
 - **Fix only `BoundedAction`, defer the DDPG/TD3 scalar target clip to a
   follow-up issue.** Seriously considered — it is the smaller change and would
-  keep this ADR to one seam. Rejected on §6's reasoning: the deferral is only
-  safe if no asymmetric multi-component impl lands, which means the follow-up
-  issue would have to *block* §7, and a deferral that gates other work is not
-  really a deferral. Fixing both together also means `CarRacingAction` serves as
-  the regression witness for both halves at once.
+  keep this ADR to one seam. Rejected on this ADR's own Decision 6's
+  reasoning: the deferral is only safe if no asymmetric multi-component impl
+  lands, which means the follow-up issue would have to *block* this ADR's own
+  Decision 7, and a deferral that gates other work is not really a deferral.
+  Fixing both together also means `CarRacingAction` serves as the regression
+  witness for both halves at once.
 
 ## References
 
@@ -445,7 +450,8 @@ break, and there are none in-workspace.
 - ADR [0038](0038-continuous-action-components-const.md) — added
   `ContinuousAction::COMPONENTS`; named this `BoundedAction` gap in its
   "Explicitly out of scope" section, including the blast-radius list of
-  `A::RANK`-consuming agent sites and the Convention A/B question §8 answers.
+  `A::RANK`-consuming agent sites and the Convention A/B question this
+  ADR's own Decision 8 answers.
 - ADR [0027](0027-bounds-newtype-for-closed-ranges.md) — the `Bounds` newtype
   considered and rejected as the return shape here.
 - ADR [0052](0052-hostrow-supertrait-splits-layout-from-backend.md) —

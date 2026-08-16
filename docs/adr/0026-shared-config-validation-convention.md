@@ -10,10 +10,11 @@ tags: [adr, decision, config, validation, error-handling, rlevo-core, convention
 
 ## Status
 
-**Accepted (2026-07-04).** `docs/rules.md §4` reconciled on acceptance (line
-142 narrowed, "Config Validation Contract" subsection added, setter-guard
-panic rows retained). Filed to unblock the per-crate config-validation
-issues #102/#103 (environments), #137/#138/#139 (evolution), and
+**Accepted (2026-07-04).** `docs/rules.md`'s Error Handling section
+reconciled on acceptance (line 142 narrowed, "Config Validation Contract"
+subsection added, setter-guard panic rows retained). Filed to unblock the
+per-crate config-validation issues #102/#103 (environments), #137/#138/#139
+(evolution), and
 #164/#165/#166 (reinforcement-learning), all of which independently flagged
 "the config/builder should validate before use" as the single most repeated
 gap across three code reviews (issue #193).
@@ -23,22 +24,26 @@ Result<(), ConfigError>; }` plus a structured `ConfigError` in a new
 `rlevo_core::config` module — **not** a macro, **not** a bare `docs/rules.md`
 convention. Fallibility is `Result`, not panic. Adoption is incremental; this
 ADR lands only the trait, the error type, one reference adopter, and the
-`docs/rules.md §4` reconciliation.
+reconciliation of `docs/rules.md`'s Error Handling section.
 
 **Update (2026-08-13):** every mention of `with_capacity` / `with_alpha` in
 this ADR names a builder that no longer exists. ADR
-[0050](0050-replay-strategy-seam.md) §8 removed
-`PrioritizedExperienceReplayBuilder` outright, and both rows have since been
-deleted from `docs/rules.md` §4's Documented Panic Contracts table (#1085,
-#1106). Superseded here: the "setter-guard panic rows retained" clause above;
-the §Context claim that the table "further blesses `with_capacity(n)` … and
-`with_alpha(x)`"; the §Decision 3 sentence that "the existing `with_capacity(0)`
-/ `with_alpha(x ∉ [0,1])` rows … stay valid"; and §Decision 4's **Keep** bullet
-instructing that those rows be kept. **§Decision 3's general rule is unaffected
-and stands as written** — a single guarded setter or constructor taking a
-compile-time-known value may still panic, and assembled configs still return
-`ConfigError`. Only the exemplars died. For the live members of the exception,
-read `docs/rules.md` §4: `SimulatedAnnealingParams::with_*` /
+[0050](0050-replay-strategy-seam.md)'s own Decision 8
+("`PrioritizedExperienceReplay` and its builder are removed, with no
+`#[deprecated]` shim") removed `PrioritizedExperienceReplayBuilder` outright,
+and both rows have since been
+deleted from `docs/rules.md`'s Error Handling section's Documented Panic
+Contracts table (#1085, #1106). Superseded here: the "setter-guard panic
+rows retained" clause above; this ADR's own Context section's claim that the
+table "further blesses `with_capacity(n)` … and `with_alpha(x)`"; this ADR's
+own Decision 3 sentence that "the existing `with_capacity(0)` /
+`with_alpha(x ∉ [0,1])` rows … stay valid"; and this ADR's own Decision 4's
+**Keep** bullet instructing that those rows be kept. **This ADR's own
+Decision 3's general rule is unaffected and stands as written** — a single
+guarded setter or constructor taking a compile-time-known value may still
+panic, and assembled configs still return `ConfigError`. Only the exemplars
+died. For the live members of the exception, read `docs/rules.md`'s Error
+Handling section: `SimulatedAnnealingParams::with_*` /
 `HillClimbingParams::with_*`, `UniformReplay::new` / `SumTree::new`, and
 `ImportanceExponent::new` / `Priority::new`. ADRs are immutable, so the record
 below is left as written; this note is the pointer.
@@ -70,8 +75,8 @@ reimplementations.
 
 ### The rule contradiction this ADR must resolve
 
-`docs/rules.md §4` already legislates two clauses that **conflict** for config
-validation:
+`docs/rules.md`'s Error Handling section already legislates two clauses that
+**conflict** for config validation:
 
 - Line 142 — *"Panics are permitted only for programming errors (index out of
   bounds, dimension mismatch, **invalid builder config**)."*
@@ -140,9 +145,9 @@ pub struct ConfigError {
     pub kind: ConstraintKind,
 }
 
-/// The closed set of config-invariant violations. Structured per rules.md §4
-/// (no stringly errors); the `Custom` tail carries a `&'static str`, never an
-/// owned `String`, so `ConfigError` allocates nothing.
+/// The closed set of config-invariant violations. Structured per rules.md's
+/// Error Handling section (no stringly errors); the `Custom` tail carries a
+/// `&'static str`, never an owned `String`, so `ConfigError` allocates nothing.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstraintKind {
     /// Value must lie in the closed interval `[lo, hi]`.
@@ -160,8 +165,9 @@ pub enum ConstraintKind {
 }
 ```
 
-`ConfigError` implements `std::error::Error` + `Display` (per §4). `Display`
-reads e.g. `C51Config.v_max: value must differ from v_min (both 0)`.
+`ConfigError` implements `std::error::Error` + `Display` (per `rules.md`'s
+Error Handling section). `Display` reads e.g. `C51Config.v_max: value must
+differ from v_min (both 0)`.
 
 `ConstraintKind` covers every example the review surfaced (`lo > hi`,
 `pop_size == 0`, `tau ∉ [0, 1]`, `v_min == v_max`) with `Custom(&'static str)`
@@ -183,11 +189,12 @@ validation on the `Default` happy path costs nothing.
 - **Deserialized configs must be validated by the caller.** Because many
   configs derive `Deserialize`, a loaded config is user-supplied runtime data;
   the loader calls `validate()` and propagates `Err` — it must never panic
-  (rules.md §4 line 143).
+  (rules.md's Error Handling section, line 143).
 
 ### 3. Boundary with builder-setter panics (the rule resolution)
 
-We draw one precise line, and codify it in `docs/rules.md §4`:
+We draw one precise line, and codify it in `docs/rules.md`'s Error Handling
+section:
 
 - **Setter guard → panic (kept).** A single `with_x(v)` builder method whose
   only job is to reject an out-of-domain `v` at the exact call site may panic.
@@ -203,15 +210,16 @@ We draw one precise line, and codify it in `docs/rules.md §4`:
 
 The deciding test: **if an invalid value can arrive via `Deserialize` or
 struct-update syntax without passing a guarded setter, it MUST be caught by
-`validate()` and returned as `Err`** — never paniced — because rules.md §4
-line 143 already forbids panicking on such data. Setter guards do not replace
-`validate()`; they sit on top of it.
+`validate()` and returned as `Err`** — never paniced — because rules.md's
+Error Handling section, line 143, already forbids panicking on such data.
+Setter guards do not replace `validate()`; they sit on top of it.
 
-### 4. Reconciliation with `docs/rules.md §4` (applied on acceptance)
+### 4. Reconciliation with `docs/rules.md`'s Error Handling section (applied on acceptance)
 
-On acceptance, `docs/rules.md §4` is reconciled (the same
-reconcile-on-acceptance flow as commit "Reconcile rules.md with accepted ADRs
-0004–0025"; rules.md is not itself immutable, ADRs supersede it):
+On acceptance, `docs/rules.md`'s Error Handling section is reconciled (the
+same reconcile-on-acceptance flow as commit "Reconcile rules.md with
+accepted ADRs 0004–0025"; rules.md is not itself immutable, ADRs supersede
+it):
 
 - **Reword line 142** — remove "invalid builder config" from the *panic*
   allow-list and narrow it to the localized case:
@@ -244,8 +252,9 @@ issues, each routing through `validate()`.
 - One decision replaces 8+ divergent local reimplementations; invalid
   hyperparameters are rejected at construction with a field-named error
   instead of a deep panic.
-- Resolves the standing `rules.md §4` self-contradiction on the codebase's own
-  terms (configs are `Deserialize`-able ⇒ user data ⇒ `Result`).
+- Resolves the standing self-contradiction in `rules.md`'s Error Handling
+  section on the codebase's own terms (configs are `Deserialize`-able ⇒
+  user data ⇒ `Result`).
 - `ConfigError` is allocation-free and `PartialEq`, so validation is trivially
   unit-testable and cheap on the `Default` path.
 - Trait-shaped, so a construction chokepoint can bound generically on
@@ -277,8 +286,9 @@ issues, each routing through `validate()`.
   cross-field) and a macro DSL for all of them is a project of its own. Revisit
   only if the hand-written impls prove repetitive after 2–3 crates adopt.
 - **Keep panicking (status quo + the `cooperative.rs` precedent).** Contradicts
-  §4 line 143 for the many `Deserialize`-able configs and keeps the
-  deep-in-the-algorithm panic that the reviews flagged. Rejected.
+  rules.md's Error Handling section, line 143, for the many
+  `Deserialize`-able configs and keeps the deep-in-the-algorithm panic that
+  the reviews flagged. Rejected.
 - **Overload `State::is_valid` semantics / return `bool`.** A `bool` cannot
   name the offending field, which is the entire point for a user tuning
   hyperparameters; and `is_valid` is a per-step domain-state check with
@@ -288,9 +298,10 @@ issues, each routing through `validate()`.
   Deferred: fail-first now; a `validate_all()` can be added additively if
   demand appears.
 - **Infallible constructors that `.expect(config.validate())`.** Keeps
-  signatures unchanged but reintroduces panic-on-deserialized-data — the exact
-  §4 violation this ADR exists to remove. Rejected as the *long-term* shape
-  (acceptable only as transitional scaffolding a downstream issue must retire).
+  signatures unchanged but reintroduces panic-on-deserialized-data — the
+  exact violation of rules.md's Error Handling section this ADR exists to
+  remove. Rejected as the *long-term* shape (acceptable only as transitional
+  scaffolding a downstream issue must retire).
 
 ## References
 - Issue #193 — parent cross-crate issue; unblocks #102, #103, #137, #138,
@@ -300,7 +311,7 @@ issues, each routing through `validate()`.
   into.
 - ADR [0023](0023-objective-sense-and-maximize-convention.md) — small typed
   primitive in a dedicated `rlevo-core` module; the shape this ADR follows.
-- `docs/rules.md §4` — Error Handling; the reconciled target.
+- `docs/rules.md`'s Error Handling section — the reconciled target.
 - Code: `crates/rlevo-core/src/base.rs:78` (`is_valid` — the distinct
   concept), `crates/rlevo-evolution/src/coevolution/cooperative.rs:119` (the
   panicking precedent to fold in), `crates/rlevo-reinforcement-learning/src/algorithms/c51/c51_config.rs:69`

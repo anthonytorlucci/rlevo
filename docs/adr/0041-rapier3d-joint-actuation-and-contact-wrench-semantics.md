@@ -10,9 +10,11 @@ tags: [adr, decision, physics, rapier, locomotion, joint-torque, contact-force, 
 
 ## Status
 
-**Accepted (2026-07-10).** Resolves the three 🔴 High findings of issue #123
-(review §5.1, §1.1, §1.2) for the rapier3d locomotion backend. Extends ADR 0037
-(external-force lifetime / substep actuation); supersedes nothing.
+**Accepted (2026-07-10).** Resolves the three High findings of issue #123 — the
+unimplemented `apply_joint_torque`, the suspected `contact_force` frame-skip
+scaling, and the self-collision wrench pollution — for the rapier3d locomotion
+backend. Extends ADR 0037 (external-force lifetime / substep actuation);
+supersedes nothing.
 
 ## Context
 
@@ -28,12 +30,11 @@ two seams that were under-specified and, in one case, unimplemented:
 2. **`contact_force`** returns a 6D wrench read by `InvertedDoublePendulum` (and,
    later, Ant/Humanoid `contact_cost`). Its trait/impl docs made a **false claim**
    ("matches MuJoCo's `cfrc_ext` layout") and there were **zero tests** pinning
-   its magnitude, sign, or frame-skip behaviour. Review §1.1 further feared the
-   force was `1/frame_skip`-scaled.
+   its magnitude, sign, or frame-skip behaviour. The filed review further
+   feared the force was `1/frame_skip`-scaled.
 
-The literature reconciliation (vault note
-`docs/.private/research/2026-07-10-issue-123-rapier3d-joint-torque-contact-force.md`)
-established the *time semantics* of the contact math are already correct:
+The literature reconciliation established the *time semantics* of the contact
+math are already correct:
 MuJoCo's `cfrc_ext` is an **instantaneous** per-timestep force recomputed by
 `mj_rnePostConstraint` after the last of `frame_skip` substeps (Gymnasium calls
 it once after `mj_step(nstep = frame_skip)`), so rapier's last-substep
@@ -121,15 +122,16 @@ domain is **revolute joints only**. `BackendError` (new, in `backend/mod.rs`,
   angular axis (`ANG_AXES − locked_axes` has one bit) — accepts rapier's
   `LOCKED_REVOLUTE_AXES`, rejects the rest.
 
-Rejecting rather than mis-actuating honours `docs/rules.md §4` (never silently
-mishandle an out-of-domain argument). **Prismatic / linear (cart-force)
-actuation is explicitly deferred** — the linear-actuation seam is separate, and
-envs continue to drive cart forces directly via `bodies_mut().add_force` for
-now. (Deferral filed per `rules.md §12`.)
+Rejecting rather than mis-actuating honours docs/rules.md's Error Handling
+section (never silently mishandle an out-of-domain argument). **Prismatic /
+linear (cart-force) actuation is explicitly deferred** — the linear-actuation
+seam is separate, and envs continue to drive cart forces directly via
+`bodies_mut().add_force` for now. (Deferral filed per docs/rules.md's Deferred
+Work Gets a GitHub Issue section.)
 
 ### 3. `contact_force` semantics — docs + tests (sign later corrected)
 
-The *time-scaling* arithmetic is **not** touched (review §1.1's feared
+The *time-scaling* arithmetic is **not** touched (the filed review's feared
 `1/frame_skip` rescale would be *wrong* — see Context). The trait/impl docs are
 rewritten and pinning tests added. The **sign attribution was subsequently
 corrected under this same issue** (see Negative / accepted costs): the returned
@@ -239,14 +241,16 @@ issue; this ADR records the convention — reacher/swimmer already cite ADR 0041
   in the interim; the restriction was then lifted **for the sign only** and the
   fix landed under this same issue (see Negative / accepted costs). The
   time-scaling and layout decisions above are unaffected.
-- **Rescale `contact_force` by `frame_skip` (review §1.1).** Rejected: `cfrc_ext`
-  is instantaneous; the current last-substep `impulse/dt` is already correct.
+- **Rescale `contact_force` by `frame_skip` (the filed review's suggestion).**
+  Rejected: `cfrc_ext` is instantaneous; the current last-substep `impulse/dt`
+  is already correct.
 
 ## References
 
 - Issue #123 — rapier3d backend: unimplemented joint torque, wrong contact force.
-- Vault research note (literature/source reconciliation, with citations):
-  `docs/.private/research/2026-07-10-issue-123-rapier3d-joint-torque-contact-force.md`.
+- The literature/source reconciliation (MuJoCo `mj_rnePostConstraint` timing,
+  the `cfrc_ext` layout comparison, the rapier3d contact-normal convention) is
+  reproduced in this ADR's own Context and Decision 3 above.
 - ADR [0037](0037-external-force-lifetime-and-substep-actuation.md) — one-substep
   external-force lifetime and `step_actuated`, on which the torque re-application
   contract rests.

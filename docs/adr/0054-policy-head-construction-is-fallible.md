@@ -79,7 +79,8 @@ which backend the caller happens to run.
   wherever it is held; the two Gaussian head configs did not yet hold one for
   `log_std`. Folding `log_std_min`/`log_std_max` into a single `log_std:
   Bounds` field removes the *ordering* check from `validate()` the same way
-  ADR 0027 §3 describes for every other adopter — it does not remove
+  ADR 0027's own Decision 3 ("Relationship to the ADR 0026 `Validate`
+  convention") describes for every other adopter — it does not remove
   `validate()` itself (see Consequences).
 - **Constrained by ADR 0011.** Construction lives off the *behavioural*
   trait, not on it — `ConstructableEnv` is a standalone factory trait, not a
@@ -173,11 +174,11 @@ Burn readers already trust.
   adding a fifth head config has exactly one convention to follow, not a
   choice.
 - `Bounds` removes the *inverted*-range check as a hand-written line in two
-  configs' `validate()`, per ADR 0027 §3 — one less place an inverted pair can
-  be spelled correctly by construction, one less line to keep in sync with the
-  invariant it enforces. The degenerate `lo == hi` case is not covered by
-  `Bounds` and stays as an explicit `config::distinct` line in both (§Decision
-  3).
+  configs' `validate()`, per ADR 0027's own Decision 3 — one less place an
+  inverted pair can be spelled correctly by construction, one less line to
+  keep in sync with the invariant it enforces. The degenerate `lo == hi` case
+  is not covered by `Bounds` and stays as an explicit `config::distinct` line
+  in both (this ADR's own Decision 3).
 
 ### Negative / costs — do not soften these
 
@@ -223,7 +224,7 @@ Burn readers already trust.
   degenerate case remains an explicit line), and the call site (`try_init`) is
   new.
 - No schema/serde migration beyond the two Gaussian configs' field shape
-  change (§Decision 3), which is already covered above.
+  change (this ADR's own Decision 3), which is already covered above.
 
 ## Alternatives considered
 
@@ -232,23 +233,26 @@ Burn readers already trust.
   since it turns the backend-divergent failure into a uniform, early panic
   on every backend instead of a silent collapse on one of them. Rejected
   because ADR 0026 already rejected this exact shape by name: "reintroduces
-  panic-on-deserialized-data — the exact §4 violation this ADR exists to
-  remove." Adopting it here would require *superseding* ADR 0026 rather
-  than extending it, and this ADR does not have grounds to do that. Recorded
-  honestly: the margin is narrower than 0026's text on its own suggests —
-  none of the four head configs derives `Deserialize` today, so the
+  panic-on-deserialized-data — the exact violation of rules.md's Error
+  Handling section this ADR exists to remove." Adopting it here would
+  require *superseding* ADR 0026 rather than extending it, and this ADR
+  does not have grounds to do that. Recorded honestly: the margin is
+  narrower than 0026's text on its own suggests — none of the four head
+  configs derives `Deserialize` today, so the
   "user-supplied runtime data" trigger that motivates ADR 0026's rule is not
   currently *met* on 0026's own factual criterion. The decisive point that
   survives that narrowing is forward-looking, not present-tense:
   `#[derive(Deserialize)]` is a one-line addition that would silently turn a
-  panicking `init()` into a genuine §4 violation with **no compiler
-  signal** — nothing would fail to build, it would simply become wrong. And
-  `Bounds`, adopted here per Decision §3, is itself `Deserialize`
-  (`#[serde(try_from = "(f32, f32)")]`, ADR 0027 §4) — the moment a head
-  config picks up `Deserialize` for any other field, the whole config
-  becomes user-supplied runtime data under ADR 0026, and a panicking
-  `init()` would already be non-compliant on day one of that change. Fallible
-  construction is the version that does not depend on that not happening.
+  panicking `init()` into a genuine violation of rules.md's Error Handling
+  section with **no compiler signal** — nothing would fail to build, it
+  would simply become wrong. And `Bounds`, adopted here per this ADR's own
+  Decision 3, is itself `Deserialize` (`#[serde(try_from = "(f32, f32)")]`,
+  ADR 0027's own Decision 4, "serde: validated deserialization") — the
+  moment a head config picks up `Deserialize` for any other field, the
+  whole config becomes user-supplied runtime data under ADR 0026, and a
+  panicking `init()` would already be non-compliant on day one of that
+  change. Fallible construction is the version that does not depend on that
+  not happening.
 - **Docs-only convention** ("head configs should be validated before use,"
   no enforcement). Rejected on the same ground ADR 0026 already used to
   reject it: "exactly the drift that produced 87 un-validated configs" — and
@@ -293,8 +297,8 @@ Burn readers already trust.
 - Issue #386 — "SAC/PPO policy-head configs: `Validate` implemented but
   never called on the construction path (`log_std` bounds unenforced)."
 - Issue #185 — removed `SacTrainingConfig`'s dead duplicate `log_std_min`/
-  `log_std_max` fields; named the convention this ADR's Decision §2 follows
-  (bounds live on the config that is actually consumed).
+  `log_std_max` fields; named the convention this ADR's own Decision 2
+  follows (bounds live on the config that is actually consumed).
 - Issue #385 — removed the same dead-duplicate-bounds pattern from the
   PPO/PPG action configs; together with #185, made this ADR's gap visible
   without creating it.

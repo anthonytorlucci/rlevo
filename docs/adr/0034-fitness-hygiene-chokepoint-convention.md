@@ -19,7 +19,9 @@ preserves the `NaN → −∞` rule verbatim and adds an `+∞` rule; ADR 0023 s
 
 **Chosen shape:** one fitness-hygiene primitive in `rlevo-evolution`, applied at
 the small number of *driver chokepoints*, backed by the per-site
-"sanitize-then-`total_cmp`" convention (`rules.md` §3) as the correctness floor.
+"sanitize-then-`total_cmp`" convention (`docs/rules.md`'s Trait Design
+Constraints section, Optimisation direction — maximise-native subsection) as
+the correctness floor.
 
 ## Context
 
@@ -28,10 +30,11 @@ different algorithm family. Read together they are not one defect but **three
 classes** wearing one label:
 
 1. **Fitness hygiene** — a non-finite fitness poisons ordering, best-so-far
-   tracking, species allocation, hall-of-fame champions, and public metrics. Rust's
-   `f32::NAN` is a *positive* NaN, so `total_cmp` ranks a raw `NaN` as the
-   **maximum** (`rules.md` §3): a `NaN`-fitness member becomes an immortal
-   champion. This class *is* addressable at a chokepoint.
+   tracking, species allocation, hall-of-fame champions, and public metrics.
+   Rust's `f32::NAN` is a *positive* NaN, so `total_cmp` ranks a raw `NaN` as
+   the **maximum** (`docs/rules.md`'s Optimisation direction — maximise-native
+   subsection): a `NaN`-fitness member becomes an immortal champion. This
+   class *is* addressable at a chokepoint.
 2. **Canonical-ordering-direction bugs** — e.g. an onlooker tournament using `<` in
    maximise space, or an argmax initialized from `fitness[0]` instead of `−∞`. A
    perfectly sanitized tensor still selects the wrong individual. **Not**
@@ -84,12 +87,13 @@ coupled-fitness path — each its own analogous funnel.
    - Coevolution coupled-fitness → `CoEAState` write sites + the `min(best_a,
      best_b)` metric.
 
-3. **Keep the per-site `rules.md` §3 convention as the correctness floor.** The
-   chokepoint is an *amortization* (sanitize once, downstream stored fitness is
-   clean), **not** a guarantee for callers that bypass the harness (unit tests,
-   custom drivers, the three non-`Strategy` drivers). Every ordering / argmax /
-   champion-write site still sanitizes locally. The chokepoint does not delete
-   these; it makes them redundant on the common path and load-bearing on the rest.
+3. **Keep the per-site `docs/rules.md` Optimisation direction convention as
+   the correctness floor.** The chokepoint is an *amortization* (sanitize
+   once, downstream stored fitness is clean), **not** a guarantee for callers
+   that bypass the harness (unit tests, custom drivers, the three
+   non-`Strategy` drivers). Every ordering / argmax / champion-write site
+   still sanitizes locally. The chokepoint does not delete these; it makes
+   them redundant on the common path and load-bearing on the rest.
 
 4. **Metrics: mean over finite members.** `StrategyMetrics::from_host_fitness`
    averages the finite members only and reports a `broken_count` of the non-finite
@@ -124,9 +128,10 @@ through this primitive.
 
 ### Negative / accepted costs
 - **Documented bypass hole.** Direct (non-harness) `tell` callers are not covered
-  by the chokepoint; correctness there rests on the §3 per-site convention. This is
-  stated in the `Strategy::tell` docs. If the hole recurs in practice, the
-  sanctioned escalation is a `CanonicalFitness<B>` newtype (below).
+  by the chokepoint; correctness there rests on the per-site convention in
+  `docs/rules.md`'s Optimisation direction subsection. This is stated in the
+  `Strategy::tell` docs. If the hole recurs in practice, the sanctioned
+  escalation is a `CanonicalFitness<B>` newtype (below).
 - **`−∞` still yields a `−∞` mean when the whole population is broken.** Accepted:
   degenerate but well-defined, and flagged by `broken_count == population_size`.
 
@@ -140,15 +145,17 @@ through this primitive.
   impl. Named here as the fast-follow if a bypass regression recurs.
 - **Per-site fixes only (as each issue's review proposed).** Rejected as the
   primary structure: ~25 edit sites, and every future family re-discovers the bug.
-  Retained only as the correctness floor (decision 4/§3), not the main mechanism.
+  Retained only as the correctness floor (this ADR's own Decision 3, backed by
+  `docs/rules.md`'s Optimisation direction subsection), not the main mechanism.
 - **Move the primitive to `rlevo-core`.** Rejected: `rlevo-core` is a contract crate
   (no implementation logic beyond `util`), and `NaN → −∞ = worst` is the *engine's*
   canonical-space convention, not an abstract objective primitive. All four
   chokepoints are in `rlevo-evolution`. Promote only when a second crate needs it.
 - **`assert!(fitness.is_finite())` (proposed in the metaheuristic review).**
-  Rejected: `rules.md` §4 forbids panicking on user-supplied runtime data, and a
-  landscape returning `0/0` *is* runtime data. Sanitize to a sentinel instead; a
-  `debug_assert!` tripwire is acceptable, a hard `assert!` is not.
+  Rejected: `docs/rules.md`'s Error Handling section forbids panicking on
+  user-supplied runtime data, and a landscape returning `0/0` *is* runtime
+  data. Sanitize to a sentinel instead; a `debug_assert!` tripwire is
+  acceptable, a hard `assert!` is not.
 - **Map all non-finite → −∞ (drop the `+∞ → f32::MAX` distinction).** Rejected: in a
   maximise objective `+∞` means *optimal*; mapping it to *worst* would silently
   delete the best individual (e.g. runaway-weight architectures that legitimately
@@ -163,7 +170,8 @@ through this primitive.
   convention, extended (not superseded) here.
 - ADR [0026](0026-shared-config-validation-convention.md) — construction-time `Validate`
   boundary where the class-3 guards belong.
-- `rules.md` §Optimisation direction — the per-site sanitize-then-`total_cmp`
+- `docs/rules.md`'s Optimisation direction — maximise-native subsection
+  (within Trait Design Constraints) — the per-site sanitize-then-`total_cmp`
   correctness floor.
 - Code: `crates/rlevo-evolution/src/fitness.rs` (primitive + tensor sibling),
   `src/strategy.rs` (harness chokepoint + `StrategyMetrics`), `src/neuroevolution/

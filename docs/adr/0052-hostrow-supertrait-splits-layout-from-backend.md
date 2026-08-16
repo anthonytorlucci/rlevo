@@ -15,9 +15,9 @@ tags: [adr, decision, tensor-convertible, host-row, rlevo-core, burn, type-safet
 substantive 0028 decision survives verbatim: the host-only flat-`f32` row-writer
 is still the required primitive, `to_tensor` is still derived from it and still
 must not be overridden, `from_tensor` is still hand-written per impl, and rewards
-still bypass `stack_to_tensor` in favour of the row-writer plus one `from_floats`
-(0028 §3). What changes is *where* the two required row methods live, not what
-they mean. 0028's batching rationale — the Burn reuse-or-reject audit, the
+still bypass `stack_to_tensor` in favour of the row-writer plus one
+`from_floats` (ADR 0028's own Decision 3). What changes is *where* the two
+required row methods live, not what they mean. 0028's batching rationale — the Burn reuse-or-reject audit, the
 single-upload argument, the `BR = R + 1` chokepoint — is load-bearing and
 unaltered; marking it superseded would falsely invalidate it.
 
@@ -164,8 +164,8 @@ in `HostRow`'s rustdoc:
 
 This is a genuine, if modest, cost, and it is accepted on two grounds. First, the
 failure mode is a **loud compile error, never silent** — the opposite of the
-divergent-bytes hazard §Context describes, which is precisely the trade this ADR
-is making. Second, should a two-rank type ever be wanted, the fix is the *same
+divergent-bytes hazard this ADR's own Context section describes, which is
+precisely the trade this ADR is making. Second, should a two-rank type ever be wanted, the fix is the *same
 qualified-path syntax that existed before this ADR*
 (`<T as HostRow<3>>::write_host_row(..)`). The downside case is therefore no worse
 than the status quo ante, while the ordinary case is strictly better.
@@ -189,8 +189,9 @@ door is left closed.
 
 ### 5. Interaction with #201 — read this before implementing the inverse seam
 
-Issue #201 (the inverse batch-decode seam, deferred by 0028 §5) proposes adding
-`from_host_row(row: &[f32]) -> Self` "alongside `write_host_row`", paired with a
+Issue #201 (the inverse batch-decode seam, deferred by ADR 0028's own
+Decision 5) proposes adding `from_host_row(row: &[f32]) -> Self` "alongside
+`write_host_row`", paired with a
 `from_tensor_batch` free function.
 
 **The split makes #201 cleaner.** Under 0028's single trait, both new methods
@@ -204,10 +205,10 @@ home), and **`from_tensor_batch` belongs beside `to_tensor`** (it consumes a
 
 **But there is a trap, and it is the reason this section is normative rather than
 informational.** `from_host_row(row: &[f32]) -> Self` returns `Self` by value, so
-it requires `Sized` — the bound §4 just declined to put on `HostRow`. The
-path of least resistance for whoever implements #201 is to add `Sized` back to the
-trait, which compiles, passes every test, and **silently undoes §4's reasoning**
-without anyone noticing.
+it requires `Sized` — the bound this ADR's own Decision 4 just declined to
+put on `HostRow`. The path of least resistance for whoever implements #201 is
+to add `Sized` back to the trait, which compiles, passes every test, and
+**silently undoes Decision 4's reasoning** without anyone noticing.
 
 The required approach: put the bound on **that one method**, not on the trait.
 
@@ -217,16 +218,17 @@ pub trait HostRow<const R: usize> {
     fn write_host_row(&self, buf: &mut Vec<f32>);
 
     // #201, when a consumer exists. `where Self: Sized` goes HERE.
-    // Do NOT move it to the trait — see ADR 0052 §4.
+    // Do NOT move it to the trait — see this ADR's own Decision 4.
     fn from_host_row(row: &[f32]) -> Self
     where
         Self: Sized;
 }
 ```
 
-This keeps unsized implementors viable, and (as a bonus) `where Self: Sized` on
-both `row_shape` and `from_host_row` is exactly what §4's dyn-compatibility door
-requires — so #201 done this way opens that door rather than welding it shut.
+This keeps unsized implementors viable, and (as a bonus) `where Self: Sized`
+on both `row_shape` and `from_host_row` is exactly what Decision 4's
+dyn-compatibility door requires — so #201 done this way opens that door
+rather than welding it shut.
 
 ### 6. `stack_to_tensor` relaxes to `T: HostRow<R>`
 
@@ -283,9 +285,9 @@ reason: 12 `Observation` types in the workspace (`FrozenLakeObservation`,
 `KArmedBanditObservation`, and assorted test/doc stubs) have no
 `TensorConvertible` impl at all. Most are discrete/tabular, and choosing their row
 layout — one-hot, ordinal index-as-float, or something else — is a **design
-question with learning consequences**, not a mechanical migration. 0028 §4 already
-notes that `f32` represents integers exactly only to 2²⁴, which bears directly on
-the ordinal option. Forcing that decision as a side effect of a trait-split PR
+question with learning consequences**, not a mechanical migration. ADR 0028's
+own Decision 4 already notes that `f32` represents integers exactly only to
+2²⁴, which bears directly on the ordinal option. Forcing that decision as a side effect of a trait-split PR
 would be the wrong sequencing.
 
 One limitation to record so the follow-up does not over-promise: the supertrait
@@ -299,27 +301,30 @@ question from requiring the bound.
 ### Positive
 
 - **A backend-specialised `write_host_row` is unrepresentable**, not merely
-  discouraged. The silent divergent-bytes failure mode described in §Context
-  cannot occur.
+  discouraged. The silent divergent-bytes failure mode described in this
+  ADR's own Context section cannot occur.
 - **Six qualified-path workarounds deleted**, each of which named a
   provably-irrelevant backend and obliged every reader to verify that
   irrelevance.
 - **`stack_to_tensor` is bounded on what it actually uses.** Host-side staging no
   longer demands a device-facing decode impl.
-- **`Observation<R>: HostRow<R>` becomes expressible** (§8), and **#201 gets a
-  forced, clean method assignment** (§5).
+- **`Observation<R>: HostRow<R>` becomes expressible** (this ADR's own
+  Decision 8), and **#201 gets a forced, clean method assignment** (this
+  ADR's own Decision 5).
 
 ### Negative / costs
 
-- **Breaking public-trait change; 35 impl blocks across 6 crates.** Mechanical (split
-  the impl block, drop `B` from the `HostRow` half) but wide, and it lands with
-  the `E0207` trap of §7. Acceptable on the same alpha-stage grounds 0028 invoked.
+- **Breaking public-trait change; 35 impl blocks across 6 crates.**
+  Mechanical (split the impl block, drop `B` from the `HostRow` half) but
+  wide, and it lands with the `E0207` trap of this ADR's own Decision 7.
+  Acceptable on the same alpha-stage grounds 0028 invoked.
 - **Two impl blocks where there was one.** Slightly more ceremony per type; the
   compensating simplification is at every *call* site.
-- **A new documented invariant to uphold** — one rank per type (§3) — enforced by
-  convention, with a loud compile error as the backstop.
-- **A trap for #201's implementer** (§5), mitigated only by this ADR and by the
-  rustdoc note on `HostRow`.
+- **A new documented invariant to uphold** — one rank per type (this ADR's
+  own Decision 3) — enforced by convention, with a loud compile error as the
+  backstop.
+- **A trap for #201's implementer** (this ADR's own Decision 5), mitigated
+  only by this ADR and by the rustdoc note on `HostRow`.
 
 ### Neutral
 
@@ -342,8 +347,8 @@ question from requiring the bound.
 
 - **An associated const `RANK` instead of a const parameter** (`trait HostRow {
   const RANK: usize; fn row_shape() -> [usize; Self::RANK]; }`), which would make
-  the one-rank-per-type invariant of §3 a compiler-enforced consequence rather
-  than a documented rule. **Dead on stable Rust**: `[usize; Self::RANK]` is a
+  the one-rank-per-type invariant of this ADR's own Decision 3 a
+  compiler-enforced consequence rather than a documented rule. **Dead on stable Rust**: `[usize; Self::RANK]` is a
   generic const operation and needs `generic_const_exprs`, still unstable
   (verified on rustc 1.97.0: *"error: generic parameters may not be used in const
   operations"*). Not rejected on design grounds — genuinely unavailable. Worth
@@ -386,9 +391,10 @@ question from requiring the bound.
   boundary.
 - ADR [0050](0050-replay-strategy-seam.md) — retired `memory.rs::sample_batch`,
   `stack_to_tensor`'s only nominal consumer; the reason its call count is not
-  evidence of ergonomic friction (§Context).
+  evidence of ergonomic friction (this ADR's own Context section).
 - Issue #201 — the additive inverse batch-decode seam (`from_host_row` +
-  `from_tensor_batch`); see §5 for the `Sized` placement it must use.
+  `from_tensor_batch`); see this ADR's own Decision 5 for the `Sized`
+  placement it must use.
 - Issue #195 — 0028's cross-crate parent.
 - Code: `crates/rlevo-core/src/base.rs` (both traits + `stack_to_tensor`);
   `crates/rlevo-reinforcement-learning/src/algorithms/{dqn,c51,qrdqn,ddpg,td3,sac}/`

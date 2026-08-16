@@ -11,10 +11,10 @@ tags: [adr, decision, numerical-stability, nan, reward, replay, dqn, c51, qrdqn,
 ## Status
 
 **Accepted (2026-07-27).** Resolves issue #352. **Counterpart to ADR 0056**,
-which deliberately deferred reward finiteness at `remember` by number (0056
-§Consequences: "Out of scope, deliberately: reward finiteness at `remember`
-(**#352**)"). Purely additive — supersedes nothing, changes no public API
-signature, changes no healthy-step numerics.
+which deliberately deferred reward finiteness at `remember` by number (0056's
+own "Consequences & honest limits" section: "Out of scope, deliberately:
+reward finiteness at `remember` (**#352**)"). Purely additive — supersedes
+nothing, changes no public API signature, changes no healthy-step numerics.
 
 **Chosen shape.** A `FiniteRewardGuard` in `algorithms/shared.rs`, one
 instance per agent, whose `admit(&mut self, reward: f32) -> bool` runs a
@@ -140,9 +140,9 @@ after the first occurrence. What is scheduled is only the `warn!`: it fires
 at `dropped_transitions() == 1, 10, 100, 1000, …` (i.e. on powers of ten),
 each time reporting the running total. This bounds log volume to
 ~log₁₀(n) lines — at most about 7 over a run reaching a billion dropped
-transitions — while still surfacing magnitude, not just occurrence. See
-§Literature for why magnitude specifically, not just an occurrence flag, is
-the thing that must be observable.
+transitions — while still surfacing magnitude, not just occurrence. See this
+ADR's own Literature section, below, for why magnitude specifically, not just
+an occurrence flag, is the thing that must be observable.
 
 ### 4. Bookkeeping on a drop — stated explicitly so it is not "fixed" later
 
@@ -157,15 +157,16 @@ the thing that must be observable.
   environment that emits NaN on every step yields a buffer that never fills
   and a run that does nothing. That is the *correct* outcome — the
   alternative is training on entirely fabricated or entirely missing reward
-  signal — and the escalating `warn!` (§3) is what makes that outcome
-  diagnosable instead of a silent hang.
+  signal — and the escalating `warn!` (this ADR's own Decision 3, above) is
+  what makes that outcome diagnosable instead of a silent hang.
 - **Episode return is deliberately left poisoned.** `episode_reward +=
   reward_f32` at `dqn/train.rs:137` still adds the NaN unconditionally, so
   that episode's return is NaN, and `AgentStats::avg_score`
   (`metrics.rs:92-102`) reports NaN for the next `window_size` episodes. This
-  is a real tension with 0056 §3 ("skipped values are excluded from
-  epoch-mean accumulators so a single NaN cannot re-poison an otherwise-finite
-  reported mean") and is addressed here head-on rather than left implicit: a
+  is a real tension with 0056's Skip-semantics decision (Decision 3)
+  ("skipped values are excluded from epoch-mean accumulators so a single NaN
+  cannot re-poison an otherwise-finite reported mean") and is addressed here
+  head-on rather than left implicit: a
   loss is an internal training diagnostic, and excluding a skipped one from
   its running mean is bookkeeping hygiene. An episode return is the
   **primary scientific measurement** this whole library exists to produce.
@@ -181,25 +182,28 @@ the thing that must be observable.
 
 ### 5. Runs unconditionally in release
 
-No `debug_assert`/config gate. See §Rejected alternatives — this mirrors
-0056 §4's ruling and the reasoning transfers unchanged: the host read the
-guard needs already exists (the reward is `f32` by the time `remember` sees
-it), so a gate would strip the guard from exactly the long release runs
+No `debug_assert`/config gate. See this ADR's own Rejected alternatives
+section, below — this mirrors 0056's Runs-unconditionally-in-release
+decision (Decision 4) and the reasoning transfers unchanged: the host read
+the guard needs already exists (the reward is `f32` by the time `remember`
+sees it), so a gate would strip the guard from exactly the long release runs
 where a diverging environment is most likely to emit the values it exists to
 catch.
 
 ## Rejected alternatives
 
-- **`debug_assert!`.** This is the C51 code-review's §1.3 recommendation and
-  appears by name in this issue's own comment thread, so it is rejected by
-  name. ADR 0056 §4 already settled the general question for this codebase
+- **`debug_assert!`.** This is the C51 code-review's recommendation at its
+  section 1.3, and appears by name in this issue's own comment thread, so it
+  is rejected by name. ADR 0056's Runs-unconditionally-in-release decision
+  (Decision 4) already settled the general question for this codebase
   ("No `debug_assert`/config gate: the host read already exists, so a gate
   would strip the guard from exactly the long release runs that diverge"). A
   release no-op protects nothing in the runs where protection matters most.
 - **Sanitize to `0.0` / clamp.** `f32::clamp` propagates NaN
   (`c51/projection.rs:97` already documents this in-tree), so a naive
   `reward.clamp(lo, hi)` is a silent no-op against NaN specifically — see
-  §Literature for the ∞-vs-NaN distinction. A *deliberate* NaN→`0.0`
+  this ADR's own Literature section, below, for the ∞-vs-NaN distinction. A
+  *deliberate* NaN→`0.0`
   substitution is worse than doing nothing: it manufactures a reward the
   environment never emitted and is indistinguishable downstream from a
   legitimately-zero step. ADR 0061's no-fabrication rule is directly against
@@ -227,8 +231,9 @@ catch.
   chokepoint precisely because it is the point where every reward type has
   already been erased to `f32`, regardless of which `Reward` impl produced
   it. The guard belongs where the erasure happens, not upstream of it.
-- **Six inline copies, one per agent.** The C51/QR-DQN omission (§Context) is
-  the evidence against this: it is exactly what already happened once, and a
+- **Six inline copies, one per agent.** The C51/QR-DQN omission (this ADR's
+  own Context section, above, "Six sites, not four") is the evidence against
+  this: it is exactly what already happened once, and a
   shared struct with a per-agent test in each of the six files is how it
   does not happen again.
 
@@ -267,7 +272,7 @@ note, which deferred this issue by number).
   rlevo does not clip rewards by default regardless.
 - **The AMP/`GradScaler` precedent transfers as analogy, not authority — a
   deliberate departure from how 0056 used it.** Micikevicius et al. (*Mixed
-  Precision Training*, ICLR 2018, arXiv:1710.03740, §3.2), verbatim: "One
+  Precision Training*, ICLR 2018, arXiv:1710.03740's Section 3.2), verbatim: "One
   option is to skip the weight update when an overflow is detected and
   simply move on to the next iteration." AMP discards a **computation** — one
   optimizer step — because the corruption is an artifact of the fp16
@@ -295,9 +300,10 @@ note, which deferred this issue by number).
   in the visited-state distribution. **No paper answers which regime a given
   run is in; only telemetry from the run itself can.** This is an
   independent statistical argument for the same conclusion the architecture
-  reached on purely operational grounds in §Decision 3: the count must be
-  observable and the warn must convey magnitude, not merely occurrence, so
-  the operator has a chance of distinguishing the two regimes rather than
+  reached on purely operational grounds in this ADR's own Decision 3, Drop
+  semantics: the count must be observable and the warn must convey
+  magnitude, not merely occurrence, so the operator has a chance of
+  distinguishing the two regimes rather than
   seeing one indistinguishable latched line.
 
 ## Consequences
@@ -311,7 +317,8 @@ deterministic NaN satisfies perfectly. **No test in the workspace has ever
 asserted anything about replay-buffer contents.** Closing that gap is part of
 this change: each of the six agents gets a drop test (transition not pushed,
 `dropped_transitions()` increments, `can_learn` correctly delayed) in its own
-file, per §Rejected alternatives' "six inline copies" reasoning.
+file, per this ADR's own Rejected alternatives section's "six inline copies"
+reasoning.
 
 ## Out of scope, deliberately
 
@@ -341,9 +348,10 @@ file, per §Rejected alternatives' "six inline copies" reasoning.
   close — checking an observation is a per-element tensor scan, not one
   `f32` register compare — so it is a different cost/benefit call and is
   left for a separate issue (**#1043**) rather than bundled here.
-- **`ScalarReward` / `rlevo-core`.** Closed, not deferred — see §Rejected
-  alternatives. There is no follow-up issue for this one; the trait-erasure
-  argument there is decisive, not a matter of scope or cost.
+- **`ScalarReward` / `rlevo-core`.** Closed, not deferred — see this ADR's
+  own Rejected alternatives section, above. There is no follow-up issue for
+  this one; the trait-erasure argument there is decisive, not a matter of
+  scope or cost.
 
 ## References
 
@@ -352,7 +360,7 @@ file, per §Rejected alternatives' "six inline copies" reasoning.
   guard this one complements: 0056 breaks the poisoned-reward → poisoned-
   weights chain at the loss; this ADR stops the poisoned reward from
   persisting in the buffer in the first place. Explicitly deferred this
-  issue by number at its own §Consequences.
+  issue by number in its own "Consequences & honest limits" section.
 - ADR [0060](0060-config-values-must-be-finite.md) — the config-layer
   sibling: "a value must be finite" applied to `*Config` fields checked once
   at construction. Cited for contrast, not as the tightest precedent — see
@@ -362,8 +370,8 @@ file, per §Rejected alternatives' "six inline copies" reasoning.
   sanitize-to-zero, once to justify leaving the episode-return NaN rather
   than silently excluding the step.
 - ADR [0059](0059-target-update-cadence-counts-gradient-updates.md) — the
-  gradient-update-keyed cadence that this ADR's §Decision 4 confirms
-  advances unaffected by a drop.
+  gradient-update-keyed cadence that this ADR's own Decision 4 (Bookkeeping
+  on a drop) confirms advances unaffected by a drop.
 - `crates/rlevo-reinforcement-learning/src/replay/priority.rs:115,142` —
   `Priority::try_new` / `from_td_error`, the tightest in-repo precedent:
   rejecting NaN/±Inf on a runtime-derived float at a buffer boundary.

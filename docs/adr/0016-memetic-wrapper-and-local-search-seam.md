@@ -18,15 +18,17 @@ tags:
 
 ## Status
 
-Active. Adopted 2026-06-10. Implements phase 3a of the advanced-EA roadmap
-(`specs/2026-04-27-advanced-evo-algos/memetic-algorithms.md`), with both research
-gates closed in the vault: **3a-R1** commits the four-searcher v1 inventory
-(`HillClimbing`, `NelderMead`, `SimulatedAnnealing`, `RandomRestart`; BFGS / Powell /
-`argmin` deferred) and **3a-R2** commits `WritebackPolicy::Partial(0.5)` as the default
-writeback. Purely additive: no changes to the `Strategy` trait, `EvolutionaryHarness`,
-or any existing algorithm file. Does not supersede any prior ADR; extends the
-host-RNG convention recorded in project_evolution_host_rng_convention and the
-`parking_lot` unification of [0010-unify-on-parking-lot-across-viz-stack](0010-unify-on-parking-lot-across-viz-stack.md).
+Active. Adopted 2026-06-10. Implements phase 3a of the advanced-EA roadmap,
+with both internal research gates closed: one commits the four-searcher v1
+inventory (`HillClimbing`, `NelderMead`, `SimulatedAnnealing`, `RandomRestart`;
+BFGS / Powell / `argmin` deferred) and the other commits
+`WritebackPolicy::Partial(0.5)` as the default writeback. Purely additive: no
+changes to the `Strategy` trait, `EvolutionaryHarness`, or any existing
+algorithm file. Does not supersede any prior ADR; extends the host-RNG /
+`seed_stream` convention (all EA randomness is host-sampled, `B::seed` /
+`Tensor::random` / `thread_rng` forbidden — later codified as ADR
+[0029](0029-host-rng-seeding-convention.md)) and the `parking_lot` unification
+of [0010-unify-on-parking-lot-across-viz-stack](0010-unify-on-parking-lot-across-viz-stack.md).
 
 ## Context
 
@@ -314,17 +316,24 @@ determinism tests.
 
 ## References
 
-- `specs/2026-04-27-advanced-evo-algos/memetic-algorithms.md` — phase 3a spec; §4 trait
-  signature (corrected against the live API), §6 acceptance items.
-- 3a-R1 — closed research gate committing the four-searcher v1 inventory (HillClimbing,
-  NelderMead, SimulatedAnnealing, RandomRestart; BFGS / Powell / `argmin` deferred).
-- 3a-R2 — closed research gate committing `WritebackPolicy::Partial(0.5)` as default.
+- Phase 3a of the project's advanced-EA roadmap; its corrected trait signature
+  and acceptance criteria are reproduced in this ADR's own Decision and
+  Concrete parts sections above.
+- Closed research gate 3a-R1 — committed the four-searcher v1 inventory
+  (HillClimbing, NelderMead, SimulatedAnnealing, RandomRestart; BFGS / Powell /
+  `argmin` deferred).
+- Closed research gate 3a-R2 — committed `WritebackPolicy::Partial(0.5)` as
+  default.
 - [0010-unify-on-parking-lot-across-viz-stack](0010-unify-on-parking-lot-across-viz-stack.md) — `parking_lot` already a dependency;
   the `Mutex<F>` reuses it with no manifest change.
-- project_evolution_host_rng_convention — the host-RNG / `seed_stream` convention
-  the two-stream scheme obeys; `B::seed` / `Tensor::random` / `thread_rng` forbidden.
-- reference_flex_gemm_nondeterminism — why reproducible runs need a seeded host
-  stream + rayon=1; the headline test runs serial and twice.
+- The host-RNG / `seed_stream` convention the two-stream scheme obeys —
+  `B::seed` / `Tensor::random` / `thread_rng` forbidden — later codified as
+  ADR [0029](0029-host-rng-seeding-convention.md).
+- Burn's Flex backend `gemm` operations are non-deterministic under
+  multi-threading, so reproducible runs need a seeded host stream plus
+  `rayon` pinned to one thread; the headline test follows this — it runs
+  serial and twice (`crates/rlevo/tests/memetic_rastrigin.rs`), matching the
+  pattern in `crates/rlevo/tests/determinism.rs`.
 - `crates/rlevo-evolution/src/strategy.rs` — `Strategy::tell(&self)` (line 134, frozen),
   `EvolutionaryHarness<B, S, F>` (line 290, frozen).
 - `crates/rlevo-evolution/src/fitness.rs` — `FitnessFn`/`BatchFitnessFn`, both `&mut self`.
