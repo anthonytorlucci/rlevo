@@ -485,7 +485,7 @@ where
     /// Auxiliary-phase **combined-loss** updates skipped for a non-finite loss
     /// (ADR 0056, ADR 0072).
     ///
-    /// The `ppg/aux_total_loss` site: the aux-value MSE plus `β · KL`
+    /// The `ppg/aux_total_loss` site: the aux-value MSE plus `$\beta \cdot KL$`
     /// distillation term, counted per minibatch inside
     /// [`maybe_aux_phase`](Self::maybe_aux_phase) on the same cadence caveat as
     /// [`skipped_aux_value_updates`](Self::skipped_aux_value_updates).

@@ -884,7 +884,7 @@ impl Sensor<3, 1, 3> for GoToDoorEnv {
     type State = GridState;
     type Observation = GoToDoorObservation;
 
-    /// Emission model `O(a, s')`. The observation ignores the action — it is a
+    /// Emission model `$O(a, s')$`. The observation ignores the action — it is a
     /// function of the resulting `next_state` and the episode mission — so this
     /// forwards to the same projection as [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GoToDoorObservation {

@@ -256,7 +256,7 @@ mod tests {
 
     /// Coupled fitness that poisons row 0 of every population with a
     /// non-finite value and fills the rest with a finite ramp `1, 2, …`.
-    /// `poison` selects `NaN` or `+∞`; either must be sanitized at the
+    /// `poison` selects `NaN` or `$+\infty$`; either must be sanitized at the
     /// chokepoint so the finite ramp maximum (`POP - 1`) is the champion.
     struct PoisonRow0 {
         poison: f32,
@@ -283,7 +283,7 @@ mod tests {
     }
 
     /// A single all-`NaN` coupled fitness — the degenerate whole-population
-    /// break — must sanitize to `−∞`, never `NaN`.
+    /// break — must sanitize to `$-\infty$`, never `NaN`.
     struct AllNan;
 
     impl CoupledFitness<TB> for AllNan {
@@ -319,7 +319,7 @@ mod tests {
         metrics
     }
 
-    /// A `NaN` fitness from a [`CoupledFitness`] impl is sanitized to `−∞` at
+    /// A `NaN` fitness from a [`CoupledFitness`] impl is sanitized to `$-\infty$` at
     /// the chokepoint, so it can neither become the champion nor blank a mean:
     /// the finite ramp maximum (`POP - 1`) is `best`, and the mean is finite
     /// (averaged over the finite members only). Pins the ADR 0034
@@ -343,9 +343,9 @@ mod tests {
         );
     }
 
-    /// A `+∞` fitness is clamped to `f32::MAX` (still the top rank, but finite),
+    /// A `$+\infty$` fitness is clamped to `f32::MAX` (still the top rank, but finite),
     /// so **this** population's mean stays finite. Regression for the ADR 0034
-    /// `+∞` rule on the coevolution path.
+    /// `$+\infty$` rule on the coevolution path.
     ///
     /// Note the scope: clamping bounds one *value*, not a *reduction* over
     /// values. `f32::MAX` is finite and so joins a sum, and two saturated
@@ -368,8 +368,8 @@ mod tests {
         );
     }
 
-    /// An all-`NaN` population sanitizes to `−∞` everywhere: `best`/`mean` are
-    /// the well-defined `−∞` sentinel (degenerate but flagged), never `NaN`.
+    /// An all-`NaN` population sanitizes to `$-\infty$` everywhere: `best`/`mean` are
+    /// the well-defined `$-\infty$` sentinel (degenerate but flagged), never `NaN`.
     #[test]
     fn all_nan_population_yields_neg_inf_never_nan() {
         let m = run_one_step(AllNan);

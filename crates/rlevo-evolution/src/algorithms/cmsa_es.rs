@@ -123,7 +123,7 @@ impl CmsaEsConfig {
 
     /// Configuration with an explicit population size `$\lambda$`.
     ///
-    /// The `pop_size ≥ 2` invariant is enforced by [`Validate::validate`] at the
+    /// The `pop_size` `$\geq 2$` invariant is enforced by [`Validate::validate`] at the
     /// harness chokepoint, not by this infallible producer.
     #[must_use]
     pub fn with_pop_size(pop_size: usize, genome_dim: usize) -> Self {
@@ -176,7 +176,7 @@ impl Validate for CmsaEsConfig {
 pub struct CmsaEsState<B: Backend> {
     /// Distribution mean `m`, length `D`.
     mean: Vec<f32>,
-    /// Covariance matrix `C`, row-major `D × D`.
+    /// Covariance matrix `C`, row-major `$D \times D$`.
     cov: Vec<f32>,
     /// Global step size `$\bar\sigma$`.
     sigma: f32,
@@ -207,7 +207,7 @@ impl<B: Backend> CmsaEsState<B> {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `mean` is empty, if `cov` is not `D × D`
+    /// Returns a [`ConfigError`] if `mean` is empty, if `cov` is not `$D \times D$`
     /// row-major (`D = mean.len()`), or if `sigma` is not strictly positive and
     /// finite. No length constraint is imposed on `offspring_sigmas`: it may be
     /// empty (the pre-`ask` state) or any length — [`tell`](CmsaEs::tell) falls
@@ -250,7 +250,7 @@ impl<B: Backend> CmsaEsState<B> {
         &self.mean
     }
 
-    /// Covariance matrix `C`, row-major `D × D`.
+    /// Covariance matrix `C`, row-major `$D \times D$`.
     #[must_use]
     pub fn cov(&self) -> &[f32] {
         &self.cov
@@ -324,7 +324,7 @@ where
     type Genome = Tensor<B, 2>;
 
     /// Initializes `$m^0$` uniformly in `params.bounds` (host-RNG convention),
-    /// `C = I`, and `σ̄ = initial_sigma`.
+    /// `C = I`, and `$\bar\sigma$` = `initial_sigma`.
     fn init(
         &self,
         params: &CmsaEsConfig,
