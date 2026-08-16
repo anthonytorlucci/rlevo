@@ -77,9 +77,10 @@ and weaknesses in isolation:
 - **2-D only:** Branin, Himmelblau, Six-Hump Camel, Easom, Goldstein–Price,
   Cross-in-Tray, Bukin N.6, and Trefethen.
 
-The continuous ones implement the `Landscape` trait from
-[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md), so
-you can drop any of them into the harness in place of `Sphere`.
+The continuous ones implement the `Landscape` trait —
+`fn evaluate(&self, x: &[f64]) -> f64`, `Send + Sync` — that the harness's
+`FromLandscape` adapter wraps into a `BatchFitnessFn`, so you can drop any of
+them into the harness in place of `Sphere`.
 
 ## The hiker analogy
 

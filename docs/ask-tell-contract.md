@@ -1,10 +1,11 @@
 # The Ask/Tell Contract
 
 Every evolutionary `Strategy` in `rlevo` — and the `EvolutionaryHarness` that
-drives it in
-[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md) —
-speaks a single protocol: **ask/tell**. The guided tour uses the harness, which
-hides the protocol; this page opens it up. Reach for it when you need to:
+drives it in the guided tour's function-optimisation walkthrough (a `Landscape`
+scored by a `Strategy`, driven generation-by-generation by the harness, on the
+sphere function) — speaks a single protocol: **ask/tell**. The guided tour uses
+the harness, which hides the protocol; this page opens it up. Reach for it when
+you need to:
 
 - add custom logging or early stopping,
 - combine evolution with RL (where the loop is more complex), or
@@ -12,9 +13,12 @@ hides the protocol; this page opens it up. Reach for it when you need to:
 
 ## The contract
 
-This is the same `Strategy` trait introduced in
-[Part I](../part-1-foundations/20-evolutionary-computation.md). Here is the full
-signature, because this time we are going to call it by hand:
+This is the same `Strategy` trait every algorithm in `rlevo::evo` implements —
+the four-method contract (`init`/`ask`/`tell`/`best`) that maps the five-step
+evolutionary loop (population → evaluate → select → vary → repeat) onto the
+`Params`/`State`/`Genome` associated types, shared by the GA, ES, EP, DE, EDA,
+and CGP families. Here is the full signature, because this time we are going to
+call it by hand:
 
 ```rust,no_run
 pub trait Strategy<B: Backend>: Send + Sync {
@@ -82,21 +86,33 @@ setting changes the contract rather than just the syntax:
 
 - **One contract spans the whole EA taxonomy, not just ES.** evosax is
   organised around evolution strategies over real vectors. `rlevo`'s `Strategy`
-  is generic over the genome *kind* (`Real`, `Binary`, `Integer`, …; see
-  [Genome Representation](../part-1-foundations/evolutionary-computation/22-genome.md)),
-  so the *same* ask/tell trait backs the GA, ES, EP, DE, EDA, and CGP families.
-  The associated `type Genome` is what varies, not the protocol.
+  is generic over the genome *kind* — `Real`, `Binary`, `Integer`, and the
+  roadmap `Permutation`/`Tree` kinds are zero-sized marker types implementing a
+  `GenomeKind` trait, so operators specialise at compile time (Gaussian
+  mutation only typechecks against a real genome, bit-flip only against a
+  binary one) with no runtime dispatch or tag byte. A `Population<B, K>`
+  wrapper welds that marker to its storage tensor so a wrong-tensor-for-this-kind
+  population is unrepresentable. That kind marker is what varies across the
+  *same* ask/tell trait backing the GA, ES, EP, DE, EDA, and CGP families — the
+  associated `type Genome` changes, not the protocol.
 - **Fitness is a backend tensor, with a fixed direction.** `tell` consumes a
   Burn `Tensor<B, 1>` on whatever backend the run uses, rather than a host
   array — selection arithmetic stays on-device. And where evosax leaves the
   optimisation direction to the caller, `rlevo` pins a **maximise-native contract**
-  end-to-end (higher is better) and lets a cost objective declare
-  `ObjectiveSense::Minimize`, reconciled at one chokepoint; see the
-  [fitness chapter](../part-1-foundations/evolutionary-computation/23-fitness.md#the-engine-maximises--and-you-declare-your-objectives-sense).
-  On a harness-driven run that same chokepoint also **sanitises** the tensor
-  (ADR 0034), so the fitness `tell` receives is always finite or `−∞` — never a
-  `NaN` or `+∞` (drive a strategy directly and you sanitise at your own comparison
-  sites; see [fitness hygiene](../part-1-foundations/evolutionary-computation/23-fitness.md#fitness-hygiene-nan-and-inf)).
+  end-to-end (higher is better): a fitness function declares `ObjectiveSense`
+  (required, no default — a reward or accuracy objective cannot be optimised
+  backwards by omission), a cost objective spells out `ObjectiveSense::Minimize`
+  explicitly, and `EvolutionaryHarness::step` is the sole chokepoint that
+  negates a `Minimize` objective into the engine's maximise space before `tell`
+  and maps metrics back to the declared sense for reporting. That same
+  chokepoint also **sanitises** the tensor (ADR 0034): `NaN → −∞` (so a broken
+  individual can never masquerade as the champion — Rust's `f32::NAN` is
+  positive and would otherwise rank as the maximum) and `+∞ → f32::MAX` (a
+  genuinely optimal individual still ranks top, but stays finite). The fitness
+  a harness-driven `tell` receives is therefore always finite or `−∞` — never a
+  `NaN` or `+∞`. Drive a strategy directly, bypassing the harness, and you lose
+  that guarantee — sanitise at your own comparison sites with `sanitize_fitness`
+  / `sanitize_fitness_tensor` (`rlevo-evolution::fitness`).
 - **Randomness is a host stream, not a threaded key.** evosax splits and threads
   explicit JAX `PRNGKey`s. `rlevo` passes `&mut dyn Rng` and derives every draw
   from a single host `seed_stream` (below) — different plumbing for the same
@@ -122,9 +138,9 @@ setting changes the contract rather than just the syntax:
 
 ## Writing the loop yourself
 
-Here is the GA sphere run from
-[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md),
-rewritten without the harness. We reuse that chapter's `Sphere` `Landscape`;
+Here is the GA sphere run from the guided tour's function-optimisation
+walkthrough, rewritten without the harness. We reuse that chapter's `Sphere`
+`Landscape`;
 `FromLandscape` adapts it into the `BatchFitnessFn` the strategy expects — a
 function that takes the whole population at once and returns a `Tensor<B, 1>` of
 per-individual costs:
@@ -162,7 +178,7 @@ fn main() {
         state = new_state;
 
         if gen % 25 == 0 {
-            println!("gen {:>4}   best = {:.3e}", gen, metrics.best_fitness_ever);
+            println!("gen {:>4}   best = {:.3e}", gen, metrics.best_fitness_ever());
         }
     }
 }
@@ -234,8 +250,16 @@ The `EvolutionaryHarness` wraps the above loop with:
   for TUI display or structured record export.
 - **Convergence checks** — stop early if best fitness has not improved for
   \\(N\\) generations.
-- **Parallel evaluation** — if your landscape implements `Send + Sync`, the
-  harness uses `rayon` to evaluate the population in parallel automatically.
+
+The harness calls your `BatchFitnessFn` once per generation; it does not
+parallelize the population evaluation itself (the shipped `FromLandscape` and
+`FromFitnessEvaluable` adapters evaluate a batch with a plain, serial loop —
+`Send + Sync` on your landscape is a bound the trait asks for, not a signal
+that triggers `rayon`). If you need per-individual parallelism, implement it
+inside your `BatchFitnessFn`. Rayon-based parallelism does exist in `rlevo`,
+but one layer up and orthogonal to this: `rlevo-benchmarks::Evaluator::run_suite`
+runs many independent `(env, seed)` trials — each its own harness instance —
+concurrently, controlled by `EvaluatorConfig::num_threads`.
 
 For most use cases, the harness is the right choice. Writing your own loop is
 the right choice when you need control the harness does not expose, or when you
@@ -244,20 +268,26 @@ harness call).
 
 ## Where this connects
 
-- [Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md)
-  drives this contract through the harness — start there for the worked example.
-- The RL loop in
-  [Classic Control: CartPole with DQN](../part-2-guided-tour/20-classic-control.md)
-  is *not* ask/tell — the agent acts sequentially, learning after individual
-  steps. The vocabulary returns when evolution and RL combine: the EA `ask`s for
-  a population of policies, evaluates each by running a full episode, and `tell`s
-  the scores back.
+- The guided tour's function-optimisation walkthrough drives this contract
+  through the harness — a `GeneticAlgorithm` searching the sphere function,
+  same shape as the hand-rolled loop above but with `EvolutionaryHarness`
+  running the `init`/`ask`/`tell` cycle for you.
+- The RL loop that trains a CartPole agent with DQN is *not* ask/tell — the
+  agent acts sequentially, learning after individual steps rather than after a
+  full population evaluation. The vocabulary returns when evolution and RL
+  combine: the EA `ask`s for a population of policies, evaluates each by
+  running a full episode, and `tell`s the scores back.
 
-> **Foundations link.** The exploitation–exploration trade-off that drives the
-> choice of tournament size and elitism is discussed in
-> [What Is Optimisation?](../part-1-foundations/10-optimisation.md). The GA
-> operators that `ask` uses internally — and their convergence properties — are
-> derived in [Appendix A](../appendix-a-ec-algorithms/index.md).
+> **Exploration vs. exploitation.** The tournament-size and elitism choices in
+> the code above trade off *exploitation* (concentrating on candidates already
+> known to be good) against *exploration* (probing unknown regions that might
+> be better) — the same tension that appears as the exploration–exploitation
+> dilemma in RL and the bias–variance trade-off in statistics. Turning
+> tournament size up exploits harder; dropping elitism (favouring
+> `GaReplacement::Generational`) trades monotonic improvement for more
+> exploration. The GA operators used in the code above — tournament selection,
+> BLX-α crossover, elitist replacement — are the same operators, with the same
+> convergence behaviour, that back every real-coded strategy in `rlevo::evo`.
 
 ---
 

@@ -142,9 +142,11 @@ impl Landscape for WeightedSphere {
 > only `rlevo`-specific obligations are to return the objective's **natural** value
 > (you never hand-negate — a `Landscape` is a cost surface, so its `sense()`
 > defaults to `ObjectiveSense::Minimize` and the harness reconciles direction) and
-> that `x` arrives as `&[f64]`. See the
-> [fitness chapter](../part-1-foundations/evolutionary-computation/23-fitness.md#the-engine-maximises--and-you-declare-your-objectives-sense)
-> for why the direction matters and how the chokepoint works.
+> that `x` arrives as `&[f64]`. See
+> [The Ask/Tell Contract](ask-tell-contract.md#lineage-evosax-and-where-rlevo-diverges)
+> for why the direction matters and exactly where the chokepoint lives
+> (`EvolutionaryHarness::step`, which negates a `Minimize` objective before
+> `tell` and maps metrics back to your declared sense).
 
 ### Step 2 — Choose the on-ramp
 
@@ -170,9 +172,9 @@ the engine can call on a whole population."
 
 ### Step 3 — Hand it to the harness
 
-From here it is identical to the bundled-landscape path in
-[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md) — the
-objective is the only thing that changed:
+From here it is identical to the bundled-landscape path from the guided tour's
+function-optimisation walkthrough — the objective is the only thing that
+changed:
 
 ```rust,no_run
 use burn::backend::Flex;
@@ -244,14 +246,18 @@ still just calls `evaluate_batch` and reads `sense()`.
 
 ## Where this connects
 
-- [Fitness Evaluation](../part-1-foundations/evolutionary-computation/23-fitness.md)
-  — the Part I chapter this page expands; start there for the conceptual picture
-  and the maximise convention / `ObjectiveSense` contract.
 - [The Ask/Tell Contract](ask-tell-contract.md) — how the harness drives the
-  `ask` → `evaluate_batch` → `tell` loop, and how to run it by hand.
-- [Genome Representation](../part-1-foundations/evolutionary-computation/22-genome.md)
-  — what the `G` in `BatchFitnessFn<B, G>` actually is, and the `ParamReshaper`
-  bridge that `ModuleEvalFn` and `RolloutFitness` rely on for neuroevolution.
+  `ask` → `evaluate_batch` → `tell` loop, how to run it by hand, and the
+  maximise convention / `ObjectiveSense` contract this page assumes.
+- The genome type `G` in `BatchFitnessFn<B, G>` is the bare population
+  tensor — `Tensor<B, 2>` for real-valued genomes, `Tensor<B, 2, Int>` for
+  binary/integer ones — tagged by a zero-sized `GenomeKind` marker so the
+  right operators apply at compile time with no runtime dispatch. For
+  weight-only neuroevolution, `ParamReshaper` is the bridge `ModuleEvalFn` and
+  `RolloutFitness` rely on: `flatten` walks a Burn `Module`'s float leaves in
+  declaration order into one `Tensor<B, 1>` genome, and `unflatten` clones a
+  template module and refills its leaves from a flat vector in the same
+  order, so `unflatten(flatten(m)) ≈ m`.
 
 ---
 
