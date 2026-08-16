@@ -1,4 +1,4 @@
-//! Seam-level tests for the stateful `RolloutFitness` rollout (issues #91/#92).
+//! Seam-level tests for the stateful `RolloutFitness` rollout.
 //!
 //! These exercise the `StatefulPolicy` threading and the `ModuleEvalFn`
 //! delegation through the **public** `RolloutFitness` API:
@@ -10,7 +10,7 @@
 //!   averaging;
 //! - a recurrent GRU policy (`Hidden = Tensor<B, 2>`) is hosted end-to-end on
 //!   the production seam against the real `SantaFeAnt` POMDP, and its recurrence
-//!   is load-bearing (the #69 `recurrence_carries_state` assertion, on the seam).
+//!   is load-bearing (the `recurrence_carries_state` assertion, on the seam).
 //!
 //! `AlternatingEnv` is a tiny deterministic fixture; it reuses the canonical
 //! `SantaFeAntObservation` / `SantaFeAntAction` types so no bespoke serde-bound
@@ -217,7 +217,7 @@ fn reset_rezeros_hidden_per_episode() {
 
 #[test]
 fn evaluate_batch_preserves_shape_and_averaging() {
-    // Delegation to the inner ModuleEvalFn (#92): 3 rows in → 3 fitnesses out,
+    // Delegation to the inner ModuleEvalFn: 3 rows in → 3 fitnesses out,
     // each the mean over episodes_per_eval. env_max = 4 → 4 per episode; mean
     // over 2 episodes = 4.
     let dev = device();
@@ -235,8 +235,8 @@ fn evaluate_batch_preserves_shape_and_averaging() {
 
 // ---------------------------------------------------------------------------
 // Recurrent GRU policy on the real SantaFeAnt POMDP — acceptance proof that the
-// seam hosts a memory policy (issue #91), the #69 AntPolicy shape lifted onto
-// the production StatefulPolicy contract.
+// seam hosts a memory policy, the AntPolicy shape lifted onto the production
+// StatefulPolicy contract.
 // ---------------------------------------------------------------------------
 
 fn argmax3(logits: &[f32; 3]) -> usize {
@@ -304,7 +304,7 @@ impl StatefulPolicy<TestBackend, SantaFeAnt> for GruPolicy<TestBackend> {
 
 #[test]
 fn gru_recurrence_is_load_bearing_on_the_seam() {
-    // The #69 `recurrence_carries_state` assertion, on the production seam:
+    // The `recurrence_carries_state` assertion, on the production seam:
     // the same percept with different prior hidden states yields different
     // logits — impossible for a reactive map.
     let dev = device();
