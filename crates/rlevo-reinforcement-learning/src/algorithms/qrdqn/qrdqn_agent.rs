@@ -127,7 +127,7 @@ impl PerformanceRecord for QrDqnMetrics {
 pub struct LearnOutcome {
     /// Quantile Huber loss.
     pub loss: f32,
-    /// Mean Q-value `E[Z]` (across actions and batch), for diagnostics.
+    /// Mean Q-value `$E[Z]$` (across actions and batch), for diagnostics.
     pub q_mean: f32,
     /// Batch-mean per-sample quantile spread (std of quantile values at
     /// the taken action).
@@ -1180,9 +1180,9 @@ mod tests {
 
     /// Weight fill for the target-arithmetic fixture.
     ///
-    /// `TestQrDqnNet` computes `obs · W` with every element of `W` equal to this
+    /// `TestQrDqnNet` computes `$\text{obs} \cdot W$` with every element of `W` equal to this
     /// fill, and `obs(x)` is four copies of `x`, so every one of the network's
-    /// `A × N` outputs is exactly `4 · x · fill` — `x` for `fill = 0.25`. Both
+    /// `A × N` outputs is exactly `$4 \cdot x \cdot \text{fill}$` — `x` for `fill = 0.25`. Both
     /// action heads therefore carry the same quantile vector, so the bootstrap
     /// `argmax` and the taken action cannot change the arithmetic.
     const BELLMAN_FILL: f32 = 0.25;
@@ -1192,10 +1192,10 @@ mod tests {
     /// terminated column ever holds, so a reward/terminated swap at the call
     /// site would be numerically invisible if the reward were one of them.
     const BELLMAN_REWARD: f32 = 3.0;
-    /// Discount for the fixture. Dyadic, so `γ · θ` is exact in `f32` and the
+    /// Discount for the fixture. Dyadic, so `$\gamma \cdot \theta$` is exact in `f32` and the
     /// `f64` config knob round-trips without rounding.
     const BELLMAN_GAMMA: f32 = 0.5;
-    /// `Σ_i τ_i` for `τ_i = (i + 0.5)/N`, which is `N/2` for any `N` — spelled
+    /// `$\sum_i \tau_i$` for `τ_i = (i + 0.5)/N`, which is `N/2` for any `N` — spelled
     /// as a literal, with the `TEST_QUANTILES = 4` it assumes asserted below.
     const TAU_SUM: f32 = 2.0;
     const _: () = assert!(TEST_QUANTILES == 4, "TAU_SUM is N/2, written out for N = 4");
@@ -1243,9 +1243,9 @@ mod tests {
     /// The closed form of this fixture's loss.
     ///
     /// Every predicted quantile is `1.0` and every target quantile is the same
-    /// value `target`, so `u_ij = target − 1.0` for all `(i, j)`. With
-    /// `target > 1.0` the sign indicator is `0`, the weight is `τ_i`, and
-    /// `mean_j → sum_i` collapses to `L_κ(u) · Σ_i τ_i`.
+    /// value `target`, so `$u_{ij} = \text{target} - 1.0$` for all `(i, j)`. With
+    /// `target > 1.0` the sign indicator is `0`, the weight is `$\tau_i$`, and
+    /// `$\text{mean}_j \to \text{sum}_i$` collapses to `$L_\kappa(u) \cdot \sum_i \tau_i$`.
     fn bellman_expected_loss(target: f32) -> f32 {
         let u = target - 1.0;
         assert!(u > 0.0, "closed form assumes a positive residual");
@@ -1258,12 +1258,12 @@ mod tests {
     /// and a non-terminal transition.
     ///
     /// Terminal: the bootstrap is masked away, so the target is the reward
-    /// alone, `3.0`. Non-terminal: the target is `3.0 + 0.5 · 2.0 = 4.0`. Both
+    /// alone, `3.0`. Non-terminal: the target is `$3.0 + 0.5 \cdot 2.0 = 4.0$`. Both
     /// land in `LearnOutcome.loss` through the quantile-Huber closed form above.
     ///
     /// Swapping the `rewards` and `terminated` arguments at the
-    /// `compute_target_quantiles` call site makes the terminal target `1.0 +
-    /// 0.5 · 2.0 = 2.0` and the non-terminal target `0.0 + 0.5 · 2.0 = 1.0`,
+    /// `compute_target_quantiles` call site makes the terminal target `$1.0 +
+    /// 0.5 \cdot 2.0 = 2.0$` and the non-terminal target `$0.0 + 0.5 \cdot 2.0 = 1.0$`,
     /// i.e. losses of `1.0` and `0.0` against the `3.0` and `5.0` asserted here.
     #[test]
     fn test_qrdqn_agent_learn_step_pins_the_bellman_target_through_the_loss() {

@@ -348,7 +348,7 @@ impl<B: Backend> NasState<B> {
         &self.population
     }
 
-    /// Best-ever fitness seen so far (canonical maximise), or `−∞` before the
+    /// Best-ever fitness seen so far (canonical maximise), or `$-\infty$` before the
     /// first [`tell`](ArchNasStrategy::tell).
     #[must_use]
     pub fn best_fitness(&self) -> f32 {
@@ -573,12 +573,12 @@ impl<B: Backend> ArchNasStrategy<B> {
     /// Build the initial state: uniform random architecture ids and
     /// Gaussian-initialized active weights (padding zeroed).
     ///
-    /// `fitness` is left empty and `best_fitness` is `−∞`; the first
+    /// `fitness` is left empty and `best_fitness` is `$-\infty$`; the first
     /// [`tell`](Self::tell) populates both.
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` is non-finite (`+∞` or `NaN`).
+    /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`).
     #[must_use]
     pub fn init(
         &self,
@@ -642,7 +642,7 @@ impl<B: Backend> ArchNasStrategy<B> {
     /// # Panics
     ///
     /// Panics if `weight_init_std` or `weight_mutation_std` is non-finite
-    /// (`+∞` or `NaN`), or if the resident weight tensor cannot be read back to
+    /// (`$+\infty$` or `NaN`), or if the resident weight tensor cannot be read back to
     /// the host as `f32`.
     #[must_use]
     pub fn ask(
@@ -780,7 +780,7 @@ impl<B: Backend> ArchNasStrategy<B> {
     /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), so there is
     /// no harness above it. `tell` applies
     /// `sanitize_fitness` to the host fitness
-    /// vector (`NaN → −∞`, `+∞ → f32::MAX`, `−∞` and finite pass through)
+    /// vector (`NaN` → `$-\infty$`, `$+\infty$` → `f32::MAX`, `$-\infty$` and finite pass through)
     /// **before** `update_best` and before it is stored as `state.fitness`, so
     /// a non-finite fitness can never become an immortal champion nor win the
     /// next [`ask`](Self::ask)'s elite carry or tournament.
@@ -1151,7 +1151,7 @@ mod tests {
     /// Regression (ADR 0034): `tell` is the `ArchNasStrategy` chokepoint
     /// and must sanitize non-finite fitness before `update_best`/store. A `NaN`
     /// member must never become the champion nor survive into the next ask's
-    /// selection; a `+∞` member must rank top but as a **finite** value
+    /// selection; a `$+\infty$` member must rank top but as a **finite** value
     /// (`f32::MAX`).
     #[test]
     fn tell_sanitizes_nan_and_inf_so_nan_never_champions() {

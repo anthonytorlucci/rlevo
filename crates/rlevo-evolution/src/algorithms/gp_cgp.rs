@@ -20,10 +20,10 @@
 //!
 //! | id | op | arity | formula |
 //! |---|---|---|---|
-//! | 0 | add | 2 | `a + b` |
+//! | 0 | add | 2 | `$a + b$` |
 //! | 1 | sub | 2 | `$a - b$` |
 //! | 2 | mul | 2 | `$a \cdot b$` |
-//! | 3 | `protected_div` | 2 | `a / b` (or `a` if `$|b| < \epsilon$`) |
+//! | 3 | `protected_div` | 2 | `$a / b$` (or `a` if `$|b| < \epsilon$`) |
 //! | 4 | sin | 1 | `sin(a)` |
 //! | 5 | cos | 1 | `cos(a)` |
 //! | 6 | tanh | 1 | `tanh(a)` |
@@ -141,8 +141,8 @@ pub struct CgpState<B: Backend> {
     ///
     /// `None` until the first `tell` bootstraps it. Using `Option` — rather
     /// than a `f32::NEG_INFINITY` "unset" sentinel — keeps "uninitialised"
-    /// distinct from a legitimately sanitized `−∞` fitness. A `Minimize`
-    /// landscape whose natural cost is `+∞` canonicalizes to `−∞` (ADR 0034);
+    /// distinct from a legitimately sanitized `$-\infty$` fitness. A `Minimize`
+    /// landscape whose natural cost is `$+\infty$` canonicalizes to `$-\infty$` (ADR 0034);
     /// with the old sentinel that value re-triggered the bootstrap branch on
     /// the next `ask`, collapsing the `$(1+\lambda)$` loop to a single parent forever.
     pub parent_fitness: Option<f32>,
@@ -649,9 +649,9 @@ mod tests {
         );
     }
 
-    /// Regression for the `is_finite()` bootstrap sentinel vs the sanitize-to-`−∞`
-    /// convention (ADR 0034). A canonical `−∞` parent fitness (a `Minimize`
-    /// `+∞` cost canonicalizes to `−∞`) must not re-trigger the bootstrap
+    /// Regression for the `is_finite()` bootstrap sentinel vs the sanitize-to-`$-\infty$`
+    /// convention (ADR 0034). A canonical `$-\infty$` parent fitness (a `Minimize`
+    /// `$+\infty$` cost canonicalizes to `$-\infty$`) must not re-trigger the bootstrap
     /// branch: the `$(1+\lambda)$` loop has to keep emitting λ offspring.
     #[test]
     fn neg_inf_parent_fitness_does_not_collapse_lambda_loop() {
@@ -691,7 +691,7 @@ mod tests {
         );
     }
 
-    /// `update_best` treats a sanitized `−∞` fitness (ADR 0034) as the worst
+    /// `update_best` treats a sanitized `$-\infty$` fitness (ADR 0034) as the worst
     /// value (never a champion) yet still promotes a finite winner in the
     /// same generation.
     #[test]

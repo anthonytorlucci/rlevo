@@ -181,7 +181,7 @@ pub fn cholesky(a: &[f32], n: usize) -> Option<Vec<f32>> {
     Some(l)
 }
 
-/// Matrix–vector product `y = M · x` for a row-major `n × n` matrix `M`.
+/// Matrix–vector product `$y = M \cdot x$` for a row-major `n × n` matrix `M`.
 ///
 /// # Panics
 ///

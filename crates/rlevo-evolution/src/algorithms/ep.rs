@@ -61,14 +61,14 @@ pub struct EpConfig {
     pub sigma_min: f32,
     /// Upper clamp for the self-adaptive σ.
     ///
-    /// Without a ceiling the log-normal update can overflow toward `+∞`
+    /// Without a ceiling the log-normal update can overflow toward `$+\infty$`
     /// (genes then saturate to a bound with no error). Default
     /// `DEFAULT_SIGMA_MAX` — far outside any practical step scale on the
     /// `[-5.12, 5.12]` benchmark domain, so it never binds in normal
     /// operation and only catches a runaway walk.
     pub sigma_max: f32,
     /// Learning rate for the log-normal σ update. Default is
-    /// `1 / sqrt(2 · sqrt(D))`.
+    /// `$1 / \sqrt{2 \cdot \sqrt{D}}$`.
     pub tau: f32,
     /// Number of opponents per tournament round (q-tournament).
     pub tournament_q: usize,
@@ -78,7 +78,7 @@ impl EpConfig {
     /// Default configuration for a given dimensionality.
     ///
     /// Sets `initial_sigma = 1.0`, `tournament_q = 10`, and derives
-    /// `tau = 1.0 / sqrt(2.0 · sqrt(D))` — the standard EP learning-rate
+    /// `$\tau = 1.0 / \sqrt{2.0 \cdot \sqrt{D}}$` — the standard EP learning-rate
     /// recommendation from Fogel (1994). Bounds are `(-5.12, 5.12)`.
     #[must_use]
     pub fn default_for(mu: usize, genome_dim: usize) -> Self {
@@ -646,7 +646,7 @@ mod tests {
     }
 
     /// A `NaN`-producing fitness must not crash EP nor become the reported best.
-    /// The harness sanitizes `NaN → −∞` before the pool ever reaches
+    /// The harness sanitizes `NaN` `$\to -\infty$` before the pool ever reaches
     /// q-tournament selection, so a poisoned member always loses its bouts and
     /// the tiebreak `sanitize_fitness` keeps it out of the survivor set
     /// (`ep` §7, NaN regression).
@@ -738,7 +738,7 @@ mod tests {
         );
     }
 
-    /// `genome_dim == 0` makes `tau = 1/sqrt(2·sqrt(0)) = +∞`; the config guard
+    /// `genome_dim == 0` makes `$\tau = 1/\sqrt{2 \cdot \sqrt{0}} = +\infty$`; the config guard
     /// must reject it at construction (ADR 0026) so the non-finite τ never
     /// reaches the first `ask`.
     #[test]
@@ -772,7 +772,7 @@ mod tests {
 
     /// The self-adaptive σ must stay inside `[sigma_min, sigma_max]` across many
     /// generations even under an aggressive `tau` that would otherwise drive the
-    /// log-normal random walk to `0` or `+∞` (`ep` §1.1). Drives the strategy
+    /// log-normal random walk to `0` or `$+\infty$` (`ep` §1.1). Drives the strategy
     /// directly so the transient `(2μ,)` σ vector produced by `ask` is inspected.
     #[test]
     fn sigma_stays_within_bounds_across_updates() {
