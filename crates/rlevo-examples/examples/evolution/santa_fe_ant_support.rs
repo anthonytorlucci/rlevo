@@ -1,4 +1,4 @@
-//! Shared support for the Santa Fe Trail neuroevolution examples (issue #69).
+//! Shared support for the Santa Fe Trail neuroevolution examples.
 //!
 //! This module is the flagship illustration for `rlevo-evolution`: it evolves a
 //! small **recurrent** policy on the artificial-ant POMDP **with no new genome
@@ -15,14 +15,18 @@
 //!
 //! ## Why score through [`ModuleEvalFn`] and not `RolloutFitness`
 //!
-//! `rlevo-hybrid::RolloutFitness`'s policy closure is stateless
-//! (`Fn(&M, &Observation, &Device) -> Action`), so it can only express a reactive
-//! map — exactly the class that fails here. [`ModuleEvalFn`]'s scorer is
-//! `Fn(&M) -> f32` and owns the *entire* rollout, so the recurrent hidden state
-//! lives as a local tensor threaded across the 600 steps. Generalizing
-//! `RolloutFitness` to stateful policies is the right library fix, but it is a
-//! production change tracked separately (issues #91/#92); this module is the
-//! self-contained reference such a generalization would factor out.
+//! `rlevo-hybrid::RolloutFitness`'s policy closure was originally stateless
+//! (`Fn(&M, &Observation, &Device) -> Action`), so it could only express a
+//! reactive map — exactly the class that fails here. [`ModuleEvalFn`]'s scorer
+//! is `Fn(&M) -> f32` and owns the *entire* rollout, so the recurrent hidden
+//! state lives as a local tensor threaded across the 600 steps.
+//!
+//! `RolloutFitness` has since been generalized to stateful policies (it now
+//! threads a `StatefulPolicy`'s hidden state through its own rollout loop, and
+//! delegates the slice/unflatten/collect scaffolding to `ModuleEvalFn` rather
+//! than duplicating it) — but this module predates that change and keeps its
+//! own self-contained scorer, since it needs no other `rlevo-hybrid` feature
+//! and stays a standalone reference for the pattern.
 //!
 //! This file is `#[path]`-included by the two example binaries and by the
 //! integration test, so it carries `#![allow(dead_code)]` (each consumer uses a
