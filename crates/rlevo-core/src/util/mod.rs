@@ -127,8 +127,9 @@ mod tests {
     }
 
     /// Checks the `C(n, k) == C(n, n - k)` symmetry invariant only — it is
-    /// *not* a regression test for #927, since wrapping corrupts both sides
-    /// identically and this test passes against the pre-fix implementation.
+    /// *not* a regression test for the u64-overflow fix below, since wrapping
+    /// corrupts both sides identically and this test passes against the
+    /// pre-fix implementation just as well as the fixed one.
     #[test]
     fn test_combinations_is_symmetric() {
         for n in 0..40u64 {
@@ -179,9 +180,9 @@ mod tests {
         // Guards the guard being INSIDE the loop. `C(9975, 4987)` is ~1e3001;
         // partial results cross `u64::MAX` at i = 6, so the in-loop check bails
         // immediately. "Simplify" the fix by moving that check after the loop
-        // and the `u128` accumulator overflows on its own — #927's exact
-        // failure mode one layer up, panicking under debug assertions and
-        // wrapping silently in release. No other test uses an `n` large enough
+        // and the `u128` accumulator overflows on its own — the same silent-
+        // wrap-in-release, panic-in-debug failure mode `combinations` itself
+        // had, one layer up. No other test uses an `n` large enough
         // to reach that. (Verified: the after-the-loop variant panics here in a
         // debug build. In release its wrapped value still lands above
         // `u64::MAX`, so this assertion alone does not catch it there — the
