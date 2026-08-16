@@ -159,7 +159,7 @@ pub struct LearnOutcome {
 }
 
 /// Computes the SAC Bellman target:
-/// `y = r + γ · (1 − terminated) · (min(Q1', Q2') − α · log π(a'|s'))`.
+/// `$y = r + \gamma \cdot (1 - \text{terminated}) \cdot (\min(Q_1', Q_2') - \alpha \cdot \log \pi(a'|s'))$`.
 ///
 /// Exposed at crate visibility so the unit tests can exercise the SAC
 /// entropy-augmented backup without standing up a full agent.
@@ -900,13 +900,13 @@ where
     /// Runs one learning step.
     ///
     /// 1. Samples a batch from the replay buffer.
-    /// 2. Draws `next_ε`, runs `(next_a, next_logp) = actor(next_obs, next_ε)`
+    /// 2. Draws `next_eps`, runs `(next_a, next_logp) = actor(next_obs, next_eps)`
     ///    on the inner (no-autodiff) backend and computes the SAC target
-    ///    `y = r + γ(1−d)·(min(Q1', Q2') − α·next_logp)`.
+    ///    `$y = r + \gamma(1-d) \cdot (\min(Q_1', Q_2') - \alpha \cdot \text{next\_logp})$`.
     /// 3. Runs an independent backward + optimizer step for each critic.
     /// 4. Every `policy_frequency`-th critic step, runs an actor update
-    ///    (`L_π = α·logp − min(Q1(s,a), Q2(s,a))`) and — when `autotune` is
-    ///    enabled — an α-update (`L_α = −(log α · (logp + H̄))`).
+    ///    (`$L_\pi = \alpha \cdot \text{logp} - \min(Q_1(s,a), Q_2(s,a))$`) and — when `autotune` is
+    ///    enabled — an α-update (`$L_\alpha = -(\log \alpha \cdot (\text{logp} + \bar{H}))$`).
     /// 5. Every [`target_update.every()`](crate::target::TargetUpdate::every)-th
     ///    critic step, Polyak-averages both critic targets by
     ///    [`target_update.tau()`](crate::target::TargetUpdate::tau).
@@ -1197,7 +1197,7 @@ where
     }
 }
 
-/// Draws `rows × cols` iid standard-normal samples on CPU and assembles them
+/// Draws `rows * cols` iid standard-normal samples on CPU and assembles them
 /// into a rank-`BAR` tensor of shape `[rows, cols]`. The built-in
 /// [`SquashedGaussianPolicyHead`](crate::algorithms::sac::sac_policy::SquashedGaussianPolicyHead)
 /// uses `BAR = 2`; the agent stays generic so higher-rank action layouts can
@@ -1258,14 +1258,14 @@ mod tests {
         assert_eq!(err.to_string(), "Invalid action: bad slice");
     }
 
-    /// SAC target folds the `−α·next_logp` entropy term into the backup.
+    /// SAC target folds the `$-\alpha \cdot \text{next\_logp}$` entropy term into the backup.
     /// With `q1 = [2, 1, 5]`, `q2 = [3, 0.5, 4]`, `next_logp = [0.1, 0.2, 0.3]`,
-    /// `α = 0.5`, `r = [0.1, 0.2, 0.3]`, `γ = 0.9`, `terminated = [0, 0, 1]`:
-    ///   `min_q`          = [2.0, 0.5, 4.0]
-    ///   `min_q` − α·logp = [2.0 − 0.05, 0.5 − 0.10, 4.0 − 0.15]
-    ///                  = [1.95, 0.40, 3.85]
-    ///   y              = [0.1 + 0.9·1.95, 0.2 + 0.9·0.40, 0.3 + 0·3.85]
-    ///                  = [1.855, 0.560, 0.300]
+    /// `$\alpha = 0.5$`, `r = [0.1, 0.2, 0.3]`, `$\gamma = 0.9$`, `terminated = [0, 0, 1]`:
+    /// - `min_q` = `[2.0, 0.5, 4.0]`
+    /// - `min_q` `$- \alpha \cdot \text{logp}$` = `[2.0 - 0.05, 0.5 - 0.10, 4.0 - 0.15]`
+    ///   = `[1.95, 0.40, 3.85]`
+    /// - `y` = `[0.1 + 0.9*1.95, 0.2 + 0.9*0.40, 0.3 + 0*3.85]`
+    ///   = `[1.855, 0.560, 0.300]`
     #[test]
     fn test_sac_target_includes_entropy_term() {
         let device = Default::default();
@@ -1299,7 +1299,7 @@ mod tests {
     }
 
     /// With a fixed `min_q`, a policy that moves probability toward the
-    /// boundary (higher |logp|) should raise the actor loss by `α·Δlogp`.
+    /// boundary (higher |logp|) should raise the actor loss by `$\alpha \cdot \Delta\text{logp}$`.
     #[test]
     fn actor_loss_penalizes_higher_log_prob() {
         let device = Default::default();
@@ -1751,7 +1751,7 @@ mod tests {
     /// Slack for the Polyak identity below. Each checksum is an `f32` device
     /// reduction over a handful of parameters and each blended parameter costs
     /// two `f32` roundings, so ~2e-6 is the realistic worst case; the smallest
-    /// signal any assertion here reads is `τ · gap ≈ 1e-2`, three orders of
+    /// signal any assertion here reads is `$\tau \cdot \text{gap} \approx 10^{-2}$`, three orders of
     /// magnitude larger.
     const CHECKSUM_EPS: f64 = 1e-5;
 

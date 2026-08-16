@@ -45,13 +45,13 @@
 //!
 //! ## 1. Skipping the update on a non-finite gradient
 //!
-//! The gradient `g = −(log π.mean() + H̄)` is host-side `f32`. A collapsed
+//! The gradient `$g = -(\log \pi.\text{mean}() + \bar{H})$` is host-side `f32`. A collapsed
 //! squashed-Gaussian policy legitimately produces `NaN`/`±Inf` `$\log \pi$` on
 //! out-of-distribution actions, and a diverging critic can feed the same
 //! through reparameterisation.
 //!
 //! Because Adam's moments are exponential moving averages
-//! (`m ← β₁·m + (1−β₁)·g`), folding one non-finite `g` into `m`/`v` poisons
+//! (`$m \leftarrow \beta_1 \cdot m + (1 - \beta_1) \cdot g$`), folding one non-finite `g` into `m`/`v` poisons
 //! both buffers **permanently**: every subsequent `$\log \alpha$` is `NaN` no matter
 //! how healthy later gradients are. This is unlike the actor/critic
 //! optimisers, which are rebuilt from fresh gradients each step and therefore
@@ -59,8 +59,8 @@
 //! state when `g` is not finite.
 //!
 //! A finite `g` is not sufficient, so the same skip applies to the *derived*
-//! moments. `(1 − β₂)·g·g` is left-associative, so `((1 − β₂)·g)·g` overflows
-//! to `+inf` from roughly `|g| ≳ 10²¹` while `g` itself is still an ordinary
+//! moments. `$(1 - \beta_2) \cdot g \cdot g$` is left-associative, so `$((1 - \beta_2) \cdot g) \cdot g$` overflows
+//! to `+inf` from roughly `$|g| \gtrsim 10^{21}$` while `g` itself is still an ordinary
 //! finite float. `v = +inf` is absorbing under the moving average, so
 //! `v_hat.sqrt()` is `inf` and every later step size is exactly `0`: the
 //! controller freezes **silently**, with no `NaN` and no unusual `$\log \alpha$` to
@@ -72,9 +72,9 @@
 //! Finite raw moments are in turn not sufficient either, so the check extends
 //! once more to the **bias-corrected** `m_hat`/`v_hat`. The divisor
 //! `bc₂ = 1 − β₂^t` is only ~10⁻³ at `t = 1`, so `v_hat = v/bc₂` overflows for
-//! `g` in roughly `(1.8·10¹⁹, 5.8·10²⁰)` at `t = 1` — a band that clears both
+//! `g` in roughly `$(1.8 \cdot 10^{19}, 5.8 \cdot 10^{20})$` at `t = 1` — a band that clears both
 //! checks above, since `v` itself is still finite there. The lower edge drifts
-//! upward as `bc₂` grows (`2.6·10¹⁹` at `t = 2`, `3.7·10¹⁹` at `t = 4`); the
+//! upward as `bc₂` grows (`$2.6 \cdot 10^{19}$` at `t = 2`, `$3.7 \cdot 10^{19}$` at `t = 4`); the
 //! upper edge is fixed, being where `v` itself overflows. The effect is the same
 //! silent `0` step, but **bounded rather than permanent**: `bc₂ → 1` as `t`
 //! grows, so it self-limits. Measured on this arithmetic, the freeze would
@@ -223,7 +223,7 @@ impl LogAlpha {
     ///
     /// 1. `g` or `lr` is not finite.
     /// 2. `g` is finite but the *derived* moments `m`/`v` are not, which
-    ///    happens when `g²` overflows `f32` (from `|g| ≳ 10²¹`).
+    ///    happens when `$g^2$` overflows `f32` (from `$|g| \gtrsim 10^{21}$`).
     ///
     /// Either would poison the moment estimates permanently, since they are
     /// exponential moving averages — see the [module docs](self).
