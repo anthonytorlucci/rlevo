@@ -529,8 +529,8 @@ mod tests {
         assert!(err.contains("at least 4"), "was {err}");
     }
 
-    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
-    /// built by `Deserialize` or struct-update syntax reached `build`, where
+    /// `MIN_SIZE` was enforced only in [`FromStr`], so a config built by
+    /// `Deserialize` or struct-update syntax reached `build`, where
     /// `size - 2` underflowed and panicked. The guard now lives in
     /// [`Validate`], which `with_config` runs (ADR 0026 chokepoint).
     #[test]

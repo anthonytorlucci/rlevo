@@ -883,7 +883,7 @@ mod tests {
         );
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #292) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ──────────────────────
     //
     // Before this guard, `step` only checked `action.0[0].is_finite()` —
     // nothing rejected a call made after the episode had already ended.

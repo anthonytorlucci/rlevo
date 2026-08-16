@@ -927,9 +927,9 @@ mod tests {
 
     /// `LunarLanderSnapshot` used to be a hand-rolled `impl Snapshot`,
     /// byte-for-byte identical to the generic `LocomotionSnapshot<O>`;
-    /// consolidating it into a `SnapshotBase` type alias (issue #128) is what
-    /// makes this test possible at all — before the alias, `LunarLanderEnv`
-    /// could not compose with [`TimeLimit`] (which is generically bound to
+    /// consolidating it into a `SnapshotBase` type alias is what makes this
+    /// test possible at all — before the alias, `LunarLanderEnv` could not
+    /// compose with [`TimeLimit`] (which is generically bound to
     /// `SnapshotType = SnapshotBase`); it simply did not compile. The wrapper
     /// must truncate at its own cap *and* preserve the shaping metadata the
     /// inner env attached.

@@ -549,7 +549,7 @@ mod tests {
         }
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #292) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ──────────────────────
     //
     // Before this guard, `step` only checked
     // `action.0.iter().copied().all(f32::is_finite)` — nothing rejected a call

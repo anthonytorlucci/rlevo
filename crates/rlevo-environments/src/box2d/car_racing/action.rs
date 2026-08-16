@@ -258,8 +258,11 @@ mod tests {
 
     #[test]
     fn test_as_slice_exposes_all_three_components() {
-        // Regression for #100: `as_slice` previously returned only `steer`
-        // (a length-1 slice), silently dropping gas and brake.
+        // Regression test for `as_slice` conflating RANK with component
+        // count: this action is RANK == 1 (a single tensor axis) but packs
+        // 3 components (steer, gas, brake), and `as_slice` previously
+        // returned only `steer` (a length-1 slice), silently dropping gas
+        // and brake.
         let a = CarRacingAction::new(-0.5, 0.5, 0.25);
         assert_eq!(a.as_slice(), &[-0.5, 0.5, 0.25]);
     }

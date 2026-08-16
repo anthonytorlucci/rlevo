@@ -37,7 +37,7 @@
 //!
 //! **Planned.** [`DoorKeyEnv`], [`LavaGapEnv`], [`UnlockPickupEnv`],
 //! [`CrossingEnv`] (both kinds) and [`FourRoomsEnv`] sample their whole layout
-//! per episode (ADR 0062, #282). They read their board back from `env.state()`
+//! per episode (ADR 0062). They read their board back from `env.state()`
 //! and hand it to [`common::plan`], a BFS over the grid state, which *computes*
 //! the action sequence. That sequence is then executed through
 //! [`Environment::step`] exactly as a script would be, so nothing about the

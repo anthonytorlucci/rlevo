@@ -1721,8 +1721,8 @@ mod tests {
     /// (`self.steps >= self.config.max_steps`) into a single `done: bool`, and
     /// `build_snapshot` currently has no `Truncated` arm — it maps that
     /// collapsed bool straight to `Terminated`, so a timeout is reported the
-    /// same way as a genuine terminal (GitHub #1028; the distinction matters
-    /// for value-function bootstrapping, `docs/rules.md` §10). Fixing that is
+    /// same way as a genuine terminal (the distinction matters for
+    /// value-function bootstrapping, `docs/rules.md` §10). Fixing that is
     /// out of scope here — driving to a step-limit ending would just pin this
     /// guard to the same mislabeled status the fix will change, not to the
     /// status this environment is expected to emit for a pickup success.

@@ -769,8 +769,8 @@ mod tests {
         assert!("3".parse::<LavaGapConfig>().is_err());
     }
 
-    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
-    /// built by `Deserialize` or struct-update syntax reached `build`, where
+    /// `MIN_SIZE` was enforced only in [`FromStr`], so a config built by
+    /// `Deserialize` or struct-update syntax reached `build`, where
     /// `size - 2` underflowed and panicked at `size = 1`. The guard now lives
     /// in [`Validate`], which `with_config` runs (ADR 0026 chokepoint), and it
     /// rejects the whole sub-`MIN_SIZE` range — including sizes that happen to
@@ -797,8 +797,8 @@ mod tests {
     ///
     /// A whole-board "consecutive resets differ" check passes while one of the
     /// two draws is stuck, because the other one alone makes the boards differ.
-    /// That is the exact trap #282 and ADR 0062 §4 name, so each quantity gets
-    /// its own non-degeneracy assertion.
+    /// That is the exact trap ADR 0062 §4 names, so each quantity gets its own
+    /// non-degeneracy assertion.
     #[test]
     fn lava_column_and_gap_row_vary_separately_across_seeds() {
         for size in SIZES {
@@ -1179,9 +1179,10 @@ mod tests {
 
     /// The accessors report the board actually built, not a formula.
     ///
-    /// They were closed-form functions of `config.size` before #282; a caller
-    /// that trusted them would now be reading a different board than the one it
-    /// was handed, so pin them against the grid itself.
+    /// They were closed-form functions of `config.size` until the column and
+    /// gap row became per-episode draws; a caller that trusted them would now
+    /// be reading a different board than the one it was handed, so pin them
+    /// against the grid itself.
     #[test]
     fn accessors_agree_with_the_built_grid() {
         for size in SIZES {

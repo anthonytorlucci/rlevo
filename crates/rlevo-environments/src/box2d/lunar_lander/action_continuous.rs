@@ -148,9 +148,10 @@ mod tests {
 
     #[test]
     fn test_random_is_valid() {
-        // Regression for #100: the corrected default `random()` samples
-        // `COMPONENTS` values (2) rather than `RANK` (1), so `from_slice` no
-        // longer panics; symmetric `[-1, 1)` sampling keeps every draw valid.
+        // Regression test for the default-`random()` panic: the corrected
+        // override samples `COMPONENTS` values (2) rather than `RANK` (1), so
+        // `from_slice` no longer panics; symmetric `[-1, 1)` sampling keeps
+        // every draw valid.
         for _ in 0..100 {
             let a = LunarLanderContinuousAction::random();
             assert!(a.is_valid(), "random action must be valid: {a:?}");
