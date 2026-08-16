@@ -1284,7 +1284,7 @@ mod tests {
         );
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// A 5×5 board whose seed-3 layout the module docs pin, so the scripted
     /// solution below is written against a board that cannot silently move —

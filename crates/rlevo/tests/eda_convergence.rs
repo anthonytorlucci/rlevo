@@ -1,16 +1,18 @@
 //! EDA convergence gates (cross-crate).
 //!
-//! Two convergence criteria (issue #31), plus a follow-up discriminating
-//! gate (issue #37):
+//! Three gates. The first two were the acceptance bar for the initial
+//! four `ProbabilityModel` implementations (UMDA, PBIL, cGA, MIMIC); the
+//! third extends the same idea to BOA, added afterward once its
+//! structure-learning design settled:
 //!
-//! 1. Every `ProbabilityModel` implementation drives `best_fitness_ever`
-//!    to `<= 0.01` on Sphere-D10 within 500 generations
-//!    (`pop_size = 50`, `selection_ratio = 0.5`).
+//! 1. Every `ProbabilityModel` implementation — including BOA — drives
+//!    `best_fitness_ever` to `<= 0.01` on Sphere-D10 within 500
+//!    generations (`pop_size = 50`, `selection_ratio = 0.5`).
 //! 2. MIMIC ([`DependencyChain`]) achieves a strictly lower *median*
 //!    final fitness than UMDA ([`UnivariateGaussian`]) on Rosenbrock-D10
-//!    over nine fixed seeds — the dependency-chain model must exploit
-//!    Rosenbrock's adjacent-variable coupling that a univariate model
-//!    cannot represent.
+//!    over nine fixed seeds — demonstrates that explicit dependency
+//!    modeling exploits Rosenbrock's adjacent-variable coupling, which a
+//!    univariate model cannot represent.
 //! 3. BOA ([`BayesianNetwork`]) solves the deceptive
 //!    [`ConcatenatedTrap`] trap-5 × 4 (cost 0, all-ones) while UMDA and
 //!    MIMIC stall near the all-zeros deceptive basin (cost ≈ 4) — only a

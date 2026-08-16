@@ -1,17 +1,22 @@
-//! Regression witness for ADR 0053 / issue #253: a **multi-component rank-1**
+//! Regression witness for ADR 0053: a **multi-component rank-1**
 //! `BoundedAction` must survive the continuous-control agents' action paths.
 //!
-//! Every `BoundedAction` impl in the workspace happens to satisfy
-//! `RANK == COMPONENTS`, which is exactly what kept the rank-vs-component
-//! conflation latent: `low()`/`high()` returned `[f32; R]` (one bound for all
-//! `C` components) and the agents looped `0..A::RANK` over a `COMPONENTS`-wide
-//! actor output.
+//! `BoundedAction<R>::low()`/`high()` used to return `[f32; R]` — one bound
+//! value per **rank** dimension, not per flattened **component**. Every
+//! `BoundedAction` impl in the workspace happened to satisfy
+//! `RANK == COMPONENTS`, which is exactly what kept the conflation latent:
+//! a rank-1 action with `COMPONENTS = C > 1` (`shape() == [C]`) could express
+//! only a single bound value shared across all `C` components, and the
+//! agents looped `0..A::RANK` over what was really a `COMPONENTS`-wide actor
+//! output. ADR 0053 re-keys the bounds on `COMPONENTS` (`&'static [f32]`,
+//! not `[f32; R]` — see `BoundedAction::low()`/`high()` below) and migrates
+//! DDPG/TD3/SAC's action paths off `A::RANK`.
 //!
-//! The fixture here is deliberately the shape no existing impl has, and the
-//! shape ADR 0053 §7 names as the regression witness: rank 1, `COMPONENTS = 3`,
-//! and **asymmetric** per-component bounds `[-1, 0, 0] .. [1, 1, 1]` — the real
-//! Gymnasium `CarRacing` action space (steer ∈ [-1,1], gas ∈ [0,1],
-//! brake ∈ [0,1]).
+//! The fixture here is deliberately the shape no existing impl had before
+//! the fix, and the shape ADR 0053 §7 names as the regression witness: rank
+//! 1, `COMPONENTS = 3`, and **asymmetric** per-component bounds
+//! `[-1, 0, 0] .. [1, 1, 1]` — the real Gymnasium `CarRacing` action space
+//! (steer ∈ [-1,1], gas ∈ [0,1], brake ∈ [0,1]).
 //!
 //! These tests were verified to **fail** against the pre-fix agent code (the
 //! `A::RANK`-keyed loops temporarily restored): three of the four panicked,

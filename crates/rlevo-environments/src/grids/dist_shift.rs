@@ -626,12 +626,20 @@ mod tests {
         assert!("variant=wat".parse::<DistShiftConfig>().is_err());
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
     //
     // Both drivers end the episode on a *task* outcome — the goal or the lava —
     // never on the step limit. `build_snapshot` currently reports a step-limit
     // cutoff as `Terminated` rather than `Truncated` (#1028); routing these
     // tests around it keeps them correct either way.
+    //
+    // The guard is a real correctness fix, not step-count hygiene: in
+    // `dynamic_obstacles.rs`, stepping past a terminal collision without
+    // `reset()` let `move_obstacles` run against a stale position no longer
+    // backed by an `Entity::Ball`, violating a duplicate-obstacle invariant.
+    // `EpisodeGuard::check()` as the first statement of `step()` makes that
+    // invariant hold unconditionally rather than depending on callers never
+    // stepping past a terminal snapshot.
 
     /// Drives a default env to the goal at `(7, 1)` with six `Forward`s, through
     /// real `step()` calls only.

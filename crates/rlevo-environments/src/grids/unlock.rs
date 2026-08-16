@@ -951,7 +951,7 @@ mod tests {
         );
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// Drives a fresh episode to the winning terminal snapshot the honest way:
     /// through real `step()` calls, ending by **unlocking and opening the door**

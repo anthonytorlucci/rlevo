@@ -1216,7 +1216,7 @@ mod tests {
         assert_eq!(env.steps(), 0);
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// A script that walks the agent into the lava strip on whatever board
     /// `env` is **currently** holding, derived the same way

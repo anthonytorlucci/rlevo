@@ -1423,14 +1423,19 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Post-terminal step guard (ADR 0044, issue #291).
+    // Post-terminal step guard (ADR 0044).
     //
-    // Both drivers reach the terminal through real `step()` calls, and both end
-    // the episode on a *task* terminal — the goal, or lava — never by spending
-    // the step budget. `grids/core/mod.rs::build_snapshot` currently stamps a
-    // step-limit cutoff `Terminated` rather than `Truncated` (#1028, out of
-    // scope here); driving through the budget would bake that bug into these
-    // assertions and force #1028's fix to rewrite them.
+    // Per ADR 0044, `step()` after the episode ends must return `Err`, not
+    // silently resurrect a finished episode — an unguarded env can keep
+    // mutating state, drawing RNG, and emitting reward past a death or a
+    // goal, which is a real correctness gap, not just step-count hygiene.
+    // Both drivers below reach the terminal through real `step()` calls, and
+    // both end the episode on a *task* terminal — the goal, or lava — never
+    // by spending the step budget. `grids/core/mod.rs::build_snapshot`
+    // currently stamps a step-limit cutoff `Terminated` rather than
+    // `Truncated` (#1028, out of scope here); driving through the budget
+    // would bake that bug into these assertions and force #1028's fix to
+    // rewrite them.
     // -----------------------------------------------------------------------
 
     /// Reset, then walk the planned safe path to the goal with real `step()`s.

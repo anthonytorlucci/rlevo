@@ -931,7 +931,7 @@ mod tests {
         );
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ──────────────────────────────────
 
     /// Verifies `MultiRoomEnv` satisfies the shared post-terminal conformance
     /// check: once the agent has stepped onto the goal, a further legal `step()`

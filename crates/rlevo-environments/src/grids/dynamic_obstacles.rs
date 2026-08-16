@@ -1027,7 +1027,7 @@ mod tests {
         assert_eq!(count_balls(&env), 2);
     }
 
-    // -- Post-terminal step guard (issue #291) -----------------------------
+    // -- Post-terminal step guard (ADR 0044) -------------------------------
 
     /// A configuration whose `TurnLeft` rollout ends in a **collision**, and
     /// whose very next (illegal) step used to duplicate an obstacle.
@@ -1073,12 +1073,13 @@ mod tests {
 
     #[test]
     fn post_terminal_step_is_rejected_rather_than_duplicating_an_obstacle() {
-        // Regression for the desync recorded on #291. On a collision-terminal
-        // step the winning obstacle's tracked position moves onto the agent's
-        // cell with no ball drawn there, so a further `move_obstacles` pass ran
-        // against a ghost entry and merged two obstacles. With this exact
-        // config the pre-guard result of the illegal step was
-        // `[(1, 2), (1, 1), (1, 1), (2, 3)]` — a duplicate at (1, 1).
+        // Regression for the desync this guard was written to close. On a
+        // collision-terminal step the winning obstacle's tracked position
+        // moves onto the agent's cell with no ball drawn there, so a further
+        // `move_obstacles` pass ran against a ghost entry and merged two
+        // obstacles. With this exact config the pre-guard result of the
+        // illegal step was `[(1, 2), (1, 1), (1, 1), (2, 3)]` — a duplicate
+        // at (1, 1).
         let mut env = DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
         let terminal = drive_to_collision(&mut env);
         assert!(terminal.is_done());

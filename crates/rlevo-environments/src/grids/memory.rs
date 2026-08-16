@@ -1918,7 +1918,16 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // Post-terminal step guard (ADR 0044, issue #291)
+    // Post-terminal step guard (ADR 0044).
+    //
+    // Per ADR 0044, `step()` after the episode ends must return `Err`, not
+    // silently resurrect a finished episode. This closes a real correctness
+    // gap, not just step-count hygiene: elsewhere in this family
+    // (`dynamic_obstacles.rs`), stepping past a terminal collision without
+    // `reset()` let internal state mutate against a stale, already-terminal
+    // snapshot. `EpisodeGuard::check()` as the first statement of `step()`
+    // makes environment invariants hold unconditionally rather than
+    // depending on callers never stepping past a terminal snapshot.
     // ---------------------------------------------------------------------
 
     /// Reset, walk to the junction, commit to a fork object, and answer.

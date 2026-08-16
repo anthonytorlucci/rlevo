@@ -666,7 +666,7 @@ mod tests {
         }
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// Drives a fresh 5×5 episode to the goal with real `step()` calls.
     ///

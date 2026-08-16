@@ -1375,7 +1375,15 @@ mod tests {
         assert_eq!(env.steps(), 0);
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
+    //
+    // The guard is a real correctness fix, not step-count hygiene: without it,
+    // a caller could `step()` again after a terminal snapshot without calling
+    // `reset()`, and internal state would mutate against a stale,
+    // already-terminal snapshot (see `dynamic_obstacles.rs` for a concrete
+    // instance). `EpisodeGuard::check()?` as the first statement of `step()`
+    // makes that invariant hold unconditionally rather than depending on
+    // callers never stepping past a terminal snapshot.
 
     /// Drives `env` to a **goal** termination through real `step()` calls.
     ///

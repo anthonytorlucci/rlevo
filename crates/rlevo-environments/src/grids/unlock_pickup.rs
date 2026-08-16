@@ -1695,7 +1695,7 @@ mod tests {
         }
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// Drive a fresh episode to its terminal snapshot **by picking up the box**,
     /// through real `step()` calls only.

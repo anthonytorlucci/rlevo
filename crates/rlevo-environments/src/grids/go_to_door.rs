@@ -1641,7 +1641,7 @@ mod tests {
         assert_eq!(env.steps(), 0, "reset must zero the step counter");
     }
 
-    // ─────────────── post-terminal step guard (ADR 0044, issue #291) ─────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// Reset, read the target wall out of the observation's mission channel,
     /// walk to that door and issue `Done` — returning the terminal snapshot.
