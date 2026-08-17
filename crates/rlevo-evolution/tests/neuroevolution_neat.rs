@@ -4,8 +4,8 @@
 //! loop (`init → loop{ ask → GraphFitnessFn::evaluate → tell }`) on the `Flex`
 //! backend and asserts:
 //!
-//! - **Solve** — fitness `4 − Σ(out − target)²` reaches `≥ 3.9` within `≤ 300`
-//!   generations at `pop ≈ 150`.
+//! - **Solve** — fitness `$4 - \Sigma(\text{out} - \text{target})^2$` reaches `$\geq 3.9$` within `$\leq 300$`
+//!   generations at `$\text{pop} \approx 150$`.
 //! - **Speciation** — species count `> 1` for `> 50%` of the generations run.
 //!
 //! XOR is not linearly separable, so a solution requires an add-node mutation —
@@ -28,8 +28,8 @@ use rlevo_evolution::{GraphFitnessFn, NeatParams, NeatStrategy};
 
 type B = Flex;
 
-/// XOR fitness: `4 − Σ(out − target)²` over the four binary input rows
-/// (maximization; the optimum is `4.0`, a perfect solver scores `≥ 3.9`).
+/// XOR fitness: `$4 - \Sigma(\text{out} - \text{target})^2$` over the four binary input rows
+/// (maximization; the optimum is `4.0`, a perfect solver scores `$\geq 3.9$`).
 struct XorFitness {
     inputs: Tensor<B, 2>,
     targets: [f32; 4],

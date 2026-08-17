@@ -292,7 +292,7 @@ where
 ///   that sample's contribution to both loss and gradient.
 ///
 /// The largest weight in a prioritized batch is exactly `1.0`, so a batch drawn
-/// with \\(\beta = 0\\) (all weights `1.0`) also reduces to a plain mean.
+/// with `$\beta = 0$` (all weights `1.0`) also reduces to a plain mean.
 pub(crate) fn reduce_weighted_loss<B: Backend>(
     per_sample: Tensor<B, 1>,
     batch: &SampledBatch,
@@ -325,9 +325,9 @@ pub(crate) fn reduce_weighted_loss<B: Backend>(
 /// # Why a plain sum is enough
 ///
 /// Polyak averaging is *linear* in each parameter, so the sum is exact under
-/// it: if `t` and `a` are the target's and active network's checksums before an
-/// update, the checksum after `target ← (1 − τ)·target + τ·active` is
-/// `(1 − τ)·t + τ·a`, up to `f32` rounding. A caller can therefore assert not
+/// it: if `$t$` and `$a$` are the target's and active network's checksums before an
+/// update, the checksum after `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$` is
+/// `$(1 - \tau) \cdot t + \tau \cdot a$`, up to `f32` rounding. A caller can therefore assert not
 /// merely *that* the target moved but that it moved by exactly τ of the gap —
 /// the property a cadence test needs. It cannot distinguish two different
 /// weight vectors with equal sums, so a caller asserting "unchanged" should
@@ -592,7 +592,7 @@ pub(crate) fn clamp_preserving_nan<B: Backend, const D: usize>(
 /// composes with the *attempt* counters ADR 0059 introduced for the target-update
 /// cadence (`gradient_updates`, `critic_updates`): those count learn steps
 /// entered, this counts the ones that were thrown away, so
-/// `applied = attempts − skipped` is recoverable without parsing a log line.
+/// `$\text{applied} = \text{attempts} - \text{skipped}$` is recoverable without parsing a log line.
 ///
 /// One guard instance owns one loss site: each distinct failure mode keeps its
 /// own counter and its own warning schedule, so one site firing cannot silence

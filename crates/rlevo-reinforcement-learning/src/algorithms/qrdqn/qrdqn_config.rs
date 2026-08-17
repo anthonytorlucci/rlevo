@@ -116,7 +116,7 @@ pub struct QrDqnTrainingConfig {
     /// (`NaN` and `$\pm\infty$` alike, as
     /// [`ConstraintKind::NotFinite`](rlevo_core::config::ConstraintKind::NotFinite));
     /// and every *finite* κ large enough that `$0.5 \cdot \kappa^2$` overflows `f32` — the
-    /// last accepted value is `≈ 2.6087635e19` (`√(2 · f32::MAX)`).
+    /// last accepted value is `$\approx 2.6087635e19$` (`√(2 · f32::MAX)`).
     ///
     /// Two independent `NaN` sources motivate the bounds. Dabney et al. (2018)
     /// Eq. (10) is `$\rho^\kappa_\tau(u) = |\tau - \mathbb{1}\{u<0\}| \cdot L_\kappa(u) / \kappa$`, so κ is a
@@ -124,7 +124,7 @@ pub struct QrDqnTrainingConfig {
     /// *both* branches eagerly and selects with a multiplicative mask:
     /// `$\text{linear} = (|u| - 0.5\cdot\kappa)\cdot\kappa \approx -0.5\kappa^2$` for the small-residual elements
     /// the mask is about to discard. Once `$0.5 \cdot \kappa^2$` overflows to `$-\infty$`, the
-    /// discard is `0 · (−∞) = NaN` — so a huge-but-finite κ poisons every
+    /// discard is `$0 \cdot (-\infty)$` = `NaN` — so a huge-but-finite κ poisons every
     /// element even though the mask selects the quadratic branch everywhere.
     /// The upper bound is therefore the precondition of that eager branch, not
     /// a magic constant; it is verified against the measured boundary in
@@ -581,7 +581,7 @@ mod tests {
         assert_eq!(cfg.target_update.every(), 1);
     }
 
-    /// κ = 0 makes Dabney et al. (2018) Eq. (10) evaluate `0/0`: the loss
+    /// κ = 0 makes Dabney et al. (2018) Eq. (10) evaluate `$0/0$`: the loss
     /// divides by κ, so the config boundary — not the loss — must reject it.
     #[test]
     fn test_qrdqn_config_rejects_zero_kappa() {
@@ -642,7 +642,7 @@ mod tests {
     /// A huge-but-*finite* κ is as fatal as κ = 0 and was the hole the first
     /// `is_finite` guard left open. `huber` evaluates its linear branch
     /// `$(|u| - 0.5\cdot\kappa)\cdot\kappa$` for every element before masking, so once `$0.5\cdot\kappa^2$`
-    /// overflows f32 to `$-\infty$` the masked-out elements become `0 · (−∞)` = NaN,
+    /// overflows f32 to `$-\infty$` the masked-out elements become `$0 \cdot (-\infty)$` = NaN,
     /// even though the mask selects the quadratic branch everywhere.
     ///
     /// The rejected values below bracket the measured NaN boundary: on the
