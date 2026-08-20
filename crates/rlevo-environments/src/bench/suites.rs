@@ -2,9 +2,15 @@
 //!
 //! Each factory returns a single-env [`Suite`] keyed on a deterministic
 //! per-trial seed. Stitching multiple suites of different env types is not
-//! supported — [`Suite<E>`] is monomorphic, so a heterogeneous
-//! "all of classic control" suite needs a `Box<dyn BenchEnv<…>>` design
-//! (deferred).
+//! supported — [`Suite<E>`] is monomorphic.
+//!
+//! A heterogeneous "all of classic control" suite is deferred, and boxing is
+//! **not** the missing piece: `BenchEnv` erases the const-generic ranks but
+//! preserves `Observation`/`Action`, and those are exactly what differ across
+//! these envs (`CartPoleObservation` vs. `PendulumObservation`, …), so one
+//! `Box<dyn BenchEnv<…>>` can only hold envs already sharing an obs/action
+//! pair. The real prerequisite is an obs/action normalization, which does not
+//! exist. See ADR 0075.
 //!
 //! [`Suite`]: rlevo_benchmarks::suite::Suite
 //! [`Suite<E>`]: rlevo_benchmarks::suite::Suite

@@ -80,7 +80,7 @@ A lightweight evaluation surface for the benchmark harness (`rlevo-benchmarks`),
 
 | Item | Description |
 |---|---|
-| `BenchEnv` | Minimal stateful-environment interface an external evaluator drives |
+| `BenchEnv` | Minimal rank-erased drive interface an external evaluator runs; spans typed envs *and* evolutionary generation-steppers (ADR 0075) |
 | `BenchStep<Obs>` | Per-step result returned by a `BenchEnv` |
 | `BenchError` | Recoverable error wrapping the typed upstream `EnvironmentError` |
 

@@ -35,7 +35,9 @@ Suite<E>
 
 ### `env` — Environment Interface
 
-`BenchEnv` is a narrow, object-safe environment trait intentionally lighter than `rlevo_core::Environment`. It avoids const-generic threading so that heterogeneous environments can be boxed and dispatched at runtime. The trait surface itself lives in `rlevo-core` (`rlevo_core::evaluation`, hoisted there per ADR 0004); this crate re-exports it under `rlevo_benchmarks::env` for convenience.
+`BenchEnv` is a narrow drive trait, intentionally lighter than `rlevo_core::Environment`. It avoids const-generic threading, so the evaluator does not carry rank parameters, and it spans two disjoint implementor families: typed environments (via `BenchAdapter`) and evolutionary generation-steppers (`EvolutionaryHarness`, `CoEvolutionaryHarness`), which are not `Environment`s. The trait surface itself lives in `rlevo-core` (`rlevo_core::evaluation`, hoisted there per ADR 0004); this crate re-exports it under `rlevo_benchmarks::env` for convenience.
+
+The trait is object-safe, but that does **not** enable a heterogeneous suite: erasure removes the const-generic ranks while `Observation` and `Action` survive it, and those are exactly what differ between environments. See ADR 0075, which supersedes the earlier "box heterogeneous environments and dispatch at runtime" rationale.
 
 | Item | Description |
 |------|-------------|

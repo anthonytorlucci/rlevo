@@ -14,7 +14,7 @@
 //! | [`state`] | [`MarkovState`], [`BeliefState`], [`HiddenState`], [`LatentState`], [`StateAggregation`], [`Observable`] — POMDP and latent-space extensions |
 //! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
-//! | [`evaluation`] | [`BenchEnv`], [`BenchStep`], [`BenchError`] — object-safe environment interface for harnesses |
+//! | [`evaluation`] | [`BenchEnv`], [`BenchStep`], [`BenchError`] — rank-erased drive interface for harnesses |
 //! | [`fitness`] | [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
 //! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
 //! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
@@ -167,11 +167,14 @@ pub mod config;
 /// [`EnvironmentError`]: crate::environment::EnvironmentError
 pub mod environment;
 
-/// Object-safe environment interface for benchmarking harnesses.
+/// Minimal drive interface for benchmarking harnesses.
 ///
-/// [`BenchEnv`] strips the const-generic dimensions from [`Environment`] so
-/// harnesses do not need to be generic over them. Adapters live in
-/// `rlevo-environments` behind the `bench` feature.
+/// [`BenchEnv`] strips the const-generic ranks from [`Environment`] so
+/// harnesses do not need to be generic over them, and spans two disjoint
+/// implementor families: typed environments (via adapters in
+/// `rlevo-environments`, behind the `bench` feature) and evolutionary
+/// generation-steppers in `rlevo-evolution`. Its erasure is rank-only and
+/// currently unexercised — see ADR 0075.
 ///
 /// [`BenchEnv`]: crate::evaluation::BenchEnv
 /// [`Environment`]: crate::environment::Environment

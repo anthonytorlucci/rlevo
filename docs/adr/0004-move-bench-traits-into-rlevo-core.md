@@ -14,6 +14,8 @@ Active. Partially reverses [0002-collapse-evolution-traits-into-rlevo-evolution]
 
 **Update (2026-07-06):** decision point #6's "keep the local splitmix64 mixer" and the corresponding "Neutral" consequence (line 95) are superseded by ADR [0033](0033-share-splitmix64-mixer-across-core-and-evolution.md), which dedupes the mixer into a single `pub` `rlevo_core::util::seed::splitmix64`. All other decisions in this ADR remain active.
 
+**Update (2026-08-20):** the "Conceptual fit" bullet under *Alternatives considered* — "`BenchEnv` is a narrower `Environment`" — is superseded by ADR [0075](0075-bench-env-erases-rank-not-modality.md) so far as that narrowing is justified by dynamic dispatch. `BenchEnv` is object-safe, but its erasure is rank-only: `Observation`/`Action` survive it, so it cannot carry a heterogeneous suite, and no `dyn BenchEnv` exists in the workspace. The implementor census also refutes the "narrower `Environment`" framing — two of its production implementors are evolutionary generation-steppers, not environments. **The relocation decisions in this ADR (points #1–#7) all remain active**; only the rationale for `BenchEnv`'s shape changes.
+
 ## Context
 
 A 2026-04-28 audit of the workspace dependency graph found two related defects:

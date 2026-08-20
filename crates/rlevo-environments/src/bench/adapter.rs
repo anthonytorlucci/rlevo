@@ -28,7 +28,7 @@ use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 use rlevo_core::render::{AsciiRenderable, StyledFrame};
 use rlevo_core::reward::ScalarReward;
 
-/// Object-safe wrapper around a typed [`Environment`] for use with the
+/// Rank-erasing wrapper around a typed [`Environment`] for use with the
 /// benchmarking harness.
 ///
 /// Wrapping an env in `BenchAdapter` satisfies the [`BenchEnv`] bound

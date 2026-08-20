@@ -1,10 +1,15 @@
-//! Object-safe environment interface consumed by external evaluators.
+//! Minimal drive interface consumed by external evaluators.
 //!
-//! [`BenchEnv`] is intentionally narrower than [`Environment`] so consumers
+//! [`BenchEnv`] carries no const-generic dimensions, so consumers
 //! (benchmarking harnesses, evolutionary outer loops) do not have to thread
-//! const-generic dimensions through their signatures. Adapters that wrap
-//! concrete [`Environment`] impls live in `rlevo-environments` (behind the
-//! `bench` feature).
+//! them through their signatures. Adapters that wrap concrete
+//! [`Environment`] impls live in `rlevo-environments` (behind the `bench`
+//! feature).
+//!
+//! Its real job is spanning **two disjoint implementor families**: typed
+//! environments (via `BenchAdapter`) and evolutionary generation-steppers
+//! (`EvolutionaryHarness`, `CoEvolutionaryHarness`), which are not
+//! [`Environment`]s at all. See ADR 0075.
 //!
 //! `reset` and `step` return `Result<_, BenchError>` so adapters preserve
 //! upstream recoverable errors ([`EnvironmentError`]) without escalating
@@ -43,15 +48,37 @@ pub enum BenchError {
     Step(#[source] EnvironmentError),
 }
 
-/// Object-safe environment interface consumed by external evaluators.
+/// Minimal drive interface consumed by external evaluators.
 ///
-/// `BenchEnv` strips the const-generic dimensionality of [`Environment`] so
-/// benchmarking harnesses and evolutionary outer loops can work with a plain
-/// trait object (`dyn BenchEnv`) rather than threading dimension parameters
-/// through their own type signatures.
+/// `BenchEnv` strips the const-generic **ranks** of [`Environment`]
+/// (`R`/`SR`/`AR`) so harnesses and evolutionary outer loops need not thread
+/// dimension parameters through their own signatures.
 ///
-/// Concrete adapters that bridge a typed [`Environment`] to `BenchEnv` live
-/// in `rlevo-environments` behind the `bench` feature.
+/// # What this trait does *not* buy
+///
+/// The trait is object-safe — `Box<dyn BenchEnv<Observation = O, Action = A>>`
+/// is legal once both associated types are named — but that erasure is on the
+/// rank axis, not the modality axis. `Observation` and `Action` survive
+/// erasure, and those are precisely what differ between environments
+/// (`CartPoleObservation` vs. `PendulumObservation`, and so on). A single
+/// `dyn BenchEnv` can therefore hold only envs sharing one obs/action pair,
+/// so this trait does **not** enable a heterogeneous "all of classic control"
+/// suite; that needs an obs/action normalization, which does not exist. No
+/// `dyn BenchEnv` is constructed anywhere in the workspace today.
+///
+/// See ADR 0075, which supersedes the object-safety rationale this trait was
+/// originally justified by.
+///
+/// # Implementors
+///
+/// Two disjoint families, which is the one thing this trait does that nothing
+/// else in `rlevo-core` does:
+///
+/// - typed [`Environment`]s, via `BenchAdapter` in `rlevo-environments`
+///   (behind the `bench` feature);
+/// - evolutionary generation-steppers (`EvolutionaryHarness`,
+///   `CoEvolutionaryHarness` in `rlevo-evolution`), which step generations
+///   rather than transitions and are not [`Environment`]s.
 ///
 /// # Errors
 ///
