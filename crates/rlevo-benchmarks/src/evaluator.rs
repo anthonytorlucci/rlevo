@@ -384,7 +384,7 @@ where
 
         'episodes: for episode_idx in 0..cfg.num_episodes {
             let mut obs = match self.env.reset() {
-                Ok(snap) => snap.observation().clone(),
+                Ok(snap) => snap.into_observation(),
                 Err(e) => {
                     report.errored = true;
                     report.error_message = Some(e.to_string());
@@ -404,10 +404,28 @@ where
                         break 'episodes;
                     }
                 };
-                total_reward += f64::from(snap.reward().value());
+                let reward = f64::from(snap.reward().value());
+                // A non-finite reward is an environment bug, not user input: it
+                // silently poisons `return/mean` and `return/std` downstream in
+                // `core_metrics` (both are plain sums), while `min`/`max`
+                // survive only by accident of `f64::min`/`f64::max` dropping
+                // NaN. A `debug_assert!` tripwire rather than a hard `assert!`,
+                // per ADR 0034's convention — the harness must not panic on a
+                // misbehaving environment in release, only surface it in tests.
+                debug_assert!(
+                    reward.is_finite(),
+                    "environment {} produced a non-finite reward ({reward}) at step {length}; \
+                     this poisons return/mean and return/std",
+                    info.env_name,
+                );
+                total_reward += reward;
                 length += 1;
-                obs = snap.observation().clone();
-                if snap.is_done() {
+
+                // Read `is_done()` before consuming the snapshot: `into_observation`
+                // takes `self` by value and must be its last use.
+                let done = snap.is_done();
+                obs = snap.into_observation();
+                if done {
                     break;
                 }
             }
@@ -541,7 +559,7 @@ mod tests {
     use rlevo_core::fitness::BenchableAgent;
     use rlevo_core::reward::ScalarReward;
 
-    use super::{Evaluator, EvaluatorConfig};
+    use super::{EpisodicTrial, Evaluator, EvaluatorConfig, Trial};
     use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
     use crate::reporter::Reporter;
     use crate::suite::{Suite, SuiteInfo, TrialInfo};
@@ -554,6 +572,9 @@ mod tests {
         reset_fails: bool,
         step_fails: bool,
         steps_taken: usize,
+        /// When set, `step` emits this reward instead of `1.0`. Used to drive
+        /// the non-finite-reward tripwire.
+        reward_override: Option<f32>,
     }
 
     impl StubEnv {
@@ -563,6 +584,7 @@ mod tests {
                 reset_fails: false,
                 step_fails: false,
                 steps_taken: 0,
+                reward_override: None,
             }
         }
     }
@@ -622,7 +644,7 @@ mod tests {
             }
             self.steps_taken += 1;
             let obs = StubObs;
-            let reward = ScalarReward(1.0);
+            let reward = ScalarReward(self.reward_override.unwrap_or(1.0));
             if self.steps_taken >= self.steps_until_done {
                 Ok(SnapshotBase::terminated(obs, reward))
             } else {
@@ -776,6 +798,110 @@ mod tests {
             assert!((ep.return_value - 7.0).abs() < f64::EPSILON);
             assert_eq!(ep.length, 7);
         }
+    }
+
+    /// The rollout loop must move the observation out of the snapshot rather
+    /// than clone it (issue #554). `CountingObs` makes a clone observable:
+    /// if the loop ever clones, this counter is non-zero.
+    #[test]
+    fn rollout_moves_the_observation_instead_of_cloning() {
+        use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+        static CLONES: AtomicUsize = AtomicUsize::new(0);
+
+        #[derive(Debug)]
+        struct CountingObs;
+        impl Clone for CountingObs {
+            fn clone(&self) -> Self {
+                CLONES.fetch_add(1, AtomicOrdering::Relaxed);
+                Self
+            }
+        }
+        impl Observation<1> for CountingObs {
+            fn shape() -> [usize; 1] {
+                [1]
+            }
+        }
+
+        struct CountingEnv {
+            steps: usize,
+        }
+        impl Environment<1, 1, 1> for CountingEnv {
+            type StateType = StubState;
+            type ObservationType = CountingObs;
+            type ActionType = StubAction;
+            type RewardType = ScalarReward;
+            type SnapshotType = SnapshotBase<1, CountingObs, ScalarReward>;
+
+            fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+                self.steps = 0;
+                Ok(SnapshotBase::running(CountingObs, ScalarReward(0.0)))
+            }
+
+            fn step(&mut self, _a: StubAction) -> Result<Self::SnapshotType, EnvironmentError> {
+                self.steps += 1;
+                let obs = CountingObs;
+                let r = ScalarReward(1.0);
+                if self.steps >= 3 {
+                    Ok(SnapshotBase::terminated(obs, r))
+                } else {
+                    Ok(SnapshotBase::running(obs, r))
+                }
+            }
+        }
+
+        struct CountingAgent;
+        impl BenchableAgent<CountingObs, StubAction> for CountingAgent {
+            fn act(&mut self, _obs: &CountingObs, _rng: &mut dyn Rng) -> StubAction {
+                StubAction
+            }
+        }
+
+        CLONES.store(0, AtomicOrdering::Relaxed);
+        let cfg = single_thread_cfg(2, 50);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| CountingEnv { steps: 0 });
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| CountingAgent, &mut reporter);
+
+        assert!(!report.trials[0].errored);
+        assert_eq!(report.trials[0].episodes.len(), 2, "both episodes ran");
+        assert_eq!(
+            CLONES.load(AtomicOrdering::Relaxed),
+            0,
+            "rollout must move the observation out of the snapshot, not clone it"
+        );
+    }
+
+    /// A non-finite reward trips the debug-build guard (issue #567). In release
+    /// the assertion compiles away and the run proceeds, which is why this test
+    /// is `debug_assertions`-gated rather than asserting on the report.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "non-finite reward")]
+    fn non_finite_reward_trips_the_debug_guard() {
+        let cfg = single_thread_cfg(1, 10);
+        let mut env = StubEnv::new(5);
+        env.reward_override = Some(f32::NAN);
+
+        // `run_suite` catches trial panics, so drive the trial directly to let
+        // the assertion escape.
+        let info = TrialInfo {
+            key: crate::suite::TrialKey {
+                env_idx: 0,
+                trial_idx: 0,
+            },
+            env_name: "e".to_string(),
+            trial_seed: 0,
+        };
+        let (mut reporter, _) = SpyReporter::new();
+        let dyn_reporter: &mut dyn Reporter = &mut reporter;
+        let lock = Mutex::new(dyn_reporter);
+        let trial = EpisodicTrial {
+            env,
+            agent: StubAgent,
+            agent_seed: 0,
+        };
+        let _ = trial.run(&cfg, &info, &lock);
     }
 
     #[test]

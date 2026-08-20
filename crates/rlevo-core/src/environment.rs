@@ -153,6 +153,25 @@ pub trait Snapshot<const R: usize>: Debug {
     /// Access the observed state.
     fn observation(&self) -> &Self::ObservationType;
 
+    /// Consume the snapshot and yield its observation by value.
+    ///
+    /// A driver that keeps the observation and drops the rest of the snapshot —
+    /// an episode rollout loop, typically — would otherwise have to
+    /// `snap.observation().clone()` an observation it is about to own outright.
+    ///
+    /// The default implementation clones, so this is a non-breaking addition for
+    /// existing implementors. Implementors that own their observation should
+    /// override it with a move; [`SnapshotBase`] does.
+    ///
+    /// Read `reward()`, `status()`, and `metadata()` **before** calling this —
+    /// it takes `self` by value, so it must be the last use of the snapshot.
+    fn into_observation(self) -> Self::ObservationType
+    where
+        Self: Sized,
+    {
+        self.observation().clone()
+    }
+
     /// Access the reward received.
     fn reward(&self) -> &Self::RewardType;
 
@@ -273,6 +292,11 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward> Snapsh
 
     fn observation(&self) -> &Self::ObservationType {
         &self.observation
+    }
+
+    /// Moves the owned observation out instead of cloning it.
+    fn into_observation(self) -> Self::ObservationType {
+        self.observation
     }
 
     fn reward(&self) -> &Self::RewardType {
