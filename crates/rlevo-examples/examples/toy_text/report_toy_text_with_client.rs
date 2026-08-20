@@ -41,7 +41,6 @@ use rlevo_benchmarks::suite::Suite;
 
 use rlevo_core::action::DiscreteAction;
 
-use rlevo_environments::bench::BenchAdapter;
 use rlevo_environments::toy_text::frozen_lake::{
     FrozenLake, FrozenLakeAction, FrozenLakeConfig, FrozenLakeObservation, FrozenMapSpec,
     FrozenPreset,
@@ -104,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .expect("FrozenLake construction with preset map cannot fail");
             let recorded: RecordingTap<FrozenLake, 1, 1, 1> = RecordingTap::new(env, sink.clone());
-            BenchAdapter::new(recorded)
+            recorded
         })
     };
 

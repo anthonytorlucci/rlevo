@@ -15,11 +15,13 @@ Suite<E>
   └── EnvFactory<E>  (Arc closure: seed → fresh env)
         │
         ▼
-  Evaluator::run_suite
+  Evaluator::run_suite  ──►  Evaluator::run_trials
         │  (rayon parallel)
-        ├── run_one_trial  ──► BenchEnv::reset / BenchEnv::step
+        ├── Trial::run
+        │     ├── EpisodicTrial   ──► Environment::reset / Environment::step
+        │     └── GenerationTrial ──► GenerationProbe::begin / ::advance
         │         │
-        │    BenchableAgent::act
+        │    BenchableAgent::act   (episodic path only)
         │         │
         │    EpisodeSummary (return, length)
         │         │
@@ -35,15 +37,17 @@ Suite<E>
 
 ### `env` — Environment Interface
 
-`BenchEnv` is a narrow drive trait, intentionally lighter than `rlevo_core::Environment`. It avoids const-generic threading, so the evaluator does not carry rank parameters, and it spans two disjoint implementor families: typed environments (via `BenchAdapter`) and evolutionary generation-steppers (`EvolutionaryHarness`, `CoEvolutionaryHarness`), which are not `Environment`s. The trait surface itself lives in `rlevo-core` (`rlevo_core::evaluation`, hoisted there per ADR 0004); this crate re-exports it under `rlevo_benchmarks::env` for convenience.
-
-The trait is object-safe, but that does **not** enable a heterogeneous suite: erasure removes the const-generic ranks while `Observation` and `Action` survive it, and those are exactly what differ between environments. See ADR 0075, which supersedes the earlier "box heterogeneous environments and dispatch at runtime" rationale.
+`Evaluator::run_suite` binds directly on `rlevo_core::environment::Environment`, inferring its rank parameters from the `Suite<E>` it is given, so environments are registered as themselves with no adapter (ADR 0076). Evolutionary generation loops, which are not `Environment`s, go through `GenerationProbe` and `GenerationTrial` instead.
 
 | Item | Description |
 |------|-------------|
-| `BenchEnv` | `reset() → Result<Obs, BenchError>`, `step(act) → Result<BenchStep<Obs>, BenchError>` |
-| `BenchStep<Obs>` | Step result: `observation`, `reward: f64`, `done: bool` |
-| `BenchError` | Recoverable error wrapping the upstream `EnvironmentError` |
+| `Trial` | `run(self, cfg, info, reporter) → TrialReport` — the seam that lets one machinery drive several trial shapes |
+| `EpisodicTrial<E, A, D, SD, AD>` | Rolls an `Environment` out against a `BenchableAgent` for `num_episodes` episodes |
+| `GenerationTrial<P>` | Drives a `GenerationProbe` to its budget; reports no episodes |
+
+`BenchEnv`/`BenchStep`/`BenchError` still exist in `rlevo-core` (hoisted there per ADR 0004) and are re-exported here under `rlevo_benchmarks::env`, but **nothing in the workspace implements or uses them** as of the `Trial`-seam migration. Their removal is a pending decision.
+
+ADR 0075 supersedes their original "box heterogeneous environments and dispatch at runtime" rationale: the trait is object-safe, but erasure removes only the const-generic ranks while `Observation` and `Action` survive it — and those are exactly what differ between environments.
 
 ### `agent` — Agent Interface
 

@@ -21,8 +21,10 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
-use rlevo_core::evaluation::{BenchEnv, GenerationProbe};
+use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::evaluation::GenerationProbe;
 use rlevo_core::fitness::{BenchableAgent, Metric, MetricsProvider};
+use rlevo_core::reward::ScalarReward;
 use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
@@ -92,7 +94,7 @@ impl Evaluator {
         Self { cfg }
     }
 
-    /// Run a suite of `BenchEnv`s against a `BenchableAgent`.
+    /// Run a suite of [`Environment`]s against a [`BenchableAgent`].
     ///
     /// `agent_factory` is called once per trial with the derived agent seed;
     /// it is the implementor's contract to initialize the agent deterministically.
@@ -108,15 +110,15 @@ impl Evaluator {
     ///
     /// # Panics
     /// Panics if the rayon thread pool cannot be built.
-    pub fn run_suite<E, A, R, FA>(
+    pub fn run_suite<E, A, R, FA, const D: usize, const SD: usize, const AD: usize>(
         &self,
         suite: &Suite<E>,
         agent_factory: FA,
         reporter: &mut R,
     ) -> BenchmarkReport
     where
-        E: BenchEnv + Send,
-        A: BenchableAgent<E::Observation, E::Action> + Send,
+        E: Environment<D, SD, AD, RewardType = ScalarReward> + Send,
+        A: BenchableAgent<E::ObservationType, E::ActionType> + Send,
         R: Reporter,
         FA: Fn(u64) -> A + Sync + Send,
     {
@@ -324,12 +326,25 @@ pub trait Trial {
     ) -> TrialReport;
 }
 
-/// A [`Trial`] that rolls a [`BenchEnv`] out against a [`BenchableAgent`] for
-/// `num_episodes` episodes of at most `max_steps` steps.
+/// A [`Trial`] that rolls an [`Environment`] out against a [`BenchableAgent`]
+/// for `num_episodes` episodes of at most `max_steps` steps.
 ///
 /// This is the classic RL benchmarking shape and the only one `run_suite`
 /// builds.
-pub struct EpisodicTrial<E, A> {
+///
+/// # Why the const parameters are on the struct
+///
+/// `Trial` carries no rank parameters, so `D`/`SD`/`AD` would appear in
+/// neither the implemented trait nor the self type and the impl would be
+/// rejected by E0207. Declaring them here constrains them. Const generics need
+/// no `PhantomData` to be left unused by fields.
+///
+/// This is the same constraint that forced `BenchAdapter` to carry three
+/// phantom const parameters, relocated rather than removed: erasing rank at
+/// the `Trial` boundary has the same cost as erasing it at the `BenchEnv`
+/// boundary did. Inference still fills them in from the `Environment` bound,
+/// so callers never write them.
+pub struct EpisodicTrial<E, A, const D: usize, const SD: usize, const AD: usize> {
     /// The environment under test, already seeded by the suite factory.
     pub env: E,
     /// The agent under test, already seeded by the agent factory.
@@ -338,7 +353,9 @@ pub struct EpisodicTrial<E, A> {
     pub agent_seed: u64,
 }
 
-impl<E, A> std::fmt::Debug for EpisodicTrial<E, A> {
+impl<E, A, const D: usize, const SD: usize, const AD: usize> std::fmt::Debug
+    for EpisodicTrial<E, A, D, SD, AD>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EpisodicTrial")
             .field("agent_seed", &self.agent_seed)
@@ -346,10 +363,11 @@ impl<E, A> std::fmt::Debug for EpisodicTrial<E, A> {
     }
 }
 
-impl<E, A> Trial for EpisodicTrial<E, A>
+impl<E, A, const D: usize, const SD: usize, const AD: usize> Trial
+    for EpisodicTrial<E, A, D, SD, AD>
 where
-    E: BenchEnv,
-    A: BenchableAgent<E::Observation, E::Action>,
+    E: Environment<D, SD, AD, RewardType = ScalarReward>,
+    A: BenchableAgent<E::ObservationType, E::ActionType>,
 {
     fn run(
         mut self,
@@ -366,7 +384,7 @@ where
 
         'episodes: for episode_idx in 0..cfg.num_episodes {
             let mut obs = match self.env.reset() {
-                Ok(o) => o,
+                Ok(snap) => snap.observation().clone(),
                 Err(e) => {
                     report.errored = true;
                     report.error_message = Some(e.to_string());
@@ -378,7 +396,7 @@ where
 
             for _ in 0..cfg.max_steps {
                 let action = self.agent.act(&obs, &mut rng);
-                let step = match self.env.step(action) {
+                let snap = match self.env.step(action) {
                     Ok(s) => s,
                     Err(e) => {
                         report.errored = true;
@@ -386,10 +404,10 @@ where
                         break 'episodes;
                     }
                 };
-                total_reward += step.reward;
+                total_reward += f64::from(snap.reward().value());
                 length += 1;
-                obs = step.observation;
-                if step.done {
+                obs = snap.observation().clone();
+                if snap.is_done() {
                     break;
                 }
             }
@@ -518,9 +536,10 @@ mod tests {
 
     use rand::Rng;
 
-    use rlevo_core::environment::EnvironmentError;
-    use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
+    use rlevo_core::base::{Action, Observation, State};
+    use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
     use rlevo_core::fitness::BenchableAgent;
+    use rlevo_core::reward::ScalarReward;
 
     use super::{Evaluator, EvaluatorConfig};
     use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
@@ -548,33 +567,67 @@ mod tests {
         }
     }
 
-    impl BenchEnv for StubEnv {
-        type Observation = u32;
-        type Action = ();
+    // Minimal rank-1 contract types so the stub is a real `Environment`.
+    // The observation carries no payload: no test asserts on it, and the
+    // evaluator only ever clones it through to the agent.
 
-        fn reset(&mut self) -> Result<Self::Observation, BenchError> {
+    #[derive(Debug, Clone)]
+    struct StubObs;
+    impl Observation<1> for StubObs {
+        fn shape() -> [usize; 1] {
+            [1]
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct StubState;
+    impl State<1> for StubState {
+        fn shape() -> [usize; 1] {
+            [1]
+        }
+        fn is_valid(&self) -> bool {
+            true
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct StubAction;
+    impl Action<1> for StubAction {
+        fn shape() -> [usize; 1] {
+            [1]
+        }
+        fn is_valid(&self) -> bool {
+            true
+        }
+    }
+
+    impl Environment<1, 1, 1> for StubEnv {
+        type StateType = StubState;
+        type ObservationType = StubObs;
+        type ActionType = StubAction;
+        type RewardType = ScalarReward;
+        type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
+
+        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             if self.reset_fails {
-                return Err(BenchError::Reset(EnvironmentError::InvalidAction(
-                    "stub reset fail".into(),
-                )));
+                return Err(EnvironmentError::InvalidAction("stub reset fail".into()));
             }
             self.steps_taken = 0;
-            Ok(0)
+            Ok(SnapshotBase::running(StubObs, ScalarReward(0.0)))
         }
 
-        fn step(&mut self, _action: ()) -> Result<BenchStep<Self::Observation>, BenchError> {
+        fn step(&mut self, _action: StubAction) -> Result<Self::SnapshotType, EnvironmentError> {
             if self.step_fails {
-                return Err(BenchError::Step(EnvironmentError::InvalidAction(
-                    "stub step fail".into(),
-                )));
+                return Err(EnvironmentError::InvalidAction("stub step fail".into()));
             }
             self.steps_taken += 1;
-            let done = self.steps_taken >= self.steps_until_done;
-            Ok(BenchStep {
-                observation: u32::try_from(self.steps_taken).expect("stub step count fits in u32"),
-                reward: 1.0,
-                done,
-            })
+            let obs = StubObs;
+            let reward = ScalarReward(1.0);
+            if self.steps_taken >= self.steps_until_done {
+                Ok(SnapshotBase::terminated(obs, reward))
+            } else {
+                Ok(SnapshotBase::running(obs, reward))
+            }
         }
     }
 
@@ -582,8 +635,10 @@ mod tests {
 
     struct StubAgent;
 
-    impl BenchableAgent<u32, ()> for StubAgent {
-        fn act(&mut self, _obs: &u32, _rng: &mut dyn Rng) {}
+    impl BenchableAgent<StubObs, StubAction> for StubAgent {
+        fn act(&mut self, _obs: &StubObs, _rng: &mut dyn Rng) -> StubAction {
+            StubAction
+        }
     }
 
     // ── Spy reporter ─────────────────────────────────────────────────────────
@@ -781,13 +836,21 @@ mod tests {
     #[test]
     fn panic_in_env_is_caught_not_propagated() {
         struct PanickingEnv;
-        impl BenchEnv for PanickingEnv {
-            type Observation = u32;
-            type Action = ();
-            fn reset(&mut self) -> Result<u32, BenchError> {
-                Ok(0)
+        impl Environment<1, 1, 1> for PanickingEnv {
+            type StateType = StubState;
+            type ObservationType = StubObs;
+            type ActionType = StubAction;
+            type RewardType = ScalarReward;
+            type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
+
+            fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+                Ok(SnapshotBase::running(StubObs, ScalarReward(0.0)))
             }
-            fn step(&mut self, (): ()) -> Result<BenchStep<u32>, BenchError> {
+
+            fn step(
+                &mut self,
+                _action: StubAction,
+            ) -> Result<Self::SnapshotType, EnvironmentError> {
                 panic!("deliberate evaluator test panic");
             }
         }
