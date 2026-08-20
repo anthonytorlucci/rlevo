@@ -10,7 +10,7 @@
 //!
 //! - [`strategy`] — the central [`Strategy`] trait and
 //!   the [`EvolutionaryHarness`] adapter that
-//!   wraps any strategy into `rlevo-core::evaluation::BenchEnv`.
+//!   wraps any strategy into `rlevo-core::evaluation::GenerationProbe`.
 //! - [`function_set`] — the shared [`FunctionSet`] opcode contract (and the
 //!   default [`ArithmeticFunctionSet`]) used by both Cartesian GP and Gene
 //!   Expression Programming.
@@ -41,7 +41,7 @@
 //! - [`coevolution`] — competitive / cooperative co-evolution
 //!   ([`CompetitiveCoEA`], [`CooperativeCoEA`]), the [`CoupledFitness`] trait,
 //!   the [`HallOfFameFitness`] cycling mitigation, and the
-//!   [`CoEvolutionaryHarness`] `BenchEnv` adapter.
+//!   [`CoEvolutionaryHarness`] `GenerationProbe` adapter.
 //! - [`algorithms`] — concrete strategies.
 
 pub mod algorithms;

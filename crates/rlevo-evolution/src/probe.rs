@@ -14,10 +14,12 @@
 //!
 //! # Relationship to `BenchEnv`
 //!
-//! Additive, for now. [`EvolutionaryHarness`] and [`CoEvolutionaryHarness`]
-//! implement both: `GenerationProbe` is the honest surface, and the `BenchEnv`
-//! impls remain so existing `Evaluator::run_suite` callers keep working
-//! unchanged. See ADR 0075 for why `BenchEnv`'s shape is under review.
+//! This is now the **only** way the benchmark evaluator drives these harnesses.
+//! They previously also implemented `rlevo-core::evaluation::BenchEnv`, which
+//! required them to claim an observation, an action, and an episode axis that
+//! an evolutionary run does not have; those impls were removed once every
+//! caller migrated to `Evaluator::run_trials`. See ADR 0075 for why
+//! `BenchEnv`'s shape was under review and ADR 0076 for the split.
 //!
 //! [`EvolutionaryHarness`]: crate::strategy::EvolutionaryHarness
 //! [`CoEvolutionaryHarness`]: crate::coevolution::CoEvolutionaryHarness

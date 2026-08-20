@@ -32,8 +32,9 @@
 //!
 //! [`EvolutionaryHarness`] glues a strategy to any
 //! [`BatchFitnessFn`] and implements
-//! [`BenchEnv`], so the benchmark
-//! evaluator drives it just like an RL environment.
+//! [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe), so the benchmark
+//! evaluator drives it as a generation loop — not as an environment, which it
+//! is not (ADR 0076).
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -43,7 +44,6 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 use rlevo_core::objective::ObjectiveSense;
 
 use crate::fitness::BatchFitnessFn;
@@ -429,10 +429,11 @@ fn build_population_snapshot(
 /// [`CoEvolutionaryHarness::step`](crate::coevolution::CoEvolutionaryHarness::step),
 /// deliberately independent of the benchmarking vocabulary: driving a
 /// generation loop directly (`rlevo-hybrid`, memetic tests, examples) must not
-/// drag a `rlevo-benchmarks`-flavoured type into a production signature. The
-/// [`BenchEnv`] impls translate this into a
-/// [`BenchStep`] at the one place the benchmark
-/// evaluator is actually involved.
+/// drag a `rlevo-benchmarks`-flavoured type into a production signature.
+///
+/// Harness-driven benchmark runs go through
+/// [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe) instead, which reports
+/// typed [`StrategyMetrics`] rather than this pair of scalars.
 ///
 /// There is no observation field: an evolutionary harness has nothing to
 /// observe. `reward` is the canonical (maximise-space) fitness signal for the
@@ -446,15 +447,15 @@ pub struct GenerationStep {
     pub done: bool,
 }
 
-/// Wraps a [`Strategy`] into a [`BenchEnv`] so the benchmark harness can
-/// drive it.
+/// Wraps a [`Strategy`] into a
+/// [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe) so the benchmark harness
+/// can drive it.
 ///
 /// # Example
 ///
 /// ```no_run
 /// use burn::backend::Flex;
 /// use rlevo_core::fitness::FitnessEvaluable;
-/// use rlevo_core::evaluation::BenchEnv;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use rlevo_evolution::fitness::FromFitnessEvaluable;
 /// use rlevo_evolution::strategy::EvolutionaryHarness;
@@ -480,7 +481,7 @@ pub struct GenerationStep {
 /// while !harness.step(()).done {}
 /// ```
 ///
-/// Each [`step`](BenchEnv::step) runs one generation (ask → evaluate →
+/// Each [`step`](Self::step) runs one generation (ask → evaluate →
 /// tell). The harness is the sole canonicaliser: it reads the fitness fn's
 /// [`ObjectiveSense`], negates a
 /// `Minimize` objective into the engine's maximise space before `tell`, and
@@ -554,7 +555,7 @@ where
     /// is rejected here rather than surfacing as a panic deep inside a
     /// strategy's tensor code.
     ///
-    /// The harness is lazily initialized — the first [`reset`](BenchEnv::reset)
+    /// The harness is lazily initialized — the first [`reset`](Self::reset)
     /// call materializes the initial state on the supplied device.
     ///
     /// # Errors
@@ -626,7 +627,7 @@ where
     /// keeping a second copy alongside it — see [`GenerationProbe`], whose
     /// `advance` returns `None` off this value.
     ///
-    /// [`GenerationProbe`]: crate::probe::GenerationProbe
+    /// [`GenerationProbe`]: rlevo_core::evaluation::GenerationProbe
     #[must_use]
     pub const fn max_generations(&self) -> usize {
         self.max_generations
@@ -655,9 +656,9 @@ where
     ///
     /// Inherent shape (infallible): `EvolutionaryHarness` cannot legitimately
     /// fail to reset — it is a deterministic optimization driver. The
-    /// [`BenchEnv`] trait impl wraps this in `Ok(())` so the harness is
-    /// callable both directly (this method) and via the [`BenchEnv`] surface
-    /// when fed to `Evaluator::run_suite`.
+    /// [`GenerationProbe::begin`](rlevo_core::evaluation::GenerationProbe::begin)
+    /// forwards to it, so the harness is callable both directly (this method)
+    /// and through the probe surface when fed to `Evaluator::run_trials`.
     ///
     /// Re-seeds the RNG from the harness's base seed, so two `reset`-to-budget
     /// runs of the same harness are byte-identical replays.
@@ -673,9 +674,10 @@ where
 
     /// Run one ask → evaluate → tell generation.
     ///
-    /// Inherent shape (infallible), returning a [`GenerationStep`]. The
-    /// [`BenchEnv`] trait impl translates that into a [`BenchStep`] and wraps
-    /// it in `Ok(...)`. See [`Self::reset`] for the rationale.
+    /// Inherent shape (infallible), returning a [`GenerationStep`].
+    /// [`GenerationProbe::advance`](rlevo_core::evaluation::GenerationProbe::advance)
+    /// calls this and reports [`StrategyMetrics`] instead. See [`Self::reset`]
+    /// for the rationale.
     ///
     /// # Panics
     ///
@@ -802,30 +804,6 @@ where
         self.latest_metrics = Some(metrics);
         let done = self.generation >= self.max_generations;
         GenerationStep { reward, done }
-    }
-}
-
-impl<B, S, F> BenchEnv for EvolutionaryHarness<B, S, F>
-where
-    B: Backend,
-    S: Strategy<B>,
-    F: BatchFitnessFn<B, S::Genome>,
-{
-    type Observation = ();
-    type Action = ();
-
-    fn reset(&mut self) -> Result<Self::Observation, BenchError> {
-        EvolutionaryHarness::<B, S, F>::reset(self);
-        Ok(())
-    }
-
-    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
-        let GenerationStep { reward, done } = EvolutionaryHarness::<B, S, F>::step(self, action);
-        Ok(BenchStep {
-            observation: (),
-            reward,
-            done,
-        })
     }
 }
 

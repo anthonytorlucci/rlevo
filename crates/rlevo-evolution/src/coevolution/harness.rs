@@ -1,11 +1,12 @@
-//! Drive loop adapting a [`CoEvolutionaryAlgorithm`] to `BenchEnv`.
+//! Drive loop adapting a [`CoEvolutionaryAlgorithm`] to `GenerationProbe`.
 //!
 //! [`CoEvolutionaryHarness`] is to [`CoEvolutionaryAlgorithm`] what
 //! [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) is to
 //! [`Strategy`](crate::strategy::Strategy): it owns the joint state, the RNG,
 //! and the generation budget, and exposes the run to the `rlevo-benchmarks`
-//! evaluator through `rlevo-core::evaluation::BenchEnv` with no benchmark-side
-//! changes. One [`BenchEnv::step`] drives one simultaneous-update generation.
+//! evaluator through `rlevo-core::evaluation::GenerationProbe`. One
+//! [`advance`](rlevo_core::evaluation::GenerationProbe::advance) drives one
+//! simultaneous-update generation.
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -15,7 +16,6 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 
 use super::CoEvolutionaryAlgorithm;
 use crate::strategy::GenerationStep;
@@ -56,12 +56,12 @@ pub struct CoEAMetrics {
     pub hof_size_b: usize,
 }
 
-/// Wraps a [`CoEvolutionaryAlgorithm`] into a `BenchEnv`.
+/// Wraps a [`CoEvolutionaryAlgorithm`] into a `GenerationProbe`.
 ///
 /// Like [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), the
-/// harness is lazily initialized: [`reset`](BenchEnv::reset) materializes the
+/// harness is lazily initialized: [`reset`](Self::reset) materializes the
 /// joint state on the configured device, and each
-/// [`step`](BenchEnv::step) runs one generation. The reward exposed to the
+/// [`step`](Self::step) runs one generation. The reward exposed to the
 /// benchmark harness is the **canonical** `binding_fitness = min(best_a, best_b)`
 /// (canonical maximise, no negation): the weaker population — the lower canonical
 /// fitness — is the binding constraint, and a higher binding value is better.
@@ -176,7 +176,7 @@ where
     /// keeping a second copy alongside it — see [`GenerationProbe`], whose
     /// `advance` returns `None` off this value.
     ///
-    /// [`GenerationProbe`]: crate::probe::GenerationProbe
+    /// [`GenerationProbe`]: rlevo_core::evaluation::GenerationProbe
     #[must_use]
     pub const fn max_generations(&self) -> usize {
         self.max_generations
@@ -184,7 +184,8 @@ where
 
     /// Reset to a fresh joint state, re-seeding the RNG.
     ///
-    /// Infallible; the [`BenchEnv`] impl wraps this in `Ok(())`.
+    /// Infallible; [`GenerationProbe::begin`](rlevo_core::evaluation::GenerationProbe::begin)
+    /// forwards to it.
     pub fn reset(&mut self) {
         self.rng = StdRng::seed_from_u64(self.base_seed);
         self.generation = 0;
@@ -197,8 +198,9 @@ where
 
     /// Run one simultaneous-update generation.
     ///
-    /// Infallible, returning a [`GenerationStep`]; the [`BenchEnv`] impl
-    /// translates that into a [`BenchStep`] and wraps it in `Ok(...)`.
+    /// Infallible, returning a [`GenerationStep`];
+    /// [`GenerationProbe::advance`](rlevo_core::evaluation::GenerationProbe::advance)
+    /// calls this and reports [`CoEAMetrics`] instead.
     ///
     /// # Panics
     ///
@@ -243,29 +245,6 @@ where
         self.latest_metrics = Some(metrics);
         let done = self.generation >= self.max_generations;
         GenerationStep { reward, done }
-    }
-}
-
-impl<B, C> BenchEnv for CoEvolutionaryHarness<B, C>
-where
-    B: Backend,
-    C: CoEvolutionaryAlgorithm<B>,
-{
-    type Observation = ();
-    type Action = ();
-
-    fn reset(&mut self) -> Result<Self::Observation, BenchError> {
-        CoEvolutionaryHarness::<B, C>::reset(self);
-        Ok(())
-    }
-
-    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
-        let GenerationStep { reward, done } = CoEvolutionaryHarness::<B, C>::step(self, action);
-        Ok(BenchStep {
-            observation: (),
-            reward,
-            done,
-        })
     }
 }
 
