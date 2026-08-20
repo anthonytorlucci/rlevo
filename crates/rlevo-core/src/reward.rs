@@ -38,7 +38,7 @@ impl ScalarReward {
     /// use rlevo_core::reward::ScalarReward;
     ///
     /// let reward = ScalarReward::new(-1.0);
-    /// assert_eq!(f32::from(r), -1.0_f32);
+    /// assert_eq!(f32::from(reward), -1.0_f32);
     /// ```
     #[must_use]
     pub const fn new(value: f32) -> Self {
@@ -53,7 +53,7 @@ impl ScalarReward {
     /// use rlevo_core::reward::ScalarReward;
     ///
     /// let reward = ScalarReward::new(3.14);
-    /// assert!((r.value() - 3.14_f32).abs() < 1e-6);
+    /// assert!((reward.value() - 3.14_f32).abs() < 1e-6);
     /// ```
     #[must_use]
     pub const fn value(self) -> f32 {
