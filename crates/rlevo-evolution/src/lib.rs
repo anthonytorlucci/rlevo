@@ -57,6 +57,7 @@ pub mod ops;
 pub mod param_reshaper;
 pub mod population;
 pub mod probability_model;
+pub mod probe;
 pub mod rng;
 pub(crate) mod sampling;
 pub mod shaping;
@@ -90,5 +91,6 @@ pub use neuroevolution::{
 pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
 pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;
+pub use probe::GenerationProbe;
 pub use shaping::ShapingError;
 pub use strategy::{EvolutionaryHarness, GenerationStep, Strategy, StrategyMetrics};

@@ -620,6 +620,18 @@ where
         self.generation
     }
 
+    /// The configured generation budget.
+    ///
+    /// The harness owns this number. Drivers should read it here rather than
+    /// keeping a second copy alongside it — see [`GenerationProbe`], whose
+    /// `advance` returns `None` off this value.
+    ///
+    /// [`GenerationProbe`]: crate::probe::GenerationProbe
+    #[must_use]
+    pub const fn max_generations(&self) -> usize {
+        self.max_generations
+    }
+
     /// Borrow the current strategy state if it exists.
     #[must_use]
     pub fn state(&self) -> Option<&S::State> {
