@@ -116,6 +116,24 @@ private spec opened with is now unnecessary rather than merely deferred.
   and reports; the two pre-existing `rlevo-core` `reward.rs` doctest failures
   are unrelated and unchanged throughout.
 
+**Update (2026-08-20):** the clause calling the two `reward.rs` doctest failures
+**"pre-existing"** is wrong. They were introduced on this branch by commit
+`4c0870d`, which renamed the `r` binding to `reward` to
+avoid a collision with the observation-rank const generic `R`, updated the unit
+tests in full, but rewrote only the `let` line in the two doctests and left both
+assertions referencing `r` (E0425). `origin/main` still binds `r` in those
+examples and passes; `crate-tests.yml` reported `33 passed` for `rlevo-core` on
+2026-08-13. Fixed by completing the rename in `2be544f`.
+
+**The "no behaviour change" claim this bullet exists to make is unaffected** —
+the failures were a doc-example regression in a crate this ADR only removed
+items from, and every workspace doctest now passes. What the error does refute
+is the *inference* drawn from it: the two failures were treated as a stable
+pre-existing baseline and used to argue the removal work had touched nothing
+else, when they were in fact evidence of an unrelated incomplete rename on the
+same branch. A "pre-existing failure" is a claim about history and needs
+checking against the merge base, not against the working tree.
+
 ## Alternatives considered
 
 **Keep them, deprecated.** Rejected. `#[deprecated]` earns its place when
