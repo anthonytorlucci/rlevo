@@ -102,9 +102,12 @@ impl Evaluator {
     /// and folded into the corresponding [`TrialReport`] via `errored`/`error_message`
     /// rather than aborting the run.
     ///
+    /// This is a thin wrapper: it builds one [`EpisodicTrial`] per key and hands
+    /// the work to [`Evaluator::run_trials`], which owns the parallelism,
+    /// panic capture, and checkpointing for every trial shape.
+    ///
     /// # Panics
     /// Panics if the rayon thread pool cannot be built.
-    #[allow(clippy::too_many_lines)]
     pub fn run_suite<E, A, R, FA>(
         &self,
         suite: &Suite<E>,
@@ -117,12 +120,51 @@ impl Evaluator {
         R: Reporter,
         FA: Fn(u64) -> A + Sync + Send,
     {
+        let env_names: Vec<String> = suite.envs.iter().map(|(n, _)| n.clone()).collect();
+        self.run_trials(
+            &suite.name,
+            &env_names,
+            |key, env_seed, agent_seed| EpisodicTrial {
+                env: (suite.envs[key.env_idx].1.as_ref())(env_seed),
+                agent: agent_factory(agent_seed),
+                agent_seed,
+            },
+            reporter,
+        )
+    }
+
+    /// Drive `num_trials_per_env` trials of every named unit to completion.
+    ///
+    /// This is the shape-agnostic half of the evaluator: rayon fan-out,
+    /// per-trial `catch_unwind`, checkpoint load/skip/save, fail-fast, and the
+    /// reporter lifecycle. Nothing here knows whether a trial is an episodic
+    /// environment rollout or something else — that lives entirely behind
+    /// [`Trial::run`].
+    ///
+    /// `make_trial` is called once per pending key with `(key, env_seed,
+    /// agent_seed)`, all three derived from the configured base seed.
+    ///
+    /// # Panics
+    /// Panics if the rayon thread pool cannot be built.
+    #[allow(clippy::too_many_lines)]
+    pub fn run_trials<T, MK, R>(
+        &self,
+        suite_name: &str,
+        env_names: &[String],
+        make_trial: MK,
+        reporter: &mut R,
+    ) -> BenchmarkReport
+    where
+        T: Trial + Send,
+        MK: Fn(TrialKey, u64, u64) -> T + Sync + Send,
+        R: Reporter,
+    {
         let cfg = &self.cfg;
         let seeds = SeedStream::new(cfg.base_seed);
 
         let suite_info = SuiteInfo {
-            name: suite.name.clone(),
-            env_names: suite.envs.iter().map(|(n, _)| n.clone()).collect(),
+            name: suite_name.to_string(),
+            env_names: env_names.to_vec(),
             num_trials_per_env: cfg.num_trials_per_env,
             success_threshold: cfg.success_threshold,
         };
@@ -132,17 +174,17 @@ impl Evaluator {
             .checkpoint_dir
             .as_ref()
             .and_then(|dir| {
-                let path = checkpoint::checkpoint_path(dir, &suite.name);
+                let path = checkpoint::checkpoint_path(dir, suite_name);
                 checkpoint::load(&path).ok().flatten()
             })
-            .unwrap_or_else(|| BenchmarkReport::new(suite.name.clone(), cfg.base_seed));
+            .unwrap_or_else(|| BenchmarkReport::new(suite_name.to_string(), cfg.base_seed));
         let skip = checkpoint::completed_keys(&report);
 
         reporter.on_suite_start(&suite_info);
 
         // Enumerate trial keys, filtering already-completed.
         let mut pending: Vec<TrialKey> = Vec::new();
-        for (env_idx, _) in suite.envs.iter().enumerate() {
+        for env_idx in 0..env_names.len() {
             for trial_idx in 0..cfg.num_trials_per_env {
                 let key = TrialKey { env_idx, trial_idx };
                 if !skip.contains(&key) {
@@ -151,7 +193,8 @@ impl Evaluator {
             }
         }
 
-        let reporter_lock: Mutex<&mut R> = Mutex::new(reporter);
+        let dyn_reporter: &mut dyn Reporter = reporter;
+        let reporter_lock: Mutex<&mut dyn Reporter> = Mutex::new(dyn_reporter);
         let report_lock: Mutex<&mut BenchmarkReport> = Mutex::new(&mut report);
         let aborted = AtomicBool::new(false);
 
@@ -168,7 +211,7 @@ impl Evaluator {
                     return;
                 }
 
-                let (env_name, factory) = &suite.envs[key.env_idx];
+                let env_name = &env_names[key.env_idx];
                 let trial_seed = seeds.trial_seed(key.env_idx, key.trial_idx);
                 let env_seed = seeds.env_seed(trial_seed);
                 let agent_seed = seeds.agent_seed(trial_seed);
@@ -184,14 +227,7 @@ impl Evaluator {
                 }
 
                 let trial_report = catch_unwind(AssertUnwindSafe(|| {
-                    run_one_trial::<E, A, R>(
-                        cfg,
-                        &info,
-                        (factory.as_ref())(env_seed),
-                        agent_factory(agent_seed),
-                        agent_seed,
-                        &reporter_lock,
-                    )
+                    make_trial(key, env_seed, agent_seed).run(cfg, &info, &reporter_lock)
                 }));
 
                 let tr = match trial_report {
@@ -217,7 +253,7 @@ impl Evaluator {
                 let mut rep = report_lock.lock().unwrap();
                 rep.trials.push(tr);
                 if let Some(dir) = &cfg.checkpoint_dir {
-                    let path = checkpoint::checkpoint_path(dir, &suite.name);
+                    let path = checkpoint::checkpoint_path(dir, suite_name);
                     if let Err(e) = checkpoint::save(&path, &rep) {
                         tracing::warn!(
                             target: "rlevo_benchmarks",
@@ -243,7 +279,7 @@ impl Evaluator {
         reporter.on_suite_end(&report);
 
         if let Some(dir) = &cfg.checkpoint_dir {
-            let path = checkpoint::checkpoint_path(dir, &suite.name);
+            let path = checkpoint::checkpoint_path(dir, suite_name);
             if let Err(e) = checkpoint::save(&path, &report) {
                 tracing::warn!(
                     target: "rlevo_benchmarks",
@@ -258,79 +294,122 @@ impl Evaluator {
     }
 }
 
-fn run_one_trial<E, A, R>(
-    cfg: &EvaluatorConfig,
-    info: &TrialInfo,
-    mut env: E,
-    mut agent: A,
-    agent_seed: u64,
-    reporter_lock: &Mutex<&mut R>,
-) -> TrialReport
+/// One unit of benchmarked work: something the evaluator runs once, under a
+/// derived seed, to produce a [`TrialReport`].
+///
+/// This is the seam that lets [`Evaluator::run_trials`] own everything
+/// expensive and easy to get wrong — rayon fan-out, `catch_unwind`,
+/// checkpointing, fail-fast, reporter lifecycle — while the shape of the work
+/// varies. An episodic environment rollout ([`EpisodicTrial`]) is one shape; an
+/// evolutionary generation loop, which has no episode axis at all, is another.
+///
+/// # Contract
+///
+/// - `run` consumes the trial: one trial value drives one trial.
+/// - `run` MUST NOT catch its own panics. `run_trials` wraps every call in
+///   `catch_unwind` and folds the payload into an errored [`TrialReport`];
+///   swallowing a panic here hides a genuine bug behind a passing report.
+/// - Recoverable failures belong in [`TrialReport::errored`] /
+///   `error_message`, not in a panic.
+pub trait Trial {
+    /// Run this trial to completion and summarize it.
+    ///
+    /// `reporter` is shared across rayon workers; hold the lock only for the
+    /// duration of a single callback.
+    fn run(
+        self,
+        cfg: &EvaluatorConfig,
+        info: &TrialInfo,
+        reporter: &Mutex<&mut dyn Reporter>,
+    ) -> TrialReport;
+}
+
+/// A [`Trial`] that rolls a [`BenchEnv`] out against a [`BenchableAgent`] for
+/// `num_episodes` episodes of at most `max_steps` steps.
+///
+/// This is the classic RL benchmarking shape and the only one `run_suite`
+/// builds.
+pub struct EpisodicTrial<E, A> {
+    /// The environment under test, already seeded by the suite factory.
+    pub env: E,
+    /// The agent under test, already seeded by the agent factory.
+    pub agent: A,
+    /// Seed for the action-sampling RNG handed to the agent each step.
+    pub agent_seed: u64,
+}
+
+impl<E, A> Trial for EpisodicTrial<E, A>
 where
     E: BenchEnv,
     A: BenchableAgent<E::Observation, E::Action>,
-    R: Reporter,
 {
-    let mut rng = StdRng::seed_from_u64(agent_seed);
-    let mut report = TrialReport::new(info.key, info.env_name.clone(), info.trial_seed);
-    let mut returns: Vec<f64> = Vec::with_capacity(cfg.num_episodes);
-    let mut lengths: Vec<usize> = Vec::with_capacity(cfg.num_episodes);
+    fn run(
+        mut self,
+        cfg: &EvaluatorConfig,
+        info: &TrialInfo,
+        reporter: &Mutex<&mut dyn Reporter>,
+    ) -> TrialReport {
+        let mut rng = StdRng::seed_from_u64(self.agent_seed);
+        let mut report = TrialReport::new(info.key, info.env_name.clone(), info.trial_seed);
+        let mut returns: Vec<f64> = Vec::with_capacity(cfg.num_episodes);
+        let mut lengths: Vec<usize> = Vec::with_capacity(cfg.num_episodes);
 
-    let start = Instant::now();
+        let start = Instant::now();
 
-    'episodes: for episode_idx in 0..cfg.num_episodes {
-        let mut obs = match env.reset() {
-            Ok(o) => o,
-            Err(e) => {
-                report.errored = true;
-                report.error_message = Some(e.to_string());
-                break 'episodes;
-            }
-        };
-        let mut total_reward = 0.0;
-        let mut length = 0;
-
-        for _ in 0..cfg.max_steps {
-            let action = agent.act(&obs, &mut rng);
-            let step = match env.step(action) {
-                Ok(s) => s,
+        'episodes: for episode_idx in 0..cfg.num_episodes {
+            let mut obs = match self.env.reset() {
+                Ok(o) => o,
                 Err(e) => {
                     report.errored = true;
                     report.error_message = Some(e.to_string());
                     break 'episodes;
                 }
             };
-            total_reward += step.reward;
-            length += 1;
-            obs = step.observation;
-            if step.done {
-                break;
+            let mut total_reward = 0.0;
+            let mut length = 0;
+
+            for _ in 0..cfg.max_steps {
+                let action = self.agent.act(&obs, &mut rng);
+                let step = match self.env.step(action) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        report.errored = true;
+                        report.error_message = Some(e.to_string());
+                        break 'episodes;
+                    }
+                };
+                total_reward += step.reward;
+                length += 1;
+                obs = step.observation;
+                if step.done {
+                    break;
+                }
+            }
+
+            let rec = EpisodeSummary {
+                episode_idx,
+                return_value: total_reward,
+                length,
+            };
+            returns.push(total_reward);
+            lengths.push(length);
+            report.episodes.push(rec.clone());
+            {
+                let mut r = reporter.lock().unwrap();
+                r.on_episode_end(info, &rec);
             }
         }
 
-        let rec = EpisodeSummary {
-            episode_idx,
-            return_value: total_reward,
-            length,
-        };
-        returns.push(total_reward);
-        lengths.push(length);
-        report.episodes.push(rec.clone());
-        {
-            let mut r = reporter_lock.lock().unwrap();
-            r.on_episode_end(info, &rec);
-        }
+        let wall = start.elapsed().as_secs_f64();
+        report.absorb_metrics(core_metrics(
+            &returns,
+            &lengths,
+            wall,
+            cfg.success_threshold,
+        ));
+        report.absorb_metrics(self.agent.emit_metrics());
+        report
     }
-
-    let wall = start.elapsed().as_secs_f64();
-    report.absorb_metrics(core_metrics(
-        &returns,
-        &lengths,
-        wall,
-        cfg.success_threshold,
-    ));
-    report.absorb_metrics(agent.emit_metrics());
-    report
 }
 
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
