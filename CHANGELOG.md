@@ -11,6 +11,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **`BenchEnv`, `BenchStep`, and `BenchError` are removed from `rlevo-core`**,
+  along with the `rlevo_benchmarks::env` shim module and the crate-root
+  `rlevo_benchmarks::{BenchEnv, BenchError, BenchStep}` re-export (ADR 0077).
+  Nothing in the workspace implemented or used them by the time they were
+  deleted. Migration depends on what the type is:
+
+  - **An episodic environment**: implement
+    `rlevo_core::environment::Environment<D, SD, AD>` with
+    `RewardType = ScalarReward`. `Evaluator::run_suite` now binds on it
+    directly and infers `D`/`SD`/`AD` from the `Suite<E>` you pass, so no
+    adapter and no turbofish are needed. `SnapshotBase<R, Obs, Rew>` supplies
+    the `Snapshot` impl. `BenchAdapter` is deleted; envs are registered as
+    themselves.
+  - **A self-paced loop** (an evolutionary generation stepper, say): implement
+    `rlevo_core::evaluation::GenerationProbe` — `begin()`, then
+    `advance() -> Option<Metrics>` until the budget is spent — and drive it with
+    `Evaluator::run_trials` and `GenerationTrial`. Metrics are typed, so the
+    single `f64` reward `BenchStep` carried is no longer a constraint.
+
+  Errors that arrived as `BenchError::{Reset, Step}` now arrive as
+  `EnvironmentError` directly; the variant tag was redundant with call-site
+  context. `Evaluator::run_suite` keeps its name, argument order, and
+  behaviour, and gains three inferred const parameters.
+
+  Background: ADR 0075 found the trait's object-safety rationale unsound (its
+  erasure was on the rank axis, while `Observation`/`Action` — what actually
+  differs between environments — survived it), and ADR 0076 replaced it with
+  the `Trial` seam.
+
 - **`ReplayBufferError` loses its `TensorConversionError(String)` and
   `BatchError(String)` variants, and becomes `#[non_exhaustive]`** (resolves
   #411). Neither variant was constructible in practice — no code in this

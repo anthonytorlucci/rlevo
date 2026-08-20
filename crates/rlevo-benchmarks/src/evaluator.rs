@@ -459,8 +459,8 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// [`TrialReport::episodes`] is left **empty**, deliberately. A probe re-seeds
 /// on `begin`, so a second pass would be a byte-identical replay — duplicated
 /// compute carrying zero information. Rather than fabricate one synthetic
-/// `EpisodeSummary` per run (which would make `num_episodes > 1` silently
-/// multiply cost for no signal, as it does through the `BenchEnv` path today),
+/// `EpisodeSummary` per run — which would make `num_episodes > 1` silently
+/// multiply cost for no signal, the trap the retired `BenchEnv` path had —
 /// this trial reports no episodes at all and `on_episode_end` never fires.
 /// Consumers read the `ea/*` or `coea/*` scalars instead.
 pub struct GenerationTrial<P> {

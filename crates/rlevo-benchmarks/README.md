@@ -45,9 +45,7 @@ Suite<E>
 | `EpisodicTrial<E, A, D, SD, AD>` | Rolls an `Environment` out against a `BenchableAgent` for `num_episodes` episodes |
 | `GenerationTrial<P>` | Drives a `GenerationProbe` to its budget; reports no episodes |
 
-`BenchEnv`/`BenchStep`/`BenchError` still exist in `rlevo-core` (hoisted there per ADR 0004) and are re-exported here under `rlevo_benchmarks::env`, but **nothing in the workspace implements or uses them** as of the `Trial`-seam migration. Their removal is a pending decision.
-
-ADR 0075 supersedes their original "box heterogeneous environments and dispatch at runtime" rationale: the trait is object-safe, but erasure removes only the const-generic ranks while `Observation` and `Action` survive it — and those are exactly what differ between environments.
+`BenchEnv`/`BenchStep`/`BenchError` and the `rlevo_benchmarks::env` alias module were **removed** by ADR 0077, once the `Trial` seam left them with no implementors. ADR 0075 had already retired their stated rationale: the trait was object-safe, but its erasure removed only the const-generic ranks while `Observation` and `Action` survived it — and those are exactly what differ between environments, so it could never have carried the heterogeneous suite it was justified by.
 
 ### `agent` — Agent Interface
 
@@ -228,28 +226,35 @@ rlevo-benchmarks = { path = "../rlevo-benchmarks" }
 ```rust
 use rlevo_benchmarks::{
     agent::BenchableAgent,
-    env::{BenchEnv, BenchError, BenchStep},
     evaluator::{Evaluator, EvaluatorConfig},
     reporter::logging::LoggingReporter,
     suite::Suite,
 };
+use rlevo_core::environment::Environment;
 
-// 1. Wrap your environment as BenchEnv
+// 1. Implement `rlevo_core::environment::Environment` for your env, with
+//    `RewardType = ScalarReward`. The evaluator infers the rank parameters
+//    from the `Suite<MyEnv>` you hand it — no adapter, no turbofish.
 struct MyEnv { /* ... */ }
-impl BenchEnv for MyEnv {
-    type Observation = f64;
-    type Action = usize;
+impl Environment<1, 1, 1> for MyEnv {
+    type StateType = MyState;
+    type ObservationType = MyObs;
+    type ActionType = MyAction;
+    type RewardType = ScalarReward;
+    type SnapshotType = SnapshotBase<1, MyObs, ScalarReward>;
 
-    fn reset(&mut self) -> Result<f64, BenchError> { Ok(0.0) }
-    fn step(&mut self, action: usize) -> Result<BenchStep<f64>, BenchError> {
-        Ok(BenchStep { observation: 0.0, reward: 1.0, done: true })
+    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        Ok(SnapshotBase::running(MyObs, ScalarReward(0.0)))
+    }
+    fn step(&mut self, action: MyAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        Ok(SnapshotBase::terminated(MyObs, ScalarReward(1.0)))
     }
 }
 
 // 2. Wrap your agent as BenchableAgent
 struct MyAgent;
-impl BenchableAgent<f64, usize> for MyAgent {
-    fn act(&mut self, _obs: &f64, _rng: &mut dyn rand::RngCore) -> usize { 0 }
+impl BenchableAgent<MyObs, MyAction> for MyAgent {
+    fn act(&mut self, _obs: &MyObs, _rng: &mut dyn rand::RngCore) -> MyAction { MyAction }
 }
 
 // 3. Build and run

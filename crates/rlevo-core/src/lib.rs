@@ -14,7 +14,7 @@
 //! | [`state`] | [`MarkovState`], [`BeliefState`], [`HiddenState`], [`LatentState`], [`StateAggregation`], [`Observable`] — POMDP and latent-space extensions |
 //! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
-//! | [`evaluation`] | [`BenchEnv`], [`BenchStep`], [`BenchError`] — rank-erased drive interface for harnesses |
+//! | [`evaluation`] | [`GenerationProbe`] — drive seam for self-paced work (evolutionary generation loops) |
 //! | [`fitness`] | [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
 //! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
 //! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
@@ -82,9 +82,7 @@
 //! [`EpisodeStatus::Truncated`]: crate::environment::EpisodeStatus::Truncated
 //! [`EnvironmentError`]: crate::environment::EnvironmentError
 //! [`ScalarReward`]: crate::reward::ScalarReward
-//! [`BenchEnv`]: crate::evaluation::BenchEnv
-//! [`BenchStep`]: crate::evaluation::BenchStep
-//! [`BenchError`]: crate::evaluation::BenchError
+//! [`GenerationProbe`]: crate::evaluation::GenerationProbe
 //! [`BenchableAgent`]: crate::fitness::BenchableAgent
 //! [`FitnessEvaluable`]: crate::fitness::FitnessEvaluable
 //! [`Landscape`]: crate::fitness::Landscape
@@ -167,16 +165,14 @@ pub mod config;
 /// [`EnvironmentError`]: crate::environment::EnvironmentError
 pub mod environment;
 
-/// Minimal drive interface for benchmarking harnesses.
+/// Drive seam for work that paces itself.
 ///
-/// [`BenchEnv`] strips the const-generic ranks from [`Environment`] so
-/// harnesses do not need to be generic over them, and spans two disjoint
-/// implementor families: typed environments (via adapters in
-/// `rlevo-environments`, behind the `bench` feature) and evolutionary
-/// generation-steppers in `rlevo-evolution`. Its erasure is rank-only and
-/// currently unexercised — see ADR 0075.
+/// [`GenerationProbe`] is what a benchmarking harness drives when the work is
+/// not an episodic agent/environment interaction — an evolutionary generation
+/// loop, concretely. Episodic work is driven through [`Environment`] directly
+/// (ADR 0076).
 ///
-/// [`BenchEnv`]: crate::evaluation::BenchEnv
+/// [`GenerationProbe`]: crate::evaluation::GenerationProbe
 /// [`Environment`]: crate::environment::Environment
 pub mod evaluation;
 
