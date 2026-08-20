@@ -422,6 +422,30 @@ fn build_population_snapshot(
     })
 }
 
+/// Outcome of advancing an evolutionary harness by one generation.
+///
+/// This is the **inherent** return shape of
+/// [`EvolutionaryHarness::step`] and
+/// [`CoEvolutionaryHarness::step`](crate::coevolution::CoEvolutionaryHarness::step),
+/// deliberately independent of the benchmarking vocabulary: driving a
+/// generation loop directly (`rlevo-hybrid`, memetic tests, examples) must not
+/// drag a `rlevo-benchmarks`-flavoured type into a production signature. The
+/// [`BenchEnv`] impls translate this into a
+/// [`BenchStep`] at the one place the benchmark
+/// evaluator is actually involved.
+///
+/// There is no observation field: an evolutionary harness has nothing to
+/// observe. `reward` is the canonical (maximise-space) fitness signal for the
+/// generation just completed, and `done` reports whether the generation budget
+/// is exhausted.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GenerationStep {
+    /// Canonical (maximise-space) fitness signal for the completed generation.
+    pub reward: f64,
+    /// Whether the harness has reached its configured generation budget.
+    pub done: bool,
+}
+
 /// Wraps a [`Strategy`] into a [`BenchEnv`] so the benchmark harness can
 /// drive it.
 ///
@@ -622,6 +646,9 @@ where
     /// [`BenchEnv`] trait impl wraps this in `Ok(())` so the harness is
     /// callable both directly (this method) and via the [`BenchEnv`] surface
     /// when fed to `Evaluator::run_suite`.
+    ///
+    /// Re-seeds the RNG from the harness's base seed, so two `reset`-to-budget
+    /// runs of the same harness are byte-identical replays.
     pub fn reset(&mut self) {
         self.rng = StdRng::seed_from_u64(self.base_seed);
         self.generation = 0;
@@ -634,15 +661,16 @@ where
 
     /// Run one ask → evaluate → tell generation.
     ///
-    /// Inherent shape (infallible). The [`BenchEnv`] trait impl wraps this
-    /// in `Ok(...)`. See [`Self::reset`] for the rationale.
+    /// Inherent shape (infallible), returning a [`GenerationStep`]. The
+    /// [`BenchEnv`] trait impl translates that into a [`BenchStep`] and wraps
+    /// it in `Ok(...)`. See [`Self::reset`] for the rationale.
     ///
     /// # Panics
     ///
     /// Panics if [`reset`](Self::reset) has not been called first. Also panics
     /// if an observer is attached and the natural-fitness tensor cannot be read
     /// back to host as `f32` (a device→host transfer failure).
-    pub fn step(&mut self, _action: ()) -> BenchStep<()> {
+    pub fn step(&mut self, _action: ()) -> GenerationStep {
         let state = self
             .state
             .take()
@@ -761,11 +789,7 @@ where
         }
         self.latest_metrics = Some(metrics);
         let done = self.generation >= self.max_generations;
-        BenchStep {
-            observation: (),
-            reward,
-            done,
-        }
+        GenerationStep { reward, done }
     }
 }
 
@@ -784,7 +808,12 @@ where
     }
 
     fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
-        Ok(EvolutionaryHarness::<B, S, F>::step(self, action))
+        let GenerationStep { reward, done } = EvolutionaryHarness::<B, S, F>::step(self, action);
+        Ok(BenchStep {
+            observation: (),
+            reward,
+            done,
+        })
     }
 }
 

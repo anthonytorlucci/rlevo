@@ -18,6 +18,7 @@ use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 
 use super::CoEvolutionaryAlgorithm;
+use crate::strategy::GenerationStep;
 
 /// Per-generation summary for a co-evolutionary run.
 ///
@@ -184,12 +185,13 @@ where
 
     /// Run one simultaneous-update generation.
     ///
-    /// Infallible; the [`BenchEnv`] impl wraps the result in `Ok(...)`.
+    /// Infallible, returning a [`GenerationStep`]; the [`BenchEnv`] impl
+    /// translates that into a [`BenchStep`] and wraps it in `Ok(...)`.
     ///
     /// # Panics
     ///
     /// Panics if [`reset`](Self::reset) has not been called first.
-    pub fn step(&mut self, _action: ()) -> BenchStep<()> {
+    pub fn step(&mut self, _action: ()) -> GenerationStep {
         let state = self
             .state
             .take()
@@ -228,11 +230,7 @@ where
 
         self.latest_metrics = Some(metrics);
         let done = self.generation >= self.max_generations;
-        BenchStep {
-            observation: (),
-            reward,
-            done,
-        }
+        GenerationStep { reward, done }
     }
 }
 
@@ -250,7 +248,12 @@ where
     }
 
     fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
-        Ok(CoEvolutionaryHarness::<B, C>::step(self, action))
+        let GenerationStep { reward, done } = CoEvolutionaryHarness::<B, C>::step(self, action);
+        Ok(BenchStep {
+            observation: (),
+            reward,
+            done,
+        })
     }
 }
 

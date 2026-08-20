@@ -91,4 +91,4 @@ pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObser
 pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;
 pub use shaping::ShapingError;
-pub use strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
+pub use strategy::{EvolutionaryHarness, GenerationStep, Strategy, StrategyMetrics};
