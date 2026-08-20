@@ -2,8 +2,8 @@
 //! evaluator without modification.
 //!
 //! A competitive predator–prey co-evolution is wrapped in a
-//! [`CoEvolutionaryHarness`] and run through `Evaluator::run_suite` exactly
-//! like any other `BenchEnv`. One `BenchEnv::step` is one simultaneous-update
+//! [`CoEvolutionaryHarness`] and run through `Evaluator::run_trials` as a
+//! `GenerationTrial`. One `GenerationProbe::advance` is one simultaneous-update
 //! generation; the test asserts the suite completes the expected number of
 //! steps per trial with no errors and a finite return.
 
@@ -11,12 +11,9 @@
 
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData};
-use rand::Rng;
 
-use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_benchmarks::suite::Suite;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
@@ -111,12 +108,6 @@ fn coea_factory(seed: u64) -> CoEvolutionaryHarness<B, Coea> {
     CoEvolutionaryHarness::new(algo, params, seed, device, MAX_GENS).expect("valid params")
 }
 
-/// Passive agent: the harness drives the optimization; the agent only steps it.
-struct Passive;
-impl BenchableAgent<(), ()> for Passive {
-    fn act(&mut self, (): &(), _: &mut dyn Rng) {}
-}
-
 #[test]
 fn coevolutionary_harness_runs_through_evaluator() {
     let cfg = EvaluatorConfig {
@@ -132,26 +123,44 @@ fn coevolutionary_harness_runs_through_evaluator() {
         success_threshold: None,
     };
 
-    let suite: Suite<CoEvolutionaryHarness<B, Coea>> =
-        Suite::new("predator-prey-coea", cfg.clone()).with_env("predator-prey-2d", coea_factory);
-
     let evaluator = Evaluator::new(cfg);
     let mut reporter = LoggingReporter::new();
-    let report = evaluator.run_suite(&suite, |_s| Passive, &mut reporter);
+    let report = evaluator.run_trials(
+        "predator-prey-coea",
+        &["predator-prey-2d".to_string()],
+        |_key, env_seed, _agent_seed| GenerationTrial {
+            probe: coea_factory(env_seed),
+        },
+        &mut reporter,
+    );
 
     assert_eq!(report.trials.len(), 2, "expected one report per trial");
     for trial in &report.trials {
         assert!(!trial.errored, "trial errored: {:?}", trial.error_message);
-        assert_eq!(trial.episodes.len(), 1, "one episode per trial");
-        let ep = &trial.episodes[0];
-        assert_eq!(
-            ep.length, MAX_GENS,
-            "one BenchEnv::step should drive one generation"
-        );
+
+        // A co-evolutionary run has no episode axis; the trial reports none.
         assert!(
-            ep.return_value.is_finite(),
-            "return should be finite, got {}",
-            ep.return_value
+            trial.episodes.is_empty(),
+            "generation trial fabricates no episodes"
+        );
+
+        // One `advance` drives one simultaneous-update generation.
+        assert_eq!(
+            trial.scalars.get("generations").copied(),
+            Some(MAX_GENS as f64),
+            "one advance should drive one generation"
+        );
+        assert_eq!(
+            trial.scalars.get("coea/generation").copied(),
+            Some(MAX_GENS as f64),
+            "harness counter agrees with the trial's own count"
+        );
+
+        // The binding fitness is the canonical reward the harness reports.
+        let binding = trial.scalars["coea/binding_fitness"];
+        assert!(
+            binding.is_finite(),
+            "binding fitness should be finite, got {binding}"
         );
     }
 }

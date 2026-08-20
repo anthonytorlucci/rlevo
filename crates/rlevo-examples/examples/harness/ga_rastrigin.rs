@@ -5,13 +5,15 @@
 //! 1. `FitnessEvaluable` — the "optimizer-on-landscape" trait, implemented
 //!    for a local wrapper around
 //!    `rlevo_environments::landscapes::rastrigin::Rastrigin`.
-//! 2. `BenchEnv` — the GA is itself wrapped as a `BenchEnv` so the full
-//!    `run_suite` path drives it, producing a `BenchmarkReport` with the
-//!    same shape as RL trials.
+//! 2. `GenerationProbe` — the GA implements the drive seam directly, so
+//!    `Evaluator::run_trials` drives it as a `GenerationTrial` and produces a
+//!    `BenchmarkReport` alongside RL trials.
 //!
-//! The "action" is a unit type (the agent is passive); each "step" runs
-//! one GA generation and the reward is the negative best-fitness (so the
-//! harness's return-maximization framing lines up with minimization).
+//! There is no agent and no episode axis: each `advance` runs one GA
+//! generation and reports a typed `GaGenerationMetrics`, so the costs stay in
+//! their natural minimise sense rather than being negated into a scalar
+//! reward. This also shows a type outside `rlevo-evolution` implementing the
+//! seam — nothing here is an `EvolutionaryHarness`.
 //!
 //! # Running
 //!
@@ -37,16 +39,16 @@
 //! `MAX_GENS` generations. The value is extracted by negating the
 //! episode return, reversing the sign convention used internally.
 
+use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal, Uniform};
-use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
-use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo_benchmarks::agent::FitnessEvaluable;
+use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_benchmarks::metrics::Metric;
 use rlevo_benchmarks::metrics::ea;
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_benchmarks::suite::Suite;
+use rlevo_core::evaluation::GenerationProbe;
+use rlevo_core::fitness::MetricsProvider;
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 
 // --- FitnessEvaluable wiring -------------------------------------------
@@ -62,7 +64,7 @@ impl FitnessEvaluable for Minimizer {
     }
 }
 
-// --- GA state wrapped as a BenchEnv ------------------------------------
+// --- GA state driven as a GenerationProbe ------------------------------
 
 struct GaEnv {
     landscape: Rastrigin,
@@ -134,38 +136,57 @@ fn sample_population(rng: &mut StdRng, landscape: &Rastrigin, pop_size: usize) -
         .collect()
 }
 
-impl BenchEnv for GaEnv {
-    type Observation = ();
-    type Action = ();
+/// Per-generation summary this example's hand-rolled GA reports.
+///
+/// A `GenerationProbe` names its own metrics type, so an implementor is not
+/// limited to the single `f64` a `BenchStep` reward could carry.
+struct GaGenerationMetrics {
+    generation: usize,
+    best_this_generation: f64,
+    best_so_far: f64,
+}
 
-    fn reset(&mut self) -> Result<Self::Observation, BenchError> {
+impl MetricsProvider for GaGenerationMetrics {
+    #[allow(clippy::cast_precision_loss)]
+    fn emit(&self) -> Vec<Metric> {
+        vec![
+            Metric::Scalar {
+                name: "ga/generation".to_string(),
+                value: self.generation as f64,
+            },
+            Metric::Scalar {
+                name: "ga/best_this_generation".to_string(),
+                value: self.best_this_generation,
+            },
+            Metric::Scalar {
+                name: "ga/best_so_far".to_string(),
+                value: self.best_so_far,
+            },
+        ]
+    }
+}
+
+impl GenerationProbe for GaEnv {
+    type Metrics = GaGenerationMetrics;
+
+    fn begin(&mut self) {
         let pop_size = self.population.len();
         self.population = sample_population(&mut self.rng, &self.landscape, pop_size);
         self.best_so_far = f64::INFINITY;
         self.generation = 0;
-        Ok(())
     }
 
-    fn step(&mut self, _action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
+    fn advance(&mut self) -> Option<Self::Metrics> {
+        if self.generation >= self.max_generations {
+            return None;
+        }
         let best = self.evolve();
         self.generation += 1;
-        Ok(BenchStep {
-            observation: (),
-            reward: -best,
-            done: self.generation >= self.max_generations,
+        Some(GaGenerationMetrics {
+            generation: self.generation,
+            best_this_generation: best,
+            best_so_far: self.best_so_far,
         })
-    }
-}
-
-// --- Passive agent -----------------------------------------------------
-
-struct Passive;
-
-impl BenchableAgent<(), ()> for Passive {
-    fn act(&mut self, _obs: &(), _rng: &mut dyn Rng) {}
-
-    fn emit_metrics(&self) -> Vec<Metric> {
-        Vec::new()
     }
 }
 
@@ -187,22 +208,33 @@ fn main() {
         success_threshold: None,
     };
 
-    let suite: Suite<GaEnv> = Suite::new("rastrigin-ga", cfg.clone())
-        .with_env("rastrigin-10d", |seed| GaEnv::new(seed, DIM, POP, MAX_GENS));
-
     let evaluator = Evaluator::new(cfg);
     let mut reporter = LoggingReporter::new();
-    let report = evaluator.run_suite(&suite, |_s| Passive, &mut reporter);
+    let report = evaluator.run_trials(
+        "rastrigin-ga",
+        &["rastrigin-10d".to_string()],
+        |_key, env_seed, _agent_seed| GenerationTrial {
+            probe: GaEnv::new(env_seed, DIM, POP, MAX_GENS),
+        },
+        &mut reporter,
+    );
 
     println!("=== {} ===", report.suite_name);
     for trial in &report.trials {
-        let last_return = trial.episodes.last().map_or(f64::NAN, |e| -e.return_value);
-        let ea_metrics = ea::ea_metrics(Some(last_return), None, None);
+        // Read the best cost straight off the trial's scalars. The previous
+        // `BenchEnv` version had to negate `episodes.last()`'s return, since a
+        // `BenchStep` reward is maximise-space while this landscape is a cost.
+        let best = trial
+            .scalars
+            .get("ga/best_so_far")
+            .copied()
+            .unwrap_or(f64::NAN);
+        let ea_metrics = ea::ea_metrics(Some(best), None, None);
         println!(
             "trial={} seed={:>20} best_fitness≈{:.4}  ea_metrics={}",
             trial.key.trial_idx,
             trial.trial_seed,
-            last_return,
+            best,
             ea_metrics.len()
         );
     }
