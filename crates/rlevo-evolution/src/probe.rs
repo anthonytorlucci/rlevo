@@ -24,39 +24,60 @@
 
 use burn::tensor::backend::Backend;
 
+use rlevo_core::evaluation::GenerationProbe;
+use rlevo_core::fitness::{Metric, MetricsProvider};
+
 use crate::coevolution::{CoEAMetrics, CoEvolutionaryAlgorithm, CoEvolutionaryHarness};
 use crate::fitness::BatchFitnessFn;
 use crate::strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
 
-/// Something that runs a fixed budget of evolutionary generations.
-///
-/// # Contract
-///
-/// - [`begin`](Self::begin) resets to a fresh initial state and re-seeds
-///   deterministically. Two `begin`-to-exhaustion runs of the same probe MUST
-///   produce identical metric sequences.
-/// - [`advance`](Self::advance) runs exactly one generation and returns its
-///   metrics, or `None` once the generation budget is exhausted. It MUST check
-///   the budget before stepping, so calling it past exhaustion is a cheap
-///   no-op rather than a panic or an over-run generation.
-/// - `advance` before `begin` is a caller error; implementors may panic.
-///
-/// # Why `Option` rather than a `done` flag
-///
-/// The budget lives in the probe, which already owns it. A separate `done`
-/// boolean invites a second, unenforced copy of the same number in the
-/// driver's configuration — which is exactly what `EvaluatorConfig::max_steps`
-/// is today, hand-synced against `max_generations` at every call site.
-/// `Option` makes the exhausted state unrepresentable as anything else.
-pub trait GenerationProbe {
-    /// Typed per-generation metrics this probe reports.
-    type Metrics;
+fn scalar(name: &str, value: f64) -> Metric {
+    Metric::Scalar {
+        name: name.to_string(),
+        value,
+    }
+}
 
-    /// Reset to a fresh initial state, re-seeding deterministically.
-    fn begin(&mut self);
+/// Reports the single-population generation summary as harness metrics.
+///
+/// Names are prefixed `ea/` so a generation trial's scalars never collide with
+/// the episodic `core_metrics` names (`return/mean`, `episode/length_mean`, …)
+/// in the same `TrialReport` metric maps.
+impl MetricsProvider for StrategyMetrics {
+    #[allow(clippy::cast_precision_loss)]
+    fn emit(&self) -> Vec<Metric> {
+        vec![
+            scalar("ea/generation", self.generation() as f64),
+            scalar("ea/population_size", self.population_size() as f64),
+            scalar("ea/best_fitness", f64::from(self.best_fitness())),
+            scalar("ea/best_fitness_ever", f64::from(self.best_fitness_ever())),
+            scalar("ea/mean_fitness", f64::from(self.mean_fitness())),
+            scalar("ea/worst_fitness", f64::from(self.worst_fitness())),
+            scalar("ea/broken_count", self.broken_count() as f64),
+        ]
+    }
+}
 
-    /// Run one generation, or return `None` if the budget is exhausted.
-    fn advance(&mut self) -> Option<Self::Metrics>;
+/// Reports the two-population co-evolutionary summary as harness metrics.
+///
+/// `coea/binding_fitness` is the canonical (engine-space) value — the weaker
+/// population's best — while the per-population `best`/`mean` fields are in the
+/// objective's natural declared sense (ADR 0023). Emitting both keeps that
+/// distinction visible in the report rather than collapsing it.
+impl MetricsProvider for CoEAMetrics {
+    #[allow(clippy::cast_precision_loss)]
+    fn emit(&self) -> Vec<Metric> {
+        vec![
+            scalar("coea/generation", self.generation as f64),
+            scalar("coea/binding_fitness", f64::from(self.binding_fitness)),
+            scalar("coea/best_fitness_a", f64::from(self.best_fitness_a)),
+            scalar("coea/best_fitness_b", f64::from(self.best_fitness_b)),
+            scalar("coea/mean_fitness_a", f64::from(self.mean_fitness_a)),
+            scalar("coea/mean_fitness_b", f64::from(self.mean_fitness_b)),
+            scalar("coea/hof_size_a", self.hof_size_a as f64),
+            scalar("coea/hof_size_b", self.hof_size_b as f64),
+        ]
+    }
 }
 
 impl<B, S, F> GenerationProbe for EvolutionaryHarness<B, S, F>

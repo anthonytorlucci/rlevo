@@ -21,8 +21,8 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
-use rlevo_core::evaluation::BenchEnv;
-use rlevo_core::fitness::BenchableAgent;
+use rlevo_core::evaluation::{BenchEnv, GenerationProbe};
+use rlevo_core::fitness::{BenchableAgent, Metric, MetricsProvider};
 use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
@@ -338,6 +338,14 @@ pub struct EpisodicTrial<E, A> {
     pub agent_seed: u64,
 }
 
+impl<E, A> std::fmt::Debug for EpisodicTrial<E, A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EpisodicTrial")
+            .field("agent_seed", &self.agent_seed)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<E, A> Trial for EpisodicTrial<E, A>
 where
     E: BenchEnv,
@@ -419,6 +427,82 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
         s.clone()
     } else {
         "unknown panic".to_string()
+    }
+}
+
+/// A [`Trial`] that drives a [`GenerationProbe`] to its budget.
+///
+/// The counterpart to [`EpisodicTrial`] for work that has no episode axis. It
+/// calls `begin` once, then `advance` until the probe reports exhaustion,
+/// and reports the final unit's metrics plus a generation count.
+///
+/// # Why no episodes
+///
+/// [`TrialReport::episodes`] is left **empty**, deliberately. A probe re-seeds
+/// on `begin`, so a second pass would be a byte-identical replay — duplicated
+/// compute carrying zero information. Rather than fabricate one synthetic
+/// `EpisodeSummary` per run (which would make `num_episodes > 1` silently
+/// multiply cost for no signal, as it does through the `BenchEnv` path today),
+/// this trial reports no episodes at all and `on_episode_end` never fires.
+/// Consumers read the `ea/*` or `coea/*` scalars instead.
+pub struct GenerationTrial<P> {
+    /// The probe under test, already seeded by the suite factory.
+    pub probe: P,
+}
+
+impl<P> std::fmt::Debug for GenerationTrial<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GenerationTrial").finish_non_exhaustive()
+    }
+}
+
+impl<P> Trial for GenerationTrial<P>
+where
+    P: GenerationProbe,
+    P::Metrics: MetricsProvider,
+{
+    fn run(
+        mut self,
+        cfg: &EvaluatorConfig,
+        info: &TrialInfo,
+        _reporter: &Mutex<&mut dyn Reporter>,
+    ) -> TrialReport {
+        let mut report = TrialReport::new(info.key, info.env_name.clone(), info.trial_seed);
+        let start = Instant::now();
+
+        self.probe.begin();
+
+        let mut units = 0usize;
+        let mut last: Option<P::Metrics> = None;
+        // `max_steps` is a backstop only: the probe owns its own budget and
+        // ends the loop by returning `None`. The cap exists so a probe with a
+        // broken exhaustion check cannot hang the suite.
+        while units < cfg.max_steps {
+            match self.probe.advance() {
+                Some(m) => {
+                    units += 1;
+                    last = Some(m);
+                }
+                None => break,
+            }
+        }
+
+        let wall = start.elapsed().as_secs_f64();
+        report.absorb_metrics(vec![
+            Metric::Scalar {
+                name: "generations".to_string(),
+                #[allow(clippy::cast_precision_loss)]
+                value: units as f64,
+            },
+            Metric::Scalar {
+                name: "wall_clock_seconds".to_string(),
+                value: wall,
+            },
+        ]);
+        if let Some(m) = last {
+            report.absorb_metrics(m.emit());
+        }
+        report
     }
 }
 

@@ -116,3 +116,42 @@ pub trait BenchEnv {
     /// operation fails.
     fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError>;
 }
+
+/// Something that runs a fixed budget of self-paced units of work.
+///
+/// The second drive seam in this module, alongside [`BenchEnv`]. Where
+/// `BenchEnv` models an episodic agent/environment interaction — observation
+/// in, action out, reward and a `done` flag back — `GenerationProbe` models a
+/// loop that simply advances itself: no observation, no action, no episode
+/// axis. An evolutionary generation loop is the motivating case, but nothing
+/// here names a genome or a population.
+///
+/// # Contract
+///
+/// - [`begin`](Self::begin) resets to a fresh initial state and re-seeds
+///   deterministically. Two `begin`-to-exhaustion runs of the same probe MUST
+///   produce identical metric sequences.
+/// - [`advance`](Self::advance) runs exactly one generation and returns its
+///   metrics, or `None` once the generation budget is exhausted. It MUST check
+///   the budget before stepping, so calling it past exhaustion is a cheap
+///   no-op rather than a panic or an over-run generation.
+/// - `advance` before `begin` is a caller error; implementors may panic.
+///
+/// # Why `Option` rather than a `done` flag
+///
+/// The budget lives in the probe, which already owns it. A separate `done`
+/// boolean invites a second, unenforced copy of the same number in the
+/// driver's configuration — which is exactly what `rlevo-benchmarks`'
+/// `EvaluatorConfig::max_steps` is today, hand-synced against the harness's
+/// own `max_generations` at every call site. `Option` makes the exhausted
+/// state unrepresentable as anything else.
+pub trait GenerationProbe {
+    /// Typed per-unit metrics this probe reports.
+    type Metrics;
+
+    /// Reset to a fresh initial state, re-seeding deterministically.
+    fn begin(&mut self);
+
+    /// Run one unit, or return `None` if the budget is exhausted.
+    fn advance(&mut self) -> Option<Self::Metrics>;
+}

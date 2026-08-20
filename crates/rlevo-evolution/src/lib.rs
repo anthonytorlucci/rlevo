@@ -91,6 +91,6 @@ pub use neuroevolution::{
 pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
 pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;
-pub use probe::GenerationProbe;
+pub use rlevo_core::evaluation::GenerationProbe;
 pub use shaping::ShapingError;
 pub use strategy::{EvolutionaryHarness, GenerationStep, Strategy, StrategyMetrics};
