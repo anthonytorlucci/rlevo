@@ -1,0 +1,96 @@
+name: byoe-acceptance
+
+# BYOE-1 — can a researcher who has never seen this repository bring their own
+# environment and reach a rendered report, using only published crates and
+# public API?
+#
+# Spec: docs/.private/specs/2026-08-21-byoe-first-class-citizen/
+#
+# THIS JOB IS EXPECTED TO FAIL. It is landed red on purpose: the positioning
+# claim ("rlevo is for researchers who bring their own environment") has never
+# been falsifiable, and this is the artifact that makes it so. The failing step
+# number is the deliverable, not a defect in the job.
+#
+# `continue-on-error` keeps the check informational so it does not block merges
+# while the spec's blockers are open. Remove it once BYOE-1 reaches step 8 —
+# at that point a regression genuinely should fail the build.
+#
+# It runs against `cargo package` tarballs rather than crates.io, so it needs
+# no publish and catches pre-publish regressions. A crates.io variant belongs
+# on a schedule, not here.
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "xtask/**"
+      - ".github/workflows/byoe-acceptance.yml"
+  workflow_dispatch:
+  schedule:
+    # Weekly, so packaging regressions surface even in quiet weeks.
+    - cron: "17 6 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: byoe-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  byoe-1:
+    name: BYOE-1 outside-in acceptance
+    runs-on: ubuntu-latest
+    # Expected-red. See the header comment before deleting this line.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # The probe builds burn + wgpu + rapier from source; without a cache this
+      # job is the slowest in the repo by a wide margin.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: byoe-acceptance
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libudev-dev libasound2-dev pkg-config
+
+      # Invokes the script directly rather than through `cargo xtask`: the
+      # dispatcher would compile a crate purely to exec a shell script the
+      # runner can already run, and its exit code is what carries the verdict
+      # either way.
+      - name: Run BYOE-1
+        id: byoe
+        run: ./xtask/byoe/run.sh
+
+      # `continue-on-error` swallows the exit code, so surface the verdict in
+      # the run summary where a human will actually see it. `steps.*.outcome`
+      # is the pre-continue-on-error result.
+      - name: Publish verdict
+        if: always()
+        run: |
+          if [ "${{ steps.byoe.outcome }}" = "success" ]; then
+            echo "### BYOE-1 passes all 9 steps" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "A third-party environment reaches a rendered report using public API only." >> "$GITHUB_STEP_SUMMARY"
+            echo "Consider removing \`continue-on-error\` so regressions block merges." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### BYOE-1 did not complete — expected while spec blockers are open" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "See the \`Run BYOE-1\` step log for the failing step number, then" >> "$GITHUB_STEP_SUMMARY"
+            echo "record it in the spec's blocker section." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Step | Meaning |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 2 | \`rlevo\` alone is not enough to reach the harness |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 3 | the probe does not compile against the packaged public API |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 4 | the post-terminal contract could not be satisfied |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 6 | the harness could not be driven |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 7 | the run could not be recorded |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 8 | the report is missing, empty, or ASCII-fallback only |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 9 | the interactive client is unreachable from crates.io |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 90 | the script aborted before testing anything |" >> "$GITHUB_STEP_SUMMARY"
+          fi

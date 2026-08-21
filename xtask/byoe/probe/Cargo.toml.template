@@ -1,0 +1,38 @@
+# Template for the BYOE-1 probe crate. `scripts/byoe_acceptance.sh` renders
+# @@STAGE@@ / @@VERSION@@ and writes the result outside the workspace.
+#
+# Stored as `.template`, not `Cargo.toml`, so cargo does not discover this
+# directory as a package of the rlevo workspace.
+#
+# Every `[dependencies]` entry below is a crate the researcher had to add by
+# hand. That count is a BYOE-1 step 2 finding, not incidental bookkeeping:
+#   rlevo              - expected; the one crate the README tells them about
+#   rlevo-benchmarks   - the harness, NOT reachable through the umbrella (B2)
+#   parking_lot        - forced by `Arc<Mutex<dyn RecordSink>>` in the record API
+#   rand               - forced by `BenchableAgent::act(&mut dyn Rng)`
+#   serde              - forced by `impl Environment for RecordingTap`, whose
+#                        bounds require `E::ActionType: Serialize` (B9). Found
+#                        only by hitting the compiler error.
+[package]
+name = "byoe-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Empty table: this crate is standalone and must never be adopted into a
+# parent workspace, whatever directory the probe is staged in.
+[workspace]
+
+[dependencies]
+# Naive `cargo add rlevo` - default features on, exactly as a new user gets it.
+rlevo = { version = "@@VERSION@@", path = "@@STAGE@@/rlevo-@@VERSION@@" }
+rlevo-benchmarks = { version = "@@VERSION@@", path = "@@STAGE@@/rlevo-benchmarks-@@VERSION@@", features = [
+    "report",
+] }
+parking_lot = "0.12"
+rand = "0.10.1"
+serde = { version = "1", features = ["derive"] }
+
+[[bin]]
+name = "byoe-probe"
+path = "src/main.rs"
