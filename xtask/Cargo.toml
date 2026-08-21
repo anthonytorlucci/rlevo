@@ -1,0 +1,15 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Repository automation tasks for rlevo (not a library; never a dependency of a shipped crate)"
+license.workspace = true
+
+# Deliberately dependency-free. `xtask` dispatches to scripts rather than
+# reimplementing them, so it adds nothing to any build it is not explicitly
+# asked to run. Adding a dependency here should be a conscious decision.
+[dependencies]
+
+[lints]
+workspace = true

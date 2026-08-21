@@ -1,0 +1,6 @@
+# `cargo xtask <task>` — repository automation. See `xtask/src/main.rs`.
+#
+# `xtask` is a workspace member but not a `default-member`, so this alias is
+# the only thing that builds it.
+[alias]
+xtask = "run --package xtask --"
