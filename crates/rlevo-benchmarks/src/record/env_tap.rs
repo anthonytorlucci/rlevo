@@ -70,7 +70,7 @@ pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     payload_extractor: PayloadExtractor<E>,
     ascii_extractor: AsciiExtractor<E>,
     styled_extractor: StyledExtractor<E>,
-    step: u32,
+    step_idx: u32,
     episode_idx: u32,
     episode_return: f64,
     episode_length: u32,
@@ -113,7 +113,7 @@ where
             payload_extractor: Box::new(extractor),
             ascii_extractor: Box::new(|e: &E| Some(e.render_ascii())),
             styled_extractor: Box::new(|e: &E| Some(e.render_styled())),
-            step: 0,
+            step_idx: 0,
             episode_idx: 0,
             episode_return: 0.0,
             episode_length: 0,
@@ -137,7 +137,7 @@ impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD,
             payload_extractor: Box::new(payload),
             ascii_extractor: Box::new(|_: &E| None),
             styled_extractor: Box::new(|_: &E| None),
-            step: 0,
+            step_idx: 0,
             episode_idx: 0,
             episode_return: 0.0,
             episode_length: 0,
@@ -272,7 +272,7 @@ where
             .field("payload_extractor", &"Box<dyn Fn>")
             .field("ascii_extractor", &"Box<dyn Fn>")
             .field("styled_extractor", &"Box<dyn Fn>")
-            .field("step", &self.step)
+            .field("step_idx", &self.step_idx)
             .field("episode_idx", &self.episode_idx)
             .field("episode_return", &self.episode_return)
             .field("episode_length", &self.episode_length)
@@ -305,7 +305,7 @@ where
         let ascii = (self.ascii_extractor)(&self.inner);
         let styled = (self.styled_extractor)(&self.inner);
         let record = FrameRecord {
-            step: self.step,
+            step: self.step_idx,
             action: action_bytes,
             reward,
             ascii,
@@ -345,7 +345,7 @@ where
             self.episode_idx = self.episode_idx.saturating_add(1);
         }
         self.started = true;
-        self.step = 0;
+        self.step_idx = 0;
         self.episode_return = 0.0;
         self.episode_length = 0;
         self.sink.lock().on_episode_start(self.episode_idx);
@@ -374,15 +374,15 @@ where
         // On encode failure, surface it through `take_error` rather than
         // letting the action silently collapse to the same empty-bytes
         // sentinel a reset frame uses. The frame is still emitted (with an
-        // empty action) so the trajectory stays decodable; `self.step + 1`
-        // is the frame's eventual index since `self.step` bumps below.
+        // empty action) so the trajectory stays decodable; `self.step_idx + 1`
+        // is the frame's eventual index since `self.step_idx` bumps below.
         let action_bytes =
             match bincode::serde::encode_to_vec(&action, super::schema::bincode_config()) {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     self.sink.lock().record_external_error(
                         super::error::RecordError::ActionEncode {
-                            step: self.step.saturating_add(1),
+                            step: self.step_idx.saturating_add(1),
                             message: e.to_string(),
                         },
                     );
@@ -390,7 +390,7 @@ where
                 }
             };
         let snap = self.inner.step(action)?;
-        self.step = self.step.saturating_add(1);
+        self.step_idx = self.step_idx.saturating_add(1);
         let r: f32 = snap.reward().clone().into();
         self.episode_return += f64::from(r);
         self.episode_length = self.episode_length.saturating_add(1);
