@@ -101,15 +101,17 @@ pub fn fitness_variance(evaluations: &[f64]) -> f64 {
 /// is silently omitted rather than filled with a sentinel, keeping the report
 /// compact and unambiguous.
 ///
-/// The evolution loop typically calls this once per generation alongside
-/// [`core_metrics`][super::core::core_metrics] and merges both into
+/// The evolution loop typically calls this once per generation, alongside the
+/// harness's own core measurements, and merges the result into
 /// [`crate::report::TrialReport::absorb_metrics`]:
 ///
 /// ```text
 /// // inside evolution::run_generation
-/// report.absorb_metrics(core_metrics(&returns, &lengths, wall, cfg.success_threshold));
 /// report.absorb_metrics(ea_metrics(Some(best), Some(&population), Some(&evals)));
 /// ```
+///
+/// Every key emitted here is namespaced `ea/…` and is agent-owned, never
+/// harness-owned, so `absorb_metrics` records each one under that exact name.
 ///
 /// ## Inputs and their origin
 ///

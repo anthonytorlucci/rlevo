@@ -23,17 +23,30 @@ use crate::objective::ObjectiveSense;
 /// boundaries.
 ///
 /// Each variant carries a `name` that identifies the metric (e.g.
-/// `"q_loss"`, `"policy_entropy"`). Names are free-form strings; the harness
-/// records them verbatim without normalisation.
+/// `"q_loss"`, `"policy_entropy"`). As far as this crate is concerned the name
+/// is a free-form string: nothing here validates, normalises, or rewrites it,
+/// and no naming scheme is imposed on implementors.
+///
+/// A consumer that collects these metrics may reserve namespaces of its own —
+/// typically to protect measurements it made itself from being replaced by an
+/// emitted one of the same name. Such a consumer may record an emitted metric
+/// under a name other than the one given here. Which names a consumer reserves,
+/// and what it does with a collision, is governed by that consumer's own
+/// documentation; this crate neither defines nor constrains it.
 #[derive(Debug, Clone)]
 pub enum Metric {
     /// A single floating-point measurement (loss, reward, step count as f64).
     Scalar { name: String, value: f64 },
-    /// A distribution of values collected over a trial (per-step returns,
-    /// priority weights). Consumers may summarise via mean/variance.
+    /// A distribution of values (per-step returns, priority weights).
+    /// Consumers may summarise via mean/variance. Like [`Metric::Counter`],
+    /// the span the samples cover is [`MetricsProvider::emit`]'s contract, not
+    /// a fixed unit of work.
     Histogram { name: String, values: Vec<f64> },
-    /// A monotonically increasing integer count (environment steps, gradient
-    /// updates) that the harness may accumulate across trials.
+    /// A tally of discrete occurrences (environment steps, gradient updates).
+    /// The counted quantity only ever grows — a count is never negative and
+    /// never decreases — so `count` is a number of events, not a level that
+    /// can fall. How much of that tally one emission covers is
+    /// [`MetricsProvider::emit`]'s contract.
     Counter { name: String, count: u64 },
 }
 
