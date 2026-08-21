@@ -342,6 +342,9 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     type ActionType: Action<AR>;
 
     /// The reward scalar type returned by this environment.
+    ///
+    /// Values emitted by [`step`](Self::step) should be finite — see the
+    /// [`Reward`] trait's `# Finiteness` section.
     type RewardType: Reward;
 
     /// The snapshot type returned by reset and step operations.

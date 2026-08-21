@@ -140,6 +140,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   it up with no `rlevo-benchmarks` change. The descriptor set is additive and
   nothing matches it exhaustively, so no consumer breaks.
 
+### `rlevo-benchmarks`
+
+**Added**
+
+- **`metrics::core::RETURN_NON_FINITE_STEPS`**, the metric key
+  `return/non_finite_steps` (for #1115, ADR 0078). Emitted on **every** trial,
+  including as `0`, so a consumer can tell "this trial saw no non-finite
+  rewards" from "this build of the harness does not report the quantity". It
+  counts **steps, not episodes** — a poisoned return records that an episode was
+  affected, never how many of its steps were — and is `return/`-prefixed so a
+  free-form agent metric cannot collide with it. It reaches the JSON report; the
+  TUI and the static-HTML report read a different channel and surface the
+  warning line instead.
+
+**Fixed**
+
+- **A benchmark trial produced a different *artefact* depending on whether the
+  binary was built in debug or release** (resolves #1115). `EpisodicTrial::run`
+  carried a `debug_assert!` on reward finiteness. In release it compiled away
+  and the trial completed with a `NaN` or `inf` `return/mean`; in debug it
+  panicked into `run_trials`' `catch_unwind`, whose handler replaces the trial
+  with a **fresh** `TrialReport` marked `errored` — discarding every episode the
+  trial had already completed — and under `fail_fast` aborted the rest of the
+  suite. The assertion guarded nothing either way: `total_reward += reward` ran
+  unconditionally in both profiles. It is replaced by a per-trial count, one
+  summary `tracing::warn!` naming the environment and the total, and the
+  `return/non_finite_steps` counter above; accumulation stays raw, so a poisoned
+  return is still reported rather than quietly repaired. ADR 0078 records the
+  reasoning, including why a counter and not a log line alone.
+
 ### `rlevo-core`
 
 **Added**
@@ -161,6 +191,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   does, so it is a drop-in for every input the infallible helper accepts.
 
 **Changed**
+
+- **The `Reward` trait now states its finiteness obligation, and says what the
+  framework does when it is broken** (resolves #1115, ADR 0078). The trait
+  required `Into<f32>` and said nothing at all about `NaN` or infinities, while
+  four sites downstream each handled one differently. A new `# Finiteness`
+  section states that implementors *should* yield finite values and enumerates
+  what each layer actually does when they do not; `ScalarReward` and
+  `Environment::step`'s `RewardType` gain pointers to it. **No runtime check is
+  added, and none is deferred** — `Reward` is a *trait*, so validating one
+  concrete implementor closes nothing for an environment that ships its own.
 
 - **The `agent` module's documentation no longer names the version it is empty
   in** (resolves #936). Every doc site describing the placeholder module carried

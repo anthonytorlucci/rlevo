@@ -28,7 +28,7 @@ use rlevo_core::reward::ScalarReward;
 use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
-use crate::metrics::core::core_metrics;
+use crate::metrics::core::{RETURN_NON_FINITE_STEPS, core_metrics};
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
@@ -379,6 +379,9 @@ where
         let mut report = TrialReport::new(info.key, info.env_name.clone(), info.trial_seed);
         let mut returns: Vec<f64> = Vec::with_capacity(cfg.num_episodes);
         let mut lengths: Vec<usize> = Vec::with_capacity(cfg.num_episodes);
+        // Steps (not episodes) whose reward was not finite, over the whole
+        // trial. Summarised once after the episode loop.
+        let mut non_finite_steps: u64 = 0;
 
         let start = Instant::now();
 
@@ -405,19 +408,25 @@ where
                     }
                 };
                 let reward = f64::from(snap.reward().value());
-                // A non-finite reward is an environment bug, not user input: it
-                // silently poisons `return/mean` and `return/std` downstream in
-                // `core_metrics` (both are plain sums), while `min`/`max`
-                // survive only by accident of `f64::min`/`f64::max` dropping
-                // NaN. A `debug_assert!` tripwire rather than a hard `assert!`,
-                // per ADR 0034's convention — the harness must not panic on a
-                // misbehaving environment in release, only surface it in tests.
-                debug_assert!(
-                    reward.is_finite(),
-                    "environment {} produced a non-finite reward ({reward}) at step {length}; \
-                     this poisons return/mean and return/std",
-                    info.env_name,
-                );
+                // A non-finite reward is counted and reported, never asserted
+                // on and never filtered out. Accumulation stays raw and
+                // unconditional: a non-finite return is a *true* statement
+                // about a run whose environment emitted one, matching the
+                // training-loop policy in `c51/train.rs`. Dropping the term
+                // would fabricate a plausible return the run never earned.
+                //
+                // A `debug_assert!` tripwire used to live here. It made the
+                // harness's *output* a function of `cfg(debug_assertions)`: in
+                // release the trial completed with a poisoned return, while in
+                // debug it panicked into `run_trials`' `catch_unwind`, which
+                // replaces the trial with a fresh errored `TrialReport` —
+                // discarding every episode already completed — and under
+                // `fail_fast` killed the whole suite. A measurement harness
+                // whose artefact shape depends on the build profile is broken
+                // on its own terms.
+                if !reward.is_finite() {
+                    non_finite_steps += 1;
+                }
                 total_reward += reward;
                 length += 1;
 
@@ -444,6 +453,21 @@ where
             }
         }
 
+        // One deterministic summary line per affected trial — not the
+        // escalating decade schedule used by the RL crate's
+        // `FiniteRewardGuard`, which exists because `remember` is a hot path
+        // with no aggregation point. This loop has one, and each trial owns its
+        // own counter, so a per-trial decade schedule would restart at 1 and be
+        // strictly noisier than a single total.
+        if non_finite_steps > 0 {
+            tracing::warn!(
+                target: "rlevo_benchmarks",
+                env = %info.env_name,
+                non_finite_steps,
+                "environment produced non-finite rewards; episode returns are poisoned"
+            );
+        }
+
         let wall = start.elapsed().as_secs_f64();
         report.absorb_metrics(core_metrics(
             &returns,
@@ -451,6 +475,10 @@ where
             wall,
             cfg.success_threshold,
         ));
+        report.absorb_metrics(vec![Metric::Counter {
+            name: RETURN_NON_FINITE_STEPS.to_string(),
+            count: non_finite_steps,
+        }]);
         report.absorb_metrics(self.agent.emit_metrics());
         report
     }
@@ -550,19 +578,24 @@ mod tests {
     //! evaluator logic is exercised without pulling in `rlevo-environments`
     //! as a dev-dependency (which would drag in the full physics crate tree).
 
-    use std::sync::{Arc, Mutex};
+    use std::cell::RefCell;
+    use std::sync::{Arc, Mutex, Once};
 
     use rand::Rng;
+    use tracing::field::{Field, Visit};
+    use tracing::{Event as TracingEvent, Level, Subscriber};
+    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
     use rlevo_core::base::{Action, Observation, State};
     use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
-    use rlevo_core::fitness::BenchableAgent;
+    use rlevo_core::fitness::{BenchableAgent, Metric};
     use rlevo_core::reward::ScalarReward;
 
     use super::{EpisodicTrial, Evaluator, EvaluatorConfig, Trial};
+    use crate::metrics::core::{RETURN_MEAN, RETURN_NON_FINITE_STEPS};
     use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
     use crate::reporter::Reporter;
-    use crate::suite::{Suite, SuiteInfo, TrialInfo};
+    use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 
     // ── Stub env ─────────────────────────────────────────────────────────────
 
@@ -663,6 +696,25 @@ mod tests {
         }
     }
 
+    /// A stub agent that emits a fixed metric list at trial end.
+    ///
+    /// `StubAgent` takes the `BenchableAgent::emit_metrics` default (an empty
+    /// `Vec`), so no test driving it can observe the order in which the trial
+    /// absorbs harness metrics and agent metrics. This one can.
+    struct EmittingAgent {
+        metrics: Vec<Metric>,
+    }
+
+    impl BenchableAgent<StubObs, StubAction> for EmittingAgent {
+        fn act(&mut self, _obs: &StubObs, _rng: &mut dyn Rng) -> StubAction {
+            StubAction
+        }
+
+        fn emit_metrics(&self) -> Vec<Metric> {
+            self.metrics.clone()
+        }
+    }
+
     // ── Spy reporter ─────────────────────────────────────────────────────────
 
     #[derive(Debug, Clone, PartialEq)]
@@ -708,7 +760,158 @@ mod tests {
         }
     }
 
+    // ── Tracing capture ──────────────────────────────────────────────────────
+
+    /// One `tracing` event, reduced to the parts these tests assert on.
+    ///
+    /// `env` and `non_finite_steps` are the two fields the trial-summary
+    /// `warn!` carries; both are `Option` because most events carry neither.
+    #[derive(Debug, Clone)]
+    struct CapturedEvent {
+        level: Level,
+        env: Option<String>,
+        non_finite_steps: Option<u64>,
+    }
+
+    thread_local! {
+        /// Per-thread sink [`CaptureLayer`] appends to, `Some` only while
+        /// [`capturing`] is on the stack for this thread.
+        static SINK: RefCell<Option<Vec<CapturedEvent>>> = const { RefCell::new(None) };
+    }
+
+    /// Records every event whose thread has an active [`capturing`] scope.
+    ///
+    /// Mirrors `rlevo_test_support::capture::FieldCapture`, which is not used
+    /// here for two reasons: `rlevo-test-support` pulls in `burn` and
+    /// `rlevo-environments`, which this module's stubs exist to avoid, and it
+    /// collects a single integer field, so it could not observe the `env` name.
+    struct CaptureLayer;
+
+    impl<S: Subscriber> Layer<S> for CaptureLayer {
+        fn on_event(&self, event: &TracingEvent<'_>, _ctx: Context<'_, S>) {
+            SINK.with(|sink| {
+                let mut sink = sink.borrow_mut();
+                let Some(events) = sink.as_mut() else { return };
+                let mut visitor = EventVisitor {
+                    env: None,
+                    non_finite_steps: None,
+                };
+                event.record(&mut visitor);
+                events.push(CapturedEvent {
+                    level: *event.metadata().level(),
+                    env: visitor.env,
+                    non_finite_steps: visitor.non_finite_steps,
+                });
+            });
+        }
+    }
+
+    /// Installs [`CaptureLayer`] as the **process-global** subscriber, once.
+    ///
+    /// Global rather than `with_default`-scoped, and called by every test that
+    /// can emit the trial-summary `warn!`, because `tracing` caches each
+    /// callsite's `Interest` globally and computes it from whatever dispatcher
+    /// the thread that *first* reached the callsite happened to have. Three
+    /// tests here reach that `warn!` from a rayon worker with no subscriber
+    /// installed; if one of them registers the callsite first, `Interest::never`
+    /// is cached for the rest of the process and a scoped capture silently sees
+    /// nothing. That is not hypothetical — it was observed once in ~26 runs of
+    /// an earlier `with_default` version of this helper, i.e. as a rare false
+    /// pass rather than a failure.
+    ///
+    /// A *global* default closes that hole from both sides: `Dispatch::new`
+    /// rebuilds the interest of every already-registered callsite against it,
+    /// and every later registration — on any thread, including a rayon worker
+    /// with no scoped default — resolves through it, because `get_default`
+    /// falls back to the global. `Once::call_once` blocks every other caller
+    /// until it is stored, so calling this first makes the ordering irrelevant.
+    /// **A new test that emits this `warn!` must call this too**, or it reopens
+    /// the race for the others.
+    fn install_capture_subscriber() {
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            tracing::subscriber::set_global_default(
+                tracing_subscriber::registry().with(CaptureLayer),
+            )
+            .expect("no other global tracing subscriber may be installed in this test binary");
+        });
+    }
+
+    /// Runs `f` with this thread's event sink active, returning what it emitted.
+    fn capturing<T>(f: impl FnOnce() -> T) -> (T, Vec<CapturedEvent>) {
+        install_capture_subscriber();
+        SINK.with(|sink| *sink.borrow_mut() = Some(Vec::new()));
+        let out = f();
+        let events = SINK
+            .with(|sink| sink.borrow_mut().take())
+            .expect("sink installed above");
+        (out, events)
+    }
+
+    /// Extracts the two named fields from one event.
+    ///
+    /// `non_finite_steps` is a `u64` and arrives through `record_u64`; `env` is
+    /// recorded with `%` (`tracing::field::display`), which routes through
+    /// `record_debug` with a `format_args!` payload — whose `Debug` is its
+    /// `Display`, so the formatted string is the environment name verbatim.
+    struct EventVisitor {
+        env: Option<String>,
+        non_finite_steps: Option<u64>,
+    }
+
+    impl Visit for EventVisitor {
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            if field.name() == "non_finite_steps" {
+                self.non_finite_steps = Some(value);
+            }
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            if field.name() == "env" {
+                self.env = Some(value.to_string());
+            }
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "env" {
+                self.env = Some(format!("{value:?}"));
+            }
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// Runs one `EpisodicTrial` directly, returning its report and every
+    /// `tracing` event it emitted.
+    ///
+    /// The trial is driven directly rather than through `run_suite` because the
+    /// capture sink is **per-thread**, and `run_suite` fans trials out onto
+    /// rayon workers — a captured-nothing result there would be an artefact of
+    /// the thread, not of the code.
+    fn run_trial_capturing_events(
+        env: StubEnv,
+        cfg: &EvaluatorConfig,
+        env_name: &str,
+    ) -> (TrialReport, Vec<CapturedEvent>) {
+        let info = TrialInfo {
+            key: TrialKey {
+                env_idx: 0,
+                trial_idx: 0,
+            },
+            env_name: env_name.to_string(),
+            trial_seed: 0,
+        };
+        let (mut reporter, _) = SpyReporter::new();
+        let dyn_reporter: &mut dyn Reporter = &mut reporter;
+        let lock = Mutex::new(dyn_reporter);
+        let trial = EpisodicTrial {
+            env,
+            agent: StubAgent,
+            agent_seed: 0,
+        };
+
+        capturing(|| trial.run(cfg, &info, &lock))
+    }
 
     fn single_thread_cfg(num_episodes: usize, max_steps: usize) -> EvaluatorConfig {
         EvaluatorConfig {
@@ -872,36 +1075,209 @@ mod tests {
         );
     }
 
-    /// A non-finite reward trips the debug-build guard (issue #567). In release
-    /// the assertion compiles away and the run proceeds, which is why this test
-    /// is `debug_assertions`-gated rather than asserting on the report.
+    /// A non-finite reward is counted and reported, never asserted on (issues
+    /// #567, #1115). This test is deliberately **not** `debug_assertions`-gated:
+    /// the whole point of the fix is that the harness's output no longer
+    /// depends on the build profile, so it must pin identical behaviour in both.
+    ///
+    /// It pins the *values*, not merely "did not panic": a version that
+    /// silently dropped the non-finite term from `total_reward` would leave the
+    /// returns finite, and a version that counted episodes rather than steps
+    /// would report 2 instead of 6.
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "non-finite reward")]
-    fn non_finite_reward_trips_the_debug_guard() {
-        let cfg = single_thread_cfg(1, 10);
-        let mut env = StubEnv::new(5);
-        env.reward_override = Some(f32::NAN);
+    fn non_finite_reward_is_counted_not_asserted() {
+        // 2 episodes x 3 steps, each step rewarding +inf → 6 non-finite steps.
+        // `max_steps = 10` bounds the loop, so a done-detection defect fails
+        // the length assertion instead of hanging.
+        const EPISODES: usize = 2;
+        const STEPS_PER_EPISODE: usize = 3;
 
-        // `run_suite` catches trial panics, so drive the trial directly to let
-        // the assertion escape.
-        let info = TrialInfo {
-            key: crate::suite::TrialKey {
-                env_idx: 0,
-                trial_idx: 0,
-            },
-            env_name: "e".to_string(),
-            trial_seed: 0,
-        };
+        // This trial emits the non-finite `warn!` from a rayon worker; see
+        // `install_capture_subscriber` for why every such test must call it.
+        install_capture_subscriber();
+        let cfg = single_thread_cfg(EPISODES, 10);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| {
+            let mut env = StubEnv::new(STEPS_PER_EPISODE);
+            env.reward_override = Some(f32::INFINITY);
+            env
+        });
+
         let (mut reporter, _) = SpyReporter::new();
-        let dyn_reporter: &mut dyn Reporter = &mut reporter;
-        let lock = Mutex::new(dyn_reporter);
-        let trial = EpisodicTrial {
-            env,
-            agent: StubAgent,
-            agent_seed: 0,
-        };
-        let _ = trial.run(&cfg, &info, &lock);
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+        let trial = &report.trials[0];
+
+        assert!(
+            !trial.errored,
+            "a non-finite reward is an observation about the run, not a trial failure"
+        );
+        assert_eq!(
+            trial.episodes.len(),
+            EPISODES,
+            "every episode must survive into the report"
+        );
+        for ep in &trial.episodes {
+            assert_eq!(
+                ep.length, STEPS_PER_EPISODE,
+                "the episode still ran to termination"
+            );
+            assert!(
+                ep.return_value.is_infinite() && ep.return_value.is_sign_positive(),
+                "the poisoned return reaches the report; the term is never dropped"
+            );
+        }
+        let mean = trial.scalars[RETURN_MEAN];
+        assert!(
+            mean.is_infinite() && mean.is_sign_positive(),
+            "downstream aggregates carry the poison rather than hiding it"
+        );
+        assert_eq!(
+            trial.counters[RETURN_NON_FINITE_STEPS],
+            (EPISODES * STEPS_PER_EPISODE) as u64,
+            "the counter counts steps over the whole trial, not episodes"
+        );
+    }
+
+    /// The counter is present and zero on a clean trial, so a consumer can tell
+    /// "no non-finite rewards" from "this harness version does not report it".
+    #[test]
+    fn non_finite_counter_is_zero_on_a_clean_trial() {
+        let cfg = single_thread_cfg(2, 10);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(3));
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        assert_eq!(
+            report.trials[0].counters[RETURN_NON_FINITE_STEPS], 0,
+            "a finite trial reports the counter explicitly as zero"
+        );
+    }
+
+    /// Number of non-finite steps the harness itself counts in the collision
+    /// tests below: 2 episodes x 4 steps. Distinct from both `0` and the
+    /// agent's `999`, so no assertion can pass by coincidence.
+    const HARNESS_COUNT: u64 = 8;
+
+    /// Runs one poisoned trial (`+inf` every step) against an agent that emits
+    /// `metrics` from `emit_metrics`, and returns its report.
+    fn poisoned_trial_with_agent_metrics(metrics: &[Metric]) -> TrialReport {
+        // This trial emits the non-finite `warn!` from a rayon worker; see
+        // `install_capture_subscriber` for why every such test must call it.
+        install_capture_subscriber();
+        let cfg = single_thread_cfg(2, 10);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| {
+            let mut env = StubEnv::new(4);
+            env.reward_override = Some(f32::INFINITY);
+            env
+        });
+
+        let (mut reporter, _) = SpyReporter::new();
+        let mut report = Evaluator::new(cfg).run_suite(
+            &suite,
+            |_| EmittingAgent {
+                metrics: metrics.to_vec(),
+            },
+            &mut reporter,
+        );
+        report.trials.remove(0)
+    }
+
+    /// The `return/` namespace is what Decision 4 of ADR 0078 buys: an agent
+    /// emitting the unprefixed name a harness author would plausibly choose
+    /// leaves the harness's own counter alone, and both keys coexist.
+    ///
+    /// Kills the mutant that drops the prefix from `RETURN_NON_FINITE_STEPS`.
+    #[test]
+    fn agent_metric_cannot_collide_with_the_namespaced_counter() {
+        let trial = poisoned_trial_with_agent_metrics(&[Metric::Counter {
+            name: "non_finite_steps".to_string(),
+            count: 999,
+        }]);
+
+        assert_eq!(
+            trial.counters[RETURN_NON_FINITE_STEPS], HARNESS_COUNT,
+            "the namespaced key must carry the harness's own count, not the agent's"
+        );
+        assert_eq!(
+            trial.counters["non_finite_steps"], 999,
+            "the agent's free-form key is recorded verbatim beside it"
+        );
+    }
+
+    /// Emission order, pinned: `absorb_metrics` overwrites same-name entries
+    /// and the agent's metrics are absorbed **last**, so an agent that names
+    /// the harness's exact key takes it. The prefix makes that collision
+    /// deliberate rather than accidental; it does not make it impossible.
+    ///
+    /// Kills the mutant that swaps the counter and `emit_metrics` absorbs —
+    /// under the swapped order the harness's `8` would win instead.
+    ///
+    /// If this assertion is ever inverted so the harness wins, that is a
+    /// behaviour change to `absorb_metrics`' last-writer-wins contract and
+    /// needs an ADR, not a test edit.
+    #[test]
+    fn agent_metrics_are_absorbed_after_the_harness_counter() {
+        let trial = poisoned_trial_with_agent_metrics(&[Metric::Counter {
+            name: RETURN_NON_FINITE_STEPS.to_string(),
+            count: 999,
+        }]);
+
+        assert_eq!(
+            trial.counters[RETURN_NON_FINITE_STEPS], 999,
+            "the last absorb wins, and the agent's is last"
+        );
+    }
+
+    /// One `warn!` per affected trial — not one per affected step, and not
+    /// zero (ADR 0078, Decision 3). The line must carry the environment name
+    /// and the trial total, since it is the TUI's only channel for this
+    /// failure.
+    #[test]
+    fn non_finite_reward_warns_once_per_trial_with_env_and_total() {
+        let cfg = single_thread_cfg(2, 10);
+        let mut env = StubEnv::new(3);
+        env.reward_override = Some(f32::INFINITY);
+
+        let (report, events) = run_trial_capturing_events(env, &cfg, "poisoned-env");
+
+        let warnings: Vec<&CapturedEvent> =
+            events.iter().filter(|e| e.level == Level::WARN).collect();
+        assert_eq!(
+            warnings.len(),
+            1,
+            "exactly one warning per affected trial; this trial had 6 affected steps"
+        );
+        assert_eq!(
+            warnings[0].env.as_deref(),
+            Some("poisoned-env"),
+            "the warning must name the environment that produced the rewards"
+        );
+        assert_eq!(
+            warnings[0].non_finite_steps,
+            Some(6),
+            "the warning must carry the trial total, matching the counter"
+        );
+        assert_eq!(
+            report.counters[RETURN_NON_FINITE_STEPS], 6,
+            "log line and counter must report the same total"
+        );
+    }
+
+    /// Zero lines on a clean trial — the other half of Decision 3's bound.
+    #[test]
+    fn a_clean_trial_emits_no_non_finite_warning() {
+        let cfg = single_thread_cfg(2, 10);
+
+        let (report, events) = run_trial_capturing_events(StubEnv::new(3), &cfg, "clean-env");
+
+        assert!(
+            events.iter().all(|e| e.level != Level::WARN),
+            "a trial with no non-finite reward must emit no warning"
+        );
+        assert_eq!(
+            report.counters[RETURN_NON_FINITE_STEPS], 0,
+            "the counter is still emitted, as zero"
+        );
     }
 
     #[test]

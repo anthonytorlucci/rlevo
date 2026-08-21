@@ -18,6 +18,57 @@ pub trait UpdateFunction<Input, Output> {
 }
 
 /// A scalar reward signal emitted by an environment each step.
+///
+/// # Finiteness
+///
+/// Implementors **should** yield finite values. `Reward: Into<f32>` erases every
+/// reward to an `f32` at the framework's ingestion points, so a `NaN` or an
+/// infinity arriving there is an environment bug — not user input that some
+/// layer is expected to sanitise.
+///
+/// `rlevo-core` enforces none of this. There is no `is_finite` check on this
+/// trait, no bound that could express one, and no validation in
+/// [`ScalarReward::new`](crate::reward::ScalarReward::new) (ADR 0065 closed that
+/// question). What follows is what the framework *actually does* when the
+/// obligation is broken, and it is three different things at three places:
+///
+/// - **Dropped at replay ingestion.** The reinforcement-learning crate's reward
+///   guard (`FiniteRewardGuard`) refuses to store a transition whose reward is
+///   non-finite, counts every such drop, and logs a warning on an escalating
+///   schedule. The transition never reaches the buffer, so learning is not
+///   poisoned. (ADR 0065.)
+/// - **Transited, deliberately, by the reported score.** Episode return
+///   accumulates the raw value, so an affected episode reports a non-finite
+///   return and `AgentStats::avg_score` transits it rather than sanitising it.
+///   This is intentional: a non-finite return is a true statement about a run
+///   whose environment emitted a non-finite reward, and hiding it would make the
+///   bug harder to find, not rarer. (ADR 0065 and ADR 0070.)
+/// - **Counted and reported by the benchmarks harness.** The evaluator
+///   accumulates raw (matching the above), logs a warning, and records a
+///   `return/non_finite_steps` counter on the trial report. (ADR 0078.)
+///
+/// ## Both signs corrupt a report, and neither announces itself
+///
+/// This is not a `NaN`-only hazard. For trial returns `[1, 5, X, 20, 100]` with a
+/// success threshold of `10`, the harness's own aggregates come out as:
+///
+/// | `X`     | mean | median | std   | min | max   | success rate |
+/// | ------- | ---- | ------ | ----- | --- | ----- | ------------ |
+/// | finite  | 27.0 | 9.0    | 41.42 | 1   | 100   | 0.40         |
+/// | `NaN`   | NaN  | 20.0   | NaN   | 1   | 100   | 0.40         |
+/// | `+inf`  | inf  | 20.0   | NaN   | 1   | inf   | 0.60         |
+///
+/// `NaN` is scored as a *failure* the agent may not have earned; `+inf` is scored
+/// as a *success* it certainly did not, and poisons `max` besides. In both cases
+/// the median silently shifts (9.0 to 20.0) while min stays finite-looking, so a
+/// report can present a poisoned aggregate next to plausible order statistics
+/// with no single tell. Treat a non-finite reward as a defect to fix upstream in
+/// the environment, not as a condition to detect downstream.
+///
+/// The enforcement that does exist lives at the points where the reward has
+/// already been erased to `f32` — by then the type that produced it is gone, and
+/// with it any chance of a useful diagnostic. This section is the obligation;
+/// meeting it is the implementor's job.
 pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
     /// Returns the additive identity for this reward type (typically `0.0`).
     fn zero() -> Self;
