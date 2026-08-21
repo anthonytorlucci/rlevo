@@ -32,6 +32,23 @@ pub const RETURN_STD: &str = "return/std";
 pub const RETURN_MIN: &str = "return/min";
 /// Metric key for maximum episode return — emitted by [`core_metrics`].
 pub const RETURN_MAX: &str = "return/max";
+/// Metric key for the number of **steps** whose reward was not finite.
+///
+/// Counts individual `env.step` results, **not** episodes: one episode can
+/// contribute several, and a `$+\infty$` step plus a `$-\infty$` step in the same episode
+/// yield a `NaN` return from two non-finite steps. It is therefore *not*
+/// derivable from [`crate::report::TrialReport::episodes`] — a poisoned return
+/// records only that the episode was affected, never how many steps did it —
+/// which is exactly why the count is stored.
+///
+/// Unlike the other keys in this block this is **not** emitted by
+/// [`core_metrics`], which sees only per-episode aggregates: the evaluator's
+/// step loop counts it and emits a [`Metric::Counter`](crate::metrics::Metric)
+/// immediately after the `core_metrics` call. The `return/` prefix is
+/// deliberate — [`absorb_metrics`](crate::report::TrialReport::absorb_metrics)
+/// overwrites same-name entries and agent metrics are absorbed afterwards with
+/// free-form names, so an unnamespaced key would be collidable.
+pub const RETURN_NON_FINITE_STEPS: &str = "return/non_finite_steps";
 /// Metric key for mean episode length in steps — emitted by [`core_metrics`].
 pub const EPISODE_LENGTH_MEAN: &str = "episode_length/mean";
 /// Metric key for the fraction of episodes that met the success threshold — emitted by

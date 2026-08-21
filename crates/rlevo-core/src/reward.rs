@@ -26,6 +26,11 @@ use std::ops::Add;
 /// The inner value is public so environments can construct a reward with the
 /// tuple-struct form (`ScalarReward(0.5)`) where it aids brevity. Prefer
 /// [`ScalarReward::new`] from external crates for readability.
+///
+/// Neither the tuple form nor [`ScalarReward::new`] validates the value, so a
+/// division that underflows its denominator lands a `NaN` or an infinity here
+/// intact. See the [`Reward`] trait's `# Finiteness` section for the obligation
+/// and for what each layer downstream does with a value that breaks it.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct ScalarReward(pub f32);
 

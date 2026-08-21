@@ -38,6 +38,15 @@ base64 = { version = "0.22", optional = true }
 [dev-dependencies]
 approx = { workspace = true }
 tempfile = "3"
+# Unconditional (non-optional) so the in-source evaluator tests can install a
+# capture layer and assert on the `tracing::warn!` the trial loop emits —
+# logging behaviour no value assertion can observe. `rlevo-test-support`'s
+# `FieldCapture` is the workspace helper for this, but it drags in `burn` and
+# `rlevo-environments`, which this crate's test module deliberately avoids, and
+# it collects one integer field so it cannot assert the `env` name.
+# Same narrowed feature set as the optional `[dependencies]` entry above, so a
+# test build adds no crate the `tui`/`record` builds do not already link.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
 # Cross-crate compatibility test only: guards the wire-format mirror in
 # the report client against schema drift. The client itself is not a
 # build-time dep of any production crate.
