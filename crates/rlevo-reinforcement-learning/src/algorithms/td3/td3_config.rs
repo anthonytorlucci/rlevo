@@ -478,7 +478,7 @@ mod tests {
 
     /// The frozen-target state is not *rejected* by `validate` here — it is
     /// unrepresentable, so the assertion belongs at the constructor (ADR 0058
-    /// - Consequences). Pinned per family rather than only in `target.rs`,
+    /// section Consequences). Pinned per family rather than only in `target.rs`,
     /// because the guarantee a TD3 reader needs is "no `Td3TrainingConfig` can
     /// hold a frozen target", and that is a statement about this config.
     #[test]

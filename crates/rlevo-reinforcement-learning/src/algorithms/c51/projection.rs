@@ -7,14 +7,14 @@
 //!
 //! # Algorithm
 //!
-//! For each sample in the batch, each atom `z_i` of the next-state
+//! For each sample in the batch, each atom `$z_i$` of the next-state
 //! distribution is shifted by the Bellman backup:
 //!
 //! ```math
 //! Tz_i = \text{clamp}(r + \gamma \cdot (1 - \text{terminated}) \cdot z_i,\; v_{min},\; v_{max})
 //! ```
 //!
-//! `Tz_i` generally falls between two atoms of the *fixed* support. The
+//! `$Tz_i$` generally falls between two atoms of the *fixed* support. The
 //! projection redistributes each `next_probs_i` between the two neighbouring
 //! atoms, weighted by their relative distance, producing the projected
 //! probability mass `target_probs`.
@@ -55,11 +55,11 @@ use burn::tensor::{IndexingUpdateOp, Int, Tensor};
 
 use crate::algorithms::shared::clamp_preserving_nan;
 
-/// Spacing \\(\Delta z\\) between adjacent atoms of a uniform categorical support.
+/// Spacing `$\Delta z$` between adjacent atoms of a uniform categorical support.
 ///
-/// \\(\Delta z = (\text{v\_max} - \text{v\_min}) / (\text{num\_atoms} - 1)\\) — the single source of truth for
+/// `$\Delta z = (\text{v\_max} - \text{v\_min}) / (\text{num\_atoms} - 1)$` — the single source of truth for
 /// the atom scale. Both the *construction* of the support tensor
-/// (\\(z_i = \text{v\_min} + i \cdot \Delta z\\)) and the *index* computation inside
+/// `$z_i = \text{v\_min} + i \cdot \Delta z$` and the *index* computation inside
 /// [`project_distribution`] must use this one function; two independent
 /// spellings of the same constant can disagree by an ULP and push a bin index
 /// off the end of the support.
@@ -69,8 +69,8 @@ use crate::algorithms::shared::clamp_preserving_nan;
 /// C51 today, a future Rainbow tomorrow — without a config dependency.
 ///
 /// # Arguments
-/// - `v_min`, `v_max`: support bounds \\(z_0\\) and \\(z_{N-1}\\).
-/// - `num_atoms`: number of atoms `N`.
+/// - `v_min`, `v_max`: support bounds `$z_0$` and `$z_{N-1}$`.
+/// - `num_atoms`: number of atoms `$N$`.
 ///
 /// # Returns
 /// The uniform atom spacing. A support needs **at least two** atoms for a
@@ -107,9 +107,9 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   shape `(batch_size, num_atoms)`. Must sum to ≈1 along the atom axis.
 /// - `rewards`: per-sample reward `r`, shape `(batch,)`.
 /// - `terminated`: per-sample terminal mask in `{0.0, 1.0}`, shape `(batch_size,)`.
-/// - `support`: atom values \\(z_0 \cdots z_{N-1}\\), shape `(num_atoms,)`, assumed
+/// - `support`: atom values `$z_0 \cdots z_{N-1}$`, shape `(num_atoms,)`, assumed
 ///   uniformly spaced between `v_min` and `v_max`.
-/// - `gamma`: discount factor, \\(\gamma\\).
+/// - `gamma`: discount factor, `$\gamma$`.
 /// - `v_min`, `v_max`: support bounds used for clamping.
 /// - `num_atoms`: `N`. Kept as an explicit argument because it feeds the
 ///   `delta_z` computation without an extra GPU round-trip.
@@ -123,7 +123,7 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 /// # Panics
 /// - If `num_atoms < 2`. A categorical support needs at least two atoms for the
 ///   `N-1` spacing denominator to be meaningful.
-/// - If the atom spacing \\(\Delta z = (\text{v\_max} - \text{v\_min}) / (N - 1)\) is not finite and
+/// - If the atom spacing `$\Delta z = (v_\max - v_\min) / (N - 1)$` is not finite and
 ///   strictly positive — i.e. the support is degenerate (`v_max == v_min`) or
 ///   inverted (`v_max < v_min`), or a bound is non-finite. This is *not*
 ///   implied by `num_atoms >= 2`: a well-sized `num_atoms = 51` support with
@@ -187,7 +187,7 @@ pub fn project_distribution<B: Backend>(
     let terminated_bn: Tensor<B, 2> = terminated.unsqueeze_dim::<2>(1); // (B, 1)
     let support_bn: Tensor<B, 2> = support.unsqueeze_dim::<2>(0); // (1, N)
 
-    // Bellman shift: Tz = clamp(r + γ · (1 − terminated) · z, v_min, v_max).
+    // Bellman shift: `$Tz = \max \left ( v_\min , \min (r + \gamma \cdot (1 - \text{terminated}) \cdot z, v_\max \right )$`.
     let keep = terminated_bn.neg().add_scalar(1.0); // 1 − terminated
     let tz = rewards_bn + keep * support_bn * gamma;
     // `clamp_preserving_nan`, not `clamp`: on wgpu/Metal the plain clamp
@@ -197,9 +197,9 @@ pub fn project_distribution<B: Backend>(
     // wrapper and still pins to v_min/v_max, which is the intended semantics.
     let tz = clamp_preserving_nan(tz, v_min, v_max);
 
-    // Continuous atom coordinate b ∈ [0, N-1], and its floor/ceil as Int.
+    // Continuous atom coordinate `$b \in [0, N-1]$`, and its floor/ceil as Int.
     //
-    // `tz` is already clamped to [v_min, v_max], so `b ∈ [0, N-1]` holds
+    // `tz` is already clamped to [v_min, v_max], so `$b \in [0, N-1]$` holds
     // exactly in real arithmetic — Bellemare et al. 2017 Algorithm 1 states it
     // as an inline assertion. It does *not* hold in IEEE-754: for many valid
     // supports (e.g. v_min = -10, v_max = 0.1, N = 8) the f32 division rounds a
@@ -231,7 +231,7 @@ pub fn project_distribution<B: Backend>(
     // somewhere outside the target tensor) and nothing panicked, while Flex
     // returned `[NaN, 0, …]`. Land the two changes together or neither.
     //
-    // The index clamp is a no-op on the finite path. Once `b ∈ [0, N-1]`, both
+    // The index clamp is a no-op on the finite path. Once `$b \in [0, N-1]$`, both
     // `0` and `N-1` are exactly representable in f32 for N ≤ 2^24 (the configs
     // cap N in the low hundreds), so `floor`/`ceil` land inside [0, N-1] and
     // the clamp is the identity — in particular at `b == N-1`, where the

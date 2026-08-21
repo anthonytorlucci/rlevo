@@ -3,12 +3,12 @@
 //! Given the target distribution (see
 //! [`crate::algorithms::c51::projection::project_distribution`]) and the
 //! policy network's **log-probabilities** for the taken action, this returns
-//! the **per-sample** cross-entropy \\(-\sum_i \text{target}_i \cdot \log p_i\\), one value per
+//! the **per-sample** cross-entropy `$-\sum_i \text{target}_i \cdot \log p_i$`, one value per
 //! batch element. Reduction is the caller's job.
 //!
 //! Leaving the batch axis unreduced is what lets a caller multiply by a
 //! per-sample importance-sampling weight *before* reducing (ADR 0050);
-//! at \\(\omega \equiv  1\\) the caller's `.mean()` is bit-identical to reducing here.
+//! at `$\omega \equiv  1$` the caller's `.mean()` is bit-identical to reducing here.
 //!
 //! Kept separate from the agent struct so it can be reused from benchmarks
 //! and unit-tested independently.
@@ -51,7 +51,7 @@ pub fn categorical_cross_entropy_per_sample<B: Backend>(
 /// backed-up value lands in, so this guard is load-bearing, not defensive.
 const KL_LOG_FLOOR: f32 = 1e-30;
 
-/// Per-sample KL divergence \((D_{KL}(\text{target} \parallel \text{pred})\\) — C51's **priority** signal
+/// Per-sample KL divergence `$D_{KL}(\text{target} \parallel \text{pred})$` — C51's **priority** signal
 /// for prioritized replay (Rainbow), which is deliberately *not* the
 /// cross-entropy the gradient uses.
 ///
