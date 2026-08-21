@@ -28,7 +28,9 @@ use rlevo_core::reward::ScalarReward;
 use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
-use crate::metrics::core::{RETURN_NON_FINITE_STEPS, core_metrics};
+use crate::metrics::core::{
+    GENERATIONS, RETURN_NON_FINITE_STEPS, WALL_CLOCK_SECONDS, core_metrics,
+};
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
@@ -469,13 +471,16 @@ where
         }
 
         let wall = start.elapsed().as_secs_f64();
-        report.absorb_metrics(core_metrics(
+        // Harness measurements take the privileged path; the agent's take the
+        // checked one, so an agent that names a harness key is re-homed under
+        // `agent/` instead of replacing the value this loop just measured.
+        report.absorb_harness_metrics(core_metrics(
             &returns,
             &lengths,
             wall,
             cfg.success_threshold,
         ));
-        report.absorb_metrics(vec![Metric::Counter {
+        report.absorb_harness_metrics(vec![Metric::Counter {
             name: RETURN_NON_FINITE_STEPS.to_string(),
             count: non_finite_steps,
         }]);
@@ -552,14 +557,17 @@ where
         }
 
         let wall = start.elapsed().as_secs_f64();
-        report.absorb_metrics(vec![
+        // Same provenance split as `EpisodicTrial::run`: the two scalars below
+        // are this trial's own measurements, while the probe's metrics are
+        // checked against the harness-owned namespace.
+        report.absorb_harness_metrics(vec![
             Metric::Scalar {
-                name: "generations".to_string(),
+                name: GENERATIONS.to_string(),
                 #[allow(clippy::cast_precision_loss)]
                 value: units as f64,
             },
             Metric::Scalar {
-                name: "wall_clock_seconds".to_string(),
+                name: WALL_CLOCK_SECONDS.to_string(),
                 value: wall,
             },
         ]);
@@ -765,12 +773,15 @@ mod tests {
     /// One `tracing` event, reduced to the parts these tests assert on.
     ///
     /// `env` and `non_finite_steps` are the two fields the trial-summary
-    /// `warn!` carries; both are `Option` because most events carry neither.
+    /// `warn!` carries; `key` is the colliding metric name carried by the
+    /// displacement `warn!` in `TrialReport::absorb_metrics`. All three are
+    /// `Option` because no event carries all of them.
     #[derive(Debug, Clone)]
     struct CapturedEvent {
         level: Level,
         env: Option<String>,
         non_finite_steps: Option<u64>,
+        key: Option<String>,
     }
 
     thread_local! {
@@ -795,12 +806,14 @@ mod tests {
                 let mut visitor = EventVisitor {
                     env: None,
                     non_finite_steps: None,
+                    key: None,
                 };
                 event.record(&mut visitor);
                 events.push(CapturedEvent {
                     level: *event.metadata().level(),
                     env: visitor.env,
                     non_finite_steps: visitor.non_finite_steps,
+                    key: visitor.key,
                 });
             });
         }
@@ -848,15 +861,16 @@ mod tests {
         (out, events)
     }
 
-    /// Extracts the two named fields from one event.
+    /// Extracts the named fields these tests assert on from one event.
     ///
-    /// `non_finite_steps` is a `u64` and arrives through `record_u64`; `env` is
-    /// recorded with `%` (`tracing::field::display`), which routes through
-    /// `record_debug` with a `format_args!` payload — whose `Debug` is its
-    /// `Display`, so the formatted string is the environment name verbatim.
+    /// `non_finite_steps` is a `u64` and arrives through `record_u64`; `env`
+    /// and `key` are recorded with `%` (`tracing::field::display`), which routes
+    /// through `record_debug` with a `format_args!` payload — whose `Debug` is
+    /// its `Display`, so the formatted string is the value verbatim.
     struct EventVisitor {
         env: Option<String>,
         non_finite_steps: Option<u64>,
+        key: Option<String>,
     }
 
     impl Visit for EventVisitor {
@@ -867,14 +881,18 @@ mod tests {
         }
 
         fn record_str(&mut self, field: &Field, value: &str) {
-            if field.name() == "env" {
-                self.env = Some(value.to_string());
+            match field.name() {
+                "env" => self.env = Some(value.to_string()),
+                "key" => self.key = Some(value.to_string()),
+                _ => {}
             }
         }
 
         fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-            if field.name() == "env" {
-                self.env = Some(format!("{value:?}"));
+            match field.name() {
+                "env" => self.env = Some(format!("{value:?}")),
+                "key" => self.key = Some(format!("{value:?}")),
+                _ => {}
             }
         }
     }
@@ -888,11 +906,20 @@ mod tests {
     /// capture sink is **per-thread**, and `run_suite` fans trials out onto
     /// rayon workers — a captured-nothing result there would be an artefact of
     /// the thread, not of the code.
-    fn run_trial_capturing_events(
+    ///
+    /// Generic over the agent so the same helper serves both warning families:
+    /// pass `StubAgent` for the non-finite-reward line, or an `EmittingAgent`
+    /// for the metric-displacement line, which only fires when the agent emits
+    /// a harness-owned name.
+    fn run_trial_capturing_events<A>(
         env: StubEnv,
+        agent: A,
         cfg: &EvaluatorConfig,
         env_name: &str,
-    ) -> (TrialReport, Vec<CapturedEvent>) {
+    ) -> (TrialReport, Vec<CapturedEvent>)
+    where
+        A: BenchableAgent<StubObs, StubAction>,
+    {
         let info = TrialInfo {
             key: TrialKey {
                 env_idx: 0,
@@ -906,7 +933,7 @@ mod tests {
         let lock = Mutex::new(dyn_reporter);
         let trial = EpisodicTrial {
             env,
-            agent: StubAgent,
+            agent,
             agent_seed: 0,
         };
 
@@ -1204,27 +1231,276 @@ mod tests {
         );
     }
 
-    /// Emission order, pinned: `absorb_metrics` overwrites same-name entries
-    /// and the agent's metrics are absorbed **last**, so an agent that names
-    /// the harness's exact key takes it. The prefix makes that collision
-    /// deliberate rather than accidental; it does not make it impossible.
+    /// An agent that names the harness's exact key no longer takes it
+    /// (ADR 0079). The harness's measurement survives, the
+    /// agent's value is re-homed under `agent/<name>`, and the displacement is
+    /// recorded rather than being silent.
     ///
-    /// Kills the mutant that swaps the counter and `emit_metrics` absorbs —
-    /// under the swapped order the harness's `8` would win instead.
+    /// This inverts the former `agent_metrics_are_absorbed_after_the_harness_counter`,
+    /// whose doc comment required an ADR to do so. ADR 0079 is that ADR: the
+    /// last-writer-wins contract of `absorb_metrics` is replaced by a
+    /// provenance split (`absorb_harness_metrics` privileged,
+    /// `absorb_metrics` checked).
     ///
-    /// If this assertion is ever inverted so the harness wins, that is a
-    /// behaviour change to `absorb_metrics`' last-writer-wins contract and
-    /// needs an ADR, not a test edit.
+    /// The three values `0`, `HARNESS_COUNT` (8) and `999` stay pairwise
+    /// distinct (ADR 0078's discipline) so no assertion here can pass by
+    /// coincidence. Mutants killed: an `is_harness_reserved` that ignores
+    /// prefixes (first assertion — the agent's 999 would win), a rename that
+    /// forgets the `displaced_metrics` push (third), and one that drops the
+    /// value instead of re-homing it (second).
     #[test]
-    fn agent_metrics_are_absorbed_after_the_harness_counter() {
+    fn an_agent_cannot_overwrite_the_harness_non_finite_count() {
         let trial = poisoned_trial_with_agent_metrics(&[Metric::Counter {
             name: RETURN_NON_FINITE_STEPS.to_string(),
             count: 999,
         }]);
 
         assert_eq!(
-            trial.counters[RETURN_NON_FINITE_STEPS], 999,
-            "the last absorb wins, and the agent's is last"
+            trial.counters[RETURN_NON_FINITE_STEPS], HARNESS_COUNT,
+            "the harness-owned key must keep the harness's own count"
+        );
+        assert_eq!(
+            trial.counters["agent/return/non_finite_steps"], 999,
+            "the agent's value is preserved under the `agent/` namespace, not dropped"
+        );
+        assert!(
+            trial
+                .displaced_metrics
+                .contains(&RETURN_NON_FINITE_STEPS.to_string()),
+            "the displacement is recorded, not silent; got {:?}",
+            trial.displaced_metrics
+        );
+    }
+
+    /// A clean absorb leaves `displaced_metrics` empty — the complement that
+    /// stops the assertion above passing against a fix that records every key.
+    #[test]
+    fn no_collision_leaves_displaced_metrics_empty() {
+        let trial = poisoned_trial_with_agent_metrics(&[Metric::Counter {
+            name: "non_finite_steps".to_string(),
+            count: 999,
+        }]);
+
+        assert!(
+            trial.displaced_metrics.is_empty(),
+            "an unreserved agent name is not a displacement; got {:?}",
+            trial.displaced_metrics
+        );
+    }
+
+    /// A probe whose metrics name the two scalars `GenerationTrial` measures
+    /// itself must not displace them (ADR 0079).
+    ///
+    /// This site had **zero** coverage for the hazard before: it absorbed its
+    /// harness scalars and then `m.emit()`, last-writer-wins, exactly like the
+    /// episodic path. The probe below advances a known number of times and
+    /// emits deliberately wrong values for both keys, so a regression shows up
+    /// as a wrong number rather than a missing one.
+    #[test]
+    fn a_probe_cannot_overwrite_the_harness_generation_scalars() {
+        use rlevo_core::evaluation::GenerationProbe;
+        use rlevo_core::fitness::MetricsProvider;
+
+        use super::GenerationTrial;
+        use crate::metrics::core::{GENERATIONS, WALL_CLOCK_SECONDS};
+
+        /// Units the probe advances before reporting exhaustion. Distinct from
+        /// the bogus `777.0` / `888.0` below so no assertion passes by
+        /// coincidence.
+        const UNITS: usize = 5;
+        /// `UNITS` as the harness reports it — a scalar.
+        const UNITS_F: f64 = 5.0;
+
+        #[derive(Debug, Clone, Copy)]
+        struct ColludingMetrics;
+
+        impl MetricsProvider for ColludingMetrics {
+            fn emit(&self) -> Vec<Metric> {
+                vec![
+                    Metric::Scalar {
+                        name: GENERATIONS.to_string(),
+                        value: 777.0,
+                    },
+                    Metric::Scalar {
+                        name: WALL_CLOCK_SECONDS.to_string(),
+                        value: 888.0,
+                    },
+                    // An unreserved name from the probe's own namespace, to
+                    // pin that legitimate probe metrics are untouched.
+                    Metric::Scalar {
+                        name: "ea/best_fitness".to_string(),
+                        value: 1.5,
+                    },
+                ]
+            }
+        }
+
+        struct ColludingProbe {
+            remaining: usize,
+        }
+
+        impl GenerationProbe for ColludingProbe {
+            type Metrics = ColludingMetrics;
+
+            fn begin(&mut self) {
+                self.remaining = UNITS;
+            }
+
+            fn advance(&mut self) -> Option<Self::Metrics> {
+                if self.remaining == 0 {
+                    return None;
+                }
+                self.remaining -= 1;
+                Some(ColludingMetrics)
+            }
+        }
+
+        let info = TrialInfo {
+            key: TrialKey {
+                env_idx: 0,
+                trial_idx: 0,
+            },
+            env_name: "probe".to_string(),
+            trial_seed: 0,
+        };
+        let (mut reporter, _) = SpyReporter::new();
+        let dyn_reporter: &mut dyn Reporter = &mut reporter;
+        let lock = Mutex::new(dyn_reporter);
+        // `max_steps` bounds the loop, so a broken exhaustion check fails the
+        // count assertion instead of hanging.
+        let cfg = single_thread_cfg(1, 50);
+
+        let report = GenerationTrial {
+            probe: ColludingProbe { remaining: 0 },
+        }
+        .run(&cfg, &info, &lock);
+
+        assert!(
+            (report.scalars[GENERATIONS] - UNITS_F).abs() < f64::EPSILON,
+            "the harness's own generation count must survive the probe's metric"
+        );
+        assert!(
+            (report.scalars["agent/generations"] - 777.0).abs() < f64::EPSILON,
+            "the probe's value is re-homed under `agent/`, not dropped"
+        );
+        assert!(
+            (report.scalars["agent/wall_clock_seconds"] - 888.0).abs() < f64::EPSILON,
+            "the wall-clock key is harness-owned too"
+        );
+        assert!(
+            report.scalars[WALL_CLOCK_SECONDS] < 888.0,
+            "the measured wall clock, not the probe's 888 seconds"
+        );
+        assert!(
+            (report.scalars["ea/best_fitness"] - 1.5).abs() < f64::EPSILON,
+            "`ea/*` is probe-owned and must be recorded verbatim"
+        );
+        assert_eq!(
+            report.displaced_metrics,
+            vec![GENERATIONS.to_string(), WALL_CLOCK_SECONDS.to_string()],
+            "both displacements recorded, in emission order, and nothing else"
+        );
+    }
+
+    /// Every key `GenerationTrial` emits on the **privileged** path must be
+    /// harness-reserved — the counterpart of `core_metrics`'
+    /// `every_core_metric_key_is_harness_reserved`, for the other harness call
+    /// site.
+    ///
+    /// Enumerated, not hand-listed. The probe below emits **no** metrics, so
+    /// every key the finished `TrialReport` carries came from
+    /// `absorb_harness_metrics` inside `GenerationTrial::run`. A third harness
+    /// scalar added there without a matching reservation therefore fails here
+    /// the moment it is written; a hand-written list would keep passing while
+    /// leaving the new key open to being clobbered by any probe that guesses
+    /// the name.
+    ///
+    /// The two `contains_key` assertions guard against the vacuous pass where a
+    /// refactor stops the trial emitting anything at all and the loop below
+    /// iterates zero times.
+    #[test]
+    fn every_generation_trial_harness_key_is_harness_reserved() {
+        use rlevo_core::evaluation::GenerationProbe;
+        use rlevo_core::fitness::MetricsProvider;
+
+        use super::GenerationTrial;
+        use crate::metrics::core::{GENERATIONS, WALL_CLOCK_SECONDS, is_harness_reserved};
+
+        /// Emits nothing, so the report contains harness keys and only those.
+        #[derive(Debug, Clone, Copy)]
+        struct SilentMetrics;
+
+        impl MetricsProvider for SilentMetrics {
+            fn emit(&self) -> Vec<Metric> {
+                Vec::new()
+            }
+        }
+
+        struct SilentProbe {
+            remaining: usize,
+        }
+
+        impl GenerationProbe for SilentProbe {
+            type Metrics = SilentMetrics;
+
+            fn begin(&mut self) {
+                self.remaining = 3;
+            }
+
+            fn advance(&mut self) -> Option<Self::Metrics> {
+                if self.remaining == 0 {
+                    return None;
+                }
+                self.remaining -= 1;
+                Some(SilentMetrics)
+            }
+        }
+
+        let info = TrialInfo {
+            key: TrialKey {
+                env_idx: 0,
+                trial_idx: 0,
+            },
+            env_name: "probe".to_string(),
+            trial_seed: 0,
+        };
+        let (mut reporter, _) = SpyReporter::new();
+        let dyn_reporter: &mut dyn Reporter = &mut reporter;
+        let lock = Mutex::new(dyn_reporter);
+        // `max_steps` bounds the loop, so a broken exhaustion check fails the
+        // assertions instead of hanging.
+        let cfg = single_thread_cfg(1, 50);
+
+        let report = GenerationTrial {
+            probe: SilentProbe { remaining: 0 },
+        }
+        .run(&cfg, &info, &lock);
+
+        let emitted: Vec<&String> = report
+            .scalars
+            .keys()
+            .chain(report.histograms.keys())
+            .chain(report.counters.keys())
+            .collect();
+
+        for name in &emitted {
+            assert!(
+                is_harness_reserved(name),
+                "GenerationTrial emits `{name}` as its own measurement, but it is not \
+                 reserved — a probe could clobber it"
+            );
+        }
+        assert!(
+            report.scalars.contains_key(GENERATIONS),
+            "the trial must actually have emitted its generation count; got {emitted:?}"
+        );
+        assert!(
+            report.scalars.contains_key(WALL_CLOCK_SECONDS),
+            "the trial must actually have emitted its wall clock; got {emitted:?}"
+        );
+        assert!(
+            report.displaced_metrics.is_empty(),
+            "a silent probe contests nothing, so nothing is re-homed"
         );
     }
 
@@ -1238,7 +1514,7 @@ mod tests {
         let mut env = StubEnv::new(3);
         env.reward_override = Some(f32::INFINITY);
 
-        let (report, events) = run_trial_capturing_events(env, &cfg, "poisoned-env");
+        let (report, events) = run_trial_capturing_events(env, StubAgent, &cfg, "poisoned-env");
 
         let warnings: Vec<&CapturedEvent> =
             events.iter().filter(|e| e.level == Level::WARN).collect();
@@ -1268,7 +1544,8 @@ mod tests {
     fn a_clean_trial_emits_no_non_finite_warning() {
         let cfg = single_thread_cfg(2, 10);
 
-        let (report, events) = run_trial_capturing_events(StubEnv::new(3), &cfg, "clean-env");
+        let (report, events) =
+            run_trial_capturing_events(StubEnv::new(3), StubAgent, &cfg, "clean-env");
 
         assert!(
             events.iter().all(|e| e.level != Level::WARN),
@@ -1277,6 +1554,118 @@ mod tests {
         assert_eq!(
             report.counters[RETURN_NON_FINITE_STEPS], 0,
             "the counter is still emitted, as zero"
+        );
+    }
+
+    /// Collects the `key` field of every `WARN` a trial emitted, in order.
+    ///
+    /// Every environment these callers pass is finite, so the non-finite
+    /// summary line never fires and the only warnings left are displacements.
+    fn displacement_warning_keys(events: &[CapturedEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter(|e| e.level == Level::WARN)
+            .map(|e| {
+                e.key
+                    .clone()
+                    .expect("every warning on a finite trial is a displacement and carries `key`")
+            })
+            .collect()
+    }
+
+    /// Re-homing an agent metric emits exactly one `warn!` per collision,
+    /// naming the colliding key (ADR 0079).
+    ///
+    /// The rename is otherwise silent at runtime: `displaced_metrics` is only
+    /// visible to whoever reads the finished report, so this line is the sole
+    /// live signal that an agent is fighting the harness for a name. Deleting
+    /// the `warn!` block in `TrialReport::absorb` leaves every other test in
+    /// this crate green, which is why the assertion exists here.
+    ///
+    /// Bounds the count from both sides. Two of the three emitted metrics are
+    /// harness-owned and one is not, so:
+    /// - a missing `warn!` gives 0,
+    /// - one line per *absorbed metric* rather than per collision gives 3
+    ///   (or 11, counting the `core_metrics` set the harness absorbs),
+    /// - one line per *trial* rather than per collision gives 1.
+    ///
+    /// Only the correct implementation gives 2, with these keys in this order.
+    #[test]
+    fn displaced_agent_metrics_warn_once_each_carrying_the_key() {
+        use crate::metrics::core::WALL_CLOCK_SECONDS;
+
+        let cfg = single_thread_cfg(1, 10);
+        let agent = EmittingAgent {
+            metrics: vec![
+                Metric::Scalar {
+                    name: RETURN_MEAN.to_string(),
+                    value: 999.0,
+                },
+                // Agent-owned: absorbed verbatim, and must not warn.
+                Metric::Scalar {
+                    name: "rl/epsilon".to_string(),
+                    value: 0.25,
+                },
+                Metric::Scalar {
+                    name: WALL_CLOCK_SECONDS.to_string(),
+                    value: 888.0,
+                },
+            ],
+        };
+
+        let (report, events) =
+            run_trial_capturing_events(StubEnv::new(3), agent, &cfg, "colliding-env");
+
+        assert_eq!(
+            displacement_warning_keys(&events),
+            vec![RETURN_MEAN.to_string(), WALL_CLOCK_SECONDS.to_string()],
+            "one warning per collision, in emission order, and none for `rl/epsilon`"
+        );
+        assert_eq!(
+            report.displaced_metrics,
+            vec![RETURN_MEAN.to_string(), WALL_CLOCK_SECONDS.to_string()],
+            "the log line and the recorded field must agree on what was displaced"
+        );
+    }
+
+    /// The degenerate path warns too: when `agent/<name>` is already taken the
+    /// incoming value is **dropped**, so the `warn!` is the only trace it ever
+    /// existed — `displaced_metrics` records the collision but no map holds the
+    /// number.
+    ///
+    /// Reached by emitting the same reserved name twice: the first lands in the
+    /// free `agent/return/mean` slot, the second finds it occupied.
+    #[test]
+    fn a_dropped_value_still_warns() {
+        let cfg = single_thread_cfg(1, 10);
+        let agent = EmittingAgent {
+            metrics: vec![
+                Metric::Scalar {
+                    name: RETURN_MEAN.to_string(),
+                    value: 111.0,
+                },
+                Metric::Scalar {
+                    name: RETURN_MEAN.to_string(),
+                    value: 222.0,
+                },
+            ],
+        };
+
+        let (report, events) =
+            run_trial_capturing_events(StubEnv::new(3), agent, &cfg, "dropping-env");
+
+        assert_eq!(
+            displacement_warning_keys(&events),
+            vec![RETURN_MEAN.to_string(), RETURN_MEAN.to_string()],
+            "the dropped second value is warned about, not swallowed"
+        );
+        assert!(
+            (report.scalars["agent/return/mean"] - 111.0).abs() < f64::EPSILON,
+            "first writer into the landing zone keeps the slot"
+        );
+        assert!(
+            (report.scalars[RETURN_MEAN] - 3.0).abs() < f64::EPSILON,
+            "the harness's own mean (1 episode x 3 steps x reward 1.0) is untouched"
         );
     }
 

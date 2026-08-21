@@ -11,6 +11,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **`TrialReport::absorb_metrics` no longer overwrites a harness-owned metric
+  name; a caller reporting the harness's own measurements must switch to the
+  new `absorb_harness_metrics`** (resolves #1118, ADR 0079). Previously
+  `absorb_metrics` was last-writer-wins: an agent or probe emitting a
+  harness-owned key (`return/mean`, `wall_clock_seconds`, `generations`, any
+  `return/`/`episode_length/`/`throughput/`-prefixed name, …) silently
+  replaced the harness's own value with no error, no warning, and no record —
+  the resulting report was byte-identical to one where the harness had
+  genuinely measured that value. **This is a breaking behavioural change with
+  no compile error**: `absorb_metrics`' signature is unchanged, so a call site
+  relying on the old override keeps compiling and simply stops overwriting.
+  The symptom to look for is a metric now appearing under `agent/<name>`
+  instead of `<name>`, with `<name>` listed in the new
+  `TrialReport::displaced_metrics` field, and one `tracing::warn!` line at the
+  collision. If your `Trial` implementation reports measurements the trial
+  *itself* made (episode returns, step counts, wall-clock time, generation
+  counts) — not something an agent or probe handed back — call
+  `absorb_harness_metrics` instead; it keeps the old unchecked,
+  last-writer-wins behaviour and is the privileged path new harness-owned
+  measurements should use. Agent- and probe-sourced metrics keep calling
+  `absorb_metrics`, unchanged.
+
+  `TrialReport` also gains a new `pub displaced_metrics: Vec<String>` field,
+  which breaks any external struct-literal construction of `TrialReport`
+  (`TrialReport { .. }` without going through `TrialReport::new`). No in-repo
+  construction is affected — every call site already goes through `::new`.
+  JSON reports gain a `displaced_metrics` key; this is tolerant in both
+  directions. No `deny_unknown_fields` exists anywhere in the workspace, so an
+  older reader parsing a report produced by this version ignores the new key
+  rather than failing, and `#[serde(default)]` on the field means an existing
+  `.ckpt.json` checkpoint written by an earlier binary — which has no
+  `displaced_metrics` key at all — still resumes correctly under this
+  version, decoding to an empty vec.
+
 - **`BenchEnv`, `BenchStep`, and `BenchError` are removed from `rlevo-core`**,
   along with the `rlevo_benchmarks::env` shim module and the crate-root
   `rlevo_benchmarks::{BenchEnv, BenchError, BenchStep}` re-export (ADR 0077).
@@ -154,6 +188,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   TUI and the static-HTML report read a different channel and surface the
   warning line instead.
 
+- **`metrics::core::is_harness_reserved`** and **`metrics::core::GENERATIONS`**
+  (for #1118, ADR 0079). `is_harness_reserved(name: &str) -> bool` is the
+  public predicate behind the re-homing described below — it reports whether
+  a metric name belongs to a harness-owned prefix (`return/`,
+  `episode_length/`, `throughput/`, `agent/`) or exact key (`success_rate`,
+  `wall_clock_seconds`, `generations`). `GENERATIONS` is the new `pub const`
+  key (`"generations"`) `GenerationTrial` now uses in place of a raw string
+  literal.
+
 **Fixed**
 
 - **A benchmark trial produced a different *artefact* depending on whether the
@@ -169,6 +212,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `return/non_finite_steps` counter above; accumulation stays raw, so a poisoned
   return is still reported rather than quietly repaired. ADR 0078 records the
   reasoning, including why a counter and not a log line alone.
+
+- **An agent- or probe-emitted metric could silently overwrite a harness
+  measurement, with no error, no warning, and no record** (resolves #1118,
+  ADR 0079). `TrialReport::absorb_metrics` was last-writer-wins, and both
+  trial shapes — `EpisodicTrial` and the previously-untested
+  `GenerationTrial` — absorbed agent/probe output *after* their own
+  measurements, so an agent emitting `return/mean`, `wall_clock_seconds`,
+  `generations`, or any other harness-owned key replaced the harness's own
+  value; the resulting report was indistinguishable from one where the
+  harness genuinely measured that value. `absorb_metrics` now re-homes a
+  colliding key to `agent/<name>`, records the original key in the new
+  `displaced_metrics` field (see Breaking changes, above), and warns once per
+  collision. Harness-owned measurements move to the new privileged
+  `absorb_harness_metrics`. `agent/` is itself reserved, so an agent cannot
+  place a metric directly in the re-homing landing zone. `GenerationTrial`
+  also gains a proper `GENERATIONS` metric-key constant, replacing a raw
+  string literal, and the same collision test coverage `EpisodicTrial` already
+  had.
+
+  **Why the existing test missed this**: ADR 0078's own
+  `agent_metrics_are_absorbed_after_the_harness_counter` test asserted, by
+  name, that an agent naming the exact key `return/non_finite_steps` *should*
+  win over the harness's own count — it pinned the defect as a contract
+  rather than catching it, and its own commentary said as much: reversing the
+  assertion "would be a change to `absorb_metrics`' contract and needs its
+  own ADR, not a test edit." This is that ADR; the test is now inverted (and
+  renamed `an_agent_cannot_overwrite_the_harness_non_finite_count`) to assert
+  the harness value survives. `GenerationTrial` had no collision test at all
+  before this change.
 
 ### `rlevo-core`
 
@@ -249,6 +321,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   merely thin near the boundary — it never approached it. A "does it panic?"
   test would not have helped either, since release builds wrap rather than
   panic; the new regression tests pin exact values.
+
+- **`Metric::Counter`'s rustdoc contradicted `absorb_metrics`' actual
+  behaviour** (part of #1118, ADR 0079). The variant's doc described a count
+  "the harness *may accumulate* across trials"; `absorb_metrics` (and the new
+  `absorb_harness_metrics`, `rlevo-benchmarks`) never accumulated — they
+  insert, replacing whichever value previously occupied that key. ADR 0078
+  recorded the tension without resolving it. Fixing it by making `absorb`
+  actually accumulate was rejected: every metric name that collides in
+  practice (`wall_clock_seconds`, `return/mean`, `generations`,
+  `success_rate`) is a `Metric::Scalar`, not a `Counter`, so accumulation
+  would not touch the collisions that matter; it would also break
+  `absorb`'s idempotence under repeated calls, and `TrialReport` has no scope
+  wider than one trial for "across trials" to describe. The doc was corrected
+  instead, delegating the emission-cadence contract to
+  `MetricsProvider::emit`'s existing drain-and-reset rule rather than
+  restating it a second time on the variant — the first draft of this fix
+  wrote a competing "running total to date" sentence that contradicted
+  `emit`'s rule four lines below it in the same file.
 
 ### `rlevo-environments`
 
