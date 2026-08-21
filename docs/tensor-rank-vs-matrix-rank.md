@@ -5,22 +5,21 @@ The word **rank** is overloaded. In `rlevo` it appears as the const generic on
 specific there. But the same word means something *different* in linear algebra,
 and something different again in everyday "how big is this space?" talk. Three of
 those senses collide precisely in the discussion of partially-observable
-environments ([issue #62](https://github.com/anthonytorlucci/rlevo/issues/62)),
-where it is easy to conclude that an observation space has a "lower rank" than its
-state space and reach for the wrong tool. This page pulls the three senses apart.
+environments, where it is easy to conclude that an observation space has a "lower 
+rank" than its state space and reach for the wrong tool. This page pulls the 
+three senses apart.
 
 ## Tensor conventions in `rlevo`
 
 `rlevo` uses Burn tensors throughout. Dimensions follow the convention:
 
-- Batch dimension first: a population of \\(\lambda\\) genomes of dimension \\(d\\)
-  is a tensor of shape \\([\lambda, d]\\).
-- Observations are shaped \\([B, \ldots]\\) where \\(B\\) is batch size during
-  training and \\(1\\) during inference.
-- The const generic rank parameter \\(R\\) in `State<R>`, `Observation<R>`, and
-  `Action<AR>` is the *number of dimensions*, not the size — so a flat vector is
-  \\(R = 1\\), a matrix is \\(R = 2\\).
-
+- Batch dimension first: a population of $\lambda$ genomes of dimension $d$
+  is a tensor of shape $[\lambda, d]$.
+- Observations are shaped $[B, \ldots]$ where $B$ is batch size during
+  training and $1$ during inference.
+- The const generic rank parameter $R$ in `State<R>`, `Observation<R>`, and
+  `Action<R>` is the *number of dimensions*, not the size — so a flat vector is
+  $R = 1$, a matrix is $R = 2$.
 
 
 ## Three senses of "rank"
@@ -32,40 +31,38 @@ has — what NumPy calls `ndim` and Burn writes as the `D` in `Tensor<B, D>`. It
 the count of indices you need to address a single element, *not* the size of any
 axis:
 
-- a scalar is order \\(0\\);
-- a flat vector \\(v \in \mathbb{R}^{n}\\) is order \\(1\\) — one index, \\(v[i]\\);
-- a matrix / greyscale image \\(M \in \mathbb{R}^{h \times w}\\) is order \\(2\\) — two
-  indices, \\(M[i][j]\\);
-- an RGB image is order \\(3\\) — \\(\text{img}[c][i][j]\\).
+- a scalar is order $0$;
+- a flat vector $v \in \mathbb{R}^{n}$ is order $1$ — one index, $v[i]$;
+- a matrix / greyscale image $M \in \mathbb{R}^{h \times w}$ is order $2$ — two
+  indices, $M[i][j]$;
+- an RGB image is order $3$ — $\text{img}[c][i][j]$.
 
-Crucially, the *size* of each axis is irrelevant to the order. A length-\\(1000\\)
-vector and a length-\\(2\\) vector are **both order 1**. This is the only "rank" the
+Crucially, the *size* of each axis is irrelevant to the order. A length-$1000$
+vector and a length-$2$ vector are **both order 1**. This is the only "rank" the
 type system reasons about: it stops you from feeding a rank-2 observation where a
 rank-1 one is expected, but it says nothing about how many values live along each
 axis. 
 
 ### 2. Matrix rank — a property of the *values*, invisible to the types
 
-In linear algebra, the **rank** of a matrix \\(A \in \mathbb{R}^{m \times n}\\) is the
+In linear algebra, the **rank** of a matrix $A \in \mathbb{R}^{m \times n}$ is the
 dimension of its column space — the number of linearly independent columns,
-\\(\operatorname{rank}(A) \le \min(m, n)\\). This is a fact about the *numbers inside*
+$\operatorname{rank}(A) \le \min(m, n)$. This is a fact about the *numbers inside*
 the matrix, not about its shape. The matrix
 
-```math
-A = \begin{bmatrix} 1 & 2 \\ 2 & 4 \end{bmatrix}
-```
+$$A = \begin{bmatrix} 1 & 2 \\ 2 & 4 \end{bmatrix}$$
 
-is order-2 and shape \\(2 \times 2\\), yet has **matrix rank 1** (the second column is
-twice the first). A linear map \\(y = Ax\\) with \\(\operatorname{rank}(A) = r\\) collapses
-its input onto an \\(r\\)-dimensional subspace, losing information along the null
-space. The type system cannot see this at all: \\(A\\) is just a `Tensor<B, 2>`
+is order-2 and shape $2 \times 2$, yet has **matrix rank 1** (the second column is
+twice the first). A linear map $y = Ax$ with $\operatorname{rank}(A) = r$ collapses
+its input onto an $r$-dimensional subspace, losing information along the null
+space. The type system cannot see this at all: $A$ is just a `Tensor<B, 2>`
 whatever its column space looks like.
 
 ### 3. Cardinality / dimensionality — the size of an axis
 
 The third sense is the everyday one: "how big is the space?" — the number of values
 an axis (or the whole space) can take. In `rlevo` this is the content of
-`shape()`: a rank-1 observation with `shape() == [16]` has \\(16\\) slots along its
+`shape()`: a rank-1 observation with `shape() == [16]` has $16$ slots along its
 single axis. Critically, **`Observation::shape()` is independent of
 `State::shape()`**.
 
@@ -97,17 +94,17 @@ column carefully shows that nearly all of them keep the tensor order fixed:
 
 | Example | State (order / shape) | Obs (order / shape) | Reduction mechanism | Tensor-order change? |
 | --- | --- | --- | --- | --- |
-| **Tiger** | 1 / \\([2]\\) | 1 / \\([2]\\) | stochastic aliasing (noisy emission) | no |
-| **PO grid world** | 1 / \\([N\cdot M]\\) | 1 / \\([16]\\) | combinatorial compression (local percept) | no |
-| **RockSample** | 1 / \\([\text{pos}\cdot 2^k]\\) | 1 / \\([3]\\) | exponential collapse + distance-decayed sensor | no |
-| **LQG** | 1 / \\([n]\\) | 1 / \\([m]\\), \\(m<n\\) | **matrix**-rank-\\(m\\) linear projection \\(y = Cx + \varepsilon\\) | **no** |
-| **Contact manipulation** | 1 / \\([n]\\) | 1 / \\([m]\\), \\(m\ll n\\) | nonlinear proprioceptive projection \\(y = h(x)+\varepsilon\\) | no |
-| **Atari** | 1 / \\([\text{ram}]\\) | **2–3** / \\([H, W, C]\\) | **modality** change (RAM → pixels) | **yes** |
+| **Tiger** | 1 / $[2]$ | 1 / $[2]$ | stochastic aliasing (noisy emission) | no |
+| **PO grid world** | 1 / $[N\cdot M]$ | 1 / $[16]$ | combinatorial compression (local percept) | no |
+| **RockSample** | 1 / $[\text{pos}\cdot 2^k]$ | 1 / $[3]$ | exponential collapse + distance-decayed sensor | no |
+| **LQG** | 1 / $[n]$ | 1 / $[m]$, $m<n$ | **matrix**-rank-$m$ linear projection $y = Cx + \varepsilon$ | **no** |
+| **Contact manipulation** | 1 / $[n]$ | 1 / $[m]$, $m\ll n$ | nonlinear proprioceptive projection $y = h(x)+\varepsilon$ | no |
+| **Atari** | 1 / $[\text{ram}]$ | **2–3** / $[H, W, C]$ | **modality** change (RAM → pixels) | **yes** |
 
-The instructive trap is **LQG** — the example most often cited as the "cleanest"
-statement of a rank-deficient observation. Its emission matrix \\(C \in
-\mathbb{R}^{m \times n}\\) with \\(m < n\\) genuinely *is* rank-deficient — but that is
-**matrix rank**. Both \\(x \in \mathbb{R}^{n}\\) and \\(y \in \mathbb{R}^{m}\\) are
+The instructive trap is **LQG** (Linear Quadratic-Gaussian) — the example most often 
+cited as the "cleanest" statement of a rank-deficient observation. Its emission matrix $C \in
+\mathbb{R}^{m \times n}$ with $m < n$ genuinely *is* rank-deficient — but that is
+**matrix rank**. Both $x \in \mathbb{R}^{n}$ and $y \in \mathbb{R}^{m}$ are
 **order-1 tensors**; the Kalman filter and the separation principle live entirely
 in that constant-order, dimensionality-reducing regime. Nothing about LQG changes
 `ndim`.
