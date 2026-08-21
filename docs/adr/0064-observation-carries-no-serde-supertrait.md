@@ -13,10 +13,12 @@ tags: [adr, decision, rlevo-core, observation, serde, trait-bounds, issue-405]
 **Accepted (2026-07-26).** Resolves issue #405 (`Observation`'s
 `Serialize + for<'de> Deserialize<'de>` supertrait is justified by a doc comment
 that describes a capability nothing in the workspace uses). `Observation<R>`'s
-supertrait list becomes `Debug + Clone + Send + Sync`. **Follows the precedent set
-by ADR [0052](0052-hostrow-supertrait-splits-layout-from-backend.md) §8** — a
-supertrait that is *expressible* is not thereby *warranted* — and applies it in the
-removal direction. Supersedes nothing; `Action` and `Reward` are untouched.
+supertrait list becomes `Debug + Clone + Send + Sync`. **Follows the precedent
+set by ADR [0052](0052-hostrow-supertrait-splits-layout-from-backend.md)'s
+own Decision 8 ("`Observation<R>: HostRow<R>` is now expressible — deferred
+to a follow-up")** — a supertrait that is *expressible* is not thereby
+*warranted* — and applies it in the removal direction. Supersedes nothing;
+`Action` and `Reward` are untouched.
 
 ## Context
 
@@ -62,9 +64,9 @@ exercises either:
 
 - `ContextualBanditObservation`'s ~30-line validating `Deserialize`
   (`rlevo-environments/src/classic/bandit/contextual.rs:118`), hand-written
-  because `docs/rules.md` §4 requires deserialized data to yield `Err` rather than
-  panic — a correct impl, upholding a real rule, for a code path no consumer
-  reaches.
+  because rules.md's Error Handling section requires deserialized data to
+  yield `Err` rather than panic — a correct impl, upholding a real rule,
+  for a code path no consumer reaches.
 - `CarRacingObservation`'s `Visitor`
   (`rlevo-environments/src/box2d/car_racing/observation.rs:99,110`), hand-written
   because serde derives no array impl above length 32 and the observation is
@@ -146,15 +148,17 @@ capability they had.
 Nothing is deleted from any concrete observation type. Every `#[derive(Serialize,
 Deserialize)]` stays, and both hand-written impls
 (`ContextualBanditObservation`'s validating `Deserialize`,
-`CarRacingObservation`'s `Visitor`) stay. `docs/rules.md` §8 still expects
-concrete domain types to be serde-capable; what changes is that this is a
-*property of the types*, not an *obligation of the trait*. `serde_json::to_string(&concrete_obs)`
-is unaffected everywhere.
+`CarRacingObservation`'s `Visitor`) stay. `docs/rules.md`'s Dependency
+Usage section (its `serde` row) still expects concrete domain types to be
+serde-capable; what changes is that this is a *property of the types*, not
+an *obligation of the trait*. `serde_json::to_string(&concrete_obs)` is
+unaffected everywhere.
 
-Retention is deliberate, not inertia: deleting the derives would make the change
-larger, would break any downstream persisting a concrete observation, and would
-throw away the `contextual.rs` impl's rules-§4 validation logic, which is the only
-place that reasoning is written down.
+Retention is deliberate, not inertia: deleting the derives would make the
+change larger, would break any downstream persisting a concrete observation,
+and would throw away the `contextual.rs` impl's validation logic upholding
+rules.md's Error Handling section, which is the only place that reasoning
+is written down.
 
 ### 3. A serde requirement is declared at the seam that has it
 
@@ -162,9 +166,10 @@ The reference shape is `RecordingTap`'s explicit
 `where E::ActionType: Serialize + Clone` (`env_tap.rs:322`). A future distributed
 replay, offline-RL loader, or checkpoint writer that needs to persist an
 observation writes `where O: Serialize + for<'de> Deserialize<'de>` on **its own**
-type or function. `docs/rules.md` §8's `serde` row and §3's `Observation<D>`
-invariant row are amended to say so, so the rule is enforceable at review time
-rather than living only here.
+type or function. `docs/rules.md`'s Dependency Usage section's `serde` row
+and its Trait Design Constraints section's `Observation<D>` invariant row
+are amended to say so, so the rule is enforceable at review time rather
+than living only here.
 
 ### 4. `Action` and `Reward` deliberately do **not** gain the bound
 
@@ -188,8 +193,8 @@ Alternatives Considered.
   `experience.rs`'s C-STRUCT-BOUNDS reasoning was already correct and is unchanged;
   what improves is that `O: Observation<D>` no longer imports an obligation the
   doc comment does not mention. Every bound the struct requires is one it uses.
-- **Applies 0052 §8's ruling symmetrically.** 0052 declined to *add* an
-  expressible supertrait (`Observation<R>: HostRow<R>`) because it bought no
+- **Applies ADR 0052's own Decision 8 ruling symmetrically.** 0052 declined
+  to *add* an expressible supertrait (`Observation<R>: HostRow<R>`) because it bought no
   invariant and had no consumer; this removes an existing one on the same two
   grounds. The project now has one rule for supertraits on domain traits, applied
   in both directions.
@@ -208,9 +213,10 @@ Alternatives Considered.
   reference `where`-clause shape and says *do not reinstate*), and the sharpened
   `rules.md` rows. If a future PR proposes the supertrait again, the required
   answer is the `where` clause at the new seam.
-- **Slight asymmetry with `docs/rules.md` §8's expectation** that concrete domain
-  types derive serde: the trait no longer guarantees what the convention still
-  expects. Accepted, and the reason the §8 row is being sharpened rather than left
+- **Slight asymmetry with `docs/rules.md`'s Dependency Usage section's
+  expectation** (its `serde` row) that concrete domain types derive serde:
+  the trait no longer guarantees what the convention still expects.
+  Accepted, and the reason that row is being sharpened rather than left
   alone — a convention about concrete types must not read as licensing a
   supertrait obligation.
 
@@ -223,9 +229,9 @@ Alternatives Considered.
   (`env_tap.rs:291-315`).
 - **No dependency change.** `serde` remains a dependency of `rlevo-core` (other
   types use it); only one unused `use` in `base.rs` is removed.
-- **No `Action`/`Reward` change** (Decision §4), so `RecordingTap`'s existing
-  `E::ActionType: Serialize` where-clause is untouched and continues to work
-  exactly as before.
+- **No `Action`/`Reward` change** (this ADR's own Decision 4), so
+  `RecordingTap`'s existing `E::ActionType: Serialize` where-clause is
+  untouched and continues to work exactly as before.
 
 ## Alternatives Considered
 
@@ -263,30 +269,30 @@ Alternatives Considered.
   Deserialize` marker trait.** Rejected as premature: it has zero implementors and
   zero consumers today, and it is exactly the abstraction a future distributed
   replay can introduce *if* one seam is not enough. Adding it now would be
-  speculative, and per 0052 §8 the bar for a new trait obligation is a consumer,
-  not an anticipation.
+  speculative, and per ADR 0052's own Decision 8 the bar for a new trait
+  obligation is a consumer, not an anticipation.
 
 ## References
 
 - Issue #405 — `Observation`'s serde supertrait is justified by an unused
   capability.
-- ADR [0052](0052-hostrow-supertrait-splits-layout-from-backend.md) §8 — declined
-  to add `Observation<R>: HostRow<R>` although newly expressible, because it
-  bought no invariant and had no consumer; the precedent this ADR applies in the
-  removal direction.
+- ADR [0052](0052-hostrow-supertrait-splits-layout-from-backend.md) — its own
+  Decision 8 declined to add `Observation<R>: HostRow<R>` although newly
+  expressible, because it bought no invariant and had no consumer; the
+  precedent this ADR applies in the removal direction.
 - ADR [0050](0050-replay-strategy-seam.md) — the replay seam derives no serde and
   erases the action payload to avoid imposing bounds; the direct refutation of the
   removed doc comment's "for storage in a replay buffer" claim.
 - ADR [0061](0061-optional-facing-and-tensorconvertible-no-fabrication.md) — the
   "no current call site decodes is a snapshot, not a property" warning; applied to
-  this ADR's own evidence in §Context, with the wrong-output-versus-cost
-  distinction that separates the two cases.
-- ADR [0026](0026-shared-config-validation-convention.md) and `docs/rules.md` §4 —
-  the deserialized-data-must-`Err`-never-panic rule that
+  this ADR's own evidence in its own Context section, with the
+  wrong-output-versus-cost distinction that separates the two cases.
+- ADR [0026](0026-shared-config-validation-convention.md) and `docs/rules.md`'s
+  Error Handling section — the deserialized-data-must-`Err`-never-panic rule that
   `ContextualBanditObservation`'s hand-written `Deserialize` upholds.
 - Rust API Guidelines, **C-STRUCT-BOUNDS** — cited by `experience.rs:24-28,76-80`
-  for its rationale; see §Context for the honest scope caveat (it governs struct
-  definitions, not supertraits).
+  for its rationale; see this ADR's own Context section for the honest scope
+  caveat (it governs struct definitions, not supertraits).
 - `docs/.private/roadmap.md` — "Distributed replay architectures", the named
   anticipated consumer whose requirement is additive at its own seam.
 - Code: `crates/rlevo-core/src/base.rs` (`Observation`, the removed supertraits
@@ -299,8 +305,9 @@ Alternatives Considered.
   `crates/rlevo-environments/src/classic/bandit/contextual.rs:118` (validating
   `Deserialize`, retained);
   `crates/rlevo-environments/src/box2d/car_racing/observation.rs:99,110`
-  (`Visitor` over 27,648 bytes, retained); `docs/rules.md` §3 invariant table and
-  §8 `serde` row.
+  (`Visitor` over 27,648 bytes, retained); `docs/rules.md`'s Trait Design
+  Constraints section's invariant table and its Dependency Usage section's
+  `serde` row.
 - Verification: `cargo check --workspace --all-targets`, `--all-features`, and
   eleven feature-gated combinations each reported 0 errors;
   `cargo test --doc --workspace` passed. Total diagnostic output across the change

@@ -40,11 +40,11 @@ use crate::algorithms::c51::c51_model::C51Model;
 ///
 /// # Const generics
 ///
-/// - `DO` — rank of a single observation tensor (e.g. `1` for flat vector
+/// - `R` — rank of a single observation tensor (e.g. `1` for flat vector
 ///   observations).
-/// - `SD` — rank of the state tensor (unused by the loop itself; forwarded to
+/// - `SR` — rank of the state tensor (unused by the loop itself; forwarded to
 ///   the environment bound).
-/// - `DB` — rank of a batched observation tensor (`DO + 1`).
+/// - `BR` — rank of a batched observation tensor (`R + 1`).
 ///
 /// # Arguments
 ///
@@ -66,8 +66,8 @@ use crate::algorithms::c51::c51_model::C51Model;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
-    agent: &mut C51Agent<B, M, O, A, DO, DB>,
+pub fn train<B, M, E, O, A, Rew, const R: usize, const SR: usize, const BR: usize>(
+    agent: &mut C51Agent<B, M, O, A, R, BR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
@@ -75,11 +75,11 @@ pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize
 ) -> Result<(), C51AgentError>
 where
     B: AutodiffBackend,
-    M: C51Model<B, DB>,
-    E: Environment<DO, SD, 1, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: C51Model<B, BR>,
+    E: Environment<R, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<R> + TensorConvertible<R, B> + TensorConvertible<R, B::InnerBackend>,
     A: DiscreteAction<1>,
-    R: Reward + Copy,
+    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(io_from_env)?;
     let mut episode_reward = 0.0_f32;
@@ -120,13 +120,13 @@ where
         agent.on_env_step();
 
         // DELIBERATE: `reward_f32` is accumulated raw, *including* a non-finite
-        // value that `remember` just refused to store (ADR 0065 §Decision 4,
-        // #352). Do not "fix" this to skip a NaN. A NaN episode return is a
+        // value that `remember` just refused to store (ADR 0065 §Decision 4).
+        // Do not "fix" this to skip a NaN. A NaN episode return is a
         // true statement about a run whose environment emitted NaN, and it is a
         // second surfacing channel that does not share the guard's decade warn
         // schedule — a run whose first drop was logged 100 000 steps ago still
         // reports a NaN score for every affected episode.
-        // `AgentStats::avg_score` transits it on purpose (ADR 0070, #409).
+        // `AgentStats::avg_score` transits it on purpose (ADR 0070).
         episode_reward += reward_f32;
         episode_steps += 1;
 

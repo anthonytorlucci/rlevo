@@ -405,7 +405,7 @@ impl Sensor<3, 1, 3> for DistShiftEnv {
     type State = GridState;
     type Observation = GridObservation;
 
-    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
     /// `next_state` alone, so this forwards to the same projection as
     /// [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
@@ -626,12 +626,28 @@ mod tests {
         assert!("variant=wat".parse::<DistShiftConfig>().is_err());
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
     //
     // Both drivers end the episode on a *task* outcome — the goal or the lava —
-    // never on the step limit. `build_snapshot` currently reports a step-limit
-    // cutoff as `Terminated` rather than `Truncated` (#1028); routing these
-    // tests around it keeps them correct either way.
+    // never on the step limit. `step` above ORs the step-limit cutoff
+    // (`self.steps >= self.config.max_steps`) into the same `done` bool as a
+    // genuine terminal (`ReachedGoal` / `HitLava`), and
+    // `grids/core::build_snapshot` maps every `done == true` to `Terminated` —
+    // there is no `Truncated` arm. A step-limit cutoff on this env therefore
+    // currently reads as "no future value" instead of "future value cut off by
+    // a time limit" (`docs/rules.md` §10), which would bias value-function
+    // bootstrapping if a caller trusted it. Fixing that is out of scope here;
+    // driving these tests to the step budget instead of a real terminal would
+    // just bake the mislabeling into the assertions, so both drivers below
+    // reach the terminal through actual goal/lava outcomes.
+    //
+    // The guard is a real correctness fix, not step-count hygiene: in
+    // `dynamic_obstacles.rs`, stepping past a terminal collision without
+    // `reset()` let `move_obstacles` run against a stale position no longer
+    // backed by an `Entity::Ball`, violating a duplicate-obstacle invariant.
+    // `EpisodeGuard::check()` as the first statement of `step()` makes that
+    // invariant hold unconditionally rather than depending on callers never
+    // stepping past a terminal snapshot.
 
     /// Drives a default env to the goal at `(7, 1)` with six `Forward`s, through
     /// real `step()` calls only.

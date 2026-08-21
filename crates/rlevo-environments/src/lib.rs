@@ -35,12 +35,13 @@
 //!
 //! Environments may be deterministic or stochastic depending on their configuration.
 
-// The numeric-cast family is suppressed crate-wide pending the per-site audit
-// tracked in #396. Enabling `[workspace.lints]` here surfaced 194 cast warnings
-// in production physics, rasterizer, and grid-indexing paths. Each needs a real
-// range argument at the site (is this `f32` provably non-negative before `as
-// usize`?) rather than a mechanical rewrite, so they are burned down module by
-// module — narrow this allow as modules are cleared, do not widen it.
+// The numeric-cast family is suppressed crate-wide pending a dedicated,
+// crate-wide per-site audit. Enabling `[workspace.lints]` here surfaced 194
+// cast warnings in production physics, rasterizer, and grid-indexing paths.
+// Each needs a real range argument at the site (is this `f32` provably
+// non-negative before `as usize`?) rather than a mechanical rewrite, so they
+// are burned down module by module — narrow this allow as modules are
+// cleared, do not widen it.
 //
 // Every *other* lint in the workspace table is enforced on this crate today.
 #![allow(

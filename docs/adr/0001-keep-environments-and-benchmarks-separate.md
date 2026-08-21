@@ -12,6 +12,8 @@ tags: [adr, decision, architecture, crates]
 
 Active.
 
+**Update (2026-08-20):** the object-safety framing for `BenchEnv` — the phrases "object-safe and free of const generics so trial-level rayon parallelism stays", the proposed "`Box<dyn BenchEnv<…>>` wrapper with a normalized obs/action shape", and "defeating its object-safety design" — is superseded by ADR [0075](0075-bench-env-erases-rank-not-modality.md). The trait is object-safe, but erasure strips only the const-generic ranks; `Observation`/`Action` survive it and are exactly what differ across environments, so that proposed wrapper is unsound as written — the unspecified "normalized obs/action shape" is where the actual work lives. **The crate-separation decision this ADR exists for is unaffected.**
+
 ## Context
 
 `rlevo-environments` (a library of concrete RL/optimization environments implementing

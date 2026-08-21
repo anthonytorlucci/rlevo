@@ -394,11 +394,11 @@ where
         // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
         // per-site correctness floor for a caller driving `ask`/`tell`
         // directly instead of `EvolutionaryHarness::step`, which already
-        // sanitizes (the ADR 0034 decision-3 bypass hole, issue #131):
-        // otherwise a raw NaN lands in the public `state.fitness` cache and
-        // silently disables the `fitness[j] > fitness[i]` brightness ordering
-        // in the next `ask`. `sanitize_fitness` is idempotent, so on the
-        // harness path this is a provable no-op — not redundant, load-bearing.
+        // sanitizes (the ADR 0034 decision-3 bypass hole): otherwise a raw
+        // NaN lands in the public `state.fitness` cache and silently
+        // disables the `fitness[j] > fitness[i]` brightness ordering in the
+        // next `ask`. `sanitize_fitness` is idempotent, so on the harness
+        // path this is a provable no-op — not redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -612,7 +612,7 @@ mod tests {
         approx::assert_relative_eq!(d[3], 0.0, epsilon = 1e-6);
     }
 
-    // Gap (b') / issue #233: the `genome_dim = 1` (D == 1) pure-tensor path. The
+    // Covers the `genome_dim = 1` (D == 1) pure-tensor path. The
     // reductions `sum_dim(2).squeeze_dim::<2>(2)` and `sum_dim(1).squeeze_dim::<2>(1)`
     // now strip only the reduced axis, so the trailing size-1 genome axis survives
     // and the kernel no longer panics in burn's `Squeeze` rank-check. Firefly 0 is
@@ -795,7 +795,7 @@ mod tests {
         );
     }
 
-    // Gap (b') cont. / issue #233: a full `genome_dim = 1` run drives the harness
+    // Companion boundary test: a full `genome_dim = 1` run drives the harness
     // to completion without panicking and records a finite best.
     #[test]
     fn boundary_genome_dim_one_runs() {

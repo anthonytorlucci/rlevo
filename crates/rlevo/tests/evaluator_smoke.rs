@@ -2,13 +2,15 @@
 
 use rand::Rng;
 use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
+use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::reward::ScalarReward;
 
-/// Deterministic toy env: observation is a step counter, reward = action as f64,
-/// terminates after 3 steps. Seed influences a constant reward offset so we can
+/// Deterministic toy env: reward = action + offset, terminates after 3 steps.
+/// The observation carries no payload — no assertion reads it. Seed influences a constant reward offset so we can
 /// confirm env seeding reaches the evaluator.
 #[derive(Debug, Clone)]
 struct ToyEnv {
@@ -27,22 +29,60 @@ impl ToyEnv {
     }
 }
 
-impl BenchEnv for ToyEnv {
-    type Observation = usize;
-    type Action = f64;
+// Minimal rank-1 contract types: the toy env is a real `Environment`.
 
-    fn reset(&mut self) -> Result<Self::Observation, BenchError> {
+#[derive(Debug, Clone)]
+struct ToyObs;
+impl Observation<1> for ToyObs {
+    fn shape() -> [usize; 1] {
+        [1]
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ToyState;
+impl State<1> for ToyState {
+    fn shape() -> [usize; 1] {
+        [1]
+    }
+    fn is_valid(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ToyAction(f64);
+impl Action<1> for ToyAction {
+    fn shape() -> [usize; 1] {
+        [1]
+    }
+    fn is_valid(&self) -> bool {
+        self.0.is_finite()
+    }
+}
+
+impl Environment<1, 1, 1> for ToyEnv {
+    type StateType = ToyState;
+    type ObservationType = ToyObs;
+    type ActionType = ToyAction;
+    type RewardType = ScalarReward;
+    type SnapshotType = SnapshotBase<1, ToyObs, ScalarReward>;
+
+    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.t = 0;
-        Ok(0)
+        Ok(SnapshotBase::running(ToyObs, ScalarReward(0.0)))
     }
 
-    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
+    #[allow(clippy::cast_possible_truncation)]
+    fn step(&mut self, action: ToyAction) -> Result<Self::SnapshotType, EnvironmentError> {
         self.t += 1;
-        Ok(BenchStep {
-            observation: self.t,
-            reward: action + self.offset,
-            done: self.t >= 3,
-        })
+        let reward = ScalarReward((action.0 + self.offset) as f32);
+        let obs = ToyObs;
+        if self.t >= 3 {
+            Ok(SnapshotBase::terminated(obs, reward))
+        } else {
+            Ok(SnapshotBase::running(obs, reward))
+        }
     }
 }
 
@@ -51,9 +91,9 @@ struct ConstAgent {
     value: f64,
 }
 
-impl BenchableAgent<usize, f64> for ConstAgent {
-    fn act(&mut self, _obs: &usize, _rng: &mut dyn Rng) -> f64 {
-        self.value
+impl BenchableAgent<ToyObs, ToyAction> for ConstAgent {
+    fn act(&mut self, _obs: &ToyObs, _rng: &mut dyn Rng) -> ToyAction {
+        ToyAction(self.value)
     }
 }
 
@@ -124,8 +164,8 @@ fn determinism_same_seed_same_metrics() {
 #[derive(Debug)]
 struct PanicAgent;
 
-impl BenchableAgent<usize, f64> for PanicAgent {
-    fn act(&mut self, _obs: &usize, _rng: &mut dyn Rng) -> f64 {
+impl BenchableAgent<ToyObs, ToyAction> for PanicAgent {
+    fn act(&mut self, _obs: &ToyObs, _rng: &mut dyn Rng) -> ToyAction {
         panic!("intentional");
     }
 }

@@ -280,7 +280,7 @@ mod tests {
     /// `Err`**, which is why this asserts on the returned error rather than
     /// using `#[should_panic]`: a panic here would be the bug, not the fix.
     #[test]
-    fn rejects_replay_buffer_capacity_above_ceiling() {
+    fn test_ddpg_config_rejects_replay_buffer_capacity_above_ceiling() {
         let err = DdpgTrainingConfigBuilder::new()
             .replay_buffer_capacity(usize::MAX)
             .build()
@@ -294,7 +294,7 @@ mod tests {
     /// The boundary is inclusive: the ceiling itself is a legal (if
     /// unallocatable) capacity, so the guard cannot be off by one.
     #[test]
-    fn accepts_replay_buffer_capacity_at_ceiling() {
+    fn test_ddpg_config_accepts_replay_buffer_capacity_at_ceiling() {
         let cfg = DdpgTrainingConfigBuilder::new()
             .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
             .build()
@@ -303,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_match_cleanrl() {
+    fn test_ddpg_config_defaults_match_cleanrl() {
         let cfg = DdpgTrainingConfig::default();
         assert_eq!(cfg.replay_buffer_capacity, 1_000_000);
         assert_eq!(cfg.batch_size, 256);
@@ -327,7 +327,7 @@ mod tests {
     // default drift pass.
     #[allow(clippy::float_cmp)]
     #[test]
-    fn default_target_update_is_bit_identical_to_the_pre_migration_alias() {
+    fn test_ddpg_config_default_target_update_is_bit_identical_to_the_pre_migration_alias() {
         let cfg = DdpgTrainingConfig::default();
         assert_eq!(
             cfg.target_update.tau(),
@@ -354,7 +354,7 @@ mod tests {
     /// The configuration ADR 0058 exists to make expressible: an actor delay
     /// and a target cadence that differ.
     #[test]
-    fn actor_delay_and_target_cadence_are_independently_settable() {
+    fn test_ddpg_config_actor_delay_and_target_cadence_are_independently_settable() {
         let cfg = DdpgTrainingConfigBuilder::new()
             .policy_frequency(1)
             .target_update(TargetUpdate::polyak(0.005, 2))
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn builder_overrides_propagate() {
+    fn test_ddpg_config_builder_overrides_propagate() {
         let cfg = DdpgTrainingConfigBuilder::new()
             .batch_size(64)
             .actor_lr(1e-4)
@@ -382,12 +382,12 @@ mod tests {
     }
 
     #[test]
-    fn default_config_is_valid() {
+    fn test_ddpg_config_default_is_valid() {
         assert!(DdpgTrainingConfig::default().validate().is_ok());
     }
 
     #[test]
-    fn rejects_zero_batch_size() {
+    fn test_ddpg_config_rejects_zero_batch_size() {
         let err = DdpgTrainingConfigBuilder::new()
             .batch_size(0)
             .build()
@@ -401,7 +401,7 @@ mod tests {
     /// because the guarantee a DDPG reader needs is "no `DdpgTrainingConfig`
     /// can hold a frozen target", and that is a statement about this config.
     #[test]
-    fn frozen_target_is_unreachable_through_the_type() {
+    fn test_ddpg_config_frozen_target_is_unreachable_through_the_type() {
         assert!(
             TargetUpdate::try_polyak(0.0, 1).is_err(),
             "τ = 0 fires on schedule and moves nothing — a frozen target"
@@ -423,7 +423,7 @@ mod tests {
     /// construct an invalid `TargetUpdate` *value* to assign into the public
     /// field, so there is nothing for `validate` to catch on this route.
     #[test]
-    fn nan_tau_cannot_be_constructed_for_struct_update_syntax() {
+    fn test_ddpg_config_nan_tau_cannot_be_constructed_for_struct_update_syntax() {
         assert!(TargetUpdate::try_polyak(f32::NAN, 1).is_err());
         assert!(TargetUpdate::try_polyak(f32::INFINITY, 1).is_err());
         // Every τ a struct-update config can carry came through `PolyakTau`, so

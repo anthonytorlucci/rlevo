@@ -1,7 +1,12 @@
-//! Cross-landscape regression net for issue #110 — an unguarded `dim` on an
-//! n-dimensional landscape silently produces `NaN` or a wrong optimum
-//! (`Sphere::new(0)` evaluates the empty sum `0`, i.e. reports itself solved on
-//! every call; `Ackley::new(0)` divides by zero).
+//! Cross-landscape regression net guarding every `new(dim)` landscape
+//! constructor against `dim == 0`. The underlying defect took two shapes:
+//! `Ackley::new(0)` and `Alpine1`/`Deb1::new(0)` broke outright, producing
+//! `NaN`; while `Sphere`, `Griewank`, `Michalewicz`, `Needle`, `Rastrigin`,
+//! and `Schwefel` accepted `dim == 0` silently and evaluated to the *optimum
+//! value* instead — arguably worse, since a misconfiguration then reads as
+//! "solved" rather than failing loudly. (`Sphere::new(0)` evaluates the empty
+//! sum `0`, i.e. reports itself solved on every call; `Ackley::new(0)`
+//! divides by zero.)
 //!
 //! Every landscape carries its own `new_rejects_*` unit test, but per-file tests
 //! do nothing to stop the *next* landscape from landing unguarded. This file is
@@ -107,7 +112,8 @@ static DIM_GUARDS: &[DimGuard] = dim_guards![
 static MULTI_FACTOR_LANDSCAPES: &[&str] = &["concatenated_trap"];
 
 /// Landscapes defined *only* on 2-D inputs: their `new()` takes no arguments,
-/// there is no `dim` to validate, and issue #110 cannot apply to them.
+/// so there is no `dim` to validate — the crate-wide `dim == 0` guard added
+/// to every n-D landscape constructor has nothing to apply to here.
 ///
 /// A landscape belongs here **only if it has no dimension parameter at all**. If
 /// it takes a `dim`, it needs a [`DIM_GUARDS`] row instead.
@@ -125,13 +131,16 @@ static FIXED_2D_LANDSCAPES: &[&str] = &[
 /// Modules under `src/landscapes/` that do not define a landscape.
 static NON_LANDSCAPE_MODULES: &[&str] = &["render"];
 
-/// The heart of #110: `dim == 0` is never a legal landscape.
+/// `dim == 0` is never a legal landscape: constructing one either produces
+/// `NaN` outright or silently evaluates to the optimum value, and both
+/// failure modes must be rejected instead.
 #[test]
 fn every_landscape_rejects_zero_dim() {
     for guard in DIM_GUARDS {
         assert!(
             (guard.ctor)(0).is_err(),
-            "{}::new(0) must be rejected (issue #110)",
+            "{}::new(0) must be rejected: dim == 0 must never silently \
+             succeed as NaN or a false optimum",
             guard.name,
         );
     }
@@ -189,11 +198,13 @@ fn every_landscape_accepts_its_minimum_and_reports_it() {
 fn concatenated_trap_rejects_zero_factors() {
     assert!(
         ConcatenatedTrap::new(0, 5).is_err(),
-        "ConcatenatedTrap::new(0, 5) must be rejected: num_blocks == 0 (issue #110)",
+        "ConcatenatedTrap::new(0, 5) must be rejected: num_blocks == 0 \
+         yields a zero-length genome",
     );
     assert!(
         ConcatenatedTrap::new(4, 0).is_err(),
-        "ConcatenatedTrap::new(4, 0) must be rejected: block_size == 0 (issue #110)",
+        "ConcatenatedTrap::new(4, 0) must be rejected: block_size == 0 \
+         yields a zero-length genome",
     );
     let trap = ConcatenatedTrap::new(4, 5).expect("num_blocks >= 1 && block_size >= 1");
     assert_eq!(trap.dim(), 20, "dim() must be num_blocks * block_size");
@@ -216,7 +227,8 @@ fn table_covers_every_landscape_module() {
     assert!(
         unregistered.is_empty(),
         "unclassified landscape module(s) in src/landscapes/: {unregistered:?}\n\
-         Every landscape must be accounted for by this regression net (issue #110). \
+         Every landscape must be accounted for by this regression net, so an \
+         unguarded `dim == 0` constructor can never land unnoticed. \
          Classify each one in tests/landscape_dim_guards.rs:\n\
          - takes a `dim`: add a DIM_GUARDS row (`module: Type => min_dim`);\n\
          - dimension is a product of several args: add it to MULTI_FACTOR_LANDSCAPES \

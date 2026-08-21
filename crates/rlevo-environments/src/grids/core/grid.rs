@@ -58,9 +58,10 @@ use crate::direction::Direction;
 /// It does **not** make the existing fields malleable. A downstream
 /// `GridError::OutOfBounds { x, y, .. }` still binds `x` and `y` by name, so
 /// renaming or removing a field is a breaking change (`E0026`) whether or not
-/// the variant is non-exhaustive. Collapsing the loose `(x, y)` pair into the
-/// single `Pos` newtype of issue #863 is therefore a semver-major change here,
-/// and should be planned as one — the attribute does not buy a quiet migration.
+/// the variant is non-exhaustive. A future `Pos { x, y }` newtype consolidating
+/// this module's loose `(x, y)` pairs — proposed to make x/y transposition a
+/// type error at call sites — would therefore be semver-major here too, and
+/// should be planned as one; the attribute does not buy a quiet migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum GridError {

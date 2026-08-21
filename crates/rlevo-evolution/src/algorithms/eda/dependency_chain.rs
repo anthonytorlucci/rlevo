@@ -598,7 +598,10 @@ mod tests {
     #[test]
     fn fit_k_less_than_two_returns_prior() {
         // n = 1 (k = 1): correlation is unidentifiable and `/= kf` would poison
-        // the state with NaN. The guard (#129) returns the prior-shaped state.
+        // the state with NaN. `fit`'s `k < 2` guard detects this and returns
+        // the prior-shaped state (independent dimensions, `init_mean`/
+        // `init_std`, zero `link_corr`) instead of deriving statistics from
+        // an insufficient sample.
         let p = DependencyChainParams::default_for(2);
         let state = refit(&p, vec![1.0, 2.0], 1, 2);
         assert_eq!(state.chain, vec![0, 1]);
@@ -610,8 +613,11 @@ mod tests {
     #[test]
     fn sample_with_degenerate_link_stays_finite() {
         // A pathological state whose conditional link overflows (σ_c/σ_p → inf):
-        // the sample() guard (#129) must fall back to the marginal Gaussian
-        // rather than emit NaN/inf into the population.
+        // `sample`'s finiteness check on `cond_mean`/`cond_std` detects the
+        // non-finite conditional Gaussian parameters and falls back to the
+        // marginal Gaussian of `cur` (`mu_c`, `sigma_c`) — the distribution
+        // the link degenerates to at `r = 0` — instead of emitting NaN/inf
+        // into the population.
         let device = Default::default();
         let state = DependencyChainState {
             chain: vec![0, 1],

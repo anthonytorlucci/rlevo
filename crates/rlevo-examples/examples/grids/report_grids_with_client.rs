@@ -41,7 +41,6 @@ use rlevo_benchmarks::suite::Suite;
 
 use rlevo_core::action::DiscreteAction;
 
-use rlevo_environments::bench::BenchAdapter;
 use rlevo_environments::grids::core::observation::GridObservation;
 use rlevo_environments::grids::{EmptyConfig, EmptyEnv, GridAction};
 
@@ -101,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .expect("valid config");
             let recorded: RecordingTap<EmptyEnv, 3, 3, 1> = RecordingTap::new(env, sink.clone());
-            BenchAdapter::new(recorded)
+            recorded
         })
     };
 

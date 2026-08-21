@@ -14,7 +14,7 @@
 //! `max_steps = 845`) rather than pinning its own literals, so it always
 //! benchmarks the configuration rlevo actually ships.
 //!
-//! **That was not true until ADR 0043 landed (issue #109).** Before the fix the
+//! **That was not true until ADR 0043 landed.** Before the fix the
 //! cue was a compile-time constant and the reward was keyed to a fixed
 //! coordinate, so a feedforward DQN could solve the environment outright — this
 //! bench's previous module doc claimed the opposite ("a memoryless network
@@ -58,8 +58,9 @@
 //! So read the table as two separate failures, not one: a score **under** 50%
 //! means the policy never got to the fork; a score **at** ~50% would mean it got
 //! there and guessed; a score **consistently over** ~55% on a large evaluation
-//! would be a red flag that the cue has leaked back into the observation and
-//! issue #109 has regressed.
+//! would be a red flag that the cue has leaked back into the observation, or
+//! that the cue type is once again not being sampled from the RNG and the
+//! fork can be solved without it.
 //!
 //! rlevo ships no recurrent policy today, so the memory-augmented row above has
 //! no column here. The feedforward DQN is a *control*, not a success story.

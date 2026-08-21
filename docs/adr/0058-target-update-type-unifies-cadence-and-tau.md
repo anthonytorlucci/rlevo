@@ -6,14 +6,14 @@ date: 2026-07-24
 tags: [adr, decision, target-network, polyak, cadence, dqn, c51, qrdqn, ddpg, td3, sac, issue-334, issue-455, issue-182]
 ---
 
-# ADR 0058: τ and cadence are one target-update mechanism — `TargetUpdate` is its type
+# ADR 0058: $\tau$ and cadence are one target-update mechanism — `TargetUpdate` is its type
 
 ## Status
 
 **Accepted (2026-07-24).** Resolves issue #334 ("`target_update_frequency`
 means 'soft cadence' in SAC and 'hard cadence' in DQN/C51/QR-DQN"), **correcting
-its own premise** to a three-way divergence (§Context). Closes issue #455
-(`tau = 0.0` passing `config::in_range`) **by construction**, for all six
+its own premise** to a three-way divergence (this ADR's own Context section).
+Closes issue #455 (`tau = 0.0` passing `config::in_range`) **by construction**, for all six
 configs. Defers the default-*value* question (Atari-scaled cadence against
 classic-control `steps_per_episode`) to issue **#337**. Builds on ADR 0057
 (`polyak_update` → `Result`) — `TargetUpdate` names the *when*/*how far*
@@ -41,19 +41,21 @@ impl TargetUpdate {
 ```
 
 in `crates/rlevo-reinforcement-learning/src/target.rs`. Cadence (`every`) gates
-*when* an update fires; τ gates *how far* it moves the target at that firing.
-`τ = 1.0` is a hard copy **by degeneracy of the shared formula**, not by a
+*when* an update fires; $\tau$ gates *how far* it moves the target at that firing.
+$\tau = 1.0$ is a hard copy **by degeneracy of the shared formula**, not by a
 separate variant. Adopted as one field, `target_update: TargetUpdate`, on all
 six off-policy agents' configs (DQN, C51, QR-DQN, DDPG, TD3, SAC), replacing
 the two flat `pub tau` / `pub target_update_frequency` fields (or, for
-DDPG/TD3, the aliased use of `policy_frequency` — see §Context) on each.
+DDPG/TD3, the aliased use of `policy_frequency` — see this ADR's own Context section) on each.
 
-The **half-open** τ interval is load-bearing, not a stylistic choice: `τ = 0.0`
+The **half-open** $\tau$ interval is load-bearing, not a stylistic choice: $\tau = 0.0$
 is precisely the frozen-target state, so admitting it would falsify the
-§Consequences claim below that a never-updating target becomes unrepresentable —
+Consequences claim below (this ADR's own Consequences section) that a
+never-updating target becomes unrepresentable —
 and would make the deletion of the three cross-field validation blocks a
 regression rather than a simplification. `PolyakTau` exists *because*
-`rlevo_core::Probability` admits `0.0` (§Alternatives).
+`rlevo_core::Probability` admits `0.0` (this ADR's own Alternatives
+Considered section).
 
 `fires_at` returns `Option<f64>` rather than `Option<f32>` because all five
 `soft_update` model-trait methods take `f64` (`dqn_model.rs:65`,
@@ -61,7 +63,7 @@ regression rather than a simplification. `PolyakTau` exists *because*
 of the nine call sites. `try_polyak` takes `every: usize` rather than
 `NonZeroUsize` so that a runtime cadence of `0` is *handled* here rather than
 pushed onto the caller, and returns a single `TargetUpdateError` covering both
-failure modes (`Tau { got }`, `ZeroEvery`) — a τ-only error has no name for the
+failure modes (`Tau { got }`, `ZeroEvery`) — a $\tau$-only error has no name for the
 cadence failure. `is_hard()` keeps hard-vs-Polyak **queryable** without
 reintroducing a variant.
 
@@ -89,7 +91,9 @@ removing the second field.
 
 **SAC** (`sac_agent.rs:757-771`) uses `target_update_frequency` to gate the
 **soft** update itself, on `self.critic_updates` — the SB3/CleanRL unified
-convention (§Literature below). Default `1`, so the gate is a no-op at
+convention (this ADR's own Context section, further down — the
+literature-review discussion of Haarnoja's and Fujimoto's papers). Default
+`1`, so the gate is a no-op at
 defaults and the semantics are untested in-tree by anything that varies it.
 
 **DDPG / TD3 have no `target_update_frequency` field, but they are not the
@@ -105,7 +109,7 @@ field, agrees with the issue, and misses the aliasing entirely. (Recorded
 verbatim as the load-bearing correction in
 `docs/.private/research/target-network-update-semantics.md`, "CORRECTION
 (2026-07-24, while working #334)".) TD3's *behaviour* here matches Fujimoto
-§5.2 exactly — critic and target update together every `d` critic steps — what
+Section 5.2 exactly — critic and target update together every `d` critic steps — what
 is not canonical is that the cadence is unnameable and unsettable independently
 of the actor delay.
 
@@ -127,7 +131,7 @@ provenance field? If so, the migration includes a record `FORMAT_VERSION`
 bump" — answers **no**. `Hyperparameters` in `rlevo-benchmarks`
 (`record/schema.rs:541`) is a free-form `BTreeMap<String, String>` populated by
 callers at report time, not a serialized config; there is no config loader
-anywhere in the workspace (ADR 0055 §Consequences, negative cost 3, already
+anywhere in the workspace (ADR 0055's own Consequences section, negative cost 3, already
 records this as a dormant, unowned obligation). So there is **no persisted
 config to migrate and no `FORMAT_VERSION` bump** — the ADR 0014/0023 precedent
 for a schema bump does not apply here. The real stale-config vector is
@@ -141,14 +145,15 @@ rlevo is merely borrowing.** The issue asks the ADR to record "why the
 SB3/CleanRL *semantics* were adopted but their *field shape* was not." That
 framing under-attributes the mechanism. Haarnoja et al. 2018a (SAC, ICML,
 arXiv:1801.01290), Appendix D Table 1, runs a **"SAC (hard target update)"**
-ablation — τ = 1, target update interval = 1000 — beside standard SAC — τ =
-0.005, interval = 1 — inside the SAC paper itself: the degenerate hard copy is
-obtained purely by setting τ = 1 on the soft rule, a controlled ablation, not a
+ablation — $\tau = 1$, target update interval = 1000 — beside standard SAC — $\tau =
+0.005$, interval = 1 — inside the SAC paper itself: the degenerate hard copy is
+obtained purely by setting $\tau = 1$ on the soft rule, a controlled ablation, not a
 different code path. Fujimoto et al. 2018 (TD3, ICML, arXiv:1802.09477),
 Section 3, states the same generality directly: "The weights of a target
 network are either updated periodically to exactly match the weights of the
 current network, or by some proportion τ at each time step
-θ′ ← τθ + (1 − τ)θ′." Algorithm 1 then runs the gated soft form, and §5.2:
+θ′ ← τθ + (1 − τ)θ′." Algorithm 1 then runs the gated soft form, and
+Section 5.2:
 "The modification is to only update the policy and target networks after a
 fixed number of updates *d* to the critic." So the unified operator predates
 SB3/CleanRL by four years and appears in both the SAC and TD3 papers
@@ -179,12 +184,13 @@ method, not a proven equivalence. Full provenance and confidence notes:
 1. **`TargetUpdate { tau: PolyakTau, every: NonZeroUsize }`** lives in
    `crates/rlevo-reinforcement-learning/src/target.rs`. `tau` is a private
    validated `f32` newtype (`PolyakTau`, invariant `0.0 < tau <= 1.0`,
-   mirroring the ADR 0027/0031 shape) so `τ = 1.0` is representable — it is a
-   legal Polyak coefficient, not a distinct case — while `τ = 0.0`, `τ` outside
+   mirroring the ADR 0027/0031 shape) so $\tau = 1.0$ is representable — it is a
+   legal Polyak coefficient, not a distinct case — while $\tau = 0.0$, $\tau$ outside
    the interval, NaN, and infinity are not. **The lower bound is exclusive
-   because `τ = 0.0` is the frozen-target state**, the exact condition the
+   because $\tau = 0.0$ is the frozen-target state**, the exact condition the
    deleted cross-field checks existed to reject; admitting it would make
-   §Consequences' unrepresentability claim false. `every: NonZeroUsize` makes
+   this ADR's own Consequences section's unrepresentability claim false.
+   `every: NonZeroUsize` makes
    "never fires" unrepresentable, reusing the standard library's own
    validated-nonzero type rather than adding a bespoke one for an invariant
    `std` already names.
@@ -194,29 +200,30 @@ method, not a proven equivalence. Full provenance and confidence notes:
    value that did not arrive as a source literal). Both take `every: usize` and
    validate it, so a runtime `0` is rejected here rather than at the caller.
    `TargetUpdateError` is one `Copy` enum with `Tau { got }` and `ZeroEvery`;
-   τ is validated before cadence, and a test pins that ordering.
+   $\tau$ is validated before cadence, and a test pins that ordering.
 3. **`fires_at(self, updates: usize) -> Option<f64>`** is the seam every call
    site consumes: `Some(tau)` when `updates` is a multiple of `every`,
    `None` otherwise. This is a **predicate**, not an applier — see
-   §Alternatives for why the type deliberately does not also call
+   this ADR's own Alternatives Considered section for why the type
+   deliberately does not also call
    `polyak_update`. It reproduces `usize::is_multiple_of` exactly, so
-   `fires_at(0)` is `Some(τ)` for every cadence; callers pass a **post-increment**
+   `fires_at(0)` is $\text{Some}(\tau)$ for every cadence; callers pass a **post-increment**
    counter, so index `0` is unreachable in practice. `is_hard()` reports
-   `τ == 1.0` so a caller (e.g. a metrics label) can branch on hard-vs-Polyak
+   $\tau = 1.0$ so a caller (e.g. a metrics label) can branch on hard-vs-Polyak
    without the type carrying a variant to branch on.
 4. **Adoption.** All six off-policy configs (DQN, C51, QR-DQN, DDPG, TD3, SAC)
    gain `pub target_update: TargetUpdate`, replacing `pub tau` +
    `pub target_update_frequency` (DQN/C51/QR-DQN, SAC) or the `policy_frequency`
    alias for target cadence (DDPG/TD3). **DDPG and TD3 keep `policy_frequency`
-   unchanged** as the actor-delay knob (TD3's `d`, Fujimoto §5.2) — it now
-   governs the actor/α-analogue cadence only. `target_update` is a new,
-   independently settable field, so the aliasing identified in §Context is
-   removed: an operator can change how often the actor updates without
+   unchanged** as the actor-delay knob (TD3's `d`, Fujimoto Section 5.2) — it now
+   governs the actor/$\alpha$-analogue cadence only. `target_update` is a new,
+   independently settable field, so the aliasing identified in this ADR's
+   own Context section is removed: an operator can change how often the actor updates without
    changing how often the target moves, and vice versa.
 
 ## Consequences
 
-### Config validation shrinks, by construction (ADR 0027 §3 / ADR 0055 §4)
+### Config validation shrinks, by construction (ADR 0027's own Decision 3 / ADR 0055's own Decision 4)
 
 A validated newtype **removes** its paired `config::` check rather than
 replacing it. Deleted: `config::in_range(C, "tau", 0.0, 1.0, ...)` from all six
@@ -227,9 +234,9 @@ target_update_frequency == 0` cross-field blocks from DQN/C51/QR-DQN
 (`dqn_config.rs:182`, `c51_config.rs:189`, `qrdqn_config.rs:195`). The
 combination those blocks rejected — a target that can never update — becomes
 **unrepresentable**: `every: NonZeroUsize` cannot be `0`, `PolyakTau` cannot be
-`0.0`, and any valid τ combined with any valid `every` always fires eventually
+`0.0`, and any valid $\tau$ combined with any valid `every` always fires eventually
 and always moves the target when it does. Both halves of the invariant are
-required; a closed-interval τ would leave `polyak(0.0, n)` as a frozen target
+required; a closed-interval $\tau$ would leave `polyak(0.0, n)` as a frozen target
 and make this deletion a regression. This is strictly stronger than "rejected at
 construction," per the ADR 0027 pattern.
 The three regression tests that pinned the old rejection
@@ -251,8 +258,8 @@ configs, including via struct-literal `..Default::default()` construction, which
 no `validate()`-based fix could have achieved. `config::in_range` itself is **deliberately
 left unchanged**: every other caller (`gamma`, `epsilon_start`, `epsilon_end`,
 `epsilon_decay`) has legitimate closed-interval endpoints, and narrowing the
-shared helper for one field's sake would be the wrong lever (ADR 0055 §4: the
-newtype is the lever, not the shared range check).
+shared helper for one field's sake would be the wrong lever (ADR 0055's own
+Decision 4: the newtype is the lever, not the shared range check).
 
 ### Breaking, alpha, no external consumers
 
@@ -262,7 +269,7 @@ DDPG/TD3 `.policy_frequency(n)` overload for target cadence) to
 `.target_update(TargetUpdate::polyak(x, n))`. Struct-literal and
 `..Default::default()` construction of a stale field name is a **compile
 error**, not a silent behavioural drift — the strictly-stronger outcome named
-in §Context's correction 1.
+in this ADR's own Context section's correction 1.
 
 ## Alternatives Considered
 
@@ -285,24 +292,24 @@ serde adopter two encodings of one config, and it breaks a derived
 `Polyak { tau: 1.0, every: 5 }` should compare equal as configurations and
 would not, under `#[derive(PartialEq)]` on the enum.
 
-### A disjoint enum with τ restricted to the open interval `(0, 1)`
+### A disjoint enum with $\tau$ restricted to the open interval $(0, 1)$
 
-Buys disjointness by asserting something mathematically false: `τ = 1` **is**
+Buys disjointness by asserting something mathematically false: $\tau = 1$ **is**
 a legal Polyak coefficient (Haarnoja's own hard-update ablation runs it), so
 excluding it from `Polyak` is not a domain fact, it is a modelling error
 disguised as type safety. It also forces a `match` at every apply site where
-both arms perform identical arithmetic (`(1−τ)·target + τ·active` at `τ=1` is
+both arms perform identical arithmetic ($(1-\tau) \cdot \text{target} + \tau \cdot \text{active}$ at $\tau=1$ is
 exactly a copy — see `polyak_update`'s own doc comment: "Pass `tau = 1.0` for a
-hard copy"), and it makes a continuous τ sweep over `[0.001, 1.0]` —
+hard copy"), and it makes a continuous $\tau$ sweep over $[0.001, 1.0]$ —
 inexpressible across an enum boundary — unavailable to a hyperparameter search,
 which is a real operation in a research library.
 
 ### Reusing `rlevo_core::Probability`
 
 `Probability`'s invariant is `0.0 <= p <= 1.0` — admits `p = 0.0`, which for
-τ is the frozen-target state (`fires_at` would still gate correctly, but the
-degenerate case a reader most needs flagged, `τ = 0`, gets no distinguishing
-name from `τ = 0.7`). A dedicated `PolyakTau` costs one small type and buys a
+$\tau$ is the frozen-target state (`fires_at` would still gate correctly, but the
+degenerate case a reader most needs flagged, $\tau = 0$, gets no distinguishing
+name from $\tau = 0.7$). A dedicated `PolyakTau` costs one small type and buys a
 name (`PolyakTau`, `TargetUpdateError::Tau`) that a diagnostic or a doc comment can
 point at specifically, matching the ADR 0031 precedent of a dedicated rate
 newtype per distinct semantic domain rather than a shared generic
@@ -322,7 +329,7 @@ it configures.
 Five distinct traits declare an identical-shaped `soft_update` method —
 `DqnModel`, `C51Model`, `QrDqnModel`, and DDPG's `DeterministicPolicy`
 (actor) / `ContinuousQ` (critic), the latter two reused by SAC and TD3 (ADR
-0057 §Decision). Unifying "gate + apply" behind one generic function needs a
+0057's own Decision section). Unifying "gate + apply" behind one generic function needs a
 new supertrait spanning all five (an ADR-0052-scale refactor: 0052 split
 `HostRow` from its backend for exactly this kind of cross-cutting-trait churn)
 or a macro. `fires_at` is the seam that works with **zero** trait plumbing —
@@ -339,9 +346,9 @@ the invariant its comments exist to state.
 
 - Issue #334 — "`target_update_frequency` means 'soft cadence' in SAC and
   'hard cadence' in DQN/C51/QR-DQN"; resolved with the three-way divergence
-  corrected in §Context.
+  corrected in this ADR's own Context section.
 - Issue #455 — `tau = 0.0` passes `config::in_range`'s closed interval; closed
-  by construction (§Consequences).
+  by construction (this ADR's own Consequences section).
 - Issue #337 — target-update *default values* are Atari-scaled against
   classic-control `steps_per_episode: 1000`; deferred, not answered here.
 - Issue #182 — the original two-independent-schedules defect on the DQN
@@ -359,16 +366,17 @@ the invariant its comments exist to state.
   the scale of refactor a cross-trait `soft_update` unification would require.
 - ADR [0055](0055-config-invariant-enforcement-allocation.md) — `*Config`
   types keep `pub` fields; struct-literal-surviving invariants go in a
-  newtype (§4), which is exactly what `TargetUpdate`/`PolyakTau` does here.
+  newtype (its own Decision 4), which is exactly what `TargetUpdate`/`PolyakTau` does here.
 - ADR [0057](0057-target-soft-update-path-is-fallible.md) — `PolyakError`,
   `soft_update: Result`, and the `.clone()` + `?` idiom this ADR's
   "generic applier" alternative declines to collapse.
 - `docs/.private/research/target-network-update-semantics.md` — the #182
   note; its "CORRECTION (2026-07-24, while working #334)" block is the source
-  of the DDPG/TD3 `policy_frequency` aliasing finding quoted in §Context.
+  of the DDPG/TD3 `policy_frequency` aliasing finding quoted in this ADR's
+  own Context section.
 - `docs/.private/research/2026-07-24-issue-334-target-update-cadence-units.md`
   — the #334 note; source of the SAC/TD3 primary-literature citations and the
-  theory-literature non-contestation survey in §Context.
+  theory-literature non-contestation survey in this ADR's own Context section.
 - Code: `crates/rlevo-reinforcement-learning/src/algorithms/dqn/dqn_agent.rs:385-400,558-566`;
   `crates/rlevo-reinforcement-learning/src/algorithms/sac/sac_agent.rs:757-771`;
   `crates/rlevo-reinforcement-learning/src/algorithms/ddpg/ddpg_agent.rs:566-605`;

@@ -60,24 +60,24 @@ use crate::algorithms::shared::LogWatermark;
 /// # Type parameters
 ///
 /// - `B` — Burn autodiff backend.
-/// - `P` — Policy network: must implement `PpoPolicy<B, DB>` and
-///   `PpgAuxValueHead<B, DB>`.
-/// - `V` — Main value network implementing `PpoValue<B, DB>`.
+/// - `P` — Policy network: must implement `PpoPolicy<B, BOR>` and
+///   `PpgAuxValueHead<B, BOR>`.
+/// - `V` — Main value network implementing `PpoValue<B, BOR>`.
 /// - `E` — Environment with `ObservationType = O`, `ActionType = A`,
-///   `RewardType = R`, and an action space of rank `1` (discrete).
-/// - `O` — Observation type convertible to a rank-`DO` tensor.
+///   `RewardType = Rew`, and an action space of rank `1` (discrete).
+/// - `O` — Observation type convertible to a rank-`OR` tensor.
 /// - `A` — Discrete action implementing `DiscreteAction<1>`.
-/// - `R` — Scalar reward implementing `Reward + Copy`.
-/// - `DO` — Observation tensor rank.
-/// - `SD` — State tensor rank (consumed by the environment bound only).
-/// - `DB` — Batched observation tensor rank (`DO + 1`).
+/// - `Rew` — Scalar reward implementing `Reward + Copy`.
+/// - `OR` — Observation tensor rank.
+/// - `SR` — State tensor rank (consumed by the environment bound only).
+/// - `BOR` — Batched observation tensor rank (`R + 1`).
 // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
 // f32. This is the intended narrowing point, and the values are hyperparameters
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
-    agent: &mut PpgAgent<B, P, V, O, DO, DB>,
+pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+    agent: &mut PpgAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
@@ -85,12 +85,12 @@ pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, con
 ) -> Result<(), PpgAgentError>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    E: Environment<DO, SD, 1, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
     A: DiscreteAction<1>,
-    R: Reward + Copy,
+    Rew: Reward + Copy,
 {
     let rollout_len = agent.config().ppo.num_steps;
 
@@ -107,7 +107,7 @@ where
     // Watermark, not `global_step % log_every`: the step counter is only
     // sampled at rollout boundaries (multiples of `num_steps`), so a
     // divisibility test would fire on `lcm(num_steps, log_every)` — see
-    // `LogWatermark` and issue #321.
+    // `LogWatermark`.
     let mut log_watermark = LogWatermark::new(log_every);
 
     while global_step < total_timesteps {
@@ -136,14 +136,14 @@ where
             // non-finite value. Do not "fix" this to skip a NaN: a poisoned
             // episode return is a true statement about a run whose environment
             // emitted NaN, and `AgentStats::avg_score` transits it as a
-            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070,
-            // #409). Unlike the off-policy agents, nothing was dropped
+            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070).
+            // Unlike the off-policy agents, nothing was dropped
             // upstream: ADR 0065 scopes only those six, so this path has no
             // `FiniteRewardGuard` at all, and the same reward also
             // reaches `compute_gae`, whose reverse recursion poisons the whole
-            // rollout's advantages. That ingestion gap is open, see #1042.
-            // #1051 adds the PPG-specific tail: the aux buffer is snapshotted
-            // before the rollout clear, so a poisoned rollout lingers for up to
+            // rollout's advantages. That ingestion gap is open and unaddressed.
+            // The PPG-specific tail: the aux buffer is snapshotted before the
+            // rollout clear, so a poisoned rollout lingers for up to
             // `n_iteration` rollouts rather than one.
             episode_reward += reward_f32;
             episode_steps += 1;
@@ -231,17 +231,17 @@ where
 /// `aux` is the *most recent* iteration's auxiliary-phase result: `None` means
 /// the auxiliary buffer was not yet full on that iteration, which is the normal
 /// case for `n_iteration - 1` out of every `n_iteration` rollouts.
-fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
-    agent: &PpgAgent<B, P, V, O, DO, DB>,
+fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
+    agent: &PpgAgent<B, P, V, O, OR, BOR>,
     stats: &PpoUpdateStats,
     aux: Option<AuxPhaseStats>,
     global_step: usize,
     total_timesteps: usize,
 ) where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     let avg = agent
         .stats()
@@ -260,7 +260,7 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
         // The ADR 0049 §4 metric channel. Both read `None` for every PPG run
         // today — PPG is discrete-only in v1 — and are emitted anyway so that a
         // future Gaussian PPG head is observable the moment it lands, rather
-        // than shipping a silent trap door (#347). `?` (Debug) renders the
+        // than shipping a silent trap door. `?` (Debug) renders the
         // `Option` honestly instead of fabricating a `0.0` for a policy with no
         // σ.
         min_log_std = ?stats.min_log_std,

@@ -98,7 +98,7 @@ fn main() {
 
 The quick start's `FitnessEvaluable` trait lives in `rlevo-core` (already a
 dependency — it was hoisted there per ADR 0004), and the `EvolutionaryHarness`
-exposes the strategy as a `rlevo_core::evaluation::BenchEnv`. Swap in your own
+exposes the strategy as a `rlevo_core::evaluation::GenerationProbe`. Swap in your own
 objective by implementing `FitnessEvaluable` or `BatchFitnessFn` directly.
 
 This crate ships no examples of its own; runnable demos live in
@@ -127,7 +127,7 @@ device-resident evaluator; the
 `f64` out) onto a device tensor.
 
 The [`EvolutionaryHarness<B, S, F>`](src/strategy.rs) wraps a strategy
-into `rlevo_core::evaluation::BenchEnv`, so the benchmark evaluator
+into `rlevo_core::evaluation::GenerationProbe`, so the benchmark evaluator
 drives it identically to an RL environment — one generation per
 `step`, reward = `-best_fitness_ever`.
 

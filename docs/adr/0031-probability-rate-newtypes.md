@@ -34,7 +34,7 @@ The mutation/crossover **rate** scalars (`rate`, `p`, `alpha`, `mutation_rate`,
 - **CGP host comparison** (`rng >= mutation_rate`, `gp_cgp.rs`): the sense is
   inverted, so a `NaN` skips the `continue` and mutates **every** gene — the
   opposite outcome from the tensor operators, an inconsistency in itself.
-- **BLX-α arithmetic** (`ops/crossover.rs`): a `NaN`/`Inf` `alpha` multiplies
+- **BLX-$\alpha$ arithmetic** (`ops/crossover.rs`): a `NaN`/`Inf` `alpha` multiplies
   into the interval and poisons the entire offspring tensor.
 
 Validation lived only at the config layer via `config::in_range` (which *does*
@@ -53,7 +53,8 @@ Mirrors ADR 0027 (`Bounds`), ADR 0026 (`Validate`), and ADR 0023
 that many crates reference and none duplicate. These newtypes are the
 type-level companion to `Validate`'s boundary-level check — they compose. A
 newtype field returns a dedicated `Copy` error, not a `ConfigError`, because
-construction has no config/field name to report (ADR 0027 §5).
+construction has no config/field name to report (ADR 0027's own Decision 5,
+"Error surface: a dedicated `BoundsError`, not `ConfigError`").
 
 ## Decision
 
@@ -61,7 +62,7 @@ construction has no config/field name to report (ADR 0027 §5).
 
 `rlevo_core::probability::Probability` — invariant `0.0 <= p <= 1.0`; a `NaN` or
 `Inf` fails the comparison and is rejected. `rlevo_core::rate::NonNegativeRate` —
-invariant `is_finite() && r >= 0.0`; rejects `NaN`, `±Inf`, and negatives. Both
+invariant `is_finite() && r >= 0.0`; rejects `NaN`, $\pm\infty$, and negatives. Both
 carry the full `Bounds` surface: `const fn new` (panicking, for literals /
 `Default`s), `try_new -> Result<_, {Probability,NonNegativeRate}Error>`, `const
 fn get`, `#[serde(try_from = "f32", into = "f32")]` + `TryFrom<f32>` / `From`,
@@ -101,7 +102,8 @@ out of scope (a newtype cannot wrap tensor elements cheaply).
 `CgpConfig.mutation_rate: Probability`, `GaConfig.mutation_sigma:
 NonNegativeRate`, `GaCrossover::BlxAlpha { alpha: NonNegativeRate }` /
 `GaCrossover::Uniform { p: Probability }`, and
-`WritebackPolicy::Partial(Probability)`. Per ADR 0027 §3, each self-validating
+`WritebackPolicy::Partial(Probability)`. Per ADR 0027's own Decision 3
+("Relationship to the ADR 0026 `Validate` convention"), each self-validating
 field **removes** its paired `config::in_range(…)` line from `validate()`; the
 memetic hot-path `debug_assert!` is deleted (the type now guarantees it). The
 rest of every `validate()` is unchanged. `Default`s use the const `new`.
@@ -138,8 +140,9 @@ serde-correct for parity with `Bounds` and future record use.)
 
 ## Deferred (out of scope; separate issue)
 
-The 🔴 crossover.rs §1.3 concern — non-finite **parent gene values** propagating
-through `blx_alpha` (and the other operators) — is *not* addressed here. The
+The High-severity concern from the crossover.rs code review's section 1.3 —
+non-finite **parent gene values** propagating through `blx_alpha` (and the
+other operators) — is *not* addressed here. The
 newtype fixes the scalar params; a per-element finiteness scan of the parent
 tensors on every crossover is a hot GPU-path cost that needs its own design
 (candidate: treat parent-gene finiteness as the fitness/eval layer's
@@ -159,8 +162,9 @@ checks remain until a follow-up migrates them.
 - **Newtype only at the config layer, ops keep `f32`.** Rejected: the operators
   stay callable with `NaN`; the invariant would not travel to the boundary that
   actually consumes it.
-- **Return `ConfigError` from `try_new`.** Rejected for the ADR 0027 §5 reason:
-  no field name at construction; a dedicated `Copy` error is simpler.
+- **Return `ConfigError` from `try_new`.** Rejected for the same reason as
+  ADR 0027's own Decision 5: no field name at construction; a dedicated
+  `Copy` error is simpler.
 
 ## References
 - Issue #144 — this ADR resolves it.
@@ -172,9 +176,10 @@ checks remain until a follow-up migrates them.
   this ADR removes for the migrated rate fields.
 - ADR [0023](0023-objective-sense-and-maximize-convention.md) — small typed
   primitive in a dedicated `rlevo-core` module; the pattern this ADR follows.
-- `docs/rules.md §4` — Error Handling; the deserialized-data-is-`Result` rule
-  that motivates the validated serde (§4).
+- `docs/rules.md`'s Error Handling section — the deserialized-data-is-`Result`
+  rule that motivates this ADR's own Decision 4 ("serde").
 - Code: `crates/rlevo-core/src/probability.rs`,
   `crates/rlevo-core/src/rate.rs`, `crates/rlevo-evolution/src/ops/crossover.rs`
-  (the 🔴 §1.3 BLX-α site), `crates/rlevo-evolution/src/algorithms/gp_cgp.rs`
+  (the High-severity BLX-$\alpha$ site flagged at the code review's section 1.3),
+  `crates/rlevo-evolution/src/algorithms/gp_cgp.rs`
   (the inverted-sense CGP host comparison).

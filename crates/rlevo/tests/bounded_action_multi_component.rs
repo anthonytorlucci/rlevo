@@ -1,17 +1,22 @@
-//! Regression witness for ADR 0053 / issue #253: a **multi-component rank-1**
+//! Regression witness for ADR 0053: a **multi-component rank-1**
 //! `BoundedAction` must survive the continuous-control agents' action paths.
 //!
-//! Every `BoundedAction` impl in the workspace happens to satisfy
-//! `RANK == COMPONENTS`, which is exactly what kept the rank-vs-component
-//! conflation latent: `low()`/`high()` returned `[f32; R]` (one bound for all
-//! `C` components) and the agents looped `0..A::RANK` over a `COMPONENTS`-wide
-//! actor output.
+//! `BoundedAction<R>::low()`/`high()` used to return `[f32; R]` — one bound
+//! value per **rank** dimension, not per flattened **component**. Every
+//! `BoundedAction` impl in the workspace happened to satisfy
+//! `RANK == COMPONENTS`, which is exactly what kept the conflation latent:
+//! a rank-1 action with `COMPONENTS = C > 1` (`shape() == [C]`) could express
+//! only a single bound value shared across all `C` components, and the
+//! agents looped `0..A::RANK` over what was really a `COMPONENTS`-wide actor
+//! output. ADR 0053 re-keys the bounds on `COMPONENTS` (`&'static [f32]`,
+//! not `[f32; R]` — see `BoundedAction::low()`/`high()` below) and migrates
+//! DDPG/TD3/SAC's action paths off `A::RANK`.
 //!
-//! The fixture here is deliberately the shape no existing impl has, and the
-//! shape ADR 0053 §7 names as the regression witness: rank 1, `COMPONENTS = 3`,
-//! and **asymmetric** per-component bounds `[-1, 0, 0] .. [1, 1, 1]` — the real
-//! Gymnasium `CarRacing` action space (steer ∈ [-1,1], gas ∈ [0,1],
-//! brake ∈ [0,1]).
+//! The fixture here is deliberately the shape no existing impl had before
+//! the fix, and the shape ADR 0053 §7 names as the regression witness: rank
+//! 1, `COMPONENTS = 3`, and **asymmetric** per-component bounds
+//! `[-1, 0, 0] .. [1, 1, 1]` — the real Gymnasium `CarRacing` action space
+//! (steer ∈ [-1,1], gas ∈ [0,1], brake ∈ [0,1]).
 //!
 //! These tests were verified to **fail** against the pre-fix agent code (the
 //! `A::RANK`-keyed loops temporarily restored): three of the four panicked,
@@ -54,8 +59,8 @@ use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
 // The fixture: rank 1, three components, asymmetric bounds.
 // ---------------------------------------------------------------------------
 
-/// `CarRacing`-shaped action: `steer ∈ [-1, 1]`, `gas ∈ [0, 1]`,
-/// `brake ∈ [0, 1]`.
+/// `CarRacing`-shaped action: `$\text{steer} \in [-1, 1]$`, `$\text{gas} \in [0, 1]$`,
+/// `$\text{brake} \in [0, 1]$`.
 ///
 /// Rank **1** with **3** components — the combination that makes the rank/
 /// component distinction observable.
@@ -301,7 +306,7 @@ fn warmup_sample_produces_all_components_within_bounds() {
 /// Greedy/eval path: `act(.., training = false)` clips the actor output per
 /// component.
 ///
-/// The actor emits `tanh(..) ∈ [-1, 1]` on all three outputs, so the `gas` and
+/// The actor emits `$\tanh(\cdot) \in [-1, 1]$` on all three outputs, so the `gas` and
 /// `brake` components are genuinely out of *their* bounds before clipping —
 /// which is what makes this a test of per-component clipping rather than of
 /// `low[0]`/`high[0]`.
@@ -360,8 +365,8 @@ fn noisy_action_stays_within_per_component_bounds() {
 
 /// Test-local SAC actor with a **controllable saturation direction**.
 ///
-/// `mean = obs · gain` with a large `gain`, so a negative observation drives
-/// every pre-squash logit far negative and `tanh` pins the whole row at `≈ -1`
+/// `$\text{mean} = \text{obs} \cdot \text{gain}$` with a large `gain`, so a negative observation drives
+/// every pre-squash logit far negative and `tanh` pins the whole row at `$\approx -1$`
 /// — outside the `gas`/`brake` lower bound of `0`, which is what makes the
 /// per-component clamp observable rather than incidental.
 ///
@@ -392,7 +397,7 @@ impl<B: Backend> SquashedActor<B> {
         }
     }
 
-    /// `[batch, 1] × [1, action_dim]` broadcasts to `[batch, action_dim]`.
+    /// `$[\text{batch}, 1] \times [1, \text{action\_dim}]$` broadcasts to `[batch, action_dim]`.
     fn sample_impl(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 1>) {
         let z = obs * self.gain.val() + eps.mul_scalar(Self::SIGMA);
         let log_prob = z
@@ -470,7 +475,7 @@ fn sac_warmup_sample_produces_all_components_within_bounds() {
 /// SAC policy path: `act` clamps the squashed actor output against
 /// `low[i]`/`high[i]` (`sac_agent.rs:410`).
 ///
-/// The actor is driven to saturate at `≈ -1` on **every** component, so `gas`
+/// The actor is driven to saturate at `$\approx -1$` on **every** component, so `gas`
 /// and `brake` arrive genuinely below their own lower bound of `0`. The
 /// expected row is therefore `[-1, 0, 0]`, which no `low[0]`-keyed clamp can
 /// produce, and which the pre-fix `0..A::RANK` loop cannot even reach — it
@@ -512,7 +517,7 @@ fn sac_policy_action_clamps_each_component_against_its_own_bound() {
 // actually handed.
 // ===========================================================================
 
-/// Actions the **target** critic was evaluated on, one flat `[batch × C]` row
+/// Actions the **target** critic was evaluated on, one flat `$[\text{batch} \times C]$` row
 /// per `forward_inner` call.
 type RecordedActions = Arc<Mutex<Vec<Vec<f32>>>>;
 
@@ -585,7 +590,7 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for RecordingCritic<B> {
     }
 }
 
-/// Actor whose output saturates at `±1` on **every** component, with the sign
+/// Actor whose output saturates at `$\pm 1$` on **every** component, with the sign
 /// chosen by the sign of the observation.
 ///
 /// The target actor is a `valid()` snapshot taken at construction and is only
@@ -718,7 +723,7 @@ fn assert_every_target_row(rows: &[Vec<f32>], expected: [f32; 3], why: &str) {
 /// `.clamp(self.low[0], self.high[0])` with the per-component
 /// `clip_to_action_bounds(.., self.low_t, self.high_t)`.
 ///
-/// The target actor saturates at `≈ [-1, -1, -1]`. Per component that clips to
+/// The target actor saturates at `$\approx [-1, -1, -1]$`. Per component that clips to
 /// `[-1, 0, 0]`; the scalar collapse uses `low[0]/high[0]` = `-1`/`1` for all
 /// three and yields `[-1, -1, -1]` — negative gas and negative brake, the
 /// "values of impossible actions" TD3 Eq. 14's clip exists to suppress.

@@ -139,8 +139,12 @@ mod tests {
     ///
     /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so BOTH
     /// degenerate minima must lie in `[lo, hi]` on BOTH axes. `(-2, 2)` is a
-    /// reduced range of the canonical `$[-5, 5]^2$`, which is exactly the situation
-    /// that silently excluded an optimum in issue #113.
+    /// reduced range of the canonical `$[-5, 5]^2$`, and shrinking a box like
+    /// this is exactly the class of change that can silently drop an optimum:
+    /// `Branin::bounds()` once returned an `x1`-only range instead of its true
+    /// asymmetric square domain, quietly excluding a certified global optimum
+    /// from the search box. This test pins O1 here so the same mistake can't
+    /// pass unnoticed for a deliberately reduced box.
     #[test]
     fn bounds_box_contains_optimum_on_both_axes() {
         let (lo, hi) = SixHumpCamel::new().bounds();

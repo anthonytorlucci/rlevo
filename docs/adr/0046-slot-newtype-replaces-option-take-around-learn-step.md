@@ -200,7 +200,7 @@ agent.
   move — no tensor operation, no operation order, and no RNG draw changed.
   Every migrating engineer independently A/B'd seeded training runs
   against pristine `HEAD` and got bit-identical output: DDPG (101 values),
-  SAC (50 learn steps, including α auto-tune and Polyak averaging), PPO
+  SAC (50 learn steps, including $\alpha$ auto-tune and Polyak averaging), PPO
   and PPG (114 values each), TD3 (51 values), and DQN/C51/QR-DQN (299
   values each).
 

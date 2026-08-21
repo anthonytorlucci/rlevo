@@ -23,10 +23,30 @@ use rlevo_core::base::State;
 /// [`Sensor`](rlevo_core::environment::Sensor) rasterizing the world, no longer
 /// cached on this struct — not the physics state.
 ///
-/// Making the state genuinely self-contained/Markov (owning its DOFs as values
-/// and re-modelling `CarRacing` as `Environment<3, 1, 1>` + `Observable<3>`) is
-/// tracked by issue #255 (ADR 0039); this type only closes the encapsulation
-/// and invariant-honesty gap.
+/// `CarRacing` is a genuine pixels-over-physics POMDP: a single rendered
+/// frame is not Markov (recovering angular velocities needs frame-stacking),
+/// while the true state is the hull's pose and twist, each wheel's
+/// dynamical state (angular velocity, steering phase, slip), fuel, and track
+/// progress. The `[96, 96, 3]` shape above is not that state — this struct
+/// was typed to the pixel-buffer shape, forcing `CarRacing` into
+/// `Environment<3, 3, 1>`, only because
+/// [`Observable<OR>`](rlevo_core::state::Observable) (the
+/// modality-changing-observation trait) did not exist when this environment
+/// was built.
+///
+/// ADR 0039 targets a compact `State<1>` — this type, refactored to own the
+/// DOFs above as values instead of Rapier handles — paired with
+/// `Environment<3, 1, 1>` and an `impl Sensor<3, 1, 1> for CarRacing`.
+/// ADR 0047 later gave `Sensor` direct `&self` world access, so that target
+/// `Sensor` renders the frame straight from the live world rather than a
+/// cached `Observable` projection — the on-demand rendering already
+/// described above. The handles would move off the exported state onto the
+/// environment's core struct, and [`is_valid()`](State::is_valid) would
+/// become a real check over the dynamical DOFs rather than handle liveness.
+/// As of the most recent audit (2026-08-10) this refactor has not landed:
+/// `CarRacingState` is still the handle bundle below, and `env.rs` still
+/// implements `Environment<3, 3, 1>`; this type today only closes the
+/// encapsulation and invariant-honesty gap around those handles.
 #[derive(Debug, Clone)]
 pub struct CarRacingState {
     /// Car body rigid body handle.

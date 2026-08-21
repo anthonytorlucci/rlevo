@@ -123,7 +123,7 @@ impl CmsaEsConfig {
 
     /// Configuration with an explicit population size `$\lambda$`.
     ///
-    /// The `pop_size ≥ 2` invariant is enforced by [`Validate::validate`] at the
+    /// The `pop_size` `$\geq 2$` invariant is enforced by [`Validate::validate`] at the
     /// harness chokepoint, not by this infallible producer.
     #[must_use]
     pub fn with_pop_size(pop_size: usize, genome_dim: usize) -> Self {
@@ -176,7 +176,7 @@ impl Validate for CmsaEsConfig {
 pub struct CmsaEsState<B: Backend> {
     /// Distribution mean `m`, length `D`.
     mean: Vec<f32>,
-    /// Covariance matrix `C`, row-major `D × D`.
+    /// Covariance matrix `C`, row-major `$D \times D$`.
     cov: Vec<f32>,
     /// Global step size `$\bar\sigma$`.
     sigma: f32,
@@ -207,7 +207,7 @@ impl<B: Backend> CmsaEsState<B> {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `mean` is empty, if `cov` is not `D × D`
+    /// Returns a [`ConfigError`] if `mean` is empty, if `cov` is not `$D \times D$`
     /// row-major (`D = mean.len()`), or if `sigma` is not strictly positive and
     /// finite. No length constraint is imposed on `offspring_sigmas`: it may be
     /// empty (the pre-`ask` state) or any length — [`tell`](CmsaEs::tell) falls
@@ -250,7 +250,7 @@ impl<B: Backend> CmsaEsState<B> {
         &self.mean
     }
 
-    /// Covariance matrix `C`, row-major `D × D`.
+    /// Covariance matrix `C`, row-major `$D \times D$`.
     #[must_use]
     pub fn cov(&self) -> &[f32] {
         &self.cov
@@ -324,7 +324,7 @@ where
     type Genome = Tensor<B, 2>;
 
     /// Initializes `$m^0$` uniformly in `params.bounds` (host-RNG convention),
-    /// `C = I`, and `σ̄ = initial_sigma`.
+    /// `C = I`, and `$\bar\sigma$` = `initial_sigma`.
     fn init(
         &self,
         params: &CmsaEsConfig,
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn cholesky_with_jitter_recovers_from_non_pd_covariance() {
-        // Issue #147 §7.2 jitter-recovery coverage. Fixture: a diagonal (hence
+        // Jitter-recovery coverage. Fixture: a diagonal (hence
         // symmetric) NON-positive-definite covariance with eigenvalues
         // {−1e-5, 1} — for a diagonal matrix the eigenvalues *are* the diagonal
         // entries. The −1e-5 pivot makes the un-jittered `cholesky` return
@@ -608,7 +608,7 @@ mod tests {
 
     #[test]
     fn cholesky_with_jitter_falls_back_to_identity_when_degenerate() {
-        // Issue #147 §7.2 fallback-branch coverage. Fixture: a symmetric,
+        // Fallback-branch coverage. Fixture: a symmetric,
         // strongly indefinite covariance [[1, 2], [2, 1]] with eigenvalues
         // {3, −1} (the same indefinite matrix `linalg::cholesky_rejects_non_
         // positive_definite` uses). The jitter shifts every eigenvalue by
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn ask_tell_round_trip_survives_non_pd_covariance() {
-        // Issue #153 ask/tell round-trip guard on the ill-conditioned-covariance
+        // Ask/tell round-trip guard on the ill-conditioned-covariance
         // hazard. `try_new` symmetrizes `cov`, so a caller cannot inject
         // asymmetry — but it CAN inject a SYMMETRIC non-PD covariance, which is
         // the reachable path into `cholesky_with_jitter`. We reuse the
@@ -875,7 +875,7 @@ mod tests {
         );
     }
 
-    /// Issue #147 §7.2 determinism: two runs from the same seed produce
+    /// Determinism coverage: two runs from the same seed produce
     /// bit-identical trajectories. CMSA-ES host-samples off a `StdRng` threaded
     /// through `init`/`ask` (which key their `seed_stream`s on `rng.next_u64()`
     /// and the generation counter), so an identical seed and identical call
@@ -917,7 +917,7 @@ mod tests {
         );
     }
 
-    /// Issue #147 §7.2/§7.3 regression: the rank-μ covariance blend must keep `C`
+    /// Regression coverage: the rank-μ covariance blend must keep `C`
     /// bit-exactly symmetric across several generations. Guards the explicit
     /// `symmetrize` at the blend chokepoint (defensive float-drift hygiene per
     /// Beyer & Sendhoff 2008) against a future edit that reorders the outer-
@@ -954,7 +954,7 @@ mod tests {
     }
 
     proptest! {
-        // Issue #239 §7.3: stochastic-invariant coverage for the CMSA-ES
+        // Stochastic-invariant coverage for the CMSA-ES
         // ask/tell loop. proptest generates ONLY the scalar problem shape
         // `(lambda, d, seed)` (ADR 0029 RNG boundary); the run then seeds a
         // `StdRng` exactly as the hand-written tests do and threads it through

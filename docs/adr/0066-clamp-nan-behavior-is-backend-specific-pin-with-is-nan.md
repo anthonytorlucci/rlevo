@@ -10,13 +10,16 @@ tags: [adr, decision, numerical-stability, nan, gpu, wgpu, cubecl, c51, scatter,
 
 ## Status
 
-**Accepted (2026-07-27).** Resolves issue #1044, the open question ADR 0065
-§Context filed by number ("this has **not** been tested on a GPU backend and is
-**not** claimed to break; it is recorded as an open question … filed as **#1044**
-so a maintainer with GPU hardware can settle it"). Corrects a false premise
-stated in ADR 0065 §Context and ADR 0056 §Out-of-scope — both are immutable, so
-the correction lives here rather than as an edit to either. Purely additive —
-supersedes nothing, changes no public API, changes no Flex-backend numerics.
+**Accepted (2026-07-27).** Resolves issue #1044, the open question ADR 0065's
+own "C51 does not escape the loss guard, and the escape route is worth
+tracing precisely" subsection filed by number ("this has **not** been tested
+on a GPU backend and is **not** claimed to break; it is recorded as an open
+question … filed as **#1044** so a maintainer with GPU hardware can settle
+it"). Corrects a false premise stated in ADR 0065's own "C51 does not escape
+the loss guard…" subsection and ADR 0056's own "Out of scope, deliberately"
+bullet — both are immutable, so the correction lives here rather than as an
+edit to either. Purely additive — supersedes nothing, changes no public API,
+changes no Flex-backend numerics.
 
 **Chosen shape.** `Tensor::clamp`'s NaN behavior is unspecified across Burn
 backends. Where a computation's correctness depends on what happens to a NaN,
@@ -123,12 +126,12 @@ if they were universal, when they are Flex-specific:
   `# Panics` doc): *"`f32::clamp` propagates `NaN` rather than rescuing it, and
   `NaN as i32` saturates to `0`…"* — corrected in the same change that adds
   this ADR, so the line numbers above resolve only against the parent commit.
-- ADR 0065 §Context (`:63-73`), which cites `projection.rs:97` as its
-  authority and traces a NaN reward through *"the `clamp` at `:142` propagates
-  NaN rather than rescuing it"*.
-- ADR 0056 §Out-of-scope (`:112-115`), reasoning about `min(unclamped,
-  clamped)` masking `Inf` but not `NaN` on the premise that clamp does not
-  rescue NaN.
+- ADR 0065's own "C51 does not escape the loss guard…" subsection (`:63-73`),
+  which cites `projection.rs:97` as its authority and traces a NaN reward
+  through *"the `clamp` at `:142` propagates NaN rather than rescuing it"*.
+- ADR 0056's own "Out of scope, deliberately" bullet (`:112-115`), reasoning
+  about `min(unclamped, clamped)` masking `Inf` but not `NaN` on the premise
+  that clamp does not rescue NaN.
 
 ADR 0065 and ADR 0056 are immutable — this ADR does not edit either — so the
 correction is recorded here: **the clamp-propagates-NaN premise is true on
@@ -167,7 +170,7 @@ diverging reward into a confident, undetectable target distribution, which is
 the defect this ADR exists to close. Landing one without the other is a
 regression, not a partial fix.
 
-`is_nan` is used rather than `is_finite` deliberately: `±inf` is handled
+`is_nan` is used rather than `is_finite` deliberately: $\pm\infty$ is handled
 correctly and identically by the ordinary clamp on both backends measured here
 — an unbounded coordinate saturates to `v_min`/`v_max` exactly as intended,
 which *is* the algorithm's semantics (Bellemare et al. 2017 Algorithm 1's
@@ -196,8 +199,9 @@ value with no ordering — needs the explicit mask.
 3. **A bare `Tensor::clamp` call on data that can carry NaN, with neither
    primitive present, is a review-flagged defect** — not a lint (no clippy
    lint distinguishes "this tensor can be NaN" from one that provably cannot),
-   a convention enforced the same way `rules.md` §3 already enforces
-   `total_cmp`-over-`partial_cmp` and the sanitize-before-compare rule.
+   a convention enforced the same way rules.md's Trait Design Constraints
+   section already enforces `total_cmp`-over-`partial_cmp` and the
+   sanitize-before-compare rule.
 
 ## Rejected alternatives
 
@@ -209,9 +213,9 @@ value with no ordering — needs the explicit mask.
   way that, once suspected, is checkable; an all-zero row looks like nothing
   happened at all.
 - **A row-sum postcondition check** (`assert!((row.sum() - 1.0).abs() <
-  eps)`). Rejected on the measured evidence in §Context above: the corrupted
-  row sums to exactly 1.0. This check would pass on the exact input it is
-  meant to catch.
+  eps)`). Rejected on the measured evidence in this ADR's own "The C51
+  instance" subsection above: the corrupted row sums to exactly 1.0. This
+  check would pass on the exact input it is meant to catch.
 - **A host-side finiteness check on the already-projected target.** This
   would be free — `c51_agent.rs` already round-trips the projected target
   through host memory for its priority writeback — but it is useless for the
@@ -239,8 +243,9 @@ value with no ordering — needs the explicit mask.
   (`wgpu_matches_flex_on_sphere_d10`), is `#[ignore]`d because CI runners have
   no GPU adapter. Regression protection for the fix this ADR describes is a
   **manual GPU run** on hardware that has one — there is no automated gate.
-- The correction to ADR 0065 §Context and ADR 0056 §Out-of-scope (above) is
-  the only change either of those records will ever receive; both stay
+- The correction to ADR 0065's own "C51 does not escape the loss guard…"
+  subsection and ADR 0056's own "Out of scope, deliberately" bullet (above)
+  is the only change either of those records will ever receive; both stay
   immutable and their own conclusions stand unamended.
 - The two convention primitives (`clamp_preserving_nan`,
   `sanitize_fitness_tensor`) are now the two named shapes a reviewer checks a
@@ -260,7 +265,7 @@ Each is to be filed as its own issue rather than bundled in.
   **persistent, gradient-updated** module parameter, not a transient
   per-batch value — a materially different risk profile than a one-shot
   projection. On the wgpu/Metal backend a NaN gradient step could rescue
-  `log_std` to `log_std_min`, giving `σ = exp(-20) ≈ 2.06e-9` — finite,
+  `log_std` to `log_std_min`, giving $\sigma = \exp(-20) \approx 2.06 \times 10^{-9}$ — finite,
   plausible, and consumed **consistently** by both sampling and log-prob
   evaluation, so nothing downstream ever disagrees with anything else. Worse,
   the ADR 0049/#347 host-side warn scan (`gaussian.rs:497,499`) uses `v <
@@ -296,14 +301,18 @@ Each is to be filed as its own issue rather than bundled in.
 
 ## References
 
-- Issue #1044 — the open question ADR 0065 §Context filed by number.
+- Issue #1044 — the open question ADR 0065's own "C51 does not escape the
+  loss guard…" subsection filed by number.
 - ADR [0065](0065-non-finite-reward-is-dropped-at-replay-ingestion.md) —
-  §Context traces C51's NaN-reward propagation and states, correctly for
-  Flex only, that the coordinate clamp propagates NaN; corrected, not edited,
-  by this ADR. Its §Decision to drop the reward at ingestion is unaffected.
-- ADR [0056](0056-non-finite-loss-skip-and-warn-guard.md) — §Out-of-scope
-  reasons about `min(unclamped, clamped)` masking `Inf` but not `NaN` on the
-  same Flex-specific premise; corrected, not edited, by this ADR.
+  its own "C51 does not escape the loss guard, and the escape route is
+  worth tracing precisely" subsection traces C51's NaN-reward propagation
+  and states, correctly for Flex only, that the coordinate clamp propagates
+  NaN; corrected, not edited, by this ADR. Its own Decision section —
+  dropping the reward at replay ingestion — is unaffected.
+- ADR [0056](0056-non-finite-loss-skip-and-warn-guard.md) — its own "Out of
+  scope, deliberately" bullet reasons about `min(unclamped, clamped)`
+  masking `Inf` but not `NaN` on the same Flex-specific premise; corrected,
+  not edited, by this ADR.
 - ADR [0034](0034-fitness-hygiene-chokepoint-convention.md) — the
   `sanitize_fitness`/`sanitize_fitness_tensor` "replace" shape this ADR names
   as one of its two blessed primitives.
@@ -311,8 +320,8 @@ Each is to be filed as its own issue rather than bundled in.
   two coordinate clamps this ADR governs, at `:194` (`tz`) and `:236` (`b`),
   both now routed through `clamp_preserving_nan`, plus the derived-index clamps
   at `:238-239`. The rewritten `# Panics` doc is at `:123`. These are post-fix
-  line numbers; the pre-fix layout cited in §"Correcting the record" resolves
-  only against this change's parent commit.
+  line numbers; the pre-fix layout cited in this ADR's own "Correcting the
+  record" subsection resolves only against this change's parent commit.
 - `crates/rlevo-evolution/src/fitness.rs:319-329` — `sanitize_fitness_tensor`,
   the "replace" idiom to copy, and the comment repeating the corrected
   premise.
@@ -330,10 +339,10 @@ Each is to be filed as its own issue rather than bundled in.
 - `crates/rlevo-evolution/tests/backend_parity.rs:128` —
   `wgpu_matches_flex_on_sphere_d10`, `#[ignore]`d for want of a GPU CI runner;
   the only cross-backend test in the workspace and the manual-run gate this
-  ADR's §Consequences names.
+  ADR's own Consequences section names.
 - Bellemare, M. G., Dabney, W., Munos, R. *A Distributional Perspective on
   Reinforcement Learning.* ICML 2017. arXiv:1707.06887. Algorithm 1, Eq. (7),
-  §4.1.
+  Section 4.1.
 - CleanRL `c51.py` — clamps both the continuous coordinate and the derived
   integer indices; the `l == u` mass-preservation fix this workspace also
   applies is implementation folklore with no published erratum, and CleanRL's

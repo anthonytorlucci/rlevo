@@ -45,7 +45,7 @@ impl PpgCategoricalPolicyHeadConfig {
     /// `LinearConfig::new(0, hidden)` builds a zero-width layer silently. This
     /// is the *only* constructor: there is deliberately no infallible `init`,
     /// because an unchecked path would reinstate the bypass this method exists
-    /// to close (#386). The `try_` prefix marks the departure from Burn's own
+    /// to close. The `try_` prefix marks the departure from Burn's own
     /// infallible `*Config::init` idiom.
     ///
     /// # Errors
@@ -142,10 +142,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_possible_wrap)]
-    fn sample_with_logprob<R: Rng + ?Sized>(
+    fn sample_with_logprob(
         &self,
         obs: Tensor<B, 2>,
-        rng: &mut R,
+        rng: &mut (impl Rng + ?Sized),
     ) -> PolicyOutput<B, Self::ActionTensor> {
         let device = obs.device();
         let [batch, _] = obs.dims();
@@ -290,10 +290,10 @@ mod tests {
     use rand::rngs::StdRng;
     use rlevo_core::config::ConstraintKind;
 
-    type B = Autodiff<Flex>;
+    type TestAdBe = Autodiff<Flex>;
 
     #[test]
-    fn representative_head_config_is_valid() {
+    fn test_ppg_policies_categorical_representative_head_config_is_valid() {
         let cfg = PpgCategoricalPolicyHeadConfig {
             obs_dim: 4,
             hidden: 64,
@@ -302,14 +302,16 @@ mod tests {
         assert!(cfg.validate().is_ok());
     }
 
-    /// The regression lock for #386. PPG's head has no `log_std`, so it escapes
-    /// the numerical failure that motivated the issue — but it shares the
-    /// structural bypass: `LinearConfig::new(0, hidden)` builds a zero-width
-    /// layer without complaint, so an unvalidated `init` yields a silently
-    /// degenerate head. `try_init` must reach every invariant `validate()`
-    /// already checked, including the `aux_value_head` fed off the same trunk.
+    /// The regression lock for the zero-width-head bypass. PPG's head has no
+    /// `log_std`, so it escapes the numerical failure that motivated the
+    /// original issue — but it has the same *structural* bypass:
+    /// `LinearConfig::new(0, hidden)` builds a zero-width layer without
+    /// complaint, so an unvalidated `init` yields a head that is silently
+    /// degenerate rather than rejected. `try_init` must reach every invariant
+    /// `validate()` already checked, including the `aux_value_head` fed off
+    /// the same trunk.
     #[test]
-    fn try_init_rejects_every_zero_dimension() {
+    fn test_ppg_policies_categorical_try_init_rejects_every_zero_dimension() {
         let device = Default::default();
         let cases: [(PpgCategoricalPolicyHeadConfig, &str); 3] = [
             (
@@ -339,7 +341,7 @@ mod tests {
         ];
         for (cfg, field) in cases {
             let err = cfg
-                .try_init::<B>(&device)
+                .try_init::<TestAdBe>(&device)
                 .expect_err("an invalid config must not build a head");
             assert_eq!(err.config, "PpgCategoricalPolicyHeadConfig");
             assert_eq!(err.field, field);
@@ -347,14 +349,14 @@ mod tests {
         }
     }
 
-    fn head() -> PpgCategoricalPolicyHead<B> {
+    fn head() -> PpgCategoricalPolicyHead<TestAdBe> {
         let device = Default::default();
         PpgCategoricalPolicyHeadConfig {
             obs_dim: 4,
             hidden: 8,
             num_actions: 3,
         }
-        .try_init::<B>(&device)
+        .try_init::<TestAdBe>(&device)
         .expect("valid head config")
     }
 
@@ -362,28 +364,28 @@ mod tests {
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
-    fn obs(batch: usize) -> Tensor<B, 2> {
+    fn obs(batch: usize) -> Tensor<TestAdBe, 2> {
         let device = Default::default();
         let data: Vec<f32> = (0..batch * 4).map(|i| 0.01 * (i as f32)).collect();
-        Tensor::<B, 2>::from_data(TensorData::new(data, vec![batch, 4]), &device)
+        Tensor::<TestAdBe, 2>::from_data(TensorData::new(data, vec![batch, 4]), &device)
     }
 
     #[test]
-    fn aux_value_forward_shape_is_batch() {
+    fn test_ppg_policies_categorical_aux_value_forward_shape_is_batch() {
         let h = head();
         let out = h.aux_value(obs(5));
         assert_eq!(out.dims(), [5]);
     }
 
     #[test]
-    fn logits_shape_matches_num_actions() {
+    fn test_ppg_policies_categorical_logits_shape_matches_num_actions() {
         let h = head();
         let out = PpgAuxValueHead::logits(&h, obs(5));
         assert_eq!(out.dims(), [5, 3]);
     }
 
     #[test]
-    fn ppg_categorical_logprob_consistency() {
+    fn test_ppg_policies_categorical_logprob_consistency() {
         let h = head();
         let o = obs(1);
         let mut rng = StdRng::seed_from_u64(11);
@@ -395,22 +397,27 @@ mod tests {
     }
 
     #[test]
-    fn ppg_categorical_round_trips_action_rows() {
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let a1d: Tensor<B, 1, Int> =
+    fn test_ppg_policies_categorical_round_trips_action_rows() {
+        let device: <TestAdBe as burn::tensor::backend::BackendTypes>::Device = Default::default();
+        let a1d: Tensor<TestAdBe, 1, Int> =
             Tensor::from_data(TensorData::new(vec![0_i64, 2, 1], vec![3]), &device);
-        let a2d: Tensor<B, 2, Int> = a1d.unsqueeze_dim::<2>(1);
+        let a2d: Tensor<TestAdBe, 2, Int> = a1d.unsqueeze_dim::<2>(1);
         let row0 =
-            <PpgCategoricalPolicyHead<B> as PpoPolicy<B, 2>>::action_row_from_tensor(&a2d, 0);
+            <PpgCategoricalPolicyHead<TestAdBe> as PpoPolicy<TestAdBe, 2>>::action_row_from_tensor(
+                &a2d, 0,
+            );
         let row2 =
-            <PpgCategoricalPolicyHead<B> as PpoPolicy<B, 2>>::action_row_from_tensor(&a2d, 2);
+            <PpgCategoricalPolicyHead<TestAdBe> as PpoPolicy<TestAdBe, 2>>::action_row_from_tensor(
+                &a2d, 2,
+            );
         assert_eq!(row0, vec![0.0]);
         assert_eq!(row2, vec![1.0]);
-        let rebuilt = <PpgCategoricalPolicyHead<B> as PpoPolicy<B, 2>>::action_tensor_from_flat(
-            &[0.0, 2.0, 1.0],
-            3,
-            &device,
-        );
+        let rebuilt =
+            <PpgCategoricalPolicyHead<TestAdBe> as PpoPolicy<TestAdBe, 2>>::action_tensor_from_flat(
+                &[0.0, 2.0, 1.0],
+                3,
+                &device,
+            );
         let data = rebuilt.into_data().convert::<i64>();
         let slice = data.as_slice::<i64>().unwrap();
         assert_eq!(slice, &[0, 2, 1]);

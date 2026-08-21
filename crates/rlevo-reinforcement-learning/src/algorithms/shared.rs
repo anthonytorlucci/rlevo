@@ -2,15 +2,14 @@
 //!
 //! Hosts [`Slot`], the network-ownership newtype every agent uses to hold a
 //! trainable network across a Burn optimizer step; [`clamp_preserving_nan`],
-//! the backend-independent clamp used wherever a `NaN` must stay observable
-//! (issue #1044); [`FiniteLossGuard`], the non-finite-loss skip-and-warn guard
-//! every learn step consults before `backward()` (ADR 0056, issue #318);
-//! [`FiniteRewardGuard`], the non-finite-reward drop-and-warn guard every
-//! off-policy `remember` consults before pushing into the replay buffer
-//! (ADR 0065, issue #352); [`FiniteObsGuard`], its observation-side
-//! counterpart, which drops and counts at `remember` and detects and reports at
-//! `act` (ADR 0067, issue #1043); and [`LogWatermark`], the progress-logging
-//! trigger shared by the on-policy training loops.
+//! the backend-independent clamp used wherever a `NaN` must stay observable;
+//! [`FiniteLossGuard`], the non-finite-loss skip-and-warn guard every learn
+//! step consults before `backward()` (ADR 0056); [`FiniteRewardGuard`], the
+//! non-finite-reward drop-and-warn guard every off-policy `remember` consults
+//! before pushing into the replay buffer (ADR 0065); [`FiniteObsGuard`], its
+//! observation-side counterpart, which drops and counts at `remember` and
+//! detects and reports at `act` (ADR 0067); and [`LogWatermark`], the
+//! progress-logging trigger shared by the on-policy training loops.
 //!
 //! # Why a `Slot` exists
 //!
@@ -182,7 +181,7 @@ pub(crate) const UNIFORM_REPLAY_BETA: ImportanceExponent = ImportanceExponent::O
 ///
 /// Panics if `A::low().len()` or `A::high().len()` differs from
 /// `A::COMPONENTS`, or if `A::low()[i] >= A::high()[i]` for any component `i`.
-pub(crate) fn assert_bounds_match_components<const DA: usize, A: BoundedAction<DA>>() {
+pub(crate) fn assert_bounds_match_components<const AR: usize, A: BoundedAction<AR>>() {
     assert_eq!(
         A::low().len(),
         A::COMPONENTS,
@@ -228,12 +227,12 @@ pub(crate) fn assert_bounds_match_components<const DA: usize, A: BoundedAction<D
 /// `COMPONENTS` long — so an action using ADR 0053 §8's Convention B (rank > 1
 /// with a non-matching `shape()` product) is unusable with these agents, and
 /// says so here rather than as a `TensorData` shape error.
-pub(crate) fn action_bound_tensors<BI, A, const DA: usize, const DAB: usize>(
-    device: &BI::Device,
-) -> (Tensor<BI, DAB>, Tensor<BI, DAB>)
+pub(crate) fn action_bound_tensors<B, A, const AR: usize, const BAR: usize>(
+    device: &B::Device,
+) -> (Tensor<B, BAR>, Tensor<B, BAR>)
 where
-    BI: Backend,
-    A: BoundedAction<DA>,
+    B: Backend,
+    A: BoundedAction<AR>,
 {
     let action_shape = A::shape();
     let numel: usize = action_shape.iter().product();
@@ -245,7 +244,7 @@ where
         A::COMPONENTS,
     );
 
-    let mut shape: Vec<usize> = Vec::with_capacity(DAB);
+    let mut shape: Vec<usize> = Vec::with_capacity(BAR);
     shape.push(1);
     shape.extend_from_slice(&action_shape);
 
@@ -265,13 +264,13 @@ where
 /// `E: ElementConversion` and cannot express one limit per component, so this
 /// is `max_pair` followed by `min_pair` — two broadcast elementwise ops rather
 /// than one fused scalar clamp, over the same `[batch, ..action_shape]` data.
-pub(crate) fn clip_to_action_bounds<BI, const DAB: usize>(
-    actions: Tensor<BI, DAB>,
-    low: Tensor<BI, DAB>,
-    high: Tensor<BI, DAB>,
-) -> Tensor<BI, DAB>
+pub(crate) fn clip_to_action_bounds<B, const BAR: usize>(
+    actions: Tensor<B, BAR>,
+    low: Tensor<B, BAR>,
+    high: Tensor<B, BAR>,
+) -> Tensor<B, BAR>
 where
-    BI: Backend,
+    B: Backend,
 {
     actions.max_pair(low).min_pair(high)
 }
@@ -319,17 +318,16 @@ pub(crate) fn reduce_weighted_loss<B: Backend>(
 /// # Why this exists
 ///
 /// Until ADR 0058 there was **no way to read a target network's weights**, and
-/// that is precisely how the issue-#182 two-schedule defect survived its own
-/// test suite: the tests could observe that `learn_step` returned, not what it
-/// did to the target. This is the missing observation seam, in its smallest
-/// useful form.
+/// that is precisely how the two-schedule defect survived its own test suite:
+/// the tests could observe that `learn_step` returned, not what it did to the
+/// target. This is the missing observation seam, in its smallest useful form.
 ///
 /// # Why a plain sum is enough
 ///
 /// Polyak averaging is *linear* in each parameter, so the sum is exact under
-/// it: if `t` and `a` are the target's and active network's checksums before an
-/// update, the checksum after `target ← (1 − τ)·target + τ·active` is
-/// `(1 − τ)·t + τ·a`, up to `f32` rounding. A caller can therefore assert not
+/// it: if `$t$` and `$a$` are the target's and active network's checksums before an
+/// update, the checksum after `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$` is
+/// `$(1 - \tau) \cdot t + \tau \cdot a$`, up to `f32` rounding. A caller can therefore assert not
 /// merely *that* the target moved but that it moved by exactly τ of the gap —
 /// the property a cadence test needs. It cannot distinguish two different
 /// weight vectors with equal sums, so a caller asserting "unchanged" should
@@ -470,7 +468,7 @@ impl<M> Slot<M> {
 }
 
 // ---------------------------------------------------------------------------
-// Numerics — the NaN-preserving clamp (issue #1044)
+// Numerics — the NaN-preserving clamp
 // ---------------------------------------------------------------------------
 
 /// Clamps `t` into `[lo, hi]` **without** rescuing `NaN`, on every backend.
@@ -493,9 +491,9 @@ impl<M> Slot<M> {
 /// into an ordinary in-range number that no downstream finiteness guard —
 /// [`FiniteLossGuard`], [`FiniteRewardGuard`] — can see, so the GPU path trains
 /// on corrupted data while the host path fails loudly on the same input. That
-/// is exactly the asymmetry issue #1044 reports for the C51 categorical
-/// projection: on Metal a `NaN` reward produced a well-formed probability row
-/// summing to exactly `1.0`, claiming certainty of the worst return.
+/// is exactly the asymmetry measured in the C51 categorical projection: on
+/// Metal a `NaN` reward produced a well-formed probability row summing to
+/// exactly `1.0`, claiming certainty of the worst return.
 ///
 /// This function restores one behaviour on both: clamp, then write the `NaN`s
 /// back where the input had them.
@@ -556,7 +554,7 @@ pub(crate) fn clamp_preserving_nan<B: Backend, const D: usize>(
 }
 
 /// Non-finite-loss skip-and-warn guard for one loss site of one agent
-/// (ADR 0056, issue #318).
+/// (ADR 0056).
 ///
 /// Burn does not panic on `NaN` — it propagates it silently, folding a poisoned
 /// loss into the weights on the next optimizer step while training keeps
@@ -567,8 +565,8 @@ pub(crate) fn clamp_preserving_nan<B: Backend, const D: usize>(
 /// it tells the caller to skip both `backward()` and the optimizer step, so the
 /// poison never reaches the parameters and the next minibatch can recover.
 ///
-/// This generalizes the SAC-α optimizer guard (#184,
-/// [`sac_alpha`](super::sac::sac_alpha)) from one hand-rolled optimizer to
+/// This generalizes the SAC-α optimizer guard
+/// ([`sac_alpha`](super::sac::sac_alpha)) from one hand-rolled optimizer to
 /// every agent's learn step. The canonical precedent outside RL is `PyTorch`
 /// AMP's `GradScaler`, which skips `optimizer.step()` when the unscaled
 /// gradients contain `inf`/`NaN` so the params stay uncorrupted, and continues.
@@ -594,7 +592,7 @@ pub(crate) fn clamp_preserving_nan<B: Backend, const D: usize>(
 /// composes with the *attempt* counters ADR 0059 introduced for the target-update
 /// cadence (`gradient_updates`, `critic_updates`): those count learn steps
 /// entered, this counts the ones that were thrown away, so
-/// `applied = attempts − skipped` is recoverable without parsing a log line.
+/// `$\text{applied} = \text{attempts} - \text{skipped}$` is recoverable without parsing a log line.
 ///
 /// One guard instance owns one loss site: each distinct failure mode keeps its
 /// own counter and its own warning schedule, so one site firing cannot silence
@@ -676,7 +674,7 @@ impl FiniteLossGuard {
 }
 
 /// Non-finite-reward drop-and-warn guard for the `remember` ingestion site of
-/// one off-policy agent (ADR 0065, issue #352).
+/// one off-policy agent (ADR 0065).
 ///
 /// [`FiniteLossGuard`] keeps a `NaN` *loss* out of the weights, but it does
 /// nothing about a `NaN` *reward*: an environment that emits one puts it in the
@@ -810,7 +808,7 @@ pub(crate) enum ObsGuardRole {
 }
 
 /// Non-finite-**observation** guard: drop-and-count at replay ingestion,
-/// detect-and-report at action selection (ADR 0067, issue #1043).
+/// detect-and-report at action selection (ADR 0067).
 ///
 /// The counterpart to [`FiniteRewardGuard`], and deliberately the same shape:
 /// a running count, an unlatched decade `warn!` schedule, a `&'static str` site
@@ -1044,7 +1042,7 @@ impl FiniteObsGuard {
 /// steps — not every `log_every` steps. With `num_steps = 128` that silently
 /// turned `log_every = 100` into an effective cadence of 3200 (32× too sparse)
 /// and `log_every = 500` into 16 000 — so a 10 000-step run emitted **zero**
-/// progress lines despite asking for 20 (issue #321).
+/// progress lines despite asking for 20.
 ///
 /// The watermark form has no such coupling: it fires as soon as at least
 /// `log_every` steps have elapsed since the previous log, whatever the stride,
@@ -1056,7 +1054,7 @@ impl FiniteObsGuard {
 ///
 /// - `every == 0` disables logging entirely — [`should_log`](Self::should_log)
 ///   always returns `false`. This is documented public API on the `log_every`
-///   parameter of the training entry points (issue #174).
+///   parameter of the training entry points.
 /// - The watermark is monotonic: a given `global_step` fires at most once, so
 ///   re-querying the same step (or a step that went backwards) cannot produce a
 ///   duplicate log line.
@@ -1319,13 +1317,14 @@ mod tests {
 
     #[test]
     fn test_slot_panic_in_borrow_region_leaves_slot_intact() {
-        // This is the bug #167 fixes. Under the old `Option<M>` + `take()`
-        // idiom the module was out of the field for the whole forward/backward
-        // region, so a panic there — a shape mismatch, a device error, a
-        // failed host read — left the field `None` forever and every
-        // subsequent call panicked with a misleading message. With `Slot` the
-        // module never leaves the field during that region, so the agent
-        // survives a caught unwind unharmed.
+        // This is the panic-poisoning failure `Slot` fixes. Under the old
+        // `Option<M>` + `take()` idiom the module was out of the field for
+        // the whole forward/backward region, so a panic there — a shape
+        // mismatch, a device error, a failed host read — left the field
+        // `None` forever and every subsequent call panicked with a
+        // misleading message. With `Slot` the module never leaves the field
+        // during that region, so the agent survives a caught unwind
+        // unharmed.
         let device = Device::<B>::default();
         let mut slot = Slot::new(TestNet::<B>::init(&device));
         let mut opt = test_optimizer();
@@ -1647,10 +1646,10 @@ mod tests {
 
     #[test]
     fn test_log_watermark_fires_when_every_is_coprime_with_stride() {
-        // Regression for #321: with the old `global_step % log_every == 0`
-        // test this fired only at lcm(128, 100) = 3200, 6400, ... — 32x too
-        // sparse. The watermark must fire at the first boundary at or past
-        // each 100-step mark.
+        // Regression: with the old `global_step % log_every == 0` test this
+        // fired only at lcm(128, 100) = 3200, 6400, ... — 32x too sparse.
+        // The watermark must fire at the first boundary at or past each
+        // 100-step mark.
         let fired = fire_steps(100, 128, 1000);
         assert_eq!(
             fired,
@@ -1661,8 +1660,8 @@ mod tests {
 
     #[test]
     fn test_log_watermark_fires_within_ten_thousand_steps() {
-        // Regression for #321: log_every = 500 with a 128 stride produced ZERO
-        // lines in a 10k run under divisibility (first hit at lcm = 16 000).
+        // Regression: log_every = 500 with a 128 stride produced ZERO lines
+        // in a 10k run under divisibility (first hit at lcm = 16 000).
         let fired = fire_steps(500, 128, 10_000);
         assert_eq!(
             fired.first().copied(),
@@ -1813,8 +1812,8 @@ mod tests {
     fn test_log_watermark_never_fires_twice_for_same_step() {
         // `every` deliberately *divides* the boundary so this test isolates the
         // dedup/monotonicity property. With a non-dividing `every` the opening
-        // `should_log` would already be exercising the #321 cadence bug, and a
-        // failure here would not tell us which property broke.
+        // `should_log` would already be exercising the divisibility cadence
+        // bug, and a failure here would not tell us which property broke.
         let mut wm = LogWatermark::new(64);
         assert!(wm.should_log(128), "the first qualifying step must fire");
         assert!(
@@ -1831,7 +1830,7 @@ mod tests {
         );
     }
 
-    // -------- clamp_preserving_nan (issue #1044) --------
+    // -------- clamp_preserving_nan --------
 
     /// The mixed input every `clamp_preserving_nan` test below shares: values
     /// past both bounds, both infinities, a `NaN`, an in-range value, and both

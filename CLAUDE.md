@@ -17,8 +17,6 @@ patterns.
 |-----|---------|
 | [`docs/rules.md`](docs/rules.md) | Hard constraints and conventions — **read before implementing anything** |
 | [`docs/adr/`](docs/adr/) | Immutable architectural decision records ([annotated index](docs/adr/README.md)) |
-| [`docs/user-book/`](docs/user-book/) | User / researcher guide (mdBook) |
-| [`docs/contributor-book/`](docs/contributor-book/) | Developer / contributor guide (mdBook) |
 
 ## Constraints
 
@@ -41,25 +39,46 @@ Standard cargo invocations. Formatting is enforced in CI (`cargo fmt --all --che
 `.github/workflows/fmt.yml`) and the toolchain is pinned in `rust-toolchain.toml` so
 local and CI rustfmt agree — run `cargo fmt --all` before pushing.
 
-Adding an environment or an RL algorithm: see the contributor book,
-[ch05](docs/contributor-book/src/ch05-adding-an-environment.md) and
-[ch07](docs/contributor-book/src/ch07-adding-an-rl-algorithm.md).
-
 ## Working with the Codebase
+
+### Common Generic Types
+
+| Symbol | Type | Description |
+| --- | --- | --- |
+| `OR` | `Observation` | rank of the representative observation tensor |
+| `SR` | `State` | rank of the representative state tensor |
+| `AR` | `Action` | rank of the representative action tensor |
+| `E` | Environment | - |
+| `Rew` | Reward | - |
+| `B` | Burn Autodiff Backend | - |
+| `BK` | Burn Backend | - |
+| `BS` | Batch size | - |
 
 ### Const Generics and Type Inference
 
 When working with const generic dimensions:
-- State order `SR` must match across `State`, its `Observation`, and `Snapshot`
-  for the same-modality case; `Environment<R, SR, AR>` permits `R != SR` for
+- `Environment<OR, SR, AR>` permits `OR != SR` for
   modality-changing POMDPs (see `Observable<OR>`, ADR 0019).
 - Action order `AR` must be consistent with `Action<AR>`.
-- Environment's `R`, `SR`, `AR` parameters create a type-level constraint system.
+- Environment's `OR`, `SR`, `AR` parameters create a type-level constraint system.
 
 If you encounter dimension mismatch errors, verify:
 1. The const generic parameters match across all trait bounds
 2. `shape()` implementations return arrays of correct length
 3. Tensor conversions preserve dimensionality
+
+### Mathematical Notation in Docs
+
+Every crate ships a hand-synced `katex-header.html`
+(`crates/<crate>/katex-header.html`, wired via
+`[package.metadata.docs.rs] rustdoc-args`) that renders KaTeX in `cargo doc`
+output. Rustdoc and ADR/markdown docs need **different** math syntax — see
+[`docs/rules.md`](docs/rules.md)'s Documentation section ("Mathematical
+notation" subsection) before writing or editing either. Short version: rustdoc
+math is backtick-wrapped (`` `$...$` `` inline, ` ```math ` fenced for
+display); ADR/markdown math is bare (`$...$` / `$$...$$`). In both, convert
+only genuine formula content — never touch ASCII diagrams, real code fences,
+verbatim quotes, or a plain `→` used as flow/rename shorthand.
 
 ## Key Files and Patterns
 

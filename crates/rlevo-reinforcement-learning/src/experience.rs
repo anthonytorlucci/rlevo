@@ -14,8 +14,14 @@
 //! type to reach for when wiring a new agent to replay. The four items in this
 //! module have **zero consumers** in the workspace today. They are ADR 0003
 //! roadmap markers, kept under that ADR's conservative dead-code policy for the
-//! POMDP/history-conditioned work they were sketched for, and their survival is
-//! pending #95 — until that issue is settled, do not build against them.
+//! POMDP/history-conditioned work they were sketched for. Their survival is an
+//! open design decision between two ways of giving a
+//! discrete-action RL agent memory on a POMDP (first target: the `SantaFeAnt`
+//! environment's one-bit percept): a lighter observation history-framing
+//! adapter feeding an existing feedforward agent, versus a heavier recurrent
+//! agent with explicit hidden-state threading and sequence replay. Whichever
+//! path is chosen picks which of these trait seams (if any) gets its first
+//! real implementor; until the decision lands, do not build against them.
 //!
 //! ADR 0050 §9 records this pointer as its own deliverable: `experience.rs` was
 //! deliberately left untouched by the replay-strategy seam, so the module docs

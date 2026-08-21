@@ -6,12 +6,12 @@ date: 2026-07-18
 tags: [adr, decision, reinforcement-learning, replay, per, her, issue-188, numerical-stability]
 ---
 
-# ADR 0051: `ReplayKind` dispatch, and β is a validated newtype
+# ADR 0051: `ReplayKind` dispatch, and $\beta$ is a validated newtype
 
 ## Status
 
 **Accepted (2026-07-18).** **Corrects ADR
-[0050](0050-replay-strategy-seam.md) §3, §11, and §13** — three statements that
+[0050](0050-replay-strategy-seam.md)'s own Decision 3 (the `ReplayStrategy` trait sketch), Decision 11 ($\beta$ annealing), and Decision 13 (per-agent priority signal)** — three statements that
 did not survive contact with the implementation. Does not supersede 0050; its
 decision (a replay-strategy seam, PER rebuilt rather than finished) stands
 unchanged. ADRs are immutable, so the corrections are recorded here rather than
@@ -23,15 +23,15 @@ three).
 
 ## Context
 
-ADR 0050 was written before `crate::replay` existed. Its §3 trait sketch and its
-§11 accepted cost were both designed against an imagined call site. Building the
+ADR 0050 was written before `crate::replay` existed. Its Decision 3 trait sketch and its
+Decision 11 accepted cost were both designed against an imagined call site. Building the
 real one falsified three claims.
 
 ## Decision
 
 ### 1. `update_priorities` is not a defaulted trait method; dispatch goes through `ReplayKind<T>`
 
-**ADR 0050 §3's trait sketch is superseded.** It gave:
+**ADR 0050's own Decision 3 trait sketch is superseded.** It gave:
 
 ```rust
 pub trait ReplayStrategy<T> {
@@ -49,8 +49,8 @@ the writeback through an exhaustive `match`.
 
 **Reason: a defaulted no-op is a silent-swallow hazard.** With the default, a
 third strategy that forgets to override `update_priorities` compiles, runs, and
-silently discards every priority writeback — the *exact* defect ADR 0050
-§Context defect 1 removed from the old `PrioritizedExperienceReplay` (priorities
+silently discards every priority writeback — the *exact* defect ADR 0050's own
+Context section, defect 1, removed from the old `PrioritizedExperienceReplay` (priorities
 write-once at insert, TD error never fed back). Reintroducing it as a
 trait-level default, one PR after deleting it, would be an unforced error. An
 exhaustive `match` makes the same case a **compile error**: when HER lands as a
@@ -63,13 +63,13 @@ Two alternatives were rejected:
 - **A generic strategy parameter (`DqnAgent<B, S: ReplayStrategy<_>>`).**
   Rejected: it makes PER a **type-level** choice, so `PrioritizedReplay` would
   have to be named in the agent's type to be used. ADR 0050 requires PER to be a
-  **config-level opt-in** (§11, §13 — "opt-in and its rustdoc says so"), and a
+  **config-level opt-in** (ADR 0050's own Decision 11 and Decision 13 — "opt-in and its rustdoc says so"), and a
   type parameter cannot be turned on by a deserialized config field. It also
   infects every downstream signature that mentions the agent.
 - **A swapped concrete field.** Rejected: it lands as either an `Option` pair
   (`Option<UniformReplay<T>>` + `Option<PrioritizedReplay<T>>`), which
   reintroduces exactly the unrepresentable-state hole ADR 0046 removed and ADR
-  0050 §7 rejected for `TrainingBatch`, or as two `learn_step` bodies that drift
+  0050's own Decision 7 rejected for `TrainingBatch`, or as two `learn_step` bodies that drift
   apart the first time either is touched.
 
 **Accepted cost: `ReplayKind` is a closed set.** No out-of-crate strategy can be
@@ -82,23 +82,23 @@ only the *agent's* dispatch is closed.
 
 ### 2. `sample` takes `beta: ImportanceExponent`, not `beta: f32`
 
-**ADR 0050 §3's and §11's `beta: f32` are superseded.** The parameter type is
+**ADR 0050's own Decision 3 and Decision 11 `beta: f32` are superseded.** The parameter type is
 `ImportanceExponent` — a newtype with the invariant
-`is_finite() && (0.0..=1.0).contains(&x)`, mirroring `Priority` (ADR 0050 §10)
+`is_finite() && (0.0..=1.0).contains(&x)`, mirroring `Priority` (ADR 0050's own Decision 10)
 and through it `Bounds` / `Probability` / `NonNegativeRate` (ADR 0027 / 0031):
 `new` (panicking, for literals and const contexts), `try_new -> Result<_,
 ImportanceExponentError>` with a `Copy` error, `const fn get`, and a named
 `ImportanceExponent::ONE` for the annealed endpoint.
 
-`sample` deliberately does **not** gain a `Result` for a bad β. `UniformReplay`
-ignores β entirely, so a fallible signature would force it to carry an error
+`sample` deliberately does **not** gain a `Result` for a bad $\beta$. `UniformReplay`
+ignores $\beta$ entirely, so a fallible signature would force it to carry an error
 variant it can never produce — the "field meaningless for half the callers"
-shape that retired `TrainingBatch` in ADR 0050 §7. The invariant is carried by
+shape that retired `TrainingBatch` in ADR 0050's own Decision 7. The invariant is carried by
 the type instead, so no implementation re-checks it.
 
-### 3. ADR 0050 §11's accepted cost is WITHDRAWN AS UNSOUND
+### 3. ADR 0050's own Decision 11 accepted cost is WITHDRAWN AS UNSOUND
 
-ADR 0050 §11 closes:
+ADR 0050's own Decision 11 closes:
 
 > The accepted cost is that a caller can pass a nonsense β; `Validate` on the
 > config and the three in-crate call sites are the mitigation.
@@ -114,7 +114,7 @@ beta_start + (beta_end - beta_start) * limit(step as f32 / anneal_steps as f32)
 ```
 
 With `beta_anneal_steps == 0` the fraction is `0.0 / 0.0` = `NaN` at `step == 0`
-and `+∞` thereafter, **while every endpoint is individually valid**. A `Validate`
+and $+\infty$ thereafter, **while every endpoint is individually valid**. A `Validate`
 impl inspecting endpoints has nothing to reject. Validating endpoints cannot
 establish a property of the evaluated value.
 
@@ -128,7 +128,7 @@ that read as interchangeable silently decides whether the buffer receives a
 `NaN`. Pinned by
 `test_importance_exponent_rejects_an_evaluated_zero_anneal_schedule`.
 
-The consequence had β reached `(min_mass / m).powf(beta)` is the same
+The consequence had $\beta$ reached `(min_mass / m).powf(beta)` is the same
 NaN-propagation shape that made #188 worth filing: `NaN` weights → `NaN`
 per-sample loss → `NaN` through `backward()` → every parameter the optimizer
 touches next is permanently poisoned, with no panic, no error, and no log line.
@@ -143,21 +143,21 @@ Three things therefore ship together, and none is sufficient alone:
 - The schedule evaluator **clamps** before construction, so an in-range value is
   produced by construction rather than by luck.
 - `ImportanceExponent` turns any *residual* bug — a fourth spelling, a caller
-  bypassing the evaluator, a deserialized β — into a **loud panic at a named
+  bypassing the evaluator, a deserialized $\beta$ — into a **loud panic at a named
   construction site**, rather than `NaN` weights poisoning gradients twenty steps
   later at a site that names nothing.
 
 That ordering is the point: the newtype is the backstop, not the only guard.
 
-### 4. Correction: ADR 0050:394 names a stale symbol
+### 4. Correction: ADR 0050:403-404 names a stale symbol
 
-ADR 0050 §13 writes:
+ADR 0050's own Decision 13 writes:
 
 > `categorical_cross_entropy` (`c51/loss.rs:26-30`) returns `−Σ target·log pred`.
 
 The function has since been renamed **`categorical_cross_entropy_per_sample`**
 (`c51/loss.rs:37`) by ADR 0050's own implementation step 2, which changed C51's
-loss to emit per-sample values reduced by the caller. The §13 **finding is
+loss to emit per-sample values reduced by the caller. The Decision 13 **finding is
 unaffected** — CE is still not Rainbow's KL priority, and they still differ by
 the per-sample-varying `H(target)` — only the symbol name and line reference are
 stale. Recorded here; 0050 is not edited.
@@ -169,16 +169,16 @@ stale. Recorded here; 0050 is not edited.
 - A future third strategy cannot silently swallow a priority writeback. The
   question "what does this strategy do with `update_priorities`?" is asked by the
   compiler, at the moment the variant is added.
-- A non-finite or out-of-range β is unrepresentable at `sample`, closing the
+- A non-finite or out-of-range $\beta$ is unrepresentable at `sample`, closing the
   release-build NaN path that the `debug_assert!` left open.
 - PER stays a **config-level** opt-in, as ADR 0050 requires, rather than becoming
   a type-level one.
-- `UniformReplay::sample` keeps its infallible-in-β signature and gains no error
+- `UniformReplay::sample` keeps its infallible-in-$\beta$ signature and gains no error
   variant it cannot produce.
 
 ### Negative / accepted costs
 
-- **`ReplayKind` is closed to out-of-crate strategies** (§1). Two-way door; no
+- **`ReplayKind` is closed to out-of-crate strategies** (this ADR's own Decision 1). Two-way door; no
   consumer exists; `Slot`'s `pub(crate)` is precedent.
 - **`ReplayKind` adds a forwarding layer.** Every `ReplayStrategy` method on it
   is a two-arm `match`. The branch is per-`learn_step`, not per-transition, so it
@@ -196,7 +196,7 @@ stale. Recorded here; 0050 is not edited.
 
 - The `ImportanceExponent` change is a **strict behavioural no-op**: no RNG draw
   moves and no arithmetic changes. `UniformReplay`'s pinned draw-order contract
-  (ADR 0050 §5) is untouched; only the call's β argument is retyped.
+  (ADR 0050's own Decision 5) is untouched; only the call's $\beta$ argument is retyped.
 - Nothing is serialized. No record `FORMAT_VERSION` bump.
 
 ## Alternatives considered
@@ -204,29 +204,29 @@ stale. Recorded here; 0050 is not edited.
 **Keep the `debug_assert!` and document the contract harder.** Rejected — it is
 the status quo whose failure mode this ADR exists to close. A guard that
 disappears in release builds is not a guard on a code path whose failures take
-`~10⁵` steps to appear.
+~$10^5$ steps to appear.
 
 **Return `Result<SampledBatch, _>` with a `BadBeta` variant.** Rejected — ADR
-0050 §7's reasoning, applied to an error enum: `UniformReplay` ignores β, so the
+0050's own Decision 7 reasoning, applied to an error enum: `UniformReplay` ignores $\beta$, so the
 variant is unconstructible for half the implementors, and every call site pays a
 `?` for a case that cannot arise there.
 
-**Validate β on the agent config only, and keep `f32`.** Rejected — this is
-precisely the withdrawn §11 mitigation. Endpoints are not the evaluated value
-(§3).
+**Validate $\beta$ on the agent config only, and keep `f32`.** Rejected — this is
+precisely the withdrawn Decision 11 mitigation from ADR 0050. Endpoints are not the evaluated value
+(this ADR's own Decision 3).
 
-**A defaulted `update_priorities` on the trait, per ADR 0050 §3 as written.**
-Rejected — §1. The default's whole purpose is to let an implementor stay silent
+**A defaulted `update_priorities` on the trait, per ADR 0050's own Decision 3 as written.**
+Rejected — this ADR's own Decision 1. The default's whole purpose is to let an implementor stay silent
 about a question that has no safe silent answer.
 
-**A generic strategy parameter on each agent.** Rejected — §1. It converts a
+**A generic strategy parameter on each agent.** Rejected — this ADR's own Decision 1. It converts a
 config-level opt-in into a type-level one, which contradicts ADR 0050's own
 requirement.
 
 ## References
 
-- ADR [0050](0050-replay-strategy-seam.md) — corrected here at §3 (trait sketch,
-  `beta: f32`), §11 (`beta: f32`, and the withdrawn accepted cost), and §13 (the
+- ADR [0050](0050-replay-strategy-seam.md) — corrected here at its own Decision 3 (trait sketch,
+  `beta: f32`), Decision 11 (`beta: f32`, and the withdrawn accepted cost), and Decision 13 (the
   stale `categorical_cross_entropy` symbol). Its decision is otherwise unaffected.
 - ADR [0046](0046-slot-newtype-replaces-option-take-around-learn-step.md) — the
   unrepresentable-state posture the `Option` pair alternative would violate, and
@@ -240,13 +240,13 @@ requirement.
 - ADR [0049](0049-ppo-gaussian-log-std-is-bounded.md) — the same NaN-poisoning
   class in PPO's Gaussian head, resolved by bounding rather than by newtype
   because the value there is a learned `Param`, not an argument.
-- Issue #188 — the NaN-propagation shape §3 refuses to ship inside its own fix.
+- Issue #188 — the NaN-propagation shape this ADR's own Decision 3 refuses to ship inside its own fix.
 - Schaul, Quan, Antonoglou, Silver (2016). *Prioritized Experience Replay.*
-  ICLR 2016, arXiv:1511.05952v4. §3.4 (`w_i = (1/N · 1/P(i))^β`), Table 3
-  (`β₀ = 0.4 → 1.0`, the `ImportanceExponent::ONE` endpoint).
+  ICLR 2016, arXiv:1511.05952v4. Section 3.4 ($w_i = (1/N \cdot 1/P(i))^\beta$), Table 3
+  ($\beta_0 = 0.4 \to 1.0$, the `ImportanceExponent::ONE` endpoint).
 - Code: `crates/rlevo-reinforcement-learning/src/replay/importance_exponent.rs`
   (the newtype and the zero-anneal test); `.../replay/mod.rs`
   (`ReplayStrategy::sample`); `.../replay/prioritized.rs` (the removed
   `debug_assert!`); `.../algorithms/shared.rs` (`UNIFORM_REPLAY_BETA`);
   `.../algorithms/c51/loss.rs:37`
-  (`categorical_cross_entropy_per_sample`, the §4 rename).
+  (`categorical_cross_entropy_per_sample`, the Decision 4 rename).

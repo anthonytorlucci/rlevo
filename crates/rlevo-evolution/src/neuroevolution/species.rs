@@ -98,7 +98,7 @@ impl Species {
 /// Compatibility distance `$\delta = c_1 \cdot E/N + c_2 \cdot D/N + c_3 \cdot \bar{W}$` between two genomes
 /// (Stanley & Miikkulainen, 2002).
 ///
-/// `E` is the excess gene count, `D` the disjoint gene count, `W̄` the mean
+/// `E` is the excess gene count, `D` the disjoint gene count, `$\bar{W}$` the mean
 /// absolute weight difference over matching genes, and `N` the connection-gene
 /// count of the larger genome — or `1` when both genomes are small, to avoid
 /// over-penalizing tiny networks (Stanley & Miikkulainen 2002 footnote; the
@@ -195,7 +195,7 @@ pub fn compatibility_distance(
     }
 }
 
-/// Representative-assignment speciation pass — `O(N × num_species)`.
+/// Representative-assignment speciation pass — `$O(N \times \text{num\_species})$`.
 ///
 /// Carries forward each existing species' (previously chosen) representative,
 /// clears its membership, assigns every genome to the first species within
@@ -302,10 +302,10 @@ pub fn speciate(
         // The accumulator width — not the ADR 0034 clamp — is what keeps the mean
         // finite: a sanitized `+∞` arrives as the *finite* `f32::MAX` and so joins
         // the sum, and *two* such members saturate an `f32` accumulator
-        // (`f32::MAX + f32::MAX == f32::INFINITY`, issue #1062), handing
-        // `allocate_offspring` an infinite `total` that erases fitness-proportional
-        // apportionment for the whole population. The rationale lives on the
-        // primitive; only the site-specific consequences are noted here.
+        // (`f32::MAX + f32::MAX == f32::INFINITY`), handing `allocate_offspring`
+        // an infinite `total` that erases fitness-proportional apportionment for
+        // the whole population. The rationale lives on the primitive; only the
+        // site-specific consequences are noted here.
         //
         // Site-specific: a broken (sanitized-to-`−∞`) member still drives this
         // species' mean to `−∞`, which the downstream `.max(0.0)` in
@@ -382,8 +382,9 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
     // species of values each bounded by `f32::MAX` (ADR 0034 clamps a raw `+∞` to
     // that finite value, so it joins the sum rather than being excluded). Two such
     // species overflow an `f32` accumulator to `+∞` even though every term is
-    // finite — this is issue #1062's *second*, independent overflow, and it fires
-    // even when `speciate` gave every species an individually finite mean.
+    // finite — a second, independent overflow site distinct from `speciate`'s
+    // per-species mean above, and one that fires even when `speciate` gave every
+    // species an individually finite mean.
     //
     // What an infinite `total` costs: it slips past the `total <= 0.0` guard
     // below, every share then evaluates to `x / ∞ == 0.0`, every `base` floors to
@@ -785,11 +786,11 @@ mod tests {
         );
     }
 
-    /// Regression (ADR 0034, issue #133): `speciate` sanitizes each member's
+    /// Regression (ADR 0034): `speciate` sanitizes each member's
     /// fitness before the per-species best / `adjusted_fitness_sum` reductions.
     /// A raw `NaN` must not become a species best nor poison the size-adjusted
     /// mean (which would corrupt offspring apportionment for the whole run); a
-    /// `+∞` member ranks top but as a **finite** value (`f32::MAX`).
+    /// `$+\infty$` member ranks top but as a **finite** value (`f32::MAX`).
     #[test]
     fn test_speciate_sanitizes_nan_and_inf_fitness() {
         let mut rng = StdRng::seed_from_u64(0);
@@ -868,11 +869,11 @@ mod tests {
         species
     }
 
-    /// Regression (issue #1062): **two** `+∞` members in one species must not
-    /// overflow `adjusted_fitness_sum` to `+∞`.
+    /// Regression (ADR 0069): **two** `$+\infty$` members in one species must not
+    /// overflow `adjusted_fitness_sum` to `$+\infty$`.
     ///
-    /// ADR 0034 sanitizes `+∞` to `f32::MAX`, which is *finite* and therefore
-    /// joins the sum — and `f32::MAX + f32::MAX == f32::INFINITY`. A single `+∞`
+    /// ADR 0034 sanitizes `$+\infty$` to `f32::MAX`, which is *finite* and therefore
+    /// joins the sum — and `f32::MAX + f32::MAX == f32::INFINITY`. A single `$+\infty$`
     /// member (the case
     /// [`test_speciate_sanitizes_nan_and_inf_fitness`](test_speciate_sanitizes_nan_and_inf_fitness)
     /// covers) is precisely the one that does *not* overflow, so this needs a
@@ -900,15 +901,15 @@ mod tests {
         approx::assert_relative_eq!(species[0].adjusted_fitness_sum, expected);
     }
 
-    /// Regression (issue #1062): a species poisoned by two `+∞` members must not
+    /// Regression (ADR 0069): a species poisoned by two `$+\infty$` members must not
     /// erase fitness-proportional apportionment for the **whole** population.
     ///
     /// This is the **end-to-end** assertion: `speciate` must not hand
     /// `allocate_offspring` an infinite `adjusted_fitness_sum`, and
     /// `allocate_offspring` must not turn one into an infinite `total`. In the
     /// original all-`f32` arithmetic both happened, the `total <= 0.0` guard did
-    /// not fire (`+∞ > 0`), healthy species computed `finite / ∞ == 0`, the
-    /// poisoned one `∞ / ∞ == NaN` (which floors to `0`), and every seat fell
+    /// not fire (`$+\infty > 0$`), healthy species computed `$\text{finite} / \infty = 0$`, the
+    /// poisoned one `$\infty / \infty = \text{NaN}$` (which floors to `0`), and every seat fell
     /// through to the round-robin leftover pass — `[10, 10, 10]` instead of a
     /// proportional split.
     ///
@@ -951,7 +952,7 @@ mod tests {
         );
     }
 
-    /// Regression (issue #1062): `allocate_offspring`'s `total` overflows
+    /// Regression (ADR 0069): `allocate_offspring`'s `total` overflows
     /// **independently** of `speciate`. Each species' `adjusted_fitness_sum` here
     /// is individually finite, yet their sum saturates an `f32` accumulator — so
     /// `total` must be accumulated *and kept* in `f64`.
@@ -975,13 +976,13 @@ mod tests {
     }
 
     /// `total` and each share numerator must read a species' contribution through
-    /// the **same** `share_term`, so `Σ share == pop_size` stays an identity.
+    /// the **same** `share_term`, so `$\Sigma\,\text{share} = \text{pop\_size}$` stays an identity.
     ///
-    /// `speciate` cannot write a `+∞` `adjusted_fitness_sum` (that is what
+    /// `speciate` cannot write a `$+\infty$` `adjusted_fitness_sum` (that is what
     /// [`test_speciate_two_inf_members_do_not_overflow_adjusted_sum`] pins), but
     /// the field is `pub(crate)` and any in-crate operator can. `sanitized_sum`
     /// clamps such a term to `f32::MAX` inside `total`; a numerator that skipped
-    /// the clamp would divide `∞` by a *finite* total, and `∞.floor() as usize`
+    /// the clamp would divide `$\infty$` by a *finite* total, and `∞.floor() as usize`
     /// saturates to `usize::MAX` — so the overshoot-reclaim loop would run
     /// `usize::MAX − pop_size` times. Note the failure mode this test guards is a
     /// **divergence**, not a wrong answer: if it ever regresses it will hang here
@@ -1056,7 +1057,7 @@ mod tests {
         species
     }
 
-    /// `allocate_offspring ∘ speciate` with every fitness value multiplied by `c`.
+    /// `$\text{allocate\_offspring} \circ \text{speciate}$` with every fitness value multiplied by `c`.
     fn apportion_at_scale(
         weights: &[f32],
         fitness: &[f32],
@@ -1068,7 +1069,7 @@ mod tests {
         allocate_offspring(&speciate_seeded(weights, &scaled, seed), pop_size)
     }
 
-    /// Largest `k` with `2^k · max_fitness` still finite in `f32` — the top of
+    /// Largest `k` with `$2^k \cdot \text{max\_fitness}$` still finite in `f32` — the top of
     /// the rescale range the property is valid over (see the property's docs).
     fn max_exact_scale_exponent(max_fitness: f32) -> i32 {
         #[allow(clippy::cast_possible_truncation)]
@@ -1103,22 +1104,22 @@ mod tests {
         /// # The bound on `c`, and what "saturated" can mean here
         ///
         /// `c` ranges over powers of two up to `2^k_max`, the largest scale at
-        /// which `c · max(f)` is still **representable** in `f32`. That upper end
+        /// which `$c \cdot \max(f)$` is still **representable** in `f32`. That upper end
         /// is the regime the defect lives in — per-species means within a factor
         /// of two of `f32::MAX`, so both an `f32` member sum inside a species and
-        /// an `f32` sum of species means overflow to `+∞`.
+        /// an `f32` sum of species means overflow to `$+\infty$`.
         ///
         /// It deliberately stops there. Past `k_max` the members themselves
         /// overflow and ADR 0034 clamps them to `f32::MAX`, which makes *every*
         /// saturated member equal: proportionality is destroyed by the clamp, by
         /// design, and no accumulator width can restore it. §Decision 5's phrase
-        /// "including the case where `c·f` saturates to `f32::MAX`" is therefore
+        /// "including the case where `$c \cdot f$` saturates to `f32::MAX`" is therefore
         /// only true of *reaching* `f32::MAX`, not of *clamping* to it — the
         /// clamped case is an example test
         /// ([`test_allocate_offspring_poisoned_species_keeps_proportionality`]),
         /// where the expected answer is the one a tie yields, not the rescaled one.
         ///
-        /// Powers of two make the invariance **exact**: `c·f` is error-free, and
+        /// Powers of two make the invariance **exact**: `$c \cdot f$` is error-free, and
         /// scaling by a power of two commutes with round-to-nearest, so every
         /// intermediate (the `f64` member sum, the `f32` narrowed mean, the `f64`
         /// species total, the `f64` share) is exactly `c` times its unscaled

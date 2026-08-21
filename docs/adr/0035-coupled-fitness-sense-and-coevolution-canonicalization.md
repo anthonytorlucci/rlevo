@@ -150,5 +150,3 @@ never re-derives the split — state-caching, not a `DimSplit` newtype, since th
 - Code: `crates/rlevo-evolution/src/coevolution/{fitness,competitive,cooperative,
   harness,hof}.rs`; `crates/rlevo-evolution/src/strategy.rs`
   (`EvolutionaryHarness::step`, the golden reference).
-</content>
-</invoke>

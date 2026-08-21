@@ -385,7 +385,7 @@ fn onemax_demo() {
         "Both keep a per-gene probability vector and sample raw {{0,1}} genes — no\n\
          crossover, no mutation. Watch the vector march to all-ones ('#'). OneMax is\n\
          separable, so a univariate model is already optimal; the deceptive binary\n\
-         case that needs a multivariate model (BOA) is deferred to issue #37.\n"
+         case that needs a multivariate model (BOA) is Demo 3.\n"
     );
 
     println!("PBIL (seed {ONEMAX_SEED}):");

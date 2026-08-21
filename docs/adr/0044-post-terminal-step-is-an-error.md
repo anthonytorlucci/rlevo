@@ -24,7 +24,7 @@ ended silently resurrected it:
 
 - **`cliff_walking`.** The goal is `(3, 11)`. A `Left` from the goal lands on
   `(3, 10)`, which *is* cliff — so the agent teleports to the start and the
-  env emits **−100 on a `Running` snapshot**. A finished episode becomes a
+  env emits **$-100$ on a `Running` snapshot**. A finished episode becomes a
   fresh one carrying a fabricated penalty.
 - **`blackjack` (the High finding).** A post-terminal `Hit` keeps pushing
   cards onto `player_hand`, and `hand_value` summed the pips into a **`u8`**.
@@ -42,8 +42,9 @@ The survey that grounded this ADR found the gap is **family-wide, not
 post-terminal step — none of the ~48 `Environment` impls, and not the
 `TimeLimit` wrapper. The four bandits already carry a `done: bool` field that
 is **written but never read**, a half-implementation that also violates
-`rules.md` §10 (`KArmedBandit::is_done()` is a second source of truth for
-done-ness). #105's four files are one instance of that family.
+`rules.md`'s Architecture Invariants section (`KArmedBandit::is_done()` is a
+second source of truth for done-ness). #105's four files are one instance of
+that family.
 
 Three facts bounded the blast radius and were verified before deciding:
 
@@ -68,7 +69,7 @@ Three facts bounded the blast radius and were verified before deciding:
 This is a research library, so the grounding matters — and it must not be
 overclaimed.
 
-Sutton & Barto's **absorbing state** (§3.4: a state that "transitions only to
+Sutton & Barto's **absorbing state** (their Section 3.4: a state that "transitions only to
 itself and generates only rewards of zero") is introduced as part of the
 *unified notation* device that lets the return
 $G_t = \sum_{k=0}^{\infty} \gamma^k R_{t+k+1}$ be written as a single infinite
@@ -101,8 +102,9 @@ A caller who genuinely wants a self-looping, zero-reward absorbing tail can
 build a wrapper over a rejecting env. A caller who wants to *find the bug*
 cannot un-absorb an env that has already silently appended an unbounded tail of
 zero-reward transitions into their replay buffer. Reject is the reversible
-choice; absorb is a one-way door into silent data bias. `rules.md` §4 forbids
-exactly that class of quiet corruption ("never panic in response to
+choice; absorb is a one-way door into silent data bias. `rules.md`'s Error
+Handling section forbids exactly that class of quiet corruption ("never
+panic in response to
 user-supplied runtime data"; "trait methods that can fail return
 `Result<T, DomainError>`"), and Rust has `Result`.
 
@@ -141,8 +143,9 @@ block variant construction (that would require `#[non_exhaustive]` on a
 
 ### 3. `EpisodeStatus` is the stored state — never a `done: bool`
 
-Per `rules.md` §10, `EpisodeStatus` is the single source of truth for episode
-termination. A guarded environment stores an `EpisodeStatus`, not a boolean.
+Per `rules.md`'s Architecture Invariants section, `EpisodeStatus` is the
+single source of truth for episode termination. A guarded environment
+stores an `EpisodeStatus`, not a boolean.
 Concretely, **`EpisodeStatus` gains no `NotStarted` variant**: it is the
 snapshot's *public* status type, and a fourth variant would ripple through every
 env, tap, reporter and record consumer to serve a concern (step-before-reset)
@@ -162,8 +165,8 @@ It lives at **crate level**, not in `toy_text/mod.rs`, because this change alone
 has **two consumers in two different module families**: the `toy_text`
 environments and the `wrappers::TimeLimit` wrapper. `grids/core/` is the
 precedent for *intra*-family helpers; this is cross-family. It cannot live in
-`rlevo-core` — that is a contract crate and §1 forbids implementation logic
-there (sole exception: `util`).
+`rlevo-core` — that is a contract crate and `rules.md`'s Workspace Structure
+section forbids implementation logic there (sole exception: `util`).
 
 The `status` field is **private**, and this is load-bearing twice over. It means
 (a) an environment cannot hand-write a guard state that the snapshot it emitted
@@ -213,9 +216,10 @@ large. The usable-ace branch only adds 10 when the total is at most 11, far belo
 saturation.
 
 With decision 1 in place this path is *unreachable*, so this is defence in depth
-— but it is also independently required by `rules.md` §4 ("never panic in
-response to user-supplied runtime data"), and it converts a debug panic / release
-wraparound into a defined, correctly-classified value.
+— but it is also independently required by `rules.md`'s Error Handling
+section ("never panic in response to user-supplied runtime data"), and it
+converts a debug panic / release wraparound into a defined,
+correctly-classified value.
 
 ### 8. The contract is normative in the trait rustdoc, with a disclosed gap
 
@@ -224,7 +228,7 @@ wraparound into a defined, correctly-classified value.
 with an explicit **alpha migration note**: only `toy_text` and `TimeLimit`
 enforce it today, every other environment's post-terminal behaviour is
 **undefined**, and callers must not rely on it — see **#289**. The `# Errors`
-section names the new variant (§6).
+section names the new variant (per `rules.md`'s Documentation section).
 
 "Recommended / permitted" was the tempting middle option and is a trap: a
 contract nobody can rely on is not a contract, and it gives the author of env #49
@@ -322,9 +326,10 @@ make this assertion pass."
 
 - **Absorbing-state re-emission as the default** (a post-terminal `step()`
   silently re-returns a stable terminal snapshot with zero reward). Rejected: the
-  absorbing state is a definitional device for the return (Sutton & Barto §3.4;
-  Puterman/Bertsekas SSP), not an API contract, and it does not describe what to
-  do about a mis-sequenced *call*. Operationally it lets a buggy trainer push an
+  absorbing state is a definitional device for the return (Sutton & Barto's
+  Section 3.4; Puterman/Bertsekas SSP), not an API contract, and it does not
+  describe what to do about a mis-sequenced *call*. Operationally it lets a
+  buggy trainer push an
   unbounded tail of zero-reward transitions into a replay buffer, **biasing the
   data instead of surfacing the bug**. And it is the irreversible choice: absorb
   is recoverable *from* reject via a wrapper, never the other way round.
@@ -339,14 +344,16 @@ make this assertion pass."
 - **`EnvironmentError::InvalidAction("step called after termination".into())`.**
   Rejected on two grounds: it is stringly-typed (the exact shape ADR 0040
   rejected), and it **misattributes the fault** — the *action* is perfectly legal;
-  the *call sequence* is wrong. `rules.md` §4 requires structured variants.
+  the *call sequence* is wrong. `rules.md`'s Error Handling section requires
+  structured variants.
 - **A unit `StepAfterEpisodeEnd` with no payload.** Rejected: the carried
   `EpisodeStatus` is the only signal distinguishing an MDP termination from a
   wrapper-imposed truncation, which is precisely the distinction a caller
   debugging a mis-sequenced loop needs. It costs one `Copy` byte.
 - **A `done: bool` field per environment** (completing the bandits'
-  half-implementation). Rejected by `rules.md` §10: `EpisodeStatus` is the single
-  source of truth for termination and done-ness is never checked by other means.
+  half-implementation). Rejected by `rules.md`'s Architecture Invariants
+  section: `EpisodeStatus` is the single source of truth for termination and
+  done-ness is never checked by other means.
   A bool cannot carry the `Terminated` / `Truncated` distinction the error needs.
 - **An `EpisodeStatus::NotStarted` variant** to also close step-before-reset.
   Rejected: `EpisodeStatus` is the snapshot's public status type; a state no
@@ -358,8 +365,9 @@ make this assertion pass."
   `wrappers/` cannot reasonably reach into `toy_text/`. Two consumers in two
   families is a crate-level concern — which is a present requirement, not
   speculative generality.
-- **A shared guard in `rlevo-core`.** Rejected by `rules.md` §1: core is a
-  contract crate and carries no implementation logic (sole exception: `util`).
+- **A shared guard in `rlevo-core`.** Rejected by `rules.md`'s Workspace
+  Structure section: core is a contract crate and carries no implementation
+  logic (sole exception: `util`).
   Core owns the *contract* (the error variant, the trait rustdoc);
   `rlevo-environments` owns the *mechanism*.
 - **Silence in the trait rustdoc until the family-wide sweep lands.** Rejected:
@@ -375,7 +383,8 @@ make this assertion pass."
   `Environment::step` rustdoc**). Per-family: #290 classic, #291 grids (12),
   #292 locomotion, #293 box2d, #294 `pixel_grid`.
 - Issue #295 — bandits: the dead `done: bool` field, plus the
-  `KArmedBandit::is_done()` `rules.md` §10 second-source-of-truth violation.
+  `KArmedBandit::is_done()` second-source-of-truth violation of `rules.md`'s
+  Architecture Invariants section.
 - Issue #296 — `step()` before `reset()`, the sibling mis-sequencing hole
   (deliberately deferred; intended fix is `EpisodeGuard`'s private
   `Option<EpisodeStatus>`).
@@ -393,9 +402,10 @@ make this assertion pass."
 - ADR [0011](0011-lift-construction-off-environment-trait.md) — construction lives
   on `ConstructableEnv`, which is why the wrappers (`TimeLimit`, taps) exist as
   thin decorators that can carry their own guard.
-- Sutton & Barto, *Reinforcement Learning: An Introduction* (2nd ed.), §3.4 —
-  the absorbing state ("transitions only to itself and generates only rewards of
-  zero") as the **unified-notation device** making $G_t$ well-defined as one
+- Sutton & Barto, *Reinforcement Learning: An Introduction* (2nd ed.),
+  Section 3.4 — the absorbing state ("transitions only to itself and
+  generates only rewards of zero") as the **unified-notation device** making
+  $G_t$ well-defined as one
   infinite sum across episodic and continuing tasks. Cited for what it *is*, and
   for what it explicitly is *not*: an operational spec for a `step()` API.
 - Puterman, *Markov Decision Processes*; Bertsekas & Tsitsiklis, *Neuro-Dynamic

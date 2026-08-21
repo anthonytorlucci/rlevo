@@ -325,7 +325,9 @@ impl DqnTrainingConfigBuilder {
     ///
     /// That `10_000` is the Atari-derived figure: at the default
     /// `train_frequency: 4` it is about 40 000 environment steps, so a
-    /// classic-control run wants a much smaller cadence (issue #337).
+    /// classic-control run wants a much smaller cadence — the right value
+    /// for that scale is still an open question rather than a settled
+    /// recommendation.
     #[must_use]
     pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
         self.config.target_update = target_update;
@@ -411,7 +413,7 @@ mod tests {
     use rlevo_core::config::ConstraintKind;
 
     #[test]
-    fn default_config_is_valid() {
+    fn test_dqn_config_default_config_is_valid() {
         assert!(DqnTrainingConfig::default().validate().is_ok());
     }
 
@@ -423,7 +425,7 @@ mod tests {
     /// returned error rather than using `#[should_panic]`: a panic here would
     /// be the bug, not the fix.
     #[test]
-    fn rejects_replay_buffer_capacity_above_ceiling() {
+    fn test_dqn_config_rejects_replay_buffer_capacity_above_ceiling() {
         let err = DqnTrainingConfigBuilder::new()
             .replay_buffer_capacity(usize::MAX)
             .build()
@@ -437,7 +439,7 @@ mod tests {
     /// The boundary is inclusive: the ceiling itself is a legal (if
     /// unallocatable) capacity, so the guard cannot be off by one.
     #[test]
-    fn accepts_replay_buffer_capacity_at_ceiling() {
+    fn test_dqn_config_accepts_replay_buffer_capacity_at_ceiling() {
         let cfg = DqnTrainingConfigBuilder::new()
             .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
             .build()
@@ -451,7 +453,7 @@ mod tests {
     /// Pinned literally, because ADR 0059 §Consequences turns on this pair
     /// being `(0.005, 1)` and not the old `(0.005, 10_000)` transcription.
     #[test]
-    fn default_target_update_is_polyak_every_gradient_update() {
+    fn test_dqn_config_default_target_update_is_polyak_every_gradient_update() {
         let cfg = DqnTrainingConfig::default();
         assert_eq!(cfg.target_update, TargetUpdate::polyak(0.005, 1));
         assert!(!cfg.target_update.is_hard());
@@ -466,7 +468,7 @@ mod tests {
     /// syntax on the two `pub` scalar fields, whereas no `DqnTrainingConfig`
     /// value can hold a frozen target at all now.
     #[test]
-    fn frozen_target_is_unreachable_through_the_type() {
+    fn test_dqn_config_frozen_target_is_unreachable_through_the_type() {
         assert!(
             TargetUpdate::try_polyak(0.0, 1).is_err(),
             "τ = 0 fires on schedule and moves nothing — a frozen target"
@@ -485,7 +487,7 @@ mod tests {
     /// no longer an "inert" second knob to accept: every constructible
     /// `TargetUpdate` is live, and a config built from one validates.
     #[test]
-    fn every_constructible_target_update_yields_a_valid_config() {
+    fn test_dqn_config_every_constructible_target_update_yields_a_valid_config() {
         for rule in [
             TargetUpdate::polyak(0.005, 1),
             TargetUpdate::polyak(0.5, 100),
@@ -501,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_gamma_out_of_range() {
+    fn test_dqn_config_rejects_gamma_out_of_range() {
         let err = DqnTrainingConfigBuilder::new()
             .gamma(1.5)
             .build()
@@ -516,7 +518,7 @@ mod tests {
     /// `PolyakTau` now rejects `NaN` at construction, so the struct-update
     /// route cannot even build the value to place in the field.
     #[test]
-    fn nan_tau_cannot_be_constructed_for_struct_update_syntax() {
+    fn test_dqn_config_nan_tau_cannot_be_constructed_for_struct_update_syntax() {
         assert!(TargetUpdate::try_polyak(f32::NAN, 1).is_err());
         // And a config built the struct-update way is necessarily valid,
         // because the only τ it can carry came through `PolyakTau`.

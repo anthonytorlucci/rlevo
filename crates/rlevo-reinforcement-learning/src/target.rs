@@ -79,8 +79,9 @@
 //! Scale that `10_000` to your run before copying it: it is the Atari-derived
 //! figure, and in gradient updates it is about 40 000 environment steps at
 //! DQN's default `train_frequency: 4`. A classic-control run of a few tens of
-//! thousands of env steps wants a much smaller cadence; which values ship by
-//! default is under review in issue #337.
+//! thousands of env steps wants a much smaller cadence; what cadence to
+//! recommend at that scale — documented guidance, or a per-scale preset —
+//! is still an open question.
 //!
 //! [`Probability`]: rlevo_core::probability::Probability
 
@@ -213,7 +214,8 @@ impl PolyakTau {
 ///
 /// The `10_000` there is the Atari-derived figure — about 40 000 environment
 /// steps at DQN's default `train_frequency: 4` — so classic-control-scale runs
-/// want a much smaller cadence (issue #337).
+/// want a much smaller cadence, though the right value for that scale has not
+/// been settled on yet.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TargetUpdate {
     /// How far the target moves when an update fires.
@@ -234,8 +236,9 @@ impl TargetUpdate {
     /// updates**: the familiar `10_000` is Atari-derived and lands near 40 000
     /// environment steps under DQN's default `train_frequency: 4`, so a
     /// classic-control run of a few tens of thousands of env steps would fire
-    /// it only once or twice. Which figures ship by default is under review in
-    /// issue #337.
+    /// it only once or twice. No classic-control-scale cadence has been
+    /// settled on yet; treat `10_000` as an Atari-only starting point rather
+    /// than a scale-appropriate default.
     ///
     /// # Panics
     ///

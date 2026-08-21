@@ -25,12 +25,17 @@ of the world each step; they are not values in the struct.
 
 A handle is a reference into a mutable world, not a value capturing state at time
 *t*. This is a structural violation of the Markov property (Sutton & Barto,
-*RL: An Introduction* 2nd ed. §3.5: a Markov state "summarizes past sensations …
+*RL: An Introduction* 2nd ed., Section 3.5: a Markov state "summarizes past sensations …
 all relevant information retained"): `#[derive(Clone)]` yields a shallow alias
 whose handles are only meaningful alongside the specific world they were taken
 from, and dangle after a `reset()`/rebuild. The code review
-(`code-review-01-07-2026-env-box2d.md`) flagged this as car_racing §3.1/§3.2 (🔴),
-lunar_lander §1.1/§3.1/§3.2 (🔴/🟠), bipedal_walker §3.2 (🟡).
+(`code-review-01-07-2026-env-box2d.md`) flagged this: car_racing's `state.rs`
+review items 3.1 ("Invalid states are fully representable") and 3.2 ("`is_valid()`
+is an unconditional `true` rubber stamp"), both High; lunar_lander's `state.rs`
+review item 3.1 ("the 'full state' holds no state — DOFs live behind handles")
+High, plus items 1.1 ("`is_valid` validates a cache, not the state") and 3.2
+("all fields `pub`") Medium; bipedal_walker's `state.rs` review item 3.2 ("all
+fields are `pub`"), Low.
 
 Verified facts that scope the fix:
 
@@ -42,7 +47,7 @@ Verified facts that scope the fix:
   clone is a **latent hazard**. But the state model is a one-way door per env, so
   the target deserves a recorded decision.
 - CarRacing was forced to `Environment<3,3,1>` (its "state" typed as the
-  96×96×3 pixel buffer) **only because `Observable<OR>` (ADR 0019) did not exist
+  $96\times96\times3$ pixel buffer) **only because `Observable<OR>` (ADR 0019) did not exist
   yet** (session 2026-04-17). That constraint is now lifted; `PixelGridEnv`
   (ADR 0020) is the first synthetic `Observable` consumer (#65, closed).
 
@@ -57,8 +62,7 @@ during `step` and the state merely returns. That per-env behavior change to the
 projection path (and, for CarRacing, a compact dynamical model that does not exist
 in the struct today) is a milestone, not a bug fix — hence the split.
 
-Canonical Markov state per env (Gymnasium/Farama; research note
-`docs/.private/research/2026-07-09-issue-117-box2d-state-ownership.md`):
+Canonical Markov state per env (per the Gymnasium/Farama reference implementations):
 
 | Env | Canonical state | Modality |
 |-----|-----------------|----------|
@@ -115,18 +119,20 @@ restructuring, no `Observable`:
   (`-> 24`); the default `shape().iter().product()` computes them.
 - Honest handle-lifetime doc caveats on each struct, citing #255/#256.
 
-### 5. Constructor deviation from rules §3, recorded
+### 5. Constructor deviation from the Struct Field Encapsulation subsection, recorded
 
 box2d states use `pub(crate)` fields + read accessors + a runtime `is_valid()`
 invariant, **without** a validating `try_new`/`new`. This is a deliberate deviation
-from rules §3's "offer a `try_new`" wording, justified because: (a) construction is
-in-module and *incremental* — the struct is built with `::invalid()` handle
-placeholders and filled post-hoc across the world-build path, so a validating
-`try_new` could not be the construction entry point (it would reject its own
-initial state); and (b) there is no public or `Deserialize`-based construction path
-(the rules §3 threat model — external struct-literal construction of invalid
-values). `pub(crate)` alone fully closes that surface; invariant enforcement lives
-in `is_valid()`, not a constructor.
+from the "offer a `try_new`" wording in docs/rules.md's Naming Conventions
+section (Struct Field Encapsulation subsection), justified because: (a)
+construction is in-module and *incremental* — the struct is built with
+`::invalid()` handle placeholders and filled post-hoc across the world-build
+path, so a validating `try_new` could not be the construction entry point (it
+would reject its own initial state); and (b) there is no public or
+`Deserialize`-based construction path (the threat model that subsection guards
+against — external struct-literal construction of invalid values). `pub(crate)`
+alone fully closes that surface; invariant enforcement lives in `is_valid()`,
+not a constructor.
 
 ## Consequences
 
@@ -150,8 +156,9 @@ in `is_valid()`, not a constructor.
   richest); follow-ups are sized accordingly.
 
 **Neutral**
-- The `try_new`-omission deviates from rules §3's letter while honoring its intent;
-  called out explicitly here so a future reader does not "normalize" it.
+- The `try_new`-omission deviates from the letter of docs/rules.md's Struct
+  Field Encapsulation subsection while honoring its intent; called out
+  explicitly here so a future reader does not "normalize" it.
 
 ## Alternatives considered
 
@@ -166,9 +173,10 @@ in `is_valid()`, not a constructor.
   signature with world-derived sensors.
 - **Fully self-contained bipedal state (recompute lidar in `observe`).** Rejected:
   `observe(&self)` has no world access; lidar is structurally a world-projection.
-- **Validating `try_new` per rules §3 letter.** Rejected (decision 5): contradicts
-  the incremental invalid-handle-placeholder build pattern; no public/serde
-  construction path to guard.
+- **Validating `try_new` per the letter of docs/rules.md's Struct Field
+  Encapsulation subsection.** Rejected (decision 5): contradicts the incremental
+  invalid-handle-placeholder build pattern; no public/serde construction path to
+  guard.
 
 ## References
 
@@ -177,7 +185,10 @@ in `is_valid()`, not a constructor.
 - ADR [0019](0019-observable-projection-trait.md) / [0020](0020-synthetic-pixel-over-grid-env.md) — the `Observable<OR>` seam and its first consumer.
 - ADR [0011](0011-lift-construction-off-environment-trait.md) — separate-concern → standalone-trait pattern.
 - ADR [0026](0026-shared-config-validation-convention.md) / [0027](0027-bounds-newtype-for-closed-ranges.md) / [0031](0031-probability-rate-newtypes.md) — validation idioms.
-- `docs/rules.md` §3 Struct Field Encapsulation; §12 Deferred Work Gets a GitHub Issue.
-- Code review `.scratchpad/code-review-30-06-2026/code-review-01-07-2026-env-box2d.md`.
-- Research note `docs/.private/research/2026-07-09-issue-117-box2d-state-ownership.md`
-  (Gymnasium canonical state definitions; Sutton & Barto §3.5).
+- `docs/rules.md`'s Naming Conventions section, Struct Field Encapsulation
+  subsection; and its Deferred Work Gets a GitHub Issue section.
+- The pre-#117 code review of the three box2d `state.rs` files — its relevant
+  findings (severities and item titles) are quoted in Context above.
+- Sutton & Barto, *RL: An Introduction* 2nd ed., Section 3.5 (the Markov
+  property definition quoted in Context); Gymnasium/Farama's reference
+  environments (the canonical per-env state fields tabulated above).

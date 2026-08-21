@@ -72,7 +72,7 @@ mod tests {
     use rand::rngs::StdRng;
 
     #[test]
-    fn epsilon_greedy_decay_reaches_floor() {
+    fn test_dqn_exploration_epsilon_greedy_decay_reaches_floor() {
         let mut schedule = EpsilonGreedy::new(1.0, 0.05, 0.9);
         for _ in 0..1_000 {
             schedule.decay();
@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn epsilon_greedy_decay_is_monotonic() {
+    fn test_dqn_exploration_epsilon_greedy_decay_is_monotonic() {
         let mut schedule = EpsilonGreedy::new(1.0, 0.0, 0.99);
         let mut prev = schedule.value();
         for _ in 0..50 {
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn should_explore_obeys_epsilon_bounds() {
+    fn test_dqn_exploration_should_explore_obeys_epsilon_bounds() {
         let mut rng = StdRng::seed_from_u64(7);
         let always = EpsilonGreedy::new(1.0, 1.0, 1.0);
         let never = EpsilonGreedy::new(0.0, 0.0, 1.0);

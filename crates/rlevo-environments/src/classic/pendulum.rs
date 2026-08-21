@@ -341,7 +341,7 @@ pub struct Pendulum {
     /// Rejects a `step()` taken after the episode ended — **inert in practice**,
     /// because Pendulum has no terminal condition: every `step` emits `Running`,
     /// so the guard never closes and never rejects anything. It is carried
-    /// anyway so the classic-control family is uniform (issue #290), and so that
+    /// anyway so the classic-control family is uniform (ADR 0044), and so that
     /// a future termination rule (an upright-and-settled success criterion, say)
     /// cannot silently reintroduce the post-terminal resurrection bug: whoever
     /// adds a `terminated` branch gets the rejection for free from the existing

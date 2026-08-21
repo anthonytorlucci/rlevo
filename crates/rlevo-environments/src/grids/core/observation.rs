@@ -104,9 +104,10 @@ pub struct GridObservation {
     /// Agent's absolute facing when the observation was produced, or `None`
     /// when the facing is genuinely unknown.
     ///
-    /// Typed as [`Direction`] rather than a raw byte so that no illegal
-    /// encoding is representable (issue #844); [`Direction::to_u8`] still
-    /// yields the canonical Minigrid byte order for callers that want it.
+    /// Typed as [`Direction`] rather than a raw byte (ADR 0061 Decision 1):
+    /// the byte form let illegal values like `200` through unchecked, with
+    /// no `from_u8` to decode one back. [`Direction::to_u8`] still yields
+    /// the canonical Minigrid byte order for callers that want it.
     ///
     /// # Why it is not in the tensor
     ///

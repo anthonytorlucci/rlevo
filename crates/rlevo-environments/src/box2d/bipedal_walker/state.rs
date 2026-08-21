@@ -17,24 +17,39 @@ use super::observation::BipedalWalkerObservation;
 ///
 /// Every handle field is an *arena index* into the [`RapierWorld`] owned by the
 /// enclosing `BipedalWalker` environment — not an owned value capturing state at
-/// time *t*. The Markov degrees of freedom (hull pose + twist, per-joint
-/// angle/speed, lidar rays) live *behind* these handles in that world; the
-/// observation is produced on demand by the env-side
-/// [`Sensor`](rlevo_core::environment::Sensor) reading the world (raycasting the
-/// lidar against the live physics geometry). The most recent observation is
-/// retained in [`last_obs`](Self::last_obs) purely so
+/// time *t*. A handle is a reference into a mutable world, not a value at time
+/// *t*, so storing only handles here is a Markov-property violation: the actual
+/// degrees of freedom (hull pose + twist, per-joint angle/speed, the two
+/// leg-contact flags) live *behind* these handles in that world rather than as
+/// fields on this struct. The lidar portion of the observation is produced on
+/// demand by the env-side [`Sensor`](rlevo_core::environment::Sensor) reading
+/// the world (raycasting against the live physics geometry) — it is a
+/// world-projection, not stored state, and is not part of this violation. The
+/// most recent observation is retained in [`last_obs`](Self::last_obs) purely so
 /// [`is_valid()`](State::is_valid) can detect physics divergence (a non-finite
 /// pose/velocity/lidar ray) without re-querying the world — the same role it
-/// plays on the locomotion states. That field is not the emission path; genuine
-/// DOF-finiteness validation over owned scalar DOFs lands with the #256
-/// DOF-ownership refactor.
+/// plays on the locomotion states.
 ///
 /// Consequently a [`Clone`] of this state is a **non-portable view**: the cloned
 /// handles are only meaningful alongside the exact world they were taken from and
 /// **dangle** once the environment calls `reset()` and rebuilds that world. This
-/// is a deliberate, contained state model for Scope A (encapsulation +
-/// [`is_valid()`](State::is_valid)); relocating the handles onto the env "core"
-/// and giving the state genuine owned DOFs is deferred to issue #256 (ADR 0039).
+/// is a deliberate, contained state model (ADR 0039 Scope A: encapsulation +
+/// [`is_valid()`](State::is_valid)).
+///
+/// # Deferred: owned Markov DOFs (ADR 0039)
+///
+/// The canonical 24-dim Gymnasium observation is hull pose + twist, the four
+/// `(angle, speed)` joint pairs, and the two leg-contact flags (14 body scalars
+/// in all) plus 10 lidar rays. The 14 body scalars are genuinely state-like and
+/// are the target for relocation onto this struct as owned fields; the 10 lidar
+/// values stay a per-step world-projection recomputed by the
+/// [`Sensor`](rlevo_core::environment::Sensor) and are not meant to live on the
+/// state. Landing that refactor means no [`RigidBodyHandle`] or
+/// [`ImpulseJointHandle`] field on the exported `State` — the handles move to
+/// the env's "core" struct — and [`is_valid()`](State::is_valid) checking DOF
+/// finiteness/ranges directly instead of handle validity. Until then,
+/// [`is_valid()`](State::is_valid) keeps its existing `last_obs.is_finite()`
+/// check unchanged, so there is no interim finiteness gap.
 ///
 /// [`RapierWorld`]: crate::box2d::physics::RapierWorld
 #[derive(Debug, Clone)]

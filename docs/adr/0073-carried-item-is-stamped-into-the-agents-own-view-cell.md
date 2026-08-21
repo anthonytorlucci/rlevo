@@ -3,7 +3,7 @@ project: rlevo
 status: active
 type: decision
 date: 2026-08-10
-tags: [adr, decision, environments, grids, observation, sensor, pomdp, minigrid, issue-1027]
+tags: [adr, decision, environments, grids, observation, sensor, pomdp, minigrid]
 ---
 
 # ADR 0073: The carried item is stamped into the agent's own view cell, after occlusion
@@ -60,7 +60,7 @@ observation never carried in any form. A policy could not condition on
 "do I have the key" or "do I have the box" from its observation — it had to
 infer hand state from the action history alone, which is a strictly harder
 and, for a purely reactive policy, an impossible inference. This is exactly
-the shape of POMDP defect `docs/rules.md` §3's `TensorConvertible` clause 2
+the shape of POMDP defect `docs/rules.md` `TensorConvertible` clause 2
 ("no fabrication") and ADR 0061 exist to rule out at the tensor boundary —
 except this was a stronger failure than fabrication: the field never
 reached the tensor boundary to be fabricated *or* faithfully encoded at all.
@@ -92,7 +92,7 @@ and this port.
 ### 1. The stamp site is `mask_view`, not `egocentric_view`, `from_masked_view`, or `process_vis`
 
 `grid::stamp_carried` (`crates/rlevo-environments/src/grids/core/grid.rs`,
-near line 161) is called from `mask_view`
+near line 332) is called from `mask_view`
 (`crates/rlevo-environments/src/grids/core/mod.rs`), immediately after the
 `match visibility` that dispatches `Occluded`/`SeeThrough`:
 
@@ -114,7 +114,7 @@ pub(super) fn mask_view(
 `mask_view` is the single chokepoint ADR 0063 Decision 1 built: eleven
 environments reach it via the shared `observe_grid` free function, and
 `GoToDoorEnv` — the one environment on the wider 4-channel encoder — calls
-`mask_view` directly (`grids/go_to_door.rs`, around line 822) rather than
+`mask_view` directly (`grids/go_to_door.rs`) rather than
 going through `observe_grid`. Placing the stamp inside `mask_view` covers
 all twelve environments for free, with no per-env call site to add or
 forget.
@@ -126,7 +126,7 @@ exactly one place that writes the hand, regardless of which `Visibility`
 constant an environment declares.
 
 Three alternative stamp sites were rejected, each for a reason specific to
-what the function is for (§Alternatives considered).
+what the function is for (see **Alternatives considered** for the four rejected sites).
 
 ### 2. The empty hand is `Some(Entity::Empty)`, never `None`
 
@@ -163,7 +163,7 @@ from `[8, 0, 0]` (`Goal`) or `[9, 0, 0]` (`Lava`) to `[1, 0, 0]` (`Empty`,
 empty-handed) on every affected environment. This is a real behaviour
 change even when nothing is being carried, and it matches canonical: the
 agent's own cell is never a channel the policy reads the world through, by
-design (§Context).
+design (as noted in **Context**, the defect was a real POMDP break).
 
 Verified against the current source, the affected environments are:
 
@@ -172,24 +172,31 @@ Verified against the current source, the affected environments are:
 - **Lava** (as a `Lava`-kind hazard): `Crossing` (its `Lava` obstacle kind),
   `DistShift`, `LavaGap`.
 
-`Entity::Floor` never appears on a real board — it is used only in
-`all_floor_like`-style test probes (`grids/unlock.rs`, `grids/lava_gap.rs`,
-`grids/crossing.rs`) rather than in any environment's generated layout — so
-it is a no-op for this decision in practice. Recorded here so a future
-reader does not re-derive the same conclusion from scratch.
+`Entity::Floor` never appears on a real board, so it is a no-op for this
+decision in practice. Verified by separating *writes* from *reads*: the only
+code that ever places a `Floor` is the `all_floor_like` probe helper in
+`grids/crossing.rs`, `grids/unlock.rs`, and `grids/lava_gap.rs`, plus one
+unit test in `grids/core/placement.rs` — no environment's generated layout
+places one. Production code does *read* `Floor` in two places —
+`dynamics.rs`'s `drop_item` accepts `Empty | Floor` as a drop target, and
+`dynamic_obstacles.rs`'s free-cell predicate matches `Empty | Floor` — but
+since nothing writes a `Floor` onto a generated board, neither read can
+observe one. Recorded at this granularity so a future reader does not
+re-derive the conclusion from scratch, and does not mistake the production
+read sites for evidence that the entity reaches a board.
 
 ### 4. Four rejected alternatives
 
 - **A `carrying` field on `GridObservation`, outside the tensor.** Rejected:
-  `docs/rules.md` §3's `TensorConvertible` clause 2 requires every field
+  `docs/rules.md` `TensorConvertible` requires every field
   `write_host_row` does not write to decode to absence, and ADR 0061 closed
   exactly this shape of gap for `agent_direction` on the principle that
   anything a policy must read has to live in the tensor a `Strategy` or
   replay buffer actually round-trips. An out-of-tensor field would decode to
   `None`/a default on replay, hiding from the policy the one fact it needs —
   the inverse of what this ADR fixes.
-- **A fourth encoder channel.** Rejected on ADR 0043's own ground
-  (lines 206-208): widening the shared `GridObservation` from 3 to 4
+- **A fourth encoder channel.** Rejected on ADR 0043's own ground:
+  widening the shared `GridObservation` from 3 to 4
   channels changes shape from `147` to `196` elements across all twelve
   environments for the benefit of encoding one already-typed fact that fits
   in the existing channel-0 byte at the agent's own cell.
@@ -226,8 +233,11 @@ reader does not re-derive the same conclusion from scratch.
 
 ### Negative / accepted costs
 
-- **Observed bytes change for eleven environments on every terminal frame**,
-  independent of whether anything is carried (§Decision 3's list). Any
+- **Observed bytes change for eight environments on every terminal frame**,
+  independent of whether anything is carried (**Decision 3**'s list of affected
+  environments — eight distinct environments; its `Lava` entries are a subset
+  of the goal-reaching list, not additions, and the remaining four of the
+  twelve place neither `Goal` nor `Lava` on a generated board). Any
   hand-inspected fixture, doctest, or external comparison pinned against a
   pre-fix terminal observation is now stale.
 - **No shape change, and ADR 0061's clauses are untouched.**
@@ -248,7 +258,7 @@ reader does not re-derive the same conclusion from scratch.
 
 ## Alternatives considered
 
-See §Decision 4 for the four rejected implementation sites; there was no
+See **Decision 4** for the four rejected implementation sites; there was no
 live disagreement about *whether* to fix this, only *where* the stamp
 belongs and what the empty-handed encoding should be.
 
@@ -265,7 +275,7 @@ belongs and what the empty-handed encoding should be.
 - ADR [0043](0043-grid-observation-contract.md), lines 206-208 — rejects
   widening `GridObservation` to a fourth channel, the same ground this ADR's
   rejected fourth-channel alternative rests on.
-- `docs/rules.md` §3 — the `TensorConvertible` two-clause invariant table.
+- `docs/rules.md` — the `TensorConvertible` two-clause invariant table.
 - Code: `crates/rlevo-environments/src/grids/core/grid.rs` (`stamp_carried`,
   `AGENT_VIEW_ROW`, `AGENT_VIEW_COL`), `crates/rlevo-environments/src/grids/core/mod.rs`
   (`mask_view`, `observe_grid`), `crates/rlevo-environments/src/grids/go_to_door.rs`

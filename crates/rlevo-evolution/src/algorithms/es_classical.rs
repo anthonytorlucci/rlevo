@@ -89,7 +89,7 @@ pub struct EsConfig {
     pub sigma_min: f32,
     /// Upper clamp for the self-adaptive σ.
     ///
-    /// Without a ceiling σ can overflow toward `+∞` (genes then saturate to a
+    /// Without a ceiling σ can overflow toward `$+\infty$` (genes then saturate to a
     /// bound with no error). Default `DEFAULT_SIGMA_MAX` — far outside any
     /// practical step scale on the `[-5.12, 5.12]` benchmark domain, so it
     /// never binds in normal operation and only catches a runaway process.
@@ -104,7 +104,7 @@ impl EsConfig {
     ///
     /// Sets `bounds = (-5.12, 5.12)` (the standard Rastrigin/sphere domain),
     /// `initial_sigma = 1.0`, and τ via the standard formula
-    /// `1 / sqrt(2 · sqrt(D))` (Beyer & Schwefel 2002, eq. 12).
+    /// `$1 / \sqrt{2 \cdot \sqrt{D}}$` (Beyer & Schwefel 2002, eq. 12).
     #[must_use]
     pub fn default_for(kind: EsKind, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]
@@ -477,7 +477,7 @@ where
     ///
     /// Variant behaviour:
     /// - `(1+1)`: greedy replacement; σ updated by Rechenberg's 1/5th
-    ///   success rule every `10·D` steps.
+    ///   success rule every `$10 \cdot D$` steps.
     /// - `$(1+\lambda)$`: best offspring replaces the parent only if it strictly
     ///   improves fitness; σ is carried over unchanged.
     /// - `$(\mu,\lambda)$`: selects the μ best offspring; parent pool discarded.
@@ -731,9 +731,9 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "lambda");
     }
 
-    /// `genome_dim == 0` makes `tau = 1/sqrt(2·sqrt(0)) = +∞`; the config guard
+    /// `genome_dim == 0` makes `$\tau = 1/\sqrt{2 \cdot \sqrt{0}} = +\infty$`; the config guard
     /// must reject it at construction (ADR 0026) so the non-finite τ never
-    /// reaches the first `ask` (issue #132, `es_classical` §1.1 / `ep` §1.2).
+    /// reaches the first `ask`.
     #[test]
     fn rejects_zero_genome_dim() {
         let cfg = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 0);
@@ -765,7 +765,7 @@ mod tests {
 
     /// The log-normal σ of a multi-parent variant stays inside
     /// `[sigma_min, sigma_max]` across many generations even under an aggressive
-    /// `tau` that would otherwise drive the walk to `0` or `+∞`
+    /// `tau` that would otherwise drive the walk to `0` or `$+\infty$`
     /// (`es_classical` §1.1). Drives the strategy directly so the transient
     /// `(μ + λ,)` σ vector produced by `ask` is inspected.
     #[test]
@@ -855,7 +855,7 @@ mod tests {
     }
 
     /// Drives an ES variant directly for `gens` generations against the
-    /// canonical maximise `−sphere`, returning the `best_fitness_ever`
+    /// canonical maximise `$-\text{sphere}$`, returning the `best_fitness_ever`
     /// trajectory reported by each `tell`.
     fn run_es_best_ever(kind: EsKind, dim: usize, gens: usize, seed: u64) -> Vec<f32> {
         use rand::SeedableRng;

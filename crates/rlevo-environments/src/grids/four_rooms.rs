@@ -119,7 +119,7 @@ const MIN_SIZE: usize = 11;
 pub const OPENING_COUNT: usize = 4;
 
 // The invariants `build` silently assumes, restated for sampled offsets (ADR
-// 0062). Until #282 the four openings sat at a fixed `$\text{mid} \pm 3$` and this block
+// 0062). The four openings used to sit at a fixed `$\text{mid} \pm 3$` and this block
 // asserted that `$\text{mid} \pm 3$` lands strictly inside the border — measured before the
 // guard existed, `size = 7` perforated all four perimeter walls (holes at (0,3),
 // (3,0), (3,6), (6,3)) and `size = 8` perforated two, at (4,7) and (7,4).
@@ -242,7 +242,7 @@ impl Validate for FourRoomsConfig {
     /// at `size < 5` a segment's opening range (`1..mid`, `mid + 1..size - 1`)
     /// is empty and `random_range` panics on it, and at `size` 5 through 9 the
     /// quadrants shrink past the "at least three interior cells" premise
-    /// `MIN_SIZE` encodes. (Before #282 the openings were fixed at `$\text{mid} \pm 3$`;
+    /// `MIN_SIZE` encodes. (The openings used to be fixed at `$\text{mid} \pm 3$`;
     /// the same floor then bought a different failure — `size` 1 through 6
     /// panicked inside `Grid::set`, and `size` 7 and 8 punched their openings
     /// through the *perimeter* wall. The measurement is historical, the guard is
@@ -618,7 +618,7 @@ impl Sensor<3, 1, 3> for FourRoomsEnv {
     type State = GridState;
     type Observation = GridObservation;
 
-    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
     /// `next_state` alone, so this forwards to the same projection as
     /// [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
@@ -765,7 +765,7 @@ mod tests {
     /// episodes agree. The non-degeneracy tests deliberately do **not** use it:
     /// a whole-layout diff passes as soon as any single quantity moves, which is
     /// exactly how a still-pinned agent direction hides behind a moving goal
-    /// (ADR 0062, #282).
+    /// (ADR 0062).
     type Layout = (
         [(i32, i32); OPENING_COUNT],
         (i32, i32, Direction),
@@ -855,11 +855,11 @@ mod tests {
         assert!("9".parse::<FourRoomsConfig>().is_err());
     }
 
-    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
-    /// built by `Deserialize` or struct-update syntax reached `build`. Measured
+    /// `MIN_SIZE` was enforced only in [`FromStr`], so a config built by
+    /// `Deserialize` or struct-update syntax reached `build` unchecked. Measured
     /// consequences under the then-fixed `$\text{mid} \pm 3$` openings: `size` 1–6 panicked
     /// in `Grid::set`; `size = 7` punched a hole in all four perimeter walls and
-    /// `size = 8` in two. The openings are sampled now (#282) so those exact
+    /// `size = 8` in two. The openings are sampled now, so those exact
     /// numbers are history, but the floor still guards a real cliff — below
     /// `size = 5` a segment's opening range is empty and `random_range` panics.
     /// The guard lives in [`Validate`], which `with_config` runs (ADR 0026
@@ -903,8 +903,8 @@ mod tests {
         );
     }
 
-    /// The parity rule the `size` field doc already published. It was enforced
-    /// only in [`FromStr`] before #106, so `Deserialize` could hand `build` an
+    /// The parity rule the `size` field doc already published. It used to be
+    /// enforced only in [`FromStr`], so `Deserialize` could hand `build` an
     /// even size whose interior cross has two centre rows.
     ///
     /// The value is `14`, not `MIN_SIZE + 1` (12), and must **not** be a
@@ -930,8 +930,8 @@ mod tests {
     //
     // `build_places_cross_with_four_openings` used to live here, asserting the
     // openings at literal `(5, 2)`, `(5, 8)`, `(2, 5)`, `(8, 5)` and the goal at
-    // `(9, 9)`. It was the strictest layout lock in the grid family, and #282
-    // moved every one of those cells into a draw. What replaces it is the set of
+    // `(9, 9)`. It was the strictest layout lock in the grid family; every one
+    // of those cells was later moved into a draw. What replaces it is the set of
     // properties that lock actually implied — plus connectivity, which it never
     // checked. A worked example of the geometry it used to pin now lives in the
     // module docs as literal `ascii()` output.
@@ -1085,8 +1085,8 @@ mod tests {
     /// Asserted per quantity rather than as one whole-layout diff: a diff over
     /// the full observation goes green the moment *anything* moves, so a still-
     /// pinned agent facing (or a fourth opening that never left `mid + 3`) hides
-    /// behind the three quantities that do move. ADR 0062 and #282 both name
-    /// that trap explicitly.
+    /// behind the three quantities that do move. ADR 0062 names that trap
+    /// explicitly.
     #[test]
     fn each_sampled_quantity_varies_across_seeds() {
         for size in SIZES {
@@ -1375,15 +1375,26 @@ mod tests {
         assert_eq!(env.steps(), 0);
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
+    //
+    // The guard is a real correctness fix, not step-count hygiene: without it,
+    // a caller could `step()` again after a terminal snapshot without calling
+    // `reset()`, and internal state would mutate against a stale,
+    // already-terminal snapshot (see `dynamic_obstacles.rs` for a concrete
+    // instance). `EpisodeGuard::check()?` as the first statement of `step()`
+    // makes that invariant hold unconditionally rather than depending on
+    // callers never stepping past a terminal snapshot.
 
     /// Drives `env` to a **goal** termination through real `step()` calls.
     ///
     /// Ends the episode by reaching the goal rather than by exhausting
-    /// `max_steps`: the step-limit path currently maps a cutoff to `Terminated`
-    /// rather than `Truncated` (`grids/core/mod.rs`, `build_snapshot`; GitHub
-    /// #1028), and no guard test should be written against a status that a bug
-    /// fix is expected to change. The route is derived from the board the env
+    /// `max_steps`: `build_snapshot` (`grids/core/mod.rs`) takes a bare
+    /// `done: bool`, and every grid env ORs its genuine terminal condition
+    /// with the step-limit cutoff into that same collapsed bool before
+    /// calling it, so hitting `max_steps` is currently reported as
+    /// `Terminated` rather than `Truncated`. A guard test must not assert on
+    /// that status, since the status itself is the defect a future fix is
+    /// expected to change. The route is derived from the board the env
     /// actually drew, so this does not encode one seed's geometry.
     fn drive_to_goal(env: &mut FourRoomsEnv) -> GridSnapshot {
         env.reset_with_seed(3).expect("reset must succeed");
@@ -1529,8 +1540,8 @@ mod tests {
     }
 
     /// Occlusion is not decoration here: a cell that encoded a real entity under
-    /// the pre-#281 (see-through) emission model must now be able to encode as
-    /// *unseen*.
+    /// the old see-through emission model (no visibility masking, walls never
+    /// blocked line of sight) must now be able to encode as *unseen*.
     ///
     /// The interesting case is the goal, because that is task-relevant
     /// information the cross walls are supposed to withhold until the agent
@@ -1567,7 +1578,7 @@ mod tests {
         assert_eq!(
             see_through.view[row][col][0],
             Entity::Goal.type_u8(),
-            "the pre-#281 emission model reported the goal from this pose"
+            "the see-through emission model (no occlusion) reported the goal from this pose"
         );
         assert_eq!(
             occluded.view[row][col],

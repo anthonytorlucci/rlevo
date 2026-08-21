@@ -22,7 +22,9 @@ tags:
 Active. Adopted 2026-06-04. Bumps the on-disk record format from `FORMAT_VERSION = 5`
 to `6`. Extends — does not supersede — [0013-metrics-only-live-tui](0013-metrics-only-live-tui.md): the `EpisodeRecord`
 seam, the per-family `FamilyPayload`, and the production-crate isolation rules are all
-preserved. Driven by the gap analysis in `research/2026-06-04-benchmark-client-metrics.md`.
+preserved. Driven by a 2026-06-04 gap-analysis survey of RLlib, CleanRL,
+Stable-Baselines3, Tianshou, Gymnasium, and the reproducibility literature
+(reproduced in this ADR's own Context below).
 
 ## Context
 
@@ -98,7 +100,7 @@ design invariants in part 7.**
    part 1; `core_metrics()` at trial completion is retained as the cross-seed summary.
 
 3. **Episode wall-clock via a terminal metric, not a new record type.**
-   The Gymnasium `(r, l, t)` triple is mostly already recoverable — return = Σ frame
+   The Gymnasium `(r, l, t)` triple is mostly already recoverable — return = $\sum$ frame
    rewards, length = frame count — so only the wall-clock `t` is genuinely new. Rather
    than add an episode-summary chunk, the recording surface emits a terminal
    `episode_wall_clock_secs` (and, for convenience and eval episodes, `episode_return` /
@@ -248,21 +250,25 @@ new scalar (`t`) is overkill; a terminal `MetricSample` carries it with no schem
 
 ## References
 
-- `research/2026-06-04-benchmark-client-metrics.md` — the gap analysis and per-domain
-  surveys this ADR acts on; §6 "Now" list maps to Decision parts 1–5, §6 "future seams"
-  to part 6.
+- The gap analysis and per-domain surveys this ADR acts on are reproduced in
+  this ADR's own Context above: the "Now" findings map to Decision parts 1–6,
+  and the future-seam findings (multi-agent, variable-topology neuroevolution,
+  Bayesian-network learning) map to Decision part 7.
 - [0013-metrics-only-live-tui](0013-metrics-only-live-tui.md) — preserved `EpisodeRecord` seam, `FamilyPayload`, and
   isolation rules that v6 extends rather than supersedes.
 - [0004-move-bench-traits-into-rlevo-core](0004-move-bench-traits-into-rlevo-core.md) — `SeedStream` (replay determinism),
   `Metric`/`MetricsProvider` underpinning the metric stream.
 - [0003-collapse-rl-modules-into-rlevo-reinforcement-learning](0003-collapse-rl-modules-into-rlevo-reinforcement-learning.md) — `AgentStats`/
   `PerformanceRecord`, the RL-side metric sources feeding the new per-iteration stats.
-- reference_flex_gemm_nondeterminism — why a single `seed` is insufficient provenance;
-  motivates documenting seed coverage and `num_seeds`.
+- Burn's Flex backend `gemm` operations are non-deterministic under
+  multi-threading, so a single recorded `seed` does not, by itself, guarantee
+  another run reproduces the same trajectory — this motivates documenting
+  seed coverage (`num_seeds`) rather than treating one seed as sufficient
+  provenance.
 - `crates/rlevo-benchmarks/src/record/{schema,manifest,writer,tracing_layer}.rs`,
   `crates/rlevo-benchmarks/src/metrics_registry.rs` — the surfaces v6 edits.
 - `crates/rlevo-benchmarks-report-client/src/wire.rs`,
   `crates/rlevo-benchmarks/tests/wire_format_compat.rs` — the mirror + enforcement that
   must move to `6` in lockstep.
-- neuroevolution-neat, advanced-hybrid-specialized-ea — Milestone 2 work that will
-  own the deferred neuroevolution population-payload bump.
+- The Milestone 2 neuroevolution work that will own the deferred
+  variable-topology neuroevolution population-payload bump (Decision part 7).

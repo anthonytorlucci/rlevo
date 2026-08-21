@@ -288,10 +288,10 @@ where
         // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
         // per-site correctness floor for a caller driving `ask`/`tell`
         // directly instead of `EvolutionaryHarness::step`, which already
-        // sanitizes (the ADR 0034 decision-3 bypass hole, issue #131):
-        // otherwise a raw NaN lands in the public `state.fitness` cache.
-        // `sanitize_fitness` is idempotent, so on the harness path this is a
-        // provable no-op — not redundant, load-bearing.
+        // sanitizes (the ADR 0034 decision-3 bypass hole): otherwise a raw
+        // NaN lands in the public `state.fitness` cache. `sanitize_fitness`
+        // is idempotent, so on the harness path this is a provable no-op —
+        // not redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()

@@ -53,9 +53,9 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// host-read that cannot fail by construction — the tensor being read is one
 /// the same function just built on the same device.
 ///
-/// Making those signatures fallible is tracked as issue #317 (see ADR 0057,
-/// which resolved the off-policy half and left `act` and the on-policy agents
-/// panic-based as the explicit residual). When #317 lands, the variant returns
+/// Making those signatures fallible would resolve this (see ADR 0057, which
+/// resolved the off-policy half and left `act` and the on-policy agents
+/// panic-based as the explicit residual). When that lands, the variant returns
 /// carrying [`rlevo_core::base::TensorConversionError`] via `#[from]` — a
 /// structured payload, **not** a `String`. `docs/rules.md` §4 prefers
 /// structured variants over string-based errors and names
@@ -90,10 +90,10 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// [`rlevo_core::environment::EnvironmentError`] is the domain type;
 /// `docs/rules.md` §4 would prefer `Environment(#[from] EnvironmentError)`.
 /// `train.rs` currently calls `err.to_string()`, discarding the structured
-/// error and its [`source`](std::error::Error::source) chain. This is **known
-/// and tracked as #171**, which scopes the same fix across all eight
-/// algorithms — it is a breaking change to the payload type and is
-/// deliberately out of scope here. Do not read the `String` as endorsed.
+/// error and its [`source`](std::error::Error::source) chain. This is a known
+/// gap that scopes the same fix across all eight algorithms — it is a
+/// breaking change to the payload type and is deliberately out of scope
+/// here. Do not read the `String` as endorsed.
 ///
 /// # Adding a variant
 ///
@@ -181,7 +181,7 @@ pub struct ActOutcome {
 /// This change adds the [`Default`] impl at the same time, so `#[non_exhaustive]`
 /// removes nothing and the placeholders shrink to `PpoUpdateStats::default()`.
 ///
-/// The concrete purchase: adding `max_log_std` here (#347) would otherwise be a
+/// The concrete purchase: adding `max_log_std` here would otherwise be a
 /// breaking change to every downstream struct literal, and so would the next
 /// diagnostic. A metrics record grows — pinning it closed on the assumption
 /// that it will not is how a report type becomes the reason a diagnostic ships
@@ -230,8 +230,8 @@ pub struct PpoUpdateStats {
     /// The ceiling-side counterpart to [`min_log_std`](Self::min_log_std), and
     /// not redundant with it: a minimum reports the *healthiest* dim, so a head
     /// with one dim pinned at `log_std_max` reads perfectly normal on
-    /// `min_log_std` while that dim is frozen and sampling near-uniform noise
-    /// (#347). A value drifting up toward the head's `log_std_max` is the
+    /// `min_log_std` while that dim is frozen and sampling near-uniform
+    /// noise. A value drifting up toward the head's `log_std_max` is the
     /// policy diverging rather than collapsing, and reaching the bound freezes
     /// the parameter just as permanently. The head emits its own one-shot
     /// `tracing::warn!` per bound when that happens.
@@ -271,8 +271,8 @@ impl Default for PpoUpdateStats {
 ///
 /// # Const generics
 ///
-/// - `DO` — rank of a single observation tensor.
-/// - `DB` — rank of a batched observation tensor (`= DO + 1`, typically `2`).
+/// - `R` — rank of a single observation tensor.
+/// - `BR` — rank of a batched observation tensor (`= R + 1`, typically `2`).
 ///
 /// # Network ownership
 ///
@@ -284,12 +284,12 @@ impl Default for PpoUpdateStats {
 /// optimizer step itself poisons a slot; that window is irreducible and
 /// terminal for the agent (see the [`shared`](crate::algorithms::shared) module
 /// docs).
-pub struct PpoAgent<B, P, V, O, const DO: usize, const DB: usize>
+pub struct PpoAgent<B, P, V, O, const OR: usize, const BOR: usize>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     policy: Slot<P>,
     value: Slot<V>,
@@ -302,23 +302,24 @@ where
     total_iterations: usize,
     step: usize,
     stats: AgentStats<PpoMetrics>,
-    /// Non-finite-loss guard for the policy-loss site (ADR 0056, #318). Skips
+    /// Non-finite-loss guard for the policy-loss site (ADR 0056). Skips
     /// the update on every occurrence; the `warn!` escalates by decades — skips
     /// 1, 10, 100, … — each carrying the running total (ADR 0072 §1), readable
     /// via [`Self::skipped_policy_updates`].
     policy_loss_guard: FiniteLossGuard,
-    /// Non-finite-loss guard for the value-loss site (ADR 0056, #318), counting
+    /// Non-finite-loss guard for the value-loss site (ADR 0056), counting
     /// and escalating independently of [`Self::policy_loss_guard`]. See
     /// [`Self::skipped_value_updates`].
     value_loss_guard: FiniteLossGuard,
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug for PpoAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug
+    for PpoAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpoAgent")
@@ -333,12 +334,12 @@ where
 /// Greedy / inference-only methods, separated out because they additionally
 /// require `O` to convert onto the inner (non-autodiff) backend. Construction
 /// and training (the main `impl` below) do not need that bound.
-impl<B, P, V, O, const DO: usize, const DB: usize> PpoAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> PpoAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    P: PpoPolicy<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
 {
     /// Snapshots the policy onto the inner (non-autodiff) backend for repeated
     /// greedy inference.
@@ -358,18 +359,18 @@ where
     /// [`act`](Self::act) samples from the stochastic policy, which injects
     /// exploration noise into the returned action.
     pub fn act_greedy_env_row_with(&self, net: &P::InnerModule, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
         P::deterministic_env_row_inner(net, batched)
     }
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> PpoAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> PpoAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     /// Construct a new agent from a pre-built policy and value network.
     ///
@@ -516,7 +517,7 @@ where
     /// `value_healthy` minibatch counts and uses them as the **denominators**
     /// for the two gated means it reports in [`PpoUpdateStats`], so that a
     /// skipped minibatch cannot re-poison `policy_loss` / `value_loss`
-    /// (#318, ADR 0056 §3). Those are per-`update`, live only for the duration
+    /// (ADR 0056 §3). Those are per-`update`, live only for the duration
     /// of the call, and answer "what did this update apply?". These accessors
     /// are the **lifetime** skip totals and answer "how much has this run lost
     /// in aggregate?". They are complements, not duplicates: neither can be
@@ -580,9 +581,9 @@ where
     /// and entropy plus the value-network prediction at that observation.
     ///
     /// Batched rollout is not supported in v1 (`num_envs` == 1).
-    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> ActOutcome {
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
 
         // Policy forward (autodiff graph is dropped on tensor drop).
         let sample = self.policy().sample_with_logprob(batched.clone(), rng);
@@ -593,8 +594,8 @@ where
         let entropy = sample.entropy.into_scalar().elem::<f32>();
 
         // Value forward on a fresh copy of the obs tensor.
-        let value_raw: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let value_t: Tensor<B, DB> = value_raw.unsqueeze::<DB>();
+        let value_raw: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let value_t: Tensor<B, BOR> = value_raw.unsqueeze::<BOR>();
         let value = self.value().forward(value_t).into_scalar().elem::<f32>();
 
         ActOutcome {
@@ -647,8 +648,8 @@ where
 
     /// One value-network forward on a single observation.
     fn value_of(&self, obs: &O) -> f32 {
-        let t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = t.unsqueeze::<DB>();
+        let t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = t.unsqueeze::<BOR>();
         self.value().forward(batched).into_scalar().elem::<f32>()
     }
 
@@ -684,7 +685,7 @@ where
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    pub fn update<R: Rng + ?Sized>(&mut self, rng: &mut R) -> PpoUpdateStats {
+    pub fn update(&mut self, rng: &mut (impl Rng + ?Sized)) -> PpoUpdateStats {
         let batch_size = self.buffer.len();
         let mb_size = (batch_size / self.config.num_minibatches.max(1)).max(1);
         let lr = self.current_learning_rate();
@@ -698,8 +699,8 @@ where
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
         // Count only the minibatches whose loss was finite and therefore
-        // actually applied — the denominators for the two gated means (#318,
-        // ADR 0056 §3). `mb_count` still denominates the ungated diagnostics.
+        // actually applied — the denominators for the two gated means
+        // (ADR 0056 §3). `mb_count` still denominates the ungated diagnostics.
         let mut policy_healthy = 0_usize;
         let mut value_healthy = 0_usize;
 
@@ -725,10 +726,10 @@ where
                 for &i in chunk {
                     self.buffer.obs()[i].write_host_row(&mut obs_flat);
                 }
-                let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+                let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
                 batched_shape.push(n);
                 batched_shape.extend_from_slice(&obs_shape);
-                let obs_batch: Tensor<B, DB> =
+                let obs_batch: Tensor<B, BOR> =
                     Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
 
                 // Action tensor.
@@ -782,7 +783,7 @@ where
                 kl_sum += kl;
                 kl_count += 1;
 
-                // #318 / ADR 0056: `policy_loss_val` is already host-resident,
+                // ADR 0056: `policy_loss_val` is already host-resident,
                 // so the finiteness check costs no extra sync. A non-finite
                 // loss skips `backward()` + the optimizer step (Burn would
                 // otherwise fold NaN into the weights silently) and is excluded
@@ -805,7 +806,7 @@ where
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(self.config.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
-                // #318 / ADR 0056: same guard for the value site, counted and
+                // ADR 0056: same guard for the value site, counted and
                 // warned separately (ADR 0072 §1) so one site's failure cannot
                 // silence or inflate the other's diagnostic.
                 if self.value_loss_guard.check(v_loss_val) {
@@ -847,7 +848,7 @@ where
         // one-shot-per-bound "the log_std clamp has bound" warnings —
         // deliberately here rather than in the forward pass, which would sync on
         // every rollout step. Both extrema are reported because a minimum alone
-        // is blind to a dim pinned at the ceiling (#347, ADR 0049 §4).
+        // is blind to a dim pinned at the ceiling (ADR 0049 §4).
         let min_log_std = self.policy().min_log_std();
         let max_log_std = self.policy().max_log_std();
 
@@ -856,7 +857,7 @@ where
 
         // Ungated diagnostics divide by the total minibatch count; the two
         // gated losses divide by their own healthy counts, reporting `0.0`
-        // (not NaN) when every minibatch skipped (#318, ADR 0056 §3).
+        // (not NaN) when every minibatch skipped (ADR 0056 §3).
         let denom = mb_count.max(1) as f32;
         PpoUpdateStats {
             policy_loss: if policy_healthy == 0 {
@@ -898,11 +899,11 @@ mod tests {
     use crate::algorithms::ppo::policies::categorical::CategoricalPolicyHead;
     use crate::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
 
-    type TestBackend = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
     type TestAgent = PpoAgent<
-        TestBackend,
-        CategoricalPolicyHead<TestBackend>,
-        TestValue<TestBackend>,
+        TestAdBackend,
+        CategoricalPolicyHead<TestAdBackend>,
+        TestValue<TestAdBackend>,
         TestObs,
         1,
         2,
@@ -962,14 +963,14 @@ mod tests {
     /// other knob at its default.
     fn agent_with_clip_grad(clip_grad: Option<GradientClippingConfig>) -> TestAgent {
         let device = Default::default();
-        let policy: CategoricalPolicyHead<TestBackend> = CategoricalPolicyHeadConfig {
+        let policy: CategoricalPolicyHead<TestAdBackend> = CategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpoTrainingConfigBuilder::new()
             .clip_grad(clip_grad)
             .build()
@@ -978,19 +979,19 @@ mod tests {
     }
 
     #[test]
-    fn error_display_uses_thiserror_messages() {
+    fn test_ppo_agent_error_display_uses_thiserror_messages() {
         let err = PpoAgentError::Environment("boom".into());
         assert_eq!(err.to_string(), "Environment error: boom");
     }
 
-    /// Regression (issue #183): `clip_grad` must reach *both* optimizers.
+    /// Regression: `clip_grad` must reach *both* optimizers.
     ///
     /// The sibling field `max_grad_norm` was dead `pub` state that no lint
     /// could catch — clippy's `dead_code` does not fire on unread `pub` fields
     /// of `pub` types. Only a wiring assertion like this one closes that gap,
     /// so assert the plumbing rather than Burn's `clip_by_norm` arithmetic.
     #[test]
-    fn clip_grad_none_leaves_both_optimizers_unclipped() {
+    fn test_ppo_agent_clip_grad_none_leaves_both_optimizers_unclipped() {
         let agent = agent_with_clip_grad(None);
         assert!(
             !agent.policy_optim.has_gradient_clipping(),
@@ -1003,7 +1004,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_grad_some_reaches_both_optimizers() {
+    fn test_ppo_agent_clip_grad_some_reaches_both_optimizers() {
         let agent = agent_with_clip_grad(Some(GradientClippingConfig::Norm(0.5)));
         assert!(
             agent.policy_optim.has_gradient_clipping(),
@@ -1015,7 +1016,7 @@ mod tests {
         );
     }
 
-    // -------- non-finite-loss guard (ADR 0056, #318) --------
+    // -------- non-finite-loss guard (ADR 0056) --------
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// network that has diverged to non-finite weights — the realistic source
@@ -1079,14 +1080,14 @@ mod tests {
     /// the chunking to be even.
     fn primed_ppo_agent_with(num_minibatches: usize, update_epochs: usize) -> TestAgent {
         let device = Default::default();
-        let policy: CategoricalPolicyHead<TestBackend> = CategoricalPolicyHeadConfig {
+        let policy: CategoricalPolicyHead<TestAdBackend> = CategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpoTrainingConfigBuilder::new()
             .num_envs(1)
             .num_steps(4)
@@ -1113,13 +1114,13 @@ mod tests {
     }
 
     /// A non-finite policy loss must skip the policy `backward` + optimizer step
-    /// and be excluded from the reported mean (ADR 0056, #318). Diverging the
+    /// and be excluded from the reported mean (ADR 0056). Diverging the
     /// policy net to NaN forces a NaN clipped-surrogate loss; the guard must
     /// fire, the reported `policy_loss` must be the `0.0` all-skipped sentinel
     /// (never a propagated NaN), and the independent value site must still learn.
     #[test]
     #[allow(clippy::float_cmp)]
-    fn ppo_nonfinite_policy_loss_skips_and_warns() {
+    fn test_ppo_agent_nonfinite_policy_loss_skips_and_warns() {
         let mut agent = primed_ppo_agent();
         let value_before = value_weights(agent.value.get());
 
@@ -1171,7 +1172,7 @@ mod tests {
     /// normally.
     #[test]
     #[allow(clippy::float_cmp)]
-    fn ppo_nonfinite_value_loss_skips_and_warns() {
+    fn test_ppo_agent_nonfinite_value_loss_skips_and_warns() {
         let mut agent = primed_ppo_agent();
 
         // Poison a *clone* of the live value net so its `ParamId`s are preserved.
@@ -1212,7 +1213,7 @@ mod tests {
     /// contribute many skips, unlike the off-policy agents' one-per-learn-step
     /// sites.
     #[test]
-    fn ppo_counts_repeated_loss_skips() {
+    fn test_ppo_agent_counts_repeated_loss_skips() {
         // 3 epochs × 2 minibatches. The rollout is 4 steps and
         // `num_minibatches = 2`, so `mb_size = 4 / 2 = 2` and `chunks(2)` over 4
         // shuffled indices yields exactly 2 non-empty minibatches per epoch;
@@ -1254,7 +1255,7 @@ mod tests {
     /// in between (`update` clears the buffer, and a poisoned value net would
     /// write NaN advantages that cross-contaminate the policy site).
     #[test]
-    fn ppo_skipped_updates_aggregates_unequal_sites() {
+    fn test_ppo_agent_skipped_updates_aggregates_unequal_sites() {
         // 1 epoch × 2 minibatches = 2 guarded visits per site per `update`.
         let mut agent = primed_ppo_agent_with(2, 1);
         let healthy_policy = agent.policy.get().clone();

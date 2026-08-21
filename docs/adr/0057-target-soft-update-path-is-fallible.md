@@ -140,5 +140,5 @@ caller that already stepped outside the contract by swallowing a config error.
   mis-updates on subset mismatch; tied weights hit both".
 - Issue #317 — surface the target-update failure mode as a recoverable error.
 - ADR 0046 — `Slot` take/restore window; deferred this `Result` change by name.
-- ADR 0056 — non-finite loss ⇒ skip the step; the skip-don't-crash posture this
+- ADR 0056 — non-finite loss $\Rightarrow$ skip the step; the skip-don't-crash posture this
   ADR extends to the topology-mismatch case.

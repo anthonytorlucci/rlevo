@@ -17,7 +17,7 @@
 //! population receives a vector computed relative to the other. Rather than
 //! distort that contract, co-evolution gets its own [`CoEvolutionaryAlgorithm`]
 //! trait and a dedicated [`CoEvolutionaryHarness`] that adapts to the existing
-//! `rlevo-core::evaluation::BenchEnv` surface, exactly as
+//! `rlevo-core::evaluation::GenerationProbe` surface, exactly as
 //! [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) does. Both
 //! co-evolutionary algorithms are built from ordinary inner
 //! [`Strategy`](crate::strategy::Strategy) instances, so every phase-1/2/3a/3b

@@ -532,7 +532,7 @@ impl Sensor<3, 1, 3> for LavaGapEnv {
     type State = GridState;
     type Observation = GridObservation;
 
-    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
     /// `next_state` alone, so this forwards to the same projection as
     /// [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
@@ -769,8 +769,8 @@ mod tests {
         assert!("3".parse::<LavaGapConfig>().is_err());
     }
 
-    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
-    /// built by `Deserialize` or struct-update syntax reached `build`, where
+    /// `MIN_SIZE` was enforced only in [`FromStr`], so a config built by
+    /// `Deserialize` or struct-update syntax reached `build`, where
     /// `size - 2` underflowed and panicked at `size = 1`. The guard now lives
     /// in [`Validate`], which `with_config` runs (ADR 0026 chokepoint), and it
     /// rejects the whole sub-`MIN_SIZE` range — including sizes that happen to
@@ -797,8 +797,8 @@ mod tests {
     ///
     /// A whole-board "consecutive resets differ" check passes while one of the
     /// two draws is stuck, because the other one alone makes the boards differ.
-    /// That is the exact trap #282 and ADR 0062 §4 name, so each quantity gets
-    /// its own non-degeneracy assertion.
+    /// That is the exact trap ADR 0062 §4 names, so each quantity gets its own
+    /// non-degeneracy assertion.
     #[test]
     fn lava_column_and_gap_row_vary_separately_across_seeds() {
         for size in SIZES {
@@ -1179,9 +1179,10 @@ mod tests {
 
     /// The accessors report the board actually built, not a formula.
     ///
-    /// They were closed-form functions of `config.size` before #282; a caller
-    /// that trusted them would now be reading a different board than the one it
-    /// was handed, so pin them against the grid itself.
+    /// They were closed-form functions of `config.size` until the column and
+    /// gap row became per-episode draws; a caller that trusted them would now
+    /// be reading a different board than the one it was handed, so pin them
+    /// against the grid itself.
     #[test]
     fn accessors_agree_with_the_built_grid() {
         for size in SIZES {
@@ -1216,7 +1217,7 @@ mod tests {
         assert_eq!(env.steps(), 0);
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// A script that walks the agent into the lava strip on whatever board
     /// `env` is **currently** holding, derived the same way
@@ -1243,10 +1244,17 @@ mod tests {
     /// Reset to a known board and walk the derived route to the **goal**,
     /// returning the terminal snapshot.
     ///
-    /// Terminating on the goal rather than on the step budget is deliberate:
-    /// `grids/core::build_snapshot` currently maps a step-limit cutoff to
-    /// `Terminated` rather than `Truncated` (#1028, out of scope here), so a
-    /// budget-driven ending would bake that bug into these assertions.
+    /// Terminating on the goal rather than on the step budget is deliberate.
+    /// `step` above ORs the step-limit cutoff (`self.steps >=
+    /// self.config.max_steps`) into the same `done` bool as a genuine
+    /// terminal (goal / lava), and `grids/core::build_snapshot` maps every
+    /// `done == true` to `Terminated` — there is no `Truncated` arm. A
+    /// step-limit cutoff therefore reads as "no future value" instead of
+    /// "future value cut off by a time limit" (`docs/rules.md` §10), which
+    /// would bias value-function bootstrapping if a caller trusted it.
+    /// Fixing that is out of scope here; a budget-driven ending would just
+    /// bake the mislabeling into these assertions, so the tests below drive
+    /// to a real terminal instead.
     fn drive_to_goal(env: &mut LavaGapEnv) -> GridSnapshot {
         env.reset_with_seed(0).expect("reset");
         let script = route_to_goal(env);

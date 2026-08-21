@@ -52,7 +52,7 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// individual at row `i` of `population`. Cost objectives return their
     /// natural cost; the harness reconciles direction via [`sense`](Self::sense).
     ///
-    /// The returned tensor **may contain `NaN` or `±∞`** — implementors are not
+    /// The returned tensor **may contain `NaN` or `$\pm\infty$`** — implementors are not
     /// required to sanitize. The
     /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) canonicalizes
     /// and then sanitizes (ADR 0034) before any [`Strategy::tell`](crate::strategy::Strategy::tell),
@@ -269,28 +269,28 @@ where
     }
 }
 
-/// Sanitizes one **canonical (maximise-space)** fitness value: `NaN →`
-/// [`f32::NEG_INFINITY`], `+∞ →` [`f32::MAX`], everything else (including `−∞`)
+/// Sanitizes one **canonical (maximise-space)** fitness value: `NaN` `$\to$`
+/// [`f32::NEG_INFINITY`], `$+\infty$` `$\to$` [`f32::MAX`], everything else (including `$-\infty$`)
 /// passes through.
 ///
 /// This is the crate-wide fitness-hygiene primitive and the single rule of the
 /// canonical convention (ADR 0023 / ADR 0034):
 ///
-/// - `NaN → −∞`: `−∞` is the worst value under the maximise convention, so a
+/// - `NaN` `$\to -\infty$`: `$-\infty$` is the worst value under the maximise convention, so a
 ///   sanitized `NaN` can never seed or displace a finite best-so-far. Rust's
 ///   `f32::NAN` is a *positive* NaN, so `total_cmp` would otherwise rank it as
 ///   the **maximum** (`rules.md` §3) — the exact inversion this prevents.
-/// - `+∞ → f32::MAX`: a genuinely optimal individual (a landscape hitting its
+/// - `$+\infty$` `$\to$` `f32::MAX`: a genuinely optimal individual (a landscape hitting its
 ///   optimum, an unbounded reward) is mapped to a **finite** value, so it can be
 ///   compared, stored, and summed **at all**. Ordering is unaffected — the map
 ///   is monotone, so `total_cmp`, sorts, and argmax still rank it at or above
 ///   every other member (it ties with a legitimately-`f32::MAX` individual).
 ///
 ///   **This bounds one *value*; it does not bound a *reduction* over values.**
-///   Because `f32::MAX` is finite, a sanitized `+∞` *joins* a sum instead of
+///   Because `f32::MAX` is finite, a sanitized `$+\infty$` *joins* a sum instead of
 ///   being excluded from it, and `f32::MAX + f32::MAX == f32::INFINITY` — two
-///   saturated members suffice to drive an `f32` mean to `+∞` (issues #132,
-///   #1062), and squaring one suffices for an `f32` variance. What bounds a
+///   saturated members suffice to drive an `f32` mean to `$+\infty$`, and squaring
+///   one suffices for an `f32` variance. What bounds a
 ///   reduction is the **accumulator width**, not this clamp; no finite sentinel
 ///   could substitute. Reduce fitness with [`sanitized_mean`] or
 ///   [`sanitized_sum`], which accumulate in `f64` and narrow at most once, after
@@ -298,7 +298,7 @@ where
 ///   performed by a Burn device op cannot widen its accumulator and instead
 ///   bounds its terms, as [`shaping::z_score`](crate::shaping::z_score) does
 ///   (ADR 0069 §Decision 4).
-/// - `−∞` passes through: it is the worst-value sentinel *and* the
+/// - `$-\infty$` passes through: it is the worst-value sentinel *and* the
 ///   uninitialized `best_fitness_ever` seed, and it must stay non-finite so the
 ///   mean-over-finite statistic in
 ///   [`StrategyMetrics::from_host_fitness`](crate::strategy::StrategyMetrics::from_host_fitness)
@@ -328,18 +328,19 @@ pub(crate) fn sanitize_fitness(f: f32) -> f32 {
 ///
 /// # Why the accumulator is `f64`
 ///
-/// [`sanitize_fitness`] maps `+∞` to [`f32::MAX`], which is **finite** — so a
-/// sanitized `+∞` is not excluded from a sum, it *joins* it. And
+/// [`sanitize_fitness`] maps `$+\infty$` to [`f32::MAX`], which is **finite** — so a
+/// sanitized `$+\infty$` is not excluded from a sum, it *joins* it. And
 /// `f32::MAX + f32::MAX == f32::INFINITY`: **two** saturated members are enough
-/// to blow an `f32` accumulator to `+∞`, producing exactly the infinite mean the
-/// clamp is often assumed to prevent (issue #132, issue #1062).
+/// to blow an `f32` accumulator to `$+\infty$`, producing exactly the infinite mean the
+/// clamp is often assumed to prevent — a pattern that recurred at more than one
+/// call site before it was generalized here rather than patched locally again.
 ///
 /// The clamp and the accumulator width answer two different questions. The clamp
 /// bounds one *value*, so it can be compared, stored, and summed **at all**; only
 /// the accumulator width bounds a *reduction*. No finite sentinel could do the
 /// latter — a sentinel `S` protects a sum over `N` terms only while `N·S <
 /// f32::MAX`, which already fails at `N = 2` for `f32::MAX`. `f64` does deliver
-/// it: `f64::MAX / f64::from(f32::MAX) ≈ 5.3e269`, so an `f64` accumulator
+/// it: `f64::MAX / f64::from(f32::MAX)` `$\approx$` `5.3e269`, so an `f64` accumulator
 /// absorbs any population of `f32::MAX` terms that can physically exist. It also
 /// removes the ~1 ULP-per-addition drift an `f32` sum accrues over a large
 /// population. (ADR 0069, extending ADR 0034.)
@@ -347,23 +348,23 @@ pub(crate) fn sanitize_fitness(f: f32) -> f32 {
 /// # Contract
 ///
 /// - Every value is sanitized **before** it is accumulated, so no raw `NaN`
-///   reaches the sum. `+∞` cannot survive sanitization either, so `−∞ + (+∞)` is
+///   reaches the sum. `$+\infty$` cannot survive sanitization either, so `$-\infty + (+\infty)$` is
 ///   unreachable: the result is never `NaN`.
-/// - The mean is over **every** value supplied. A single sanitized-`−∞` (broken)
-///   member therefore drives the whole result to `−∞`. A caller wanting the
+/// - The mean is over **every** value supplied. A single sanitized-`$-\infty$` (broken)
+///   member therefore drives the whole result to `$-\infty$`. A caller wanting the
 ///   mean-over-finite-members statistic — the one
 ///   [`StrategyMetrics::from_host_fitness`](crate::strategy::StrategyMetrics::from_host_fitness)
 ///   reports (ADR 0034) — filters the iterator before calling.
 /// - **An empty input yields [`f32::NEG_INFINITY`]**, and this function never
-///   panics. Rationale: `−∞` is the canonical worst-value sentinel of the
+///   panics. Rationale: `$-\infty$` is the canonical worst-value sentinel of the
 ///   maximise-native convention (ADR 0023), it is already what
 ///   `from_host_fitness` reports for an all-broken population, and the IEEE
-///   answer (`0/0 → NaN`) is the one value the crate's hygiene rule exists to
+///   answer (`0/0` `$\to$` `NaN`) is the one value the crate's hygiene rule exists to
 ///   eliminate. Making the primitive total rather than panicking also keeps it
 ///   usable from `pub` functions that take runtime-supplied fitness slices,
 ///   where a panic would violate `rules.md` §4.
-/// - The single narrowing cannot overflow to `±∞` for a non-empty input: every
-///   sanitized term is `≤ f32::MAX`, so their mean is too.
+/// - The single narrowing cannot overflow to `$\pm\infty$` for a non-empty input: every
+///   sanitized term is `$\le$` `f32::MAX`, so their mean is too.
 pub(crate) fn sanitized_mean(values: impl IntoIterator<Item = f32>) -> f32 {
     let mut sum = 0.0_f64;
     let mut count = 0_usize;
@@ -387,7 +388,7 @@ pub(crate) fn sanitized_mean(values: impl IntoIterator<Item = f32>) -> f32 {
 /// as** — `f64` (ADR 0069 §Decision 1).
 ///
 /// See [`sanitized_mean`] for why the accumulator is `f64`: `sanitize_fitness`
-/// maps `+∞` to the *finite* [`f32::MAX`], which therefore joins the sum, and
+/// maps `$+\infty$` to the *finite* [`f32::MAX`], which therefore joins the sum, and
 /// `f32::MAX + f32::MAX == f32::INFINITY`.
 ///
 /// # Why the return type is `f64`
@@ -405,9 +406,9 @@ pub(crate) fn sanitized_mean(values: impl IntoIterator<Item = f32>) -> f32 {
 /// # Contract
 ///
 /// - Every value is sanitized before it is accumulated, so the result is never
-///   `NaN`: raw `NaN` becomes `−∞`, and `+∞` (which would make `−∞ + (+∞)`
+///   `NaN`: raw `NaN` becomes `$-\infty$`, and `$+\infty$` (which would make `$-\infty + (+\infty)$`
 ///   reachable) cannot survive sanitization.
-/// - A sanitized-`−∞` term makes the whole sum `−∞`.
+/// - A sanitized-`$-\infty$` term makes the whole sum `$-\infty$`.
 /// - **An empty input yields `0.0`**, the additive identity, and this function
 ///   never panics. (`sanitized_mean` differs deliberately — an empty *mean* has
 ///   no identity to fall back on.)
@@ -421,14 +422,14 @@ pub(crate) fn sanitized_sum(values: impl IntoIterator<Item = f32>) -> f64 {
 /// Tensor-level [`sanitize_fitness`] for the driver chokepoints — a single
 /// device op over a `(pop_size,)` **canonical-space** fitness vector.
 ///
-/// Applies the same rule (`NaN → −∞`, `+∞ → f32::MAX`, `−∞` pass-through) to a
+/// Applies the same rule (`NaN` `$\to -\infty$`, `$+\infty$` `$\to$` `f32::MAX`, `$-\infty$` pass-through) to a
 /// whole fitness tensor without a device→host→device round-trip, so the
 /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) and the
 /// coevolution coupled-fitness path can sanitize on the hot path (ADR 0034).
 ///
-/// Order matters: the `NaN → −∞` `mask_fill` runs first (so no `NaN` reaches the
-/// clamp, which would propagate it), then `clamp_max(f32::MAX)` caps `+∞` while
-/// leaving `−∞` and every finite value untouched. Mirrors the `is_nan` +
+/// Order matters: the `NaN` `$\to -\infty$` `mask_fill` runs first (so no `NaN` reaches the
+/// clamp, which would propagate it), then `clamp_max(f32::MAX)` caps `$+\infty$` while
+/// leaving `$-\infty$` and every finite value untouched. Mirrors the `is_nan` +
 /// `mask_fill` + clamp idiom already used by `EdaStrategy::tell`'s gene backstop.
 #[must_use]
 pub(crate) fn sanitize_fitness_tensor<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
@@ -507,7 +508,7 @@ mod tests {
         }
     }
 
-    /// The scalar hygiene rule (ADR 0034): `NaN → −∞`, `+∞ → f32::MAX`, `−∞` and
+    /// The scalar hygiene rule (ADR 0034): `NaN` `$\to -\infty$`, `$+\infty$` `$\to$` `f32::MAX`, `$-\infty$` and
     /// finite values pass through unchanged.
     #[test]
     fn sanitize_fitness_scalar_applies_canonical_rule() {
@@ -528,7 +529,7 @@ mod tests {
     }
 
     /// The tensor sibling applies the identical rule element-wise, and — crucially
-    /// — leaves `−∞` non-finite (it is not clamped to `−f32::MAX`) so downstream
+    /// — leaves `$-\infty$` non-finite (it is not clamped to `-f32::MAX`) so downstream
     /// mean-over-finite logic can still detect and count it.
     #[test]
     fn sanitize_fitness_tensor_matches_scalar_rule() {
@@ -556,12 +557,12 @@ mod tests {
         approx::assert_relative_eq!(out[4], -4.0, epsilon = 1e-6);
     }
 
-    /// The case that motivated ADR 0069: **two** sanitized `+∞` members.
+    /// The case that motivated ADR 0069: **two** sanitized `$+\infty$` members.
     ///
-    /// `sanitize_fitness(+∞) == f32::MAX`, which is finite and therefore joins
+    /// `sanitize_fitness(f32::INFINITY) == f32::MAX`, which is finite and therefore joins
     /// the sum — and `f32::MAX + f32::MAX == f32::INFINITY` in `f32`. With the
     /// `f64` accumulator the mean of two `f32::MAX` values is `f32::MAX`, not
-    /// `+∞`. The `f32`-accumulator control below is what the assertion is
+    /// `$+\infty$`. The `f32`-accumulator control below is what the assertion is
     /// distinguishing itself from.
     #[test]
     fn sanitized_mean_two_saturated_members_do_not_overflow() {
@@ -599,8 +600,8 @@ mod tests {
         );
     }
 
-    /// An all-`−∞` (all-broken) input reduces to `−∞`, not `NaN`: `−∞` passes
-    /// through sanitization and `−∞ / n == −∞`.
+    /// An all-`$-\infty$` (all-broken) input reduces to `$-\infty$`, not `NaN`: `$-\infty$` passes
+    /// through sanitization and `$-\infty / n = -\infty$`.
     #[test]
     fn sanitized_mean_all_negative_infinity_stays_negative_infinity() {
         let mean = sanitized_mean([f32::NEG_INFINITY; 4]);
@@ -615,10 +616,10 @@ mod tests {
         );
     }
 
-    /// Mixed `−∞` / `f32::MAX`: the sanitization rule makes `−∞ + (+∞)` — the one
-    /// arithmetic combination that yields `NaN` — unreachable, because `+∞` never
+    /// Mixed `$-\infty$` / `f32::MAX`: the sanitization rule makes `$-\infty + (+\infty)$` — the one
+    /// arithmetic combination that yields `NaN` — unreachable, because `$+\infty$` never
     /// survives `sanitize_fitness`. A single broken member therefore drives the
-    /// whole reduction to `−∞`, deterministically.
+    /// whole reduction to `$-\infty$`, deterministically.
     #[test]
     fn sanitized_mean_mixed_broken_and_saturated_is_negative_infinity_not_nan() {
         let mean = sanitized_mean([f32::NEG_INFINITY, f32::INFINITY, 1.0]);
@@ -647,7 +648,7 @@ mod tests {
         approx::assert_relative_eq!(finite_mean, expected);
     }
 
-    /// A raw `NaN` is sanitized to `−∞` *before* it reaches the accumulator, so
+    /// A raw `NaN` is sanitized to `$-\infty$` *before* it reaches the accumulator, so
     /// it can never propagate through the reduction as a `NaN`.
     #[test]
     fn sanitized_mean_raw_nan_is_sanitized_before_accumulation() {
@@ -667,7 +668,7 @@ mod tests {
     }
 
     /// Empty input: `sanitized_mean` is **total** and returns the canonical
-    /// worst-value sentinel `−∞` (ADR 0023) rather than panicking or yielding
+    /// worst-value sentinel `$-\infty$` (ADR 0023) rather than panicking or yielding
     /// `NaN`; `sanitized_sum` returns the additive identity `0.0`.
     #[test]
     fn sanitized_reductions_are_total_on_empty_input() {
@@ -680,9 +681,9 @@ mod tests {
     }
 
     /// A large input count: `100_000` members, half of them saturated to
-    /// `f32::MAX`. The `f32` control overflows to `+∞` after the *second*
-    /// saturated addition; the `f64` accumulator carries `50_000 × f32::MAX ≈
-    /// 1.7e43` without trouble, and the narrowing of the mean lands back inside
+    /// `f32::MAX`. The `f32` control overflows to `$+\infty$` after the *second*
+    /// saturated addition; the `f64` accumulator carries `50_000` `$\times$` `f32::MAX` `$\approx$`
+    /// `1.7e43` without trouble, and the narrowing of the mean lands back inside
     /// `f32` range because a mean of values bounded by `f32::MAX` is bounded by
     /// `f32::MAX`.
     #[test]

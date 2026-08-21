@@ -7,8 +7,8 @@
 //! batch element. Reduction is the caller's job.
 //!
 //! Leaving the batch axis unreduced is what lets a caller multiply by a
-//! per-sample importance-sampling weight *before* reducing (ADR 0050 §14);
-//! at `w ≡ 1` the caller's `.mean()` is bit-identical to reducing here.
+//! per-sample importance-sampling weight *before* reducing (ADR 0050);
+//! at `$\omega \equiv  1$` the caller's `.mean()` is bit-identical to reducing here.
 //!
 //! Kept separate from the agent struct so it can be reused from benchmarks
 //! and unit-tested independently.
@@ -104,10 +104,10 @@ mod tests {
     use burn::tensor::TensorData;
     use burn::tensor::activation;
 
-    type B = Flex;
+    type BE = Flex;
 
-    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<B, 2> {
-        let device = <B as burn::tensor::backend::BackendTypes>::Device::default();
+    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<BE, 2> {
+        let device = <BE as burn::tensor::backend::BackendTypes>::Device::default();
         Tensor::from_data(TensorData::new(data, vec![rows, cols]), &device)
     }
 
@@ -178,7 +178,7 @@ mod tests {
     }
 
     /// Reads a `[batch]` loss tensor to a host `Vec<f32>`.
-    fn to_vec(t: Tensor<B, 1>) -> Vec<f32> {
+    fn to_vec(t: Tensor<BE, 1>) -> Vec<f32> {
         t.into_data()
             .convert::<f32>()
             .into_vec::<f32>()
@@ -187,7 +187,7 @@ mod tests {
 
     /// Builds `predicted_log_probs` from explicit probabilities by taking their
     /// natural log — the exact log-probs the KL formula expects.
-    fn log_of(probs: Vec<f32>, rows: usize, cols: usize) -> Tensor<B, 2> {
+    fn log_of(probs: Vec<f32>, rows: usize, cols: usize) -> Tensor<BE, 2> {
         tensor_2d(probs, rows, cols).log()
     }
 

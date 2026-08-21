@@ -836,7 +836,31 @@ mod tests {
         assert!(s3.is_terminated());
     }
 
-    // ── post-terminal step guard (issue #295, ADR 0044) ──────────────────────
+    // ── post-terminal step guard ──────────────────────────────────────────
+    //
+    // This bandit used to carry a `done: bool` field that was written but
+    // never read by `step()`: nothing consulted it, so a `step()` call made
+    // after the episode had already terminated just kept incrementing
+    // `self.steps`, sailed past the `steps >= max_steps` check, sampled a
+    // *fresh* random reward, and emitted a *new* `Terminated` snapshot on
+    // every extra call — an episode that looked like it kept generating
+    // distinct terminal transitions after it was already over. Worse,
+    // `KArmedBandit` also exposed a public inherent `is_done()` that acted
+    // as a second, independent source of truth for done-ness, in violation
+    // of `docs/rules.md` §10 ("`EpisodeStatus` is the single source of
+    // truth for episode termination; never check done-ness by any other
+    // means"); `is_done()` and the backing `done` field were exactly the
+    // "other means" that rule forbids.
+    //
+    // Both are gone now (ADR 0044): `done: bool` was replaced by the
+    // `guard: EpisodeGuard` field above, and the public inherent
+    // `KArmedBandit::is_done()` was removed outright (a breaking public API
+    // change, noted in the changelog) — callers read done-ness from the
+    // snapshot via `Snapshot::is_done()`, per rules §10. `Environment::step`
+    // now calls `self.guard.check()?` before any RNG draw, since this env
+    // samples rewards on every step: a rejected post-terminal call must not
+    // advance the RNG stream. The tests below exercise that contract via
+    // `crate::episode::assert_rejects_post_terminal_step`.
 
     /// Step budget for the guard tests: small enough to burn through quickly.
     const GUARD_MAX_STEPS: usize = 3;

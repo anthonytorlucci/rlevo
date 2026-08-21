@@ -74,15 +74,15 @@ Extensions to `State<R>` for partial observability, recurrence, and hierarchy:
 
 `ScalarReward(f32)` is a thin newtype implementing `Reward`. It covers the vast majority of environments. Custom reward types can implement `Reward` directly.
 
-### `evaluation` — Benchmark Environment Protocol
+### `evaluation` — Drive Seam for Self-Paced Work
 
-A lightweight evaluation surface for the benchmark harness (`rlevo-benchmarks`), moved into core per ADR 0004 so it can be shared without a cross-crate dependency.
+The seam a benchmark harness drives when the work is *not* an episodic agent/environment interaction. Episodic work needs nothing here: `rlevo-benchmarks` binds on `Environment` directly and infers its rank parameters from the suite (ADR 0076).
+
+Lives in core so `rlevo-evolution` (which implements it) and `rlevo-benchmarks` (which drives it) can share it without a cross-crate dependency — the same argument ADR 0004 made for the `BenchEnv` surface that used to live here, and that ADR 0077 removed.
 
 | Item | Description |
 |---|---|
-| `BenchEnv` | Minimal stateful-environment interface an external evaluator drives |
-| `BenchStep<Obs>` | Per-step result returned by a `BenchEnv` |
-| `BenchError` | Recoverable error wrapping the typed upstream `EnvironmentError` |
+| `GenerationProbe` | Drive seam for self-paced work (evolutionary generation loops): `begin()`, then `advance() -> Option<Metrics>` until the budget is spent |
 
 ### `fitness` — Evaluation & Fitness Traits
 

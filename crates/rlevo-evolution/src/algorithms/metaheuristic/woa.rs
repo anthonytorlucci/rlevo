@@ -407,10 +407,10 @@ where
         // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
         // per-site correctness floor for a caller driving `ask`/`tell`
         // directly instead of `EvolutionaryHarness::step`, which already
-        // sanitizes (the ADR 0034 decision-3 bypass hole, issue #131):
-        // otherwise a raw NaN lands in the public `state.fitness` cache.
-        // `sanitize_fitness` is idempotent, so on the harness path this is a
-        // provable no-op — not redundant, load-bearing.
+        // sanitizes (the ADR 0034 decision-3 bypass hole): otherwise a raw
+        // NaN lands in the public `state.fitness` cache. `sanitize_fitness`
+        // is idempotent, so on the harness path this is a provable no-op —
+        // not redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -527,7 +527,8 @@ mod tests {
 
     #[test]
     fn spiral_factor_stays_finite_under_overflow() {
-        // Deterministic reproducer for #156 (WOA): the spiral factor
+        // Deterministic reproducer for the spiral-exponent overflow producing
+        // inf/NaN: the spiral factor
         // `exp(b·l)·cos(2π·l)`. A large `b` drives `exp(b·l)` past f32's
         // overflow threshold (≈ e^88.7). At `l = 0.75`, `cos(2π·0.75)` is
         // (numerically) zero, so the *un-clamped* product is `inf · 0 = NaN`;

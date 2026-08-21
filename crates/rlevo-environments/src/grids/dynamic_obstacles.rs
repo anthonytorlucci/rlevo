@@ -4,7 +4,7 @@
 //! empty, but a configurable number of [`Ball`] entities perform a
 //! random-walk after every agent action. Balls are *not* passable — the agent
 //! cannot step onto them — but a ball can move *onto the agent's cell*,
-//! which yields a reward of `−1.0` and terminates the episode.
+//! which yields a reward of `$-1.0$` and terminates the episode.
 //!
 //! Balls are spawned in random interior cells (excluding the agent start and
 //! goal) during `reset`. The RNG is seeded, so resets are deterministic and
@@ -31,7 +31,7 @@
 //! | Condition | Reward | Done |
 //! |---|---|---|
 //! | Agent reaches goal | `success_reward(steps, max_steps)` | `true` |
-//! | Ball moves onto agent | `−1.0` | `true` |
+//! | Ball moves onto agent | `$-1.0$` | `true` |
 //! | Step budget exceeded | `0.0` | `true` |
 //!
 //! ## Observation and action spaces
@@ -586,7 +586,7 @@ impl Sensor<3, 1, 3> for DynamicObstaclesEnv {
     type State = GridState;
     type Observation = GridObservation;
 
-    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
     /// `next_state` alone, so this forwards to the same projection as
     /// [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
@@ -897,17 +897,19 @@ mod tests {
         n
     }
 
-    /// `(size, num_obstacles)` layouts swept by the #125 regression tests,
-    /// spanning a range of obstacle densities. `(8, 4)` is the original repro.
+    /// `(size, num_obstacles)` layouts swept to regress against obstacles
+    /// merging into the same cell, spanning a range of obstacle densities.
+    /// `(8, 4)` is the original repro.
     const REGRESSION_LAYOUTS: [(usize, usize); 4] = [(6, 3), (6, 5), (8, 4), (10, 8)];
-    /// Seeds swept by the #125 regression tests. Seed 7 is the original repro
-    /// and must stay pinned.
+    /// Seeds swept to regress against obstacles merging into the same cell.
+    /// Seed 7 is the original repro and must stay pinned.
     const REGRESSION_SEEDS: [u64; 5] = [0, 1, 7, 42, 123];
     /// Episode budget per swept configuration — kept short so the sweep stays
     /// unit-test cheap.
     const REGRESSION_MAX_STEPS: usize = 200;
 
-    /// Every `(layout, seed)` pair the #125 regression tests sweep.
+    /// Every `(layout, seed)` pair swept to regress against obstacles merging
+    /// into the same cell.
     fn regression_configs() -> impl Iterator<Item = DynamicObstaclesConfig> {
         REGRESSION_LAYOUTS
             .into_iter()
@@ -920,7 +922,7 @@ mod tests {
 
     #[test]
     fn obstacles_stay_distinct_across_steps() {
-        // Regression for #125: two obstacles adjacent to the same free cell
+        // Regression: two obstacles adjacent to the same free cell
         // could both claim it, merging into one cell and leaving duplicate
         // entries in `obstacles()`. Impossible at the default 1 obstacle, so
         // sweep several seeds and densities rather than a single repro.
@@ -1027,19 +1029,25 @@ mod tests {
         assert_eq!(count_balls(&env), 2);
     }
 
-    // -- Post-terminal step guard (issue #291) -----------------------------
+    // -- Post-terminal step guard (ADR 0044) -------------------------------
 
     /// A configuration whose `TurnLeft` rollout ends in a **collision**, and
     /// whose very next (illegal) step used to duplicate an obstacle.
     ///
     /// Pinned deliberately: collision endings are the interesting terminal
-    /// route here, and step-limit endings are avoided because `build_snapshot`
-    /// labels truncation as `Terminated` (#1028, out of scope).
+    /// route here, and step-limit endings are avoided as a fixture because
+    /// `step()` currently OR-s the step-limit cutoff into the same `done`
+    /// bool as a genuine collision, and `build_snapshot` has no `Truncated`
+    /// arm — it maps every `done` straight to `Terminated`. A step-limit
+    /// ending would therefore be reported as terminal (no future value)
+    /// rather than truncated (future value cut off by the time limit),
+    /// biasing value-function bootstrapping; distinguishing the two is out
+    /// of scope for this test.
     const COLLISION_CFG: DynamicObstaclesConfig = DynamicObstaclesConfig::new(5, 4, 200, 37);
 
     /// Drives a fresh episode to its **collision**-terminal snapshot through
     /// real `step()` calls, and asserts the ending really was a collision (the
-    /// `−1.0` reward) rather than the step budget running out.
+    /// `$-1.0$` reward) rather than the step budget running out.
     fn drive_to_collision(env: &mut DynamicObstaclesEnv) -> GridSnapshot {
         let cfg = *env.config();
         env.reset().expect("reset must succeed");
@@ -1073,12 +1081,13 @@ mod tests {
 
     #[test]
     fn post_terminal_step_is_rejected_rather_than_duplicating_an_obstacle() {
-        // Regression for the desync recorded on #291. On a collision-terminal
-        // step the winning obstacle's tracked position moves onto the agent's
-        // cell with no ball drawn there, so a further `move_obstacles` pass ran
-        // against a ghost entry and merged two obstacles. With this exact
-        // config the pre-guard result of the illegal step was
-        // `[(1, 2), (1, 1), (1, 1), (2, 3)]` — a duplicate at (1, 1).
+        // Regression for the desync this guard was written to close. On a
+        // collision-terminal step the winning obstacle's tracked position
+        // moves onto the agent's cell with no ball drawn there, so a further
+        // `move_obstacles` pass ran against a ghost entry and merged two
+        // obstacles. With this exact config the pre-guard result of the
+        // illegal step was `[(1, 2), (1, 1), (1, 1), (2, 3)]` — a duplicate
+        // at (1, 1).
         let mut env = DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
         let terminal = drive_to_collision(&mut env);
         assert!(terminal.is_done());

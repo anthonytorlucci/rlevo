@@ -66,7 +66,11 @@ pub struct PpoTrainingConfig {
     /// *not* rescale against the global norm of the flattened parameter
     /// vector, so it does **not** reproduce Huang et al. detail #10
     /// (global-norm clipping at `0.5`, as in `CleanRL`). True global-norm
-    /// clipping is tracked in issue #328.
+    /// clipping — reducing over the whole flattened parameter vector instead
+    /// of one tensor at a time — is not implemented: Burn's optimizer hook
+    /// has no built-in way to reduce across `GradientsParams` before
+    /// `step_with`, so it would need a manual accumulation pass inserted
+    /// there.
     pub clip_grad: Option<GradientClippingConfig>,
 
     // ----- objective -----
@@ -372,7 +376,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_cleanrl() {
+    fn test_ppo_config_defaults_match_cleanrl() {
         let cfg = PpoTrainingConfig::default();
         assert_eq!(cfg.num_envs, 1);
         assert_eq!(cfg.num_steps, 128);
@@ -383,14 +387,15 @@ mod tests {
         assert_eq!(cfg.gae_lambda, 0.95);
         assert_eq!(cfg.gamma, 0.99);
         // CleanRL clips at norm 0.5, but rlevo ships clipping *off* by
-        // default; the docs must keep saying so. Asserted because the
-        // neighbouring dead `max_grad_norm` field (issue #183) made the
-        // default look like it was 0.5.
+        // default; the docs must keep saying so. Asserted because a
+        // now-removed dead `max_grad_norm` field defaulted to `0.5`,
+        // making the default look like clipping was on when `clip_grad`
+        // was actually `None`.
         assert!(cfg.clip_grad.is_none());
     }
 
     #[test]
-    fn batch_and_minibatch_sizes() {
+    fn test_ppo_config_batch_and_minibatch_sizes() {
         let cfg = PpoTrainingConfigBuilder::new()
             .num_envs(1)
             .num_steps(128)
@@ -402,9 +407,9 @@ mod tests {
     }
 
     #[test]
-    fn minibatch_size_never_zero() {
-        // Regression for #166: num_minibatches > batch_size must floor to 1,
-        // matching PpoAgent::update's mb_size, not integer-divide to 0.
+    fn test_ppo_config_minibatch_size_never_zero() {
+        // num_minibatches > batch_size must floor to 1, matching
+        // PpoAgent::update's mb_size, not integer-divide to 0.
         let cfg = PpoTrainingConfigBuilder::new()
             .num_envs(1)
             .num_steps(10)
@@ -415,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn lr_anneals_to_zero() {
+    fn test_ppo_config_lr_anneals_to_zero() {
         let total = 100;
         assert!((annealed_learning_rate(1.0, 0, total) - 1.0).abs() < 1e-12);
         assert!((annealed_learning_rate(1.0, 100, total) - 0.0).abs() < 1e-12);
@@ -423,12 +428,12 @@ mod tests {
     }
 
     #[test]
-    fn lr_anneal_clamped_at_zero_past_end() {
+    fn test_ppo_config_lr_anneal_clamped_at_zero_past_end() {
         assert!((annealed_learning_rate(1.0, 200, 100) - 0.0).abs() < 1e-12);
     }
 
     #[test]
-    fn builder_round_trips_fields() {
+    fn test_ppo_config_builder_round_trips_fields() {
         let cfg = PpoTrainingConfigBuilder::new()
             .num_steps(256)
             .clip_coef(0.1)
@@ -447,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn default_config_is_valid() {
+    fn test_ppo_config_default_config_is_valid() {
         assert!(PpoTrainingConfig::default().validate().is_ok());
     }
 
@@ -457,7 +462,7 @@ mod tests {
     /// must be rejected by `validate` rather than becoming an allocation abort
     /// in the buffer.
     #[test]
-    fn rejects_batch_size_above_ceiling() {
+    fn test_ppo_config_rejects_batch_size_above_ceiling() {
         let err = PpoTrainingConfigBuilder::new()
             .num_envs(1)
             .num_steps(MAX_BUFFER_CAPACITY + 1)
@@ -474,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_multiple_envs() {
+    fn test_ppo_config_rejects_multiple_envs() {
         let err = PpoTrainingConfigBuilder::new()
             .num_envs(2)
             .build()

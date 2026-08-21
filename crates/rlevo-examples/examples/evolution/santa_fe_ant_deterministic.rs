@@ -1,4 +1,4 @@
-//! Neuroevolution on the Santa Fe Trail — **deterministic** variant (issue #69).
+//! Neuroevolution on the Santa Fe Trail — **deterministic** variant.
 //!
 //! Evolves a recurrent policy (GRU and Elman) whose flattened weights are the
 //! genome, scored by a single argmax rollout (fitness = pellets eaten). Runs four

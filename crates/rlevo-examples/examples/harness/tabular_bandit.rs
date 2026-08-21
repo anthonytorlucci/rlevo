@@ -2,7 +2,7 @@
 //!
 //! Demonstrates the harness path (`Suite` → `Evaluator::run_suite` →
 //! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-environments`,
-//! through the [`BenchAdapter`] / [`ten_armed_bandit_suite`] glue exposed
+//! through the [`ten_armed_bandit_suite`] glue exposed
 //! by the `bench` feature.
 //!
 //! **DQN integration is deferred.** A `FrozenDqnPolicy` adapter needs
@@ -12,7 +12,6 @@
 //! will add the DQN adapter once the underlying trait impls land.
 //!
 //! [`TenArmedBandit`]: rlevo_environments::classic::TenArmedBandit
-//! [`BenchAdapter`]: rlevo_environments::bench::BenchAdapter
 //! [`ten_armed_bandit_suite`]: rlevo_environments::bench::suites::ten_armed_bandit_suite
 
 use rand::Rng;

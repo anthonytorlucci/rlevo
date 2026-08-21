@@ -27,7 +27,7 @@
 //! (crash / out-of-bounds), replacing that step's shaping delta and control
 //! cost — matching Gymnasium `LunarLander`.
 //!
-//! The **absolute potential Φ(t)** (not the difference that enters `reward`) is
+//! The **absolute potential `$\Phi(t)$`** (not the difference that enters `reward`) is
 //! surfaced through step metadata under
 //! [`METADATA_KEY_SHAPING`](super::snapshot::METADATA_KEY_SHAPING); see that
 //! constant's docs for the reconstruction rule and the terminal-step caveat.
@@ -925,11 +925,14 @@ mod tests {
         );
     }
 
-    /// Issue #128: `LunarLanderSnapshot` is now a `SnapshotBase` alias, so the
-    /// env composes with [`TimeLimit`] (which is bound to `SnapshotType =
-    /// SnapshotBase`). Previously this did not compile at all. The wrapper must
-    /// truncate at its own cap *and* preserve the shaping metadata the inner env
-    /// attached.
+    /// `LunarLanderSnapshot` used to be a hand-rolled `impl Snapshot`,
+    /// byte-for-byte identical to the generic `LocomotionSnapshot<O>`;
+    /// consolidating it into a `SnapshotBase` type alias is what makes this
+    /// test possible at all — before the alias, `LunarLanderEnv` could not
+    /// compose with [`TimeLimit`] (which is generically bound to
+    /// `SnapshotType = SnapshotBase`); it simply did not compile. The wrapper
+    /// must truncate at its own cap *and* preserve the shaping metadata the
+    /// inner env attached.
     #[test]
     fn test_time_limit_wraps_and_preserves_metadata() {
         use crate::wrappers::TimeLimit;
@@ -1030,12 +1033,17 @@ mod tests {
         assert_eq!(run(&actions), run(&actions));
     }
 
-    /// Regression (#98, ADR 0037): firing the main engine at constant thrust
-    /// each step must not integrate a monotonically growing force. The shared
-    /// [`RapierWorld::step`] clears external forces after integrating, so the
-    /// net (thrust − gravity) force is constant and the per-step Δ(vertical
-    /// velocity) stays bounded/decaying under damping. With the accumulation
-    /// bug the effective thrust grew each step, so Δvy grew ~linearly.
+    /// Regression (ADR 0037): firing the main engine at constant thrust each
+    /// step must not integrate a monotonically growing force. Rapier's
+    /// `user_force` accumulates across steps unless explicitly cleared; the
+    /// vendored 0.32 doc comment claiming it is auto-cleared each step was
+    /// false. The shared [`RapierWorld::step`] now calls `reset_forces`/
+    /// `reset_torques` after integrating, so the net (thrust − gravity) force
+    /// stays constant and the per-step `$\Delta v_y$` stays
+    /// bounded/decaying under damping. Before the fix, uncleared force
+    /// accumulated every step the main engine fired, so the *effective*
+    /// thrust grew step over step and `$\Delta v_y$` grew ~linearly, causing runaway
+    /// acceleration unrelated to the commanded throttle.
     #[test]
     fn test_constant_main_engine_delta_vy_does_not_grow() {
         let cfg = LunarLanderConfig::builder()
@@ -1113,12 +1121,15 @@ mod tests {
     /// crashes the hull into the ground, which must `Terminated` (not truncate)
     /// before `max_steps` and apply the −100 crash penalty.
     ///
-    /// This is the regression for issue #122: the crash branch was previously
-    /// gated on `pos.y < 0.1`, which Rapier's solver never reaches (a hull
-    /// resting on the ground settles at `$\text{pos.y} \approx 0.78$`), so the branch was dead
-    /// and the episode silently ran to `Truncated`. Against the old code this
-    /// test fails (free-fall never terminates, so `terminal` stays `None` and
-    /// the `expect` panics); with the hull-contact check it passes.
+    /// This is a regression test for a fixed crash-termination bug: the crash
+    /// branch was previously gated on `pos.y < 0.1`, which the solid ground
+    /// collider makes physically unreachable — Rapier's solver never lets a
+    /// resting hull settle below `$\text{pos.y} \approx 0.78$` — so the branch
+    /// was dead and every crash silently ran to `Truncated`, changing the MDP
+    /// and its reward signal. The fix replaced the positional check with a
+    /// contact-query check mirroring `update_contacts`. Against the old code
+    /// this test fails (free-fall never terminates, so `terminal` stays `None`
+    /// and the `expect` panics); with the hull-contact check it passes.
     ///
     /// The terminal reward is exactly −100.0: rlevo matches Gymnasium's
     /// **overwrite** semantics, where a terminal step's reward is *set to*
@@ -1157,16 +1168,24 @@ mod tests {
         approx::assert_relative_eq!(reward, -100.0, epsilon = 1e-4);
     }
 
-    // Landing test (issue #122 §7.1 test 3) intentionally omitted: a soft
-    // landing that reports `is_terminated()` with reward ≈ +100 requires a
-    // control policy to null out velocity/angle and let the legs settle at
-    // rest (leg1_contact && leg2_contact && |vx|,|vy|,|angle| < 0.1). The
-    // discrete actions cannot deterministically achieve this within a fixed,
-    // hand-written script without flakiness, so the landing branch is left to
-    // integration-level policy tests. Tests 1 and 2 above are deterministic and
-    // directly exercise the truncation and (newly live) hull-crash branches.
+    // Landing test intentionally omitted: the crash-termination fix above is
+    // scoped to reachability of the crash branch, not landing-success
+    // behaviour, so a soft landing that reports `is_terminated()` with reward
+    // ≈ +100 is not covered here. It requires a control policy to null out
+    // velocity/angle and let the legs settle at rest (leg1_contact &&
+    // leg2_contact && |vx|,|vy|,|angle| < 0.1). The discrete actions cannot
+    // deterministically achieve this within a fixed, hand-written script
+    // without flakiness, so the landing branch is left to integration-level
+    // policy tests. Tests 1 and 2 above are deterministic and directly
+    // exercise the truncation and (newly live) hull-crash branches.
 
-    // ── post-terminal step guard (issue #293, regression for #122) ───────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────
+    //
+    // lunar_lander needs extra care here: the crash terminal reward is
+    // overwritten (not accumulated) to exactly −100, and `hull_in_contact()`
+    // is a live physics read rather than a latch, so a crashed hull stays in
+    // contact and an unguarded post-terminal step re-emitted a fresh −100 on
+    // every further call. The guard below closes that path.
 
     /// Deterministic config shared by the guard tests: seed 0 free-falls into
     /// the hull-crash terminal at step 135, well inside `max_steps` (1000).
@@ -1246,12 +1265,14 @@ mod tests {
         );
     }
 
-    /// Regression for the reward pump behind issue #122.
+    /// Regression test for the "reward pump" that the crash-termination fix
+    /// above introduced as a second-order defect.
     ///
     /// `step_common` **overwrites** a terminal step's reward with −100,
-    /// discarding the shaping delta. The crash predicate is a live test —
-    /// `hull_in_contact()` — not a latch, and a crashed hull stays on the
-    /// ground, so before the guard every further step re-ran the physics,
+    /// discarding the shaping delta — correct overwrite semantics, unchanged
+    /// here. But the crash predicate is a live test — `hull_in_contact()` —
+    /// not a latch, and a crashed hull stays on the ground, so before the
+    /// `EpisodeGuard` (ADR 0044) every further step re-ran the physics,
     /// re-satisfied the predicate and re-emitted a fresh `Terminated` snapshot
     /// paying another −100. Measured against the pre-guard code (seed 0, free
     /// fall, both variants): terminal at step 135 with reward −100, then −100
@@ -1287,9 +1308,12 @@ mod tests {
         }
     }
 
-    /// Continuous counterpart of the #122 reward-pump regression; the pre-guard
-    /// numbers were identical (−100 at step 135, then −100 per post-terminal
-    /// step, total −600 over five).
+    /// Continuous counterpart of
+    /// `test_lunar_lander_discrete_post_terminal_step_does_not_repay_crash_penalty`
+    /// above: same defect (a crashed hull stays in contact, so an unguarded
+    /// post-terminal `step()` re-emitted a fresh −100 every call) and the same
+    /// pre-guard numbers (−100 at step 135, then −100 per post-terminal step,
+    /// total −600 over five).
     #[test]
     fn test_lunar_lander_continuous_post_terminal_step_does_not_repay_crash_penalty() {
         let mut env = LunarLanderContinuous::with_config(guard_cfg()).expect("valid config");

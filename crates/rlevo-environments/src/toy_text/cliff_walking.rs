@@ -942,7 +942,17 @@ mod tests {
         }
     }
 
-    // ── post-terminal step guard (issue #105) ────────────────────────────────
+    // ── post-terminal step guard ─────────────────────────────────────────────
+    //
+    // Before this guard, `CliffWalking` tracked no `done` state at all: a
+    // `step()` called after the agent reached the goal would keep moving it,
+    // and because the goal `(3, 11)` sits directly beside the cliff region
+    // `(3, 1..=10)`, a `Left` from the goal targets a cliff cell — triggering
+    // the −100 penalty and teleport-to-start rule on an already-finished
+    // episode. `EpisodeGuard` closes that hole — `step()` calls `guard.check()`
+    // first and short-circuits with `StepAfterEpisodeEnd` once terminated,
+    // then `guard.record(status)` from the emitted snapshot so the guard and
+    // the snapshot can never disagree (see `EpisodeGuard`, ADR 0044).
 
     #[test]
     /// Verifies `CliffWalking` satisfies the shared post-terminal conformance check:
@@ -954,11 +964,13 @@ mod tests {
     }
 
     #[test]
-    /// Regression for the exact defect in issue #105: the goal `(3, 11)` is adjacent to
-    /// the cliff `(3, 10)`, so an unguarded post-terminal `Left` teleported the agent
-    /// back to the start and emitted −100 on a *`Running`* snapshot — resurrecting a
-    /// terminated episode. The guard must reject the step, leave the agent standing on
-    /// the goal, and emit no snapshot at all.
+    /// Regression for the cliff-teleport defect: the goal `(3, 11)` sits directly
+    /// beside the cliff `(3, 10)`, so before the guard existed, a post-terminal
+    /// `Left` taken after the agent had already reached the goal moved it onto
+    /// the cliff and triggered the teleport-to-start rule, emitting −100 on a
+    /// *`Running`* snapshot — resurrecting and re-punishing an already-finished
+    /// episode. The guard must reject the step instead, leave the agent standing
+    /// on the goal, and emit no snapshot at all.
     fn test_cliff_walking_post_terminal_step_into_cliff_does_not_resurrect_episode() {
         let mut env = make_env();
         let terminal = drive_to_goal(&mut env);

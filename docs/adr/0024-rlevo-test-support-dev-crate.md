@@ -46,7 +46,7 @@ that need is not specific to RL, it is intrinsic to the per-binary layout.
 Before this crate existed, the eight RL files independently duplicated:
 
 1. **A ~140-line synthetic `LinearEnv`** — the 1-D continuous tracking fixture
-   (`reward = -(a - x)²`) — copied verbatim into each continuous-control test
+   ($\text{reward} = -(a - x)^2$) — copied verbatim into each continuous-control test
    (DDPG / TD3 / SAC).
 2. **The Burn `Flex` determinism preamble.** `Flex` exposes a *process-global*
    RNG for weight init and dispatches through `rayon` whose float reduction
@@ -173,8 +173,9 @@ actually gates assertions.
   `rlevo-evolution` / `rlevo-hybrid` as those fixtures land); no production crate
   depends on it, and nothing depends on it outside `[dev-dependencies]`. It
   cannot constrain a shipped type no matter how many domains it grows to serve —
-  the same posture as the benchmark/viz isolation rule (`rules.md §1`), applied
-  to test scaffolding. It is `publish = false`, so it never reaches crates.io.
+  the same posture as the benchmark/viz isolation rule in docs/rules.md's
+  Workspace Structure section, applied to test scaffolding. It is
+  `publish = false`, so it never reaches crates.io.
 - **Determinism lives in one place.** The `Flex` preamble's subtle invariant
   (per-binary lock granularity, seed-before-construct ordering) is implemented
   and documented once in `flex`, not re-derived eight times.
@@ -210,5 +211,6 @@ actually gates assertions.
 - The `Flex` + rayon determinism contract the `flex` module encapsulates:
   reproducible training needs both a seeded backend RNG (weight init) and rayon
   pinned to one thread, with tests serialised against a per-binary backend lock.
-- `rules.md §1` — production crates must not depend on benchmark/viz crates; this
-  ADR applies the same consume-don't-constrain posture to a dev-only crate.
+- docs/rules.md's Workspace Structure section — production crates must not
+  depend on benchmark/viz crates; this ADR applies the same
+  consume-don't-constrain posture to a dev-only crate.

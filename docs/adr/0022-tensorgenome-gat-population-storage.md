@@ -101,7 +101,7 @@ ADR 0011 and ADR 0019: a separable capability gets its own trait.
 The storage type is a function of two parameters — the kind *and* the backend
 (`Real` → `Tensor<B, 2>`). A plain associated type (`type Tensor;`) cannot
 express the `B`-dependence; a generic associated type (`type Tensor<B: Backend>`)
-is the minimal construct that does. Edition 2024 (Rust ≥ 1.85) is well clear of
+is the minimal construct that does. Edition 2024 (Rust $\ge$ 1.85) is well clear of
 GAT stabilisation (1.65), so this carries no MSRV cost.
 
 ### 3. `Population<B, K: TensorGenome>` carries the bound on the struct

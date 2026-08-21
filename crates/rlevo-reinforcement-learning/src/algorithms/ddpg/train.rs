@@ -53,9 +53,9 @@ use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 ///
 /// # Const generics
 ///
-/// The same const-generic parameters as [`DdpgAgent`]: `DO`/`DB` are the
-/// single and batched observation ranks, `DA`/`DAB` the single and batched
-/// action ranks. `SD` is the state rank required by the `Environment` bound
+/// The same const-generic parameters as [`DdpgAgent`]: `OR`/`BOR` are the
+/// single and batched observation ranks, `AR`/`BAR` the single and batched
+/// action ranks. `SR` is the state rank required by the `Environment` bound
 /// and is not used directly by this function.
 #[allow(clippy::too_many_arguments)]
 pub fn train<
@@ -65,14 +65,14 @@ pub fn train<
     E,
     O,
     A,
-    R,
-    const DO: usize,
-    const SD: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
+    Rew,
+    const OR: usize,
+    const SR: usize,
+    const BOR: usize,
+    const AR: usize,
+    const BAR: usize,
 >(
-    agent: &mut DdpgAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>,
+    agent: &mut DdpgAgent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
@@ -80,12 +80,12 @@ pub fn train<
 ) -> Result<(), DdpgAgentError>
 where
     B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, DB, DAB>,
-    Critic: ContinuousQ<B, DB, DAB>,
-    E: Environment<DO, SD, DA, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
-    A: BoundedAction<DA>,
-    R: Reward + Copy,
+    Actor: DeterministicPolicy<B, BOR, BAR>,
+    Critic: ContinuousQ<B, BOR, BAR>,
+    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
+    A: BoundedAction<AR>,
+    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(env_to_err)?;
     let mut episode_reward = 0.0_f32;
@@ -119,13 +119,13 @@ where
         agent.on_env_step();
 
         // DELIBERATE: `reward_f32` is accumulated raw, *including* a non-finite
-        // value that `remember` just refused to store (ADR 0065 §Decision 4,
-        // #352). Do not "fix" this to skip a NaN. A NaN episode return is a
+        // value that `remember` just refused to store (ADR 0065 §Decision 4).
+        // Do not "fix" this to skip a NaN. A NaN episode return is a
         // true statement about a run whose environment emitted NaN, and it is a
         // second surfacing channel that does not share the guard's decade warn
         // schedule — a run whose first drop was logged 100 000 steps ago still
         // reports a NaN score for every affected episode.
-        // `AgentStats::avg_score` transits it on purpose (ADR 0070, #409).
+        // `AgentStats::avg_score` transits it on purpose (ADR 0070).
         episode_reward += reward_f32;
         episode_steps += 1;
 
@@ -202,7 +202,7 @@ mod tests {
         ContinuousMaskEnv, MaskContinuousAction, MaskObservation, TinyCritic,
     };
 
-    type TestBackend = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -224,12 +224,12 @@ mod tests {
             replay_buffer_capacity: 64,
             ..DdpgTrainingConfig::default()
         };
-        let actor = TinyActor::<TestBackend>::new(&device);
-        let critic = TinyCritic::<TestBackend>::new(&device);
+        let actor = TinyActor::<TestAdBackend>::new(&device);
+        let critic = TinyCritic::<TestAdBackend>::new(&device);
         let mut agent = DdpgAgent::<
-            TestBackend,
-            TinyActor<TestBackend>,
-            TinyCritic<TestBackend>,
+            TestAdBackend,
+            TinyActor<TestAdBackend>,
+            TinyCritic<TestAdBackend>,
             MaskObservation,
             MaskContinuousAction,
             1,
@@ -255,7 +255,7 @@ mod tests {
     /// truncation test below non-vacuous: it proves three of these nine steps
     /// really do end an episode.
     #[test]
-    fn test_train_termination_sets_bootstrap_mask() {
+    fn test_ddpg_train_termination_sets_bootstrap_mask() {
         assert_eq!(
             recorded_masks(EpisodeStatus::Terminated),
             episode_end_steps(),
@@ -270,7 +270,7 @@ mod tests {
     /// reproduce `episode_end_steps()` and bias every Q-value downward on any
     /// time-limited env (Pardo et al., ICML 2018, Eq. 6).
     #[test]
-    fn test_train_truncation_leaves_bootstrap_mask_clear() {
+    fn test_ddpg_train_truncation_leaves_bootstrap_mask_clear() {
         let flags = recorded_masks(EpisodeStatus::Truncated);
         assert_eq!(
             flags.len(),

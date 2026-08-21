@@ -13,15 +13,17 @@ tags: [adr, decision, environments, grids, observation, sensor, occlusion, minig
 **Accepted (2026-07-26).** Resolves issue #281 (the grid family's
 `see_through_walls` gap).
 
-**Supersedes [ADR 0043](0043-grid-observation-contract.md) §3** ("The
-occlusion gap is recorded as a stated non-decision"). §3 named its own
-reopening condition — "that change is ADR-worthy in its own right and should
-supersede this section, not edit it" — and this is that ADR. ADR 0043's other
-decisions (Invariant M's derivation, the mission-by-channel precedent for
-`GoToDoorEnv`) are untouched. §3's blast-radius argument for deferring
-occlusion ("it invalidates every existing grid benchmark baseline") and the
-matching Alternatives-considered entry are corrected, not merely superseded:
-the claim was false when written (Context, "What #281 and 0043 §3 got wrong").
+**Supersedes [ADR 0043](0043-grid-observation-contract.md)'s own
+Decision 3** ("The occlusion gap is recorded as a stated non-decision").
+That decision named its own reopening condition — "that change is
+ADR-worthy in its own right and should supersede this section, not edit
+it" — and this is that ADR. ADR 0043's other decisions (Invariant M's
+derivation, the mission-by-channel precedent for `GoToDoorEnv`) are
+untouched. Decision 3's blast-radius argument for deferring occlusion
+("it invalidates every existing grid benchmark baseline") and the matching
+Alternatives-considered entry are corrected, not merely superseded: the
+claim was false when written (Context, "What #281 and ADR 0043's Decision 3
+got wrong").
 
 **Amends [ADR 0047](0047-sensor-relocates-emission-model-to-environment.md)
 Decision 5** (the grid family's exemption from `Sensor`, justified there as
@@ -43,8 +45,8 @@ already removed on this branch — see Context).
 
 ### The gap ADR 0043 recorded and deferred
 
-ADR 0043 §3 stated the fact plainly: rlevo's `egocentric_view` read every
-cell of the rotated `7×7` window unconditionally — `see_through_walls` was
+ADR 0043's own Decision 3 stated the fact plainly: rlevo's `egocentric_view` read every
+cell of the rotated $7 \times 7$ window unconditionally — `see_through_walls` was
 effectively `true` for all 12 environments, opposite of canonical Minigrid's
 own default. It deferred a fix because "the blast radius is all 12 grid
 envs' observation semantics at once" and because a correct fix "needs a
@@ -104,7 +106,7 @@ frame as canonical's post-rotation `(col 3, row 6)` at `VIEW_SIZE = 7`.
 `rotate_view_offset` (`grid.rs:152-163`) needs no change; occlusion ports as
 a post-pass over the array `egocentric_view` already produces.
 
-### What #281 and ADR 0043 §3 got wrong
+### What #281 and ADR 0043's Decision 3 got wrong
 
 Three claims used to justify deferral, or carried forward from it, do not
 hold under inspection or measurement.
@@ -117,10 +119,11 @@ hold under inspection or measurement.
   record/report tiers, not a grid env under evaluation). The change this ADR
   makes is materially cheaper than ADR 0043 recorded.
 - **"Relax `MemoryEnv::MIN_SIZE` from 11 to 7" was recorded as a near-certainty
-  ("a one-line change"); it is not merely a hypothesis, it is refuted.** ADR
-  0043 §3 and issue #281 both implicitly assumed the mechanism is a wall
-  standing between the hallway and the cue's row acting as a ray-cast
-  occluder. It is not: `process_vis` is the flood fill above, and light
+  ("a one-line change"); it is not merely a hypothesis, it is refuted.**
+  ADR 0043's Decision 3 and issue #281 both implicitly assumed the
+  mechanism is a wall standing between the hallway and the cue's row
+  acting as a ray-cast occluder. It is not: `process_vis` is the flood
+  fill above, and light
   reaches the cue by routing *around* the corridor walls through the open
   start room. The executed sweep (Decision 6) confirms `MIN_SIZE` does not
   move.
@@ -138,12 +141,13 @@ hold under inspection or measurement.
 
 ### 1. Visibility is an emission-model policy: the grid family adopts env-side `Sensor`
 
-ADR 0047 §5 kept the grid family off `Sensor` on the stated grounds that "the
-emission model is shared across eleven envs and is state-pure." Canonical
-Minigrid sets `see_through_walls` **per environment** — of the twelve rlevo
-implements, eight are occluded and four are see-through (Decision 2's table)
-— so the premise that one state-pure projection covers the family is false,
-and the exemption ADR 0047 §5 carved out lapses on its own terms, not because
+ADR 0047's own Decision 5 kept the grid family off `Sensor` on the stated
+grounds that "the emission model is shared across eleven envs and is
+state-pure." Canonical Minigrid sets `see_through_walls` **per
+environment** — of the twelve rlevo implements, eight are occluded and
+four are see-through (Decision 2's table) — so the premise that one
+state-pure projection covers the family is false, and the exemption
+ADR 0047's Decision 5 carved out lapses on its own terms, not because
 this ADR overrules it.
 
 `impl Observable<3> for GridState` is removed. `GridState::project` would
@@ -152,7 +156,8 @@ policy — so `Observable`'s `&self`-only signature is structurally the wrong
 seam, exactly the category error ADR 0047 diagnosed for world-derived
 sensors. `Observable` itself is untouched everywhere else in the workspace:
 it stays in `rlevo-core` and stays the reference projection for
-`PixelGridState` (ADR 0047 §4). `crates/rlevo-environments/src/grids/core/state.rs`
+`PixelGridState` (ADR 0047's own Decision 4, "`Observable<OR>` is demoted,
+not deleted"). `crates/rlevo-environments/src/grids/core/state.rs`
 now documents the absence directly rather than leaving a reader to wonder why
 `GridState` — alone among the family's data types — has no `Observable` impl.
 
@@ -190,15 +195,16 @@ anywhere in the workspace today (no `<S: Sensor<..>>` bound, no `dyn Sensor`)
 — it is a convention every other env family happens to follow, not a trait
 object or a generic algorithm depends on. The value of closing the exemption
 is narrower and real anyway: it removes the one documented, load-bearing
-inconsistency ADR 0047 §Consequences called out ("one documented
-inconsistency: the grid family builds snapshots via `Observable`... rather
-than a per-env `Sensor`"), so a reader auditing "does every environment
-implement `Sensor`" gets a uniform yes.
+inconsistency ADR 0047's own Consequences section called out (its
+"Negative / accepted costs" bullet: "one documented inconsistency: the
+grid family builds snapshots via `Observable`... rather than a per-env
+`Sensor`"), so a reader auditing "does every environment implement
+`Sensor`" gets a uniform yes.
 
 ### 2. The per-env value is a compile-time associated const, not a config field
 
-A `Deserialize`-able config is user-supplied runtime data
-(`docs/rules.md` §4: "Never panic in response to user-supplied runtime data;
+A `Deserialize`-able config is user-supplied runtime data (rules.md's Error
+Handling section: "Never panic in response to user-supplied runtime data;
 return `Err(...)` instead. A `Deserialize`-able config *is* user-supplied
 runtime data."). A `see_through_walls` config field would let a deserialized
 run manifest disable occlusion on `MemoryEnv` and silently re-break
@@ -266,8 +272,9 @@ shape of question — `AgentState::carrying: Option<Entity>`
 Minigrid encodes the identical distinction identically: `process_vis` does
 `self.set(i, j, None)` for a masked cell, not a sentinel object.
 
-`docs/rules.md` §3's `TensorConvertible` invariant, clause 2, forbids the
-alternative directly: "any field `write_host_row` does not write must decode
+rules.md's Trait Design Constraints section's `TensorConvertible`
+invariant, clause 2, forbids the alternative directly: "any field
+`write_host_row` does not write must decode
 to a value *representing absence* (`None`, or a dedicated 'unknown'
 variant), never to a plausible in-domain value." Collapsing an occluded cell
 into `Entity::Empty` is exactly a plausible in-domain value — it asserts
@@ -336,8 +343,8 @@ Two reasons, not one:
   this distinction is load-bearing, not cosmetic.
 
 There are zero stored grid observation baselines anywhere in the workspace
-(Context, "what #281 and ADR 0043 §3 got wrong") to invalidate, which is why
-this renumbering is cheap now — no recorded episode, checkpoint, or
+(Context, "what #281 and ADR 0043's Decision 3 got wrong") to invalidate,
+which is why this renumbering is cheap now — no recorded episode, checkpoint, or
 regression fixture encodes the old byte values — and would be expensive
 after the first one is recorded.
 
@@ -358,9 +365,10 @@ costs the most"*), with the test's own final assertion currently an
 `assert_eq!` that this ADR's renumbering flips to `assert_ne!`. So the
 renumbering is not optional finish work on top of Decision 5 — until it
 lands, occlusion is unobservable on the wire at exactly the pose it matters
-most, which is also the concrete case `docs/rules.md` §3's no-fabrication
-clause was written to forbid: encoding an occluded cell as `Empty` asserts
-"confirmed floor" about a cell the agent cannot see.
+most, which is also the concrete case rules.md's Trait Design Constraints
+section's no-fabrication clause was written to forbid: encoding an
+occluded cell as `Empty` asserts "confirmed floor" about a cell the agent
+cannot see.
 
 **This renumbering is deliberately deferred out of the behavioural change,
 not abandoned.** It did not land in the same set of commits as Decisions 1,
@@ -416,10 +424,11 @@ policy cannot be bypassed even from within the crate without going through
 
 ### 6. `MemoryEnv`'s `MIN_SIZE` relaxation is refuted; `MIN_SIZE` stays 11
 
-ADR 0043 §3 called the 11 → 7 relaxation "a one-line change." **It is
-wrong, and this is no longer a hypothesis — it has been tested and it
-failed.** The sweep ADR 0043 §3 deferred to a future occlusion ADR has been
-executed: every decision-region cell × all four facings, at every size the
+ADR 0043's own Decision 3 called the 11 → 7 relaxation "a one-line
+change." **It is wrong, and this is no longer a hypothesis — it has been
+tested and it failed.** The sweep ADR 0043's Decision 3 deferred to a
+future occlusion ADR has been executed: every decision-region cell $\times$ all
+four facings, at every size the
 question is meaningful for, comparing `Visibility::Occluded` against
 `Visibility::SeeThrough` on the identical board:
 
@@ -500,13 +509,13 @@ surface.
 - **The grid family stops being the one env family in the workspace without
   a `Sensor` impl.** Every environment — grids included — now owns its
   emission model on the `Environment<..>`, not the `State<..>`.
-- **The occlusion gap ADR 0043 §3 recorded is closed**, not merely
-  re-recorded: eight of twelve environments genuinely hide information
+- **The occlusion gap ADR 0043's own Decision 3 recorded is closed**, not
+  merely re-recorded: eight of twelve environments genuinely hide information
   behind walls and shut doors for the first time, matching what their
   canonical Minigrid counterparts guarantee.
-- **The record is corrected at the same time it is closed.** ADR 0043 §3's
-  "invalidates every benchmark baseline" claim is retired with evidence
-  (Context), not repeated into a second ADR.
+- **The record is corrected at the same time it is closed.** ADR 0043's
+  Decision 3's "invalidates every benchmark baseline" claim is retired
+  with evidence (Context), not repeated into a second ADR.
 - **The byte encoding stops looking canonical while silently disagreeing
   with it** (Decision 4), and does so while the cost of changing it is
   lowest it will ever be — zero recorded baselines exist to break.
@@ -541,7 +550,7 @@ surface.
   `UnlockPickup` were not swept the same way for this ADR, but they share the
   same doorway-as-flood-fill-conduit geometry `FourRooms` does, so the same
   tempering effect should be expected there rather than the naive "occlusion
-  ⇒ proportionally harder" reading. Any policy or hyperparameter tuned
+  $\Rightarrow$ proportionally harder" reading. Any policy or hyperparameter tuned
   against the prior see-through behaviour is still tuned against a somewhat
   different problem — the direction of the change is real — but the
   magnitude is measured smaller than the layout alone predicts.
@@ -568,7 +577,7 @@ surface.
 
 - **`Sensor`'s trait shape, `Observable`'s demotion, and `pixel_grid`'s
   `Sensor`-delegates-to-`Observable` reference are unchanged** — this ADR
-  amends only ADR 0047 §5's grid-specific exemption.
+  amends only ADR 0047's own Decision 5's grid-specific exemption.
 - **Rank and snapshot type stay put.** `GridSnapshot = SnapshotBase<3,
   GridObservation, ScalarReward>` and `GoToDoorSnapshot`'s `[7,7,4]` shape
   are unaffected; only the meaning of the bytes each channel carries
@@ -631,15 +640,16 @@ surface.
   asserting it outright), reserving judgment until the sweep ran. The sweep
   has since run and refuted the prediction (Decision 6); had this ADR instead
   asserted the relaxation outright, it would have repeated exactly the
-  unverified-claim mistake in ADR 0043 §3 that Context corrects, only with a
-  wrong answer instead of an unstated one. This is recorded because it is the
+  unverified-claim mistake in ADR 0043's Decision 3 that Context corrects,
+  only with a wrong answer instead of an unstated one. This is recorded
+  because it is the
   clearest demonstration in this ADR of why a decision record should state a
   measured result rather than a plausible one.
 
 ## References
 
 - Issue #281 — the grid family's `see_through_walls` gap.
-- ADR [0043](0043-grid-observation-contract.md) — superseded at §3 only;
+- ADR [0043](0043-grid-observation-contract.md) — superseded at Decision 3 only;
   Invariant M's derivation and the mission-by-channel precedent stand.
 - ADR [0047](0047-sensor-relocates-emission-model-to-environment.md) —
   amended at Decision 5 only; the `Sensor` trait shape, `Observable`'s
@@ -647,13 +657,14 @@ surface.
 - ADR [0061](0061-optional-facing-and-tensorconvertible-no-fabrication.md) —
   the `Option<Direction>`/no-fabrication precedent this ADR's Decision 3
   extends to `Option<Entity>`, and the `TensorConvertible` clause-2 text
-  quoted from `docs/rules.md` §3.
+  quoted from rules.md's Trait Design Constraints section.
 - ADR [0062](0062-grid-layout-fidelity-and-no-dead-rng.md) — the sibling
   grid-family fidelity ADR this one follows in structure and in its use of a
   gitignored private research note as provenance.
-- `docs/rules.md` §3 (`TensorConvertible` two-clause invariant), §4
-  (`Deserialize`-able config is user-supplied runtime data — the basis for
-  Decision 2's const-not-config choice).
+- `docs/rules.md`'s Trait Design Constraints section (`TensorConvertible`
+  two-clause invariant) and its Error Handling section (`Deserialize`-able
+  config is user-supplied runtime data — the basis for Decision 2's
+  const-not-config choice).
 - Code: `crates/rlevo-environments/src/grids/core/grid.rs:130-147`
   (`egocentric_view`, `pub(crate)`), `:152-163` (`rotate_view_offset`),
   `:204-261` (`process_vis`, the `Grid.process_vis` port), `:500`

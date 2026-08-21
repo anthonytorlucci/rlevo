@@ -7,14 +7,14 @@
 //!
 //! # Algorithm
 //!
-//! For each sample in the batch, each atom `z_i` of the next-state
+//! For each sample in the batch, each atom `$z_i$` of the next-state
 //! distribution is shifted by the Bellman backup:
 //!
 //! ```math
 //! Tz_i = \text{clamp}(r + \gamma \cdot (1 - \text{terminated}) \cdot z_i,\; v_{min},\; v_{max})
 //! ```
 //!
-//! `Tz_i` generally falls between two atoms of the *fixed* support. The
+//! `$Tz_i$` generally falls between two atoms of the *fixed* support. The
 //! projection redistributes each `next_probs_i` between the two neighbouring
 //! atoms, weighted by their relative distance, producing the projected
 //! probability mass `target_probs`.
@@ -22,7 +22,7 @@
 //! The implementation is fully vectorised; all batched bin updates use a
 //! single call to [`Tensor::scatter`] per neighbour.
 //!
-//! # Non-finite inputs (issue #1044)
+//! # Non-finite inputs
 //!
 //! This is the only place in the workspace where a float tensor is converted to
 //! `Int` and fed to a `scatter`, so it is the only place where a non-finite
@@ -59,7 +59,7 @@ use crate::algorithms::shared::clamp_preserving_nan;
 ///
 /// `$\Delta z = (\text{v\_max} - \text{v\_min}) / (\text{num\_atoms} - 1)$` — the single source of truth for
 /// the atom scale. Both the *construction* of the support tensor
-/// (`$z_i = \text{v\_min} + i \cdot \Delta z$`) and the *index* computation inside
+/// `$z_i = \text{v\_min} + i \cdot \Delta z$` and the *index* computation inside
 /// [`project_distribution`] must use this one function; two independent
 /// spellings of the same constant can disagree by an ULP and push a bin index
 /// off the end of the support.
@@ -69,8 +69,8 @@ use crate::algorithms::shared::clamp_preserving_nan;
 /// C51 today, a future Rainbow tomorrow — without a config dependency.
 ///
 /// # Arguments
-/// - `v_min`, `v_max`: support bounds `z_0` and `z_{N-1}`.
-/// - `num_atoms`: number of atoms `N`.
+/// - `v_min`, `v_max`: support bounds `$z_0$` and `$z_{N-1}$`.
+/// - `num_atoms`: number of atoms `$N$`.
 ///
 /// # Returns
 /// The uniform atom spacing. A support needs **at least two** atoms for a
@@ -104,26 +104,26 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///
 /// # Parameters
 /// - `next_probs`: target-network probability mass for the bootstrap action,
-///   shape `(batch, num_atoms)`. Must sum to ≈1 along the atom axis.
+///   shape `(batch_size, num_atoms)`. Must sum to ≈1 along the atom axis.
 /// - `rewards`: per-sample reward `r`, shape `(batch,)`.
-/// - `terminated`: per-sample terminal mask in `{0.0, 1.0}`, shape `(batch,)`.
-/// - `support`: atom values `z_0 … z_{N-1}`, shape `(num_atoms,)`, assumed
+/// - `terminated`: per-sample terminal mask in `{0.0, 1.0}`, shape `(batch_size,)`.
+/// - `support`: atom values `$z_0 \cdots z_{N-1}$`, shape `(num_atoms,)`, assumed
 ///   uniformly spaced between `v_min` and `v_max`.
-/// - `gamma`: discount factor.
+/// - `gamma`: discount factor, `$\gamma$`.
 /// - `v_min`, `v_max`: support bounds used for clamping.
 /// - `num_atoms`: `N`. Kept as an explicit argument because it feeds the
 ///   `delta_z` computation without an extra GPU round-trip.
 ///
 /// # Returns
-/// A `(batch, num_atoms)` tensor of projected probabilities. Rows sum to ≈1 for
+/// A `(batch_size, num_atoms)` tensor of projected probabilities. Rows sum to ≈1 for
 /// finite inputs. A row whose reward was `NaN` is **non-finite** on every
 /// backend — see the module docs; do not postcondition on the row sum, which is
-/// exactly what the pre-#1044 GPU path satisfied while being wrong.
+/// exactly what the old, incorrect GPU path satisfied while being wrong.
 ///
 /// # Panics
 /// - If `num_atoms < 2`. A categorical support needs at least two atoms for the
 ///   `N-1` spacing denominator to be meaningful.
-/// - If the atom spacing `$\Delta z = (\text{v\_max} - \text{v\_min}) / (N - 1)$` is not finite and
+/// - If the atom spacing `$\Delta z = (v_\max - v_\min) / (N - 1)$` is not finite and
 ///   strictly positive — i.e. the support is degenerate (`v_max == v_min`) or
 ///   inverted (`v_max < v_min`), or a bound is non-finite. This is *not*
 ///   implied by `num_atoms >= 2`: a well-sized `num_atoms = 51` support with
@@ -138,7 +138,7 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   on every step. That is a run which trains on nothing and reports it only
 ///   as a log line, through the caller's `FiniteLossGuard`: every update is
 ///   skipped and counted, but the `warn!` follows a decade schedule — skips 1,
-///   10, 100, … (ADR 0072 §1) — so the operator learns *how much* was thrown
+///   10, 100, … (ADR 0072) — so the operator learns *how much* was thrown
 ///   away only by reading the running total off a warning. `$\Delta z$` is a
 ///   *configuration* constant rather than per-batch data, so the right response
 ///   is to reject it at the call site with a message naming the offending
@@ -187,19 +187,19 @@ pub fn project_distribution<B: Backend>(
     let terminated_bn: Tensor<B, 2> = terminated.unsqueeze_dim::<2>(1); // (B, 1)
     let support_bn: Tensor<B, 2> = support.unsqueeze_dim::<2>(0); // (1, N)
 
-    // Bellman shift: Tz = clamp(r + γ · (1 − terminated) · z, v_min, v_max).
+    // Bellman shift: `$Tz = \max \left ( v_\min , \min (r + \gamma \cdot (1 - \text{terminated}) \cdot z, v_\max \right )$`.
     let keep = terminated_bn.neg().add_scalar(1.0); // 1 − terminated
     let tz = rewards_bn + keep * support_bn * gamma;
     // `clamp_preserving_nan`, not `clamp`: on wgpu/Metal the plain clamp
     // rescues a NaN reward to `v_min`, producing a projected row that sums to
     // exactly 1.0 and asserts certainty of the worst return, with no NaN left
-    // for any downstream guard to catch (issue #1044). ±inf is untouched by the
+    // for any downstream guard to catch. ±inf is untouched by the
     // wrapper and still pins to v_min/v_max, which is the intended semantics.
     let tz = clamp_preserving_nan(tz, v_min, v_max);
 
-    // Continuous atom coordinate b ∈ [0, N-1], and its floor/ceil as Int.
+    // Continuous atom coordinate `$b \in [0, N-1]$`, and its floor/ceil as Int.
     //
-    // `tz` is already clamped to [v_min, v_max], so `b ∈ [0, N-1]` holds
+    // `tz` is already clamped to [v_min, v_max], so `$b \in [0, N-1]$` holds
     // exactly in real arithmetic — Bellemare et al. 2017 Algorithm 1 states it
     // as an inline assertion. It does *not* hold in IEEE-754: for many valid
     // supports (e.g. v_min = -10, v_max = 0.1, N = 8) the f32 division rounds a
@@ -224,14 +224,14 @@ pub fn project_distribution<B: Backend>(
     // does not panic there, it writes into whatever tensor shares the memory
     // pool at that offset. The clamp on the derived Int indices is what makes
     // that unreachable, and it is load-bearing: keeping the NaN-preserving
-    // clamps without it would be strictly worse than the pre-#1044 code.
+    // clamps without it would be strictly worse than the earlier, unguarded code.
     // Measured, by deleting just the index clamp and running
     // `tests/c51_projection_backend_parity.rs` on an Apple M2 Pro / Metal 4:
     // the NaN row came back all ZEROS on wgpu (the NaN weights were written
     // somewhere outside the target tensor) and nothing panicked, while Flex
     // returned `[NaN, 0, …]`. Land the two changes together or neither.
     //
-    // The index clamp is a no-op on the finite path. Once `b ∈ [0, N-1]`, both
+    // The index clamp is a no-op on the finite path. Once `$b \in [0, N-1]$`, both
     // `0` and `N-1` are exactly representable in f32 for N ≤ 2^24 (the configs
     // cap N in the low hundreds), so `floor`/`ceil` land inside [0, N-1] and
     // the clamp is the identity — in particular at `b == N-1`, where the
@@ -290,8 +290,8 @@ mod tests {
     }
 
     #[test]
-    fn projection_identity_when_support_aligned() {
-        // With reward = 0, γ = 1, terminated = 0 and a support that passes through
+    fn test_projection_identity_when_support_aligned() {
+        // With reward = 0, \\(\gamma\\) = 1, terminated = 0 and a support that passes through
         // every atom, each atom maps to itself — the projection is the
         // identity on the input probabilities.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn projection_terminal_reward_half_splits_between_atoms_one_and_two() {
+    fn test_projection_terminal_reward_half_splits_between_atoms_one_and_two() {
         // Hand-computed Bellemare-style reference on a 3-atom support:
         //   support = [-1, 0, 1], reward = 0.5, terminated = 1 → Tz ≡ 0.5 ∀ z_i
         //   b = 1.5 → mass evenly split between atoms 1 and 2, independent of
@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn projection_clamps_above_support() {
+    fn test_projection_clamps_above_support() {
         // reward ≫ v_max ⇒ Tz clamps at v_max for every atom ⇒ all mass at
         // the top atom.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
@@ -367,7 +367,7 @@ mod tests {
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
-    fn projection_preserves_total_mass() {
+    fn test_projection_preserves_total_mass() {
         // Arbitrary batch, random-ish probabilities normalised to 1: rows of
         // the projection should still sum to ≈1.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
@@ -433,8 +433,8 @@ mod tests {
     }
 
     #[test]
-    fn projection_handles_f32_rounding_at_top_atom() {
-        // Regression, issue #180. On this *valid* support the continuous atom
+    fn test_projection_handles_f32_rounding_at_top_atom() {
+        // Regression: on this *valid* support the continuous atom
         // coordinate rounds to b = 7.000000477 > N-1 = 7, so `ceil(b) = 8`
         // scattered off the end of a size-8 axis and panicked. Note the
         // default support (-10, 10, 51) cannot catch this: it lands on 50.0
@@ -457,8 +457,8 @@ mod tests {
     }
 
     #[test]
-    fn projection_handles_f32_rounding_on_symmetric_support() {
-        // Second known overflow from the #180 sweep: (-13, 13, 12) yields
+    fn test_projection_handles_f32_rounding_on_symmetric_support() {
+        // Second known f32-rounding overflow case: (-13, 13, 12) yields
         // b = 11.000000954 against a max valid index of 11.
         let v = project_saturated_row(-13.0, 13.0, 12, 100.0);
 
@@ -475,9 +475,9 @@ mod tests {
     }
 
     #[test]
-    fn projection_preserves_mass_across_overflowing_supports() {
-        // A spread of (v_min, v_max, N) triples from the #180 sweep, every one
-        // of which passes `C51TrainingConfig::validate` and every one of which
+    fn test_projection_preserves_mass_across_overflowing_supports() {
+        // A spread of (v_min, v_max, N) triples, each of which
+        // passes `C51TrainingConfig::validate` and each of which
         // panicked before the clamp. Mass must land wholly on the top atom.
         let supports = [
             (-10.0_f32, 0.1_f32, 8_usize),
@@ -502,7 +502,7 @@ mod tests {
         }
     }
 
-    // -------- non-finite rewards (issue #1044) --------
+    // -------- non-finite rewards --------
 
     /// Projects one row per entry of `rewards` on the `(v_min, v_max, n)`
     /// support, with a uniform `next_probs` and `terminated = 0`.
@@ -534,8 +534,8 @@ mod tests {
     }
 
     #[test]
-    fn projection_nan_reward_yields_a_non_finite_row() {
-        // Regression, issue #1044. The postcondition is FINITENESS, never the
+    fn test_projection_nan_reward_yields_a_non_finite_row() {
+        // Regression: the postcondition is FINITENESS, never the
         // row sum: before the fix this row summed to exactly 1.0 on wgpu/Metal
         // — a well-formed probability vector claiming certainty of the worst
         // return — because Metal's `clamp` lowers to `fmin(fmax(..))` and
@@ -551,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn projection_nan_reward_does_not_corrupt_a_neighbouring_row() {
+    fn test_projection_nan_reward_does_not_corrupt_a_neighbouring_row() {
         // The NaN row must stay non-finite AND the healthy row in the same
         // batch must be untouched. This is the assertion that would fail if the
         // NaN-derived index escaped `[0, N-1]`: Burn's wgpu scatter carries no
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn projection_finite_reward_row_is_unchanged_and_still_sums_to_one() {
+    fn test_projection_finite_reward_row_is_unchanged_and_still_sums_to_one() {
         // The NaN-preserving clamps and the index clamp are no-ops on the
         // finite path; this pins that they did not perturb ordinary inputs.
         let n = 8;
@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn projection_positive_infinite_reward_saturates_the_top_atom() {
+    fn test_projection_positive_infinite_reward_saturates_the_top_atom() {
         // Pins the `is_nan`-not-`is_finite` decision in `clamp_preserving_nan`.
         // `clamp` handles ±inf correctly and IDENTICALLY on both backends, and
         // an infinite reward genuinely means "a return of at least v_max" — so
@@ -622,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn projection_negative_infinite_reward_saturates_the_bottom_atom() {
+    fn test_projection_negative_infinite_reward_saturates_the_bottom_atom() {
         let n = 8;
         let v = project_rows_for_rewards(-10.0, 10.0, n, &[f32::NEG_INFINITY]);
 
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "C51 support must satisfy v_max > v_min")]
-    fn projection_rejects_degenerate_support_v_min_equals_v_max() {
+    fn test_projection_rejects_degenerate_support_v_min_equals_v_max() {
         // Δz = 0 ⇒ b = NaN ⇒ every index collapses to 0 and the whole
         // distribution silently lands on atom 0. Must panic instead.
         let _ = project_on_support(5.0, 5.0, 51);
@@ -675,14 +675,14 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "C51 support must satisfy v_max > v_min")]
-    fn projection_rejects_inverted_support_v_min_greater_than_v_max() {
+    fn test_projection_rejects_inverted_support_v_min_greater_than_v_max() {
         // Δz < 0 ⇒ the atom coordinate runs backwards; the support is not a
         // valid ordered categorical support at all.
         let _ = project_on_support(1.0, -1.0, 51);
     }
 
     #[test]
-    fn atom_spacing_matches_uniform_support_and_is_nan_when_degenerate() {
+    fn test_atom_spacing_matches_uniform_support_and_is_nan_when_degenerate() {
         assert!((atom_spacing(-10.0, 10.0, 51) - 0.4).abs() < 1e-6);
         assert!((atom_spacing(-1.0, 1.0, 3) - 1.0).abs() < 1e-6);
         assert!(

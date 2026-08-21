@@ -313,7 +313,7 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
 ///
 /// **Both** extrema are checked. `max_log_std` is not decoration: a minimum
 /// reports the healthiest dim, so a head with a dim pinned at `log_std_max`
-/// reads perfectly normal on `min_log_std` alone (#347). This is the only
+/// reads perfectly normal on `min_log_std` alone. This is the only
 /// end-to-end path through `PpoAgent::update` on a real backend, so it is where
 /// a `max_log_std` that is computed but never assigned would be caught.
 ///
@@ -487,7 +487,7 @@ rl_learning_test! {
 }
 
 // ---------------------------------------------------------------------------
-// Progress-logging cadence (issue #321)
+// Progress-logging cadence
 // ---------------------------------------------------------------------------
 //
 // The PPO loop can only log at a rollout boundary, so `global_step` is sampled
@@ -505,9 +505,10 @@ rl_learning_test! {
 
 #[test]
 fn ppo_progress_logs_when_log_every_does_not_divide_num_steps() {
-    // The canonical #321 configuration: a 128-step rollout stride with
-    // `log_every = 100`, which shares no useful factor with it. `lcm(128, 100)`
-    // is 3200, so the old gate emitted ZERO lines for this run.
+    // The canonical configuration that exposes the old bug: a 128-step
+    // rollout stride with `log_every = 100`, which shares no useful factor
+    // with it. `lcm(128, 100)` is 3200, so the old gate emitted ZERO lines
+    // for this run.
     const NUM_STEPS: usize = 128;
     const LOG_EVERY: usize = 100;
     // Not a multiple of the stride, so the final rollout is partial (boundaries
@@ -536,12 +537,12 @@ fn ppo_progress_logs_when_log_every_does_not_divide_num_steps() {
 
     let steps = capture.values();
 
-    // (1) The literal #321 regression: zero lines under the old gate.
+    // (1) The literal regression: zero lines under the old gate.
     assert!(
         !steps.is_empty(),
         "a {TOTAL}-step run with log_every = {LOG_EVERY} must emit at least one progress line, \
-         but emitted none (this is the #321 regression: the old divisibility gate fired only on \
-         multiples of lcm({NUM_STEPS}, {LOG_EVERY}) = 3200)"
+         but emitted none (this is the regression the old gate produced: the divisibility test \
+         fired only on multiples of lcm({NUM_STEPS}, {LOG_EVERY}) = 3200)"
     );
 
     // (2) The terminal line: the run's final update stats must be reported.

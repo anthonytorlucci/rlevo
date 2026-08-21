@@ -20,9 +20,10 @@ use burn::tensor::backend::{Backend, BackendTypes};
 /// A `Backend` benches can select by a stable, printable label.
 ///
 /// This is deliberately *not* a blanket impl over `Backend` — only backends a
-/// bench author has actually validated on the target hardware (see the wgpu
-/// smoke test in the #365 step-1 session) get an `impl` here, so a typo'd or
-/// unavailable backend fails at the `impl` site, not at bench-report time.
+/// bench author has actually validated on the target hardware (see
+/// [`device`](Self::device)'s doc for the wgpu-adapter smoke test) get an
+/// `impl` here, so a typo'd or unavailable backend fails at the `impl` site,
+/// not at bench-report time.
 pub trait BenchBackend: Backend {
     /// Short, lowercase, filesystem/CLI-safe label used in criterion group
     /// names and in this bench's own report table (e.g. `"flex"`, `"wgpu"`).

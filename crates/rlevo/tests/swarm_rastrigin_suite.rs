@@ -9,12 +9,11 @@
 //! its module is a `todo!()` stub.
 
 use burn::backend::Flex;
-use rand::Rng;
-use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
-use rlevo_benchmarks::env::BenchEnv;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo_benchmarks::agent::FitnessEvaluable;
+use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_benchmarks::suite::Suite;
+use rlevo_core::evaluation::GenerationProbe;
+use rlevo_core::fitness::MetricsProvider;
 
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_environments::landscapes::ackley::Ackley;
@@ -34,11 +33,6 @@ use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 type B = Flex;
 const DIM: usize = 10;
 const MAX_GENS: usize = 120;
-
-struct Passive;
-impl BenchableAgent<(), ()> for Passive {
-    fn act(&mut self, (): &(), _: &mut dyn Rng) {}
-}
 
 struct RastriginFit;
 impl FitnessEvaluable for RastriginFit {
@@ -98,28 +92,33 @@ fn cfg() -> EvaluatorConfig {
 /// from `rastrigin_run_suite.rs`'s `collect_best_returns`, which returns each trial's
 /// value separately to support per-trial assertions; here a single mean is sufficient
 /// because all swarm strategies are checked against a shared ceiling in one test.
-fn collect_best_returns<E>(
+fn collect_best_returns<P>(
     suite_name: &str,
     env_name: &str,
-    factory: impl Fn(u64) -> E + Send + Sync + 'static,
+    factory: impl Fn(u64) -> P + Send + Sync,
 ) -> f64
 where
-    E: BenchEnv<Observation = (), Action = ()> + Send,
+    P: GenerationProbe + Send,
+    P::Metrics: MetricsProvider,
 {
     let cfg = cfg();
-    let suite = Suite::new(suite_name, cfg.clone()).with_env(env_name, factory);
-    let evaluator = Evaluator::new(cfg.clone());
+    let evaluator = Evaluator::new(cfg);
     let mut reporter = LoggingReporter::new();
-    let report = evaluator.run_suite(&suite, |_| Passive, &mut reporter);
-    #[allow(clippy::cast_precision_loss)]
-    let steps = cfg.max_steps as f64;
+    let report = evaluator.run_trials(
+        suite_name,
+        &[env_name.to_string()],
+        |_key, env_seed, _agent_seed| GenerationTrial {
+            probe: factory(env_seed),
+        },
+        &mut reporter,
+    );
     let bests: Vec<f64> = report
         .trials
         .iter()
         .map(|t| {
-            t.episodes
-                .last()
-                .map_or(f64::INFINITY, |e| -e.return_value / steps)
+            *t.scalars
+                .get("ea/best_fitness_ever")
+                .expect("generation trial emits ea/best_fitness_ever")
         })
         .collect();
     #[allow(clippy::cast_precision_loss)]
@@ -347,16 +346,26 @@ fn de_rand1_ak(
 
 #[test]
 fn swarm_strategies_reduce_on_rastrigin_and_ackley() {
-    // Random-search baseline on Rastrigin-D10 is roughly 80-120; on
-    // Ackley-D10 it is ~18-21. The acceptance bar is "within 2× of the
-    // best-in-class classical baseline (DE/Rand1/bin)". We compute DE's
-    // result here too and use it as the anchor for the Ackley check;
-    // for Rastrigin we accept any strategy-average below a generous
-    // ceiling.
+    // Ceilings recalibrated for the terminal-best metric
+    // (`ea/best_fitness_ever`). The previous values were tuned for the
+    // mean-best-so-far the `BenchEnv` path measured; terminal best is
+    // strictly lower, which left the Ackley ceiling of 18.0 vacuous against
+    // observed values near 0.02.
     //
-    // Ceilings kept loose to stay stable across RNG seed versions.
-    let rastrigin_ceiling = 120.0_f64;
-    let ackley_ceiling = 18.0_f64;
+    // Measured with `base_seed: 17`. Rastrigin-D10 averages: GWO 0.0,
+    // WOA ~5e-9, ABC 1.2, PSO 13.2, Firefly 19.0, ACO_R 33.4, SSA 42.1,
+    // Bat 69.7, Cuckoo 72.5. Ackley-D10: DE 0.022, PSO 0.010.
+    //
+    // Bars are set to catch "stopped optimizing" without flaking: 100.0 on
+    // Rastrigin leaves the worst (Cuckoo, 72.5) ~38% headroom, and 1.0 on
+    // Ackley is ~50x the observed values while still far under the ~18-21
+    // uniform-random baseline. Both are materially tighter than before.
+    //
+    // Caveat: the random-search baselines quoted above were derived for the
+    // OLD metric. These bars are calibrated off observed optimizer behaviour,
+    // not off a re-derived random-search margin for terminal best.
+    let rastrigin_ceiling = 100.0_f64;
+    let ackley_ceiling = 1.0_f64;
 
     macro_rules! check_rastrigin {
         ($fn:ident, $name:expr) => {{
@@ -378,9 +387,10 @@ fn swarm_strategies_reduce_on_rastrigin_and_ackley() {
     check_rastrigin!(cuckoo_ra, "Cuckoo");
     check_rastrigin!(firefly_ra, "Firefly");
 
-    // Ackley — anchor against DE/Rand1/bin as the classical comparator
-    // and require PSO (the canonical swarm baseline) to finish in the
-    // same order of magnitude.
+    // Ackley — DE/Rand1/bin is the classical comparator and PSO the canonical
+    // swarm baseline; both must clear the same ceiling. (The surrounding prose
+    // previously described a "within 2x of DE" rule that the code never
+    // implemented; the code's actual contract is a shared ceiling.)
     let de_avg = collect_best_returns("swarm-ak", "ackley-10d", de_rand1_ak);
     let pso_avg = collect_best_returns("swarm-ak", "ackley-10d", pso_ak);
     assert!(

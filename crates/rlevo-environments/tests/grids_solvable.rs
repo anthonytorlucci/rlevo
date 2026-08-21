@@ -14,8 +14,17 @@
 //!
 //! **Fixed script.** Most grid envs are deterministic given their config, so a
 //! hard-coded action sequence *is* the optimal script. [`EmptyEnv`],
-//! [`DistShiftEnv`], [`DynamicObstaclesEnv`] (with zero obstacles), [`UnlockEnv`]
-//! (#1020) and [`MultiRoomEnv`] (#1021) still use one.
+//! [`DistShiftEnv`], [`DynamicObstaclesEnv`] (with zero obstacles), [`UnlockEnv`],
+//! and [`MultiRoomEnv`] still use one. The latter two are not yet on the shared
+//! BFS planner because their layouts don't need genuine pathfinding: `Unlock`'s
+//! board is a single room with the locked door set into the perimeter wall
+//! rather than Minigrid's two-room layout, so there is no second room behind
+//! the door to search into, and `MultiRoom`'s board is a fixed equal-width
+//! room strip rather than Minigrid's procedural room generation, so its layout
+//! never varies enough to need a search either. Both are tracked for a
+//! topology rewrite (a two-room board with an interior locked door for
+//! `Unlock`, procedural room placement for `MultiRoom`) that would put them on
+//! the planner alongside the rest.
 //!
 //! **Derived script.** Two envs sample part of the *task* per episode:
 //! [`MemoryEnv`] samples its cue (and therefore which fork arm is correct), and
@@ -28,7 +37,7 @@
 //!
 //! **Planned.** [`DoorKeyEnv`], [`LavaGapEnv`], [`UnlockPickupEnv`],
 //! [`CrossingEnv`] (both kinds) and [`FourRoomsEnv`] sample their whole layout
-//! per episode (ADR 0062, #282). They read their board back from `env.state()`
+//! per episode (ADR 0062). They read their board back from `env.state()`
 //! and hand it to [`common::plan`], a BFS over the grid state, which *computes*
 //! the action sequence. That sequence is then executed through
 //! [`Environment::step`] exactly as a script would be, so nothing about the
@@ -42,7 +51,13 @@
 //! generates** is solvable — it is handed the board and must find a route, with
 //! no privileged knowledge of the layout. That is the property these tests were
 //! always trying to state, and it is the only form of it that survives the
-//! per-episode layout randomization the five planned envs now have (#282). The
+//! per-episode layout randomization the five planned envs now have.
+//! [`LavaGapEnv`], [`CrossingEnv`], [`DoorKeyEnv`], [`FourRoomsEnv`], and
+//! [`UnlockPickupEnv`] were moved off a dead, never-reseeded RNG to genuinely
+//! sample their layout (door, wall, and key positions, and colors) from the
+//! persistent per-episode stream; [`EmptyEnv`] and [`DistShiftEnv`] were
+//! audited and confirmed deliberately deterministic, and [`UnlockEnv`] and
+//! [`MultiRoomEnv`] remain fixed for the reasons given above. The
 //! planner migration deliberately landed *while the layouts were still
 //! deterministic*, so the oracle was validated against a known-good board before
 //! the board started moving; a failure now therefore isolates to the generator,

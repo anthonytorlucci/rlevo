@@ -57,8 +57,10 @@ use crate::utils::PolyakError;
 /// infallible form that `docs/rules.md` §4 sanctions for a read that "cannot
 /// fail by construction (e.g. a tensor the same function just built)".
 ///
-/// Making action selection fallible is a breaking change, deferred and tracked
-/// as #317. When it lands, the variant that returns must carry
+/// Making action selection fallible is a breaking change, deferred until
+/// `act`/`act_greedy`/`act_greedy_with` themselves return `Result` — a
+/// signature break across every call site, not something to front-run here.
+/// When it lands, the variant that returns must carry
 /// [`rlevo_core::base::TensorConversionError`] as a `#[from]` payload, not a
 /// `String`: §4 prefers structured error types over string-based ones, and
 /// names `TensorConversionError` as the domain type for tensor ops.
@@ -138,9 +140,9 @@ pub struct LearnOutcome {
 ///
 /// # Const generics
 ///
-/// - `DO` — rank of a single observation tensor (e.g. `1` for vector
+/// - `OR` — rank of a single observation tensor (e.g. `1` for vector
 ///   observations of shape `[features]`).
-/// - `DB` — rank of a batched observation tensor (= `DO + 1`).
+/// - `BS` — size of a batched observation tensor (= `R + 1`).
 ///
 /// # Field notes
 ///
@@ -154,11 +156,11 @@ pub struct LearnOutcome {
 ///   documented on [`Slot`].
 /// - `target_net` lives on `B::InnerBackend` (the non-autodiff backend) so that
 ///   computing bootstrap distributions never builds an autodiff graph.
-pub struct C51Agent<B, M, O, A, const DO: usize, const DB: usize>
+pub struct C51Agent<B, M, O, A, const OR: usize, const BS: usize>
 where
     B: AutodiffBackend,
-    M: C51Model<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: C51Model<B, BS>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     policy_net: Slot<M>,
@@ -174,17 +176,17 @@ where
     /// unconditionally, including on a non-finite-loss skip.
     gradient_updates: usize,
     stats: AgentStats<C51Metrics>,
-    /// Non-finite-loss guard for the cross-entropy loss site (ADR 0056, #318).
+    /// Non-finite-loss guard for the cross-entropy loss site (ADR 0056).
     /// Skips the update on every occurrence; the `warn!` escalates by decades —
     /// skips 1, 10, 100, … — each carrying the running total (ADR 0072 §1),
     /// readable via [`Self::skipped_updates`].
     loss_guard: FiniteLossGuard,
-    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
-    /// #352). Drops the transition on every occurrence; the `warn!` escalates
+    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065).
+    /// Drops the transition on every occurrence; the `warn!` escalates
     /// by decades.
     reward_guard: FiniteRewardGuard,
     /// Non-finite-**observation** guard for the `remember` ingestion site (ADR
-    /// 0067, #1043). Drops the transition on every occurrence — `obs` and
+    /// 0067). Drops the transition on every occurrence — `obs` and
     /// `next_obs` are checked together, so one guard covers both rows. Distinct
     /// from `reward_guard`, and its counter is not a subset of that one: see
     /// [`dropped_observations`](Self::dropped_observations).
@@ -204,11 +206,11 @@ where
     _action: PhantomData<A>,
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> std::fmt::Debug for C51Agent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const OR: usize, const BS: usize> std::fmt::Debug for C51Agent<B, M, O, A, OR, BS>
 where
     B: AutodiffBackend,
-    M: C51Model<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: C51Model<B, BS>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -222,11 +224,11 @@ where
     }
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> C51Agent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const OR: usize, const BS: usize> C51Agent<B, M, O, A, OR, BS>
 where
     B: AutodiffBackend,
-    M: C51Model<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: C51Model<B, BS>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     /// Constructs a new agent from a pre-built policy network and config.
@@ -373,10 +375,10 @@ where
     ///
     /// The observation seam for the target-update rule: with it, a caller — or
     /// a test — can check *that* a target update fired on the expected gradient
-    /// update and moved the weights by the expected τ. Issue #182's
-    /// double-update defect survived its own test suite precisely because no
-    /// such seam existed, so every assertion had to be made through Q-values,
-    /// which are a lossy function of the weights.
+    /// update and moved the weights by the expected τ. The double-update
+    /// defect where `sync_target` ignored `tau` survived its own test suite
+    /// precisely because no such seam existed, so every assertion had to be
+    /// made through Q-values, which are a lossy function of the weights.
     ///
     /// `pub`, and a shared borrow rather than a clone: `M::InnerModule` is the
     /// caller's own network type, so this hands back nothing the caller did not
@@ -417,7 +419,7 @@ where
     /// [`act_greedy`](Self::act_greedy) for the full reasoning and
     /// [`degenerate_action_selections`](Self::degenerate_action_selections) for
     /// the counter.
-    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> A {
+    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> A {
         if self.exploration.should_explore(rng) {
             // Guarded here rather than once at the top of the function: the
             // greedy path below delegates to `act_greedy`, which guards itself,
@@ -460,8 +462,10 @@ where
     ///    index on `wgpu`. So the discrete failure is CPU-specific and
     ///    invisible — and CPU is the backend CI runs.
     ///
-    /// The `argmax` behaviour itself is issue #1050 and is deliberately **not**
-    /// fixed here; this guard only makes it attributable.
+    /// The `argmax` behaviour itself — an out-of-range index reaching
+    /// `from_index` unclamped on the divergent-backend path described above —
+    /// is deliberately **not** fixed here; this guard only makes it
+    /// attributable.
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
     // sign; where an index round-trips through f32 it stays far below the 2^24
@@ -480,8 +484,8 @@ where
         // (ADR 0067 §Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BS> = obs_t.unsqueeze::<BS>();
         let logits: Tensor<B, 3> = self.policy().forward(batched); // (1, A, N)
         let probs: Tensor<B, 3> = activation::softmax(logits, 2);
         let support: Tensor<B, 1> = self.build_support::<B>(&self.device);
@@ -538,8 +542,8 @@ where
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, BS> = obs_t.unsqueeze::<BS>();
         let logits: Tensor<B::InnerBackend, 3> = M::forward_inner(net, batched); // (1, A, N)
         let probs: Tensor<B::InnerBackend, 3> = activation::softmax(logits, 2);
         let support_3d: Tensor<B::InnerBackend, 3> = support.clone().unsqueeze::<3>(); // (1, 1, N)
@@ -570,7 +574,7 @@ where
     /// a no-op. Storing it would let every minibatch that later resampled it
     /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
     /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065, issue #352). A `tracing::warn!` fires on the 1st,
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
     /// 10th, 100th, … drop; use
     /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
     /// programmatically.
@@ -578,8 +582,7 @@ where
     /// A non-finite **observation** — a `NaN` or `±Inf` anywhere in the host row
     /// of *either* `obs` or `next_obs` — is discarded on the same terms, and
     /// counted separately by
-    /// [`dropped_observations`](Self::dropped_observations) (ADR 0067, issue
-    /// #1043).
+    /// [`dropped_observations`](Self::dropped_observations) (ADR 0067).
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if !self.reward_guard.admit(reward) {
             return;
@@ -763,7 +766,7 @@ where
     /// when [`can_learn`](Self::can_learn) is false (buffer too small or
     /// step count below `learning_starts`), and also when the computed loss is
     /// non-finite (NaN/±Inf): in that case the backward pass, optimizer step,
-    /// target update, and PER writeback are all skipped (ADR 0056, #318) and
+    /// target update, and PER writeback are all skipped (ADR 0056) and
     /// [`skipped_updates`](Self::skipped_updates) advances, so the caller keeps
     /// its last healthy reported metrics rather than folding a NaN into them.
     /// The accompanying `warn!` fires on a decade schedule — skips 1, 10, 100,
@@ -799,9 +802,9 @@ where
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    pub fn learn_step<R: Rng + ?Sized>(
+    pub fn learn_step(
         &mut self,
-        rng: &mut R,
+        rng: &mut (impl Rng + ?Sized),
     ) -> Result<Option<LearnOutcome>, C51AgentError> {
         if !self.can_learn() {
             return Ok(None);
@@ -842,14 +845,14 @@ where
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
-        let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+        let mut batched_shape: Vec<usize> = Vec::with_capacity(BS);
         batched_shape.push(batch_size);
         batched_shape.extend_from_slice(&obs_shape);
 
         let device = self.device.clone();
-        let obs_tensor: Tensor<B, DB> =
+        let obs_tensor: Tensor<B, BS> =
             Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<B::InnerBackend, DB> =
+        let next_tensor_inner: Tensor<B::InnerBackend, BS> =
             Tensor::from_data(TensorData::new(next_flat, batched_shape), &device);
 
         let action_tensor_1: Tensor<B, 1, Int> =
@@ -941,7 +944,7 @@ where
         // exactly when stability matters most.
         self.gradient_updates += 1;
 
-        // #318 / ADR 0056: `loss_value` is already host-resident, so the
+        // ADR 0056: `loss_value` is already host-resident, so the
         // finiteness check costs no extra sync. A non-finite loss skips
         // `backward()`, the optimizer step, the target soft-update, and the PER
         // writeback (Burn would otherwise fold NaN into the weights silently),
@@ -1029,7 +1032,7 @@ mod tests {
     use crate::utils::polyak_update;
     use rlevo_core::base::{Action as ActionTrait, HostRow, TensorConversionError};
 
-    type Be = Autodiff<Flex>;
+    type TestBackend = Autodiff<Flex>;
 
     const TEST_ACTIONS: usize = 2;
     const TEST_ATOMS: usize = 5;
@@ -1140,7 +1143,7 @@ mod tests {
         }
     }
 
-    type TestAgent = C51Agent<Be, TestNet<Be>, TestObs, TestAction, 1, 2>;
+    type TestAgent = C51Agent<TestBackend, TestNet<TestBackend>, TestObs, TestAction, 1, 2>;
 
     /// Reads the linear layer's weights back to the host, element-wise.
     ///
@@ -1195,7 +1198,8 @@ mod tests {
             .expect("valid test config");
 
         let mut agent: TestAgent =
-            C51Agent::new(TestNet::<Be>::init(&device), config, device).expect("agent constructs");
+            C51Agent::new(TestNet::<TestBackend>::init(&device), config, device)
+                .expect("agent constructs");
         for i in 0..4 {
             let x = i as f32;
             agent.remember(
@@ -1233,7 +1237,8 @@ mod tests {
             .expect("valid prioritized test config");
 
         let mut agent: TestAgent =
-            C51Agent::new(TestNet::<Be>::init(&device), config, device).expect("agent constructs");
+            C51Agent::new(TestNet::<TestBackend>::init(&device), config, device)
+                .expect("agent constructs");
         for i in 0..4 {
             let x = i as f32;
             agent.remember(
@@ -1248,7 +1253,7 @@ mod tests {
     }
 
     #[test]
-    fn c51_defaults_to_uniform_replay() {
+    fn test_c51_defaults_to_uniform_replay() {
         let agent = primed_agent(TargetUpdate::polyak(0.005, 1));
         assert!(
             !agent.buffer.is_prioritized(),
@@ -1259,7 +1264,7 @@ mod tests {
     /// The KL-priority feedback edge: a learn step rewrites the sampled
     /// transitions' priorities off the running-max seed, moving the total mass.
     #[test]
-    fn c51_priority_writeback_runs_after_learn_step() {
+    fn test_c51_priority_writeback_runs_after_learn_step() {
         let mut agent = primed_prioritized_agent();
         assert!(
             agent.buffer.is_prioritized(),
@@ -1289,19 +1294,20 @@ mod tests {
     // -------- target-update cadence (ADR 0058 / 0059) --------
     //
     // These replace `sync_target_is_noop_when_tau_is_positive` and
-    // `sync_target_hard_copies_when_tau_is_zero`, which pinned issue #182's
-    // two-mechanism gate. `sync_target` is gone; the cadence gate lives inside
-    // `learn_step`, so the same properties are asserted against gradient
-    // updates instead of env steps, and `TargetUpdate::hard(n)` expresses what
-    // `tau = 0.0, target_update_frequency = n` used to. They read the target
-    // through `target_net()` — the seam whose absence let the #182 defect pass
-    // a Q-value-only test suite.
+    // `sync_target_hard_copies_when_tau_is_zero`, which pinned the two-mechanism
+    // gate that kept `sync_target` from ignoring `tau`. `sync_target` is gone;
+    // the cadence gate lives inside `learn_step`, so the same properties are
+    // asserted against gradient updates instead of env steps, and
+    // `TargetUpdate::hard(n)` expresses what `tau = 0.0,
+    // target_update_frequency = n` used to. They read the target through
+    // `target_net()` — the seam whose absence let that defect pass a
+    // Q-value-only test suite.
 
     /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves
     /// on **every** learn step, by exactly τ toward the post-step policy, and
     /// stays Polyak-lagged behind it (never a copy).
     #[test]
-    fn c51_polyak_default_moves_target_on_every_learn_step() {
+    fn test_c51_polyak_default_moves_target_on_every_learn_step() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
         let tau = 0.005_f32;
         let mut rng = StdRng::seed_from_u64(42);
@@ -1341,7 +1347,7 @@ mod tests {
     /// copy of the policy at one — the property the old `tau = 0.0` +
     /// `target_update_frequency = n` pair expressed, now in gradient units.
     #[test]
-    fn c51_hard_cadence_holds_target_between_firings_then_copies() {
+    fn test_c51_hard_cadence_holds_target_between_firings_then_copies() {
         let mut agent = primed_agent(TargetUpdate::hard(3));
         let mut rng = StdRng::seed_from_u64(42);
         let initial = target_weights(&agent);
@@ -1378,12 +1384,12 @@ mod tests {
         );
     }
 
-    /// ADR 0059 §4: the counter must advance even when the non-finite-loss
+    /// ADR 0059: the counter must advance even when the non-finite-loss
     /// guard skips the optimizer step, or a diverging run silently stretches
     /// the target cadence. The skip consumes update 1, so the healthy step
     /// lands on update 2 and `hard(2)` fires.
     #[test]
-    fn c51_gradient_counter_advances_through_a_nonfinite_loss_skip() {
+    fn test_c51_gradient_counter_advances_through_a_nonfinite_loss_skip() {
         let mut agent = primed_agent(TargetUpdate::hard(2));
         let healthy_policy = agent.policy().clone();
         let target_before = target_weights(&agent);
@@ -1442,7 +1448,7 @@ mod tests {
     /// read in env steps instead of gradient updates silently rescales every
     /// target update in the run by `train_frequency` and the warm-up.
     #[test]
-    fn c51_gradient_counter_is_not_the_env_step_counter() {
+    fn test_c51_gradient_counter_is_not_the_env_step_counter() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
         for _ in 0..5 {
             agent.on_env_step();
@@ -1472,7 +1478,7 @@ mod tests {
     }
 
     #[test]
-    fn metrics_performance_record_returns_reward_and_steps() {
+    fn test_metrics_performance_record_returns_reward_and_steps() {
         let m = C51Metrics {
             reward: 42.0,
             steps: 7,
@@ -1486,12 +1492,12 @@ mod tests {
     }
 
     #[test]
-    fn error_display_uses_thiserror_messages() {
+    fn test_error_display_uses_thiserror_messages() {
         let err = C51AgentError::InvalidAction("bad index".into());
         assert_eq!(err.to_string(), "Invalid action: bad index");
     }
 
-    // -------- non-finite-loss guard (ADR 0056, #318) --------
+    // -------- non-finite-loss guard (ADR 0056) --------
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// policy network that has diverged to non-finite weights — the realistic
@@ -1508,11 +1514,11 @@ mod tests {
 
     /// C51 shares DQN's single-loss shape: a non-finite categorical
     /// cross-entropy loss must skip `backward`, the optimizer step, and the
-    /// soft target sync (ADR 0056, #318). Diverging the policy net to NaN forces
+    /// soft target sync (ADR 0056). Diverging the policy net to NaN forces
     /// a NaN loss; the guard must fire, `learn_step` must return `None`, and the
     /// target must stay untouched and finite.
     #[test]
-    fn c51_nonfinite_loss_skips_step_and_warns() {
+    fn test_c51_nonfinite_loss_skips_step_and_warns() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
         // The target net is the healthy sibling: a skipped step leaves it intact.
         let target_before = target_weights(&agent);
@@ -1557,7 +1563,7 @@ mod tests {
     /// every one of its updates identically to a run that skipped one, which is
     /// precisely the distinction the metric exists to make.
     #[test]
-    fn c51_counts_repeated_loss_skips() {
+    fn test_c51_counts_repeated_loss_skips() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
         let target_before = target_weights(&agent);
 
@@ -1601,7 +1607,7 @@ mod tests {
         );
     }
 
-    // ---- ADR 0065 / #352: non-finite reward is dropped at ingestion ----
+    // ---- ADR 0065: non-finite reward is dropped at ingestion ----
     //
     // Every off-policy agent needs its OWN copy of this test. The defect had
     // six sites, not the four the issue named, precisely because C51 and
@@ -1609,7 +1615,7 @@ mod tests {
     // noticed. A per-file test is what makes agent #7's author notice.
 
     #[test]
-    fn c51_remember_drops_a_nonfinite_reward() {
+    fn test_c51_remember_drops_a_nonfinite_reward() {
         let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
         let config = C51TrainingConfigBuilder::new()
             .num_atoms(TEST_ATOMS)
@@ -1618,7 +1624,8 @@ mod tests {
             .build()
             .expect("valid test config");
         let mut agent: TestAgent =
-            C51Agent::new(TestNet::<Be>::init(&device), config, device).expect("agent constructs");
+            C51Agent::new(TestNet::<TestBackend>::init(&device), config, device)
+                .expect("agent constructs");
 
         agent.remember(
             TestObs([0.0, 0.0]),
@@ -1657,7 +1664,7 @@ mod tests {
         );
     }
 
-    // ---- ADR 0067 / #1043: non-finite observation ----
+    // ---- ADR 0067: non-finite observation ----
     //
     // Per-file, for the same reason as the ADR 0065 block above: six sites, and
     // a shared test would not notice a `remember` copied without its guard.
@@ -1680,11 +1687,12 @@ mod tests {
             .v_max(1.0)
             .build()
             .expect("valid test config");
-        C51Agent::new(TestNet::<Be>::init(&device), config, device).expect("agent constructs")
+        C51Agent::new(TestNet::<TestBackend>::init(&device), config, device)
+            .expect("agent constructs")
     }
 
     #[test]
-    fn c51_remember_drops_a_nonfinite_obs() {
+    fn test_c51_remember_drops_a_nonfinite_obs() {
         let mut agent = obs_guard_agent();
 
         agent.remember(nan_obs(), &TestAction(0), 1.0, TestObs([1.0, 0.0]), false);
@@ -1735,7 +1743,7 @@ mod tests {
     /// early, so a doubly-bad transition is counted once, on the reward side.
     /// Both accessors' rustdoc states this; this test is what keeps it true.
     #[test]
-    fn c51_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
+    fn test_c51_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
         let mut agent = obs_guard_agent();
 
         agent.remember(nan_obs(), &TestAction(0), f32::NAN, nan_obs(), false);
@@ -1757,7 +1765,7 @@ mod tests {
     /// The decision under test is that the agent does **not** substitute: the
     /// counter moves and an action still comes back, at all three `act` sites.
     #[test]
-    fn c51_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
+    fn test_c51_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(7);
 
@@ -1815,7 +1823,7 @@ mod tests {
     /// hand `new` a bad capacity, and a test that went through it would be
     /// asserting on the builder instead of on this constructor.
     #[test]
-    fn new_rejects_out_of_range_replay_buffer_capacity() {
+    fn test_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;
         let cases = [
             (0usize, ConstraintKind::Zero),
@@ -1834,7 +1842,8 @@ mod tests {
                 replay_buffer_capacity: capacity,
                 ..C51TrainingConfig::default()
             };
-            let Err(err) = TestAgent::new(TestNet::<Be>::init(&device), config, device) else {
+            let Err(err) = TestAgent::new(TestNet::<TestBackend>::init(&device), config, device)
+            else {
                 panic!("capacity {capacity} must be rejected, not allocated");
             };
             assert_eq!(err.config, "C51TrainingConfig");

@@ -338,8 +338,8 @@ where
         mut state: GwoState<B>,
         _rng: &mut dyn Rng,
     ) -> (GwoState<B>, StrategyMetrics) {
-        // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3,
-        // issue #131): the harness chokepoint already applies
+        // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3): the
+        // harness chokepoint already applies
         // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
         // a direct `ask`/`tell` driver can hand us a raw `NaN`. `argtop3_max`
         // sanitises on the *read*, which keeps leader selection safe; this
@@ -662,8 +662,8 @@ mod tests {
         assert_eq!(expected, got);
     }
 
-    /// Regression for the ADR 0034 decision-3 bypass hole (issue #131): a
-    /// driver calling `init → ask → tell` directly gets no harness sanitize, so
+    /// Regression for the ADR 0034 decision-3 bypass hole: a driver calling
+    /// `init → ask → tell` directly gets no harness sanitize, so
     /// `tell` used to store a raw `NaN` into the `GwoState` fitness cache that
     /// `fitness()` hands back to callers.
     ///

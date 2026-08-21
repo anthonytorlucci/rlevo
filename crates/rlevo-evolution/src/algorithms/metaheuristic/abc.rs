@@ -413,7 +413,7 @@ where
         // per-site correctness floor for callers that bypass
         // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
         // so a hand-rolled `ask`/`tell` driver reaches this line with raw
-        // values (ADR 0034 decision 3, issue #131). One sanitise here covers
+        // values (ADR 0034 decision 3). One sanitise here covers
         // both the bootstrap seed of `state.fitness` and the accept-store
         // below; a raw `NaN` latched into a bee's cache loses every later
         // `cand_fit >= state.fitness[t]` comparison, freezing that bee until
@@ -650,7 +650,7 @@ mod tests {
         }
     }
 
-    // Regression for the inverted onlooker sense (issue #150): under the
+    // Regression for the inverted onlooker tournament sense: under the
     // canonical maximise convention onlookers must concentrate on the
     // *fittest* source, not the worst.
     #[test]
@@ -867,14 +867,15 @@ mod tests {
         assert!(m.broken_count() > 0, "expected a broken (NaN) member");
     }
 
-    // Regression for issue #131. `nan_fitness_survives_harness` above covers
-    // the harness path; this covers the documented bypass hole (ADR 0034
-    // decision 3) — a direct `init` → `ask` → `tell` driver. A raw `NaN`
-    // latched into `state.fitness` loses every later
-    // `cand_fit >= state.fitness[t]` comparison, so bee 0 freezes: it accepts
-    // nothing, and only the scout `limit` eventually rescues it. The assertion
-    // is on the *cache*, not on convergence — a "reaches < ε on Sphere" check
-    // passes straight through this bug because of that self-heal.
+    // Regression for the per-slot fitness-cache freeze on a bypass `tell`.
+    // `nan_fitness_survives_harness` above covers the harness path; this
+    // covers the documented bypass hole (ADR 0034 decision 3) — a direct
+    // `init` → `ask` → `tell` driver. A raw `NaN` latched into
+    // `state.fitness` loses every later `cand_fit >= state.fitness[t]`
+    // comparison, so bee 0 freezes: it accepts nothing, and only the scout
+    // `limit` eventually rescues it. The assertion is on the *cache*, not on
+    // convergence — a "reaches < ε on Sphere" check passes straight through
+    // this bug because of that self-heal.
     #[test]
     fn nan_fitness_does_not_latch_without_harness() {
         let device = Default::default();
@@ -929,18 +930,19 @@ mod tests {
         approx::assert_relative_eq!(state.fitness()[0], 20.0, epsilon = 1e-6);
     }
 
-    // Regression for issue #131, `+∞` half. The
-    // `nan_fitness_does_not_latch_without_harness` family above covers
-    // `NaN → −∞`; `sanitize_fitness` has a second rule, `+∞ → f32::MAX`, which
-    // the same bypass `tell` now applies. That rule is *observable* to a direct
-    // `ask`/`tell` driver: an individual scoring a genuine `+∞` is reported as
-    // a finite `f32::MAX` in both the fitness cache and `StrategyMetrics`,
-    // never as raw `+∞`. This is intended (ADR 0034 decision 1) — it keeps the
-    // top-ranked member top-ranked while stopping a single unbounded score from
-    // blowing the population mean/variance to `+∞`. One shared test covers the
-    // rule; the nine per-algorithm NaN tests already prove every `tell` routes
-    // its host pull through `sanitize_fitness`, so the `+∞` branch reaches all
-    // of them by the same path.
+    // Regression for the per-slot fitness-cache freeze on a bypass `tell`,
+    // `+∞` half. The `nan_fitness_does_not_latch_without_harness` family
+    // above covers `NaN → −∞`; `sanitize_fitness` has a second rule,
+    // `+∞ → f32::MAX`, which the same bypass `tell` now applies. That rule
+    // is *observable* to a direct `ask`/`tell` driver: an individual scoring
+    // a genuine `+∞` is reported as a finite `f32::MAX` in both the fitness
+    // cache and `StrategyMetrics`, never as raw `+∞`. This is intended (ADR
+    // 0034 decision 1) — it keeps the top-ranked member top-ranked while
+    // stopping a single unbounded score from blowing the population
+    // mean/variance to `+∞`. One shared test covers the rule; the nine
+    // per-algorithm NaN tests already prove every `tell` routes its host
+    // pull through `sanitize_fitness`, so the `+∞` branch reaches all of
+    // them by the same path.
     #[test]
     fn inf_fitness_clamps_finite_without_harness() {
         let device = Default::default();

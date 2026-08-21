@@ -8,26 +8,28 @@
 //! config is *allowed by design*, and is meant to be caught by the constructor
 //! that consumes it (`Env::with_config(cfg)` → `cfg.validate()?`).
 //!
-//! Issue #326 ("all 32 config structs have `pub` fields, so struct-literal
-//! construction bypasses `validate()`") read that `pub` field as the bug. It is
-//! not: at the time of filing, every one of this crate's 35 environment
-//! `with_config` constructors — covering 34 distinct `*Config` types, since
-//! `LunarLanderDiscrete` and `LunarLanderContinuous` each have a `with_config`
-//! consuming the *same* `LunarLanderConfig` — and all 8 RL agent constructors
-//! already called `config.validate()?`. (The RL figure is the same 8/8 ADR 0055
-//! reports: `dqn`, `c51`, `qrdqn`, `ddpg`, `td3`, `sac`, `ppo`, `ppg`.) The real
-//! risk the issue was groping at is that **nothing pinned the convention** — a
+//! A prior review round argued that because all 32 config structs have `pub`
+//! fields, struct-literal construction bypasses `validate()`, and read that
+//! `pub` field as the bug. It is not: at the time of that review, every one of
+//! this crate's 35 environment `with_config` constructors — covering 34
+//! distinct `*Config` types, since `LunarLanderDiscrete` and
+//! `LunarLanderContinuous` each have a `with_config` consuming the *same*
+//! `LunarLanderConfig` — and all 8 RL agent constructors already called
+//! `config.validate()?`. (The RL figure is the same 8/8 ADR 0055 reports:
+//! `dqn`, `c51`, `qrdqn`, `ddpg`, `td3`, `sac`, `ppo`, `ppg`.) The real risk
+//! that review was groping at is that **nothing pinned the convention** — a
 //! new environment whose `with_config` forgot `validate()?` would ship silently,
 //! and no test would fail.
 //!
 //! # The second failure mode: chokepoint present, predicate incomplete
 //!
-//! Issue #106 established that "forgot to call `validate()`" is not the only way
-//! the contract breaks, and empirically not the common one. The chokepoint can be
-//! present and running while its `validate()` is simply **incomplete** — the call
-//! returns `Ok(())` and the constructor then builds a broken (or panicking) env
-//! from a config the contract was supposed to have refused. Two measured examples
-//! from the pre-fix tree:
+//! A second, distinct failure mode was found later: "forgot to call
+//! `validate()`" is not the only way the contract breaks, and empirically not
+//! the common one. The chokepoint can be present and running while its
+//! `validate()` is simply **incomplete** — the call returns `Ok(())` and the
+//! constructor then builds a broken (or panicking) env from a config the
+//! contract was supposed to have refused. Two measured examples from the
+//! pre-fix tree:
 //!
 //! - `EmptyEnv::with_config(EmptyConfig { size: 1, ..Default::default() }, false)`
 //!   panicked at `empty.rs:277` with a `usize` underflow — *after* its
@@ -42,14 +44,14 @@
 //! some rejection happened: an incomplete predicate is invisible to any assertion
 //! that only asks whether `validate()` ran.
 //!
-//! None of this retracts the #326 refutation above — that analysis was
-//! substantially right, and the mechanism #326 named remains false. `pub` fields
-//! do not bypass anything, and `#[non_exhaustive]` would not have prevented
-//! either construction: both were **same-crate**, where the cross-crate
-//! restriction never applies, and more fundamentally the attribute restricts
-//! *construction syntax*, not *predicate completeness* — a `size = 1` arriving
-//! through a hand-written setter or builder hits the same incomplete `validate()`
-//! and panics identically.
+//! None of this retracts the refutation above of the `pub`-field theory — that
+//! analysis was substantially right, and the mechanism it named remains
+//! false. `pub` fields do not bypass anything, and `#[non_exhaustive]` would
+//! not have prevented either construction: both were **same-crate**, where
+//! the cross-crate restriction never applies, and more fundamentally the
+//! attribute restricts *construction syntax*, not *predicate completeness* —
+//! a `size = 1` arriving through a hand-written setter or builder hits the
+//! same incomplete `validate()` and panics identically.
 //!
 //! This file is that pin. For each environment config with a non-vacuous
 //! [`Validate`] impl, it hands a deliberately invalid config to the public

@@ -35,7 +35,7 @@ impl CategoricalPolicyHeadConfig {
     /// `LinearConfig::new(0, hidden)` builds a zero-width layer silently. This
     /// is the *only* constructor: there is deliberately no infallible `init`,
     /// because an unchecked path would reinstate the bypass this method exists
-    /// to close (#386). The `try_` prefix marks the departure from Burn's own
+    /// to close. The `try_` prefix marks the departure from Burn's own
     /// infallible `*Config::init` idiom.
     ///
     /// `CleanRL`'s orthogonal-init detail is a deferred follow-up; users who
@@ -114,10 +114,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_possible_wrap)]
-    fn sample_with_logprob<R: Rng + ?Sized>(
+    fn sample_with_logprob(
         &self,
         obs: Tensor<B, 2>,
-        rng: &mut R,
+        rng: &mut (impl Rng + ?Sized),
     ) -> PolicyOutput<B, Self::ActionTensor> {
         let device = obs.device();
         let [batch, _] = obs.dims();
@@ -265,7 +265,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
 // sign; where an index round-trips through f32 it stays far below the 2^24
 // exact-integer limit. `from_index` bounds-checks on the way back.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn discrete_action_from_row<const AD: usize, A: rlevo_core::action::DiscreteAction<AD>>(
+pub fn discrete_action_from_row<const AR: usize, A: rlevo_core::action::DiscreteAction<AR>>(
     row: &[f32],
 ) -> A {
     assert_eq!(
@@ -286,10 +286,10 @@ mod tests {
     use rand::rngs::StdRng;
     use rlevo_core::config::ConstraintKind;
 
-    type B = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
 
     #[test]
-    fn representative_head_config_is_valid() {
+    fn test_ppo_categorical_representative_head_config_is_valid() {
         let cfg = CategoricalPolicyHeadConfig {
             obs_dim: 4,
             hidden: 64,
@@ -298,14 +298,15 @@ mod tests {
         assert!(cfg.validate().is_ok());
     }
 
-    /// The regression lock for #386. A categorical head has no `log_std`, so it
-    /// escapes the numerical failure that motivated the issue — but it has the
-    /// same *structural* bypass: `LinearConfig::new(0, hidden)` builds a
-    /// zero-width layer without complaint, so an unvalidated `init` yields a
-    /// head that is silently degenerate rather than rejected. `try_init` must
-    /// reach every invariant `validate()` already checked.
+    /// The regression lock for the zero-width-head bypass. A categorical head
+    /// has no `log_std`, so it escapes the numerical failure that motivated
+    /// the original issue — but it has the same *structural* bypass:
+    /// `LinearConfig::new(0, hidden)` builds a zero-width layer without
+    /// complaint, so an unvalidated `init` yields a head that is silently
+    /// degenerate rather than rejected. `try_init` must reach every invariant
+    /// `validate()` already checked.
     #[test]
-    fn try_init_rejects_every_zero_dimension() {
+    fn test_ppo_categorical_try_init_rejects_every_zero_dimension() {
         let device = Default::default();
         let cases: [(CategoricalPolicyHeadConfig, &str); 3] = [
             (
@@ -335,7 +336,7 @@ mod tests {
         ];
         for (cfg, field) in cases {
             let err = cfg
-                .try_init::<B>(&device)
+                .try_init::<TestAdBackend>(&device)
                 .expect_err("an invalid config must not build a head");
             assert_eq!(err.config, "CategoricalPolicyHeadConfig");
             assert_eq!(err.field, field);
@@ -347,33 +348,38 @@ mod tests {
     /// [`PpoPolicy::min_log_std`]'s `None` default rather than inventing a
     /// value — the field is shared with the Gaussian head via `PpoUpdateStats`.
     #[test]
-    fn categorical_head_reports_no_min_log_std() {
+    fn test_ppo_categorical_categorical_head_reports_no_min_log_std() {
         let device = Default::default();
-        let head: CategoricalPolicyHead<B> = CategoricalPolicyHeadConfig {
+        let head: CategoricalPolicyHead<TestAdBackend> = CategoricalPolicyHeadConfig {
             obs_dim: 4,
             hidden: 8,
             num_actions: 3,
         }
-        .try_init::<B>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         assert!(
-            <CategoricalPolicyHead<B> as PpoPolicy<B, 2>>::min_log_std(&head).is_none(),
+            <CategoricalPolicyHead<TestAdBackend> as PpoPolicy<TestAdBackend, 2>>::min_log_std(
+                &head
+            )
+            .is_none(),
             "a categorical head has no log_std"
         );
     }
 
     #[test]
-    fn categorical_logprob_consistency() {
+    fn test_ppo_categorical_logprob_consistency() {
         let device = Default::default();
         let cfg = CategoricalPolicyHeadConfig {
             obs_dim: 4,
             hidden: 8,
             num_actions: 3,
         };
-        let head: CategoricalPolicyHead<B> = cfg.try_init::<B>(&device).expect("valid head config");
+        let head: CategoricalPolicyHead<TestAdBackend> = cfg
+            .try_init::<TestAdBackend>(&device)
+            .expect("valid head config");
 
         // Deterministic obs.
-        let obs: Tensor<B, 2> = Tensor::from_data(
+        let obs: Tensor<TestAdBackend, 2> = Tensor::from_data(
             TensorData::new(vec![0.1_f32, -0.2, 0.3, 0.4], vec![1, 4]),
             &device,
         );
@@ -396,19 +402,19 @@ mod tests {
     }
 
     #[test]
-    fn categorical_round_trips_action_rows() {
+    fn test_ppo_categorical_round_trips_action_rows() {
         let device = Default::default();
         // Build a toy action tensor of shape (3, 1).
-        let a1d: Tensor<B, 1, Int> =
+        let a1d: Tensor<TestAdBackend, 1, Int> =
             Tensor::from_data(TensorData::new(vec![0_i64, 2, 1], vec![3]), &device);
-        let a2d: Tensor<B, 2, Int> = a1d.unsqueeze_dim::<2>(1);
+        let a2d: Tensor<TestAdBackend, 2, Int> = a1d.unsqueeze_dim::<2>(1);
 
-        let row0 = <CategoricalPolicyHead<B> as PpoPolicy<B, 2>>::action_row_from_tensor(&a2d, 0);
-        let row2 = <CategoricalPolicyHead<B> as PpoPolicy<B, 2>>::action_row_from_tensor(&a2d, 2);
+        let row0 = <CategoricalPolicyHead<TestAdBackend> as PpoPolicy<TestAdBackend, 2>>::action_row_from_tensor(&a2d, 0);
+        let row2 = <CategoricalPolicyHead<TestAdBackend> as PpoPolicy<TestAdBackend, 2>>::action_row_from_tensor(&a2d, 2);
         assert_eq!(row0, vec![0.0]);
         assert_eq!(row2, vec![1.0]);
 
-        let rebuilt = <CategoricalPolicyHead<B> as PpoPolicy<B, 2>>::action_tensor_from_flat(
+        let rebuilt = <CategoricalPolicyHead<TestAdBackend> as PpoPolicy<TestAdBackend, 2>>::action_tensor_from_flat(
             &[0.0, 2.0, 1.0],
             3,
             &device,

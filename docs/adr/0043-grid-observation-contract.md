@@ -29,21 +29,21 @@ object *type* carries signal.
 
 A second, deeper defect was missed by the original code review: rlevo's
 `egocentric_view` (`crates/rlevo-environments/src/grids/core/grid.rs:108`)
-applies **no occlusion** — it reads every cell of the rotated `7×7` window
+applies **no occlusion** — it reads every cell of the rotated $7\times7$ window
 straight from the grid; walls never block line of sight. Canonical Minigrid
 sets `see_through_walls=False` for `MemoryEnv` and runs
 `Grid.process_vis` shadow-casting every observation. Canonical guarantees the
 recall property by **two** mechanisms: (a) occlusion plus placing the cue off
 the corridor centerline behind a doorway wall, and (b) at larger sizes, raw
 distance — the backward view reach from the fork is exactly 6 cells, and for
-S11+ the cue at `x=1` falls outside it. rlevo's fixed `7×5` layout put the
+S11+ the cue at `x=1` falls outside it. rlevo's fixed $7\times5$ layout put the
 cue *on* the centerline only 4 cells from the fork, so even after sampling
 the cue, an agent could turn and simply re-read it — sampling alone is
 necessary but not sufficient to restore the recall property.
 
 **`GoToDoorEnv` advertised "instruction-conditioned policies" but the
 mission never reached the policy.** `build_snapshot` emits only
-`GridObservation` (the shared `7×7×3` egocentric view,
+`GridObservation` (the shared $7\times7\times3$ egocentric view,
 `crates/rlevo-environments/src/grids/core/observation.rs`, channels
 `[type, color, state]` per `Entity::color_u8`,
 `crates/rlevo-environments/src/grids/core/entity.rs:106`) plus a non-tensor
@@ -71,7 +71,7 @@ impl (ADR 0026) **rejects `size < 11`**.
 Derivation of the 11: the agent sits at view cell `[6][3]` (`VIEW_SIZE = 7`,
 so `agent_row = VIEW_SIZE - 1 = 6`, `agent_col = VIEW_SIZE / 2 = 3`) looking
 toward row 0, giving a forward/backward reach of 6 and a lateral reach of
-±3. The cue is at `x = 1`; the fork column is `size - 2`. Requiring
+$\pm 3$. The cue is at `x = 1`; the fork column is `size - 2`. Requiring
 `(size - 2) - 6 > 1` gives `size >= 11` (rounded up to the next odd value).
 
 rlevo therefore ships a **strict subset** of canonical configs: S11 and S13
@@ -117,8 +117,9 @@ one-way-door part of this ADR and the main reason it needs to be recorded.
 ### 3. The occlusion gap is recorded as a stated non-decision
 
 rlevo applies no visibility masking anywhere; `see_through_walls` is
-effectively always `true` crate-wide (§Context). This is a real fidelity gap
-versus Minigrid, whose default is `false`.
+effectively always `true` crate-wide (see this ADR's own Context section
+above). This is a real fidelity gap versus Minigrid, whose default is
+`false`.
 
 This is **not fixed** by this ADR. The blast radius is all 12 grid envs'
 observation semantics at once, it invalidates every existing grid benchmark
@@ -178,7 +179,8 @@ episode draws an identical cue/mission and the #109 bug survives behind a
 passing test. Both re-seed lines are deleted; both envs gain an inherent
 `reset_with_seed` per the ADR 0029 pattern. Nine other grid envs still carry
 a dead `_rng` and the same latent re-seed hazard; that is a known gap
-tracked separately from this ADR's scope (rules.md §12 governs filing it).
+tracked separately from this ADR's scope (rules.md's Deferred Work Gets a
+GitHub Issue section governs filing it).
 
 ### Config surface: two fields removed
 
@@ -197,9 +199,9 @@ two episodes differing *only* in cue type, with the same fork order, must
 produce byte-identical observations at the decision cell while requiring
 *different* correct actions. This is a mechanical proof that no reactive
 policy can beat chance on the env. It only passes if all three objects are
-green — the all-green rule (§Context) is load-bearing, not cosmetic;
-non-green objects would let the test (and a real policy) shortcut through
-color instead of type.
+green — the all-green rule (stated in this ADR's own Context section) is
+load-bearing, not cosmetic; non-green objects would let the test (and a
+real policy) shortcut through color instead of type.
 
 ## Alternatives considered
 

@@ -1323,7 +1323,7 @@ mod tests {
         );
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #290) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────
 
     #[test]
     /// Verifies `CartPole` satisfies the shared post-terminal conformance check:

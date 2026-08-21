@@ -264,7 +264,10 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
         // is `None` (off) by default; without it PPO can take destabilizing
         // steps. NOTE: Burn clips this **per tensor**, not across the global
         // flattened parameter vector, so it is not CleanRL's detail #10
-        // global-norm clip. See issue #328.
+        // global-norm clip. True global-norm clipping would need a manual
+        // accumulation pass over every parameter's gradient before the
+        // optimizer step, which Burn's hook doesn't provide — an open design
+        // question, not a settled plan.
         .clip_grad(Some(GradientClippingConfig::Norm(0.5)))
         .build()
         .expect("valid config");

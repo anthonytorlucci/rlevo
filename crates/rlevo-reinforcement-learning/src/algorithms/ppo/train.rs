@@ -10,7 +10,7 @@
 //! Two entry points:
 //! - [`train_discrete`] — for `DiscreteAction<1>` envs paired with a
 //!   categorical policy head.
-//! - [`train_continuous`] — for `ContinuousAction<AD>` envs paired with a
+//! - [`train_continuous`] — for `ContinuousAction<AR>` envs paired with a
 //!   tanh-Gaussian policy head (or any policy whose `raw_to_env_row` produces
 //!   `ContinuousAction::from_slice`-compatible values).
 
@@ -49,8 +49,8 @@ use crate::algorithms::shared::LogWatermark;
 // sign; where an index round-trips through f32 it stays far below the 2^24
 // exact-integer limit. `from_index` bounds-checks on the way back.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
-    agent: &mut PpoAgent<B, P, V, O, DO, DB>,
+pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+    agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
@@ -58,12 +58,12 @@ pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, con
 ) -> Result<(), PpoAgentError>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB>,
-    V: PpoValue<B, DB>,
-    E: Environment<DO, SD, 1, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR>,
+    V: PpoValue<B, BOR>,
+    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
     A: DiscreteAction<1>,
-    R: Reward + Copy,
+    Rew: Reward + Copy,
 {
     run_loop(agent, env, rng, total_timesteps, log_every, |row| {
         assert_eq!(row.len(), 1, "discrete action row must have length 1");
@@ -74,7 +74,7 @@ where
 /// PPO training loop against a **continuous** action environment.
 ///
 /// Identical control flow to [`train_discrete`] but expects the environment's
-/// action type to implement [`ContinuousAction<AD>`] and reconstructs each
+/// action type to implement [`ContinuousAction<AR>`] and reconstructs each
 /// action from the policy's `env_row` (the tanh-squashed, scaled output of
 /// [`PpoPolicy::raw_to_env_row`]) via [`ContinuousAction::from_slice`].
 ///
@@ -92,13 +92,13 @@ pub fn train_continuous<
     E,
     O,
     A,
-    R,
-    const DO: usize,
-    const SD: usize,
-    const AD: usize,
-    const DB: usize,
+    Rew,
+    const OR: usize,
+    const SR: usize,
+    const AR: usize,
+    const BOR: usize,
 >(
-    agent: &mut PpoAgent<B, P, V, O, DO, DB>,
+    agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
@@ -106,12 +106,12 @@ pub fn train_continuous<
 ) -> Result<(), PpoAgentError>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB>,
-    V: PpoValue<B, DB>,
-    E: Environment<DO, SD, AD, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
-    A: ContinuousAction<AD>,
-    R: Reward + Copy,
+    P: PpoPolicy<B, BOR>,
+    V: PpoValue<B, BOR>,
+    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
+    A: ContinuousAction<AR>,
+    Rew: Reward + Copy,
 {
     run_loop(agent, env, rng, total_timesteps, log_every, A::from_slice)
 }
@@ -128,14 +128,14 @@ fn run_loop<
     E,
     O,
     A,
-    R,
+    Rew,
     F,
-    const DO: usize,
-    const SD: usize,
-    const AD: usize,
-    const DB: usize,
+    const OR: usize,
+    const SR: usize,
+    const AR: usize,
+    const BOR: usize,
 >(
-    agent: &mut PpoAgent<B, P, V, O, DO, DB>,
+    agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
@@ -144,12 +144,12 @@ fn run_loop<
 ) -> Result<(), PpoAgentError>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB>,
-    V: PpoValue<B, DB>,
-    E: Environment<DO, SD, AD, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
-    A: rlevo_core::base::Action<AD> + Clone,
-    R: Reward + Copy,
+    P: PpoPolicy<B, BOR>,
+    V: PpoValue<B, BOR>,
+    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
+    A: rlevo_core::base::Action<AR> + Clone,
+    Rew: Reward + Copy,
     F: Fn(&[f32]) -> A,
 {
     let rollout_len = agent.config().num_steps;
@@ -162,7 +162,7 @@ where
     // Watermark, not `global_step % log_every`: the step counter is only
     // sampled at rollout boundaries (multiples of `num_steps`), so a
     // divisibility test would fire on `lcm(num_steps, log_every)` — see
-    // `LogWatermark` and issue #321.
+    // `LogWatermark`.
     let mut log_watermark = LogWatermark::new(log_every);
     let loop_start = Instant::now();
 
@@ -195,12 +195,12 @@ where
             // non-finite value. Do not "fix" this to skip a NaN: a poisoned
             // episode return is a true statement about a run whose environment
             // emitted NaN, and `AgentStats::avg_score` transits it as a
-            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070,
-            // #409). Unlike the off-policy agents, nothing was dropped
+            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070).
+            // Unlike the off-policy agents, nothing was dropped
             // upstream: ADR 0065 scopes only those six, so this path has no
             // `FiniteRewardGuard` at all, and the same reward also
             // reaches `compute_gae`, whose reverse recursion poisons the whole
-            // rollout's advantages. That ingestion gap is open, see #1042.
+            // rollout's advantages. That ingestion gap is open and unaddressed.
             episode_reward += reward_f32;
             episode_steps += 1;
 
@@ -283,17 +283,17 @@ where
 // history length, iteration number. All are bounded by configured sizes far
 // below f32's 2^24 (f64's 2^53) exact-integer limit.
 #[allow(clippy::cast_precision_loss)]
-fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
-    agent: &PpoAgent<B, P, V, O, DO, DB>,
+fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
+    agent: &PpoAgent<B, P, V, O, OR, BOR>,
     stats: &PpoUpdateStats,
     global_step: usize,
     total_timesteps: usize,
     loop_start: Instant,
 ) where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     let avg = agent
         .stats()
@@ -321,8 +321,10 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
         old_approx_kl = stats.old_approx_kl,
         clip_frac = stats.clip_frac,
         explained_variance = stats.explained_variance,
-        // The ADR 0049 §4 metric channel, which no shipped loop emitted until
-        // #347. `?` (Debug) rather than a `f32` field because both are
+        // The ADR 0049 §4 metric channel, which no shipped loop emitted
+        // before this: earlier the only signal on a clamp crossing was a
+        // one-shot per-head warning log, not a per-iteration metric.
+        // `?` (Debug) rather than a `f32` field because both are
         // `Option<f32>`: a categorical run renders `None`, which is the honest
         // reading, where a `map_or(0.0, ..)` would print a `log σ` of zero
         // (σ = 1) for a policy that has no σ at all. Both extrema are logged —
@@ -337,7 +339,7 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
         env_steps_sampled = global_step,
         steps_per_sec = steps_per_sec,
         // Cumulative, read from the agent rather than from `stats`: this is the
-        // lifetime aggregate over both loss sites (ADR 0072 §2), so adding a
+        // lifetime aggregate over both loss sites (ADR 0072), so adding a
         // field to the public `PpoUpdateStats` would be a compat event for a
         // value the agent already owns. Counted per *minibatch*, not per
         // `update` — see `PpoAgent::skipped_updates`.

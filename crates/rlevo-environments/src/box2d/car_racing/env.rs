@@ -35,8 +35,13 @@
 //!
 //! rlevo keeps its own coverage-threshold termination
 //! (`$\text{tiles\_visited} \geq \text{lap\_complete\_percent} \times \text{total\_tiles}$`) rather than gym's
-//! re-cross-tile-0 rule, which couples completion to a single tile and makes
-//! `lap_complete_percent` a near-no-op (upstream Gymnasium issue #1269). The
+//! re-cross-tile-0 rule. In canonical Gymnasium, `CarRacing` resets a few
+//! physics steps *before* the agent re-crosses the start/finish tile whenever
+//! not every tile has been visited, so the lap-completion check races the
+//! reset and rarely gets a chance to evaluate true — a known upstream
+//! limitation (Gymnasium issue #1269) that makes `lap_complete_percent` a
+//! near-no-op in practice. rlevo's threshold check runs every step against
+//! `tiles_visited` directly, so it isn't subject to that race. The
 //! sweep makes laps *reachable in principle*; it does not make them *easy* —
 //! dynamic difficulty under the fragile stiff-joint physics is a separate,
 //! pre-existing concern.
@@ -616,7 +621,7 @@ mod tests {
         CarRacing::with_config(CarRacingConfig::default()).expect("valid config")
     }
 
-    // ── post-terminal step guard (issue #293) ────────────────────────────────
+    // ── post-terminal step guard (ADR 0044) ──────────────────────────────────
 
     /// Step budget for the guard tests. Each step rasterizes a 96×96×3 frame, so
     /// the budget is kept tiny; truncation is a pure step-counter fact and does
@@ -867,17 +872,28 @@ mod tests {
         );
     }
 
-    /// Regression (#98, ADR 0037): the gas force applied by `apply_controls`
-    /// must live exactly one step. A single gas kick followed by an idle step
-    /// (gas = 0) must not keep accelerating the car — with the accumulation bug
-    /// the forward `user_force` persisted, so the idle step re-applied the full
-    /// gas thrust and roughly doubled the speed; with the wrapper clearing
-    /// forces the idle step only shows small joint-settling drift.
+    /// Regression (ADR 0037): the gas force applied by `apply_controls` via
+    /// `car.add_force(forward * thrust, true)` must live exactly one step.
+    /// Rapier accumulates forces added through `add_force`/`add_torque` in a
+    /// `user_force`/`user_torque` term; Rapier 0.32's own doc comment claims
+    /// this is auto-cleared each step, but checking against Rapier's actual
+    /// source showed it is not — every env that steers this way, including
+    /// this one, was integrating a monotonically growing force step over
+    /// step. A single gas kick followed by an idle step (gas = 0) must not
+    /// keep accelerating the car — with the accumulation bug the forward
+    /// `user_force` persisted, so the idle step re-applied the full gas
+    /// thrust and roughly doubled the speed; with `RapierWorld::step()` now
+    /// clearing forces and torques every step (fixed once in the shared step
+    /// loop, paired with re-tuned per-env force constants), the idle step
+    /// only shows small joint-settling drift.
     ///
-    /// The window is deliberately two steps: this ultra-light car has stiff
-    /// wheel fixed-joints that make the solver explode once the body carries any
-    /// speed (a separate pre-existing property, out of scope for #98), so a
-    /// longer constant-throttle rollout is not numerically meaningful here.
+    /// The window is deliberately two steps: the wheels are attached to the
+    /// car body with fully rigid `FixedJoint`s (no suspension), so the
+    /// constraint solver becomes numerically stiff once the body carries any
+    /// speed at all — a separate, pre-existing property of this rigid
+    /// wheel-mounting scheme, unrelated to the force-accumulation fix above —
+    /// so a longer constant-throttle rollout is not numerically meaningful
+    /// here.
     #[test]
     fn test_gas_force_does_not_persist_into_idle_step() {
         let mut env = make_env();

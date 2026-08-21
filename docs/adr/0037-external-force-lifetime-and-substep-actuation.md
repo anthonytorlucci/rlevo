@@ -34,7 +34,7 @@ set-and-hold:
   the same spirit by a parallel engineer (see below).
 
 MuJoCo — the reference these environments track — has no such hazard: an
-actuator force is `gear · ctrl`, **set** (not accumulated) fresh each substep and
+actuator force is $\text{gear} \cdot \text{ctrl}$, **set** (not accumulated) fresh each substep and
 held **constant** across the `frame_skip` substeps of one control step. The bug
 is a backend-integration defect, not a modeling choice.
 

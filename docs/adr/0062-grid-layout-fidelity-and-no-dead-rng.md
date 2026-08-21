@@ -15,23 +15,25 @@ tags: [adr, decision, rng, seeding, reset, environments, grids, minigrid, fideli
 `seed` field is inert while its docs imply it drives layout randomization).
 
 **Partially supersedes ADR [0029](0029-host-rng-seeding-convention.md)** —
-specifically the dead-`_rng` grid carve-out in its Decision §3 (lines 117-119)
-and the matching "Neutral" consequence (line 161). **Every other ADR 0029
-decision remains in force and ADR 0029 stays `active`**: the persistent-stream
+specifically the dead-`_rng` grid carve-out in ADR 0029's
+problem-instance-sampling decision (Decision 3) (lines 117-119) and the
+matching "Neutral" consequence (line 161). **Every other ADR 0029 decision
+remains in force and ADR 0029 stays `active`**: the persistent-stream
 `reset()` rule, `reset_with_seed` as the inherent replay hatch, the
 sample-the-problem-once rule, the bandit-family treatment, the host-sampling
 ban on `B::seed` + `Tensor::random`, and the `R: Rng + ?Sized` trait-bound
 idiom are all unchanged and this ADR depends on them.
 
 This ADR does not reverse 0029; it removes an exception that contradicted
-0029's own rule. See Context §1.
+0029's own rule. See this ADR's own Context, part 1, below.
 
 ## Context
 
 ### 1. ADR 0029 states the rule and then carves these grids out of it
 
-Two paragraphs of ADR 0029 §3 sit six lines apart and disagree. The first
-states the general rule (line 114-115):
+Two paragraphs of ADR 0029's problem-instance-sampling decision (Decision 3)
+sit six lines apart and disagree. The first states the general rule
+(line 114-115):
 
 > Deterministic envs are allowed, but must still not re-seed on reset.
 
@@ -54,16 +56,18 @@ so the two paragraphs no longer disagree.
 
 ### 2. The premise rests on a reading of the Minigrid paper that conflates two things
 
-arXiv:2306.13831 §2.2 describes the Minigrid environments as deterministic —
-no randomness in the **transition function**. That is a statement about `step`:
+arXiv:2306.13831's Section 2.2 describes the Minigrid environments as
+deterministic — no randomness in the **transition function**. That is a
+statement about `step`:
 given a state and an action, the successor is fixed, with no slip probability
 and no stochastic dynamics. rlevo's grid `step` path
 (`grids/core/dynamics.rs::apply_action`) correctly reproduces this and is not
 at issue.
 
-It is not a statement about `reset`. The same paper's §2.4 and Figure 4 present
-`_gen_grid` as *the* world-generation seam — the method a user overrides to
-define a new task — and the shipped `_gen_grid` implementations sample. A
+It is not a statement about `reset`. The same paper's Section 2.4 and
+Figure 4 present `_gen_grid` as *the* world-generation seam — the method a
+user overrides to define a new task — and the shipped `_gen_grid`
+implementations sample. A
 transition-deterministic MDP whose initial-state distribution is a procedural
 generator is exactly the standard Minigrid setup, and it is the setup the whole
 procedurally-generated-environment generalization literature is built on.
@@ -93,9 +97,9 @@ Reconciled against Farama-Foundation/Minigrid `master` (`minigrid/envs/*.py`,
 | `Empty` | **None.** `MiniGrid-Empty-5x5/6x6/8x8/16x16` fix the agent at `(1,1)` dir `0`; only the separately-registered `-Random-` ids call `place_agent`. | agent `(1,1,East)`, goal `(size-2,size-2)` | **Faithful.** Genuinely deterministic. |
 | `DistShift` | **None** for the shipped `DistShift1/2-v0`. The lava row is a registration constant, not a draw — determinism is the experimental point of a train/test distributional-shift probe over two fixed, known boards. | variant-selected lava row, all else literal | **Faithful.** Genuinely deterministic. |
 | `LavaGap` | wall column `_rand_int(2, w-2)`, gap row `_rand_int(1, h-1)` | both pinned to `size/2` | Deviation (small). |
-| `Crossing` | `shuffle(rivers)` → take `num_crossings`; `shuffle(path)`; a `choice` per opening | exactly two strips at `mid±1` sharing one gap at `mid` | Deviation (small draws, ordering-critical — see §4). |
+| `Crossing` | `shuffle(rivers)` → take `num_crossings`; `shuffle(path)`; a `choice` per opening | exactly two strips at $\text{mid} \pm 1$ sharing one gap at `mid` | Deviation (small draws, ordering-critical — see this ADR's own Decision 4, below). |
 | `DoorKey` | split column `_rand_int(2, w-2)`, door row `_rand_int(1, h-2)`, agent pose via `place_agent`, key via `place_obj` | split `size/2`, door on the diagonal at `(split, split)`, key `(1,1)`, agent `(1,2,North)` | Deviation (small). |
-| `FourRooms` | four inter-room doorway offsets; agent pose and goal via `place_agent`/`place_obj` (the 2×2 quadrant partition itself is fixed) | doorways pinned at `mid±3`; agent and goal fixed | Deviation (small). |
+| `FourRooms` | four inter-room doorway offsets; agent pose and goal via `place_agent`/`place_obj` (the $2\times2$ quadrant partition itself is fixed) | doorways pinned at $\text{mid} \pm 3$; agent and goal fixed | Deviation (small). |
 | `UnlockPickup` | door row, door colour, box colour, key and box positions in room, agent pose | all constants | Deviation (small). |
 | `Unlock` | door y on the shared **interior** wall, `_rand_color()`, key colour tied to door colour, key pos via `place_in_room` with `reject_next_to`, agent pose | door at `(1, 0)` — **inside the top perimeter wall** — key `(2,1)`, single room | Deviation, **plus an independent placement defect**. |
 | `MultiRoom` | room **count**; each room's size and position via recursive `_placeRoom` with backtracking; each door's wall side, position, and colour | uniform horizontal strip of equal-width rooms, every door at `height/2`, all one colour | Deviation, **and a different size of problem** — procedural generation, not a handful of draws. |
@@ -162,12 +166,14 @@ Two corollaries that are not obvious and cost real time when rediscovered:
 Every environment in `rlevo-environments` is exactly one of two things. There
 is no third option.
 
-**(a) It samples.** Then it owns the full seam ADR 0029 §1-2 defines and #109
-established in `go_to_door.rs`:
+**(a) It samples.** Then it owns the full seam ADR 0029's persistent-RNG
+decision (Decision 1) and its `reset_with_seed` decision (Decision 2)
+define, and #109 established in `go_to_door.rs`:
 
 - a persistent `rng` field (not `_rng`), seeded **once** in `with_config`;
-- `build(config, rng: &mut R)` with `R: Rng + ?Sized` per `docs/rules.md` §8 —
-  not `&mut StdRng`, which the three already-migrated envs concretize by
+- `build(config, rng: &mut R)` with `R: Rng + ?Sized` per `docs/rules.md`'s
+  Host-RNG seeding convention (in its Dependency Usage section) — not
+  `&mut StdRng`, which the three already-migrated envs concretize by
   accident and which must not propagate;
 - `reset()` draws from the persistent stream and lets it advance; **no
   re-seed**;
@@ -190,8 +196,9 @@ The `seed` config field itself is retained in both cases. It is
 `Serialize`/`Deserialize` on `Copy` config structs with 20+ construction sites;
 removing it is a persisted-data break bought for nothing.
 
-This binary is what makes §4's guard enforceable with zero exceptions. An env
-that samples has its `seed_from_u64` in a constructor or in `reset_with_seed`;
+This binary is what makes this ADR's own Decision 4's guard enforceable with
+zero exceptions. An env that samples has its `seed_from_u64` in a
+constructor or in `reset_with_seed`;
 an env that does not sample has no `seed_from_u64` anywhere. A third "has an
 RNG but does not use it yet" state would need an allowlist, and an allowlist is
 where the next dead field hides.
@@ -215,7 +222,7 @@ otherwise be re-litigated at every call site.
 **(a) Exhaustion returns `Result`, propagated with `?` — never `.expect()`.**
 The construction chokepoint (ADR 0026) validates *config*; exhaustion depends
 on config **and** the draws already made this episode. `DoorKey` at
-`MIN_SIZE = 5` has a 3×3 interior: place the agent, then place the key under a
+`MIN_SIZE = 5` has a $3\times3$ interior: place the agent, then place the key under a
 `reject_next_to` filter, and the residual free set can be empty on some draws
 from a config that is entirely valid. That is an ordinary config, not a
 pathological one, so "config validation makes this unreachable" is false.
@@ -239,7 +246,7 @@ thing in-tree: collect the free cells into a `Vec`, `rng.random_range(0..len)`,
 with "impossible"; O(area) once rather than unbounded. Upstream's loop is
 unbounded because it declines to materialize the free set — an implementation
 detail of a different language's memory posture, not a semantic. On boards of
-at most 19×19 the allocation is noise. This deviation is deliberate and is
+at most $19\times19$ the allocation is noise. This deviation is deliberate and is
 documented at the sampler so a future contributor does not "restore fidelity"
 by reintroducing an unbounded loop in `reset()`.
 
@@ -253,7 +260,8 @@ just `grids/` — resolves each `seed_from_u64` occurrence to its enclosing `fn`
 and requires that function to be on an allowlist of constructors and explicit
 replay hatches (`with_config`, `new`, `with_seed`, `reset_with_seed`, …). An
 occurrence inside `reset` fails with a message citing this ADR, ADR 0029, and
-`docs/rules.md` §8. Like the landscape guard, the check runs both ways: an
+`docs/rules.md`'s Host-RNG seeding convention (its Dependency Usage
+section). Like the landscape guard, the check runs both ways: an
 allowlisted function that no longer exists is a stale row and also fails.
 
 Crate-wide scope is deliberate. `toy_text/`, `classic/`, `locomotion/`, and
@@ -274,7 +282,8 @@ costs nothing, so this is a reversible decision taken cheaply.
 
 ### 5. Deliberate, documented non-conformance is allowed; silent non-conformance is not
 
-Two environments remain knowingly non-conformant with §1 when this ADR lands:
+Two environments remain knowingly non-conformant with this ADR's own
+Decision 1 when this ADR lands:
 
 - **`MultiRoom`** (#1021) keeps its fixed equal-width strip. Upstream's
   recursive `_placeRoom` with backtracking is procedural generation, not a
@@ -283,9 +292,10 @@ Two environments remain knowingly non-conformant with §1 when this ADR lands:
   topology change, which moves `MIN_SIZE`, the layout, and the solvability
   oracle together.
 
-Both are tracked by issue and **documented in-file** under §2(b)'s wording rule
-— naming the upstream id they depart from and pointing at the issue — so the
-deviation is visible at the call site, not only in a tracker. Issue #282
+Both are tracked by issue and **documented in-file** under this ADR's own
+Decision 2(b)'s wording rule — naming the upstream id they depart from and
+pointing at the issue — so the deviation is visible at the call site, not
+only in a tracker. Issue #282
 therefore remains open on a 7/9 checklist rather than being closed against
 work that was not done. Issue #108 closes: its acceptance ("wire the seed into
 layout randomization per env, or correct the doc to state the layout is fixed")
@@ -299,12 +309,13 @@ is satisfied for all seven files it names.
   the line-117 carve-out no longer contradict each other, and "deterministic"
   now means "verified against upstream and documented," not "does not happen to
   call `rng`."
-- **The dangerous intermediate state is unrepresentable.** Under §2 there is no
-  env holding an unread RNG for someone to start sampling from while the
-  re-seed line survives. The trap #282 names cannot be re-entered without
-  deleting a guard test that names it.
-- **Six hand-rolled rejection loops become one reviewed sampler** (§3), with
-  one free-cell predicate and one exhaustion semantics to get right.
+- **The dangerous intermediate state is unrepresentable.** Under this ADR's
+  own Decision 2 there is no env holding an unread RNG for someone to start
+  sampling from while the re-seed line survives. The trap #282 names cannot
+  be re-entered without deleting a guard test that names it.
+- **Six hand-rolled rejection loops become one reviewed sampler** (this ADR's
+  own Decision 3), with one free-cell predicate and one exhaustion semantics
+  to get right.
 - **The `seed` field stops lying.** `crossing.rs:136-138`,
   `door_key.rs:103-105`, and `four_rooms.rs:129-131` currently say "Using the
   same seed always produces the same episode layout" on envs whose seed does
@@ -335,14 +346,14 @@ is satisfied for all seven files it names.
 - **`Empty` and `DistShift` keep a `seed` config field that provably does
   nothing.** Retained for config-surface uniformity and to avoid a
   persisted-data break; the cost is a field a reader must be told is inert,
-  which §2(b) requires the doc to do explicitly.
-- **The guard test is source-text, not semantic** (§4) — brittle to
-  reformatting, defeatable by aliasing.
+  which this ADR's own Decision 2(b) requires the doc to do explicitly.
+- **The guard test is source-text, not semantic** (this ADR's own Decision 4)
+  — brittle to reformatting, defeatable by aliasing.
 - **`MultiRoom` and `Unlock` ship non-conformant with the rule this ADR sets**
-  (§5). That is a real, named gap, not an oversight, and #282 stays open
-  because of it.
+  (this ADR's own Decision 5). That is a real, named gap, not an oversight,
+  and #282 stays open because of it.
 - **`four_rooms.rs:90-97`'s `const _: ()` assertion**, which ties `MIN_SIZE` to
-  the fixed `±3` doorway offsets and is deliberately written to break the build
+  the fixed $\pm 3$ doorway offsets and is deliberately written to break the build
   if `MIN_SIZE` drops, loses its stated justification once the offsets are
   sampled. It must be *replaced* with an assertion that the sampling range is
   non-empty at `MIN_SIZE`, not deleted.
@@ -361,9 +372,10 @@ is satisfied for all seven files it names.
   `reset_with_seed` remains an inherent method per ADR 0029's own rejection of
   putting it on the trait.
 - **`dynamic_obstacles.rs`, `memory.rs`, and `go_to_door.rs` are unchanged in
-  behaviour.** They already implement §2(a); they are the reference, and the
-  only edit they may attract is the `&mut StdRng` → `R: Rng + ?Sized` bound
-  correction, which is source-compatible at every call site.
+  behaviour.** They already implement this ADR's own Decision 2(a); they are
+  the reference, and the only edit they may attract is the `&mut StdRng` →
+  `R: Rng + ?Sized` bound correction, which is source-compatible at every
+  call site.
 - **The existing per-env `reset_is_deterministic` tests survive unmodified.**
   They construct two envs from the same config and compare one `reset()` each,
   which still holds under the persistent-stream model — and becomes a
@@ -384,7 +396,7 @@ is satisfied for all seven files it names.
   moves `MIN_SIZE` and the oracle. Bundling either with five envs that need a
   handful of `_rand_int` draws holds the tractable work hostage to the hard
   work and makes the resulting change unreviewable. Split, tracked, and
-  documented in-file (§5).
+  documented in-file (this ADR's own Decision 5).
 - **Amend ADR 0029 in place.** Forbidden by the repository's own convention
   (`docs/adr/README.md`: "Once accepted, an ADR is not edited — a later
   decision supersedes it"), and wrong on the merits: 0029's carve-out was a
@@ -398,7 +410,8 @@ is satisfied for all seven files it names.
   convention gets read as historical.
 - **Make placement exhaustion a panic, justified by the config chokepoint.**
   Rejected: exhaustion is a function of config *and* prior draws, so a valid
-  config can exhaust (§3(a)); `EnvironmentError`'s `Config` variant already
+  config can exhaust (this ADR's own Decision 3(a)); `EnvironmentError`'s
+  `Config` variant already
   documents the reset-time procedural-rebuild case; and both call sites already
   return `Result`, making the error path free.
 - **Port upstream's unbounded `place_obj` rejection loop verbatim, for
@@ -406,8 +419,8 @@ is satisfied for all seven files it names.
   to a distribution, and its failure mode is a non-terminating `reset()` —
   strictly worse than a returned error. A bounded `max_tries` variant was also
   rejected, as it conflates "unlucky draws" with "no free cell" and requires a
-  magic number no one can justify. Materializing the candidate set (§3(b))
-  gives the same distribution with neither problem.
+  magic number no one can justify. Materializing the candidate set (this
+  ADR's own Decision 3(b)) gives the same distribution with neither problem.
 - **Enforce the convention by review alone, as ADR 0061's clause 2 does.**
   Rejected here, and the difference is that this rule *is* mechanically
   checkable at useful fidelity. 0061's "no fabrication" clause requires knowing
@@ -422,19 +435,21 @@ is satisfied for all seven files it names.
 ## References
 
 - Issues: **#282** (dead `_rng` in nine grid envs + the ADR-0029-violating
-  re-seed; remains open on a 7/9 checklist per §5), **#108** (dead/misleading
-  `seed`/`_rng`, non-gameplay-breaking cases; closed by this work), **#109**
+  re-seed; remains open on a 7/9 checklist per this ADR's own Decision 5),
+  **#108** (dead/misleading `seed`/`_rng`, non-gameplay-breaking cases;
+  closed by this work), **#109**
   (grid gameplay bugs — established the seam this ADR generalizes), **#104**
   (RNG reseeded on every `reset()`), **#197** (codify the host-RNG convention),
   **#1020** (`Unlock` door-in-perimeter / two-room topology, deferred),
   **#1021** (`MultiRoom` procedural generation, deferred — its acceptance
   chooses between the misregistered `-v0` and the corrected `-v1`).
 - ADR [0029](0029-host-rng-seeding-convention.md) — the persistent-stream
-  convention this ADR depends on and whose §3 grid carve-out (lines 117-119)
-  and Neutral consequence (line 161) it supersedes. Everything else in 0029
-  stands.
+  convention this ADR depends on and whose problem-instance-sampling decision
+  (Decision 3)'s grid carve-out (lines 117-119) and Neutral consequence
+  (line 161) it supersedes. Everything else in 0029 stands.
 - ADR [0026](0026-shared-config-validation-convention.md) — the construction
-  chokepoint whose scope §3(a) delimits (config, not per-episode draws).
+  chokepoint whose scope this ADR's own Decision 3(a) delimits (config, not
+  per-episode draws).
 - ADR [0036](0036-adopt-proptest-for-property-tests.md) — why the seed-loop
   shape, not proptest, is correct for these invariants.
 - ADR [0043](0043-grid-observation-contract.md), ADR
@@ -442,15 +457,16 @@ is satisfied for all seven files it names.
   grid observation contract, unchanged by this ADR.
 - ADR [0033](0033-share-splitmix64-mixer-across-core-and-evolution.md) — the
   in-repo precedent for partial supersession (of ADR 0004).
-- `docs/rules.md` §8, "Host-RNG seeding convention (ADR 0029)" — gains this
-  ADR's §1/§2 binary and the `R: Rng + ?Sized` restatement.
+- `docs/rules.md`'s Host-RNG seeding convention (ADR 0029) subsection, in its
+  Dependency Usage section — gains this ADR's own Decision 1/Decision 2
+  binary and the `R: Rng + ?Sized` restatement.
 - Code — the seam: `crates/rlevo-environments/src/grids/go_to_door.rs`
   (`rng` field `:536`, `build(&config, &mut rng)` `:648-676`,
   `reset_with_seed` `:583-597`, `seed` doc of record `:395-401`, the
-  hand-rolled `sample_door_colors` `:682` this ADR's §3 replaces),
-  `crates/rlevo-environments/src/grids/memory.rs`,
+  hand-rolled `sample_door_colors` `:682` this ADR's own Decision 3
+  replaces), `crates/rlevo-environments/src/grids/memory.rs`,
   `crates/rlevo-environments/src/grids/dynamic_obstacles.rs:389-402`
-  (the materialized-candidate idiom §3(b) adopts).
+  (the materialized-candidate idiom this ADR's own Decision 3(b) adopts).
 - Code — the subjects: `crates/rlevo-environments/src/grids/`
   `{crossing,dist_shift,door_key,empty,four_rooms,lava_gap,multi_room,unlock,unlock_pickup}.rs`;
   `unlock.rs:293-305` (the perimeter-wall door);
@@ -463,15 +479,15 @@ is satisfied for all seven files it names.
   `#[non_exhaustive]`, `Config(#[from] ConfigError)` and its reset-time
   rustdoc).
 - Tests: `crates/rlevo-environments/tests/landscape_dim_guards.rs` (the
-  source-scanning guard pattern §4 copies),
+  source-scanning guard pattern this ADR's own Decision 4 copies),
   `crates/rlevo-environments/tests/grids_solvable.rs` (`ORACLE_SEEDS`, and the
   `GoToDoorEnv` `:269-296` / `MemoryEnv` `:382-412` seed-loop oracles with
   their non-degeneracy guards),
   `crates/rlevo-environments/tests/config_validation_chokepoint.rs`,
   `crates/rlevo-environments/tests/render_coverage.rs:139-158`.
 - Other affected consumers: `crates/rlevo/benches/grid_empty_rl.rs` (DQN policy
-  quality on `EmptyEnv` — depends on `Empty` staying deterministic, which §1
-  confirms it should),
+  quality on `EmptyEnv` — depends on `Empty` staying deterministic, which
+  this ADR's own Decision 1 confirms it should),
   `crates/rlevo/examples/envs/grids/grid_door_key_scripted.rs`,
   `crates/rlevo-environments/src/bench/family.rs` (feature-gated `bench`/
   `record` — must be checked under those features, not only the default set),
@@ -479,9 +495,9 @@ is satisfied for all seven files it names.
 - Chevalier-Boisvert, M., Dai, B., Towers, M., de Lazcano, R., Willems, L.,
   Lahlou, S., Pal, S., Castro, P. S., Terry, J. *Minigrid & Miniworld: Modular
   & Customizable Reinforcement Learning Environments for Goal-Oriented Tasks.*
-  arXiv:2306.13831 (2023). §2.2 (transition determinism — the claim Context §2
-  shows was misread as layout determinism), §2.4 and Figure 4 (`_gen_grid` as
-  the world-generation seam).
+  arXiv:2306.13831 (2023). Section 2.2 (transition determinism — the claim
+  this ADR's own Context, part 2, shows was misread as layout determinism),
+  Section 2.4 and Figure 4 (`_gen_grid` as the world-generation seam).
 - Farama-Foundation/Minigrid, `master` @ 2026-07-26:
   `minigrid/envs/{empty,distshift,lavagap,crossing,doorkey,fourrooms,unlock,unlockpickup,multiroom}.py`,
   `minigrid/core/roomgrid.py` (`place_in_room`, `add_object`,
@@ -490,5 +506,5 @@ is satisfied for all seven files it names.
   including the `MultiRoom-N4-S5-v0` misregistration).
 - Provenance: `docs/.private/research/2026-07-26-issue-282-grid-rng-minigrid-reconciliation.md`
   — the full per-env reconciliation and citation trail. That file is
-  **gitignored**, so this ADR reproduces its load-bearing verdicts (Context §3)
-  and citations rather than deferring to it.
+  **gitignored**, so this ADR reproduces its load-bearing verdicts (this
+  ADR's own Context, part 3) and citations rather than deferring to it.

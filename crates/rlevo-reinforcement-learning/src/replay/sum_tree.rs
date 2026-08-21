@@ -444,8 +444,9 @@ mod tests {
         let _ = SumTree::new(0);
     }
 
-    /// Issue #404, the release-mode half. Before the `MAX_BUFFER_CAPACITY`
-    /// assert, `SumTree::new` computed `capacity.next_power_of_two()` and then
+    /// The release-mode half of the capacity-overflow fix. Before the
+    /// `MAX_BUFFER_CAPACITY` assert, `SumTree::new` computed
+    /// `capacity.next_power_of_two()` and then
     /// `leaf_base * 2` with no guard, and the workspace root `Cargo.toml`
     /// declares no `[profile]` section — so release builds inherit
     /// `overflow-checks = false` and **both** operations wrap. Measured on

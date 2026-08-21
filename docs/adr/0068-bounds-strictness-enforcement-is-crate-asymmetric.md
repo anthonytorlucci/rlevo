@@ -3,7 +3,7 @@ project: rlevo
 status: active
 type: decision
 date: 2026-07-30
-tags: [adr, decision, bounds, config, validation, rlevo-core, rlevo-reinforcement-learning, log-std, guard-test, issue-387]
+tags: [adr, decision, bounds, config, validation, rlevo-core, rlevo-reinforcement-learning, log-std, guard-test]
 ---
 
 # ADR 0068: `Bounds` strictness is enforced asymmetrically by crate — a named helper everywhere, a mechanical guard only in `rlevo-reinforcement-learning`
@@ -13,12 +13,13 @@ tags: [adr, decision, bounds, config, validation, rlevo-core, rlevo-reinforcemen
 **Accepted (2026-07-30).** Resolves issue #387 ("migrating an ordered scalar
 pair to a `Bounds` field silently drops the strictness half of the old check").
 
-**Supersedes nothing.** It refines ADR [0027](0027-bounds-newtype-for-closed-ranges.md)
-§2 (the deliberate inclusive `lo <= hi` invariant) and ADR
-[0054](0054-policy-head-construction-is-fallible.md) §3 (the two explicit
-`config::distinct` lines that preserve strictness for `log_std`) into a named
-mechanism plus one mechanical check. `Bounds`'s inclusive invariant is **not**
-re-litigated — see §Alternatives.
+**Supersedes nothing.** It refines ADR [0027](0027-bounds-newtype-for-closed-ranges.md)'s
+inclusive-invariant decision (Decision 2) (the deliberate inclusive `lo <= hi`
+invariant) and ADR [0054](0054-policy-head-construction-is-fallible.md)'s
+Bounds-field decision (Decision 3) (the two explicit `config::distinct` lines
+that preserve strictness for `log_std`) into a named mechanism plus one
+mechanical check. `Bounds`'s inclusive invariant is **not** re-litigated — see
+this ADR's own Alternatives-considered section, below.
 
 **Chosen shape.** Three parts, deliberately unequal:
 
@@ -27,12 +28,14 @@ re-litigated — see §Alternatives.
 2. A source-text guard test scoped to **`rlevo-reinforcement-learning` only**,
    in the shape of `crates/rlevo-environments/tests/rng_seeding_guards.rs`.
    Its allowlist is 2 rows today, with an empty exemption list.
-3. Prose convention only (`docs/rules.md` §4 + the `Bounds` rustdoc) for
+3. Prose convention only (`docs/rules.md`'s Config Validation Contract, in
+   its Error Handling section, plus the `Bounds` rustdoc) for
    `rlevo-evolution` and `rlevo-environments`, where zero width is legitimate.
 
 Additive: no existing public signature changes, no numerics change, no
 serialized-form change. Both affected configs already carry the check this ADR
-names (ADR 0054 §3); the helper renames it and the guard pins it.
+names (ADR 0054's Bounds-field decision, Decision 3); the helper renames it
+and the guard pins it.
 
 ## Context
 
@@ -40,10 +43,11 @@ names (ADR 0054 §3); the helper renames it and the guard pins it.
 
 `config::ordered` (`rlevo-core::config`) requires strict `low < high`.
 `Bounds::try_new` (`crates/rlevo-core/src/bounds.rs`) accepts `lo <= hi` and
-**deliberately permits** `lo == hi` — ADR 0027 §2 gives the reasons, and they
-are good ones: `clamp` is well-defined on a single point, and every
-search-space consumer samples `lo + (hi - lo) * r`, which degenerates to the
-constant `lo` with no division and no `NaN`.
+**deliberately permits** `lo == hi` — ADR 0027's inclusive-invariant decision
+(Decision 2) gives the reasons, and they are good ones: `clamp` is
+well-defined on a single point, and every search-space consumer samples
+`lo + (hi - lo) * r`, which degenerates to the constant `lo` with no
+division and no `NaN`.
 
 So folding an `ordered`-checked scalar pair into one `Bounds` field discharges
 the **ordering** half of the old check and silently drops the **strictness**
@@ -56,18 +60,19 @@ the whole content of #387, and it is correct as a description of the mechanism.
 #387 files this as a general trap, and it is right about the trap. It is not a
 bug report: **there is no un-guarded instance in the workspace.** The one
 genuine case — the two Gaussian policy-head configs' `log_std` — was already
-closed by ADR 0054 §3, which foresaw exactly this loosening and added an
-explicit line to both configs:
+closed by ADR 0054's Bounds-field decision (Decision 3), which foresaw
+exactly this loosening and added an explicit line to both configs:
 
 - `crates/rlevo-reinforcement-learning/src/algorithms/ppo/policies/gaussian.rs:284`
 - `crates/rlevo-reinforcement-learning/src/algorithms/sac/sac_policy.rs:123`
 
 The issue notes that the sweep across the other migrations had not been done.
 It has been done for this ADR, and the result is that every other migration is
-the deliberate, documented choice of ADR 0027 §2/§6 — and that ADR 0027 §5's
-stated mitigation actually landed, rather than being promised and forgotten:
-`debug_assert!(span > 0.0, ..)` sits in
-`crates/rlevo-evolution/src/local_search/simulated_annealing.rs:79` and
+the deliberate, documented choice of ADR 0027's inclusive-invariant decision
+(Decision 2) and migration-scope decision (Decision 6) — and that ADR 0027's
+error-surface decision (Decision 5)'s stated mitigation actually landed,
+rather than being promised and forgotten: `debug_assert!(span > 0.0, ..)`
+sits in `crates/rlevo-evolution/src/local_search/simulated_annealing.rs:79` and
 `crates/rlevo-evolution/src/local_search/random_restart.rs:83`, in the two
 `default_for` constructors whose `step_size = 0.1 * (hi - lo)` a zero-width
 range would flatten to `0.0`.
@@ -83,18 +88,19 @@ excluding `tests/`, `examples/`, `benches/`). 32 fields:
 
 | crate | fields | zero width legitimate? |
 |---|---|---|
-| `rlevo-environments` | 10 — 4 `action_clip` (`reacher`, `swimmer`, `inverted_pendulum`, `inverted_double_pendulum`), 3 `HealthyCheck` `Option<Bounds>` ranges (`locomotion/common.rs:107,109,112`), 3 mountain-car (`pos_bounds` ×2, `action_bounds`) | **Yes** — a pinned clamp is meaningful |
-| `rlevo-evolution` | 20 — 18 `pub bounds` on the metaheuristic/EA configs, plus 2 **private** `bounds` on `HillClimbingParams` (`hill_climbing.rs:50`) and `SimulatedAnnealingParams` (`simulated_annealing.rs:53`) | **Yes** — a zero-width search space is degenerate-but-safe (ADR 0027 §2) |
-| `rlevo-reinforcement-learning` | 2 — `log_std` on `TanhGaussianPolicyHeadConfig` and `SquashedGaussianPolicyHeadConfig` | **No** — a zero-width `log σ` range is a silent σ collapse |
+| `rlevo-environments` | 10 — 4 `action_clip` (`reacher`, `swimmer`, `inverted_pendulum`, `inverted_double_pendulum`), 3 `HealthyCheck` `Option<Bounds>` ranges (`locomotion/common.rs:107,109,112`), 3 mountain-car (`pos_bounds` $\times 2$, `action_bounds`) | **Yes** — a pinned clamp is meaningful |
+| `rlevo-evolution` | 20 — 18 `pub bounds` on the metaheuristic/EA configs, plus 2 **private** `bounds` on `HillClimbingParams` (`hill_climbing.rs:50`) and `SimulatedAnnealingParams` (`simulated_annealing.rs:53`) | **Yes** — a zero-width search space is degenerate-but-safe (ADR 0027's inclusive-invariant decision, Decision 2) |
+| `rlevo-reinforcement-learning` | 2 — `log_std` on `TanhGaussianPolicyHeadConfig` and `SquashedGaussianPolicyHeadConfig` | **No** — a zero-width $\log \sigma$ range is a silent $\sigma$ collapse |
 | `rlevo-core`, `rlevo-hybrid`, `rlevo-benchmarks` | 0 | — |
 
 **The minority is not scattered. It is one crate.** That fact, not the 2-vs-30
 ratio on its own, is what licenses a guard whose scan covers one crate: a
 crate-scoped guard is only worth writing if the population it must see is
 crate-shaped, and here it is. A workspace-wide scan of the same pattern would
-need ~32 allowlist rows, 30 of them saying "zero width is fine here, see ADR
-0027 §2" — which is 30 rows of restating an accepted ADR, and 30 rows of
-stale-row maintenance, to protect 2 fields.
+need ~32 allowlist rows, 30 of them saying "zero width is fine here, see
+ADR 0027's inclusive-invariant decision (Decision 2)" — which is 30 rows of
+restating an accepted ADR, and 30 rows of stale-row maintenance, to protect 2
+fields.
 
 Two details of the enumeration matter for the guard's implementation and are
 recorded so they are not rediscovered. First, the pattern must **not** be
@@ -104,22 +110,22 @@ as complete. Second, `crates/rlevo-core/src/config.rs` matches the same regex
 on `nondegenerate_bounds`'s own `b: Bounds` **parameter** — the guard resolves
 matches to struct fields, not to any `: Bounds` occurrence.
 
-### Why the σ collapse is not merely "useless"
+### Why the $\sigma$ collapse is not merely "useless"
 
 Both RL sites already document this in-file, and it is the reason the two-item
 minority is worth mechanizing at all rather than left to review:
 
 - **PPO** (`gaussian.rs`): `log_std` is a *single shared `Param`*. Pinning it to
-  a constant freezes σ **and its gradient** from step 0, with no path back.
+  a constant freezes $\sigma$ **and its gradient** from step 0, with no path back.
 - **SAC** (`sac_policy.rs`): the `log_std` head still receives gradient through
   the mean path, so nothing is permanently frozen — but the policy becomes
   state-independently deterministic in scale, which is precisely the quantity
   SAC's entropy temperature is tuned against.
 
 Neither produces a `NaN`, a panic, or a failed assertion. Both produce a run
-that trains and reports finite numbers — the same failure class ADR 0054 §Context
-identified for the inverted case, minus the backend divergence that made the
-inverted case findable.
+that trains and reports finite numbers — the same failure class ADR 0054's
+Context section identified for the inverted case, minus the backend
+divergence that made the inverted case findable.
 
 ## Decision
 
@@ -152,12 +158,13 @@ Three consequences of the delegation, all intended:
   non-finite endpoint too. Per ADR 0060 that is correct: a `Bounds` **field of a
   config** is a config *value*, not `in_range`'s schema-level bound.
 - **The name is therefore slightly wider than the check.** "Nondegenerate" also
-  excludes `±∞`. This naming wart is documented at the helper rather than
+  excludes $\pm\infty$. This naming wart is documented at the helper rather than
   papered over; a field whose legitimate domain *includes* a one-sided infinite
-  range — `HealthyCheck::z_range`'s `[0.7, ∞)` — simply does not call this
+  range — `HealthyCheck::z_range`'s $[0.7, \infty)$ — simply does not call this
   helper and relies on the `Bounds` invariant alone.
-- **Error semantics are preserved byte-for-byte** against the two ADR 0054 §3
-  lines it replaces: same `ConstraintKind::DegenerateInterval`, same `field`.
+- **Error semantics are preserved byte-for-byte** against the two lines from
+  ADR 0054's Bounds-field decision (Decision 3) it replaces: same
+  `ConstraintKind::DegenerateInterval`, same `field`.
   This is what makes the change to `gaussian.rs`/`sac_policy.rs` a rename rather
   than a behaviour change, and it is why the existing rejection tests survive
   unmodified.
@@ -174,14 +181,16 @@ inheriting its four properties without change:
 
 - **Bidirectional allowlist.** Every `Bounds` field found in the crate's `src/`
   must be on the list, *and* every list row must still resolve to a live field.
-  A row that no longer matches is a stale row and fails — the property ADR 0062
-  §4 borrowed from `landscape_dim_guards.rs`, and the reason the check does not
-  rot into a permanently-green no-op.
+  A row that no longer matches is a stale row and fails — the property ADR
+  0062's guard-mechanization decision (Decision 4) borrowed from
+  `landscape_dim_guards.rs`, and the reason the check does not rot into a
+  permanently-green no-op.
 - **`#[cfg(test)]` regions are skipped**, with the same cost accepted for the
   same reason: a test-only config cannot ship, and requiring every test fixture
   to edit the allowlist is how a guard gets deleted.
 - **Fail loud, with the repair in the message** — the failure text names this
-  ADR, `config::nondegenerate_bounds`, and ADR 0027 §2 (so a reader who
+  ADR, `config::nondegenerate_bounds`, and ADR 0027's inclusive-invariant
+  decision (Decision 2) (so a reader who
   concludes "zero width is fine for my field" learns immediately that the answer
   is to move the field out of this crate's scope or justify an exemption row,
   not to widen the check).
@@ -199,16 +208,18 @@ future author is a yes/no with a default, not an essay.
 
 ### 3. `rlevo-evolution` and `rlevo-environments` get prose, not a scan
 
-For the other 30 fields the convention lives in `docs/rules.md` §4's Config
-Validation Contract and in the `Bounds` rustdoc: a `Bounds` field is
-zero-width-permissive by design; if a consumer needs a strictly positive span,
-it calls `config::nondegenerate_bounds` in its own `validate()`, and the reason
-goes in the field doc.
+For the other 30 fields the convention lives in `docs/rules.md`'s Config
+Validation Contract, in its Error Handling section, and in the `Bounds`
+rustdoc: a `Bounds` field is zero-width-permissive by design; if a consumer
+needs a strictly positive span, it calls `config::nondegenerate_bounds` in
+its own `validate()`, and the reason goes in the field doc.
 
-This is not "docs-only enforcement" in the sense §Alternatives rejects. The one
-place in these two crates where zero width actually bites — the SA and
-random-restart `step_size` defaults — already carries ADR 0027 §5's
-`debug_assert!`, and those two constructors are not reachable from a
+This is not "docs-only enforcement" in the sense this ADR's own
+Alternatives-considered section, below, rejects. The one place in these two
+crates where zero width actually bites — the SA and random-restart
+`step_size` defaults — already carries ADR 0027's error-surface decision
+(Decision 5)'s `debug_assert!`, and those two constructors are not reachable
+from a
 `Validate` impl at all (`default_for` is a constructor, not a validation
 seam), so `nondegenerate_bounds` could not be wired there without changing
 their signatures to fallible. The prose covers what is *unenforced*; it is not
@@ -218,8 +229,8 @@ being asked to cover what the guard covers.
 
 The crate partition is **a fact today, not a law.** This ADR's central
 justification is an enumeration of the workspace as of 2026-07-30, and it is
-load-bearing: remove the partition and §Decision 2's scope choice loses its
-argument entirely.
+load-bearing: remove the partition and this ADR's own Decision 2's scope
+choice loses its argument entirely.
 
 **Review trigger — any one of these reopens this ADR:**
 
@@ -229,7 +240,7 @@ argument entirely.
 3. That population crossing a crate boundary — i.e. a strictness-needing
    `Bounds` field outside `rlevo-reinforcement-learning`.
 
-Any of those flips §Decision 2 to a workspace-wide guard, and (2) or (3) would
+Any of those flips this ADR's own Decision 2 to a workspace-wide guard, and (2) or (3) would
 also justify revisiting the `NonDegenerateBounds` newtype rejected below: its
 cost amortizes differently at 5-vs-30 than at 2-vs-30, because the newtype's
 price is paid once per *permissive* adopter (each must answer "which `Bounds`?")
@@ -251,7 +262,8 @@ hypothetical: it is the existing `debug_assert!` being promoted.
 - The strictness check acquires a **name**. The migration trap #387 describes
   now has a one-line, greppable answer at the point of use, instead of a
   four-argument `config::distinct` call whose relationship to the `Bounds` field
-  beside it is legible only to a reader who knows ADR 0027 §2.
+  beside it is legible only to a reader who knows ADR 0027's
+  inclusive-invariant decision (Decision 2).
 - **`span() > 0.0` is closed off before anyone writes it.** The infinite-endpoint
   hole is the kind of thing found by a reviewer once and reintroduced by the next
   refactor; putting the reasoning in the helper and in this ADR is the only
@@ -259,8 +271,9 @@ hypothetical: it is the existing `debug_assert!` being promoted.
 - The two RL sites' checks become **checked-not-conventional**. Deleting either
   `nondegenerate_bounds` line now fails a test that names the ADR, rather than
   passing every gate in the repository.
-- **The guard's scope is itself recorded as a decision**, following ADR 0062 §4's
-  precedent that a source-text guard's scope is architectural (0062 chose
+- **The guard's scope is itself recorded as a decision**, following ADR
+  0062's guard-mechanization decision (Decision 4)'s precedent that a
+  source-text guard's scope is architectural (0062 chose
   crate-wide *against* a `grids/`-only scan, on the same kind of population
   argument reaching the opposite conclusion — the reasoning transfers, the answer
   does not, and the difference is exactly that #104's population was crate-wide
@@ -273,9 +286,10 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   `rng_seeding_guards.rs` precedent was written after the same bug recurred
   *twice* (#104, then #282's nine envs). Here the count is zero: one instance,
   found by review, fixed by ADR 0054 before the issue that names the trap was
-  even filed. That is the strongest argument against §Decision 2, and it is a
-  good one — a guard is a permanent maintenance obligation and an allowlist is a
-  file that must be edited by people who did not read this ADR.
+  even filed. That is the strongest argument against this ADR's own
+  Decision 2, and it is a good one — a guard is a permanent maintenance
+  obligation and an allowlist is a file that must be edited by people who
+  did not read this ADR.
 
   The countervailing input, which is what decided it: the project roadmap's near
   horizon is model-based RL / MPC for robotics plus continued CleanRL build-out.
@@ -285,21 +299,23 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   to arrive by copy-paste from one of the two existing heads, which is the
   failure mode a bidirectional allowlist catches and review demonstrably did not
   (`Validate` was implemented on all four head configs and called on none, per
-  ADR 0054 §Context). Stated as a forecast, because that is what it is: if the
-  roadmap changes, cost 1 stops being paid for and §Decision 2 should be deleted,
-  which costs nothing.
+  ADR 0054's Context section). Stated as a forecast, because that is what it
+  is: if the roadmap changes, cost 1 stops being paid for and this ADR's own
+  Decision 2 should be deleted, which costs nothing.
 - **A fourth spelling of "these two numbers differ" now exists in
   `rlevo-core::config`** — `ordered`, `distinct`, `nondegenerate_bounds`, and (in
   spirit) `Bounds`'s own invariant. Mitigated by delegation, not by
   documentation: `nondegenerate_bounds` contains no comparison of its own, so
   there is one predicate with three entry points, not three predicates.
-- **The helper's name over-promises slightly** (§Decision 1): it also rejects
-  `±∞`. A reader who wants "nonzero span, infinity allowed" must notice this. The
-  wart is documented at the helper; the alternative — a helper that permits an
-  infinite endpoint — is the loosening the helper exists to prevent.
+- **The helper's name over-promises slightly** (this ADR's own Decision 1):
+  it also rejects $\pm\infty$. A reader who wants "nonzero span, infinity allowed"
+  must notice this. The wart is documented at the helper; the alternative —
+  a helper that permits an infinite endpoint — is the loosening the helper
+  exists to prevent.
 - **Enforcement is now asymmetric across the workspace by design**, which is a
-  thing a reader must be told rather than infer. `rules.md` §4 and this ADR are
-  the only places the asymmetry is stated; a contributor who sees the guard in
+  thing a reader must be told rather than infer. `rules.md`'s section 4
+  (Error Handling) and this ADR are the only places the asymmetry is
+  stated; a contributor who sees the guard in
   `rlevo-reinforcement-learning` and none in `rlevo-evolution` and concludes the
   latter is an oversight will file the ADR-0027-relitigating issue this ADR is
   trying to make unnecessary.
@@ -314,7 +330,7 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   [0036](0036-adopt-proptest-for-property-tests.md)).
 - `Bounds` is untouched — no new method, no invariant change, no serde change.
   `validate()` keeps doing real work on both Gaussian configs regardless (ADR
-  0054 §Consequences: ADR 0049's floor and span checks stay).
+  0054's Consequences section: ADR 0049's floor and span checks stay).
 - `ConstraintKind` is unchanged. `DegenerateInterval` already says the right
   thing for this failure, and it is `#[non_exhaustive]` (ADR 0060) if that ever
   stops being true.
@@ -328,15 +344,16 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   and literals in a way a `validate()` line is not).
 
   Rejected on the cost side, and specifically **not** on the ground that it would
-  retire `validate()` — it would not. ADR 0054's §Consequences are explicit that
-  ADR 0049's absolute floor (`>= -35`) and span (`< 40`) checks are not
-  expressible as a `Bounds` invariant and stay in `validate()` either way, with
-  the `log_std_min = -120, log_std_max = -100` counterexample given there. So the
-  newtype removes **one line** from two `validate()` bodies that keep running,
-  while adding a second public range type that all 30 permissive adopters must
-  now answer "which `Bounds` does my field hold?" about — every config author,
-  every doc example, every `From`/`TryFrom` seam. That is the inverse of ADR
-  0054 §2's own uniformity reasoning ("one answer, not four"): it makes a
+  retire `validate()` — it would not. ADR 0054's Consequences section is
+  explicit that ADR 0049's absolute floor (`>= -35`) and span (`< 40`) checks
+  are not expressible as a `Bounds` invariant and stay in `validate()` either
+  way, with the `log_std_min = -120, log_std_max = -100` counterexample given
+  there. So the newtype removes **one line** from two `validate()` bodies
+  that keep running, while adding a second public range type that all 30
+  permissive adopters must now answer "which `Bounds` does my field hold?"
+  about — every config author, every doc example, every `From`/`TryFrom`
+  seam. That is the inverse of ADR 0054's uniformity decision (Decision 2)'s
+  own uniformity reasoning ("one answer, not four"): it makes a
   per-field question out of something that is currently a type-level fact. At
   2-vs-30 it does not earn its keep. At 5-vs-30 the arithmetic changes, which is
   why this is on the reopen trigger rather than closed.
@@ -348,23 +365,25 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   spelling of the same check with none of the newtype's compensating guarantee.
   It also fails on error shape: distinguishing "degenerate" from "inverted" in
   the returned error requires enum-ifying the currently-`pub struct BoundsError
-  { lo, hi }` (ADR 0027 §5, `Copy`, two public fields), a breaking change to a
-  public type in service of a check that is **not `Bounds`'s business** — ADR
-  0027 §2 decided that `Bounds` is the closed-clamp-range type and `config::*`
-  owns the strict scalar invariants.
+  { lo, hi }` (ADR 0027's error-surface decision, Decision 5, `Copy`, two
+  public fields), a breaking change to a public type in service of a check
+  that is **not `Bounds`'s business** — ADR 0027's inclusive-invariant
+  decision (Decision 2) decided that `Bounds` is the closed-clamp-range type
+  and `config::*` owns the strict scalar invariants.
 
 - **Docs-only enforcement for the RL crate too** (state the convention, add no
   guard). Rejected on this workspace's own history rather than on principle: ADR
-  0054's §Alternatives already rejected exactly this shape for exactly these
-  configs, citing ADR 0026's "exactly the drift that produced 87 un-validated
-  configs" — and #386 *was* that drift arriving, with `Validate` implemented on
-  four head configs and called on none. Note that this ADR nonetheless chooses
-  prose for the other 30 fields (§Decision 3): the distinction is that there,
-  prose is describing a *permission*, and a permission does not drift into a
-  defect.
+  0054's Alternatives-considered section already rejected exactly this shape
+  for exactly these configs, citing ADR 0026's "exactly the drift that
+  produced 87 un-validated configs" — and #386 *was* that drift arriving,
+  with `Validate` implemented on four head configs and called on none. Note
+  that this ADR nonetheless chooses prose for the other 30 fields (this
+  ADR's own Decision 3): the distinction is that there, prose is describing
+  a *permission*, and a permission does not drift into a defect.
 
-- **A workspace-wide guard, same shape, same predicate.** Rejected on §Context's
-  partition: ~32 allowlist rows, 30 of which restate ADR 0027 §2, each of which
+- **A workspace-wide guard, same shape, same predicate.** Rejected on this
+  ADR's own Context section's partition: ~32 allowlist rows, 30 of which
+  restate ADR 0027's inclusive-invariant decision (Decision 2), each of which
   must be maintained against reformatting and field renames, to protect 2 fields
   that live in one crate. The failure mode is specific and worth naming — a guard
   whose rows are 94 % "this one is fine" trains its readers to add a row without
@@ -372,8 +391,9 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   the reopen trigger.
 
 - **Changing `Bounds`'s inclusive invariant to strict `lo < hi`.** Out of scope
-  and explicitly not re-litigated. ADR 0027 §2 and its §Alternatives decided this
-  with reasons (`clamp` is well-defined on a point; every sampler is
+  and explicitly not re-litigated. ADR 0027's inclusive-invariant decision
+  (Decision 2) and its Alternatives-considered section decided this with
+  reasons (`clamp` is well-defined on a point; every sampler is
   zero-width-safe), and 30 of 32 fields depend on the answer. This ADR supersedes
   nothing.
 
@@ -381,41 +401,47 @@ hypothetical: it is the existing `debug_assert!` being promoted.
   permissive ones.** The mirror image of the status quo, and it inverts the
   default in the wrong direction: it would make the *documented, intended,
   30-field* behaviour the thing requiring justification. Rejected for the same
-  reason ADR 0027 §2 rejected strict `<` on the type.
+  reason ADR 0027's inclusive-invariant decision (Decision 2) rejected strict
+  `<` on the type.
 
 ## References
 
 - Issue **#387** — the migration trap this ADR records. Accurate about the
   mechanism, with **no live defect**: its one genuine instance was already closed
-  by ADR 0054 §3, and the audit it notes was not run has been run for this ADR
-  (§Context).
-- ADR [0027](0027-bounds-newtype-for-closed-ranges.md) — §2 (the deliberate
-  inclusive invariant and the documented divergence from `config::ordered`), §5
-  (the `debug_assert!` mitigation that landed), §6 (migration scope). Refined,
-  not superseded.
-- ADR [0054](0054-policy-head-construction-is-fallible.md) — §3 (the two
-  `config::distinct` lines this ADR renames), §2 (the uniformity reasoning the
-  newtype alternative would invert), §Consequences (why `Bounds` does not subsume
-  `validate()`, and the `-120/-100` counterexample), §Alternatives (the
-  docs-only rejection reused here).
+  by ADR 0054's Bounds-field decision (Decision 3), and the audit it notes
+  was not run has been run for this ADR (this ADR's own Context section).
+- ADR [0027](0027-bounds-newtype-for-closed-ranges.md) — its inclusive-invariant
+  decision (Decision 2) (the deliberate inclusive invariant and the
+  documented divergence from `config::ordered`), its error-surface decision
+  (Decision 5) (the `debug_assert!` mitigation that landed), its
+  migration-scope decision (Decision 6) (migration scope). Refined, not
+  superseded.
+- ADR [0054](0054-policy-head-construction-is-fallible.md) — its Bounds-field
+  decision (Decision 3) (the two `config::distinct` lines this ADR renames),
+  its uniformity decision (Decision 2) (the uniformity reasoning the newtype
+  alternative would invert), its Consequences section (why `Bounds` does not
+  subsume `validate()`, and the `-120/-100` counterexample), its
+  Alternatives-considered section (the docs-only rejection reused here).
 - ADR [0049](0049-ppo-gaussian-log-std-is-bounded.md) — the floor (`>= -35`) and
   span (`< 40`) checks that stay in `validate()` and that the newtype alternative
   would not have retired.
 - ADR [0060](0060-config-values-must-be-finite.md) — the finiteness guard on
   `ordered`/`distinct` that `nondegenerate_bounds` inherits, and the
-  value-versus-schema distinction that makes rejecting `±∞` correct here while
+  value-versus-schema distinction that makes rejecting $\pm\infty$ correct here while
   `Bounds::new(0.7, f32::INFINITY)` stays legitimate elsewhere.
 - ADR [0026](0026-shared-config-validation-convention.md), ADR
   [0055](0055-config-invariant-enforcement-allocation.md) — the `Validate`
   chokepoint convention, and the "privacy on the value, not the container" rule
   the newtype alternative appeals to.
-- ADR [0062](0062-grid-layout-fidelity-and-no-dead-rng.md) §4 — the precedent
-  that a source-text guard's **scope** is an ADR-recorded decision, and the
-  source of the bidirectional-allowlist / stated-limits shape adopted here.
+- ADR [0062](0062-grid-layout-fidelity-and-no-dead-rng.md) — its
+  guard-mechanization decision (Decision 4), the precedent that a source-text
+  guard's **scope** is an ADR-recorded decision, and the source of the
+  bidirectional-allowlist / stated-limits shape adopted here.
 - ADR [0036](0036-adopt-proptest-for-property-tests.md) — why this invariant is
   not a proptest.
-- `docs/rules.md` §4, "Config Validation Contract (ADR 0026, 0055, 0060)" —
-  gains §Decision 3's convention.
+- `docs/rules.md`'s Config Validation Contract, in its Error Handling section
+  ("Config Validation Contract (ADR 0026, 0055, 0060)") — gains this ADR's
+  own Decision 3's convention.
 - Code — the helper: `crates/rlevo-core/src/config.rs`
   (`config::nondegenerate_bounds`, `config::distinct`, `config::ordered`),
   `crates/rlevo-core/src/bounds.rs` (`Bounds::try_new`, the `lo <= hi`
@@ -423,17 +449,21 @@ hypothetical: it is the existing `debug_assert!` being promoted.
 - Code — the strict population (2):
   `crates/rlevo-reinforcement-learning/src/algorithms/ppo/policies/gaussian.rs:284`
   and `crates/rlevo-reinforcement-learning/src/algorithms/sac/sac_policy.rs:123`
-  (the ADR 0054 §3 lines, with the in-file comments explaining PPO's frozen
-  shared `Param` and SAC's state-independent σ).
+  (the lines from ADR 0054's Bounds-field decision, Decision 3, with the
+  in-file comments explaining PPO's frozen shared `Param` and SAC's
+  state-independent $\sigma$).
 - Code — the permissive population's live mitigation:
   `crates/rlevo-evolution/src/local_search/simulated_annealing.rs:79`,
-  `crates/rlevo-evolution/src/local_search/random_restart.rs:83` (ADR 0027 §5's
-  `debug_assert!`, and the plausible shape of this ADR's reopen trigger).
+  `crates/rlevo-evolution/src/local_search/random_restart.rs:83` (ADR 0027's
+  error-surface decision, Decision 5's, `debug_assert!`, and the plausible
+  shape of this ADR's reopen trigger).
 - Tests: `crates/rlevo-environments/tests/rng_seeding_guards.rs` (the guard shape
-  §Decision 2 copies — bidirectional allowlist, `#[cfg(test)]`-region skipping,
-  stated limits), `crates/rlevo-environments/tests/landscape_dim_guards.rs` (its
-  own ancestor).
-- Provenance: the roadmap forecast in §Consequences (model-based RL / MPC for
-  robotics; continued CleanRL build-out) comes from the maintainer's working
-  notes, which are **gitignored**, so the forecast is reproduced here as a stated
-  assumption rather than deferred to an unreachable file.
+  this ADR's own Decision 2 copies — bidirectional allowlist,
+  `#[cfg(test)]`-region skipping, stated limits),
+  `crates/rlevo-environments/tests/landscape_dim_guards.rs` (its own
+  ancestor).
+- Provenance: the roadmap forecast in this ADR's own Consequences section
+  (model-based RL / MPC for robotics; continued CleanRL build-out) comes
+  from the maintainer's working notes, which are **gitignored**, so the
+  forecast is reproduced here as a stated assumption rather than deferred to
+  an unreachable file.

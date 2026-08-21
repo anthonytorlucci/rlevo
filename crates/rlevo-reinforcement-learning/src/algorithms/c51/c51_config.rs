@@ -19,28 +19,28 @@ use crate::target::TargetUpdate;
 /// [`crate::algorithms::c51::c51_agent::C51Agent`]. The distribution-specific
 /// fields are [`num_atoms`](Self::num_atoms), [`v_min`](Self::v_min), and
 /// [`v_max`](Self::v_max); the rest are the standard DQN knobs (learning
-/// rate, γ, τ, ε schedule, replay capacity, …).
+/// rate, `$\gamma$`, `$\tau$`, `$\epsilon$` schedule, replay capacity, …).
 #[derive(Clone, Debug)]
 pub struct C51TrainingConfig {
     /// Minibatch size sampled from the replay buffer each learn step.
     pub batch_size: usize,
 
-    /// Discount factor γ in `[0, 1]`.
+    /// Discount factor `$\gamma$` in `[0, 1]`.
     pub gamma: f64,
 
     /// Optimizer learning rate.
     pub learning_rate: f64,
 
-    /// Initial ε value for the ε-greedy exploration schedule.
+    /// Initial `$\epsilon$` value for the `$\epsilon$`-greedy exploration schedule.
     pub epsilon_start: f64,
 
-    /// Floor ε value for the exploration schedule.
+    /// Floor `$\epsilon$` value for the exploration schedule.
     pub epsilon_end: f64,
 
-    /// Multiplicative decay applied to ε each env step.
+    /// Multiplicative decay applied to `$\epsilon$` each env step.
     pub epsilon_decay: f64,
 
-    /// How the target network tracks the policy network: one cadence, one τ.
+    /// How the target network tracks the policy network: one cadence, one `$\tau$`.
     ///
     /// [`TargetUpdate`] is a single mechanism, not two (ADR 0058). Its cadence
     /// [`every`](TargetUpdate::every) decides *when* an update fires; its
@@ -101,16 +101,16 @@ pub struct C51TrainingConfig {
     /// the algorithm takes its name.
     pub num_atoms: usize,
 
-    /// Lower bound of the atom support `z_0`.
+    /// Lower bound of the atom support `$z_0$`.
     pub v_min: f32,
 
-    /// Upper bound of the atom support `z_{N-1}`.
+    /// Upper bound of the atom support `$z_{N-1}$`.
     pub v_max: f32,
 
     /// Optional gradient-norm / gradient-value clipping.
     pub clip_grad: Option<GradientClippingConfig>,
 
-    /// Optimizer configuration (Adam β's, ε, etc.).
+    /// Optimizer configuration (Adam `$\beta$`'s, `$\epsilon$`, etc.).
     pub optimizer: AdamConfig,
 
     /// Opt-in prioritized experience replay (Schaul et al. 2016), `None` by
@@ -125,7 +125,7 @@ pub struct C51TrainingConfig {
     ///
     /// **Literature-recommended exponent.** Rainbow pairs the KL priority with
     /// `$\omega = 0.5$` (its `priority_exponent` here), and reports performance is "very
-    /// robust to the choice of ω" under the KL priority. The shipped default is
+    /// robust to the choice of `$\omega$`" under the KL priority. The shipped default is
     /// Schaul's `0.6`; set `priority_exponent` to `0.5` on
     /// [`PrioritizedReplaySettings`] to match Rainbow. Buffer capacity comes from
     /// [`replay_buffer_capacity`](Self::replay_buffer_capacity).
@@ -133,7 +133,7 @@ pub struct C51TrainingConfig {
 }
 
 impl C51TrainingConfig {
-    /// Spacing between adjacent atoms: `$(\text{v\_max} - \text{v\_min}) / (\text{num\_atoms} - 1)$`.
+    /// Spacing between adjacent atoms: `$\left (v_{\max} - v_{\min} \right ) / \left ( \text{num_atoms} - 1 \right )$`.
     ///
     /// Delegates to [`atom_spacing`] so the support this config builds and the
     /// bin indices the categorical projection computes share one definition of
@@ -141,10 +141,12 @@ impl C51TrainingConfig {
     /// scatter index off the end of the support.
     ///
     /// # Returns
+    ///
     /// The uniform atom spacing, or [`f32::NAN`] for a degenerate
     /// `num_atoms < 2` (a spacing is undefined with fewer than two atoms).
-    /// [`Validate`] rejects such a config, but a struct literal can bypass the
-    /// builder, so this stays total rather than panicking (see issue #326).
+    /// [`Validate`] rejects such a config, but a struct literal can bypass
+    /// the builder — not the `with_config` chokepoint that runs it — so this
+    /// can't assume validation ran and stays total rather than panicking.
     #[must_use]
     pub fn delta_z(&self) -> f32 {
         atom_spacing(self.v_min, self.v_max, self.num_atoms)
@@ -154,14 +156,14 @@ impl C51TrainingConfig {
 impl Default for C51TrainingConfig {
     /// Returns defaults consistent with `CleanRL`'s reference C51 hyperparameters.
     ///
-    /// [`target_update`](Self::target_update) is a τ = 0.005 Polyak step on
+    /// [`target_update`](Self::target_update) is a `$\tau$` = 0.005 Polyak step on
     /// **every** gradient update. That is bit-for-bit the pre-[`TargetUpdate`]
     /// behaviour: the old `tau = 0.005` soft update ran ungated inside every
     /// learn step, which in gradient-update units is exactly `every = 1`. The
     /// old `target_update_frequency = 10_000` is deliberately not carried over
     /// — it was inert under `tau > 0` and, read as a cadence under the unified
     /// rule, would collapse the Polyak schedule 10 000×
-    /// (ADR 0059 §Consequences).
+    /// (ADR 0059 section on Consequences).
     fn default() -> Self {
         Self {
             batch_size: 32,
@@ -219,7 +221,7 @@ impl Validate for C51TrainingConfig {
             per.validate()?;
         }
         // `target_update` carries no check here, deliberately: `TargetUpdate`
-        // is valid by construction (ADR 0027 §3 — a validated newtype *removes*
+        // is valid by construction (ADR 0027 section 3 — a validated newtype *removes*
         // its paired `config::` line). Its `PolyakTau` excludes τ = 0.0 and its
         // `NonZeroUsize` cadence excludes 0, so the frozen target the old
         // cross-field check rejected is now unrepresentable rather than merely
@@ -293,7 +295,7 @@ impl C51TrainingConfigBuilder {
         self
     }
 
-    /// Sets [`C51TrainingConfig::target_update`] — cadence and τ together.
+    /// Sets [`C51TrainingConfig::target_update`] — cadence and `$\tau$` together.
     ///
     /// One setter, because there is one mechanism (ADR 0058). The cadence is in
     /// **gradient updates**, unlike the env-step

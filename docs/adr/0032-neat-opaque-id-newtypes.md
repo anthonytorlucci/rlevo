@@ -36,10 +36,11 @@ raw `u64` are all the *same* type and freely interchangeable. Nothing prevented
 passing a `NodeId` where an `InnovationId` was expected —
 `InnovationRegistry::register_node_split(split: InnovationId)` would silently
 accept a node id, and `ConnectionGene` mixes `source: NodeId` with `innovation:
-InnovationId` in one struct. All three independent file reviews (innovation.rs
-§3.1, species.rs §3.4, topology.rs §3.2) flagged the same id-confusion surface;
-§3.1 rated it 🔴 as a real type-safety gap in the mutation/crossover alignment
-logic, where an id mix-up misclassifies genes with **no error**.
+InnovationId` in one struct. A file review of `topology.rs` flagged this same
+bare-alias gap directly (rated a low-severity nit in that review, since nothing
+was observed to trip it yet) — but the underlying bug class is a real
+type-safety gap in the mutation/crossover alignment logic, where an id mix-up
+would misclassify genes with **no error**.
 
 ### Relationship to existing seams
 
@@ -71,8 +72,9 @@ pub struct SpeciesId(u64);     // species.rs
 Each carries: `pub const fn new(u64) -> Self` (infallible), `pub const fn get(self)
 -> u64` (the sole public accessor), and `pub(crate) const fn succ(self) -> Self`
 (the *only* arithmetic, used exclusively by the `InnovationRegistry` / `speciate`
-counters). The field is **private** — no `pub` data-bag field (rules §2), no
-`Deref`, no `Display`, matching every existing newtype in the workspace.
+counters). The field is **private** — no `pub` data-bag field (`docs/rules.md`'s
+Struct Field Encapsulation subsection), no `Deref`, no `Display`, matching
+every existing newtype in the workspace.
 
 The derive set is dictated by the use sites: `Eq + Hash` for the many
 `HashMap`/`HashSet<NodeId>` keys (`phenotype.rs`, `innovation.rs` caches) and
@@ -121,8 +123,9 @@ arithmetic. Seed-topology construction (`TopologyGenome::minimal`) and the empty
 ## Alternatives considered
 
 - **Transparent newtype with a `pub` field** (the older `RunId`/`ScalarReward`
-  style). Rejected: rules §2 discourages `pub` data-bag fields; the opaque
-  `new`/`get` shape is the current convention and keeps the id space sealed.
+  style). Rejected: `docs/rules.md`'s Struct Field Encapsulation subsection
+  discourages `pub` data-bag fields; the opaque `new`/`get` shape is the
+  current convention and keeps the id space sealed.
 - **A dedicated `neuroevolution/ids.rs` module** holding all three. Rejected:
   changes intra-module import paths for no functional gain; the aliases already
   had settled homes.
@@ -130,7 +133,7 @@ arithmetic. Seed-topology construction (`TopologyGenome::minimal`) and the empty
   Rejected: an id has no invariant to validate and no persisted form, so the
   validation surface would be dead weight.
 - **Leave the aliases, add a lint / naming convention.** Rejected: an alias
-  cannot be enforced by the compiler — the id-confusion the reviews flagged
+  cannot be enforced by the compiler — the id-confusion the review flagged
   stays possible.
 
 ## References
@@ -140,7 +143,8 @@ arithmetic. Seed-topology construction (`TopologyGenome::minimal`) and the empty
 - ADR [0031](0031-probability-rate-newtypes.md) — the immediately preceding
   newtype ADR; this one reuses its shape and records the no-validation/no-serde
   divergence.
-- `docs/rules.md §2` — Struct Field Encapsulation (private field + accessor).
+- `docs/rules.md`'s Struct Field Encapsulation subsection — private field +
+  accessor.
 - Code: `crates/rlevo-evolution/src/neuroevolution/{topology,species,innovation}.rs`
   (definitions + allocators), `.../phenotype.rs` (the `HashMap<NodeId, usize>`
   id→row seam that constrained the derives),

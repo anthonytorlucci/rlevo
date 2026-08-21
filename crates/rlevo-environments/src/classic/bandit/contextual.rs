@@ -786,7 +786,19 @@ mod tests {
         assert!(s3.is_terminated());
     }
 
-    // ── post-terminal step guard (issue #295, ADR 0044) ──────────────────────
+    // ── post-terminal step guard ──────────────────────────────────────────────
+    //
+    // This env used to carry a `done: bool` field that `step()` wrote but
+    // never read back. Nothing stopped a caller from stepping past
+    // termination: `self.steps` kept incrementing, `steps >= max_steps`
+    // stayed true, and every extra call sampled a *fresh random reward* and
+    // returned a *new* `Terminated` snapshot instead of rejecting the call.
+    // `guard: EpisodeGuard` (ADR 0044) replaces that dead field as the single
+    // source of truth for episode status. `step()` calls `guard.check()?`
+    // first, before validating the action or drawing the reward/next-context
+    // — bandits sample from `self.rng`, so a rejected step must not consume
+    // any RNG stream state. The tests below drive an episode to termination
+    // and then assert the guard rejects further steps.
 
     /// Step budget for the guard tests: small enough to burn through quickly.
     const GUARD_MAX_STEPS: usize = 3;

@@ -324,7 +324,7 @@ mod tests {
     /// `Err`**, which is why this asserts on the returned error rather than
     /// using `#[should_panic]`: a panic here would be the bug, not the fix.
     #[test]
-    fn rejects_replay_buffer_capacity_above_ceiling() {
+    fn test_td3config_rejects_replay_buffer_capacity_above_ceiling() {
         let err = Td3TrainingConfigBuilder::new()
             .replay_buffer_capacity(usize::MAX)
             .build()
@@ -338,7 +338,7 @@ mod tests {
     /// The boundary is inclusive: the ceiling itself is a legal (if
     /// unallocatable) capacity, so the guard cannot be off by one.
     #[test]
-    fn accepts_replay_buffer_capacity_at_ceiling() {
+    fn test_td3config_accepts_replay_buffer_capacity_at_ceiling() {
         let cfg = Td3TrainingConfigBuilder::new()
             .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
             .build()
@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_match_cleanrl() {
+    fn test_td3config_defaults_match_cleanrl() {
         let cfg = Td3TrainingConfig::default();
         assert_eq!(cfg.replay_buffer_capacity, 1_000_000);
         assert_eq!(cfg.batch_size, 256);
@@ -368,13 +368,13 @@ mod tests {
     /// by aliasing. The default `every` must equal the default
     /// `policy_frequency`, or the decoupling silently rescaled every default
     /// TD3 run.
-    // Bit-exactness *is* the property under test here: τ is a source literal
+    // Bit-exactness *is* the property under test here: \\(\tau\\) is a source literal
     // stored verbatim and read back through a widening that is exact for every
     // `f32`, never the result of arithmetic. A tolerance would let a genuine
     // default drift pass.
     #[allow(clippy::float_cmp)]
     #[test]
-    fn default_target_update_is_bit_identical_to_the_pre_migration_alias() {
+    fn test_td3config_default_target_update_is_bit_identical_to_the_pre_migration_alias() {
         let cfg = Td3TrainingConfig::default();
         assert_eq!(
             cfg.target_update.tau(),
@@ -401,7 +401,7 @@ mod tests {
     /// The configuration ADR 0058 exists to make expressible: an actor delay
     /// and a target cadence that differ.
     #[test]
-    fn actor_delay_and_target_cadence_are_independently_settable() {
+    fn test_td3config_actor_delay_and_target_cadence_are_independently_settable() {
         let cfg = Td3TrainingConfigBuilder::new()
             .policy_frequency(1)
             .target_update(TargetUpdate::polyak(0.005, 2))
@@ -414,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn builder_overrides_propagate() {
+    fn test_td3config_builder_overrides_propagate() {
         let cfg = Td3TrainingConfigBuilder::new()
             .batch_size(64)
             .policy_noise(0.3)
@@ -431,12 +431,12 @@ mod tests {
     }
 
     #[test]
-    fn default_config_is_valid() {
+    fn test_td3config_default_config_is_valid() {
         assert!(Td3TrainingConfig::default().validate().is_ok());
     }
 
     #[test]
-    fn rejects_negative_policy_noise() {
+    fn test_td3config_rejects_negative_policy_noise() {
         let err = Td3TrainingConfigBuilder::new()
             .policy_noise(-0.1)
             .build()
@@ -457,7 +457,7 @@ mod tests {
     /// that "simplifies" `in_range` to reject infinite bounds too would break
     /// it, which is the whole point of the test.
     #[test]
-    fn noise_clip_accepts_large_finite_but_rejects_infinity() {
+    fn test_td3config_noise_clip_accepts_large_finite_but_rejects_infinity() {
         let cfg = Td3TrainingConfigBuilder::new()
             .noise_clip(1e30)
             .build()
@@ -478,11 +478,11 @@ mod tests {
 
     /// The frozen-target state is not *rejected* by `validate` here — it is
     /// unrepresentable, so the assertion belongs at the constructor (ADR 0058
-    /// §Consequences). Pinned per family rather than only in `target.rs`,
+    /// section Consequences). Pinned per family rather than only in `target.rs`,
     /// because the guarantee a TD3 reader needs is "no `Td3TrainingConfig` can
     /// hold a frozen target", and that is a statement about this config.
     #[test]
-    fn frozen_target_is_unreachable_through_the_type() {
+    fn test_td3config_frozen_target_is_unreachable_through_the_type() {
         assert!(
             TargetUpdate::try_polyak(0.0, 1).is_err(),
             "τ = 0 fires on schedule and moves nothing — a frozen target"
@@ -504,7 +504,7 @@ mod tests {
     /// construct an invalid `TargetUpdate` *value* to assign into the public
     /// field, so there is nothing for `validate` to catch on this route.
     #[test]
-    fn nan_tau_cannot_be_constructed_for_struct_update_syntax() {
+    fn test_td3config_nan_tau_cannot_be_constructed_for_struct_update_syntax() {
         assert!(TargetUpdate::try_polyak(f32::NAN, 1).is_err());
         assert!(TargetUpdate::try_polyak(f32::INFINITY, 1).is_err());
         // Every τ a struct-update config can carry came through `PolyakTau`, so

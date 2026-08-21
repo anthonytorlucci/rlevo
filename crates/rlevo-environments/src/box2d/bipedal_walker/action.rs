@@ -178,9 +178,12 @@ mod tests {
 
     #[test]
     fn test_random_is_valid() {
-        // Regression for #100: the corrected default `random()` samples
-        // `COMPONENTS` values (4), so `from_slice` no longer panics; symmetric
-        // `[-1, 1)` sampling keeps every draw valid.
+        // Regression test for the default-`random()` panic: the trait default
+        // used to sample `RANK` values (1) instead of `COMPONENTS` (4) and
+        // hand that short slice to `from_slice`, which panics on a length
+        // mismatch. The corrected default samples `COMPONENTS` values, so
+        // `from_slice` no longer panics; symmetric `[-1, 1)` sampling keeps
+        // every draw valid.
         for _ in 0..100 {
             let a = BipedalWalkerAction::random();
             assert!(a.is_valid(), "random action must be valid: {a:?}");

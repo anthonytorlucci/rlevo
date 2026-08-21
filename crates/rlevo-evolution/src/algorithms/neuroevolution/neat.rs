@@ -173,7 +173,7 @@ pub struct NeatState {
     pub next_species_id: SpeciesId,
     /// Best genome seen across all generations, if any.
     pub best: Option<TopologyGenome>,
-    /// Best fitness seen across all generations (`−∞` before the first `tell`).
+    /// Best fitness seen across all generations (`$-\infty$` before the first `tell`).
     pub best_fitness: f32,
 }
 
@@ -202,7 +202,7 @@ impl<B: Backend> NeatStrategy<B> {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` is non-finite (`+∞` or `NaN`).
+    /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`).
     #[must_use]
     pub fn init(
         &self,
@@ -319,7 +319,7 @@ impl<B: Backend> NeatStrategy<B> {
     /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), so there is
     /// no harness above it to sanitize fitness. `tell` therefore applies
     /// `sanitize_fitness` to the incoming
-    /// `fitness` (`NaN → −∞`, `+∞ → f32::MAX`, `−∞` and finite pass through)
+    /// `fitness` (`NaN` `$\to -\infty$`, `$+\infty$` `$\to$` `f32::MAX`, `$-\infty$` and finite pass through)
     /// **before** it is stored or handed to [`species::speciate`], so a
     /// non-finite fitness can never poison speciation, offspring apportionment,
     /// or best-so-far tracking.
@@ -435,7 +435,7 @@ pub trait GraphFitnessFn<B: Backend>: Send + Sync {
 /// (the batched evaluator owns evaluation), so the harness stays
 /// evaluation-agnostic and `NeatStrategy`'s determinism is untouched.
 ///
-/// The `reducer` maps one genome's `batch × action_dim` output slab (row-major,
+/// The `reducer` maps one genome's `$\text{batch} \times \text{action\_dim}$` output slab (row-major,
 /// as produced by [`BatchPhenotypeEvaluator::evaluate_population`]) to a single
 /// **maximization** fitness — the batched analogue of the per-genome scoring an
 /// interpreted `GraphFitnessFn` does on `phenotype.forward(...)`.
@@ -449,7 +449,7 @@ pub struct BatchGraphFitness<B: Backend, E> {
 impl<B: Backend, E> BatchGraphFitness<B, E> {
     /// Build a batched fitness from an evaluator, a shared `[batch, obs_dim]`
     /// observation tensor, and a per-genome `reducer` over the
-    /// `batch × action_dim` output slab (row-major).
+    /// `$\text{batch} \times \text{action\_dim}$` output slab (row-major).
     pub fn new(
         evaluator: E,
         obs: Tensor<B, 2>,
@@ -647,7 +647,7 @@ const ADD_CONNECTION_ATTEMPTS: usize = 20;
 /// # Panics
 ///
 /// Panics if `weight_perturb_std` or `weight_init_std` is non-finite
-/// (`+∞` or `NaN`).
+/// (`$+\infty$` or `NaN`).
 fn mutate_weights(genome: &mut TopologyGenome, params: &NeatParams, rng: &mut StdRng) {
     let perturb = Normal::new(0.0_f32, params.weight_perturb_std).unwrap_or_else(|err| {
         panic!(
@@ -687,7 +687,7 @@ fn mutate_weights(genome: &mut TopologyGenome, params: &NeatParams, rng: &mut St
 ///
 /// # Panics
 ///
-/// Panics if `weight_init_std` is non-finite (`+∞` or `NaN`).
+/// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`).
 fn mutate_add_connection(
     genome: &mut TopologyGenome,
     params: &NeatParams,
@@ -1262,10 +1262,10 @@ mod tests {
         assert!(best >= 2.0, "best rewards enabled connections; got {best}");
     }
 
-    /// Regression (ADR 0034, issue #133): `tell` is NEAT's driver chokepoint and
+    /// Regression (ADR 0034): `tell` is NEAT's driver chokepoint and
     /// must sanitize non-finite fitness before storing/speciating. A `NaN` member
     /// must never become the champion nor poison per-species bookkeeping, and a
-    /// `+∞` member must rank top but as a **finite** value (`f32::MAX`).
+    /// `$+\infty$` member must rank top but as a **finite** value (`f32::MAX`).
     #[test]
     fn test_tell_sanitizes_nan_and_inf_fitness() {
         use burn::backend::Flex;

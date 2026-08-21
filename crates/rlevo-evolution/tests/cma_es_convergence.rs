@@ -1,6 +1,6 @@
 //! Convergence and determinism integration tests for CMA-ES and CMSA-ES.
 //!
-//! Acceptance criteria (issue #59):
+//! Acceptance criteria for CMA-ES and CMSA-ES:
 //! - Sphere-D10: `best_fitness < 1e-6` within 1000 generations.
 //! - Rastrigin-D10: `best_fitness < 1.0` within 2000 generations.
 //! - Identical seeds reproduce identical trajectories.

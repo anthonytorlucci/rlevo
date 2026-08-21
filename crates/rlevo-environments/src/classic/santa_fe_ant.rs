@@ -1078,7 +1078,7 @@ mod tests {
         assert!(snap.is_done());
     }
 
-    // -- Post-terminal step guard (issue #290) -----------------------------
+    // -- Post-terminal step guard (ADR 0044) --------------------------------
 
     /// Clears the trail down to the single pellet directly ahead of the ant and
     /// eats it, so the returned snapshot is `Terminated` (white-box: same module).

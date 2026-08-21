@@ -7,26 +7,22 @@
 //!
 //! # Contents
 //!
-//! - [`adapter::BenchAdapter`] — wraps any [`Environment`] whose reward is
-//!   [`ScalarReward`] into a [`BenchEnv`].
 //! - [`suites`] — preset [`Suite`] factories for the canonical envs in
 //!   this crate, ready to feed [`Evaluator::run_suite`].
+//!
+//! There is no adapter type: [`Evaluator::run_suite`] binds directly on
+//! [`Environment`], so envs are registered as themselves (ADR 0076).
 //! - [`landscape`] — [`Landscape`](rlevo_core::fitness::Landscape) impls
 //!   for the numerical landscapes in [`crate::landscapes`], for use with
 //!   `rlevo-evolution`'s `FromLandscape` adapter.
 //!
 //! [`Environment`]: rlevo_core::environment::Environment
-//! [`ScalarReward`]: rlevo_core::reward::ScalarReward
-//! [`BenchEnv`]: rlevo_core::evaluation::BenchEnv
 //! [`Suite`]: rlevo_benchmarks::suite::Suite
 //! [`Evaluator::run_suite`]: rlevo_benchmarks::evaluator::Evaluator::run_suite
 
-pub mod adapter;
 /// [`RecordedEnvFamily`](rlevo_benchmarks::record::RecordedEnvFamily) impls
 /// for the built-in environments (feature `record`).
 #[cfg(feature = "record")]
 pub mod family;
 pub mod landscape;
 pub mod suites;
-
-pub use adapter::BenchAdapter;

@@ -1,11 +1,12 @@
-//! Cross-crate agent test for the Santa Fe neuroevolution example (issue #69).
+//! Cross-crate agent test for the Santa Fe neuroevolution example.
 //!
 //! `#[path]`-includes the example support module so its `#[cfg(test)]` unit tests
 //! (weight round-trip, rollout range, recurrence-carries-state) compile and run
 //! here, and adds the headline `#[ignore]`'d agent test: a short GRU evolution run
 //! must beat a uniform-random baseline **and** exceed the memoryless reflex
 //! plateau — the constructive proof that memory is load-bearing on this POMDP
-//! (the complement to #68's reflex-plateau doc-test, the negative control).
+//! (the complement to `SantaFeAnt`'s own reflex-plateau doc-test in
+//! `rlevo-environments`, the negative control).
 
 #[path = "../examples/evolution/santa_fe_ant_support.rs"]
 mod support;

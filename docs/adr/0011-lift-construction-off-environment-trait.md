@@ -12,9 +12,10 @@ tags: [adr, decision, environment, traits, decorators, recording, visualisation,
 
 **Accepted (2026-06-03), implemented in PR2** (branch
 `migrate/viz-pr2-constructable-env`), bundled with the ADR-0013 two-product
-visualisation migration (umbrella rlevo-viz-overview §14 / gap **G9** in
-viz-examples-gaps). The reframe made the scope tractable: **M-A already
-deleted `RenderTap` and the `TuiEnvTap` frame-capture half**, so by the time
+visualisation migration (the umbrella rlevo-viz-overview spec's Section 14,
+"v3 migration note (ADR-0013)" / gap **G9** in viz-examples-gaps). The
+reframe made the scope tractable: **M-A already deleted `RenderTap` and the
+`TuiEnvTap` frame-capture half**, so by the time
 this landed only `RecordingTap` and a slimmed `TuiEnvTap` still carried the
 degenerate `new` stub — both removed here.
 

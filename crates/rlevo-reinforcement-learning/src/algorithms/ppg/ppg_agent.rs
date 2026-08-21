@@ -70,9 +70,9 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// construction — the tensor being read is one the same function just built on
 /// the same device.
 ///
-/// Making those signatures fallible is tracked as issue #317 (see ADR 0057,
+/// Making those signatures fallible is tracked separately (see ADR 0057,
 /// which resolved the off-policy half and left `act` and the on-policy agents
-/// panic-based as the explicit residual). When #317 lands, the variant returns
+/// panic-based as the explicit residual). When that lands, the variant returns
 /// carrying [`rlevo_core::base::TensorConversionError`] via `#[from]` — a
 /// structured payload, **not** a `String`. `docs/rules.md` §4 prefers
 /// structured variants over string-based errors and names
@@ -107,7 +107,7 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// `docs/rules.md` §4 would prefer `Environment(#[from] EnvironmentError)`.
 /// `train.rs` currently calls `err.to_string()`, discarding the structured
 /// error and its [`source`](std::error::Error::source) chain. This is **known
-/// and tracked as #171**, which scopes the same fix across all eight
+/// and tracked**, scoped as the same fix across all eight
 /// algorithms — it is a breaking change to the payload type and is
 /// deliberately out of scope here. Do not read the `String` as endorsed.
 ///
@@ -176,7 +176,7 @@ pub struct AuxPhaseStats {
     /// Minibatches processed.
     pub minibatches: usize,
     /// Learning rate both optimizer steps ran at — the rate the accompanying
-    /// policy phase applied, not the next tick's (#324).
+    /// policy phase applied, not the next tick's.
     ///
     /// Reported so callers can tell a phase that *ran but moved nothing*
     /// (`learning_rate == 0.0`) from one that moved the policy imperceptibly.
@@ -198,12 +198,12 @@ pub struct AuxPhaseStats {
 /// # Type parameters
 ///
 /// - `B` — Burn autodiff backend.
-/// - `P` — Policy network module implementing both `PpoPolicy<B, DB>` and
-///   `PpgAuxValueHead<B, DB>`.
-/// - `V` — Main value network implementing `PpoValue<B, DB>`.
-/// - `O` — Observation type; must be convertible to a rank-`DO` tensor.
-/// - `DO` — Rank of the observation tensor (e.g. `1` for flat vectors).
-/// - `DB` — Rank of the batched observation tensor (`DO + 1`; e.g. `2` for a
+/// - `P` — Policy network module implementing both `PpoPolicy<B, BOR>` and
+///   `PpgAuxValueHead<B, BOR>`.
+/// - `V` — Main value network implementing `PpoValue<B, BOR>`.
+/// - `O` — Observation type; must be convertible to a rank-`OR` tensor.
+/// - `OR` — Rank of the observation tensor (e.g. `1` for flat vectors).
+/// - `BOR` — Rank of the batched observation tensor (`R + 1`; e.g. `2` for a
 ///   batch of flat vectors).
 ///
 /// # Usage
@@ -223,12 +223,12 @@ pub struct AuxPhaseStats {
 /// usable. Only a panic *inside* the optimizer step itself poisons a slot; that
 /// window is irreducible and terminal for the agent (see the
 /// [`shared`](crate::algorithms::shared) module docs).
-pub struct PpgAgent<B, P, V, O, const DO: usize, const DB: usize>
+pub struct PpgAgent<B, P, V, O, const OR: usize, const BOR: usize>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     policy: Slot<P>,
     value: Slot<V>,
@@ -246,13 +246,13 @@ where
     /// The auxiliary phase belongs to the policy phase it follows, so it steps
     /// at this rate rather than at `current_learning_rate()` — which, read from
     /// [`maybe_aux_phase`](Self::maybe_aux_phase), has already advanced one
-    /// annealing tick (#324).
+    /// annealing tick.
     policy_phase_lr: f64,
     step: usize,
     stats: AgentStats<PpgMetrics>,
     last_aux: Option<AuxPhaseStats>,
-    /// Non-finite-loss guard for the policy-phase policy-loss site (ADR 0056,
-    /// #318). Consulted once per minibatch: the skip fires on every non-finite
+    /// Non-finite-loss guard for the policy-phase policy-loss site (ADR 0056).
+    /// Consulted once per minibatch: the skip fires on every non-finite
     /// occurrence, the `warn!` escalates by decades (ADR 0072). Surfaced by
     /// [`skipped_policy_updates`](Self::skipped_policy_updates).
     policy_loss_guard: FiniteLossGuard,
@@ -266,12 +266,13 @@ where
     aux_total_guard: FiniteLossGuard,
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug for PpgAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug
+    for PpgAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpgAgent")
@@ -285,12 +286,12 @@ where
     }
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> PpgAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> PpgAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
 {
     /// Snapshots the policy onto the inner (non-autodiff) backend for repeated
     /// greedy inference.
@@ -312,18 +313,18 @@ where
     /// discrete head) but skips per-step autodiff-graph construction, which
     /// dominates cost at batch size 1. Use this for evaluation and throughput.
     pub fn act_greedy_env_row_with(&self, net: &P::InnerModule, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
         P::deterministic_env_row_inner(net, batched)
     }
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> PpgAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const OR: usize, const BOR: usize> PpgAgent<B, P, V, O, OR, BOR>
 where
     B: AutodiffBackend,
-    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
-    V: PpoValue<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B>,
+    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
+    V: PpoValue<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B>,
 {
     /// Construct a new agent from a pre-built policy and value network.
     ///
@@ -484,7 +485,7 @@ where
     /// Auxiliary-phase **combined-loss** updates skipped for a non-finite loss
     /// (ADR 0056, ADR 0072).
     ///
-    /// The `ppg/aux_total_loss` site: the aux-value MSE plus `β · KL`
+    /// The `ppg/aux_total_loss` site: the aux-value MSE plus `$\beta \cdot KL$`
     /// distillation term, counted per minibatch inside
     /// [`maybe_aux_phase`](Self::maybe_aux_phase) on the same cadence caveat as
     /// [`skipped_aux_value_updates`](Self::skipped_aux_value_updates).
@@ -609,7 +610,7 @@ where
     /// tick *past* the rate that update applied — and at the end of a run it
     /// reports `0.0`. Anything that must step at the rate of the phase that just
     /// ran reads `policy_phase_lr` instead; that is exactly what the auxiliary
-    /// phase does (see [`maybe_aux_phase`](Self::maybe_aux_phase), #324).
+    /// phase does (see [`maybe_aux_phase`](Self::maybe_aux_phase)).
     pub fn current_learning_rate(&self) -> f64 {
         if self.config.ppo.anneal_lr {
             annealed_learning_rate(
@@ -632,9 +633,9 @@ where
     /// For evaluation use [`act_greedy`](Self::act_greedy) (no exploration
     /// noise) or [`act_greedy_env_row_with`](Self::act_greedy_env_row_with)
     /// (no autodiff graph overhead).
-    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> ActOutcome {
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
 
         let sample = self.policy().sample_with_logprob(batched.clone(), rng);
         let raw_row = P::action_row_from_tensor(&sample.action, 0);
@@ -643,8 +644,8 @@ where
         let log_prob = sample.log_prob.into_scalar().elem::<f32>();
         let entropy = sample.entropy.into_scalar().elem::<f32>();
 
-        let value_raw: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let value_t: Tensor<B, DB> = value_raw.unsqueeze::<DB>();
+        let value_raw: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let value_t: Tensor<B, BOR> = value_raw.unsqueeze::<BOR>();
         let value = self.value().forward(value_t).into_scalar().elem::<f32>();
 
         ActOutcome {
@@ -669,8 +670,8 @@ where
     /// distribution mean.
     #[allow(clippy::cast_precision_loss)]
     pub fn act_greedy(&self, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
         let logits: Tensor<B, 2> = PpgAuxValueHead::logits(self.policy(), batched); // (1, A)
         let idx = logits.argmax(1).into_scalar().elem::<i64>();
         let action = P::action_tensor_from_flat(&[idx as f32], 1, &self.device);
@@ -713,8 +714,8 @@ where
 
     /// One main-value-network forward on a single observation.
     fn value_of(&self, obs: &O) -> f32 {
-        let t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = t.unsqueeze::<DB>();
+        let t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = t.unsqueeze::<BOR>();
         self.value().forward(batched).into_scalar().elem::<f32>()
     }
 
@@ -766,7 +767,7 @@ where
     ///
     /// The annealed learning rate is snapshotted once, *before* the increment,
     /// and retained in `policy_phase_lr` so the auxiliary phase that may follow
-    /// this update steps at the same rate (#324).
+    /// this update steps at the same rate.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
@@ -777,13 +778,13 @@ where
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    pub fn policy_phase_update<R: Rng + ?Sized>(&mut self, rng: &mut R) -> PpoUpdateStats {
+    pub fn policy_phase_update(&mut self, rng: &mut (impl Rng + ?Sized)) -> PpoUpdateStats {
         let cfg = self.config.ppo.clone();
         let batch_size = self.buffer.len();
         let mb_size = (batch_size / cfg.num_minibatches.max(1)).max(1);
         // Read before `self.iteration += 1` below, so this is the rate for the
         // phase about to run. Retained for the auxiliary phase, which belongs to
-        // this policy phase and must not anneal ahead of it (#324).
+        // this policy phase and must not anneal ahead of it.
         let lr = self.current_learning_rate();
         self.policy_phase_lr = lr;
 
@@ -795,7 +796,7 @@ where
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
         // Denominators for the two gated means: only minibatches whose loss was
-        // finite and applied (#318, ADR 0056 §3). `mb_count` still denominates
+        // finite and applied (ADR 0056 §3). `mb_count` still denominates
         // the ungated diagnostics.
         let mut policy_healthy = 0_usize;
         let mut value_healthy = 0_usize;
@@ -819,10 +820,10 @@ where
                 for &i in chunk {
                     self.buffer.obs()[i].write_host_row(&mut obs_flat);
                 }
-                let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+                let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
                 batched_shape.push(n);
                 batched_shape.extend_from_slice(&obs_shape);
-                let obs_batch: Tensor<B, DB> =
+                let obs_batch: Tensor<B, BOR> =
                     Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
 
                 let action_flat = self.buffer.gather_action_flat(chunk);
@@ -862,7 +863,7 @@ where
                 kl_sum += kl;
                 kl_count += 1;
 
-                // #318 / ADR 0056: `policy_loss_val` is already host-resident,
+                // ADR 0056: `policy_loss_val` is already host-resident,
                 // so the finiteness check costs no extra sync. A non-finite
                 // loss skips `backward()` + the optimizer step and is excluded
                 // from the reported mean.
@@ -884,7 +885,7 @@ where
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(cfg.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
-                // #318 / ADR 0056: same guard type for the value site, counted
+                // ADR 0056: same guard type for the value site, counted
                 // separately from the policy site — its own per-site total
                 // (`skipped_value_updates`) and its own decade `warn!` schedule,
                 // and, like the policy site, its skip fires on every non-finite
@@ -923,7 +924,7 @@ where
         // inherit its log_std bound and its one-shot-per-bound clamp warnings
         // here — the ceiling half included, which is why `max_log_std` is wired
         // now alongside the minimum rather than left for that head to add
-        // (#347, ADR 0049 §4).
+        // later (ADR 0049 §4).
         let min_log_std = self.policy().min_log_std();
         let max_log_std = self.policy().max_log_std();
 
@@ -932,7 +933,7 @@ where
 
         // The two gated losses divide by their own healthy counts (`0.0`, not
         // NaN, when every minibatch skipped); the ungated diagnostics keep the
-        // total minibatch denominator (#318, ADR 0056 §3).
+        // total minibatch denominator (ADR 0056 §3).
         let denom = mb_count.max(1) as f32;
         PpoUpdateStats {
             policy_loss: if policy_healthy == 0 {
@@ -983,17 +984,17 @@ where
     /// than after a schedule tick. Reading the annealed rate here instead made
     /// every auxiliary phase run one tick early and, whenever
     /// `total_iterations % n_iteration == 0`, made the final one a bit-exact
-    /// no-op at `lr == 0.0` (#324).
+    /// no-op at `lr == 0.0`.
     // Divisor/normalizer derived from a count -- batch size, minibatch count,
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    pub fn maybe_aux_phase<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<AuxPhaseStats> {
+    pub fn maybe_aux_phase(&mut self, rng: &mut (impl Rng + ?Sized)) -> Option<AuxPhaseStats> {
         if !self.aux_buffer.is_ready(self.config.n_iteration) {
             return None;
         }
         let cfg = self.config.clone();
-        // The accompanying policy phase's rate, not the next one's (#324).
+        // The accompanying policy phase's rate, not the next one's.
         let lr = self.policy_phase_lr;
         let total_steps = self.aux_buffer.len_steps();
         if total_steps == 0 {
@@ -1012,8 +1013,8 @@ where
         let mut kl_acc = 0.0_f32;
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
-        // Healthy-minibatch denominators for the two gated aux losses (#318,
-        // ADR 0056 §3). The main-value site feeds `main_v_acc`; the combined
+        // Healthy-minibatch denominators for the two gated aux losses
+        // (ADR 0056 §3). The main-value site feeds `main_v_acc`; the combined
         // aux site feeds both `aux_v_acc` and `kl_acc`, so they share a count.
         let mut main_v_healthy = 0_usize;
         let mut aux_total_healthy = 0_usize;
@@ -1029,7 +1030,7 @@ where
                 }
                 let (obs_t, returns_t) = self
                     .aux_buffer
-                    .gather_minibatch::<DO, DB>(chunk, &self.device);
+                    .gather_minibatch::<OR, BOR>(chunk, &self.device);
 
                 let mut old_logits_mb: Vec<f32> = Vec::with_capacity(chunk.len() * num_actions);
                 for &global in chunk {
@@ -1047,7 +1048,7 @@ where
                 let new_v = self.value().forward(obs_t.clone());
                 let v_loss = unclipped_value_loss(new_v, returns_t.clone());
                 let v_loss_val = v_loss.clone().into_scalar().elem::<f32>();
-                // #318 / ADR 0056: skip backward + step on a non-finite
+                // ADR 0056: skip backward + step on a non-finite
                 // main-value loss; exclude it from the reported mean.
                 if self.aux_main_value_guard.check(v_loss_val) {
                     let grads = v_loss.backward();
@@ -1066,7 +1067,7 @@ where
                 let aux_v_loss_val = aux_v_loss.clone().into_scalar().elem::<f32>();
                 let kl_val = kl.clone().into_scalar().elem::<f32>();
                 let total = aux_v_loss + kl.mul_scalar(cfg.beta_clone);
-                // #318 / ADR 0056: `total = aux_v_loss + β·kl` is never read
+                // ADR 0056: `total = aux_v_loss + β·kl` is never read
                 // host-side, so guard on the host-*derived* scalar built from
                 // its two already-read summands — no extra device→host sync.
                 // Both accumulators this site feeds are excluded on a skip.
@@ -1089,7 +1090,7 @@ where
 
         // Each gated loss divides by its own healthy count (`0.0`, not NaN,
         // when every minibatch skipped); `minibatches` still reports the total
-        // count attempted (#318, ADR 0056 §3).
+        // count attempted (ADR 0056 §3).
         let stats = AuxPhaseStats {
             main_value_loss: if main_v_healthy == 0 {
                 0.0
@@ -1138,10 +1139,10 @@ where
             for g in start..end {
                 self.aux_buffer.obs_at(g).write_host_row(&mut obs_flat);
             }
-            let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+            let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
             batched_shape.push(n);
             batched_shape.extend_from_slice(&obs_shape);
-            let obs_batch: Tensor<B, DB> =
+            let obs_batch: Tensor<B, BOR> =
                 Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
             let logits = PpgAuxValueHead::logits(self.policy(), obs_batch);
             let logits_data = logits.into_data().convert::<f32>();
@@ -1171,11 +1172,11 @@ mod tests {
     use crate::algorithms::ppg::ppg_config::PpgConfigBuilder;
     use crate::algorithms::ppo::ppo_config::PpoTrainingConfig;
 
-    type TestBackend = Autodiff<Flex>;
+    type TestAdBackend = Autodiff<Flex>;
     type TestAgent = PpgAgent<
-        TestBackend,
-        PpgCategoricalPolicyHead<TestBackend>,
-        TestValue<TestBackend>,
+        TestAdBackend,
+        PpgCategoricalPolicyHead<TestAdBackend>,
+        TestValue<TestAdBackend>,
         TestObs,
         1,
         2,
@@ -1235,14 +1236,14 @@ mod tests {
     /// leaving every other knob at its default.
     fn agent_with_clip_grad(clip_grad: Option<GradientClippingConfig>) -> TestAgent {
         let device = Default::default();
-        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+        let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .with_ppo(|p| PpoTrainingConfig { clip_grad, ..p })
             .build()
@@ -1251,16 +1252,16 @@ mod tests {
     }
 
     #[test]
-    fn error_display_uses_thiserror_messages() {
+    fn test_ppg_agent_error_display_uses_thiserror_messages() {
         let err = PpgAgentError::Environment("boom".into());
         assert_eq!(err.to_string(), "Environment error: boom");
     }
 
-    /// Regression (issue #183): PPG builds its optimizers from
+    /// Regression: PPG builds its optimizers from
     /// `config.ppo.clip_grad` itself rather than delegating to `PpoAgent`, so
     /// this wiring can rot independently of the PPO copy — assert it here too.
     #[test]
-    fn clip_grad_none_leaves_both_optimizers_unclipped() {
+    fn test_ppg_agent_clip_grad_none_leaves_both_optimizers_unclipped() {
         let agent = agent_with_clip_grad(None);
         assert!(
             !agent.policy_optim.has_gradient_clipping(),
@@ -1273,7 +1274,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_grad_some_reaches_both_optimizers() {
+    fn test_ppg_agent_clip_grad_some_reaches_both_optimizers() {
         let agent = agent_with_clip_grad(Some(GradientClippingConfig::Norm(0.5)));
         assert!(
             agent.policy_optim.has_gradient_clipping(),
@@ -1285,7 +1286,7 @@ mod tests {
         );
     }
 
-    // -------- non-finite-loss guard (ADR 0056, #318) --------
+    // -------- non-finite-loss guard (ADR 0056) --------
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// network that has diverged to non-finite weights — the realistic source
@@ -1366,14 +1367,14 @@ mod tests {
     /// so a single `snapshot_into_aux_buffer` makes the auxiliary phase ready.
     fn primed_ppg_agent() -> TestAgent {
         let device = Default::default();
-        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+        let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .n_iteration(1)
             .e_aux(1)
@@ -1397,12 +1398,12 @@ mod tests {
 
     /// Policy-phase site: a non-finite policy loss must skip the policy
     /// `backward` + optimizer step and be excluded from the reported mean (ADR
-    /// 0056, #318). Diverging the policy net to NaN forces a NaN clipped
+    /// 0056). Diverging the policy net to NaN forces a NaN clipped
     /// surrogate; the guard must fire, the reported `policy_loss` must be the
     /// `0.0` all-skipped sentinel, and the value site must still learn.
     #[test]
     #[allow(clippy::float_cmp)]
-    fn ppg_policy_phase_nonfinite_policy_loss_skips_and_warns() {
+    fn test_ppg_agent_policy_phase_nonfinite_policy_loss_skips_and_warns() {
         let mut agent = primed_ppg_agent();
         let value_before = value_weights(agent.value.get());
 
@@ -1465,7 +1466,7 @@ mod tests {
     /// aux-total site's healthy denominator).
     #[test]
     #[allow(clippy::float_cmp)]
-    fn ppg_aux_phase_nonfinite_total_loss_skips_and_warns() {
+    fn test_ppg_agent_aux_phase_nonfinite_total_loss_skips_and_warns() {
         let mut agent = primed_ppg_agent();
         // Snapshot the finalized rollout; `n_iteration = 1` arms the aux phase.
         agent.snapshot_into_aux_buffer();
@@ -1539,14 +1540,14 @@ mod tests {
         aux_batch_size: usize,
     ) -> TestAgent {
         let device = Default::default();
-        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+        let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .n_iteration(1)
             .e_aux(1)
@@ -1577,7 +1578,7 @@ mod tests {
     /// latch reads identically for 1 skip and for 8.
     #[test]
     #[allow(clippy::float_cmp)]
-    fn ppg_counts_repeated_loss_skips() {
+    fn test_ppg_agent_counts_repeated_loss_skips() {
         // 4 rollout steps / num_minibatches = 4 → mb_size = 1 → 4 minibatches
         // per epoch; × update_epochs = 2 → 8 guarded policy attempts.
         const EXPECTED_SKIPS: u64 = 8;
@@ -1624,7 +1625,7 @@ mod tests {
     }
 
     /// The aggregate must sum **four distinct** per-site counters, each exactly
-    /// once (ADR 0072 §3). Constructed so all four terms are different *and*
+    /// once (ADR 0072). Constructed so all four terms are different *and*
     /// none is zero — 2, 6, 4, 8, aggregate **20** — because the two properties
     /// close two different holes:
     ///
@@ -1653,7 +1654,7 @@ mod tests {
     /// critic would store `NaN` values, hence `NaN` advantages, and the policy
     /// site would skip too, collapsing the two terms back together.
     #[test]
-    fn ppg_skipped_updates_aggregates_unequal_per_site_counts() {
+    fn test_ppg_agent_skipped_updates_aggregates_unequal_per_site_counts() {
         // Policy phase #1: 2 minibatches × 1 epoch = 2 guarded policy attempts,
         // all NaN (policy poisoned).
         const POLICY_SKIPS: u64 = 2;
@@ -1761,21 +1762,21 @@ mod tests {
         );
     }
 
-    // -------- auxiliary-phase learning-rate alignment (#324) --------
+    // -------- auxiliary-phase learning-rate alignment --------
 
     /// Builds an empty agent with LR annealing **on** over `total_iterations`
     /// policy phases. Mirrors [`primed_ppg_agent`]'s shapes; the rollout is left
     /// to the caller so several phases can be driven in sequence.
     fn annealing_ppg_agent(total_iterations: usize) -> TestAgent {
         let device = Default::default();
-        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+        let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestBackend>(&device)
+        .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
-        let value = TestValue::<TestBackend>::init(&device);
+        let value = TestValue::<TestAdBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .n_iteration(1)
             .e_aux(1)
@@ -1793,7 +1794,7 @@ mod tests {
         TestAgent::new(policy, value, config, device, total_iterations).expect("valid config")
     }
 
-    /// Regression (issue #324): the auxiliary phase must step at the learning
+    /// Regression: the auxiliary phase must step at the learning
     /// rate of the policy phase it accompanies, so `policy_phase_lr` has to hold
     /// the rate read *before* `policy_phase_update` bumped `iteration` — one
     /// tick behind `current_learning_rate()`. On the final iteration that
@@ -1806,7 +1807,7 @@ mod tests {
     // `current_learning_rate()` return value, not a recomputation. A tolerance
     // would let the one-tick offset this test exists to catch slip through.
     #[allow(clippy::float_cmp)]
-    fn ppg_policy_phase_lr_trails_current_learning_rate_by_one_tick() {
+    fn test_ppg_agent_policy_phase_lr_trails_current_learning_rate_by_one_tick() {
         const TOTAL_ITERATIONS: usize = 4;
         let mut agent = annealing_ppg_agent(TOTAL_ITERATIONS);
         let mut rng = StdRng::seed_from_u64(9);
@@ -1848,18 +1849,18 @@ mod tests {
     }
 
     /// Behavioral companion to
-    /// [`ppg_policy_phase_lr_trails_current_learning_rate_by_one_tick`]: the
+    /// [`test_ppg_agent_policy_phase_lr_trails_current_learning_rate_by_one_tick`]: the
     /// aligned rate must actually *move parameters*, not merely be positive.
     ///
     /// Measures a host-side weight delta across the terminal auxiliary phase —
-    /// the phase #324 turned into a bit-exact no-op. A weight delta is
-    /// `lr · step`, linear in the learning rate and here ~1e-4 against weights
-    /// of order 1e-1, so it clears `f32` resolution by several orders of
-    /// magnitude.
+    /// the phase the one-tick offset above turned into a bit-exact no-op. A
+    /// weight delta is `lr · step`, linear in the learning rate and here
+    /// ~1e-4 against weights of order 1e-1, so it clears `f32` resolution by
+    /// several orders of magnitude.
     ///
     /// This exists because the equivalent end-to-end check in
     /// `crates/rlevo/tests/ppg_integration.rs` used to assert
-    /// `AuxPhaseStats::policy_kl > 0.0`. That also catches #324 — at `lr == 0.0`
+    /// `AuxPhaseStats::policy_kl > 0.0`. That also catches the regression — at `lr == 0.0`
     /// the parameters are bitwise unchanged and every minibatch's KL is an exact
     /// zero — but it decides the question through an `f32` mean of
     /// log-differences between near-identical logits, measured at ~3.4×
@@ -1870,10 +1871,10 @@ mod tests {
     /// has margin to spare.
     #[test]
     // `current_learning_rate()` landing on *exactly* 0.0 at the terminal
-    // iteration is the precondition that makes this #324's failing
+    // iteration is the precondition that makes this the regression's failing
     // configuration rather than an ordinary interior phase.
     #[allow(clippy::float_cmp)]
-    fn ppg_aux_phase_at_nonzero_lr_moves_policy_parameters() {
+    fn test_ppg_agent_aux_phase_at_nonzero_lr_moves_policy_parameters() {
         const TOTAL_ITERATIONS: usize = 4;
         let mut agent = annealing_ppg_agent(TOTAL_ITERATIONS);
         let mut rng = StdRng::seed_from_u64(9);
@@ -1900,7 +1901,7 @@ mod tests {
             agent.current_learning_rate(),
             0.0,
             "the anneal must land on exactly 0.0 at the terminal iteration, or this is not \
-             the configuration #324 broke"
+             the configuration the regression broke"
         );
         assert!(
             stats.learning_rate > 0.0,
@@ -1921,7 +1922,7 @@ mod tests {
         assert!(
             max_delta > 0.0,
             "the terminal auxiliary phase left every policy parameter bit-exactly unchanged \
-             (max |Δw| = {max_delta}) — that is what stepping at lr = 0.0 does (#324)"
+             (max |Δw| = {max_delta}) — that is what stepping at lr = 0.0 does"
         );
     }
 }

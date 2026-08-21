@@ -155,9 +155,10 @@ through unnegated. No regression to the ADR-0023 contract.
 
 ### 6. `PolicyNeuroevolution` follows the trait
 
-Add `M: StatefulPolicy<B,E>` (reactive modules satisfy it via §2). No new
-constructor: callers build a reactive or recurrent `RolloutFitness` and pass it to
-the existing `new`. Statefulness rides entirely on the module's trait impl.
+Add `M: StatefulPolicy<B,E>` (reactive modules satisfy it via this ADR's own
+Decision 2). No new constructor: callers build a reactive or recurrent
+`RolloutFitness` and pass it to the existing `new`. Statefulness rides
+entirely on the module's trait impl.
 
 ## Consequences
 
@@ -227,10 +228,13 @@ Revisit if an RL-side recurrent driver wants it.
 
 ## References
 
-- Spec: vault `specs/2026-06-30-stateful-rollout-fitness/index.md` (KD-1..KD-4,
-  API surface, migration, test plan).
-- Research: vault `research/santa-fe-ant/recurrent-memory-policy-and-rolloutfitness-gap.md`
-  — the gap audit (§2) and the duplication (§2a).
+- The design decisions behind this ADR's `StatefulPolicy` trait, the
+  `ReactivePolicy` blanket, the `RolloutFitness`/`ModuleEvalFn` delegation, and
+  the `PolicyNeuroevolution` trait bound are stated in this ADR's own Decision
+  section above.
+- The memorylessness gap in `RolloutFitness` v1 and the
+  `ModuleEvalFn`/`RolloutFitness` duplication it shares with #92 are stated in
+  this ADR's own Context above.
 - [ADR 0023](0023-objective-sense-and-maximize-convention.md) — the maximise-native /
   no-hand-negation contract this preserves; rewrote `rollout_fitness` in the same
   window.

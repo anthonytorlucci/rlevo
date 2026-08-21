@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_cleanrl() {
+    fn test_ppg_config_defaults_match_cleanrl() {
         let cfg = PpgConfig::default();
         assert_eq!(cfg.n_iteration, 32);
         assert_eq!(cfg.e_aux, 6);
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn builder_round_trips() {
+    fn test_ppg_config_builder_round_trips() {
         let cfg = PpgConfigBuilder::new()
             .n_iteration(8)
             .e_aux(3)
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn batch_size_delegates() {
+    fn test_ppg_config_batch_size_delegates() {
         let cfg = PpgConfigBuilder::new()
             .with_ppo(|p| PpoTrainingConfig {
                 num_envs: 1,
@@ -212,18 +212,18 @@ mod tests {
     }
 
     #[test]
-    fn default_config_is_valid() {
+    fn test_ppg_config_default_is_valid() {
         assert!(PpgConfig::default().validate().is_ok());
     }
 
     #[test]
-    fn rejects_zero_e_aux() {
+    fn test_ppg_config_rejects_zero_e_aux() {
         let err = PpgConfigBuilder::new().e_aux(0).build().unwrap_err();
         assert_eq!(err.field, "e_aux");
     }
 
     #[test]
-    fn delegates_to_wrapped_ppo() {
+    fn test_ppg_config_delegates_to_wrapped_ppo() {
         let err = PpgConfigBuilder::new()
             .with_ppo(|p| PpoTrainingConfig { num_envs: 2, ..p })
             .build()

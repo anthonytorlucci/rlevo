@@ -635,7 +635,7 @@ impl Sensor<3, 1, 3> for UnlockPickupEnv {
     type State = GridState;
     type Observation = GridObservation;
 
-    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
     /// `next_state` alone, so this forwards to the same projection as
     /// [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
@@ -832,11 +832,11 @@ mod tests {
         assert!("5".parse::<UnlockPickupConfig>().is_err());
     }
 
-    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
-    /// built by `Deserialize` or struct-update syntax reached `build`. The guard
-    /// now lives in [`Validate`], which `with_config` runs (ADR 0026
-    /// chokepoint), and it rejects the whole sub-`MIN_SIZE` range — including
-    /// sizes such as `5` that happen to build a playable board.
+    /// `MIN_SIZE` used to be enforced only in [`FromStr`], so a config built
+    /// by `Deserialize` or struct-update syntax reached `build` unchecked.
+    /// The guard now lives in [`Validate`], which `with_config` runs (ADR
+    /// 0026 chokepoint), and it rejects the whole sub-`MIN_SIZE` range —
+    /// including sizes such as `5` that happen to build a playable board.
     #[test]
     fn with_config_rejects_size_below_min() {
         let bad = UnlockPickupConfig {
@@ -1028,7 +1028,16 @@ mod tests {
     /// Each sampled quantity is checked **on its own**.
     ///
     /// A single "two observations differ" assertion would pass while five of the
-    /// six draws were pinned — the trap ADR 0062 §4 and issue #282 both name.
+    /// six draws were pinned — the trap ADR 0062 §4 names. The six draws are
+    /// the ones numbered in `build`'s comments: door row, box colour, box
+    /// cell, door colour, key cell, agent pose, all taken from the env's
+    /// persistent RNG stream. This env used to carry an `_rng` field that was
+    /// reseeded to the same value inside every `reset()` and never actually
+    /// read — the code visibly called into an RNG, so a coarse "we sample now"
+    /// test kept passing, but every draw it produced was pinned to that seed.
+    /// A single wholesale diff only needs *one* of six draws to move to go
+    /// green; checking each draw independently is what would have caught the
+    /// other five staying frozen.
     #[test]
     fn every_sampled_quantity_varies_across_seeds() {
         for size in SIZES {
@@ -1460,7 +1469,7 @@ mod tests {
     }
 
     /// Occlusion is not decoration here: a cell that encoded a real entity under
-    /// the pre-#281 (see-through) emission model must now be able to encode as
+    /// the previous see-through emission model must now be able to encode as
     /// *unseen*.
     ///
     /// The box is the interesting case — it is the object the whole task is
@@ -1472,9 +1481,13 @@ mod tests {
     /// dynamics and the assertion is on the observation the environment itself
     /// **emitted**, not on a hand-built state.
     ///
-    /// Unlike `Unlock` — whose single-room deviation (issue #1020) leaves the
-    /// shadow cast nothing in-grid to hide — this environment has the two-room
-    /// topology upstream specifies, so the occlusion is the canonical one.
+    /// Unlike `Unlock` — whose `build` punches the locked door into the
+    /// *perimeter* wall instead of an interior wall between two rooms, so the
+    /// board it draws is a single room with nothing behind a wall for a
+    /// shadow to hide (a topology deviation from canonical
+    /// `MiniGrid-Unlock-v0`, not a coordinate bug) — this environment has the
+    /// two-room topology upstream specifies, so the occlusion is the
+    /// canonical one.
     #[test]
     fn test_unlock_pickup_occlusion_hides_the_box_behind_the_locked_door() {
         let mut env = env_7x7();
@@ -1527,7 +1540,7 @@ mod tests {
                 Entity::Box(box_color).color_u8(),
                 Entity::Box(box_color).state_u8()
             ],
-            "the pre-#281 emission model reported the box through the room divider"
+            "the previous see-through emission model reported the box through the room divider"
         );
         assert_eq!(
             occluded.view[row][col],
@@ -1570,18 +1583,21 @@ mod tests {
         );
     }
 
-    /// The box in the agent's hand reaches the agent's own observation cell
-    /// (issue #1027).
+    /// The box in the agent's hand reaches the agent's own observation cell.
     ///
     /// This environment's success gate is `has_target` (`:593`):
     /// `self.state.agent.carrying == Some(self.layout.target)`. The entire
     /// reward-relevant state therefore lives in the *hand*, not on the board —
     /// and the `Pickup` that wins the episode simultaneously erases the box from
-    /// the grid. Before #1027 the emission pipeline stamped the hand nowhere, so
-    /// the terminal observation encoded the agent's cell as whatever floor it
-    /// stood on: a policy could never observe the very state it is rewarded for.
-    /// `stamp_carried` now writes the hand into `view[VIEW_SIZE - 1][VIEW_SIZE / 2]`,
-    /// the tail of canonical Minigrid's `gen_obs_grid`.
+    /// the grid. `AgentState.carrying` used to stop at the agent struct:
+    /// `GridObservation` had no field for it and `observe_grid`/`mask_view`
+    /// never read it, so the terminal observation encoded the agent's own
+    /// cell as whatever world entity sat underneath — identical whether or
+    /// not the agent was holding the box, forcing a policy to infer "am I
+    /// holding the target" from action history rather than from the
+    /// observation it is rewarded on. `stamp_carried` now writes the hand
+    /// into `view[VIEW_SIZE - 1][VIEW_SIZE / 2]`, the tail of canonical
+    /// Minigrid's `gen_obs_grid`.
     ///
     /// The assertion is on the observation the environment **emitted** from a
     /// real terminal `step()`, not on a hand-built state.
@@ -1695,15 +1711,21 @@ mod tests {
         }
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// Drive a fresh episode to its terminal snapshot **by picking up the box**,
     /// through real `step()` calls only.
     ///
-    /// The task's own terminal, not the step-limit one: `build_snapshot` maps a
-    /// timeout to `Terminated` rather than `Truncated` (GitHub #1028, out of
-    /// scope here), so a step-limit ending would pin the guard to a status this
-    /// environment is expected to stop emitting.
+    /// The task's own terminal, not the step-limit one. `step()` OR-s the real
+    /// terminal condition (`has_target()`) together with the step-limit cutoff
+    /// (`self.steps >= self.config.max_steps`) into a single `done: bool`, and
+    /// `build_snapshot` currently has no `Truncated` arm — it maps that
+    /// collapsed bool straight to `Terminated`, so a timeout is reported the
+    /// same way as a genuine terminal (the distinction matters for
+    /// value-function bootstrapping, `docs/rules.md` §10). Fixing that is
+    /// out of scope here — driving to a step-limit ending would just pin this
+    /// guard to the same mislabeled status the fix will change, not to the
+    /// status this environment is expected to emit for a pickup success.
     ///
     /// The route is planned from the board the env actually drew — seed 3's
     /// layout, the same one `a_planned_rollout_takes_the_key_then_the_box`

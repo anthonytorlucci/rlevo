@@ -42,7 +42,7 @@ This rebalances the design. Visualisation is not one product. It is three:
 
 - **Library tier** — every env renders as text via `AsciiRenderable`. Always available, zero deps, the contract a user implements when building their own env.
 - **Live tier** — a `ratatui` dashboard wrapping a benchmark run. Env panel sourced from `AsciiRenderable`; metric panels from the existing observer/callback surfaces in `rlevo-reinforcement-learning` and `rlevo-evolution`. Feature-gated in `rlevo-benchmarks`.
-- **Report tier** — a static-HTML viewer rendered post-run from a recorded `EpisodeRecord` file. Leptos compiled to WASM, bundled with the data inlined; the output is a single self-contained file. Feature-gated in `rlevo-benchmarks` (or a sibling crate; see Decision §3).
+- **Report tier** — a static-HTML viewer rendered post-run from a recorded `EpisodeRecord` file. Leptos compiled to WASM, bundled with the data inlined; the output is a single self-contained file. Feature-gated in `rlevo-benchmarks` (or a sibling crate; see this ADR's own Decision 3).
 
 ## Decision
 
@@ -134,12 +134,14 @@ This ADR is reversible. A successor spec should be written if any of the followi
 
 ## References
 
-- rlevo-viz-overview v2 — env-vis umbrella spec, revised 2026-05-27 to reflect this ADR.
 - [0001-keep-environments-and-benchmarks-separate](0001-keep-environments-and-benchmarks-separate.md) — established `rlevo-benchmarks` as the home for run orchestration; this ADR extends that home to cover both live and report visualisation.
 - [0004-move-bench-traits-into-rlevo-core](0004-move-bench-traits-into-rlevo-core.md) — `SeedStream` (in `rlevo-core`) underwrites the deterministic-replay contract for `EpisodeRecord`.
 - [0005-examples-and-cross-crate-tests-in-umbrella](0005-examples-and-cross-crate-tests-in-umbrella.md) — examples that demonstrate viz live in `crates/rlevo/examples/viz/`, gated by `required-features = ["viz-tui"]` or `["viz-report"]`.
 - [0006-leptos-first-visualisation-defer-bevy](0006-leptos-first-visualisation-defer-bevy.md) — **superseded by this ADR on adoption**. The "no Bevy this milestone" conclusion is preserved; the "Leptos web client served by an embedded `axum` server" conclusion is replaced by `ratatui`-for-live + static-HTML-for-report.
 - [0007-visualisation-crates-isolated-from-production-crates](0007-visualisation-crates-isolated-from-production-crates.md) — **superseded by this ADR on adoption**. The isolation principle is preserved and strengthened (zero viz deps in production crates; viz lives entirely inside `rlevo-benchmarks` features). The `rlevo-viz-core` / `rlevo-viz-web` crate split is dropped.
 - `https://ratatui.rs/` — TUI framework adopted for the live tier.
-- `crates/rlevo-environments/src/render/ascii.rs` — `AsciiRenderable` / `AsciiRenderer` (preserved; coverage to be expanded to all env families).
+- `crates/rlevo-core/src/render/ascii.rs` — `AsciiRenderable` / `AsciiRenderer`
+  (preserved; coverage to be expanded to all env families). At this ADR's
+  writing the types lived at `crates/rlevo-environments/src/render/ascii.rs`;
+  ADR 0009 later relocated them into `rlevo-core`.
 - `crates/rlevo-benchmarks/` — gains optional `tui`, `report`, and `record` features.

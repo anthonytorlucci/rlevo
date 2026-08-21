@@ -3,7 +3,7 @@ project: rlevo
 status: active
 type: decision
 date: 2026-07-28
-tags: [adr, decision, numerical-stability, nan, observation, replay, hostrow, dqn, c51, qrdqn, sac, ddpg, td3, issue-1043]
+tags: [adr, decision, numerical-stability, nan, observation, replay, hostrow, dqn, c51, qrdqn, sac, ddpg, td3]
 ---
 
 # ADR 0067: A non-finite observation is dropped at replay ingestion, counted, and reported at `act`
@@ -11,10 +11,12 @@ tags: [adr, decision, numerical-stability, nan, observation, replay, hostrow, dq
 ## Status
 
 **Accepted (2026-07-28).** Resolves issue #1043. **Counterpart to ADR 0065**,
-which deliberately deferred observation finiteness by number (0065 §Out of
-scope: "left for a separate issue (**#1043**)"). Supersedes nothing; nothing in
-0065's §Decision is reversed. Two sentences of 0065's §Out of scope are
-corrected below (§Correction) — 0065 itself is not edited.
+which deliberately deferred observation finiteness by number (0065's own "Out
+of scope, deliberately" section: "left for a separate issue (**#1043**)").
+Supersedes nothing; nothing in 0065's own Decision section is reversed. Two
+sentences of 0065's "Out of scope, deliberately" section are corrected below
+(this ADR's own "Correction to ADR 0065" section) — 0065 itself is not
+edited.
 
 Additive: no public API signature changes, no healthy-step numerics change.
 `HostRow` gains one **provided** method, so no existing implementor breaks.
@@ -88,9 +90,9 @@ arms host-only; `learn_step` denominators on both `flex` (CPU) and `wgpu`
 
 The predicate's *spelling* dominates its cost.
 `buf.iter().all(|v| v.is_finite())` runs at ~9 GB/s against a ~62 GB/s memcpy —
-8× the write it fuses into — because `Iterator::all` must short-circuit and so
+$8\times$ the write it fuses into — because `Iterator::all` must short-circuit and so
 cannot lower to a horizontal reduction. A branchless `u32::max` reduction over
-the IEEE-754 exponent field restores ~1× fusion (0.057 ns/elem against a
+the IEEE-754 exponent field restores ~$1\times$ fusion (0.057 ns/elem against a
 0.065 ns/elem write) and is data-independent.
 
 ### The workspace splits cleanly, and the split decides the design
@@ -101,10 +103,10 @@ incapable of carrying a non-finite value:
 
 | type | shape | backing |
 |---|---|---|
-| `CarRacingObservation` | 96×96×3 = 27 648 | `Arc<[u8; 27648]>` |
-| `PixelObservation` | `IMG_SIDE²×3` | `u8` → `f32::from(b) / 255.0` |
-| `GridObservation` | 7×7×3 = 147 | `f32::from(channel)` |
-| `GoToDoorObservation` | 7×7×4 = 196 | `f32::from(channel)` |
+| `CarRacingObservation` | $96\times96\times3$ = 27 648 | `Arc<[u8; 27648]>` |
+| `PixelObservation` | $\text{IMG\_SIDE}^2 \times 3$ | `u8` → `f32::from(b) / 255.0` |
+| `GridObservation` | $7\times7\times3$ = 147 | `f32::from(channel)` |
+| `GoToDoorObservation` | $7\times7\times4$ = 196 | `f32::from(channel)` |
 
 Every observation that *can* go non-finite is a small f32 feature vector: 24
 (`bipedal_walker`), 10 (`reacher`), 9 (`inverted_double_pendulum`), 8
@@ -133,7 +135,7 @@ A **provided** method, so all 42 existing `HostRow` impls compile unchanged.
 The default body clears `scratch`, calls `write_host_row`, and runs the
 branchless exponent-field reduction. The IEEE-754 derivation is documented
 inline: this is exactly the code a well-meaning reviewer will "simplify" back
-to `.all(is_finite)`, reintroducing an 8× cost and a data-dependent timing.
+to `.all(is_finite)`, reintroducing an $8\times$ cost and a data-dependent timing.
 
 The `scratch: &mut Vec<f32>` parameter is taken **now**, not later. The default
 body otherwise allocates per call, and the first f32-backed image observation
@@ -162,9 +164,9 @@ through `f32::from` or an `Into<f32>` bound: `impl<T> From<T> for T` means
 `f32: Into<f32>`, so those spellings keep compiling after an f32 refactor and
 guarantee nothing.
 
-This follows the precedent `rules.md` §4 already blesses for derived constants
-(`const _: () = assert!(..)`, "so lowering it breaks the build rather than the
-output").
+This follows the precedent `rules.md`'s Error Handling section already
+blesses for derived constants (`const _: () = assert!(..)`, "so lowering it
+breaks the build rather than the output").
 
 ### 3. The guard sits at `remember`. Not at staging. Not both.
 
@@ -200,8 +202,8 @@ This clause is the most open to challenge and is flagged as such.
 
 ## Correction to ADR 0065
 
-0065 is not edited. Two of its §Out of scope sentences are incomplete in light
-of the benchmark at `a5a927d`:
+0065 is not edited. Two sentences of its "Out of scope, deliberately" section
+are incomplete in light of the benchmark at `a5a927d`:
 
 1. *"checking an observation is a per-element tensor scan, not one `f32`
    register compare — so it is a different cost/benefit call."* True as stated,
@@ -220,7 +222,8 @@ Each of the six agent files carries its own drop test, per 0065's reasoning
 that a copy-paste omission is exactly how two of six sites went missing the
 first time.
 
-Under `PrioritizedReplay` (ADR 0050 §10) a new transition enters at running-max
+Under `PrioritizedReplay` (ADR 0050's fidelity-contract decision, Decision 10)
+a new transition enters at running-max
 priority. A poisoned row yields a NaN TD error, `Priority::try_new` rejects it,
 the writeback is dropped, and the priority stays **pinned at max** — the poison
 is resampled more often than average and never decays. This is an independent
@@ -246,8 +249,10 @@ defect, so the decade `warn!` is doing more work in this ADR than in 0065.
   forward pass producing `bootstrap_value`, which seeds the GAE backward
   recursion. 0065's #1042 reasoning transfers unchanged.
 - Evaluation-only rollouts that call `act` without `remember`; covered by
-  §Decision 4's detection but by no drop.
-- `Observation<R>: HostRow<R>` (ADR 0052 §8), still open, 12 affected types.
+  this ADR's own Decision 4 ("detect and report; do not substitute") but by
+  no drop.
+- `Observation<R>: HostRow<R>` (ADR 0052's Decision 8, "deferred to a
+  follow-up"), still open, 12 affected types.
 - `ContinuousAction::from_slice` being unchecked by contract, which bypasses
   the action types' own NaN validation (`PendulumAction::new` rejects NaN; no
   agent calls it).
@@ -256,11 +261,11 @@ defect, so the decade `warn!` is doing more work in this ADR than in 0065.
 
 `row_is_finite` lands on ~12 action impls and `BootstrapMask`, where the
 question is well-formed but pointless. The natural home is `Observation<R>`,
-which ADR 0052 §8 made expressible but deferred. That is not forced as a rider
+which ADR 0052's Decision 8 made expressible but deferred. That is not forced as a rider
 here; the rustdoc is worded as a statement about *rows*, not observations.
 
 A proptest oracle pinning each override against the default body is worth
 adding as a tripwire, but **not** as the guarantee. `proptest`'s `any::<f32>()`
-excludes NaN and ±Inf by default, so the obvious spelling passes vacuously —
+excludes NaN and $\pm$Inf by default, so the obvious spelling passes vacuously —
 coverage that looks real. The strategy must explicitly request
 `f32::INFINITE | f32::QUIET_NAN`. The witness is the guarantee.

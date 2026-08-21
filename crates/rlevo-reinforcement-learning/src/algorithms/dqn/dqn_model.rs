@@ -19,13 +19,13 @@ use crate::utils::PolyakError;
 /// - [`soft_update`](Self::soft_update) — Polyak averaging of the target
 ///   network: `target ← (1 − τ) · target + τ · active`.
 ///
-/// The `DB` const generic is the observation tensor rank *including* the
-/// leading batch dimension (e.g. `DB = 2` for vector observations of shape
-/// `[batch, features]`; `DB = 4` for image observations of shape
-/// `[batch, channels, height, width]`).
-pub trait DqnModel<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
+/// The `BOR` const generic is the observation tensor rank *including* the
+/// leading batch dimension (e.g. `BOR = 2` for vector observations of shape
+/// `[batch_size, features]`; `BOR = 4` for image observations of shape
+/// `[batch_size, channels, height, width]`).
+pub trait DqnModel<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     /// Autodiff forward pass: computes Q-values for a batch of observations.
-    fn forward(&self, observations: Tensor<B, DB>) -> Tensor<B, 2>;
+    fn forward(&self, observations: Tensor<B, BOR>) -> Tensor<B, 2>;
 
     /// Forward pass against the inner (non-autodiff) target module.
     ///
@@ -37,7 +37,7 @@ pub trait DqnModel<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
     /// [`DqnAgent::learn_step`]: crate::algorithms::dqn::dqn_agent::DqnAgent::learn_step
     fn forward_inner(
         inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, DB>,
+        observations: Tensor<B::InnerBackend, BOR>,
     ) -> Tensor<B::InnerBackend, 2>;
 
     /// Updates the target network via Polyak averaging.

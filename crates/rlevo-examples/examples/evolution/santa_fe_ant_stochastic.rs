@@ -1,4 +1,4 @@
-//! Neuroevolution on the Santa Fe Trail — **stochastic** variant (issue #69).
+//! Neuroevolution on the Santa Fe Trail — **stochastic** variant.
 //!
 //! Identical pipeline to the deterministic example but for a single knob: action
 //! selection is a seeded softmax sample and fitness is the **mean** pellets over a

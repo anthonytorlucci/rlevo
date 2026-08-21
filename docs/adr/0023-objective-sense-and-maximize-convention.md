@@ -16,8 +16,8 @@ additive** — it flips the internal direction of the entire `rlevo-evolution`
 engine (a one-time refactor) and bumps the record schema. Touches `rlevo-core`,
 `rlevo-evolution`, `rlevo-hybrid`, `rlevo-benchmarks`, the report client,
 examples, and docs. **Does not supersede** ADR 0002 — it *resurrects* the MOO
-seam that ADR 0002 deliberately deleted (see Decision §5). Extends ADR 0014
-(schema). Refines the "negate by hand" wording introduced with ADR 0004's
+seam that ADR 0002 deliberately deleted (see this ADR's own Decision 5).
+Extends ADR 0014 (schema). Refines the "negate by hand" wording introduced with ADR 0004's
 `FitnessEvaluable`/`Landscape` move.
 
 ## Context
@@ -46,9 +46,8 @@ locally reasonable — the 24 bundled benchmark landscapes are minimise-native c
 surfaces (zero at the optimum) — but it left the library split-brained against
 the two fields that name it, forced NEAT into an exception, and pushed sign-flips
 into example and bridge code. Multi-objective optimisation (on the research
-roadmap; documented in the user-book) makes a single global direction
-structurally impossible and forces the issue: dominance is defined *per objective
-sense*.
+roadmap) makes a single global direction structurally impossible and forces
+the issue: dominance is defined *per objective sense*.
 
 The project is pre-1.0 on a `pre-release` branch with API stability as an
 explicit current focus — the right time to fix the contract before it ossifies
@@ -76,7 +75,7 @@ A zero-cost `enum ObjectiveSense { Minimize, Maximize }` with an involutive
 `to_canonical(raw) → f32` (negate iff `Minimize`) and `from_canonical` inverse.
 Neutral home in `rlevo-core::objective`; consumed by evolution, hybrid, and
 benchmarks. It is the **K = 1 atom** of the future multi-objective sense vector
-(§5).
+(this ADR's own Decision 5).
 
 ### 2. The engine is maximise-native and sense-unaware
 
@@ -95,7 +94,7 @@ mapping:
 
 - **Ingest:** the harness reads `fitness_fn.sense()` and applies `to_canonical`
   to the fitness tensor before `tell` — a `Minimize` objective is negated so the
-  maximise engine optimises `−cost`.
+  maximise engine optimises $-\text{cost}$.
 - **Report:** the harness applies `from_canonical` when surfacing
   `best_fitness`/`best()`/records, so a `Minimize` landscape reads as its natural
   cost (Sphere → 0). Because canonical space is already higher-is-better, the old
@@ -122,7 +121,7 @@ Maximize` and returns the natural return; its hand-negation is deleted.
 `ObjectiveSense` is designed as the K = 1 case of a per-objective sense vector.
 The `MultiFitness` trait that ADR 0002 deleted as dead code is the natural home
 when NSGA-II/SPEA2 land: `objectives()` + `senses()`, with dominance
-canonicalising every objective to maximise then applying "≥ on all, > on one".
+canonicalising every objective to maximise then applying "$\ge$ on all, $>$ on one".
 This ADR does not build MOO; it guarantees MOO is additive.
 
 ### 6. Downstream: schema v7
@@ -131,7 +130,7 @@ Add `objective_sense: Option<ObjectiveSense>` (serde-default) to **`RunManifest`
 — *not* `MetricDescriptor`, which is `#![no_std]` zero-dep (ADR 0015) and holds
 metric vocabulary, not a run's direction (RD-3). Bump `FORMAT_VERSION` 6→7
 (`record/schema.rs` + report-client `wire.rs` + `MIN_SUPPORTED_VERSION` + the
-compat test); no migration logic (no pre-1.0 back-compat). `None` ⇒ `Maximize`
+compat test); no migration logic (no pre-1.0 back-compat). `None` $\Rightarrow$ `Maximize`
 (canonical default), so RL and unspecified runs render correctly. The report
 client's three direction-hardcoded transforms read the manifest field.
 
@@ -148,7 +147,7 @@ client's three direction-hardcoded transforms read the manifest field.
 - **RD-2.** `StrategyMetrics` is canonical from `tell` (strategies sense-unaware);
   the harness maps to natural space for `latest_metrics`/`best`/records/tracing;
   reward stays canonical. Rejected: sense-carrying metrics.
-- **RD-3.** Schema field on `RunManifest`, not the registry (see §6).
+- **RD-3.** Schema field on `RunManifest`, not the registry (see this ADR's own Decision 6).
 - **RD-4.** RL untouched — `Reward` direction-neutral, `AgentStats` `.max`; RL
   already conforms. Rejected: threading sense into `Reward`/RL metrics
   (vestigial, the ADR 0002 speculative-surface anti-pattern).
@@ -161,7 +160,7 @@ client's three direction-hardcoded transforms read the manifest field.
   split-brain and the NEAT exception are gone. A contributor reads `de.rs` /
   `ga.rs` and sees the EC-textbook direction.
 - **Hand-negation eliminated from user space.** The only negation left is the
-  honest cost↔canonical mapping, confined to two chokepoint layers and
+  honest cost $\leftrightarrow$ canonical mapping, confined to two chokepoint layers and
   `grep`-able.
 - **Results read naturally.** `best_fitness` is the user's value in the user's
   sense; the report can label direction instead of assuming it.
@@ -173,7 +172,7 @@ client's three direction-hardcoded transforms read the manifest field.
 
 - **A large, correctness-sensitive one-time flip** (~30 strategy files + ops +
   shaping + metrics + harness), several sites non-mechanical (CMA-ES/CMSA-ES/ES
-  rank-µ recombination ordering, NES shaping utilities, EDA winner/loser and
+  rank-$\mu$ recombination ordering, NES shaping utilities, EDA winner/loser and
   truncation, local-search accept rules, the `NaN` sentinel). Mitigated by a
   behaviour-preserving characterization baseline plus targeted unit tests per
   subtle site.
@@ -249,5 +248,8 @@ shared base, and the `rlevo-evolution → rlevo-core` dep already exists (ADR 00
 - `crates/rlevo-evolution/src/strategy.rs`, `.../fitness.rs`,
   `.../ops/{selection,replacement}.rs`, `.../shaping.rs` — the chokepoint + flip
   surface.
-- `docs/user-book/src/part-1-foundations/20-evolutionary-computation.md`
-  §Multi-Objective Optimisation.
+- The project's own reference material on multi-objective optimisation (Pareto
+  dominance, NSGA-II/SPEA2 as the canonical algorithms) frames `ObjectiveSense`
+  exactly as this ADR does: the single-objective case is deliberately the
+  *K = 1* atom of a future per-objective sense vector, so landing NSGA-II later
+  adds a path beside today's scalar contract rather than reworking it.

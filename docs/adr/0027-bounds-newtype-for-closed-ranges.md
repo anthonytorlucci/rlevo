@@ -20,7 +20,7 @@ cross-crate parent.
 module — an inclusive range that is **valid by construction**: the whole
 invariant is `lo <= hi`, which rejects `lo > hi` and `NaN` (a `NaN` fails the
 comparison) while permitting a degenerate single point (`lo == hi`) and a
-one-sided infinite range (`[0.7, ∞)`). It *complements* the ADR 0026 `Validate`
+one-sided infinite range ($[0.7, \infty)$). It *complements* the ADR 0026 `Validate`
 convention rather than replacing it: a config field of type `Bounds` is
 self-validating, so the config's `validate()` no longer repeats a
 `config::ordered(…, "bounds", …)` check for that field. This ADR lands the type
@@ -60,9 +60,10 @@ value **at the config boundary** — but the boundary is not the whole story:
   `ordered`-checked; and `clip_contact_cost` takes a bare tuple with no guard.
 
 The evolutionary and environment reviews reached the same conclusion
-independently and flagged it ADR-worthy (firefly §3.1, gwo §3.1, woa §3.1,
-hill_climbing §3.1, random_restart §3.1). Deciding the newtype's shape once, in
-`rlevo-core`, avoids two divergent implementations of one invariant.
+independently and flagged it ADR-worthy (the firefly, gwo, woa, hill_climbing,
+and random_restart code reviews each at their own section 3.1). Deciding the
+newtype's shape once, in `rlevo-core`, avoids two divergent implementations
+of one invariant.
 
 ### Relationship to existing seams
 
@@ -72,7 +73,7 @@ hill_climbing §3.1, random_restart §3.1). Deciding the newtype's shape once, i
   *boundary-level* check — the two compose, they do not compete.
 - `Bounds` reuses the ADR 0026 error vocabulary in spirit but not in type: its
   constructor has no config/field name to report, so it returns a dedicated
-  `BoundsError`, not a `ConfigError` (see §5).
+  `BoundsError`, not a `ConfigError` (see this ADR's own Decision 5, below).
 
 ## Decision
 
@@ -128,9 +129,9 @@ pub struct BoundsError {
 ```
 
 A one-sided **infinite** endpoint is deliberately permitted: `HealthyCheck`
-expresses "healthy above 0.7, no ceiling" as `z_range: Some((0.7, ∞))`, and
+expresses "healthy above 0.7, no ceiling" as `z_range: Some((0.7, ` $\infty$ `))`, and
 `f32::clamp` panics only on `min > max` or `NaN`, never on an infinity. The
-`lo <= hi` invariant admits it (`0.7 <= ∞`) while still rejecting `NaN`.
+`lo <= hi` invariant admits it ($0.7 \le \infty$) while still rejecting `NaN`.
 
 ### 2. Inclusive invariant, and the divergence from `config::ordered`
 
@@ -156,8 +157,8 @@ A `Bounds` field is self-validating, so adopting it **removes** the paired
 of every `validate()` is unchanged — `Bounds` narrows one field's invariant into
 the type system; it does not discharge the config's other cross-field checks.
 Configs keep implementing `Validate`. Where a config still needs the field's
-scalars for a *cross-field* check (e.g. mountain-car `goal_position ∈
-[pos.lo(), pos.hi()]`), it reads them back through the accessors.
+scalars for a *cross-field* check (e.g. mountain-car
+$\text{goal\_position} \in [\text{pos.lo()}, \text{pos.hi()}]$), it reads them back through the accessors.
 
 ### 4. serde: validated deserialization
 
@@ -165,9 +166,10 @@ scalars for a *cross-field* check (e.g. mountain-car `goal_position ∈
 f32)")]`, so a range loaded from a file or manifest runs through `try_new` and a
 malformed pair is **rejected**, never deserialized into an invalid `Bounds`.
 This is required because two adopters — `MountainCarConfig` and
-`MountainCarContinuousConfig` — derive `Deserialize`, and rules.md §4 / ADR 0026
-forbid trusting deserialized data. It is free otherwise: `rlevo-core` already
-depends on `serde` (used by `render::payload`).
+`MountainCarContinuousConfig` — derive `Deserialize`, and rules.md's Error
+Handling section / ADR 0026 forbid trusting deserialized data. It is free
+otherwise: `rlevo-core` already depends on `serde` (used by
+`render::payload`).
 
 ### 5. Error surface: a dedicated `BoundsError`, not `ConfigError`
 
@@ -222,10 +224,12 @@ literals, no config field); `render::payload` `bounds_x`/`bounds_y` and the
   `(f32, f32)` literals become `Bounds::new(…)`.
 - Mountain-car's public field shape and serialized form change (breaking, alpha).
 - A third small typed primitive now coexists with `Validate` and
-  `ObjectiveSense`; mitigated by the module split and the §3 rule that `Bounds`
-  *replaces* only the one `ordered` line, not `Validate` itself.
+  `ObjectiveSense`; mitigated by the module split and this ADR's own
+  Decision 3 rule that `Bounds` *replaces* only the one `ordered` line, not
+  `Validate` itself.
 - Inclusive `lo == hi` makes a zero-width range constructible; the SA /
-  random-restart `step_size` defaults guard it with `debug_assert!` (§5).
+  random-restart `step_size` defaults guard it with `debug_assert!` (this
+  ADR's own Decision 5).
 
 ### Neutral
 - Purely additive to `rlevo-core` (new `bounds` module; existing public types
@@ -242,7 +246,8 @@ literals, no config field); `render::payload` `bounds_x`/`bounds_y` and the
   is zero-width-safe.
 - **Return `ConfigError` from `Bounds::try_new`.** Rejected: the constructor has
   no field name to report, and coupling the primitive to the config module for a
-  placeholder buys nothing. A dedicated `Copy` `BoundsError` is simpler (§5).
+  placeholder buys nothing. A dedicated `Copy` `BoundsError` is simpler (this
+  ADR's own Decision 5).
 - **Generic `Bounds<T: Float>` over `f32`/`f64`.** Premature: every in-scope
   range field is `f32`; the only `f64` ranges are the excluded heatmap-render
   helpers. Revisit additively if a numeric consumer appears.
@@ -259,8 +264,9 @@ literals, no config field); `render::payload` `bounds_x`/`bounds_y` and the
   ADR removes for range fields.
 - ADR [0023](0023-objective-sense-and-maximize-convention.md) — small typed
   primitive in a dedicated `rlevo-core` module; the shape this ADR follows.
-- `docs/rules.md §4` — Error Handling; the deserialized-data-is-`Result` rule
-  that motivates the validated serde (§4).
+- `docs/rules.md`'s Error Handling section — the deserialized-data-is-`Result`
+  rule that motivates this ADR's own Decision 4 ("serde: validated
+  deserialization").
 - Code: `crates/rlevo-evolution/src/local_search.rs:289` (`clamp_vec` — the
   silent-collapse helper), `crates/rlevo-environments/src/locomotion/common.rs:212`
   (`clip_contact_cost` — the unguarded `f32::clamp` site),

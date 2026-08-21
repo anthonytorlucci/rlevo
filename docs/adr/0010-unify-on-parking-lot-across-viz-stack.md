@@ -10,8 +10,9 @@ tags: [adr, decision, visualisation, concurrency, mutex, parking-lot, rlevo-evol
 
 ## Status
 
-Accepted. Implements option **A1** from viz-mutex-and-ci-gap; closes gap **G2** in
-viz-examples-gaps.
+Accepted. Redefines the EA observer alias onto `parking_lot::Mutex` — the
+preferred fix identified while investigating the recording-tier lock-type
+split described below.
 
 ## Context
 
@@ -20,8 +21,7 @@ discovered that ~10 of the 17 `crates/rlevo/examples/viz/` examples did not comp
 nobody knew — they are `required-features`-gated, so no `cargo build`/`test`/`clippy`
 ever touched them.
 
-The root cause is a lock-type split between two sibling subsystems
-(viz-mutex-and-ci-gap §"Root cause A"):
+The root cause is a lock-type split between two sibling subsystems:
 
 - The record-sink **producers** take `Arc<parking_lot::Mutex<dyn RecordSink>>` after the
   `7d9127b` migration ("better performance in highly contended multi-threaded test
@@ -111,14 +111,14 @@ unaffected.
 
 ## Follow-on (not part of this ADR)
 
-The companion CI gap (G1 / viz-mutex-and-ci-gap "Root cause B") — adding an
-example build+clippy job so the viz examples can't silently rot again — is tracked
-separately and is the higher-leverage fix; A1 makes the eventual green build uniform.
+The companion gap — adding an example build+clippy job so the viz examples
+can't silently rot again — is tracked separately and is the higher-leverage
+fix; this ADR's `Mutex` unification makes the eventual green build uniform.
 
 ## References
 
-- Research: viz-mutex-and-ci-gap (§"Root cause A", option A1) — the deep dive this ADR enacts.
-- Research: viz-examples-gaps (G2) — parent gaps catalog.
+- The lock-type-split investigation this ADR enacts is reproduced in this
+  ADR's own Context above.
 - ADR [0008-three-tier-visualisation-ratatui-live-static-report](0008-three-tier-visualisation-ratatui-live-static-report.md) — three-tier viz architecture.
 - ADR [0009-move-styled-render-into-rlevo-core](0009-move-styled-render-into-rlevo-core.md) — prior viz-surface relocation.
 - Commits: `7d9127b` (introduced the `parking_lot` producer migration), `bde3f69`

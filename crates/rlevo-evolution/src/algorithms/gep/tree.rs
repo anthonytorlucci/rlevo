@@ -6,14 +6,14 @@ use super::alphabet::{Alphabet, SymbolKind};
 
 /// Magnitude cap applied to a diverged node value in [`ExpressionTree::eval`].
 ///
-/// Sized so its square stays finite (`1e15² = 1e30 < f32::MAX ≈ 3.4e38`), even
+/// Sized so its square stays finite (`$1e15^2 = 1e30$` `$<$` `f32::MAX` `$\approx 3.4e38$`), even
 /// summed over a large dataset, so a clamped prediction still produces a finite
-/// — but very large — MSE. A diverged (`±Inf`) subtree therefore ranks worst
+/// — but very large — MSE. A diverged (`$\pm\infty$`) subtree therefore ranks worst
 /// rather than collapsing to a deceptively small error.
 const EVAL_CLAMP: f32 = 1e15;
 
-/// Node-value sanitizer for the GEP evaluator: `NaN → 0.0`, `±Inf → ±`
-/// [`EVAL_CLAMP`], finite values unchanged.
+/// Node-value sanitizer for the GEP evaluator: `NaN` `$\to$` `0.0`, `$\pm\infty$`
+/// `$\to$` `$\pm$` [`EVAL_CLAMP`], finite values unchanged.
 ///
 /// `f32::clamp` *propagates* `NaN`, so `NaN` must be handled before the clamp
 /// (mirrors the EDA `bayesian_network` finiteness convention). Unlike the
@@ -114,8 +114,8 @@ impl ExpressionTree {
     /// [`FunctionSet::apply`] with their
     /// children's already-computed results, then sanitize the result via
     /// `finite_or_clamp`: a `NaN` collapses to `0.0` (it has no meaningful
-    /// sign or magnitude), while `±Inf` clamps to `±EVAL_CLAMP` (sign
-    /// preserved). Clamping — rather than zeroing — a diverged (`±Inf`) subtree
+    /// sign or magnitude), while `$\pm\infty$` clamps to `$\pm$` `EVAL_CLAMP` (sign
+    /// preserved). Clamping — rather than zeroing — a diverged (`$\pm\infty$`) subtree
     /// keeps its magnitude large, so it yields a large MSE and ranks *worst*
     /// instead of masquerading as a perfect `0.0` predictor near zero-valued
     /// targets (GEP finding tree.rs §1.2). This differs from the CGP evaluator's
@@ -176,7 +176,7 @@ mod tests {
         Alphabet::new(ArithmeticFunctionSet, n_vars, vec![])
     }
 
-    /// Genome `[+, x, 1]` (ids: add=0, var x=8, const-1=7) decodes to `x + 1`.
+    /// Genome `[+, x, 1]` (ids: add=0, var x=8, const-1=7) decodes to `$x + 1$`.
     #[test]
     fn evaluates_x_plus_one() {
         let a = alphabet(1);
@@ -194,7 +194,7 @@ mod tests {
         approx::assert_relative_eq!(tree.eval(&a, &[-5.0]), -4.0, epsilon = 1e-6);
     }
 
-    /// `[*, x, x]` decodes to `x * x` with depth 1.
+    /// `[*, x, x]` decodes to `$x \cdot x$` with depth 1.
     #[test]
     fn evaluates_x_squared_with_depth_one() {
         let a = alphabet(1);
@@ -225,7 +225,7 @@ mod tests {
         approx::assert_relative_eq!(tree.eval(&a, &[7.0]), 7.0, epsilon = 1e-6);
     }
 
-    /// `finite_or_clamp`: `NaN → 0.0`, `±Inf → ±EVAL_CLAMP`, finite passes.
+    /// `finite_or_clamp`: `NaN` `$\to$` `0.0`, `$\pm\infty$` `$\to$` `$\pm$` `EVAL_CLAMP`, finite passes.
     #[test]
     fn test_finite_or_clamp_zeroes_nan_and_clamps_inf() {
         approx::assert_relative_eq!(finite_or_clamp(f32::NAN), 0.0, epsilon = 1e-6);
@@ -234,7 +234,7 @@ mod tests {
         approx::assert_relative_eq!(finite_or_clamp(3.5), 3.5, epsilon = 1e-6);
     }
 
-    /// An overflowing `x * x` clamps to `EVAL_CLAMP` (not `0.0`), so a diverged
+    /// An overflowing `$x \cdot x$` clamps to `EVAL_CLAMP` (not `0.0`), so a diverged
     /// tree carries a large magnitude and is penalized (finding tree.rs §1.2).
     #[test]
     fn test_eval_clamps_overflow_instead_of_zeroing() {
@@ -269,7 +269,7 @@ mod tests {
     }
 
     /// A variable node whose input index is out of range reads `0.0` (the
-    /// evaluator's missing-input policy), not a panic. A `+Inf` *input* still
+    /// evaluator's missing-input policy), not a panic. A `$+\infty$` *input* still
     /// clamps to `EVAL_CLAMP` rather than collapsing to `0.0`, so a diverged
     /// value is penalized (matches `finite_or_clamp`).
     #[test]
@@ -291,12 +291,12 @@ mod tests {
 
     // §7.2 -----------------------------------------------------------------
 
-    /// Regression for issue #147 §1.1. A contract-violating genome — one that
-    /// breaks Ferreira's head/tail rule (eq. 3.4) and so leaves an unfilled
-    /// child slot — is built here directly via `from_parts`, bypassing the
-    /// decoder's `debug_assert!`. Its child range `1..3` overruns the single
-    /// node. Before the fix, `eval` sliced `results[1..3]` out of bounds and
-    /// panicked; the defensive clamp now degrades it to a finite value.
+    /// A contract-violating genome — one that breaks Ferreira's head/tail
+    /// rule (eq. 3.4) and so leaves an unfilled child slot — is built here
+    /// directly via `from_parts`, bypassing the decoder's `debug_assert!`.
+    /// Its child range `1..3` overruns the single node. Before the fix,
+    /// `eval` sliced `results[1..3]` out of bounds and panicked; the
+    /// defensive clamp now degrades it to a finite value.
     #[test]
     fn eval_does_not_panic_on_out_of_bounds_child_range() {
         let a = alphabet(1);

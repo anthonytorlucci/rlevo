@@ -22,8 +22,8 @@ use crate::utils::PolyakError;
 /// Contract implemented by any network usable as a DDPG actor or target
 /// actor.
 ///
-/// The actor maps a batch of observations of rank `DB` (including the batch
-/// dimension) to a batch of continuous actions of rank `DAB`. Implementors
+/// The actor maps a batch of observations of rank `BOR` (including the batch
+/// dimension) to a batch of continuous actions of rank `BAR`. Implementors
 /// are expected to bake any tanh-squash + action-scale/bias into
 /// [`forward`](Self::forward) so that the emitted tensor is already in the
 /// env-visible action range.
@@ -31,17 +31,17 @@ use crate::utils::PolyakError;
 /// Use [`forward`](Self::forward) during training (autodiff graph is active).
 /// Use [`forward_inner`](Self::forward_inner) against the frozen target
 /// module during target-Q computation (no gradient tracking).
-pub trait DeterministicPolicy<B: AutodiffBackend, const DB: usize, const DAB: usize>:
+pub trait DeterministicPolicy<B: AutodiffBackend, const BOR: usize, const BAR: usize>:
     AutodiffModule<B>
 {
     /// Autodiff forward pass: `(batch, ...obs)` → `(batch, ...action)`.
-    fn forward(&self, obs: Tensor<B, DB>) -> Tensor<B, DAB>;
+    fn forward(&self, obs: Tensor<B, BOR>) -> Tensor<B, BAR>;
 
     /// Forward pass against the inner (non-autodiff) target actor.
     fn forward_inner(
         inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, DB>,
-    ) -> Tensor<B::InnerBackend, DAB>;
+        obs: Tensor<B::InnerBackend, BOR>,
+    ) -> Tensor<B::InnerBackend, BAR>;
 
     /// Polyak-averages the target toward the active network.
     ///
@@ -71,17 +71,17 @@ pub trait DeterministicPolicy<B: AutodiffBackend, const DB: usize, const DAB: us
 /// Use [`forward`](Self::forward) during the critic and actor gradient steps
 /// (autodiff graph active). Use [`forward_inner`](Self::forward_inner) for
 /// target-Q computation where no gradients should flow.
-pub trait ContinuousQ<B: AutodiffBackend, const DB: usize, const DAB: usize>:
+pub trait ContinuousQ<B: AutodiffBackend, const BOR: usize, const BAR: usize>:
     AutodiffModule<B>
 {
     /// Autodiff forward pass producing a `(batch,)` Q-value tensor.
-    fn forward(&self, obs: Tensor<B, DB>, act: Tensor<B, DAB>) -> Tensor<B, 1>;
+    fn forward(&self, obs: Tensor<B, BOR>, act: Tensor<B, BAR>) -> Tensor<B, 1>;
 
     /// Forward pass against the inner (non-autodiff) target critic.
     fn forward_inner(
         inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, DB>,
-        act: Tensor<B::InnerBackend, DAB>,
+        obs: Tensor<B::InnerBackend, BOR>,
+        act: Tensor<B::InnerBackend, BAR>,
     ) -> Tensor<B::InnerBackend, 1>;
 
     /// Polyak-averages the target toward the active network.

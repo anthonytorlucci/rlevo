@@ -69,7 +69,7 @@ strategies.
 
 ### 3. The RNG boundary is a HARD RULE (cite ADR 0029)
 
-**proptest generates host config only** — `λ`, `D`, structural sizes, and a
+**proptest generates host config only** — $\lambda$, `D`, structural sizes, and a
 `seed: u64`. The test body routes **all** algorithm randomness through
 `seed_stream(seed, generation, SeedPurpose::_)`, exactly as production does.
 `B::seed` + `Tensor::random` is forbidden in property bodies as it is everywhere
@@ -125,9 +125,9 @@ to gitignore later if the file churn proves unacceptable.
 - Input-space invariants become first-class and continuously exercised, not
   limited to hand-picked seeds; shrinking yields minimal reproducers for free.
 - Committed regression files replay every past counterexample on every run.
-- The RNG boundary (§3) means adopting proptest introduces **no new flakiness**:
-  determinism still flows from `seed_stream`, and no forking means no new
-  parallelism against Burn's RNG mutex.
+- The RNG boundary (this ADR's own Decision 3) means adopting proptest
+  introduces **no new flakiness**: determinism still flows from `seed_stream`,
+  and no forking means no new parallelism against Burn's RNG mutex.
 
 ### Neutral
 
@@ -135,12 +135,13 @@ to gitignore later if the file churn proves unacceptable.
 
 ### Negative / accepted costs
 
-- CI wall-clock grows with `cases`, bounded per-property by the §5 policy (16 for
-  backend-heavy, 64–128 for cheap).
+- CI wall-clock grows with `cases`, bounded per-property by this ADR's own
+  Decision 5 policy (16 for backend-heavy, 64–128 for cheap).
 - Committing `proptest-regressions/` couples the repo to shrunken counterexamples
-  (reversible — see §6).
+  (reversible — see this ADR's own Decision 6).
 - The transitive dependency surface grows, but `rusty-fork` / `tempfile` /
-  `wait-timeout` are avoided by dropping default features (§2). Any `rand` /
+  `wait-timeout` are avoided by dropping default features (this ADR's own
+  Decision 2). Any `rand` /
   `bitflags` duplicate-version pull-in is absorbed by the workspace's existing
   `multiple_crate_versions = "allow"` clippy setting (root `Cargo.toml`).
 - Adversarial generated inputs may surface genuine latent bugs. Per `rules.md`,

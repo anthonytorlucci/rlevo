@@ -50,15 +50,15 @@ use crate::strategy::{Strategy, StrategyMetrics};
 /// Absolute backstop floor for eigenvalues (guards against an all-zero `C`).
 const EIGENVALUE_FLOOR: f32 = 1e-20;
 
-/// Relative eigenvalue floor: eigenvalues below `λ_max · CONDITION_FLOOR` are
+/// Relative eigenvalue floor: eigenvalues below `$\lambda_{\max} \cdot$` `CONDITION_FLOOR` are
 /// clamped before taking `$\sqrt{\Lambda}$` / `$1/\sqrt{\Lambda}$`, capping the covariance condition number
 /// near `1e14` (pycma's condition-number treatment). Without this, a single
 /// eigenvalue drifting toward zero would make a `C^{-1/2}` column explode and
-/// drive `$\sigma$` to `+∞` through the CSA update.
+/// drive `$\sigma$` to `$+\infty$` through the CSA update.
 const CONDITION_FLOOR: f32 = 1e-14;
 
 /// Per-eigenvalue floor for the current covariance: the larger of the absolute
-/// backstop and `λ_max · CONDITION_FLOOR`.
+/// backstop and `$\lambda_{\max} \cdot$` `CONDITION_FLOOR`.
 fn eigenvalue_floor(eigvals: &[f32]) -> f32 {
     let lmax: f32 = eigvals.iter().copied().fold(0.0_f32, f32::max);
     (lmax * CONDITION_FLOOR).max(EIGENVALUE_FLOOR)
@@ -122,7 +122,7 @@ impl CmaEsConfig {
     /// Larger `$\lambda$` improves basin-finding on multimodal landscapes (Hansen 2016,
     /// §A); all derived weights and learning rates follow from `$(\lambda, D)$`.
     ///
-    /// The `pop_size ≥ 2` invariant is enforced by [`Validate::validate`] at the
+    /// The `pop_size` `$\geq 2$` invariant is enforced by [`Validate::validate`] at the
     /// harness chokepoint, not by this infallible producer.
     #[must_use]
     pub fn with_pop_size(pop_size: usize, genome_dim: usize) -> Self {
@@ -286,7 +286,7 @@ impl Validate for CmaEsConfig {
 pub struct CmaEsState<B: Backend> {
     /// Distribution mean `m`, length `D`.
     mean: Vec<f32>,
-    /// Covariance matrix `C`, row-major `D × D`.
+    /// Covariance matrix `C`, row-major `$D \times D$`.
     cov: Vec<f32>,
     /// Conjugate evolution path `$p_\sigma$`, length `D`.
     p_sigma: Vec<f32>,
@@ -335,7 +335,7 @@ impl<B: Backend> CmaEsState<B> {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `mean` is empty, if `cov` is not `D × D`
+    /// Returns a [`ConfigError`] if `mean` is empty, if `cov` is not `$D \times D$`
     /// row-major (`D = mean.len()`), if `p_sigma` or `p_c` differs from `D`,
     /// or if `sigma` is not strictly positive and finite.
     #[allow(clippy::too_many_arguments)]
@@ -408,7 +408,7 @@ impl<B: Backend> CmaEsState<B> {
         &self.mean
     }
 
-    /// Covariance matrix `C`, row-major `D × D`.
+    /// Covariance matrix `C`, row-major `$D \times D$`.
     #[must_use]
     pub fn cov(&self) -> &[f32] {
         &self.cov
@@ -487,7 +487,7 @@ where
     type Genome = Tensor<B, 2>;
 
     /// Initializes `$m^0$` uniformly in `params.bounds` (host-RNG convention),
-    /// `C = I`, `σ = initial_sigma`, and both evolution paths to zero.
+    /// `C = I`, `$\sigma$` = `initial_sigma`, and both evolution paths to zero.
     fn init(
         &self,
         params: &CmaEsConfig,
@@ -590,14 +590,14 @@ where
     /// # Lost generations
     ///
     /// The rank-μ update needs `$\mu$` *usable* selection steps. Ranking already
-    /// sanitizes (`NaN → −∞`) and sorts with `total_cmp`, so a non-finite
+    /// sanitizes (`NaN` → `$-\infty$`) and sorts with `total_cmp`, so a non-finite
     /// fitness can never rank among the best — but if **fewer than `$\mu$`**
     /// sanitized values are finite, non-usable individuals would still fill out
     /// the selected `$\mu$` and feed meaningless steps `$y_i = (x_i - m)/\sigma$` into the
     /// mean and covariance updates. When that happens `tell` takes a deliberate
     /// **lost generation**: the entire adaptive update (mean, `C`, `$p_\sigma$`, `p_c`,
     /// `$\sigma$`, and the eigendecomposition memo) is skipped and the search
-    /// distribution is left exactly unchanged. A legitimate `−∞` counts as
+    /// distribution is left exactly unchanged. A legitimate `$-\infty$` counts as
     /// non-usable here — it marks a member evaluation that broke, so it cannot
     /// contribute a meaningful recombination step.
     ///
@@ -1174,13 +1174,13 @@ mod tests {
         assert!(told1.sigma().is_finite(), "sigma finite");
     }
 
-    /// Issue #147 §7.2: a full adaptive `tell` must leave `C` symmetric and
-    /// positive-definite. Since #241 the rank-μ update factors the bare
-    /// outer-product term before applying the per-rank weight, so each (i,j)
-    /// and (j,i) contribution is bit-identical, and a `symmetrize` backstop
-    /// runs after the loop — symmetry is therefore a *structural* guarantee,
-    /// not a lucky rounding for this seed. The `to_bits()` assertions below are
-    /// consequently a genuine invariant that holds for every seed/dim; the
+    /// A full adaptive `tell` must leave `C` symmetric and positive-definite.
+    /// The rank-μ update factors the bare outer-product term before applying
+    /// the per-rank weight, so each (i,j) and (j,i) contribution is
+    /// bit-identical, and a `symmetrize` backstop runs after the loop —
+    /// symmetry is therefore a *structural* guarantee, not a lucky rounding
+    /// for this seed. The `to_bits()` assertions below are consequently a
+    /// genuine invariant that holds for every seed/dim; the
     /// `cma_es_drive_preserves_invariants` property asserts the same bit-exact
     /// equality across the sampled space. PD is checked via a symmetric
     /// eigendecomposition (all eigenvalues strictly positive), which is exactly
@@ -1226,13 +1226,11 @@ mod tests {
         }
     }
 
-    /// Issue #241's open question: does the rank-μ update's ULP asymmetry
-    /// *compound* over hundreds of generations, drifting `C` off the symmetric
-    /// manifold the solver assumes? With the #241 fix (factored-product
-    /// accumulation + `symmetrize` backstop) the answer is structurally no: `C`
-    /// is bit-exact symmetric after every `tell`, so it never leaves the
-    /// symmetric manifold and no drift can accumulate — there is nothing to
-    /// compound. This long run (`$\lambda=16$`, `D=5`, 400 generations of synthetic
+    /// The rank-μ update's factored-product accumulation plus the
+    /// `symmetrize` backstop keep `C` bit-exact symmetric after every `tell`,
+    /// so it never drifts off the symmetric manifold the solver assumes —
+    /// there is nothing to compound across generations. This long run
+    /// (`$\lambda=16$`, `D=5`, 400 generations of synthetic
     /// strictly-descending fitness) exercises many `tell` updates and asserts,
     /// after *every* generation, bit-exact symmetry across all `(i,j)`/`(j,i)`
     /// pairs plus all-finite entries. It protects the fix against a future edit
@@ -1278,16 +1276,17 @@ mod tests {
         }
     }
 
-    /// Issue #241, isolated: guards the Task-1 accumulation fix on its own.
-    /// `tell` runs an unconditional `symmetrize` backstop, so every `tell`-level
-    /// symmetry test would still pass even if the parenthesization were reverted
-    /// — nothing would independently catch a regressed "bit-exact by
-    /// construction" claim. This test reconstructs the rank-µ accumulation the
-    /// way `tell` does but WITHOUT calling `tell`, so no backstop can mask a bad
-    /// grouping. It uses non-power-of-two floats chosen so the naive grouping
+    /// Guards the rank-μ accumulation fix on its own, isolated from `tell`'s
+    /// unconditional `symmetrize` backstop: every `tell`-level symmetry test
+    /// would still pass even if the parenthesization were reverted, because
+    /// the backstop would mask it — nothing would independently catch a
+    /// regressed "bit-exact by construction" claim. This test reconstructs
+    /// the rank-µ accumulation the way `tell` does but WITHOUT calling
+    /// `tell`, so no backstop can mask a bad grouping. It uses
+    /// non-power-of-two floats chosen so the naive grouping
     /// actually diverges in the last ULPs:
-    ///  - (a) the FIXED grouping `w · (yᵢ[i]·yᵢ[j])` is bit-exact symmetric;
-    ///  - (b) the OLD grouping `(w · yᵢ[i]) · yᵢ[j]` diverges on at least one
+    ///  - (a) the FIXED grouping `$w \cdot (y_i[i] \cdot y_i[j])$` is bit-exact symmetric;
+    ///  - (b) the OLD grouping `$(w \cdot y_i[i]) \cdot y_i[j]$` diverges on at least one
     ///    transposed pair, documenting why the parenthesization is load-bearing.
     #[test]
     fn rankmu_accumulation_is_symmetric_by_construction() {
@@ -1345,7 +1344,7 @@ mod tests {
         );
     }
 
-    /// Issue #147 §7.2 best-tracking: `best()` is `None` before any `tell`, and
+    /// Best-tracking: `best()` is `None` before any `tell`, and
     /// `Some((genome, fitness))` after — reporting the highest-fitness offspring
     /// (canonical maximise) with the correct `(1, D)` genome shape.
     #[test]
@@ -1374,10 +1373,10 @@ mod tests {
         assert_eq!(genome.dims(), [1, 2]);
     }
 
-    /// Issue #147 §7.2 eigenvalue-floor clamp: a degenerate (exactly zero)
-    /// eigenvalue is floored to the relative floor `λ_max · CONDITION_FLOOR`,
+    /// Eigenvalue-floor clamp: a degenerate (exactly zero)
+    /// eigenvalue is floored to the relative floor `$\lambda_{\max} \cdot$` `CONDITION_FLOOR`,
     /// strictly above zero, so `$\sqrt{\Lambda}$` and `$1/\sqrt{\Lambda}$` both stay finite. Without the
-    /// floor the `$1/\sqrt{\Lambda}$` used in `tell`'s `C^{-1/2}` would diverge to `+∞`.
+    /// floor the `$1/\sqrt{\Lambda}$` used in `tell`'s `C^{-1/2}` would diverge to `$+\infty$`.
     #[test]
     fn eigenvalue_floor_clamps_degenerate_eigenvalue() {
         // λ_max = 1, one exactly-zero eigenvalue.
@@ -1400,7 +1399,7 @@ mod tests {
         );
     }
 
-    /// Issue #147 §7.2: `update_best` on an empty population is a no-op — it
+    /// `update_best` on an empty population is a no-op — it
     /// short-circuits before touching the population tensor, leaving best-so-far
     /// tracking untouched (no panic, no spurious best).
     #[test]
@@ -1430,16 +1429,16 @@ mod tests {
     proptest! {
         // Backend-heavy property: each case instantiates `Flex` and runs several
         // full generations, so the case count and shrink budget are capped to
-        // keep CI cost bounded (task §239 §7.3).
+        // keep CI cost bounded.
         #![proptest_config(ProptestConfig {
             cases: 16,
             max_shrink_iters: 256,
             ..ProptestConfig::default()
         })]
 
-        /// Issue #239 §7.3: across a bounded `(λ, D, seed)` space, a full
+        /// Across a bounded `$(\lambda, D, \text{seed})$` space, a full
         /// `init → ask → tell` drive over several generations preserves the
-        /// CMA-ES structural invariants — offspring shape `[λ, D]`, bit-exact
+        /// CMA-ES structural invariants — offspring shape `$[\lambda, D]$`, bit-exact
         /// covariance symmetry, positive-definiteness (every eigenvalue and
         /// diagonal variance strictly positive), a finite search distribution,
         /// and the `best()` lifecycle (`None` before the first `tell`, then a
@@ -1491,12 +1490,19 @@ mod tests {
                     strategy.tell(&params, population, fitness, asked, &mut rng);
 
                 let cov: &[f32] = told.cov();
-                // Invariant 2: covariance is *bit-exact* symmetric (was relative
-                // pre-#241). The rank-μ update now factors the bare
-                // outer-product term before the per-rank weight, so each (i,j)
-                // and (j,i) contribution is bit-identical, and a `symmetrize`
-                // backstop runs after the loop. Symmetry is therefore guaranteed
-                // by construction across the whole sampled space — no ULP
+                // Invariant 2: covariance is *bit-exact* symmetric. Float
+                // multiplication is commutative but not associative, so naively
+                // accumulating the rank-μ term as `(w · yi[i]) · yi[j]` for the
+                // (i,j) entry and `(w · yi[j]) · yi[i]` for its (j,i) transpose
+                // can diverge by a few ULPs — and since each `tell` feeds off the
+                // previous `C`, that drift can compound across generations. The
+                // rank-μ update now factors the bare outer-product term
+                // (`yi[i] * yi[j]`, itself exactly commutative) before applying
+                // the per-rank weight, so both triangle entries sum identical
+                // per-rank terms in the same order and land on the same bits; a
+                // `symmetrize` backstop still runs after the loop as
+                // defense-in-depth. Symmetry is therefore guaranteed by
+                // construction across the whole sampled space — no ULP
                 // divergence between the transposed triangle entries.
                 for i in 0..d {
                     for j in 0..d {

@@ -42,8 +42,8 @@ Three facts about randomness in `rlevo` were true before this ADR:
    from stored config on every reset. Because the seed is fixed, every episode
    started from bit-identical noise, silently defeating the episode-to-episode
    diversity a DRL/POMDP agent is meant to generalise over. The canonical
-   🔴 High findings were `pixel_grid.rs` and `locomotion/reacher/env.rs`, but the
-   pattern was crate-wide.
+   High-severity findings were `pixel_grid.rs` and `locomotion/reacher/env.rs`,
+   but the pattern was crate-wide.
 
 3. **`rlevo-reinforcement-learning` was inconsistent about RNG trait bounds.**
    DQN/SAC/DDPG/TD3/C51/QRDQN take `rng: &mut R` with `R: Rng + ?Sized`, while
@@ -130,11 +130,11 @@ unused RNG is a no-op, not a diversity bug, and they are left untouched.
   from `&mut dyn Rng` to the generic bound to match the rest of the crate. `?Sized`
   keeps any surviving `&mut dyn Rng` caller compiling.
 
-### 5. The rule lives in `docs/rules.md` §8
+### 5. The rule lives in `docs/rules.md`'s Dependency Usage section
 
 The convention is codified as the `### Host-RNG seeding convention (ADR 0029)`
-subsection of §8 (Dependency Usage), alongside the existing `rand` / `rand_distr`
-rows and the `seed_stream` references from ADR 0016/0017.
+subsection of `docs/rules.md`'s Dependency Usage section, alongside the existing
+`rand` / `rand_distr` rows and the `seed_stream` references from ADR 0016/0017.
 
 ## Consequences
 
@@ -187,4 +187,5 @@ rows and the `seed_stream` references from ADR 0016/0017.
   `.../toy_text/blackjack.rs`.
 - Memory note `project_evolution_host_rng_convention` — the host-RNG convention
   and the `B::seed` / `Tensor::random` / `thread_rng` ban.
-- `docs/rules.md` §8 — the codified rule.
+- `docs/rules.md`'s Host-RNG seeding convention (in its Dependency Usage
+  section) — the codified rule.

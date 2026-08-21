@@ -10,8 +10,9 @@ tags: [adr, decision, reinforcement-learning, ppo, ppg, gae, truncation, peb, is
 
 ## Status
 
-**Accepted (2026-07-18).** Resolves the on-policy half of issue #170 ("[rl]
-Truncation vs. termination bootstrap bias"). Reverses a deliberate tradeoff
+**Accepted (2026-07-18).** Resolves the on-policy half of issue #170
+("[rl] Truncation-vs-termination bootstrap bias (split: 6 off-policy agents +
+ppo/rollout.rs GAE)"). Reverses a deliberate tradeoff
 previously documented in `algorithms/ppo/rollout.rs`; supersedes no ADR (the
 tradeoff was recorded in a doc comment, never in an ADR).
 
@@ -28,7 +29,7 @@ al.'s *time-unlimited* case (ii), for which the correct learning target is
 > y = { r, at environmental terminations; r + γ v̂_π(s′), otherwise (including timeouts) }
 
 Gymnasium (Towers et al. 2025) states the same rule in boolean form: the
-bootstrap mask is `¬terminated`, **never** `¬done`.
+bootstrap mask is $\neg\text{terminated}$, **never** $\neg\text{done}$.
 
 ### What the code does instead
 
@@ -44,16 +45,22 @@ termination. The function's own doc comment names this as a deliberate choice:
 CleanRL's ORing of the two flags is itself acknowledged upstream
 (vwxyzjn/cleanrl #198, #457) as a simplification for a pedagogical reference
 implementation, not an oversight. Matching it means knowingly implementing what
-Pardo (§3) and Towers (§4.2) both identify as incorrect.
+Pardo et al.'s own Section 3 ("Partial-episode bootstrapping for
+time-unlimited tasks") and Towers et al.'s own Section 4.2 ("Termination and
+Truncation") both identify as incorrect.
 
 Two of that comment's claims do not survive contact with the evidence:
 
 1. **The bias is not small.** Pardo et al. report *qualitative* failure, not
-   numerical drift: on Two-Goal Gridworld (§3.1) the non-PEB agent "always
-   tries to go for the closest goal even if there is not enough time"; on
-   Hopper/Walker2d (§3.2) standard PPO trained on 300-step partial episodes
-   collapses where PEB "significantly outperform[s]" it. The bias grows with γ
-   (§2.4), and `rlevo` defaults to γ = 0.99.
+   numerical drift: the original time-limited Two-Goal Gridworld experiment
+   (their own Section 2.2, revisited for the time-unlimited/PEB case in
+   Section 3.1) shows a non-PEB agent that "always tries to go for the
+   closest goal even if there is not enough time"; on Hopper/Walker2d (their
+   own Section 3.2) standard PPO trained on 300-step partial episodes
+   collapses where PEB "significantly outperform[s]" it. Their own Section
+   2.4 empirical comparison further notes that time-awareness helps
+   "especially for the case with a large discount factor," and `rlevo`
+   defaults to $\gamma = 0.99$.
 2. **The buffer API cannot be preserved.** The comment assumes the fix is a
    *mask* change. It is not — it is a **missing value**. `ppo/train.rs`
    discards `next_snapshot` on a done step before its value is ever computed;
@@ -69,15 +76,16 @@ At a truncated step the correct treatment splits:
 
 - the **delta** bootstraps from `V(s_continuation)` — the agent's future is
   real, the clock merely stopped;
-- the **λ-recursion is cut** — the trajectory genuinely ended and advantage
+- the **$\lambda$-recursion is cut** — the trajectory genuinely ended and advantage
   must not propagate across the boundary.
 
 A single `next_nonterminal` factor multiplies both terms and therefore cannot
 express one without the other. The GAE paper itself (Schulman et al. 2016) does
-not address rollout-boundary truncation at all; its §2 setup assumes
-trajectories run "until a terminal (absorbing) state is reached." The truncated
-form is a retrofit, and Pardo et al. (§3) note the one-step PEB rule is "more
-complex" to carry into GAE's exponentially-weighted sum.
+not address rollout-boundary truncation at all; its own Section 2
+("Preliminaries") setup assumes trajectories run "until a terminal
+(absorbing) state is reached." The truncated form is a retrofit, and Pardo et
+al.'s own Section 3 notes the one-step PEB rule is "more complex" to carry
+into GAE's exponentially-weighted sum.
 
 ### An entangled, independent off-by-one
 
@@ -93,7 +101,8 @@ reasoning themselves into the wrong one ("Wait — the convention is…").
 This is a **separate defect from the truncation bias** and a strictly larger
 one: it mis-times the bootstrap cut for **terminated** episodes too, so it
 affects every PPO and PPG user, not only those wrapping an environment in
-`TimeLimit`. It is nevertheless not separable *in the code* — see Decision §4.
+`TimeLimit`. It is nevertheless not separable *in the code* — see this ADR's
+own Decision 4.
 
 ### Blast radius
 
@@ -128,7 +137,7 @@ reasons:
   ever sees the value. That makes folding *currently harmless*, not *correct*:
   `RolloutBuffer` is `pub`, and the first `rewards()` accessor added for reward
   normalisation, a reward-model diagnostic, or a sequence buffer would silently
-  read γ-contaminated numbers with no compile error and no test failure.
+  read $\gamma$-contaminated numbers with no compile error and no test failure.
 - **Testability.** Under the two-mask form the entire truncation rule lives
   inside a pure function of plain slices, unit-testable with a hand-computed
   expected value and no environment, agent, or backend. Under reward folding the
@@ -277,11 +286,11 @@ filed as its own issue.
 - **SB3-style reward folding** (`rewards[t] += gamma * terminal_value`, then
   treat the step as done). Algebraically identical and genuinely tempting: it
   leaves `compute_gae`'s arithmetic almost untouched and matches the most widely
-  read production implementation. Rejected on the two grounds in Decision §2 —
-  it makes the stored reward array mean something other than "the environment's
-  reward," which is safe today only by the accident that no accessor exists;
-  and it relocates the rule from a purely unit-testable function into the
-  training loop, where it can only be tested end-to-end.
+  read production implementation. Rejected on the two grounds in this ADR's
+  own Decision 2 — it makes the stored reward array mean something other than
+  "the environment's reward," which is safe today only by the accident that
+  no accessor exists; and it relocates the rule from a purely unit-testable
+  function into the training loop, where it can only be tested end-to-end.
 - **Time-aware agents (Pardo Eq. 4), i.e. feeding remaining time into the
   observation.** This is the correct treatment for Pardo's *time-limited* case
   (i), where the horizon is part of the task. Rejected as the wrong case for
@@ -296,9 +305,10 @@ filed as its own issue.
   which is indistinguishable from a legitimately-zero bootstrap and reproduces
   the exact bug being fixed.
 - **Fix the off-by-one in a separate PR first.** Rejected on the entanglement
-  argument in Decision §4 — PEB forces the `[t]` convention — and because it
-  would perturb every seeded baseline twice. The two-commit structure preserves
-  the reviewability and bisectability that motivated the split.
+  argument in this ADR's own Decision 4 — PEB forces the `[t]` convention —
+  and because it would perturb every seeded baseline twice. The two-commit
+  structure preserves the reviewability and bisectability that motivated the
+  split.
 - **Deprecate-and-shim `compute_gae`.** Rejected: a deprecation warning
   communicates scheduled removal, not numerical incorrectness, and the only
   in-tree caller is a dev-only bench.
@@ -307,26 +317,31 @@ filed as its own issue.
 
 ## References
 
-- Issue #170 — "[rl] Truncation vs. termination bootstrap bias." The off-policy
-  half (six agents' replay masks) is resolved separately; the research note
-  refutes #170's premise that the on-policy infrastructure was pre-built.
+- Issue #170 — "[rl] Truncation-vs-termination bootstrap bias (split: 6
+  off-policy agents + ppo/rollout.rs GAE)." The off-policy half (six agents'
+  replay masks) is resolved separately. Issue #170's claim that the on-policy
+  infrastructure was "pre-built for this fix" does not hold — see this ADR's
+  own Context above (the missing datum is a value, not a mask).
 - Pardo, Tavakoli, Levdik, Kormushev. *Time Limits in Reinforcement Learning.*
   ICML 2018, PMLR 80. arXiv:1712.00378v4 — <https://arxiv.org/abs/1712.00378>.
-  (Eq. 5, Eq. 6; §2.4 γ-dependence; §3.1–3.2 magnitude; §3.4 replay
-  interaction.) **Primary source for the decision**: Eq. 6 is the PEB target
-  adopted here.
+  (Eq. 5, Eq. 6 define PEB; Section 2.2's original quote and Section 2.4's
+  discount-factor comparison for the magnitude evidence; Section 3.1–3.2 for
+  the time-unlimited PEB results; Section 3.4 for replay interaction.)
+  **Primary source for the decision**: Eq. 6 is the PEB target adopted here.
 - Schulman, Moritz, Levine, Jordan, Abbeel. *High-Dimensional Continuous
   Control Using Generalized Advantage Estimation.* ICLR 2016.
-  arXiv:1506.02438v6 — <https://arxiv.org/abs/1506.02438>. (Eq. 16; §2 assumes
-  trajectories run to an absorbing state — rollout-boundary truncation is not
-  addressed.) Defines the estimator being corrected; its silence on truncation
-  is why the two-mask form is a retrofit rather than a restatement.
+  arXiv:1506.02438v6 — <https://arxiv.org/abs/1506.02438>. (Eq. 16; Section 2
+  assumes trajectories run to an absorbing state — rollout-boundary
+  truncation is not addressed.) Defines the estimator being corrected; its
+  silence on truncation is why the two-mask form is a retrofit rather than a
+  restatement.
 - Towers et al. *Gymnasium: A Standardized Interface for Reinforcement Learning
   Environments.* NeurIPS 2025. arXiv:2407.17032v4 —
-  <https://arxiv.org/abs/2407.17032>. (Eqs. 1–2, mask is `¬terminated`; §4.2 on
-  libraries conflating the two.) Source of the `terminated`/`truncated`
-  vocabulary `EpisodeStatus` mirrors, and of the ecosystem-level statement that
-  conflating them is a defect.
+  <https://arxiv.org/abs/2407.17032>. (Section 4.2 — argued in prose, with no
+  numbered equations in this paper — states the bootstrap mask is
+  $\neg\text{terminated}$ and discusses libraries conflating the two.) Source of the
+  `terminated`/`truncated` vocabulary `EpisodeStatus` mirrors, and of the
+  ecosystem-level statement that conflating them is a defect.
 - Fujimoto, van Hoof, Meger. *Addressing Function Approximation Error in
   Actor-Critic Methods.* ICML 2018. arXiv:1802.09477, **Appendix D** — the
   earliest explicit statement of the rule in the primary literature.

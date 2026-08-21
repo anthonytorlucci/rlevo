@@ -546,9 +546,22 @@ mod tests {
 
     #[test]
     fn carrying_changes_the_observation_and_nothing_else() {
-        // The generic form of issue #1027's reproducer: two states that differ
-        // only in `AgentState::carrying` must produce different observations,
-        // and the difference must be confined to the agent's own cell.
+        // `observe_grid`/`mask_view` used to read only `state.grid` and
+        // `state.agent.direction`, never `state.agent.carrying` — so the
+        // agent's own cell echoed whatever *world* entity sat under it
+        // (typically `Entity::Empty`), identical whether or not the agent
+        // was holding anything. That silently broke the POMDP for
+        // `unlock`/`door_key`/`unlock_pickup`, whose transitions and
+        // rewards gate on `agent.carrying`, forcing the policy to infer
+        // hand state from action history instead of the observation.
+        //
+        // This is the generalized form of the original reproducer (two
+        // fixed states — empty-handed vs. holding a key — that produced
+        // byte-identical observations): it holds every other field fixed
+        // via `walled_state()`, varies only `carrying`, and asserts both
+        // that the observations differ *and* that the difference is
+        // confined to the agent's own cell, under both visibility
+        // policies.
         for visibility in [Visibility::Occluded, Visibility::SeeThrough] {
             let empty_handed = walled_state();
             let mut holding = walled_state();

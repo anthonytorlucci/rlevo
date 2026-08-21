@@ -9,7 +9,7 @@
 //! guarded only by a `debug_assert!`, so in a **release** build a non-finite or
 //! out-of-range β propagated as follows:
 //!
-//! 1. `(min_mass / m).powf(beta)` yields `NaN` (β = `NaN`) or `±∞`/`0` (β
+//! 1. `(min_mass / m).powf(beta)` yields `NaN` (β = `NaN`) or `$\pm\infty$`/`0` (β
 //!    unbounded).
 //! 2. The `NaN` lands in the batch's importance weights.
 //! 3. The agent uploads those weights as a tensor and multiplies the per-sample
@@ -34,7 +34,7 @@
 //! ```
 //!
 //! With `anneal_steps == 0` the fraction is `0.0 / 0.0` = `NaN` at `step == 0`
-//! and `+∞` thereafter — while **every endpoint is individually valid**. Whether
+//! and `$+\infty$` thereafter — while **every endpoint is individually valid**. Whether
 //! that `NaN` survives `limit` then turns on an incidental IEEE-754 detail:
 //! `f32::min` returns the non-`NaN` operand and silently launders it into
 //! `1.0`, whereas `f32::clamp` and an ordinary `if x > 1.0` comparison both
@@ -129,7 +129,7 @@ impl ImportanceExponent {
     ///
     /// # Errors
     ///
-    /// Returns [`ImportanceExponentError`] when `b` is not finite (`NaN`, `±∞`)
+    /// Returns [`ImportanceExponentError`] when `b` is not finite (`NaN`, `$\pm\infty$`)
     /// or lies outside `[0, 1]`.
     pub fn try_new(b: f32) -> Result<Self, ImportanceExponentError> {
         if b.is_finite() && (0.0..=1.0).contains(&b) {
@@ -194,7 +194,7 @@ mod tests {
     }
 
     /// The regression test for the defect named in the module docs: `NaN`,
-    /// `±∞`, and out-of-range values must all be rejected *at construction*, so
+    /// `$\pm\infty$`, and out-of-range values must all be rejected *at construction*, so
     /// they can never reach `powf` and become `NaN` importance weights.
     #[test]
     fn test_importance_exponent_try_new_rejects_nan_infinite_and_out_of_range() {

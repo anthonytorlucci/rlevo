@@ -42,8 +42,7 @@ pub trait GenotypePhenotypeMap<F: FunctionSet> {
     /// (`debug_assert!(needed == 0, ...)`); a genome that violates it panics here
     /// in debug. In release the assertion is absent — `decode` itself does not
     /// panic, but a malformed tree silently degrades to a finite-but-incorrect
-    /// value on evaluation (see [`ExpressionTree::eval`]'s defensive clamp,
-    /// issue #147).
+    /// value on evaluation (see [`ExpressionTree::eval`]'s defensive clamp).
     #[must_use]
     fn decode(&self, alphabet: &Alphabet<F>, genome: &[Symbol]) -> ExpressionTree;
 }
@@ -269,8 +268,9 @@ mod tests {
 
     // §7.4 -----------------------------------------------------------------
 
-    /// The key guard (issue #147 §1.1). Ferreira (2001, eq. 3.4) guarantees any
-    /// well-formed head/tail gene decodes to a complete tree: the ORF scan never
+    /// The key structural guarantee this decoder relies on: Ferreira (2001, eq.
+    /// 3.4) guarantees any well-formed head/tail gene decodes to a complete
+    /// tree — the ORF scan never
     /// leaves an unfilled child slot, so every child range stays in bounds and
     /// `eval` never slices past `node_count()`. Generate many random but
     /// well-formed genomes (head ∈ F∪T, tail ∈ T strictly, tail length

@@ -221,8 +221,10 @@ pub struct GoToDoorObservation {
     /// when the facing is genuinely unknown.
     ///
     /// Typed as [`Direction`] rather than a raw byte so that no illegal
-    /// encoding is representable (issue #844); [`Direction::to_u8`] still
-    /// yields the canonical Minigrid byte order for callers that want it.
+    /// encoding is representable — a raw `u8` permitted values like `200`
+    /// that no `Direction` variant produces, since [`Direction::to_u8`] only
+    /// ever emits `0..=3` (ADR 0061). [`Direction::to_u8`] still yields the
+    /// canonical Minigrid byte order for callers that want it.
     ///
     /// # Why it is not in the tensor
     ///
@@ -434,10 +436,12 @@ impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
 
 /// Configuration for [`GoToDoorEnv`].
 ///
-/// There is deliberately **no** `target_color` field: pinning the mission in
-/// config is what made every episode identical (issue #109). The target — and
-/// the four door colors it is drawn from — are sampled from the environment's
-/// persistent RNG at every [`reset`](Environment::reset).
+/// There is deliberately **no** `target_color` field: an earlier revision
+/// pinned the mission there, so the target door never varied across
+/// episodes — every reset replayed the identical mission, undermining the
+/// env's "instruction-conditioned" pitch. The target — and the four door
+/// colors it is drawn from — are sampled from the environment's persistent
+/// RNG at every [`reset`](Environment::reset).
 ///
 /// # Examples
 ///
@@ -880,7 +884,7 @@ impl Sensor<3, 1, 3> for GoToDoorEnv {
     type State = GridState;
     type Observation = GoToDoorObservation;
 
-    /// Emission model `O(a, s')`. The observation ignores the action — it is a
+    /// Emission model `$O(a, s')$`. The observation ignores the action — it is a
     /// function of the resulting `next_state` and the episode mission — so this
     /// forwards to the same projection as [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GoToDoorObservation {
@@ -1474,8 +1478,9 @@ mod tests {
 
     #[test]
     fn test_reset_does_not_replay_the_same_episode() {
-        // The regression guard for issue #109: `reset()` must draw from the
-        // persistent stream, not re-seed it from config.
+        // Regression guard: an earlier revision pinned `target_color` in
+        // config, so every reset replayed the same mission. `reset()` must
+        // draw from the persistent stream, not re-seed it from config.
         let mut env = env_6x6(21);
         let mut episodes = HashSet::new();
         for _ in 0..20 {
@@ -1641,7 +1646,7 @@ mod tests {
         assert_eq!(env.steps(), 0, "reset must zero the step counter");
     }
 
-    // ─────────────── post-terminal step guard (ADR 0044, issue #291) ─────────
+    // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
     /// Reset, read the target wall out of the observation's mission channel,
     /// walk to that door and issue `Done` — returning the terminal snapshot.
@@ -1649,9 +1654,12 @@ mod tests {
     /// Drives to termination through real `step()` calls only: no hand-written
     /// snapshot, no poking at `env.state`. Mission completion is deliberately
     /// preferred over exhausting `max_steps`, because a step-limit ending is
-    /// currently mislabelled `Terminated` rather than `Truncated` (issue #1028,
-    /// out of scope here) — the conformance check must not be written against
-    /// a status the env is known to be reporting wrongly.
+    /// currently mislabelled `Terminated` rather than `Truncated` — `step`
+    /// ORs the step-limit cutoff into the same `done: bool` as the genuine
+    /// mission-complete condition before building the snapshot, so a timeout
+    /// is reported identically to a win (out of scope here) — the
+    /// conformance check must not be written against a status the env is
+    /// known to be reporting wrongly.
     fn drive_to_mission_done(env: &mut GoToDoorEnv) -> GoToDoorSnapshot {
         let snap = env.reset().expect("reset must succeed");
         let wall = target_wall(env, snap.observation());

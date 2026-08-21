@@ -1,6 +1,6 @@
 //! Reproducible benchmarking harness for `rlevo`.
 //!
-//! The shared trait surface (`BenchEnv`, `BenchError`, `BenchStep`,
+//! The shared trait surface (`Environment`, `GenerationProbe`,
 //! `BenchableAgent`, `FitnessEvaluable`, `Landscape`, `SeedStream`) lives in
 //! `rlevo-core`. This crate provides everything needed to drive those traits
 //! and produce structured reports:
@@ -35,11 +35,6 @@ pub mod suite;
 #[cfg(feature = "tui")]
 pub mod tui;
 
-/// Backward-compatible alias for the relocated environment trait surface.
-pub mod env {
-    pub use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
-}
-
 /// Backward-compatible alias for the relocated agent / fitness traits.
 pub mod agent {
     pub use rlevo_core::fitness::{BenchableAgent, FitnessEvaluable, Landscape};
@@ -50,9 +45,9 @@ pub mod seed {
     pub use rlevo_core::util::seed::SeedStream;
 }
 
-/// Flat crate-root re-export of the most commonly needed evaluation types.
+/// Flat crate-root re-export of the drive seam for self-paced work.
 ///
-/// These are the same items available through the [`env`](mod@env) compatibility alias
-/// module; this re-export lets callers write `rlevo_benchmarks::BenchEnv`
-/// without navigating a sub-module.
-pub use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
+/// Lets callers write `rlevo_benchmarks::GenerationProbe` without navigating
+/// to `rlevo_core::evaluation`. Episodic work needs no such re-export: it is
+/// driven through `rlevo_core::environment::Environment` directly.
+pub use rlevo_core::evaluation::GenerationProbe;

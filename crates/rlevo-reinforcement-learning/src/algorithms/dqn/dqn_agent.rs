@@ -52,8 +52,8 @@ use crate::utils::{PolyakError, compute_target_q_values};
 /// infallible form that `docs/rules.md` §4 sanctions for a read that "cannot
 /// fail by construction (e.g. a tensor the same function just built)".
 ///
-/// Making action selection fallible is a breaking change, deferred and tracked
-/// as #317. When it lands, the variant that returns must carry
+/// Making action selection fallible is a breaking change, deferred and
+/// tracked separately. When it lands, the variant that returns must carry
 /// [`rlevo_core::base::TensorConversionError`] as a `#[from]` payload, not a
 /// `String`: §4 prefers structured error types over string-based ones, and
 /// names `TensorConversionError` as the domain type for tensor ops.
@@ -142,10 +142,10 @@ pub struct LearnOutcome {
 ///
 /// # Const generics
 ///
-/// - `DO` — rank of a *single* observation tensor (e.g. `1` for a flat vector
+/// - `R` — rank of a *single* observation tensor (e.g. `1` for a flat vector
 ///   of shape `[features]`, `3` for an image of shape `[channels, H, W]`).
-/// - `DB` — rank of a *batched* observation tensor (`= DO + 1`; e.g. `2` for
-///   `[batch, features]`). Rust's const-generic system cannot express `DO + 1`
+/// - `BR` — rank of a *batched* observation tensor (`= R + 1`; e.g. `2` for
+///   `[batch, features]`). Rust's const-generic system cannot express `R + 1`
 ///   in generic position on stable, so the caller supplies both.
 ///
 /// # Field notes
@@ -164,11 +164,11 @@ pub struct LearnOutcome {
 ///   `train_frequency`; `gradient_updates` counts **optimizer** steps and
 ///   drives the target-update cadence. The two units are deliberately distinct
 ///   (ADR 0059) — see [`gradient_updates`](Self::gradient_updates).
-pub struct DqnAgent<B, M, O, A, const DO: usize, const DB: usize>
+pub struct DqnAgent<B, M, O, A, const OR: usize, const BOR: usize>
 where
     B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: DqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     policy_net: Slot<M>,
@@ -184,17 +184,17 @@ where
     /// unconditionally, including on a non-finite-loss skip.
     gradient_updates: usize,
     stats: AgentStats<DqnMetrics>,
-    /// Non-finite-loss guard for the TD-loss site (ADR 0056, #318). DQN's only
+    /// Non-finite-loss guard for the TD-loss site (ADR 0056). DQN's only
     /// loss site, so its counter is the agent's whole
     /// [`skipped_updates`](Self::skipped_updates) (ADR 0072). Skips every
     /// occurrence; the `warn!` escalates by decades.
     loss_guard: FiniteLossGuard,
-    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
-    /// #352). Drops the transition on every occurrence; the `warn!` escalates
+    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065).
+    /// Drops the transition on every occurrence; the `warn!` escalates
     /// by decades.
     reward_guard: FiniteRewardGuard,
     /// Non-finite-**observation** guard for the `remember` ingestion site (ADR
-    /// 0067, #1043). Drops the transition on every occurrence — `obs` and
+    /// 0067). Drops the transition on every occurrence — `obs` and
     /// `next_obs` are checked together, so one guard covers both rows. Distinct
     /// from `reward_guard`, and its counter is not a subset of that one: see
     /// [`dropped_observations`](Self::dropped_observations).
@@ -214,11 +214,12 @@ where
     _action: PhantomData<A>,
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> std::fmt::Debug for DqnAgent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug
+    for DqnAgent<B, M, O, A, OR, BOR>
 where
     B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: DqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -232,11 +233,11 @@ where
     }
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> DqnAgent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const OR: usize, const BOR: usize> DqnAgent<B, M, O, A, OR, BOR>
 where
     B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+    M: DqnModel<B, BOR>,
+    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
     /// Constructs a new agent from a pre-built policy network and training config.
@@ -389,9 +390,9 @@ where
     ///
     /// The observation seam for the target-update rule: with it, a caller — or
     /// a test — can check *that* a target update fired on the expected gradient
-    /// update and moved the weights by the expected τ. Issue #182's
-    /// double-update defect survived its own test suite precisely because no
-    /// such seam existed, so every assertion had to be made through Q-values,
+    /// update and moved the weights by the expected τ. The double-update
+    /// defect survived its own test suite precisely because no such seam
+    /// existed, so every assertion had to be made through Q-values,
     /// which are a lossy function of the weights.
     ///
     /// `pub`, and a shared borrow rather than a clone: `M::InnerModule` is the
@@ -418,7 +419,7 @@ where
     /// [`act_greedy`](Self::act_greedy) for the full reasoning and
     /// [`degenerate_action_selections`](Self::degenerate_action_selections) for
     /// the counter.
-    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> A {
+    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> A {
         if self.exploration.should_explore(rng) {
             // Guarded here rather than once at the top of the function: the
             // greedy branch below delegates to `act_greedy`, which guards
@@ -461,8 +462,8 @@ where
     ///    index on `wgpu`. So the discrete failure is CPU-specific and
     ///    invisible — and CPU is the backend CI runs.
     ///
-    /// The `argmax` behaviour itself is issue #1050 and is deliberately **not**
-    /// fixed here; this guard only makes it attributable.
+    /// The `argmax` behaviour itself is deliberately **not** fixed here; this
+    /// guard only makes it attributable.
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
     // sign; where an index round-trips through f32 it stays far below the 2^24
@@ -481,8 +482,8 @@ where
         // (ADR 0067 §Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
         let q_values: Tensor<B, 2> = self.policy().forward(batched);
         let idx = q_values.argmax(1).into_scalar();
         A::from_index(idx.elem::<i64>() as usize)
@@ -521,8 +522,8 @@ where
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
         let q_values: Tensor<B::InnerBackend, 2> = M::forward_inner(net, batched);
         let idx = q_values.argmax(1).into_scalar();
         A::from_index(idx.elem::<i64>() as usize)
@@ -551,7 +552,7 @@ where
     /// a no-op. Storing it would let every minibatch that later resampled it
     /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
     /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065, issue #352). A `tracing::warn!` fires on the 1st,
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
     /// 10th, 100th, … drop; use
     /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
     /// programmatically.
@@ -559,8 +560,7 @@ where
     /// A non-finite **observation** — a `NaN` or `±Inf` anywhere in the host row
     /// of *either* `obs` or `next_obs` — is discarded on the same terms, and
     /// counted separately by
-    /// [`dropped_observations`](Self::dropped_observations) (ADR 0067, issue
-    /// #1043).
+    /// [`dropped_observations`](Self::dropped_observations) (ADR 0067).
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if !self.reward_guard.admit(reward) {
             return;
@@ -737,7 +737,7 @@ where
     /// Returns `None` if the agent does not yet have enough transitions to
     /// form a batch, or if the computed loss is non-finite (NaN/±Inf): in that
     /// case the backward pass, optimizer step, target update, and PER writeback
-    /// are all skipped (ADR 0056, #318) and
+    /// are all skipped (ADR 0056) and
     /// [`skipped_updates`](Self::skipped_updates) advances, so the caller keeps
     /// its last healthy reported metrics rather than folding a NaN into them.
     /// The accompanying `warn!` fires on a decade schedule — skips 1, 10, 100,
@@ -770,9 +770,9 @@ where
         clippy::cast_possible_wrap,
         clippy::too_many_lines
     )]
-    pub fn learn_step<R: Rng + ?Sized>(
+    pub fn learn_step(
         &mut self,
-        rng: &mut R,
+        rng: &mut (impl Rng + ?Sized),
     ) -> Result<Option<LearnOutcome>, DqnAgentError> {
         if !self.can_learn() {
             return Ok(None);
@@ -812,14 +812,14 @@ where
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
-        let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
+        let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
         batched_shape.push(batch_size);
         batched_shape.extend_from_slice(&obs_shape);
 
         let device = self.device.clone();
-        let obs_tensor: Tensor<B, DB> =
+        let obs_tensor: Tensor<B, BOR> =
             Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<B::InnerBackend, DB> =
+        let next_tensor_inner: Tensor<B::InnerBackend, BOR> =
             Tensor::from_data(TensorData::new(next_flat, batched_shape), &device);
 
         let action_tensor_1: Tensor<B, 1, Int> =
@@ -883,7 +883,7 @@ where
         // exactly when stability matters most.
         self.gradient_updates += 1;
 
-        // #318 / ADR 0056: `loss_value` is already host-resident, so the
+        // ADR 0056: `loss_value` is already host-resident, so the
         // finiteness check costs no extra sync. A non-finite loss skips
         // `backward()`, the optimizer step, the target soft-update, and the PER
         // writeback (Burn would otherwise fold NaN into the weights silently),
@@ -970,9 +970,9 @@ mod tests {
     use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
 
-    type TestBackend = Autodiff<Flex>;
-    type TestInner = <TestBackend as AutodiffBackend>::InnerBackend;
-    type TestAgent = DqnAgent<TestBackend, TestNet<TestBackend>, TestObs, TestAction, 1, 2>;
+    type TestAdBackend = Autodiff<Flex>;
+    type TestInner = <TestAdBackend as AutodiffBackend>::InnerBackend;
+    type TestAgent = DqnAgent<TestAdBackend, TestNet<TestAdBackend>, TestObs, TestAction, 1, 2>;
 
     /// Minimal two-in/two-out linear Q-network used by the target-sync tests.
     ///
@@ -1111,7 +1111,7 @@ mod tests {
             })
             .build()
             .expect("valid prioritized config");
-        let policy: TestNet<TestBackend> = TestNet::constant(&device, 0.5);
+        let policy: TestNet<TestAdBackend> = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
             let x = i as f32;
@@ -1127,7 +1127,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dqn_defaults_to_uniform_replay() {
+    fn test_dqn_agent_defaults_to_uniform_replay() {
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
         let agent = TestAgent::new(
             TestNet::constant(&device, 0.5),
@@ -1142,7 +1142,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dqn_prioritized_opt_in_selects_prioritized_replay() {
+    fn test_dqn_agent_prioritized_opt_in_selects_prioritized_replay() {
         let agent = primed_prioritized_agent();
         assert!(
             agent.buffer.is_prioritized(),
@@ -1154,7 +1154,7 @@ mod tests {
     /// have been rewritten from the initial running-max seed, so the total
     /// sampling mass moves. A uniform buffer's `learn_step` cannot do this.
     #[test]
-    fn test_dqn_priority_writeback_runs_after_learn_step() {
+    fn test_dqn_agent_priority_writeback_runs_after_learn_step() {
         let mut agent = primed_prioritized_agent();
         let before = agent
             .buffer
@@ -1178,7 +1178,7 @@ mod tests {
     }
 
     #[test]
-    fn metrics_performance_record_returns_reward_and_steps() {
+    fn test_dqn_agent_metrics_performance_record_returns_reward_and_steps() {
         let m = DqnMetrics {
             reward: 42.0,
             steps: 7,
@@ -1191,12 +1191,12 @@ mod tests {
     }
 
     #[test]
-    fn error_display_uses_thiserror_messages() {
+    fn test_dqn_agent_error_display_uses_thiserror_messages() {
         let err = DqnAgentError::InvalidAction("bad index".into());
         assert_eq!(err.to_string(), "Invalid action: bad index");
     }
 
-    // -------- non-finite-loss guard (ADR 0056, #318) --------
+    // -------- non-finite-loss guard (ADR 0056) --------
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// policy network that has diverged to non-finite weights — the realistic
@@ -1228,7 +1228,7 @@ mod tests {
             .target_update(rule)
             .build()
             .expect("valid config");
-        let policy: TestNet<TestBackend> = TestNet::constant(&device, 0.5);
+        let policy: TestNet<TestAdBackend> = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
             let x = i as f32;
@@ -1257,12 +1257,12 @@ mod tests {
     }
 
     /// A non-finite TD loss must skip the whole learn step: `backward`, the
-    /// optimizer step, and the soft target sync (ADR 0056, #318). Diverging the
+    /// optimizer step, and the soft target sync (ADR 0056). Diverging the
     /// policy net to NaN forces a NaN loss; the guard must fire, `learn_step`
     /// must return `None`, the target must stay untouched and finite, and the
     /// agent must remain usable.
     #[test]
-    fn dqn_nonfinite_loss_skips_step_and_warns() {
+    fn test_dqn_agent_nonfinite_loss_skips_step_and_warns() {
         let mut agent = primed_uniform_agent();
         // The target net is the healthy sibling: a skipped step leaves it intact.
         let target_before = weights(&agent.target_net);
@@ -1310,7 +1310,7 @@ mod tests {
     /// run: `applied = gradient_updates() - skipped_updates() = 0`, i.e.
     /// attempts advanced (ADR 0059 §Decision 4) and none of them was applied.
     #[test]
-    fn dqn_counts_repeated_loss_skips() {
+    fn test_dqn_agent_counts_repeated_loss_skips() {
         const SKIPS: usize = 3;
 
         let mut agent = primed_uniform_agent();
@@ -1359,7 +1359,7 @@ mod tests {
         );
     }
 
-    /// Agent-level guard for ADR 0057 / issue #341: when the target soft-update
+    /// Agent-level guard for ADR 0057: when the target soft-update
     /// fails inside `learn_step` because the target network carries independent
     /// `ParamId`s, the agent must (a) surface the failure as
     /// `DqnAgentError::Polyak(PolyakError::MissingActive(_))` and (b) leave its
@@ -1368,7 +1368,7 @@ mod tests {
     /// returns `Err` without mutating; this proves the agent propagates that
     /// `Err` through `?` *before* the `self.target_net = …` reassignment.
     #[test]
-    fn dqn_soft_update_err_leaves_target_untouched() {
+    fn test_dqn_agent_soft_update_err_leaves_target_untouched() {
         let mut agent = primed_uniform_agent();
         assert_eq!(
             agent.config.target_update.every(),
@@ -1406,8 +1406,8 @@ mod tests {
 
     // -------- target-update cadence (ADR 0058 / 0059) --------
     //
-    // These four replace the pair of `sync_target` tests that pinned issue
-    // #182's two-mechanism gate (`sync_target_is_noop_when_tau_positive` /
+    // These four replace the pair of `sync_target` tests that pinned the
+    // two-mechanism gate (`sync_target_is_noop_when_tau_positive` /
     // `..._hard_copies_when_tau_zero`). `sync_target` is gone: the cadence gate
     // now lives inside `learn_step`, so the same properties are asserted
     // against gradient updates instead of env steps, and `TargetUpdate::hard(n)`
@@ -1415,13 +1415,13 @@ mod tests {
     //
     // All four assert on parameter tensors, via `target_net()`, not on
     // Q-values: a greedy action is a lossy argmax of the weights and would
-    // agree under both correct and defective behaviour — the reason the #182
-    // defect survived its first test suite.
+    // agree under both correct and defective behaviour — the reason the
+    // double-update defect survived its first test suite.
 
     /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves
     /// on **every** learn step, by exactly τ toward the post-step policy.
     #[test]
-    fn dqn_polyak_default_moves_target_on_every_learn_step() {
+    fn test_dqn_agent_polyak_default_moves_target_on_every_learn_step() {
         let mut agent = primed_uniform_agent();
         let tau = 0.005_f32;
         let mut rng = StdRng::seed_from_u64(3);
@@ -1464,7 +1464,7 @@ mod tests {
     /// `tau = 0.0` + `target_update_frequency = n` pair expressed, now counted
     /// in gradient updates rather than env steps.
     #[test]
-    fn dqn_hard_cadence_holds_target_between_firings_then_copies() {
+    fn test_dqn_agent_hard_cadence_holds_target_between_firings_then_copies() {
         let mut agent = primed_uniform_agent_with(TargetUpdate::hard(3));
         let mut rng = StdRng::seed_from_u64(4);
         let initial = weights(agent.target_net());
@@ -1507,7 +1507,7 @@ mod tests {
     /// step and one healthy step through `hard(2)`: the skip consumes update 1,
     /// so the healthy step lands on update 2 and fires.
     #[test]
-    fn dqn_gradient_counter_advances_through_a_nonfinite_loss_skip() {
+    fn test_dqn_agent_gradient_counter_advances_through_a_nonfinite_loss_skip() {
         let mut agent = primed_uniform_agent_with(TargetUpdate::hard(2));
         let healthy_policy = agent.policy().clone();
         let target_before = weights(agent.target_net());
@@ -1568,7 +1568,7 @@ mod tests {
     /// it, and a `learn_step` that cannot learn must not either. If these two
     /// drifted together the ADR 0059 unit change would be invisible.
     #[test]
-    fn dqn_gradient_counter_is_not_the_env_step_counter() {
+    fn test_dqn_agent_gradient_counter_is_not_the_env_step_counter() {
         let mut agent = primed_uniform_agent();
         for _ in 0..5 {
             agent.on_env_step();
@@ -1597,15 +1597,15 @@ mod tests {
         );
     }
 
-    // ---- ADR 0065 / #352: non-finite reward is dropped at ingestion ----
+    // ---- ADR 0065: non-finite reward is dropped at ingestion ----
     //
     // Every off-policy agent needs its OWN copy of this test. The defect had
-    // six sites, not the four the issue named, precisely because C51 and
+    // six sites, not the four originally named, precisely because C51 and
     // QR-DQN were added by copying an unguarded `remember` and no shared test
     // noticed. A per-file test is what makes agent #7's author notice.
 
     #[test]
-    fn dqn_remember_drops_a_nonfinite_reward() {
+    fn test_dqn_agent_remember_drops_a_nonfinite_reward() {
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
         let mut agent = TestAgent::new(
             TestNet::constant(&device, 0.5),
@@ -1651,7 +1651,7 @@ mod tests {
         );
     }
 
-    // ---- ADR 0067 / #1043: non-finite observation ----
+    // ---- ADR 0067: non-finite observation ----
     //
     // Per-file, for the same reason as the ADR 0065 block above: six sites, and
     // a shared test would not notice a `remember` copied without its guard.
@@ -1677,7 +1677,7 @@ mod tests {
     }
 
     #[test]
-    fn dqn_remember_drops_a_nonfinite_obs() {
+    fn test_dqn_agent_remember_drops_a_nonfinite_obs() {
         let mut agent = obs_guard_agent();
 
         agent.remember(nan_obs(), &TestAction(0), 1.0, TestObs([1.0, 0.0]), false);
@@ -1728,7 +1728,7 @@ mod tests {
     /// early, so a doubly-bad transition is counted once, on the reward side.
     /// Both accessors' rustdoc states this; this test is what keeps it true.
     #[test]
-    fn dqn_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
+    fn test_dqn_agent_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
         let mut agent = obs_guard_agent();
 
         agent.remember(nan_obs(), &TestAction(0), f32::NAN, nan_obs(), false);
@@ -1750,7 +1750,7 @@ mod tests {
     /// The decision under test is that the agent does **not** substitute: the
     /// counter moves and an action still comes back, at all three `act` sites.
     #[test]
-    fn dqn_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
+    fn test_dqn_agent_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(7);
 
@@ -1807,7 +1807,7 @@ mod tests {
     /// hand `new` a bad capacity, and a test that went through it would be
     /// asserting on the builder instead of on this constructor.
     #[test]
-    fn new_rejects_out_of_range_replay_buffer_capacity() {
+    fn test_dqn_agent_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;
         let cases = [
             (0usize, ConstraintKind::Zero),

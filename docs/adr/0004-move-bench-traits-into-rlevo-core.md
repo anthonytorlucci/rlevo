@@ -14,6 +14,8 @@ Active. Partially reverses [0002-collapse-evolution-traits-into-rlevo-evolution]
 
 **Update (2026-07-06):** decision point #6's "keep the local splitmix64 mixer" and the corresponding "Neutral" consequence (line 95) are superseded by ADR [0033](0033-share-splitmix64-mixer-across-core-and-evolution.md), which dedupes the mixer into a single `pub` `rlevo_core::util::seed::splitmix64`. All other decisions in this ADR remain active.
 
+**Update (2026-08-20):** the "Conceptual fit" bullet under *Alternatives considered* — "`BenchEnv` is a narrower `Environment`" — is superseded by ADR [0075](0075-bench-env-erases-rank-not-modality.md) so far as that narrowing is justified by dynamic dispatch. `BenchEnv` is object-safe, but its erasure is rank-only: `Observation`/`Action` survive it, so it cannot carry a heterogeneous suite, and no `dyn BenchEnv` exists in the workspace. The implementor census also refutes the "narrower `Environment`" framing — two of its production implementors are evolutionary generation-steppers, not environments. **The relocation decisions in this ADR (points #1–#7) all remain active**; only the rationale for `BenchEnv`'s shape changes.
+
 ## Context
 
 A 2026-04-28 audit of the workspace dependency graph found two related defects:
@@ -30,7 +32,7 @@ A 2026-04-28 audit of the workspace dependency graph found two related defects:
 
    The harness machinery (~550 lines: `evaluator`, `suite`, `storage`, `report`, `checkpoint`, `metrics`, `reporter` and the `rayon` + optional `ratatui`/`serde_json` cone) was unused by `rlevo-evolution`. Worse, `rlevo-evolution/src/rng.rs` re-implemented splitmix64 locally with a comment claiming this avoided the `rlevo-benchmarks` dep — yet the dep was already declared.
 
-The ADR 0002 test was *"≥1 stable downstream consumer with shared vocabulary"*. ADR 0002 removed `rlevo-core` from `rlevo-evolution` because the EA traits in core (`Fitness`, `MultiFitness`, `GenomeKind`) had zero consumers. The bench traits do not have that problem: they have two production consumers (`rlevo-evolution`, `rlevo-environments[bench]`) and one harness consumer (`rlevo-benchmarks` itself). They pass the ADR 0002 test cleanly.
+The ADR 0002 test was *"$\ge 1$ stable downstream consumer with shared vocabulary"*. ADR 0002 removed `rlevo-core` from `rlevo-evolution` because the EA traits in core (`Fitness`, `MultiFitness`, `GenomeKind`) had zero consumers. The bench traits do not have that problem: they have two production consumers (`rlevo-evolution`, `rlevo-environments[bench]`) and one harness consumer (`rlevo-benchmarks` itself). They pass the ADR 0002 test cleanly.
 
 A third drift was visible: `BenchError` was stringly-typed (`Reset(String)`, `Step(String)`) with a doc comment justifying the design as *"`rlevo-benchmarks` does not depend on `rlevo-core`, so a typed bridge from `rlevo_core::EnvironmentError` would invert the dependency direction."* The justification was already stale — `rlevo-benchmarks/Cargo.toml` declares a prod dep on `rlevo-core` — and irrelevant once the trait moves.
 

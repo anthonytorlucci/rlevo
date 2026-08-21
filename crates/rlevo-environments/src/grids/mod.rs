@@ -24,7 +24,7 @@
 //! | [`DistShiftEnv`] | [`dist_shift`] | `7×7×3` | Distribution shift between training and evaluation layouts |
 //! | [`DoorKeyEnv`] | [`door_key`] | `7×7×3` | Long-horizon: key pickup → door unlock → goal |
 //! | [`DynamicObstaclesEnv`] | [`dynamic_obstacles`] | `7×7×3` | Stochastic ball obstacles that random-walk each step |
-//! | [`FourRoomsEnv`] | [`four_rooms`] | `7×7×3` | Multi-room maze; must transit ≥ 2 openings |
+//! | [`FourRoomsEnv`] | [`four_rooms`] | `7×7×3` | Multi-room maze; must transit `$\geq 2$` openings |
 //! | [`GoToDoorEnv`] | [`go_to_door`] | **`7×7×4`** | Instruction-conditioned: reach the door whose colour matches the per-episode mission |
 //! | [`LavaGapEnv`] | [`lava_gap`] | `7×7×3` | Cross a vertical lava strip through one gap |
 //! | [`MemoryEnv`] | [`memory`] | `7×7×3` | POMDP recall: see a cue once, match its *type* at a fork long after it leaves view |

@@ -240,11 +240,17 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
     /// observation. θ₂ is the **relative** elbow angle (pole2 world angle
     /// minus pole1 world angle), wrapped to `$(-\pi, \pi]$`.
     ///
-    /// `obs[8]` is the aggregated contact wrench on pole2 (`cfrc_ext[0]`). With
-    /// jointed-neighbour contacts disabled for `MuJoCo` parent–child filter parity
-    /// (ADR 0041), pole2 touches nothing in normal operation, so this slot is
-    /// `≈ 0`; it is retained as a placeholder for the `qfrc_constraint`-based
-    /// re-model tracked in issue #271.
+    /// `obs[8]` packs `Rapier3DBackend::contact_force(pole2)[0]` — a Cartesian
+    /// contact-manifold force on pole2 — where Gymnasium's `InvertedDoublePendulum-v5`
+    /// packs `clip(qfrc_constraint, -10, 10)[:1]`, the generalized constraint force on
+    /// the cart's slider DOF. These are semantically distinct quantities: this slot is
+    /// not a stand-in for the Gymnasium value, it measures something else entirely.
+    /// With jointed-neighbour contacts disabled for `MuJoCo` parent–child filter parity
+    /// (ADR 0041), pole2 touches nothing in normal operation, so `obs[8]` is `$\approx 0$` in
+    /// practice — a dead observation dimension versus Gymnasium's informative
+    /// constraint-force signal. This deviation is currently unresolved: either
+    /// `obs[8]` should be re-modeled as the true slider-DOF constraint-force analogue,
+    /// or the deviation should be documented as deliberate.
     fn extract_observation(&self) -> InvertedDoublePendulumObservation {
         let cart_pose = Rapier3DBackend::get_pose(&self.world, self.state.cart);
         let cart_vel = Rapier3DBackend::get_vel(&self.world, self.state.cart);
@@ -677,15 +683,16 @@ mod tests {
 
     #[test]
     fn jointed_neighbor_contacts_produce_no_wrench() {
-        // Regression for #123 (ADR 0041). Pole1's top cap and pole2's bottom
-        // cap both extend `pole_radius` past the shared elbow anchor, so with
-        // rapier's default `contacts_enabled = true` the solver generated
-        // permanent internal contacts between the jointed neighbours. That
-        // internal wrench leaked into `contact_force(pole2)` — packed as
-        // observation index 8. MuJoCo's parent–child contact filter excludes
-        // exactly these pairs ("avoid permanent contacts within bodies and
-        // joints"); disabling jointed-neighbour contacts restores parity and
-        // drives the wrench to ~0 in normal operation.
+        // Regression test for the self-collision wrench bug (ADR 0041):
+        // pole1's top cap and pole2's bottom cap both extend `pole_radius`
+        // past the shared elbow anchor, so with rapier's default
+        // `contacts_enabled = true` the solver generated permanent internal
+        // contacts between the jointed neighbours. That internal wrench
+        // leaked into `contact_force(pole2)` — packed as observation index
+        // 8. MuJoCo's parent–child contact filter excludes exactly these
+        // pairs ("avoid permanent contacts within bodies and joints");
+        // disabling jointed-neighbour contacts restores parity and drives
+        // the wrench to ~0 in normal operation.
         let mut env =
             InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
@@ -799,9 +806,17 @@ mod tests {
 
     #[test]
     fn constant_force_does_not_accumulate() {
-        // Regression for #98 (ADR 0037): a constant action must produce a
-        // stationary per-step cart-velocity increment. With the pre-fix bug the
-        // cart force accumulated across steps, so Δvx grew ~linearly.
+        // Regression test (ADR 0037): a constant action must produce a
+        // stationary per-step cart-velocity increment. Rapier's `user_force`
+        // does not auto-clear each step despite the vendored 0.32 doc comment
+        // claiming otherwise; an unguarded `add_force` therefore accumulated
+        // across steps, so Δvx grew ~linearly and silently corrupted the
+        // control dynamics — existing tests stayed green because they only
+        // checked qualitative movement, not whether the applied force stayed
+        // bounded. Fixed once in the shared `RapierWorld::step()` (calling
+        // `reset_forces`/`reset_torques` each step), with per-env force
+        // constants re-tuned since the old values were implicitly tuned
+        // around the accumulation bug.
         let mut env = InvertedDoublePendulumRapier::with_config(InvertedDoublePendulumConfig {
             seed: 1,
             reset_noise_scale: 0.0,
@@ -868,7 +883,26 @@ mod tests {
         );
     }
 
-    // ── post-terminal step guard (ADR 0044, issue #292) ──────────────────────
+    // ── post-terminal step guard (ADR 0044) ──────────────────────
+    //
+    // Before this guard, `step` only checked `action.0[0].is_finite()` —
+    // nothing rejected a call made after the episode had already ended.
+    // Since both `Terminated` (unhealthy tip) and `Truncated`
+    // (`steps >= max_steps`) hold once reached, an unguarded post-terminal
+    // step kept integrating the Rapier physics sim for another
+    // `dt * frame_skip`, so the observation drifted further with every extra
+    // call instead of staying pinned at the terminal state. The fix:
+    // `self.guard.check()?` runs first in `step`, ahead of the
+    // action-finiteness check and the physics substeps (see `step`'s doc
+    // comment); `self.guard.record(status)` is called on the single
+    // snapshot-producing return path; and `reset` clears the guard (ADR 0044
+    // §6) so a truncated episode becomes steppable again.
+    //
+    // The tests below drive a real `Terminated` (tip drops below the healthy
+    // `z_range` floor via `drive_to_tip_drop`) and combine the shared
+    // conformance check (`crate::episode::assert_rejects_post_terminal_step`)
+    // with InvertedDoublePendulum-specific regressions pinning exactly what
+    // an unguarded step would have mutated.
 
     /// Upper bound on the steps the driven pendulum may take before the test
     /// calls it a regression. `max_steps` is set well above it so truncation

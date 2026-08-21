@@ -13,7 +13,7 @@
 //!
 //! The chain is built à la BOA (Pelikan, Goldberg & Cantú-Paz, 1999): starting
 //! from an edgeless network, the algorithm repeatedly scores every candidate
-//! edge `u → v` and commits the one with the largest strictly-positive gain,
+//! edge `$u \to v$` and commits the one with the largest strictly-positive gain,
 //! subject to the `max_parents` cap and an acyclicity check, until no profitable
 //! edge remains.
 //!
@@ -34,37 +34,37 @@
 //! Edges are scored with the Bayesian Information Criterion (BIC). For a node
 //! `v` with sorted parent set `Pa` (`q = |Pa|`), let `N(c, x)` be the number of
 //! selected rows in which the parents take packed configuration `c` and gene `v`
-//! takes bit `x ∈ {0, 1}`, and `N(c) = N(c, 0) + N(c, 1)`:
+//! takes bit `$x \in \{0, 1\}$`, and `N(c) = N(c, 0) + N(c, 1)`:
 //!
 //! ```math
 //! \text{score}(v, Pa) = \sum_c \sum_x N(c, x) \cdot \ln\left( \frac{N(c, x)}{N(c)} \right) - \frac{\ln(n)}{2} \cdot 2^q
 //! ```
 //!
 //! The log-likelihood term rewards parents that make `v` more predictable; the
-//! `−½·ln(n)·2^q` complexity term penalises CPT size (`2^q` cells), which grows
+//! `$-\frac{1}{2} \cdot \ln(n) \cdot 2^q$` complexity term penalises CPT size (`2^q` cells), which grows
 //! exponentially in the parent count. This penalty is the structural analogue
-//! of [`super::dependency_chain`]'s `|r| < 2/√k` significance filter: both
+//! of [`super::dependency_chain`]'s `$|r| < 2/\sqrt{k}$` significance filter: both
 //! suppress spurious dependencies that a univariate model would never pay for,
 //! here by requiring an edge's likelihood improvement to outweigh the cost of
 //! doubling the child's CPT. The score is computed on **raw maximum-likelihood
 //! counts** — never the Laplace-smoothed counts used for CPT estimation — so the
 //! penalty is the sole overfitting guard. Terms with `N(c, x) = 0` contribute
-//! exactly `0` (the `p·ln p → 0` limit), and configurations with `N(c) = 0`
+//! exactly `0` (the `$p \cdot \ln p \to 0$` limit), and configurations with `N(c) = 0`
 //! contribute `0` likelihood while still counting toward the `2^q` penalty. All
 //! scoring arithmetic is performed in `f64`.
 //!
 //! # Parent-configuration bit-packing
 //!
 //! For a node `v` with `parents[v]` sorted ascending, a row's parent
-//! configuration is packed as `config = Σ_j bit(gene[parents[v][j]]) << j`:
+//! configuration is packed as `$\text{config} = \sum_j \text{bit}(\text{gene}[\text{parents}[v][j]]) \ll j$`:
 //! parent `j` (in sorted order) contributes bit `j`. [`fit`] and [`sample`] use
 //! the identical packing, so the CPT index computed at sampling time matches the
 //! one used during estimation. See the [`cpt`](BayesianNetworkState::cpt) field.
 //!
 //! # Complexity
 //!
-//! [`fit`] is `O(D² · N · κ)` per generation with gain caching: the first sweep
-//! scores all `D²` candidate edges (each an `O(N·κ)` counting pass), and after
+//! [`fit`] is `$O(D^2 \cdot N \cdot \kappa)$` per generation with gain caching: the first sweep
+//! scores all `$D^2$` candidate edges (each an `$O(N \cdot \kappa)$` counting pass), and after
 //! each accepted edge only the `D` entries sharing the affected child are
 //! rescored. It is fully host-side and sequential. [`sample`] is `O(D)` per
 //! drawn individual: one conditional Bernoulli draw per gene.
@@ -99,13 +99,13 @@ pub struct BayesianNetworkParams {
     /// the length of [`BayesianNetworkState::order`] and
     /// [`BayesianNetworkState::parents`].
     pub genome_dim: usize,
-    /// Maximum number of parents per node (`κ`); bounds each node's CPT to
-    /// `2^κ` cells and caps the greedy edge-addition search.
+    /// Maximum number of parents per node (`$\kappa$`); bounds each node's CPT to
+    /// `$2^\kappa$` cells and caps the greedy edge-addition search.
     pub max_parents: usize,
     /// Prior marginal probability of a `1` gene, used to seed every edgeless
     /// CPT on the prior path (`prev = None`).
     pub init_prob: f32,
-    /// Laplace pseudo-count `s` added per CPT cell during estimation; `s ≥ 1`
+    /// Laplace pseudo-count `s` added per CPT cell during estimation; `$s \geq 1$`
     /// keeps every probability strictly inside `(0, 1)`. Applies only to CPT
     /// estimation for sampling, never to the BIC structure score. The value is
     /// floored to `1` inside [`fit`](ProbabilityModel::fit), so a supplied `0`
@@ -144,7 +144,7 @@ pub struct BayesianNetworkState {
     pub parents: Vec<Vec<usize>>,
     /// Conditional probability tables: `cpt[node][config]` is
     /// `P(node = 1 | parents = config)`, where `config` is the bit-packed
-    /// parent configuration `Σ_j bit(parent_j) << j` over `parents[node]` in
+    /// parent configuration `$\sum_j \text{bit}(\text{parent}_j) \ll j$` over `parents[node]` in
     /// sorted order. Each inner vector has length `2^|parents[node]|`.
     pub cpt: Vec<Vec<f32>>,
 }
@@ -169,7 +169,7 @@ pub struct BayesianNetwork;
 /// CPTs. This is the single chokepoint for every prior return, so a
 /// misconfigured or non-finite `init_prob` (e.g. `NaN`, `1.5`, `-0.3`) cannot
 /// silently produce a degenerate population during sampling. `NaN` maps to the
-/// neutral `0.5` (`f32::clamp` would *propagate* `NaN`); `±inf` clamp to the
+/// neutral `0.5` (`f32::clamp` would *propagate* `NaN`); `$\pm\infty$` clamp to the
 /// interior bounds.
 fn prior_state(d: usize, init_prob: f32) -> BayesianNetworkState {
     let p = if init_prob.is_nan() {
@@ -878,8 +878,12 @@ mod tests {
 
     #[test]
     fn nan_init_prob_clamped_on_prior() {
-        // A non-finite init_prob must not propagate into the CPTs (#129): the
-        // prior clamps it into the open interior (0, 1).
+        // Every prior CPT cell is seeded directly from `init_prob`, so an
+        // unvalidated NaN would corrupt every entry in every table, not just
+        // one. `prior_state` guards this at construction: NaN maps to the
+        // neutral 0.5 instead of propagating through `f32::clamp` (which
+        // would otherwise let it through unchanged), landing the prior in
+        // the open interior (0, 1).
         let mut p = BayesianNetworkParams::default_for(3);
         p.init_prob = f32::NAN;
         let state = fit_prior(&p);

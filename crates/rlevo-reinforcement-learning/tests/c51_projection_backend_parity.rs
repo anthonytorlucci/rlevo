@@ -1,5 +1,7 @@
-//! Cross-backend parity for the C51 categorical projection's non-finite path
-//! (issue #1044).
+//! Cross-backend parity for the C51 categorical projection's non-finite path:
+//! on Metal, a `NaN` reward used to produce a well-formed, wrongly-confident
+//! probability row instead of the loud `NaN` the host backend produced on the
+//! same input.
 //!
 //! # This test does NOT run in CI
 //!

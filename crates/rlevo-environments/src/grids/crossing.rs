@@ -727,7 +727,7 @@ impl Sensor<3, 1, 3> for CrossingEnv {
     type State = GridState;
     type Observation = GridObservation;
 
-    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
     /// `next_state` alone, so this forwards to the same projection as
     /// [`observe_reset`](Self::observe_reset).
     fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
@@ -1423,14 +1423,29 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Post-terminal step guard (ADR 0044, issue #291).
+    // Post-terminal step guard (ADR 0044).
     //
-    // Both drivers reach the terminal through real `step()` calls, and both end
-    // the episode on a *task* terminal — the goal, or lava — never by spending
-    // the step budget. `grids/core/mod.rs::build_snapshot` currently stamps a
-    // step-limit cutoff `Terminated` rather than `Truncated` (#1028, out of
-    // scope here); driving through the budget would bake that bug into these
-    // assertions and force #1028's fix to rewrite them.
+    // Per ADR 0044, `step()` after the episode ends must return `Err`, not
+    // silently resurrect a finished episode — an unguarded env can keep
+    // mutating state, drawing RNG, and emitting reward past a death or a
+    // goal, which is a real correctness gap, not just step-count hygiene.
+    // Both drivers below reach the terminal through real `step()` calls, and
+    // both end the episode on a *task* terminal — the goal, or lava — never
+    // by spending the step budget. That's deliberate: this env's `step()`
+    // (above) OR-s the step-limit cutoff into the same bare `done: bool` as
+    // the goal/lava terminal, and `grids/core/mod.rs::build_snapshot` maps
+    // every `done` straight to `EpisodeStatus::Terminated` — there is no
+    // `Truncated` arm, so hitting `max_steps` is currently reported as a
+    // true terminal instead of a truncation. Per `docs/rules.md` §10 that
+    // distinction is not cosmetic: `Terminated` says no future value exists
+    // past this state, `Truncated` says value still exists but was cut off
+    // by the clock, and collapsing the two biases bootstrapping of a value
+    // function on step-limited episodes. Driving through the budget here
+    // would bake that mislabeling into these terminal-snapshot assertions
+    // and force the eventual fix — threading through *why* the episode
+    // ended instead of collapsing it into one bool — to rewrite them; out
+    // of scope for this guard test, which only needs a real terminal to
+    // drive into, not a correctly labeled one.
     // -----------------------------------------------------------------------
 
     /// Reset, then walk the planned safe path to the goal with real `step()`s.
@@ -1623,7 +1638,7 @@ mod tests {
         assert_eq!(
             see_through.view[row][col][0],
             Entity::Goal.type_u8(),
-            "the pre-#281 emission model reported the goal from this pose"
+            "the see-through emission model reports the goal from this pose"
         );
         assert_eq!(
             occluded.view[row][col],

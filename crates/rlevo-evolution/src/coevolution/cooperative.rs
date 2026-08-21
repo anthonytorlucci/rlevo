@@ -651,7 +651,7 @@ mod tests {
         assert_eq!(complement(&p.dims_a, p.total_dims), vec![2, 3]);
     }
 
-    // --- Fitness-hygiene chokepoint regression (issue #134 / ADR 0034) ---
+    // --- Fitness-hygiene chokepoint regression (ADR 0034) ---
 
     use rand::SeedableRng;
 
@@ -707,7 +707,9 @@ mod tests {
     /// A `NaN` from a cooperative [`CoupledFitness`] is sanitized at the
     /// assembled-candidate chokepoint, so it never becomes the champion nor
     /// blanks a mean: `best` is the finite ramp maximum and the mean is finite.
-    /// Regression for issue #134 (cooperative §1.1).
+    /// Pins the guarantee `cooperative` inherits for free by delegating to
+    /// the inner `Strategy`'s own `tell`, with no coevolution-specific
+    /// sanitization code of its own.
     #[test]
     fn cooperative_nan_is_sanitized_in_metrics() {
         let device = Default::default();

@@ -36,20 +36,21 @@ could never flag the defect it was sitting on top of.
 This mattered against the trait's own text. `rlevo-core/src/base.rs`'s
 `TensorConvertible` doc required *"Implementors must round-trip:
 `from_tensor(x.to_tensor(device))` equals `Ok(x)` for any valid `x`. Strategies
-and replay buffers rely on this invariant."* — and `docs/rules.md §10`
-independently stated the same rule with a sharper edge:
+and replay buffers rely on this invariant."* — and `docs/rules.md`'s
+Architecture Invariants section independently stated the same rule with a
+sharper edge:
 
 > Tensor conversion round-trips (`to_tensor` → `from_tensor`) must be lossless
 > for all valid instances. If lossless round-trip is impossible for a type, that
 > type must not implement `TensorConvertible`.
 
-Read literally, both impls were non-conforming, and §10 went further than mere
+Read literally, both impls were non-conforming, and that section went further than mere
 non-conformance: because a lossless round trip *is* impossible for these types
 by design, the rule as written **forbade the `TensorConvertible` impl
 outright**. The tree therefore contained two impls that its own rules said must
 not exist. That is why this ADR has to amend the contract rather than only fix
-the two call sites — leaving §10 untouched would have left the fixed impls
-still formally illegal (see Decision §2 for the replacement wording).
+the two call sites — leaving it untouched would have left the fixed impls
+still formally illegal (see this ADR's own Decision 2 for the replacement wording).
 
 **`GoToDoorObservation` has the identical defect and was unfiled.** A search
 for it under #286's title returns nothing; #286 as filed named only
@@ -102,10 +103,10 @@ consumes only `partial_obs`, with no direction embedding anywhere in the
 inverse/forward dynamics nets either. The platform paper itself — Chevalier-
 Boisvert, Bahdanau, Lahlou, Willems, Saharia, Nguyen, Bengio, "BabyAI: A
 Platform to Study the Sample Efficiency of Grounded Language Learning," ICLR
-2019, arXiv:1810.08272v4 — describes its own baseline model's inputs, §4.1, as
+2019, arXiv:1810.08272v4 — describes its own baseline model's inputs, Section 4.1, as
 "a 7x7x3 symbolic observation $x_t$ ... and a variable length instruction $c$"
 with no third term, and reports 100% success on single-room levels (Table 2)
-without one. Its Baby Language BNF (Figure 2, §3.2) expresses only
+without one. Its Baby Language BNF (Figure 2, Section 3.2) expresses only
 agent-relative locations — `on your left | on your right | in front of you |
 behind you` — with no absolute compass term anywhere in the grammar, so an
 absolute heading carries nothing the rotated image and the relative mission
@@ -149,9 +150,9 @@ The prior text — *"round-trip: `from_tensor(x.to_tensor(device))` equals
 field. It does not name what an implementor with a partial row is supposed
 to do, which is exactly the gap `GridObservation`/`GoToDoorObservation` fell
 into. `crates/rlevo-core/src/base.rs`'s `TensorConvertible` rustdoc, and the
-matching row in `docs/rules.md`'s Core Trait Invariants table and §10, now
-state two clauses, both required of every implementor, for any valid `x` and
-device `d`:
+matching row in `docs/rules.md`'s Core Trait Invariants table and its
+Architecture Invariants section, now state two clauses, both required of
+every implementor, for any valid `x` and device `d`:
 
 1. **Tensor-image fidelity.** `from_tensor(x.to_tensor(d))?.to_tensor(d) ==
    x.to_tensor(d)` — decode-then-re-encode is a no-op *on the tensor*.
@@ -179,7 +180,7 @@ future unrotated or fully-observable grid variant — one that does not call
 `rotate_view_offset` — would have no other carrier for orientation and would
 need the direction **encoded inside the tensor**, the same way canonical
 Minigrid's `FullyObsWrapper` stamps `agent_dir` into the agent's own cell.
-Should that variant ever land, it reopens this ADR's Decision §1 for that
+Should that variant ever land, it reopens this ADR's own Decision 1 for that
 variant specifically; it does not invalidate it for the rotated envs this
 ADR covers.
 
@@ -224,12 +225,12 @@ ADR covers.
   convention as `docs/rules.md`'s "compare floats with `total_cmp`, never
   `partial_cmp`" rule: a real invariant with no total, mechanical guard. That
   is exactly why it is recorded in `rules.md`'s Core Trait Invariants table
-  and §10, not left to live only in this ADR.
-- **This decision is scoped, not general** (Decision §3). A future
-  unrotated/fully-observable grid variant reopens Decision §1 for that
-  variant; this is recorded so a future contributor does not read "direction
-  stays out of the tensor" as a crate-wide law rather than a consequence of
-  rotation.
+  and its Architecture Invariants section, not left to live only in this ADR.
+- **This decision is scoped, not general** (this ADR's own Decision 3). A
+  future unrotated/fully-observable grid variant reopens this ADR's own
+  Decision 1 for that variant; this is recorded so a future contributor does
+  not read "direction stays out of the tensor" as a crate-wide law rather
+  than a consequence of rotation.
 
 ### Neutral
 
@@ -303,7 +304,7 @@ ADR covers.
 - Issue #286 — `GridObservation::agent_direction` dropped by `to_tensor`,
   fabricated by `from_tensor`.
 - Issue #844 — `agent_direction` should be a typed `Direction`, not a raw
-  byte; closed by Decision §1.
+  byte; closed by this ADR's own Decision 1.
 - Issue #860 — proptest round-trip over arbitrary valid views; the
   `Err`-on-decode alternative above would have made it unstatable.
 - Issue #841 — `GridState::project` doc cross-reference to the direction
@@ -342,7 +343,7 @@ ADR covers.
 - Chevalier-Boisvert, Bahdanau, Lahlou, Willems, Saharia, Nguyen, Bengio.
   "BabyAI: A Platform to Study the Sample Efficiency of Grounded Language
   Learning." ICLR 2019. [arXiv:1810.08272v4](https://openreview.net/pdf?id=rJeXCo0cYX).
-  Appendix B.4 (observation spec), §4.1 (model inputs, no direction term),
+  Appendix B.4 (observation spec), Section 4.1 (model inputs, no direction term),
   Figure 2 (Baby Language BNF, agent-relative locations only), Table 2
   (100% single-room success without `direction`).
 - Raileanu & Rocktäschel. "RIDE: Rewarding Impact-Driven Exploration for

@@ -33,16 +33,22 @@
 //!
 //! * `constraint_force_x` (`obs[8]`) is approximated by reading Rapier's
 //!   aggregated contact force on pole2 (`Rapier3DBackend::contact_force`).
-//!   `MuJoCo`'s equivalent `cfrc_inv[0]` is a joint reaction force computed in
-//!   generalised coordinates. Signs and rough magnitudes follow the same
-//!   dynamics; absolute values will differ.
+//!   `MuJoCo`'s equivalent `cfrc_inv[0]` (Gymnasium's `qfrc_constraint`) is a
+//!   joint reaction force computed in generalised coordinates — the
+//!   constraint force on the cart's slider DOF. What this crate reports is a
+//!   different physics quantity: a Cartesian contact-manifold force on
+//!   pole2, not a joint-constraint force. Signs and rough magnitudes follow
+//!   the same dynamics; absolute values will differ.
 //!
-//!   Note: jointed-neighbour contacts are disabled on both revolute joints for
-//!   `MuJoCo` parent–child contact-filter parity (ADR 0041), so pole2 touches
-//!   nothing in normal operation and `obs[8]` is `≈ 0`. The slot is retained as
-//!   a placeholder for a future re-model against Gymnasium's `qfrc_constraint`
-//!   (the generalised constraint force on the cart slider DOF), tracked in
-//!   issue #271.
+//!   Known open deviation: jointed-neighbour contacts are disabled on both
+//!   revolute joints for `MuJoCo` parent–child contact-filter parity (ADR
+//!   0041), so pole2 touches nothing in normal operation and `obs[8]` is
+//!   `$\approx 0$` in practice — a dead dimension, versus Gymnasium's
+//!   genuinely informative constraint-force signal. This has not been
+//!   fixed: either re-model `obs[8]` as the true slider-DOF constraint-force
+//!   analogue (read the cart slider joint's constraint impulse from Rapier,
+//!   divide by substep `dt`, clip to `$\pm 10$`), or explicitly document the
+//!   deviation as deliberate.
 //! * `$\omega_2$` is reported as world-frame angular velocity (not relative to pole1),
 //!   matching `MuJoCo`'s `qvel` for the second hinge — i.e. it is the body's
 //!   absolute rate, not the rate of the relative joint angle.
