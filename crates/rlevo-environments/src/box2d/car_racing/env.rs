@@ -551,6 +551,145 @@ impl CarRacing {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Report-tier payload — car, wheels, and the track surface.
+//
+// `viewport()` already states the contract this satisfies: "Track tile
+// geometry is not rendered in the library tier; the report tier owns full
+// track rendering via `FamilyPayload::Box2D`." That payload did not exist, so
+// the promise had no implementation behind it and the box2d adapter fell
+// through to the ASCII view — which by that same design shows no track at all.
+// ---------------------------------------------------------------------------
+
+impl rlevo_core::render::Box2dPayloadSource for CarRacing {
+    /// Emits the track tiles overlapping the camera viewport, then the four
+    /// wheels, then the car body.
+    ///
+    /// Tiles are culled to the viewport rather than emitted whole: the track
+    /// is a closed loop of hundreds of quads and the camera shows a 20-unit
+    /// window, so emitting all of them would put most of the payload's bytes
+    /// off-screen on every frame of every episode.
+    ///
+    /// Visited tiles carry [`BodyKind::Goal`] and unvisited ones
+    /// [`BodyKind::Ground`], so lap progress is legible in the rendered frame
+    /// — the tile-visit state is the task, and it is invisible in the ASCII
+    /// tier.
+    ///
+    /// [`BodyKind::Goal`]: rlevo_core::render::BodyKind::Goal
+    /// [`BodyKind::Ground`]: rlevo_core::render::BodyKind::Ground
+    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+        use rlevo_core::render::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
+
+        let view = self.viewport();
+        let mut bodies: Vec<RigidBody2D> = Vec::new();
+
+        for tile in &self.track.tiles {
+            // Quad corners are already world-space, so the body carries them
+            // verbatim with an identity pose rather than a local frame.
+            let xs = tile.vertices.iter().map(|v| v[0]);
+            let ys = tile.vertices.iter().map(|v| v[1]);
+            let (x_lo, x_hi) = xs.fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)));
+            let (y_lo, y_hi) = ys.fold((f32::MAX, f32::MIN), |(lo, hi), y| (lo.min(y), hi.max(y)));
+            if x_hi < view.x_min || x_lo > view.x_max || y_hi < view.y_min || y_lo > view.y_max {
+                continue;
+            }
+            bodies.push(RigidBody2D {
+                vertices: tile
+                    .vertices
+                    .iter()
+                    .map(|v| Point2::new(v[0], v[1]))
+                    .collect(),
+                position: Point2::new(0.0, 0.0),
+                rotation_rad: 0.0,
+                kind: if tile.visited {
+                    BodyKind::Goal
+                } else {
+                    BodyKind::Ground
+                },
+            });
+        }
+
+        for handle in self.state.wheel_handles {
+            if let Some(wheel) = self.world.bodies().get(handle) {
+                let p = wheel.translation();
+                bodies.push(RigidBody2D {
+                    vertices: vec![
+                        Point2::new(-0.02, -0.04),
+                        Point2::new(0.02, -0.04),
+                        Point2::new(0.02, 0.04),
+                        Point2::new(-0.02, 0.04),
+                    ],
+                    position: Point2::new(p.x, p.y),
+                    rotation_rad: wheel.rotation().angle(),
+                    kind: BodyKind::Wheel,
+                });
+            }
+        }
+
+        if let Some(car) = self.world.bodies().get(self.state.car_handle) {
+            let p = car.translation();
+            bodies.push(RigidBody2D {
+                vertices: vec![
+                    Point2::new(-CAR_W, -CAR_H),
+                    Point2::new(CAR_W, -CAR_H),
+                    Point2::new(CAR_W, CAR_H),
+                    Point2::new(-CAR_W, CAR_H),
+                ],
+                position: Point2::new(p.x, p.y),
+                rotation_rad: car.rotation().angle(),
+                kind: BodyKind::Hull,
+            });
+        }
+
+        // Refuse the frame outright if the solver has diverged.
+        //
+        // The wheel fixed-joints are stiff enough that the car body and all
+        // four wheels reach `(NaN, NaN)` within roughly ten to twenty steps
+        // under essentially any action, and nothing upstream catches it:
+        // `CarRacingState::is_valid` has no finiteness predicate. Writing
+        // those poses to the wire is the worst of the options — the report's
+        // scale arithmetic turns NaN into unparseable SVG coordinates and
+        // paints an empty panel with no message, so the run looks recorded
+        // and reads as blank.
+        //
+        // Deliberately degenerate bounds instead: `min == max` is the one
+        // input the box2d adapter already rejects out loud, with "payload has
+        // degenerate world bounds — cannot render". That turns a silent blank
+        // frame into a stated refusal using machinery that already exists.
+        // The divergence itself is an open defect in the wheel joints; this
+        // only stops it laundering through the report tier.
+        let finite = |b: &RigidBody2D| {
+            b.position.x.is_finite()
+                && b.position.y.is_finite()
+                && b.rotation_rad.is_finite()
+                && b.vertices
+                    .iter()
+                    .all(|v| v.x.is_finite() && v.y.is_finite())
+        };
+        if !view.x_min.is_finite()
+            || !view.x_max.is_finite()
+            || !view.y_min.is_finite()
+            || !view.y_max.is_finite()
+            || !bodies.iter().all(finite)
+        {
+            return Box2dSnapshot {
+                world_bounds: (Point2::new(0.0, 0.0), Point2::new(0.0, 0.0)),
+                bodies: Vec::new(),
+                contacts: Vec::new(),
+            };
+        }
+
+        Box2dSnapshot {
+            world_bounds: (
+                Point2::new(view.x_min, view.y_min),
+                Point2::new(view.x_max, view.y_max),
+            ),
+            bodies,
+            contacts: vec![],
+        }
+    }
+}
+
 /// Marks the tiles newly covered by a forward step from `prev` to `nearest`
 /// along the closed tile loop.
 ///

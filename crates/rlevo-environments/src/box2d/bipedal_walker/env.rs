@@ -721,6 +721,129 @@ impl BipedalWalker {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Report-tier payload — Box2D rigid bodies for the hull, legs, and terrain.
+//
+// The ASCII tier draws the ground as one flat line regardless of terrain, so
+// on rough or hardcore terrain it shows a surface the walker is not standing
+// on. This payload emits the real terrain segments instead, culled to the
+// camera viewport.
+// ---------------------------------------------------------------------------
+
+impl BipedalWalker {
+    /// Local-frame corners of an axis-aligned box with the given half-extents,
+    /// counter-clockwise as `RigidBody2D::vertices` requires.
+    fn box_vertices(hw: f32, hh: f32) -> Vec<rlevo_core::render::Point2> {
+        use rlevo_core::render::Point2;
+        vec![
+            Point2::new(-hw, -hh),
+            Point2::new(hw, -hh),
+            Point2::new(hw, hh),
+            Point2::new(-hw, hh),
+        ]
+    }
+}
+
+impl rlevo_core::render::Box2dPayloadSource for BipedalWalker {
+    /// Emits the hull, the four leg segments, and every terrain segment
+    /// overlapping the camera viewport.
+    ///
+    /// The flat base slab is skipped deliberately: it spans 200 world units
+    /// against a 10-unit viewport, so including it would stretch
+    /// `world_bounds` far enough to render the walker as a speck.
+    ///
+    /// Skipping it is a rendering decision and **not** a claim that the
+    /// terrain segments are the contact surface everywhere. They are for flat
+    /// and raised terrain. For a pit they are not: the slab's volume spans
+    /// `[GROUND_Y - 1.0, GROUND_Y]`, and a pit segment sits inside it, so the
+    /// walker rests on the slab while the report draws the dip it never falls
+    /// into. That mismatch is a known defect in `build_ground` — which still
+    /// carries its own "use a long flat cuboid for now" note — and emitting
+    /// the slab here would hide it behind an unreadable viewport rather than
+    /// fix it.
+    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+        use rlevo_core::render::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
+
+        let view = self.viewport();
+        let mut bodies: Vec<RigidBody2D> = Vec::new();
+
+        // Terrain first so the walker paints over it.
+        for (handle, collider) in self.world.colliders().iter() {
+            if handle == self.ground_handle {
+                continue;
+            }
+            let Some(cuboid) = collider.shape().as_cuboid() else {
+                continue;
+            };
+            let pos = collider.position();
+            let (hw, hh) = (cuboid.half_extents.x, cuboid.half_extents.y);
+            let cx = pos.translation.x;
+            // Cull on the x-extent only: a segment is a wide, thin slab, so its
+            // half-width bounds the horizontal reach regardless of tilt.
+            let reach = hw + hh;
+            if cx + reach < view.x_min || cx - reach > view.x_max {
+                continue;
+            }
+            bodies.push(RigidBody2D {
+                vertices: Self::box_vertices(hw, hh),
+                position: Point2::new(cx, pos.translation.y),
+                rotation_rad: pos.rotation.angle(),
+                kind: BodyKind::Ground,
+            });
+        }
+
+        // Leg segments, then the hull on top.
+        for (handle, hh) in [
+            (self.state.leg1_upper_handle, LEG_H / SCALE),
+            (self.state.leg1_lower_handle, LOWER_H / SCALE),
+            (self.state.leg2_upper_handle, LEG_H / SCALE),
+            (self.state.leg2_lower_handle, LOWER_H / SCALE),
+        ] {
+            if let Some(seg) = self.world.bodies().get(handle) {
+                let p = seg.translation();
+                bodies.push(RigidBody2D {
+                    vertices: Self::box_vertices(LEG_W / SCALE, hh),
+                    position: Point2::new(p.x, p.y),
+                    rotation_rad: seg.rotation().angle(),
+                    kind: BodyKind::Leg,
+                });
+            }
+        }
+
+        if let Some(hull) = self.world.bodies().get(self.state.hull_handle) {
+            let p = hull.translation();
+            bodies.push(RigidBody2D {
+                vertices: Self::box_vertices(HULL_W / SCALE, HULL_H / SCALE),
+                position: Point2::new(p.x, p.y),
+                rotation_rad: hull.rotation().angle(),
+                kind: BodyKind::Hull,
+            });
+        }
+
+        // A diverged solver must not reach the wire. The report's bounds
+        // arithmetic propagates NaN into the SVG transform and emits a frame
+        // with unparseable coordinates — a blank panel with no warning, which
+        // is the failure mode this whole payload exists to remove.
+        bodies.retain(|b| {
+            b.position.x.is_finite()
+                && b.position.y.is_finite()
+                && b.rotation_rad.is_finite()
+                && b.vertices
+                    .iter()
+                    .all(|v| v.x.is_finite() && v.y.is_finite())
+        });
+
+        Box2dSnapshot {
+            world_bounds: (
+                Point2::new(view.x_min, view.y_min),
+                Point2::new(view.x_max, view.y_max),
+            ),
+            bodies,
+            contacts: vec![],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // These assert bit-exact determinism: two identically seeded runs must
