@@ -44,7 +44,8 @@ local and CI rustfmt agree — run `cargo fmt --all` before pushing.
 | Command | Scope | Cost |
 |---|---|---|
 | `cargo xtask test fast` | every crate's default tests — the PR gate | seconds per crate |
-| `cargo xtask test heavy` | the `#[ignore]`d suite, release profile | minutes to hours |
+| `cargo xtask test heavy` | the `#[ignore]`d suite, release profile, minus acceptance | minutes |
+| `cargo xtask test acceptance` | full-solve convergence runs | hours |
 | `cargo xtask test gpu` | wgpu/flex backend parity — needs a real adapter | minutes, local only |
 
 `fast` is the one to run after a change. Add a selector to narrow it

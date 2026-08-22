@@ -259,9 +259,14 @@ CI calls the same script, so the gate and a local run cannot disagree about
 feature overrides. See [`xtask/test/README.md`](../xtask/test/README.md).
 
 - **`fast`** is the pull-request gate and the default after any change.
-- **`heavy`** is the `#[ignore]`d suite in **release**. `--release` is not a
-  speed preference: several are convergence runs that never finish in debug,
-  and debug's overflow checks mask release wrapping.
+- **`heavy`** is the `#[ignore]`d suite in **release**, minus the acceptance
+  runs. `--release` is not a speed preference: several are convergence runs
+  that never finish in debug, and debug's overflow checks mask release
+  wrapping.
+- **`acceptance`** is the full-solve convergence runs, hours each. Split out
+  of `heavy` so a merge-gate check does not silently inherit a 500 000-step
+  run. Its list is curated rather than enumerated because the tests are
+  macro-generated and no grep can discover them.
 - **`gpu`** has no CI home — every runner is `ubuntu-latest` with no adapter,
   and `cubecl-wgpu` aborts on device init. Run it by hand after touching a
   backend, a kernel, or a tensor op.

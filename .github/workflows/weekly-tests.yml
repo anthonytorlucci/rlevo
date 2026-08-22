@@ -27,9 +27,12 @@ jobs:
   # re-runnable. Invoking the binary (not individual test names) is deliberate:
   # the heavy tests are macro-generated (`rl_learning_test!` /
   # `rl_reproducibility_test!`) and were renamed once already — enumerating names
-  # here is exactly what drifts. `--release` keeps the training runs inside the
-  # timeout. QR-DQN's hours-long `qrdqn_cartpole_acceptance` is `--skip`ped here
-  # and runs in the separate `acceptance` job below.
+  # here is exactly what drifts — which is also why this file no longer names a
+  # test at all: `xtask/test/run.sh` supplies `--release`, the feature
+  # overrides, and the `--skip` for QR-DQN's hours-long
+  # `qrdqn_cartpole_acceptance`, which runs in the separate `acceptance` job
+  # below. The two jobs here map one-to-one onto the `heavy` and `acceptance`
+  # tiers, so a local run and this workflow cannot disagree about scope.
   regression:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -42,9 +45,10 @@ jobs:
             bin: dqn_integration
           - name: "C51 — heavy suite (CartPole converge + reproducibility)"
             bin: c51_integration
+          # The acceptance run is excluded by the `heavy` tier itself, not by a
+          # `skip:` key here — see `acceptance_units` in xtask/test/run.sh.
           - name: "QR-DQN — heavy suite (excludes acceptance)"
             bin: qrdqn_integration
-            skip: qrdqn_cartpole_acceptance
           - name: "PPO — heavy suite (CartPole converge + Pendulum + reproducibility)"
             bin: ppo_integration
           - name: "PPG — heavy suite (aux phases, CartPole + reproducibility)"
@@ -64,12 +68,11 @@ jobs:
           # Separate cache key per matrix job so jobs don't thrash each other.
           key: weekly-${{ matrix.bin }}
 
-      # `heavy` supplies `--release`, `-- --ignored`, and any per-binary
-      # feature override; trailing arguments pass through to the test harness.
+      # `heavy` supplies `--release`, `-- --ignored`, any per-binary feature
+      # override, and the `--skip` for every acceptance test in this binary —
+      # the acceptance job below runs those instead. Nothing here names a test.
       - name: Run ${{ matrix.name }}
-        run: >-
-          ./xtask/test/run.sh heavy ${{ matrix.bin }}
-          ${{ matrix.skip && format('--skip {0}', matrix.skip) }}
+        run: ./xtask/test/run.sh heavy ${{ matrix.bin }}
 
   # ── Full acceptance tests (~hours) ──────────────────────────────────────────
   #
@@ -85,9 +88,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `acceptance <bin>` selects every acceptance test in that binary;
+          # the test name lives in `acceptance_units`, not in this file.
           - name: "QR-DQN — CartPole acceptance (500k steps, reward ≥ 195)"
             bin: qrdqn_integration
-            test: qrdqn_cartpole_acceptance
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -97,5 +101,4 @@ jobs:
           key: weekly-${{ matrix.bin }}
 
       - name: Run ${{ matrix.name }}
-        run: >-
-          ./xtask/test/run.sh heavy ${{ matrix.bin }} ${{ matrix.test }}
+        run: ./xtask/test/run.sh acceptance ${{ matrix.bin }}
