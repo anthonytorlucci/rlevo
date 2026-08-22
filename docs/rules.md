@@ -251,6 +251,28 @@ The single rule that unifies the table: **single-crate scope stays in that crate
 multi-crate scope moves up to the umbrella `crates/rlevo/`** — except heavy examples,
 which move *sideways* to `crates/rlevo-examples/` (see §11 for the exact dep test).
 
+### Running them — use the named tiers
+
+The `Run with` column above is the *placement* contract, not the invocation to
+type. Run tests through `cargo xtask test <tier>` (`fast` / `heavy` / `gpu`);
+CI calls the same script, so the gate and a local run cannot disagree about
+feature overrides. See [`xtask/test/README.md`](../xtask/test/README.md).
+
+- **`fast`** is the pull-request gate and the default after any change.
+- **`heavy`** is the `#[ignore]`d suite in **release**. `--release` is not a
+  speed preference: several are convergence runs that never finish in debug,
+  and debug's overflow checks mask release wrapping.
+- **`gpu`** has no CI home — every runner is `ubuntu-latest` with no adapter,
+  and `cubecl-wgpu` aborts on device init. Run it by hand after touching a
+  backend, a kernel, or a tensor op.
+
+**Never `cargo test --workspace --all-targets`.** `--all-targets` includes
+`--benches`, and `harness = false` criterion targets are *executed* by it — all
+19 benchmark binaries at full measurement, roughly 14 hours — while `#[ignore]`d
+tests still do not run, since those need `-- --ignored`. It is strictly worse
+coverage than `fast` at four orders of magnitude the cost. This is why the tiers
+have names: an unnamed fast path invites exactly this invention.
+
 ### Step 3 — Decision procedure (apply in order)
 
 1. **Purpose** — assert correctness → *test*; measure performance → *bench*; demonstrate

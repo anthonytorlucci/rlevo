@@ -64,10 +64,11 @@ jobs:
           # Separate cache key per matrix job so jobs don't thrash each other.
           key: weekly-${{ matrix.bin }}
 
+      # `heavy` supplies `--release`, `-- --ignored`, and any per-binary
+      # feature override; trailing arguments pass through to the test harness.
       - name: Run ${{ matrix.name }}
         run: >-
-          cargo test --release -p rlevo --test ${{ matrix.bin }}
-          -- --ignored
+          ./xtask/test/run.sh heavy ${{ matrix.bin }}
           ${{ matrix.skip && format('--skip {0}', matrix.skip) }}
 
   # ── Full acceptance tests (~hours) ──────────────────────────────────────────
@@ -97,5 +98,4 @@ jobs:
 
       - name: Run ${{ matrix.name }}
         run: >-
-          cargo test --release -p rlevo --test ${{ matrix.bin }}
-          -- --ignored ${{ matrix.test }}
+          ./xtask/test/run.sh heavy ${{ matrix.bin }} ${{ matrix.test }}

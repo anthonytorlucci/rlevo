@@ -202,21 +202,12 @@ jobs:
           - rlevo-reinforcement-learning
           - rlevo-test-support
           - rlevo
-        include:
-          # `crates/rlevo/tests/recording_episode_count.rs` and
-          # `cartpole_report_smoke.rs` are gated behind `required-features =
-          # ["viz-report"]` (crates/rlevo/Cargo.toml), which is not among
-          # `rlevo`'s default features. A bare `cargo test -p rlevo` silently
-          # *skips* both binaries rather than running them.
-          - crate: rlevo
-            features: --features viz-report
-          # `crates/rlevo-benchmarks/tests/wire_format_compat.rs` (native
-          # EpisodeRecord vs. browser-client wire-format mirror parity) is
-          # `#![cfg(feature = "record")]`, which is not among
-          # `rlevo-benchmarks`'s default features (`json` only). Without this
-          # override the file compiles to nothing and the test never runs.
-          - crate: rlevo-benchmarks
-            features: --features record
+    # The per-crate feature overrides that used to live here as an `include:`
+    # block now live in `xtask/test/run.sh`'s `features_for`, so the local
+    # `cargo xtask test fast` and this gate cannot disagree about what a crate
+    # needs in order to actually compile its gated test targets. The matrix
+    # keeps naming crates literally because Actions cannot expand a glob — and
+    # because `test-matrix-coverage` below greps this file for exactly that.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -225,6 +216,8 @@ jobs:
         with:
           key: crate-tests-${{ matrix.crate }}
 
-      # `matrix.features` is empty for every crate without an `include:` entry.
+      # Invokes the script directly rather than `cargo xtask test`: compiling
+      # the dispatcher to exec a shell script the runner can already run adds
+      # a build to every matrix job for no behavioural difference.
       - name: Test ${{ matrix.crate }}
-        run: cargo test --package ${{ matrix.crate }} ${{ matrix.features }}
+        run: ./xtask/test/run.sh fast ${{ matrix.crate }}

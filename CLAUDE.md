@@ -35,9 +35,29 @@ it.
 
 ## Development Commands
 
-Standard cargo invocations. Formatting is enforced in CI (`cargo fmt --all --check`,
+Formatting is enforced in CI (`cargo fmt --all --check`,
 `.github/workflows/fmt.yml`) and the toolchain is pinned in `rust-toolchain.toml` so
 local and CI rustfmt agree — run `cargo fmt --all` before pushing.
+
+**Run tests through the named tiers, not a hand-rolled `cargo test` invocation:**
+
+| Command | Scope | Cost |
+|---|---|---|
+| `cargo xtask test fast` | every crate's default tests — the PR gate | seconds per crate |
+| `cargo xtask test heavy` | the `#[ignore]`d suite, release profile | minutes to hours |
+| `cargo xtask test gpu` | wgpu/flex backend parity — needs a real adapter | minutes, local only |
+
+`fast` is the one to run after a change. Add a selector to narrow it
+(`cargo xtask test fast rlevo-core`, `cargo xtask test heavy ppo_integration`).
+CI calls the same script, so local and gate cannot disagree. See
+[`xtask/test/README.md`](xtask/test/README.md).
+
+**Never run `cargo test --workspace --all-targets`.** `--all-targets` includes
+`--benches`, and with `harness = false` criterion targets that *executes* all 19
+benchmark binaries at full measurement (~14 hours) while still not running the
+`#[ignore]`d tests, which need `-- --ignored` to lift — strictly worse coverage
+than `fast` for four orders of magnitude more time. Benchmarks are `cargo bench`,
+run deliberately.
 
 ## Working with the Codebase
 

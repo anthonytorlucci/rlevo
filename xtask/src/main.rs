@@ -11,6 +11,8 @@
 //!
 //! # Tasks
 //!
+//! - `test <tier>` — run a named test tier (`fast` / `heavy` / `gpu`). See
+//!   `xtask/test/run.sh`.
 //! - `byoe` — run the BYOE-1 outside-in acceptance test. Exits with the number
 //!   of the first failing step. See `xtask/byoe/README.md`.
 
@@ -31,7 +33,8 @@ fn usage() -> ExitCode {
         "usage: cargo xtask <task> [args...]\n\
          \n\
          tasks:\n\
-         \x20 byoe    BYOE-1 outside-in acceptance test (exit code = first failing step)\n"
+         \x20 test <tier>   run a test tier: fast | heavy | gpu\n\
+         \x20 byoe          BYOE-1 outside-in acceptance test (exit code = first failing step)\n"
     );
     ExitCode::from(2)
 }
@@ -43,6 +46,7 @@ fn main() -> ExitCode {
     };
 
     let script = match task.as_str() {
+        "test" => "xtask/test/run.sh",
         "byoe" => "xtask/byoe/run.sh",
         "-h" | "--help" | "help" => return usage(),
         other => {
