@@ -98,7 +98,18 @@ where
     /// [`with_locomotion_payload`](Self::with_locomotion_payload) — it
     /// goes through [`new_headless`](Self::new_headless) and ships
     /// `ascii = None` / `styled = None`.
-    pub fn new(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+    pub fn new(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
+    where
+        // Every constructor repeats this, though only the `Environment` impl
+        // below actually uses it. The duplication buys the diagnostic: a bound
+        // checked during method resolution (`tap.reset()`) fails as E0599,
+        // which `#[diagnostic::on_unimplemented]` does not reach, so the
+        // message explaining the missing derive is dropped. Checked here it is
+        // an E0277 on the caller's own line and the message applies. See
+        // `RecordableAction`'s docs.
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
+    {
         Self::with_payload_extractor(inner, sink, |_| FamilyPayload::Ascii)
     }
 
@@ -113,6 +124,8 @@ where
     ) -> Self
     where
         F: Fn(&E) -> FamilyPayload + Send + Sync + 'static,
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
     {
         Self {
             inner,
@@ -137,6 +150,8 @@ impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD,
     pub fn new_headless<F>(inner: E, sink: Arc<Mutex<dyn RecordSink>>, payload: F) -> Self
     where
         F: Fn(&E) -> FamilyPayload + Send + Sync + 'static,
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
     {
         Self {
             inner,
@@ -182,7 +197,11 @@ where
     /// [`Landscape2DPayload`] per frame via [`Landscape2DPayloadSource`].
     /// Landscape envs implement [`AsciiRenderable`], so the static-frame
     /// ascii / styled projection is captured alongside the rich payload.
-    pub fn with_landscape_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+    pub fn with_landscape_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
+    where
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
+    {
         Self::with_payload_extractor(inner, sink, |e| {
             FamilyPayload::Landscape2D(Landscape2DPayload::from(e.landscape2d_snapshot()))
         })
@@ -197,7 +216,11 @@ where
     /// [`Box2dPayload`] per frame via [`Box2dPayloadSource`]. `Box2D` envs
     /// implement [`AsciiRenderable`], so the static-frame ascii / styled
     /// projection is captured alongside the rich payload.
-    pub fn with_box2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+    pub fn with_box2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
+    where
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
+    {
         Self::with_payload_extractor(inner, sink, |e| {
             FamilyPayload::Box2dBodies(Box2dPayload::from(e.box2d_snapshot()))
         })
@@ -213,7 +236,11 @@ where
     /// This is locomotion's only rendering pathway in the report tier.
     /// Uses [`new_headless`](Self::new_headless) because locomotion envs
     /// do not implement [`AsciiRenderable`].
-    pub fn with_locomotion_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+    pub fn with_locomotion_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
+    where
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
+    {
         Self::new_headless(inner, sink, |e| {
             FamilyPayload::Locomotion2D(Locomotion2DPayload::from(e.locomotion2d_snapshot()))
         })
@@ -229,7 +256,11 @@ where
     /// [`new_headless`](Self::new_headless) so the record is **structured-only**
     /// (ADR-0013) — no `ascii` / `styled` text is captured; the report renders
     /// SVG from the tile grid.
-    pub fn with_grid_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+    pub fn with_grid_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
+    where
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
+    {
         Self::new_headless(inner, sink, |e| {
             FamilyPayload::Grid(GridPayload::from(e.grid_snapshot()))
         })
@@ -244,7 +275,11 @@ where
     /// [`TabularPayload`] per frame via [`TabularPayloadSource`]. Uses
     /// [`new_headless`](Self::new_headless) so the record is **structured-only**
     /// (ADR-0013) — the report renders the grid/card layout from typed state.
-    pub fn with_tabular_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+    pub fn with_tabular_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
+    where
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
+    {
         Self::new_headless(inner, sink, |e| {
             FamilyPayload::TabularText(TabularPayload::from(e.tabular_snapshot()))
         })
@@ -260,7 +295,11 @@ where
     /// Uses [`new_headless`](Self::new_headless) so the record is
     /// **structured-only** (ADR-0013) — the report renders SVG line-art from
     /// the world-space bodies.
-    pub fn with_classic2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+    pub fn with_classic2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
+    where
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
+    {
         Self::new_headless(inner, sink, |e| {
             FamilyPayload::Classic2D(Classic2DPayload::from(e.classic2d_snapshot()))
         })

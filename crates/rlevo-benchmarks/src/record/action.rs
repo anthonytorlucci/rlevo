@@ -27,18 +27,34 @@ use serde::Serialize;
 /// ```text
 /// error[E0277]: `Boiler` cannot be recorded: an environment's action type
 ///               must implement `serde::Serialize`
-///    |
-///  8 |     drive(RecordingTap::new(env, sink));
-///    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this action type is not `Serialize`
-///    |
+///     |
+/// 351 |   RecordingTap::new(Thermostat::with_seed(SEED), sink.clone());
+///     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ this action type is
+///     |                                                 not `Serialize`
+///     |
 /// help: the trait `RecordableAction` is not implemented for `Boiler`
-///    |
-///  3 | pub enum Boiler { Off, On }
-///    | ^^^^^^^^^^^^^^^
-///    = note: add `#[derive(serde::Serialize)]` to `Boiler`
+///     |
+///  93 | enum Boiler {
+///     | ^^^^^^^^^^^
+///     = note: add `#[derive(serde::Serialize)]` to `Boiler`
+/// note: required by a bound in `RecordingTap::<E, D, SD, AD>::new`
 /// ```
 ///
-/// (Transcribed from a compiler run, not composed by hand.)
+/// Transcribed from a `cargo xtask byoe` run with the probe's derive
+/// removed, not composed by hand.
+///
+/// # Why the constructors carry the bound too
+///
+/// The requirement is only *used* by the `Environment` impl, so bounding
+/// that impl alone would be enough to make the code correct. It is not
+/// enough to make it explain itself: a bound checked during method
+/// resolution (`tap.reset()`) fails as `E0599`, and
+/// `#[diagnostic::on_unimplemented]` does not apply to `E0599` — the
+/// researcher gets "the method `reset` exists ... but its trait bounds were
+/// not satisfied" with the message dropped. Repeating the bound on every
+/// constructor moves the failure to the caller's own
+/// `RecordingTap::new(...)` line, where it is an `E0277` and the message
+/// applies. That is the transcript above.
 ///
 /// # Rejection is pinned; the message is not
 ///
