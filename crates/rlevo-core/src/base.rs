@@ -192,6 +192,26 @@ pub trait State<const R: usize>: Debug + Clone + Send + Sync {
 /// - Finiteness for floating-point values
 /// - Structural invariants (e.g., array dimensions)
 /// - Environment-specific rules (e.g., available moves in a game state)
+///
+/// # What other crates ask of an action type
+///
+/// The bounds above are the whole obligation for running an environment.
+/// Two capabilities are declared elsewhere, at the seam that consumes them,
+/// so an environment that never uses them pays nothing:
+///
+/// - **Recording** additionally requires [`serde::Serialize`], since every
+///   action is written into the episode file. `rlevo-benchmarks` declares
+///   this as `RecordableAction`; a `#[derive(serde::Serialize)]` on the
+///   action type satisfies it and there is nothing else to write. Omitting
+///   it is a compile error naming the type and the derive, not a runtime
+///   surprise.
+/// - **Tensor round-tripping** for neural agents comes from
+///   [`TensorConvertible`], not from here.
+///
+/// Declaring these at the consuming seam rather than as supertraits is the
+/// rule, not an oversight (`docs/rules.md`, ADR 0064): a serde supertrait
+/// here would tax every environment for a capability only the recording
+/// tier uses.
 pub trait Action<const R: usize>: Debug + Clone + Sized {
     /// The rank of this action space — i.e. the number of axes (tensor order),
     /// *not* the size of any axis.

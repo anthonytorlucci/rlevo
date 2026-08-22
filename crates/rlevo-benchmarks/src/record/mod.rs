@@ -15,12 +15,33 @@
 //! `run.toml` at suite end via [`RunManifest::write_atomic`]. For testing
 //! without touching the filesystem, use [`InMemoryRecordSink`].
 //!
-//! See the project spec (§8 wire format, §10 writer state machine) for the
-//! full binary layout.
+//! # What recording asks of an environment
+//!
+//! One thing, and it is not on the [`Environment`] trait: the action type
+//! must implement [`serde::Serialize`], because each action is written to
+//! the episode file. See [`RecordableAction`] — every `Serialize` type
+//! satisfies it automatically, so this is a `#[derive(Serialize)]` on the
+//! action enum and nothing more.
+//!
+//! It is declared here rather than as a supertrait of
+//! [`Action`](rlevo_core::base::Action) on purpose: environments that are
+//! never recorded should not pay for serde (`docs/rules.md`, ADR 0064).
+//! Nothing else is required — an environment needs no
+//! [`RecordedEnvFamily`] impl and no [`AsciiRenderable`] impl to be
+//! recorded.
+//!
+//! See the project spec (the wire-format and writer-state-machine sections)
+//! for the full binary layout.
+//!
+//! [`Environment`]: rlevo_core::environment::Environment
+//! [`AsciiRenderable`]: rlevo_core::render::AsciiRenderable
 //!
 //! [`RecordWriter`]: crate::record::writer::RecordWriter
 //! [`InMemoryRecordSink`]: crate::record::writer::InMemoryRecordSink
 
+/// [`RecordableAction`] — the `Serialize` requirement recording places on
+/// action types, and the diagnostic that explains it.
+pub mod action;
 /// [`RecordingTap`] — env wrapper that captures every reset/step frame.
 pub mod env_tap;
 /// [`RecordError`] — non-fatal write failures retained for post-run query.
@@ -38,6 +59,7 @@ pub mod tracing_layer;
 /// [`RecordSink`] trait, [`RecordWriter`], and [`InMemoryRecordSink`].
 pub mod writer;
 
+pub use action::RecordableAction;
 pub use env_tap::RecordingTap;
 pub use error::RecordError;
 pub use population_reporter::PopulationReporter;

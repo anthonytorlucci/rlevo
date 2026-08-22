@@ -27,8 +27,8 @@ use rlevo_core::render::{
     AsciiRenderable, Box2dPayloadSource, Classic2DPayloadSource, GridPayloadSource,
     Landscape2DPayloadSource, Locomotion2DPayloadSource, StyledFrame, TabularPayloadSource,
 };
-use serde::Serialize;
 
+use super::action::RecordableAction;
 use super::schema::{
     Box2dPayload, Classic2DPayload, FamilyPayload, FrameRecord, GridPayload, Landscape2DPayload,
     Locomotion2DPayload, TabularPayload,
@@ -60,10 +60,17 @@ pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Syn
 /// calling [`RecordSink::on_episode_start`] at each new episode and
 /// [`RecordSink::on_episode_end`] on termination or truncation.
 ///
-/// Action encoding requires `Environment::ActionType: Serialize`. Most
-/// env action types either already derive [`Serialize`] or only need a
-/// one-line `#[derive(...)]` addition to opt in to recording — see the
-/// example wired in `crates/rlevo/examples/viz/record_ppo_cartpole.rs`.
+/// Action encoding requires the env's `ActionType` to implement
+/// [`Serialize`](serde::Serialize) — see [`RecordableAction`], which every
+/// `Serialize` type satisfies automatically. Most action types derive it or
+/// need a one-line `#[derive(serde::Serialize)]` to opt in to recording;
+/// for a wired-up example see
+/// `crates/rlevo-examples/examples/classic/report_ppo_cartpole_with_client.rs`.
+///
+/// This is the recording tier's only requirement on the environment. It is
+/// not a supertrait of [`Action`](rlevo_core::base::Action) on purpose, so
+/// that envs which are never recorded do not pay for serde
+/// (`docs/rules.md`, ADR 0064).
 pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     inner: E,
     sink: Arc<Mutex<dyn RecordSink>>,
@@ -298,7 +305,7 @@ where
 impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
 where
     E: Environment<D, SD, AD>,
-    E::ActionType: Serialize,
+    E::ActionType: RecordableAction,
 {
     fn capture_frame(&mut self, action_bytes: Vec<u8>, reward: f32) {
         let payload = (self.payload_extractor)(&self.inner);
@@ -320,7 +327,11 @@ impl<E, const D: usize, const SD: usize, const AD: usize> Environment<D, SD, AD>
     for RecordingTap<E, D, SD, AD>
 where
     E: Environment<D, SD, AD>,
-    E::ActionType: Serialize + Clone,
+    // `RecordableAction` rather than `Serialize` so an action type missing the
+    // derive gets told so by name. Bounding on `Serialize` here reported the
+    // *wrapper* as not implementing `Environment` and left the researcher to
+    // infer the cause — see the module docs on `RecordableAction`.
+    E::ActionType: RecordableAction + Clone,
 {
     type StateType = E::StateType;
     type ObservationType = E::ObservationType;
