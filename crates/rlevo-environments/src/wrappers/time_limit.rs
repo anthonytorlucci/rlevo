@@ -1,7 +1,14 @@
 use rlevo_core::{
     base::{Observation, Reward},
     environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
-    render::{AsciiRenderable, StyledFrame},
+    render::{
+        AsciiRenderable, StyledFrame,
+        payload::{
+            Box2dPayloadSource, Box2dSnapshot, Classic2DPayloadSource, Classic2DSnapshot,
+            GridPayloadSource, GridSnapshot, Landscape2DPayloadSource, Landscape2DSnapshot,
+            Locomotion2DPayloadSource, Locomotion2DSnapshot, TabularPayloadSource, TabularSnapshot,
+        },
+    },
 };
 
 use crate::episode::EpisodeGuard;
@@ -20,9 +27,10 @@ use crate::episode::EpisodeGuard;
 /// zero on every `reset` call.
 ///
 /// `TimeLimit` implements [`Environment`] for any inner env whose
-/// `SnapshotType` is [`SnapshotBase`], [`AsciiRenderable`] by forwarding
-/// to the wrapped env, and `Classic2DPayloadSource` for structured
-/// post-run playback.
+/// `SnapshotType` is [`SnapshotBase`], and forwards [`AsciiRenderable`] plus
+/// **every** payload source to the wrapped env. The wrapper changes when an
+/// episode ends, never what the environment looks like, so a `TimeLimit`
+/// records exactly as richly as the env it wraps.
 ///
 /// # Post-terminal steps
 ///
@@ -169,15 +177,92 @@ where
     }
 }
 
-/// Forward the optional `Classic2DPayloadSource` through to the wrapped env,
-/// so a `TimeLimit` over a classic-control env stays structurally renderable
-/// (ADR-0013) — e.g. when a `RecordingTap` records a `TimeLimit`-wrapped env.
-impl<E> rlevo_core::render::payload::Classic2DPayloadSource for TimeLimit<E>
+// ---------------------------------------------------------------------------
+// Payload-source forwarding.
+//
+// `TimeLimit` changes when an episode ends. It does not change what the
+// environment looks like, so it forwards **every** payload source rather than
+// a chosen subset — the completeness is the invariant, and
+// `crates/rlevo/tests/payload_forwarding_completeness.rs` checks it against
+// the trait list in `rlevo-core` so a seventh payload source cannot land here
+// unforwarded.
+//
+// Only `Classic2DPayloadSource` was forwarded originally, and the gap failed
+// quietly rather than loudly. Grid and toy_text envs implement
+// `AsciiRenderable`, so `RecordingTap::with_grid_payload(TimeLimit::new(..))`
+// did not compile but `RecordingTap::new(TimeLimit::new(..))` did — recording
+// `FamilyPayload::Ascii` frames correctly tagged `family = Grids`, which the
+// report then rendered through the ASCII fallback. Right family, degraded
+// view, nothing failed. Locomotion had it worse: no `AsciiRenderable` at all,
+// so a `TimeLimit`-wrapped locomotion env was simply unrecordable.
+// ---------------------------------------------------------------------------
+
+/// Forward `Classic2DPayloadSource` so a `TimeLimit` over a classic-control
+/// env stays structurally renderable (ADR-0013).
+impl<E> Classic2DPayloadSource for TimeLimit<E>
 where
-    E: rlevo_core::render::payload::Classic2DPayloadSource,
+    E: Classic2DPayloadSource,
 {
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+    fn classic2d_snapshot(&self) -> Classic2DSnapshot {
         self.inner.classic2d_snapshot()
+    }
+}
+
+/// Forward `GridPayloadSource` so a `TimeLimit` over a gridworld records the
+/// tile grid the report renders SVG from, not an ASCII fallback.
+impl<E> GridPayloadSource for TimeLimit<E>
+where
+    E: GridPayloadSource,
+{
+    fn grid_snapshot(&self) -> GridSnapshot {
+        self.inner.grid_snapshot()
+    }
+}
+
+/// Forward `TabularPayloadSource` so a `TimeLimit` over a `toy_text` env records
+/// typed state rather than rendered text.
+impl<E> TabularPayloadSource for TimeLimit<E>
+where
+    E: TabularPayloadSource,
+{
+    fn tabular_snapshot(&self) -> TabularSnapshot {
+        self.inner.tabular_snapshot()
+    }
+}
+
+/// Forward `Box2dPayloadSource` so a `TimeLimit` over a Box2D-style env records
+/// world-space bodies.
+impl<E> Box2dPayloadSource for TimeLimit<E>
+where
+    E: Box2dPayloadSource,
+{
+    fn box2d_snapshot(&self) -> Box2dSnapshot {
+        self.inner.box2d_snapshot()
+    }
+}
+
+/// Forward `Locomotion2DPayloadSource`. Locomotion envs deliberately have no
+/// [`AsciiRenderable`] impl, so this is not a quality upgrade for them but the
+/// only recording pathway they have at all.
+impl<E> Locomotion2DPayloadSource for TimeLimit<E>
+where
+    E: Locomotion2DPayloadSource,
+{
+    fn locomotion2d_snapshot(&self) -> Locomotion2DSnapshot {
+        self.inner.locomotion2d_snapshot()
+    }
+}
+
+/// Forward `Landscape2DPayloadSource`. No shipped environment implements this
+/// yet, so nothing exercises it today; it is here because the forwarding set
+/// is complete by construction rather than by enumeration of what currently
+/// has a consumer.
+impl<E> Landscape2DPayloadSource for TimeLimit<E>
+where
+    E: Landscape2DPayloadSource,
+{
+    fn landscape2d_snapshot(&self) -> Landscape2DSnapshot {
+        self.inner.landscape2d_snapshot()
     }
 }
 

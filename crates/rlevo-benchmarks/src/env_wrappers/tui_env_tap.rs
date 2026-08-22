@@ -19,6 +19,11 @@
 //! [`TuiEvent::EpisodeReturn`]: crate::reporter::tui::TuiEvent::EpisodeReturn
 
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::render::payload::{
+    Box2dPayloadSource, Box2dSnapshot, Classic2DPayloadSource, Classic2DSnapshot,
+    GridPayloadSource, GridSnapshot, Landscape2DPayloadSource, Landscape2DSnapshot,
+    Locomotion2DPayloadSource, Locomotion2DSnapshot, TabularPayloadSource, TabularSnapshot,
+};
 use rlevo_core::render::{AsciiRenderable, StyledFrame};
 
 use crate::reporter::tui::TuiHandle;
@@ -29,11 +34,11 @@ use crate::reporter::tui::TuiHandle;
 /// [`EpisodeReturn`](crate::reporter::tui::TuiEvent::EpisodeReturn) event is
 /// emitted with the summed reward and step count.
 ///
-/// Requires only `E: Environment<D, SD, AD>`. A separate
-/// [`AsciiRenderable`] forwarding impl is provided when the inner env is
-/// renderable, so the tap composes under a
-/// [`RecordingTap`](crate::record::RecordingTap) that records env frames to
-/// disk.
+/// Requires only `E: Environment<D, SD, AD>`. Separate forwarding impls carry
+/// [`AsciiRenderable`] and **every** payload source through to the inner env
+/// when it has them, so the tap composes under any
+/// [`RecordingTap`](crate::record::RecordingTap) constructor the inner env
+/// supports — not just `new` and `with_classic2d_payload`.
 ///
 /// # Examples
 ///
@@ -138,16 +143,90 @@ where
     }
 }
 
-/// Forward the optional `Classic2DPayloadSource` through to the wrapped env,
-/// so a `TuiEnvTap` over a classic-control env composes under a
-/// `RecordingTap::with_classic2d_payload` (ADR-0013 structured recording).
-impl<E, const D: usize, const SD: usize, const AD: usize>
-    rlevo_core::render::payload::Classic2DPayloadSource for TuiEnvTap<E, D, SD, AD>
+// ---------------------------------------------------------------------------
+// Payload-source forwarding.
+//
+// `TuiEnvTap` observes; it does not change what the environment looks like, so
+// it forwards **every** payload source rather than a chosen subset.
+// `crates/rlevo/tests/payload_forwarding_completeness.rs` checks that set
+// against the trait list in `rlevo-core`.
+//
+// This matters because the two taps are documented as composing —
+// `RecordingTap::with_grid_payload(TuiEnvTap::new(env, ..))` is the shape a
+// driver reaches for when it wants a live panel and an on-disk record from one
+// env. With only `Classic2DPayloadSource` forwarded, that call did not compile
+// for grids, toy_text, box2d, or locomotion; the ASCII-payload constructor did
+// compile, so the usual recovery was a silently degraded record rather than a
+// visible failure.
+// ---------------------------------------------------------------------------
+
+/// Forward `Classic2DPayloadSource`, so a `TuiEnvTap` over a classic-control
+/// env composes under `RecordingTap::with_classic2d_payload` (ADR-0013).
+impl<E, const D: usize, const SD: usize, const AD: usize> Classic2DPayloadSource
+    for TuiEnvTap<E, D, SD, AD>
 where
-    E: rlevo_core::render::payload::Classic2DPayloadSource,
+    E: Classic2DPayloadSource,
 {
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+    fn classic2d_snapshot(&self) -> Classic2DSnapshot {
         self.inner.classic2d_snapshot()
+    }
+}
+
+/// Forward `GridPayloadSource`, for `RecordingTap::with_grid_payload`.
+impl<E, const D: usize, const SD: usize, const AD: usize> GridPayloadSource
+    for TuiEnvTap<E, D, SD, AD>
+where
+    E: GridPayloadSource,
+{
+    fn grid_snapshot(&self) -> GridSnapshot {
+        self.inner.grid_snapshot()
+    }
+}
+
+/// Forward `TabularPayloadSource`, for `RecordingTap::with_tabular_payload`.
+impl<E, const D: usize, const SD: usize, const AD: usize> TabularPayloadSource
+    for TuiEnvTap<E, D, SD, AD>
+where
+    E: TabularPayloadSource,
+{
+    fn tabular_snapshot(&self) -> TabularSnapshot {
+        self.inner.tabular_snapshot()
+    }
+}
+
+/// Forward `Box2dPayloadSource`, for `RecordingTap::with_box2d_payload`.
+impl<E, const D: usize, const SD: usize, const AD: usize> Box2dPayloadSource
+    for TuiEnvTap<E, D, SD, AD>
+where
+    E: Box2dPayloadSource,
+{
+    fn box2d_snapshot(&self) -> Box2dSnapshot {
+        self.inner.box2d_snapshot()
+    }
+}
+
+/// Forward `Locomotion2DPayloadSource`, for
+/// `RecordingTap::with_locomotion_payload` — locomotion's only recording
+/// pathway, since those envs have no [`AsciiRenderable`] impl to fall back to.
+impl<E, const D: usize, const SD: usize, const AD: usize> Locomotion2DPayloadSource
+    for TuiEnvTap<E, D, SD, AD>
+where
+    E: Locomotion2DPayloadSource,
+{
+    fn locomotion2d_snapshot(&self) -> Locomotion2DSnapshot {
+        self.inner.locomotion2d_snapshot()
+    }
+}
+
+/// Forward `Landscape2DPayloadSource`. Nothing shipped implements this yet;
+/// it is here so the forwarding set is complete by construction.
+impl<E, const D: usize, const SD: usize, const AD: usize> Landscape2DPayloadSource
+    for TuiEnvTap<E, D, SD, AD>
+where
+    E: Landscape2DPayloadSource,
+{
+    fn landscape2d_snapshot(&self) -> Landscape2DSnapshot {
+        self.inner.landscape2d_snapshot()
     }
 }
 
