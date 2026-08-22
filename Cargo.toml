@@ -37,8 +37,26 @@ keywords = ["evolution", "deep-learning", "burn", "neural-network"]
 categories = ["science", "algorithms", "simulation"]
 
 [workspace.dependencies]
-# Core ML and tensor computation
-burn = { version = "0.21.0", features = ["wgpu", "train", "tui", "metrics", "flex"] }
+# Core ML and tensor computation.
+#
+# Deliberately NOT `train` / `tui` / `metrics`. Those three pull `burn-train`,
+# and `burn-train` pulls `ratatui` + `crossterm` into every crate that touches
+# burn — `rlevo-core` included. Nothing in this workspace uses `burn::train`,
+# `Learner`, `TrainStep`, or `burn::metric`: the sole workspace-wide match for
+# any of them is the word "Learner" inside a doc comment.
+#
+# Visualisation is opt-in. A researcher gets `ratatui` when they ask for it, by
+# enabling `rlevo-benchmarks/tui` (or the umbrella's `viz-tui`), and never
+# otherwise. Re-adding any of the three here silently reinstates a terminal-UI
+# dependency for every consumer of the library, in violation of the
+# no-viz-deps-in-production-crates rule.
+#
+# `autodiff` is listed explicitly because it was previously arriving only as a
+# transitive effect of `train`. It is a real requirement — `burn::backend::Autodiff`
+# is the `B` in every gradient-based algorithm here — and depending on another
+# feature to supply it is how it went unnoticed that `train` was load-bearing
+# for nothing else.
+burn = { version = "0.21.0", features = ["wgpu", "flex", "autodiff"] }
 cubecl = { version = "0.10.0", features = ["wgpu"] }
 
 # Utilities
