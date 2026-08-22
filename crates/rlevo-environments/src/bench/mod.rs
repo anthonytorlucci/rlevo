@@ -12,9 +12,11 @@
 //!
 //! There is no adapter type: [`Evaluator::run_suite`] binds directly on
 //! [`Environment`], so envs are registered as themselves (ADR 0076).
-//! - [`landscape`] — [`Landscape`](rlevo_core::fitness::Landscape) impls
-//!   for the numerical landscapes in [`crate::landscapes`], for use with
-//!   `rlevo-evolution`'s `FromLandscape` adapter.
+//!
+//! The [`Landscape`](rlevo_core::fitness::Landscape) impls are **not** here.
+//! They name nothing from the harness, so gating them behind `bench` would
+//! have made them reachable only by compiling it; they live unconditionally in
+//! [`crate::landscapes::fitness`].
 //!
 //! [`Environment`]: rlevo_core::environment::Environment
 //! [`Suite`]: rlevo_benchmarks::suite::Suite
@@ -24,5 +26,4 @@
 /// for the built-in environments (feature `record`).
 #[cfg(feature = "record")]
 pub mod family;
-pub mod landscape;
 pub mod suites;

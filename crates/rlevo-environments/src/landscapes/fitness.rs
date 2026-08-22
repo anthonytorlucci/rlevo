@@ -1,8 +1,12 @@
 //! [`Landscape`] impls for the
 //! numerical landscapes in [`crate::landscapes`].
 //!
-//! Feature-gated under `bench` so the trait impls compile only when the
-//! harness adapter surface is in use.
+//! Unconditional. These impls name only [`rlevo_core::fitness::Landscape`] and
+//! the landscape structs beside them — nothing from the `rlevo-benchmarks`
+//! harness — so gating them behind `bench` made `impl Landscape for Rastrigin`
+//! reachable only by compiling the harness, which the consumer of these impls
+//! (`rlevo-evolution`'s `FromLandscape` adapter) does not use. `bench` still
+//! gates [`crate::bench`], where the harness genuinely is named.
 //!
 //! Each impl delegates to the landscape struct's own `evaluate` method, which
 //! returns the raw scalar cost value (lower is better, following the

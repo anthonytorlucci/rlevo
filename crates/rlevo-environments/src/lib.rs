@@ -11,7 +11,10 @@
 //! - [`episode`]: [`EpisodeGuard`](episode::EpisodeGuard) — the shared post-terminal
 //!   `step()` guard consumed by `toy_text` and [`wrappers::time_limit`]
 //! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin,
-//!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites)
+//!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites).
+//!   Their [`Landscape`](rlevo_core::fitness::Landscape) impls
+//!   ([`landscapes::fitness`]) are unconditional — no cargo feature is needed
+//!   to feed one to `rlevo-evolution`'s `FromLandscape`.
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`pixel_grid`]: Synthetic pixel-over-grid env — a rank-1 latent observed as
 //!   a rank-3 RGB image (first real [`rlevo_core::state::Observable`] consumer)
@@ -52,6 +55,10 @@
 )]
 
 pub mod landscapes {
+    /// [`Landscape`](rlevo_core::fitness::Landscape) impls for every landscape
+    /// below. Deliberately ungated — see the module docs.
+    pub mod fitness;
+
     pub mod ackley;
     pub mod rastrigin;
     pub mod render;

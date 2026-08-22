@@ -40,7 +40,17 @@ box2d = ["dep:rapier2d"]
 # MuJoCo-style locomotion environments (rapier3d)
 locomotion = ["dep:rapier3d"]
 # Preset `Suite` factories for the `rlevo-benchmarks` harness.
-# Off by default to keep the base envs dep cone (rayon, tracing, serde_json) lean.
+#
+# Off by default because the harness is a different concern from the
+# environments, not because of third-party weight: measured, `bench` adds
+# exactly two crates to the resolved graph, both first-party
+# (`rlevo-benchmarks`, `rlevo-metrics-registry`). The rayon / tracing /
+# serde_json this comment used to cite are already in the base cone via `burn`.
+#
+# This gate covers `bench::{suites, family}` only. The `Landscape` impls are
+# unconditional (`landscapes::fitness`) — they name nothing from the harness,
+# and gating them made `impl Landscape for Rastrigin` cost two crates that the
+# `FromLandscape` consumer never calls into.
 bench = ["dep:rlevo-benchmarks"]
 # `RecordedEnvFamily` impls tying each built-in env to its recording family.
 # Pulls in the harness's `record` tier on top of `bench`.

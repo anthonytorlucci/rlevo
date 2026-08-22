@@ -121,6 +121,11 @@ Single-objective fitness functions for evaluating evolutionary algorithms. Each
 is a stateless N-D evaluator; the global optimum is a *minimum* by convention.
 The functions are grouped into three tiers by intended use.
 
+Every one of them implements `rlevo_core::fitness::Landscape`
+(`landscapes::fitness`), so any of them can be handed straight to
+`rlevo-evolution`'s `FromLandscape` adapter. **No cargo feature is required** —
+in particular not `bench`, which is about the harness, not these functions.
+
 **Tier 1 — scalable n-D.** Arbitrary-dimension functions for sweeping
 performance against problem size.
 

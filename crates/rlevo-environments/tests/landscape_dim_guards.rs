@@ -129,7 +129,10 @@ static FIXED_2D_LANDSCAPES: &[&str] = &[
 ];
 
 /// Modules under `src/landscapes/` that do not define a landscape.
-static NON_LANDSCAPE_MODULES: &[&str] = &["render"];
+///
+/// `fitness` defines no type at all — it is the `Landscape` trait impls for
+/// every landscape listed above, and so has no constructor to guard.
+static NON_LANDSCAPE_MODULES: &[&str] = &["fitness", "render"];
 
 /// `dim == 0` is never a legal landscape: constructing one either produces
 /// `NaN` outright or silently evaluates to the optimum value, and both
