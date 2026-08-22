@@ -33,14 +33,19 @@ const PAD: f32 = 4.0;
 ///
 /// - [`FamilyPayload::Grid`] — full structured SVG via `view_with_payload`.
 /// - Any other variant — delegates to [`super::fallback::render`], which
-///   renders a best-effort text representation and a family label.
+///   renders a best-effort text representation and a banner naming the
+///   payload, not the family, as the reason.
 ///
 /// Always returns a valid view; this function is infallible.
 #[must_use]
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
         FamilyPayload::Grid(payload) => view_with_payload(payload),
-        _ => super::fallback::render(crate::wire::EnvFamily::Grids, frame),
+        _ => super::fallback::render(
+            crate::wire::EnvFamily::Grids,
+            super::fallback::FallbackReason::UnsupportedPayload,
+            frame,
+        ),
     }
     .into_any()
 }

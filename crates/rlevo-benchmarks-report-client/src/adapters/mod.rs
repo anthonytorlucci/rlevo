@@ -45,7 +45,10 @@ pub fn render(family: EnvFamily, frame: &FrameRecord) -> AnyView {
         EnvFamily::Landscapes => landscape::render(frame),
         EnvFamily::Locomotion => locomotion::render(frame),
         EnvFamily::Box2d => box2d::render(frame),
-        _ => fallback::render(family, frame),
+        // The only caller for which "this family has no adapter" is true.
+        // Every per-family adapter above delegates with
+        // `UnsupportedPayload` instead.
+        _ => fallback::render(family, fallback::FallbackReason::NoFamilyAdapter, frame),
     }
 }
 

@@ -42,7 +42,11 @@ const HEATMAP_N: usize = 24;
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
         FamilyPayload::Landscape2D(payload) => view_with_payload(payload),
-        _ => super::fallback::render(crate::wire::EnvFamily::Landscapes, frame),
+        _ => super::fallback::render(
+            crate::wire::EnvFamily::Landscapes,
+            super::fallback::FallbackReason::UnsupportedPayload,
+            frame,
+        ),
     }
     .into_any()
 }

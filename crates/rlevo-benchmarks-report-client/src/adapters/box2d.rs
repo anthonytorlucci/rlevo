@@ -36,7 +36,11 @@ const VB_PAD: f32 = 12.0;
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
         FamilyPayload::Box2dBodies(payload) => view_with_payload(payload),
-        _ => super::fallback::render(crate::wire::EnvFamily::Box2d, frame),
+        _ => super::fallback::render(
+            crate::wire::EnvFamily::Box2d,
+            super::fallback::FallbackReason::UnsupportedPayload,
+            frame,
+        ),
     }
     .into_any()
 }

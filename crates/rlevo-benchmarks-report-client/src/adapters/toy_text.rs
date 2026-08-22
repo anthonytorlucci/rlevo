@@ -42,7 +42,11 @@ pub fn render(frame: &FrameRecord) -> AnyView {
             TabularLayout::Grid(grid) => grid_view(grid),
             TabularLayout::Cards(cards) => cards_view(cards),
         },
-        _ => super::fallback::render(crate::wire::EnvFamily::ToyText, frame),
+        _ => super::fallback::render(
+            crate::wire::EnvFamily::ToyText,
+            super::fallback::FallbackReason::UnsupportedPayload,
+            frame,
+        ),
     }
     .into_any()
 }

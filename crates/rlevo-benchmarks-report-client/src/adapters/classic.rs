@@ -45,7 +45,11 @@ const PAD: f32 = 16.0;
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
         FamilyPayload::Classic2D(payload) => view_with_payload(payload),
-        _ => super::fallback::render(crate::wire::EnvFamily::Classic, frame),
+        _ => super::fallback::render(
+            crate::wire::EnvFamily::Classic,
+            super::fallback::FallbackReason::UnsupportedPayload,
+            frame,
+        ),
     }
     .into_any()
 }
