@@ -1,20 +1,21 @@
 //! Guards that the [`Landscape`] impls are reachable with **no cargo feature
-//! enabled** — in particular without `bench`.
+//! enabled**.
 //!
-//! The impls used to live in `bench::landscape`, inside a module gated on
-//! `bench = ["dep:rlevo-benchmarks"]`. Nothing in them names the harness: they
-//! reference only [`Landscape`] and the landscape structs themselves. The
-//! effect was that `FromLandscape::new(Rastrigin::new(10)?)` — a pure
-//! evolutionary-search call with no benchmarking in it anywhere — did not
-//! compile until the caller enabled a feature named after the harness and
-//! pulled two extra crates in behind it.
+//! The impls used to live in `bench::landscape`, inside a module gated on a
+//! since-removed `bench = ["dep:rlevo-benchmarks"]` feature. Nothing in them
+//! names the harness: they reference only [`Landscape`] and the landscape
+//! structs themselves. The effect was that
+//! `FromLandscape::new(Rastrigin::new(10)?)` — a pure evolutionary-search call
+//! with no benchmarking in it anywhere — did not compile until the caller
+//! enabled a feature named after the harness and pulled two extra crates in
+//! behind it.
 //!
-//! `#![cfg(not(feature = "bench"))]` is the whole point of this file: it makes
-//! the test body compile *only* in the configuration the defect described, so
-//! re-gating the impls is a compile error here rather than a silent
-//! regression. It runs under `cargo xtask test fast`, whose default feature
-//! set for this crate leaves `bench` off.
-#![cfg(not(feature = "bench"))]
+//! The gate this file originally carried (`#![cfg(not(feature = "bench"))]`)
+//! is gone with the feature: `rlevo-environments` no longer has any feature
+//! that could re-hide these impls, and
+//! [`no_harness_dependency`](../no_harness_dependency.rs) pins that. What is
+//! left here is the reachability half — the impls resolve through the trait
+//! from a plain `cargo test -p rlevo-environments`.
 
 use rlevo_core::fitness::Landscape;
 use rlevo_environments::landscapes::{

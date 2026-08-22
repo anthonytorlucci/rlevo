@@ -11,6 +11,41 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **`rlevo-environments` no longer depends on `rlevo-benchmarks`; the preset
+  `Suite` factories and `RecordedEnvFamily` impls moved to the harness, and the
+  `rlevo` umbrella now carries the harness as `rlevo::benchmarks`** (ADR 0080,
+  superseding two clauses of ADR 0001). Three renames to apply:
+
+  | Was | Now |
+  |---|---|
+  | `rlevo_environments::bench::suites::*` | `rlevo_benchmarks::fixtures::suites::*`, or `rlevo::benchmarks::fixtures::suites::*` |
+  | `rlevo-environments/bench` feature | `rlevo-benchmarks/fixtures` |
+  | `rlevo-environments/record` feature | gone — `rlevo-benchmarks/fixtures` carries the `RecordedEnvFamily` impls, gated on `record` |
+
+  `rlevo`'s `viz-report` no longer lists `rlevo-environments/record`, and
+  `rlevo`'s `box2d` / `locomotion` features now each enable a matching
+  `rlevo-benchmarks/fixtures-box2d` / `fixtures-locomotion` passthrough.
+  Wiring `rlevo-benchmarks` directly (rather than through the umbrella) means
+  enabling both halves of a pair yourself: `rlevo-environments/box2d` alone
+  compiles `BipedalWalker` with no `RecordedEnvFamily` impl, so
+  `RecordingConfig::for_env::<BipedalWalker>` will not resolve. A crate cannot
+  `cfg` on another crate's feature, which is why the passthroughs exist.
+
+  **Two BYOE-1 blockers close with it.** `rlevo` listed `rlevo-benchmarks`
+  under `[dev-dependencies]`, so the harness was invisible to any external
+  consumer and the umbrella's `viz-tui` / `viz-report` features forwarded into
+  something they could not see — measured, `cargo tree -p rlevo -e normal
+  --features viz-tui` reported **zero** ratatui nodes. It is now a normal
+  dependency (`cargo tree` reports three; the default build still reports
+  zero), so `cargo add rlevo` is sufficient to run a suite. Measured cost to
+  every consumer: `rlevo`'s normal dependency graph goes 254 → 256 unique
+  crates, and **both additions are first-party** — `rlevo-benchmarks` itself
+  and `rlevo-metrics-registry`, a `#![no_std]` zero-dependency leaf. rayon,
+  tracing, thiserror, serde, serde_json, and bincode were already in the cone
+  via `burn` and `rlevo-evolution`. The viz weight (ratatui, crossterm, base64,
+  toml, time) stays behind `tui` / `record` / `report`, which stay off by
+  default.
+
 - **`TrialReport::absorb_metrics` no longer overwrites a harness-owned metric
   name; a caller reporting the harness's own measurements must switch to the
   new `absorb_harness_metrics`** (resolves #1118, ADR 0079). Previously

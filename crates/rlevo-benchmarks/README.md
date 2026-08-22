@@ -191,6 +191,18 @@ emit_static_html(
 
 The emitter replaces the M5 placeholder body with a `<div id="rlevo-app">` mount point and inlines the WASM blob + JS shim + bundled CSS. When `client_assets` is `None`, the M5 placeholder body ships unchanged.
 
+### `fixtures` — Built-in Environment Presets (feature `fixtures`)
+
+`fixtures::suites` ships one single-env `Suite` factory per canonical
+environment (`cartpole_suite`, `pendulum_suite`, `ten_armed_bandit_suite`),
+each keyed on a deterministic per-trial seed. `fixtures::family` (with `record`)
+ties every built-in env type to the `EnvFamily` its recordings decode as, so a
+driver writes `RecordingConfig::for_env::<CartPole>(seed)` rather than
+restating the literal at each call site.
+
+There is no adapter type: `Evaluator::run_suite` binds on `Environment`
+directly, so envs are registered as themselves (ADR 0076).
+
 ### `env_wrappers` — Live-TUI Env Taps (feature `tui`)
 
 Composable `Environment` wrappers that feed the metrics-only live TUI (ADR 0013). `TuiEnvTap` wraps an env and emits per-episode returns into the TUI's metric stream without the dashboard ever owning an environment panel. Gated behind the `tui` feature.
@@ -209,6 +221,20 @@ When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` save
 | `tui` | no | `TuiReporter`, `TuiEvent` (`ratatui` + `crossterm`), `tracing_subscriber` integration |
 | `record` | no | `record` module: per-episode files + `RunManifest` (`bincode` + `toml` + `time`) |
 | `report` | no | `report` module: random-access loader + static-HTML emitter (`base64` + `serde_json`). Implies `record`. |
+| `fixtures` | no | `fixtures` module: preset `Suite` factories over the built-in `rlevo-environments` types, and (with `record`) their `RecordedEnvFamily` impls |
+| `fixtures-box2d` | no | The box2d family's `RecordedEnvFamily` impls. Implies `fixtures` + `rlevo-environments/box2d` |
+| `fixtures-locomotion` | no | The locomotion family's `RecordedEnvFamily` impls. Implies `fixtures` + `rlevo-environments/locomotion` |
+
+The `fixtures` family is the only place this crate names `rlevo-environments`,
+and it points that way on purpose: the harness consumes environments, never the
+reverse (ADR 0080). A consumer bringing their own environment leaves all three
+off and never compiles rapier.
+
+The two `fixtures-*` passthroughs exist because a crate cannot `cfg` on another
+crate's feature. Enable `rlevo-environments/box2d` without `fixtures-box2d` and
+`BipedalWalker` compiles but has no `RecordedEnvFamily` impl, so
+`RecordingConfig::for_env::<BipedalWalker>` will not resolve. Through the
+`rlevo` umbrella the pairs are already bound — `rlevo/box2d` turns on both.
 
 ---
 

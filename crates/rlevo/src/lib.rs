@@ -7,6 +7,8 @@
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay buffer / experience / metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP with GPU kernels
 //! - [`hybrid`] — combined evolutionary + RL strategies
+//! - [`benchmarks`] — the evaluation harness: `Evaluator`, `Suite`, reporters, and
+//!   (features `viz-tui` / `viz-report`) the live TUI and static-HTML report
 //!
 //! # Quick Start
 //!
@@ -27,6 +29,28 @@
 //! use rlevo::rl::algorithms::dqn::dqn_agent::DqnAgent;
 //! ```
 
+/// The evaluation harness (`rlevo-benchmarks`).
+///
+/// Reachable from the umbrella so `cargo add rlevo` is enough to run a suite —
+/// a second, separately-versioned dependency on an internal crate is not part
+/// of the advertised API (ADR 0080). [`benchmarks::fixtures`] holds preset suites
+/// over the built-in environments; everything under [`envs`] can be fed to
+/// [`benchmarks::evaluator::Evaluator`] directly.
+///
+/// The `viz-tui` and `viz-report` features on **this** crate forward into it,
+/// and now actually reach an external consumer.
+///
+/// # Not named `bench`
+///
+/// `bench` is the built-in `#[bench]` attribute macro, so `rlevo::bench` is
+/// ambiguous to rustdoc: `[`bench`]` resolves to neither and every intra-doc
+/// link needs a `mod@` disambiguator — here **and in every downstream crate**
+/// that links to it. Measured: two `ambiguous link` errors from `cargo doc -p
+/// rlevo` under that name, zero under this one. The full crate name also
+/// carries no mapping to learn, and `harness` was rejected because
+/// [`evo::coevolution::harness`] and `EvolutionaryHarness` already use that
+/// word for something else (ADR 0075).
+pub use rlevo_benchmarks as benchmarks;
 pub use rlevo_core as core;
 pub use rlevo_environments as envs;
 pub use rlevo_evolution as evo;

@@ -10,10 +10,10 @@ publish = false
 
 [dependencies]
 rlevo-core = { path = "../rlevo-core", version = "0.4.0" }
-rlevo-environments = { path = "../rlevo-environments", version = "0.4.0", default-features = false, features = ["bench"] }
+rlevo-environments = { path = "../rlevo-environments", version = "0.4.0", default-features = false }
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.4.0", default-features = false }
 rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.4.0" }
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.4.0", default-features = false }
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.4.0", default-features = false, features = ["fixtures"] }
 burn = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
@@ -23,15 +23,20 @@ tracing-subscriber = { workspace = true }
 
 [features]
 default = []
-box2d = ["rlevo-environments/box2d"]
-locomotion = ["rlevo-environments/locomotion"]
+# Paired with the harness-side fixtures, same as the `rlevo` umbrella: the env
+# and the `RecordedEnvFamily` impl that names it must arrive together.
+box2d = ["rlevo-environments/box2d", "rlevo-benchmarks/fixtures-box2d"]
+locomotion = [
+    "rlevo-environments/locomotion",
+    "rlevo-benchmarks/fixtures-locomotion",
+]
 # Live metrics TUI product (ADR-0013).
 viz-tui = ["rlevo-benchmarks/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
-# `record` transitively in rlevo-benchmarks; `rlevo-environments/record` adds
-# the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
-# umbrella forwards only the two products (ADR-0013 §5).
-viz-report = ["rlevo-benchmarks/report", "rlevo-environments/record"]
+# `record` transitively in rlevo-benchmarks, which also carries the per-family
+# `RecordedEnvFamily` impls under `fixtures`. No separate `viz-record` — the
+# umbrella forwards only the two products (ADR-0013).
+viz-report = ["rlevo-benchmarks/report"]
 
 [lints]
 workspace = true

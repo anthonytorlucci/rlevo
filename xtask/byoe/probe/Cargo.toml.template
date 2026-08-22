@@ -7,12 +7,23 @@
 # Every `[dependencies]` entry below is a crate the researcher had to add by
 # hand. That count is a BYOE-1 step 2 finding, not incidental bookkeeping:
 #   rlevo              - expected; the one crate the README tells them about
-#   rlevo-benchmarks   - the harness, NOT reachable through the umbrella (B2)
 #   parking_lot        - forced by `Arc<Mutex<dyn RecordSink>>` in the record API
 #   rand               - forced by `BenchableAgent::act(&mut dyn Rng)`
 #   serde              - forced by `impl Environment for RecordingTap`, whose
 #                        bounds require `E::ActionType: Serialize` (B9). Found
 #                        only by hitting the compiler error.
+#
+# `rlevo-benchmarks` used to be a fifth entry, and was blocker B2: the harness
+# was a dev-dependency of the umbrella, so a consumer could not reach it and
+# `rlevo`'s own `viz-report` feature forwarded into something they could not
+# see. It is now `rlevo::benchmarks`, reached by enabling a feature on the one crate
+# the README names — which is what a feature flag is for. Resolved by ADR 0080.
+#
+# The three that remain are separate, still-open findings, and each is a
+# *version-matching* hazard rather than a discovery one: nothing tells the
+# researcher which semver of `rand` or `serde` the harness was built against,
+# so a plausible guess produces a trait-not-implemented error pointing at two
+# identically-named types.
 [package]
 name = "byoe-probe"
 version = "0.0.0"
@@ -24,10 +35,10 @@ publish = false
 [workspace]
 
 [dependencies]
-# Naive `cargo add rlevo` - default features on, exactly as a new user gets it.
-rlevo = { version = "@@VERSION@@", path = "@@STAGE@@/rlevo-@@VERSION@@" }
-rlevo-benchmarks = { version = "@@VERSION@@", path = "@@STAGE@@/rlevo-benchmarks-@@VERSION@@", features = [
-    "report",
+# `cargo add rlevo --features viz-report` - default features on plus the one
+# documented product flag, exactly as a new user following the README gets it.
+rlevo = { version = "@@VERSION@@", path = "@@STAGE@@/rlevo-@@VERSION@@", features = [
+    "viz-report",
 ] }
 parking_lot = "0.12"
 rand = "0.10.1"

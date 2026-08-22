@@ -3,7 +3,7 @@
 //! Demonstrates the harness path (`Suite` → `Evaluator::run_suite` →
 //! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-environments`,
 //! through the [`ten_armed_bandit_suite`] glue exposed
-//! by the `bench` feature.
+//! by the harness's `fixtures` feature.
 //!
 //! **DQN integration is deferred.** A `FrozenDqnPolicy` adapter needs
 //! concrete backend selection and full `DiscreteAction`/`TensorConvertible`
@@ -12,14 +12,14 @@
 //! will add the DQN adapter once the underlying trait impls land.
 //!
 //! [`TenArmedBandit`]: rlevo_environments::classic::TenArmedBandit
-//! [`ten_armed_bandit_suite`]: rlevo_environments::bench::suites::ten_armed_bandit_suite
+//! [`ten_armed_bandit_suite`]: rlevo_benchmarks::fixtures::suites::ten_armed_bandit_suite
 
 use rand::Rng;
 use rand_distr::{Distribution, Uniform};
 use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo_benchmarks::fixtures::suites::ten_armed_bandit_suite;
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_environments::bench::suites::ten_armed_bandit_suite;
 use rlevo_environments::classic::{TenArmedBanditAction, TenArmedBanditObservation};
 
 /// ε-greedy agent over a fixed Q prior.

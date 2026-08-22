@@ -14,15 +14,17 @@
 //! pair. The real prerequisite is an obs/action normalization, which does not
 //! exist. See ADR 0075.
 //!
-//! [`Suite`]: rlevo_benchmarks::suite::Suite
-//! [`Suite<E>`]: rlevo_benchmarks::suite::Suite
+//! [`Suite`]: crate::suite::Suite
+//! [`Suite<E>`]: crate::suite::Suite
 //! [`Environment`]: rlevo_core::environment::Environment
-//! [`Evaluator::run_suite`]: rlevo_benchmarks::evaluator::Evaluator::run_suite
+//! [`Evaluator::run_suite`]: crate::evaluator::Evaluator::run_suite
 
-use rlevo_benchmarks::evaluator::EvaluatorConfig;
-use rlevo_benchmarks::suite::Suite;
+use rlevo_environments::classic::{
+    CartPole, CartPoleConfig, Pendulum, PendulumConfig, TenArmedBandit,
+};
 
-use crate::classic::{CartPole, CartPoleConfig, Pendulum, PendulumConfig, TenArmedBandit};
+use crate::evaluator::EvaluatorConfig;
+use crate::suite::Suite;
 
 /// Single-env suite running [`TenArmedBandit`] on the harness.
 ///

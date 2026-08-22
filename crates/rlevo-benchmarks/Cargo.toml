@@ -19,6 +19,11 @@ rlevo-metrics-registry = { path = "../rlevo-metrics-registry", version = "0.4.0"
 # Population observer trait — only pulled in with the `record` feature
 # so non-recording builds do not link burn through this crate.
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.4.0", optional = true, default-features = false }
+# Built-in environments the `fixtures` module wires into preset suites and
+# recording families. Optional and default-off: a consumer bringing their own
+# environment must not compile rapier to run the harness. The edge points this
+# way — harness depends on envs, never the reverse (ADR 0080).
+rlevo-environments = { path = "../rlevo-environments", version = "0.4.0", optional = true, default-features = false }
 rayon = "1"
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -61,6 +66,15 @@ record = ["dep:bincode", "dep:parking_lot", "dep:toml", "dep:time", "dep:serde",
 # (Milestone 5). Builds on `record`; adds `base64` for payload inlining
 # and `serde_json` for the manifest JSON payload.
 report = ["record", "dep:base64", "dep:serde_json"]
+# Preset `Suite` factories over the built-in environments, plus (with `record`)
+# their `RecordedEnvFamily` impls. See `src/fixtures/mod.rs`.
+fixtures = ["dep:rlevo-environments"]
+# Passthroughs for the physics env families. A crate cannot `cfg` on another
+# crate's feature, so the box2d / locomotion `RecordedEnvFamily` impls are gated
+# on these rather than on `rlevo-environments/box2d` directly. The `rlevo`
+# umbrella keeps each pair in lockstep; a direct consumer enables both halves.
+fixtures-box2d = ["fixtures", "rlevo-environments/box2d"]
+fixtures-locomotion = ["fixtures", "rlevo-environments/locomotion"]
 
 # Render LaTeX in docs (e.g. the cartpole physics) via KaTeX on docs.rs.
 # The header must live inside this crate's own directory — docs.rs builds

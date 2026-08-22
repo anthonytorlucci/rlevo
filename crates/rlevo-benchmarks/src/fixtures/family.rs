@@ -1,21 +1,22 @@
-//! [`RecordedEnvFamily`](rlevo_benchmarks::record::RecordedEnvFamily) impls for the built-in environments.
+//! [`RecordedEnvFamily`](crate::record::RecordedEnvFamily) impls for the built-in environments.
 //!
 //! These tie each concrete env type to the [`EnvFamily`] its recordings
 //! belong to, so a driver can derive the family once from the env type
 //! (`RecordingConfig::for_env::<E>` / `E::FAMILY`) instead of restating the
 //! literal at every recording / TUI call site.
 //!
-//! Gated by the `record` feature — it is the env-side half of the harness's
-//! `record` tier and, like the rest of [`crate::bench`], an opt-in coupling
-//! to `rlevo-benchmarks` rather than a property of [`Environment`] itself
-//! (ADR 0007).
+//! Gated by `record` on top of `fixtures`: the family tag is a property of the
+//! *recording* tier, not of [`Environment`], so an env that is never recorded
+//! never needs one (ADR 0007). Nothing here reaches back into
+//! `rlevo-environments`' API beyond naming the types — the impls exist on this
+//! side of the seam because this crate owns [`RecordedEnvFamily`](crate::record::RecordedEnvFamily) (ADR 0080).
 //!
 //! # `FAMILY` is a *render* family, not a module
 //!
 //! `FAMILY` selects the report-client adapter that decodes this env's frames,
 //! so it follows the [`FamilyPayload`] variant the env emits — i.e. the
 //! `*PayloadSource` trait it implements — not the module it happens to live
-//! in. [`SantaFeAnt`] is the worked example: it lives in [`crate::classic`]
+//! in. [`SantaFeAnt`] is the worked example: it lives in [`rlevo_environments::classic`]
 //! but implements `GridPayloadSource`, projects a `FamilyPayload::Grid`, and
 //! therefore records as [`EnvFamily::Grids`]. An env with no payload source
 //! (the bandits) stays on the ASCII path and takes the family whose adapter
@@ -24,7 +25,7 @@
 //! # No env produces [`EnvFamily::Landscapes`]
 //!
 //! That variant has no producer on this side of the seam, and the gap is
-//! deliberate: nothing in [`crate::landscapes`] implements [`Environment`].
+//! deliberate: nothing in [`rlevo_environments::landscapes`] implements [`Environment`].
 //! Landscapes are fitness surfaces (they implement
 //! [`Landscape`](rlevo_core::fitness::Landscape), consumed by
 //! `rlevo-evolution`'s `FromLandscape`), not steppable environments, so there
@@ -33,32 +34,32 @@
 //! inventing an env wrapper for it.
 //!
 //! [`Environment`]: rlevo_core::environment::Environment
-//! [`EnvFamily`]: rlevo_benchmarks::record::EnvFamily
-//! [`EnvFamily::Grids`]: rlevo_benchmarks::record::EnvFamily::Grids
-//! [`EnvFamily::Landscapes`]: rlevo_benchmarks::record::EnvFamily::Landscapes
-//! [`FamilyPayload`]: rlevo_benchmarks::record::FamilyPayload
-//! [`SantaFeAnt`]: crate::classic::SantaFeAnt
+//! [`EnvFamily`]: crate::record::EnvFamily
+//! [`EnvFamily::Grids`]: crate::record::EnvFamily::Grids
+//! [`EnvFamily::Landscapes`]: crate::record::EnvFamily::Landscapes
+//! [`FamilyPayload`]: crate::record::FamilyPayload
+//! [`SantaFeAnt`]: rlevo_environments::classic::SantaFeAnt
 
-use rlevo_benchmarks::record::{EnvFamily, RecordedEnvFamily};
+use crate::record::{EnvFamily, RecordedEnvFamily};
 
-use crate::classic::acrobot::{Acrobot, AcrobotDynamicsFn};
-use crate::classic::bandit::{
+use rlevo_environments::classic::acrobot::{Acrobot, AcrobotDynamicsFn};
+use rlevo_environments::classic::bandit::{
     AdversarialBandit, ContextualBandit, KArmedBandit, NonStationaryBandit,
 };
-use crate::classic::cartpole::CartPole;
-use crate::classic::mountain_car::MountainCar;
-use crate::classic::mountain_car_continuous::MountainCarContinuous;
-use crate::classic::pendulum::Pendulum;
-use crate::classic::santa_fe_ant::SantaFeAnt;
-use crate::grids::{
+use rlevo_environments::classic::cartpole::CartPole;
+use rlevo_environments::classic::mountain_car::MountainCar;
+use rlevo_environments::classic::mountain_car_continuous::MountainCarContinuous;
+use rlevo_environments::classic::pendulum::Pendulum;
+use rlevo_environments::classic::santa_fe_ant::SantaFeAnt;
+use rlevo_environments::grids::{
     CrossingEnv, DistShiftEnv, DoorKeyEnv, DynamicObstaclesEnv, EmptyEnv, FourRoomsEnv,
     GoToDoorEnv, LavaGapEnv, MemoryEnv, MultiRoomEnv, UnlockEnv, UnlockPickupEnv,
 };
-use crate::toy_text::blackjack::Blackjack;
-use crate::toy_text::cliff_walking::CliffWalking;
-use crate::toy_text::frozen_lake::FrozenLake;
-use crate::toy_text::taxi::Taxi;
-use crate::wrappers::TimeLimit;
+use rlevo_environments::toy_text::blackjack::Blackjack;
+use rlevo_environments::toy_text::cliff_walking::CliffWalking;
+use rlevo_environments::toy_text::frozen_lake::FrozenLake;
+use rlevo_environments::toy_text::taxi::Taxi;
+use rlevo_environments::wrappers::TimeLimit;
 
 // ---------------------------------------------------------------------------
 // Classic — `Classic2DPayloadSource` (structured 2-D line-art).
@@ -199,23 +200,23 @@ impl RecordedEnvFamily for Blackjack {
 // Box2D — behind the `box2d` feature (rapier2d).
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "box2d")]
-impl RecordedEnvFamily for crate::box2d::lunar_lander::LunarLanderDiscrete {
+#[cfg(feature = "fixtures-box2d")]
+impl RecordedEnvFamily for rlevo_environments::box2d::lunar_lander::LunarLanderDiscrete {
     const FAMILY: EnvFamily = EnvFamily::Box2d;
 }
 
-#[cfg(feature = "box2d")]
-impl RecordedEnvFamily for crate::box2d::lunar_lander::LunarLanderContinuous {
+#[cfg(feature = "fixtures-box2d")]
+impl RecordedEnvFamily for rlevo_environments::box2d::lunar_lander::LunarLanderContinuous {
     const FAMILY: EnvFamily = EnvFamily::Box2d;
 }
 
-#[cfg(feature = "box2d")]
-impl RecordedEnvFamily for crate::box2d::bipedal_walker::BipedalWalker {
+#[cfg(feature = "fixtures-box2d")]
+impl RecordedEnvFamily for rlevo_environments::box2d::bipedal_walker::BipedalWalker {
     const FAMILY: EnvFamily = EnvFamily::Box2d;
 }
 
-#[cfg(feature = "box2d")]
-impl RecordedEnvFamily for crate::box2d::car_racing::CarRacing {
+#[cfg(feature = "fixtures-box2d")]
+impl RecordedEnvFamily for rlevo_environments::box2d::car_racing::CarRacing {
     const FAMILY: EnvFamily = EnvFamily::Box2d;
 }
 
@@ -227,30 +228,30 @@ impl RecordedEnvFamily for crate::box2d::car_racing::CarRacing {
 // `*Rapier` aliases and any future backend without a second, overlapping impl.
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "locomotion")]
-impl<B: crate::locomotion::backend::LocomotionBackend> RecordedEnvFamily
-    for crate::locomotion::inverted_pendulum::InvertedPendulum<B>
+#[cfg(feature = "fixtures-locomotion")]
+impl<B: rlevo_environments::locomotion::backend::LocomotionBackend> RecordedEnvFamily
+    for rlevo_environments::locomotion::inverted_pendulum::InvertedPendulum<B>
 {
     const FAMILY: EnvFamily = EnvFamily::Locomotion;
 }
 
-#[cfg(feature = "locomotion")]
-impl<B: crate::locomotion::backend::LocomotionBackend> RecordedEnvFamily
-    for crate::locomotion::inverted_double_pendulum::InvertedDoublePendulum<B>
+#[cfg(feature = "fixtures-locomotion")]
+impl<B: rlevo_environments::locomotion::backend::LocomotionBackend> RecordedEnvFamily
+    for rlevo_environments::locomotion::inverted_double_pendulum::InvertedDoublePendulum<B>
 {
     const FAMILY: EnvFamily = EnvFamily::Locomotion;
 }
 
-#[cfg(feature = "locomotion")]
-impl<B: crate::locomotion::backend::LocomotionBackend> RecordedEnvFamily
-    for crate::locomotion::swimmer::Swimmer<B>
+#[cfg(feature = "fixtures-locomotion")]
+impl<B: rlevo_environments::locomotion::backend::LocomotionBackend> RecordedEnvFamily
+    for rlevo_environments::locomotion::swimmer::Swimmer<B>
 {
     const FAMILY: EnvFamily = EnvFamily::Locomotion;
 }
 
-#[cfg(feature = "locomotion")]
-impl<B: crate::locomotion::backend::LocomotionBackend> RecordedEnvFamily
-    for crate::locomotion::reacher::Reacher<B>
+#[cfg(feature = "fixtures-locomotion")]
+impl<B: rlevo_environments::locomotion::backend::LocomotionBackend> RecordedEnvFamily
+    for rlevo_environments::locomotion::reacher::Reacher<B>
 {
     const FAMILY: EnvFamily = EnvFamily::Locomotion;
 }
@@ -269,7 +270,7 @@ impl<E: RecordedEnvFamily> RecordedEnvFamily for TimeLimit<E> {
 
 #[cfg(test)]
 mod tests {
-    use rlevo_benchmarks::record::{Classic2DPayload, FamilyPayload, GridPayload, TabularPayload};
+    use crate::record::{Classic2DPayload, FamilyPayload, GridPayload, TabularPayload};
     use rlevo_core::environment::ConstructableEnv;
     use rlevo_core::render::payload::{
         Classic2DPayloadSource, GridPayloadSource, TabularPayloadSource,
@@ -282,7 +283,7 @@ mod tests {
         MountainCarContinuous, MultiRoomEnv, NonStationaryBandit, Pendulum, RecordedEnvFamily,
         SantaFeAnt, Taxi, TimeLimit, UnlockEnv, UnlockPickupEnv,
     };
-    use crate::classic::{NipsDynamics, TenArmedBandit};
+    use rlevo_environments::classic::{NipsDynamics, TenArmedBandit};
 
     // -----------------------------------------------------------------------
     // Family ↔ payload consistency.
@@ -343,26 +344,26 @@ mod tests {
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
-    #[cfg(feature = "box2d")]
+    #[cfg(feature = "fixtures-box2d")]
     fn assert_box2d_family<E>()
     where
         E: ConstructableEnv + rlevo_core::render::payload::Box2dPayloadSource + RecordedEnvFamily,
     {
-        use rlevo_benchmarks::record::Box2dPayload;
+        use crate::record::Box2dPayload;
 
         let env = E::new(false);
         let emitted = FamilyPayload::Box2dBodies(Box2dPayload::from(env.box2d_snapshot()));
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
-    #[cfg(feature = "locomotion")]
+    #[cfg(feature = "fixtures-locomotion")]
     fn assert_locomotion_family<E>()
     where
         E: ConstructableEnv
             + rlevo_core::render::payload::Locomotion2DPayloadSource
             + RecordedEnvFamily,
     {
-        use rlevo_benchmarks::record::Locomotion2DPayload;
+        use crate::record::Locomotion2DPayload;
 
         let env = E::new(false);
         let emitted =
@@ -411,13 +412,15 @@ mod tests {
         // `CarRacing`, `InvertedDoublePendulum`, `Swimmer`, `Reacher`) have no
         // payload source yet, so there is no emitted variant to check them
         // against; their `FAMILY` is pinned below only.
-        #[cfg(feature = "box2d")]
+        #[cfg(feature = "fixtures-box2d")]
         {
-            assert_box2d_family::<crate::box2d::lunar_lander::LunarLanderDiscrete>();
-            assert_box2d_family::<crate::box2d::lunar_lander::LunarLanderContinuous>();
+            assert_box2d_family::<rlevo_environments::box2d::lunar_lander::LunarLanderDiscrete>();
+            assert_box2d_family::<rlevo_environments::box2d::lunar_lander::LunarLanderContinuous>();
         }
-        #[cfg(feature = "locomotion")]
-        assert_locomotion_family::<crate::locomotion::inverted_pendulum::InvertedPendulumRapier>();
+        #[cfg(feature = "fixtures-locomotion")]
+        assert_locomotion_family::<
+            rlevo_environments::locomotion::inverted_pendulum::InvertedPendulumRapier,
+        >();
     }
 
     // -----------------------------------------------------------------------
@@ -539,12 +542,12 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "box2d")]
+    #[cfg(feature = "fixtures-box2d")]
     #[test]
     fn test_recorded_env_family_pins_box2d_envs() {
-        use crate::box2d::bipedal_walker::BipedalWalker;
-        use crate::box2d::car_racing::CarRacing;
-        use crate::box2d::lunar_lander::{LunarLanderContinuous, LunarLanderDiscrete};
+        use rlevo_environments::box2d::bipedal_walker::BipedalWalker;
+        use rlevo_environments::box2d::car_racing::CarRacing;
+        use rlevo_environments::box2d::lunar_lander::{LunarLanderContinuous, LunarLanderDiscrete};
 
         for (env, family) in [
             (
@@ -569,13 +572,13 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "locomotion")]
+    #[cfg(feature = "fixtures-locomotion")]
     #[test]
     fn test_recorded_env_family_pins_locomotion_envs() {
-        use crate::locomotion::inverted_double_pendulum::InvertedDoublePendulumRapier;
-        use crate::locomotion::inverted_pendulum::InvertedPendulumRapier;
-        use crate::locomotion::reacher::ReacherRapier;
-        use crate::locomotion::swimmer::SwimmerRapier;
+        use rlevo_environments::locomotion::inverted_double_pendulum::InvertedDoublePendulumRapier;
+        use rlevo_environments::locomotion::inverted_pendulum::InvertedPendulumRapier;
+        use rlevo_environments::locomotion::reacher::ReacherRapier;
+        use rlevo_environments::locomotion::swimmer::SwimmerRapier;
 
         for (env, family) in [
             (

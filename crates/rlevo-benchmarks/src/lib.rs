@@ -18,11 +18,15 @@
 //! - `tui` *(feature `tui`)* — live `ratatui` terminal dashboard.
 //! - `env_wrappers` *(feature `tui`)* — composable env wrappers that emit
 //!   per-episode returns to the metrics-only live TUI (ADR-0013).
+//! - `fixtures` *(feature `fixtures`)* — preset [`suite::Suite`] factories and
+//!   recording-family impls for the built-in `rlevo-environments` types.
 
 pub mod checkpoint;
 #[cfg(feature = "tui")]
 pub mod env_wrappers;
 pub mod evaluator;
+#[cfg(feature = "fixtures")]
+pub mod fixtures;
 pub mod metrics;
 pub mod metrics_registry;
 #[cfg(feature = "record")]

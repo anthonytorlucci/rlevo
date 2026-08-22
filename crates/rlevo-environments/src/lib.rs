@@ -90,8 +90,6 @@ pub mod landscapes {
     pub mod rosenbrock_flat;
     pub mod trefethen;
 }
-#[cfg(feature = "bench")]
-pub mod bench;
 pub mod box2d;
 pub mod classic;
 /// Cardinal direction primitive (4-way heading + rotation) shared across

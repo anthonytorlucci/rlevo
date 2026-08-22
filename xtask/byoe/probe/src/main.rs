@@ -31,14 +31,14 @@ use rlevo::core::environment::{EpisodeStatus, SnapshotBase};
 use rlevo::core::render::AsciiRenderable;
 use rlevo::core::reward::ScalarReward;
 
-use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
-use rlevo_benchmarks::record::{
+use rlevo::benchmarks::agent::BenchableAgent;
+use rlevo::benchmarks::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo::benchmarks::record::{
     EnvFamily, FamilyPayload, RecordSink, RecordWriter, RecordingConfig, RecordingTap,
 };
-use rlevo_benchmarks::report::{EmitConfig, RecordedRun, emit_static_html};
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_benchmarks::suite::Suite;
+use rlevo::benchmarks::report::{EmitConfig, RecordedRun, emit_static_html};
+use rlevo::benchmarks::reporter::logging::LoggingReporter;
+use rlevo::benchmarks::suite::Suite;
 
 const SEED: u64 = 2026;
 const TARGET_C: f32 = 21.0;

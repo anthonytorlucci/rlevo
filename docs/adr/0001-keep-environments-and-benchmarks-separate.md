@@ -12,6 +12,18 @@ tags: [adr, decision, architecture, crates]
 
 Active.
 
+**Update (2026-08-22):** two clauses of the Decision are superseded by ADR
+[0080](0080-harness-owns-the-environment-glue-and-the-umbrella-carries-the-harness.md)
+— "ship a feature-gated `bench` module inside `rlevo-environments`" (the glue
+moved to `rlevo-benchmarks::fixtures`; the `bench` / `record` features and the
+dependency on the harness are gone from `rlevo-environments`) and "The umbrella
+`rlevo` crate already excludes `rlevo-benchmarks`; this is preserved" (it is now
+a normal dependency, re-exported as `rlevo::benchmarks`). The correspondingly stale
+"Positive" bullets — "optionally depends on `rlevo-benchmarks` as a regular
+(not dev) dep" and "The umbrella crate stays unchanged" — go with them.
+**The crate-separation decision this ADR exists for is unaffected**, and ADR
+0080 records why each separation property survives the flip.
+
 **Update (2026-08-20):** the object-safety framing for `BenchEnv` — the phrases "object-safe and free of const generics so trial-level rayon parallelism stays", the proposed "`Box<dyn BenchEnv<…>>` wrapper with a normalized obs/action shape", and "defeating its object-safety design" — is superseded by ADR [0075](0075-bench-env-erases-rank-not-modality.md). The trait is object-safe, but erasure strips only the const-generic ranks; `Observation`/`Action` survive it and are exactly what differ across environments, so that proposed wrapper is unsound as written — the unspecified "normalized obs/action shape" is where the actual work lives. **The crate-separation decision this ADR exists for is unaffected.**
 
 ## Context

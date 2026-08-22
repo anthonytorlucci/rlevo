@@ -1,12 +1,13 @@
-//! [`Landscape`] impls for the
-//! numerical landscapes in [`crate::landscapes`].
+//! [`Landscape`](rlevo_core::fitness::Landscape) impls for the numerical
+//! landscapes in [`crate::landscapes`].
 //!
 //! Unconditional. These impls name only [`rlevo_core::fitness::Landscape`] and
 //! the landscape structs beside them — nothing from the `rlevo-benchmarks`
-//! harness — so gating them behind `bench` made `impl Landscape for Rastrigin`
-//! reachable only by compiling the harness, which the consumer of these impls
-//! (`rlevo-evolution`'s `FromLandscape` adapter) does not use. `bench` still
-//! gates [`crate::bench`], where the harness genuinely is named.
+//! harness — so gating them behind the old `bench` feature made
+//! `impl Landscape for Rastrigin` reachable only by compiling the harness,
+//! which the consumer of these impls (`rlevo-evolution`'s `FromLandscape`
+//! adapter) does not use. That feature is gone entirely now: this crate no
+//! longer depends on `rlevo-benchmarks` in any configuration (ADR 0080).
 //!
 //! Each impl delegates to the landscape struct's own `evaluate` method, which
 //! returns the raw scalar cost value (lower is better, following the

@@ -157,7 +157,7 @@ scaffolding pulled in by `santa_fe_ant_deterministic` and
 | Feature      | Enables                                                                                                              |
 | ------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `viz-tui`    | Live metrics TUI dashboard (`rlevo-benchmarks/tui`).                                                                 |
-| `viz-report` | Post-run recording + static-HTML report (`rlevo-benchmarks/report`, which pulls `record` transitively, plus `rlevo-environments/record` for the per-family `RecordedEnvFamily` impls). |
+| `viz-report` | Post-run recording + static-HTML report (`rlevo-benchmarks/report`, which pulls `record` transitively; the per-family `RecordedEnvFamily` impls come with `rlevo-benchmarks/fixtures`, on by default here). |
 | `locomotion` | Rapier3D locomotion environments (`rlevo-environments/locomotion`).                                                  |
 | `box2d`      | Rapier2D Box2D-style environments (`rlevo-environments/box2d`).                                                      |
 

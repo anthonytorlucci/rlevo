@@ -135,11 +135,18 @@ heavy_units() {
     echo "rlevo-evolution:coevolution_forgetting"
 }
 
-# Only the two binaries that genuinely gate on it. Passing `--features
-# viz-report` to all of `rlevo` would change what the weekly workflow compiles.
+# Only the binaries that genuinely gate on it. Passing `--features viz-report`
+# to all of `rlevo` would change what the weekly workflow compiles.
+#
+# Every name carrying `required-features = ["viz-report"]` in
+# `crates/rlevo/Cargo.toml` must appear here: `heavy_units` enumerates the
+# `tests/` directory, and cargo *errors* on a target whose required features
+# are absent rather than skipping it, so a missing entry fails the tier.
 heavy_features_for() {
     case "$1" in
-        cartpole_report_smoke | recording_episode_count) echo "--features viz-report" ;;
+        cartpole_report_smoke | recording_episode_count | payload_forwarding_completeness)
+            echo "--features viz-report"
+            ;;
         *) echo "" ;;
     esac
 }

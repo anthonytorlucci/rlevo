@@ -17,10 +17,23 @@ rlevo-environments = { path = "../rlevo-environments", version = "0.4.0", defaul
 rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.4.0" }
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.4.0", default-features = false }
 rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.4.0" }
+# The evaluation harness, re-exported as `rlevo::benchmarks`. A **normal**
+# dependency, not a dev-dependency: as a dev-dep the `viz-tui` / `viz-report`
+# features below forwarded into a crate no external consumer could see, so both
+# were inert outside this workspace (BYOE-1 blockers B2 and B10, ADR 0080).
+#
+# Measured cost (`cargo tree -p rlevo -e normal`, default features): 254 → 256
+# unique crates, and both additions are first-party — `rlevo-benchmarks` itself
+# plus `rlevo-metrics-registry`, a `#![no_std]` zero-dependency leaf. **Zero**
+# third-party crates: rayon, tracing, thiserror, serde, serde_json, and bincode
+# are all already in the cone via `burn` and `rlevo-evolution`. The genuinely
+# new weight (ratatui, crossterm, base64, toml, time) stays behind
+# `tui` / `record` / `report`, which stay off by default.
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.4.0", features = [
+    "fixtures",
+] }
 
 [dev-dependencies]
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.4.0" }
-rlevo-environments = { path = "../rlevo-environments", version = "0.4.0", features = ["bench"] }
 rlevo-test-support = { path = "../rlevo-test-support" }
 approx = { workspace = true }
 burn = { workspace = true }
@@ -35,19 +48,27 @@ tracing-subscriber = { workspace = true }
 
 [features]
 default = ["box2d", "locomotion", "custom-kernels"]
-# Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
-box2d = ["rlevo-environments/box2d"]
-# MuJoCo-inspired locomotion environments via Rapier3D
-locomotion = ["rlevo-environments/locomotion"]
+# Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing).
+# Turns on both halves: the envs themselves and the harness-side fixtures that
+# name them. Splitting the pair would leave `BipedalWalker` compiled but
+# without a `RecordedEnvFamily` impl, so `RecordingConfig::for_env` would stop
+# resolving for it.
+box2d = ["rlevo-environments/box2d", "rlevo-benchmarks/fixtures-box2d"]
+# MuJoCo-inspired locomotion environments via Rapier3D. Paired for the same
+# reason as `box2d` above.
+locomotion = [
+    "rlevo-environments/locomotion",
+    "rlevo-benchmarks/fixtures-locomotion",
+]
 # Custom CubeCL GPU kernels for evolutionary algorithm hot paths
 custom-kernels = ["rlevo-evolution/custom-kernels"]
 # Live metrics TUI product (ADR-0013).
 viz-tui = ["rlevo-benchmarks/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
-# `record` transitively in rlevo-benchmarks; `rlevo-environments/record` adds
-# the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
-# umbrella forwards only the two products (ADR-0013 §5).
-viz-report = ["rlevo-benchmarks/report", "rlevo-environments/record"]
+# `record` transitively in rlevo-benchmarks, which now also carries the
+# per-family `RecordedEnvFamily` impls under `fixtures`. No separate
+# `viz-record` — the umbrella forwards only the two products (ADR-0013).
+viz-report = ["rlevo-benchmarks/report"]
 
 [lints]
 workspace = true
@@ -215,6 +236,15 @@ required-features = ["viz-report"]
 name = "c51_integration"
 path = "tests/c51_integration.rs"
 
+# Drives the shipped `CarRacing`, so it cannot compile without the physics
+# feature. Declared rather than auto-discovered purely to carry that gate:
+# without it, `cargo clippy -p rlevo --no-default-features --all-targets` fails
+# on an unresolved `rlevo_environments::box2d::car_racing` import.
+[[test]]
+name = "car_racing_continuous_control"
+path = "tests/car_racing_continuous_control.rs"
+required-features = ["box2d"]
+
 [[test]]
 name = "ddpg_integration"
 path = "tests/ddpg_integration.rs"
@@ -230,6 +260,11 @@ path = "tests/evaluator_smoke.rs"
 [[test]]
 name = "integration_test"
 path = "tests/integration_test.rs"
+
+[[test]]
+name = "payload_forwarding_completeness"
+path = "tests/payload_forwarding_completeness.rs"
+required-features = ["viz-report"]
 
 [[test]]
 name = "ppg_integration"

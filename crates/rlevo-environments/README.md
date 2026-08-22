@@ -123,8 +123,7 @@ The functions are grouped into three tiers by intended use.
 
 Every one of them implements `rlevo_core::fitness::Landscape`
 (`landscapes::fitness`), so any of them can be handed straight to
-`rlevo-evolution`'s `FromLandscape` adapter. **No cargo feature is required** —
-in particular not `bench`, which is about the harness, not these functions.
+`rlevo-evolution`'s `FromLandscape` adapter. **No cargo feature is required.**
 
 **Tier 1 — scalable n-D.** Arbitrary-dimension functions for sweeping
 performance against problem size.
@@ -207,8 +206,14 @@ while !snap.is_done() {
 |---|---|---|
 | `box2d` | yes | Box2D-style physics environments via `rapier2d` |
 | `locomotion` | yes | Locomotion environments via `rapier3d` + `nalgebra` |
-| `bench` | no | Preset `Suite` factories for the `rlevo-benchmarks` harness; keeps the base dep cone lean when off |
-| `record` | no | `RecordedEnvFamily` impls tying each env to its recording family (implies `bench`) |
+
+There is no `bench` or `record` feature, and no dependency on
+`rlevo-benchmarks` in any configuration: the harness consumes environments, not
+the other way round. The preset `Suite` factories and the `RecordedEnvFamily`
+impls live in `rlevo-benchmarks::fixtures`, behind that crate's `fixtures`
+feature (ADR 0080). From the `rlevo` umbrella they arrive with
+`rlevo::benchmarks::fixtures`; the physics families need `rlevo/box2d` or
+`rlevo/locomotion`, which turn on both halves together.
 
 Disable physics environments to shrink compile time:
 

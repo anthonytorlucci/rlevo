@@ -86,15 +86,32 @@ info "staging: $WORK"
 # ---------------------------------------------------------------------------
 # Package and stage. This is the publish boundary standing in for crates.io.
 # ---------------------------------------------------------------------------
+#
+# `PUBLISHABLE` is in dependency order, and it has to be: after packaging each
+# crate we add a `[patch.crates-io]` entry pointing at its freshly staged copy,
+# so the *next* crate's packaging resolves siblings from this working tree.
+#
+# Without that patch, `cargo package` resolves internal `path + version` deps
+# against the real crates.io index whenever a satisfying version is already
+# published there — a blind spot documented in the maintainer's publishing
+# guide, and one BYOE-1 inherits. It bites hardest exactly when the workspace
+# has *changed*: adding a feature to a member crate makes packaging its
+# dependents abort with "does not have that feature", naming the published
+# version's feature list, because the local manifest that does have it was
+# never consulted. Nothing about the working tree is being tested at that
+# point, which is the opposite of what this script exists for.
+PATCH_ARGS=()
 log "Packaging ${#PUBLISHABLE[@]} publishable crates"
 for crate in "${PUBLISHABLE[@]}"; do
     if ! cargo package --quiet -p "$crate" --no-verify --allow-dirty \
-            --manifest-path "$REPO_ROOT/Cargo.toml" 2>"$WORK/pkg-$crate.err"; then
+            --manifest-path "$REPO_ROOT/Cargo.toml" \
+            ${PATCH_ARGS[@]+"${PATCH_ARGS[@]}"} 2>"$WORK/pkg-$crate.err"; then
         cat "$WORK/pkg-$crate.err" >&2
         die "cargo package failed for $crate (this is itself a finding)"
     fi
     tar -xf "$REPO_ROOT/target/package/$crate-$VERSION.crate" -C "$STAGE" ||
         die "could not extract $crate-$VERSION.crate"
+    PATCH_ARGS+=(--config "patch.crates-io.$crate.path=\"$STAGE/$crate-$VERSION\"")
     info "staged $crate-$VERSION"
 done
 
@@ -146,11 +163,16 @@ sed -e "s|@@STAGE@@|$STAGE|g" -e "s|@@VERSION@@|$VERSION|g" \
 echo "BYOE-STEP 1 PASS scaffold :: probe created at $PROBE (outside the workspace)"
 
 # Count the crates a researcher must add by hand. Anything past `rlevo` is a
-# step 2 finding, per the spec.
+# step 2 finding, per the spec. Enabling a *feature* on `rlevo` is not a
+# finding — that is what feature flags are for.
+#
+# `rlevo-benchmarks` stays in the pattern although the template no longer lists
+# it: it is the regression guard for B2, and a count of 4 here means the
+# harness has drifted back out of the umbrella.
 EXTRA=$(sed -n '/^\[dependencies\]/,/^\[\[/p' "$PROBE/Cargo.toml" |
         grep -cE '^(rlevo-benchmarks|parking_lot|rand|serde) ' || true)
 if [[ "$EXTRA" -gt 0 ]]; then
-    echo "BYOE-STEP 2 FAIL add-deps :: rlevo alone is insufficient; $EXTRA additional crate(s) required by hand (blocker B2)"
+    echo "BYOE-STEP 2 FAIL add-deps :: rlevo alone is insufficient; $EXTRA additional crate(s) required by hand (B2 resolved; the remainder are version-matching hazards on parking_lot / rand / serde)"
     STEP2=fail
 else
     echo "BYOE-STEP 2 PASS add-deps :: rlevo alone sufficed"
