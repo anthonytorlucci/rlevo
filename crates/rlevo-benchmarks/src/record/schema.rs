@@ -25,13 +25,13 @@ use serde::{Deserialize, Serialize};
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the
 // same value.  The const assertions in tests/wire_format_compat.rs
 // enforce this at compile time when tests are built.
-pub const FORMAT_VERSION: u16 = 7;
+pub const FORMAT_VERSION: u16 = 8;
 
 /// Oldest on-disk version this loader accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility is maintained
 /// before the first production release.
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same value.
-pub const MIN_SUPPORTED_VERSION: u16 = 7;
+pub const MIN_SUPPORTED_VERSION: u16 = 8;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -252,8 +252,11 @@ pub struct Locomotion2DPayload {
     pub joints: Vec<Point2>,
     /// Bone segments as `(parent_joint_index, child_joint_index)` pairs.
     pub bones: Vec<(u32, u32)>,
-    /// World-space y-coordinate of the ground plane.
-    pub ground_y: f32,
+    /// World-space y-coordinate of the ground plane, or `None` for an env
+    /// with no ground (top-down, zero-gravity envs such as `Swimmer` and
+    /// `Reacher`). `None` suppresses the ground line rather than drawing one
+    /// through the figure.
+    pub ground_y: Option<f32>,
     /// Centre of mass, if provided by the environment.
     pub com: Option<Point2>,
     /// Active ground-contact points.
@@ -545,10 +548,34 @@ mod tests {
     use super::*;
     use rlevo_core::render::{StyledLine, StyledSpan};
 
+    /// The policy invariant: no backward compatibility is maintained, so the
+    /// oldest accepted version is always the current one. This is what must
+    /// never drift; it holds at every version and needs no edit when one is
+    /// bumped.
     #[test]
-    fn format_version_is_seven_and_min_supported_is_seven() {
-        assert_eq!(FORMAT_VERSION, 7);
-        assert_eq!(MIN_SUPPORTED_VERSION, 7);
+    fn min_supported_version_equals_format_version() {
+        assert_eq!(
+            MIN_SUPPORTED_VERSION, FORMAT_VERSION,
+            "no backward compatibility is maintained across a format bump, so \
+             the loader's floor must move with it",
+        );
+    }
+
+    /// Tripwire against an *accidental* bump — the version is mirrored in
+    /// `rlevo-benchmarks-report-client/src/wire.rs` and stamped into the built
+    /// WASM bundle, so a stray edit here silently invalidates every recording
+    /// a reader might still hold.
+    ///
+    /// Deliberately named without the number in it. The previous name spelled
+    /// the version out (`..._is_seven_and_min_supported_is_seven`), so every
+    /// bump renamed the test as well as editing it — the same name-drift this
+    /// suite avoids everywhere else.
+    ///
+    /// Bumping is legitimate. When you do: update this literal, the mirror in
+    /// the client, and the changelog row in `wire.rs` that says what changed.
+    #[test]
+    fn format_version_is_pinned() {
+        assert_eq!(FORMAT_VERSION, 8);
     }
 
     #[test]
@@ -571,7 +598,7 @@ mod tests {
             FamilyPayload::Locomotion2D(Locomotion2DPayload {
                 joints: vec![],
                 bones: vec![],
-                ground_y: 0.0,
+                ground_y: Some(0.0),
                 com: None,
                 contacts: vec![],
             }),

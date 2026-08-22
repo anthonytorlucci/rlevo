@@ -412,7 +412,7 @@ impl rlevo_core::render::Locomotion2DPayloadSource for InvertedPendulum<Rapier3D
     ///
     /// Joint 0 is the cart centre; joint 1 is the pole tip, approximated as
     /// `cart_centre + 2 * (pole_centre - cart_centre)`. The single bone
-    /// connects them. `ground_y` is `0.0` (world-z floor plane). `com` is set
+    /// connects them. `ground_y` is `Some(0.0)` (world-z floor plane). `com` is set
     /// to the pole's centre of mass. No contact points are reported.
     fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
         use rlevo_core::render::{Locomotion2DSnapshot, Point2};
@@ -437,7 +437,7 @@ impl rlevo_core::render::Locomotion2DPayloadSource for InvertedPendulum<Rapier3D
         Locomotion2DSnapshot {
             joints: vec![Point2::new(cx, cz), Point2::new(tip_x, tip_z)],
             bones: vec![(0, 1)],
-            ground_y: 0.0,
+            ground_y: Some(0.0),
             com: Some(Point2::new(px, pz)),
             contacts: vec![],
         }

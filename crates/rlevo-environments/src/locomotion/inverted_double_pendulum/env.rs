@@ -524,6 +524,56 @@ fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
     ]
 }
 
+// ---------------------------------------------------------------------------
+// Report-tier payload — sagittal-plane (x, z) projection.
+//
+// Gravity acts along -z and the cart slides along x, so the sagittal plane is
+// the natural view and `ground_y = Some(0.0)` is a real floor: the cart body
+// centre sits at `cart_half_extents[2]` above it.
+//
+// Joint 0 = cart centre, joint 1 = the pole1/pole2 hinge, joint 2 = pole2's
+// tip. Each pole is a capsule whose centre is midway between its ends, so
+// reflecting the centre through the joint below it gives the joint above:
+// `top = hinge + 2 * (centre - hinge)`. That is exact for a rigid body, not a
+// small-angle approximation.
+// ---------------------------------------------------------------------------
+
+impl rlevo_core::render::Locomotion2DPayloadSource for InvertedDoublePendulum<Rapier3DBackend> {
+    /// Sagittal-plane stick figure: cart, lower pole, upper pole.
+    ///
+    /// `com` is `None`. The three bodies have distinct masses and this env
+    /// tracks no centre of mass, so any single body's centre reported as the
+    /// system COM would be a plausible-looking wrong number — the field is
+    /// optional precisely so an env can decline it.
+    fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
+        use rlevo_core::render::{Locomotion2DSnapshot, Point2};
+
+        let cart = Rapier3DBackend::get_pose(&self.world, self.state.cart);
+        let pole1 = Rapier3DBackend::get_pose(&self.world, self.state.pole1);
+        let pole2 = Rapier3DBackend::get_pose(&self.world, self.state.pole2);
+
+        let (cx, cz) = (cart.position[0], cart.position[2]);
+        // pole1's lower end is hinged at the cart's top face.
+        let hinge0_z = cz + self.config.cart_half_extents[2];
+        let hinge1_x = cx + 2.0 * (pole1.position[0] - cx);
+        let hinge1_z = hinge0_z + 2.0 * (pole1.position[2] - hinge0_z);
+        let tip_x = hinge1_x + 2.0 * (pole2.position[0] - hinge1_x);
+        let tip_z = hinge1_z + 2.0 * (pole2.position[2] - hinge1_z);
+
+        Locomotion2DSnapshot {
+            joints: vec![
+                Point2::new(cx, cz),
+                Point2::new(hinge1_x, hinge1_z),
+                Point2::new(tip_x, tip_z),
+            ],
+            bones: vec![(0, 1), (1, 2)],
+            ground_y: Some(0.0),
+            com: None,
+            contacts: vec![],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Exact comparison is intentional throughout this test module: the values

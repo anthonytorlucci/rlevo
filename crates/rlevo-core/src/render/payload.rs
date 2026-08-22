@@ -146,8 +146,11 @@ pub trait Box2dPayloadSource {
 ///
 /// `joints[i]` is the i-th joint position; `bones[k] = (a, b)` means
 /// joint `a` connects to joint `b` with a rigid bone. `ground_y` is the
-/// y-coordinate of the ground line in the same frame. `com` is the
-/// projected centre of mass (optional — not every env tracks it).
+/// y-coordinate of the ground line in the same frame, or `None` for an env
+/// that has no ground — `Swimmer` and `Reacher` are viewed from above in a
+/// zero-gravity plane, and a line drawn through them would be a floor that
+/// does not exist. `com` is the projected centre of mass (optional — not
+/// every env tracks it).
 /// `contacts` are footstep contact points the report tier may sprinkle
 /// as small open rings.
 ///
@@ -159,8 +162,9 @@ pub struct Locomotion2DSnapshot {
     /// Rigid-bone connectivity: each `(a, b)` pair connects `joints[a]` to
     /// `joints[b]`.
     pub bones: Vec<(u32, u32)>,
-    /// Y-coordinate of the ground line in the same frame as the joints.
-    pub ground_y: f32,
+    /// Y-coordinate of the ground line in the same frame as the joints, or
+    /// `None` when the env has no ground plane to draw.
+    pub ground_y: Option<f32>,
     /// Projected centre of mass. `None` when the env does not track it.
     pub com: Option<Point2>,
     /// Footstep contact points; rendered as small open rings on the report
@@ -492,7 +496,7 @@ mod tests {
         let snap = Locomotion2DSnapshot {
             joints: vec![Point2::new(0.0, 1.0), Point2::new(0.5, 1.5)],
             bones: vec![(0, 1)],
-            ground_y: 0.0,
+            ground_y: Some(0.0),
             com: None,
             contacts: vec![],
         };
@@ -530,7 +534,7 @@ mod tests {
             Locomotion2DSnapshot {
                 joints: vec![],
                 bones: vec![],
-                ground_y: 0.0,
+                ground_y: Some(0.0),
                 com: None,
                 contacts: vec![],
             }

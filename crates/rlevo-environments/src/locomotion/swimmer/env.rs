@@ -520,6 +520,57 @@ fn apply_drag_to(world: &mut Rapier3DWorld, handles: [RigidBodyHandle; 3], k: f3
     }
 }
 
+// ---------------------------------------------------------------------------
+// Report-tier payload — top-down (x, y) projection.
+//
+// Swimmer is planar and buoyant: gravity is zero, all three revolute joints
+// spin about world-z, and the body floats in open water. Like Reacher this is
+// a top-down (x, y) view with no floor, so `ground_y` is `None`.
+//
+// The four joints are the chain's endpoints, not the segment centres. Each
+// segment is a capsule of half-length `half_l` lying along its own local +x,
+// so its two ends are `centre ± half_l · dir(θ)` where θ is the body's
+// rotation about z — the same construction `rebuild_world` uses in reverse to
+// place the segments.
+// ---------------------------------------------------------------------------
+
+impl rlevo_core::render::Locomotion2DPayloadSource for Swimmer<Rapier3DBackend> {
+    /// Top-down stick figure: the three-link chain drawn through its four
+    /// endpoints.
+    ///
+    /// `ground_y` is `None` — a swimmer in open water has no ground plane, and
+    /// drawing one would put a seabed through the middle of the frame.
+    fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
+        use rlevo_core::render::{Locomotion2DSnapshot, Point2};
+
+        let half_l = self.config.segment_length * 0.5;
+
+        // Rotation about world-z from the `[w, x, y, z]` quaternion:
+        // θ = 2·atan2(qz, qw). Same extraction the observation path uses.
+        let seg = |handle| {
+            let pose = Rapier3DBackend::get_pose(&self.world, handle);
+            let theta = 2.0 * pose.orientation[3].atan2(pose.orientation[0]);
+            let (dx, dy) = (half_l * theta.cos(), half_l * theta.sin());
+            (
+                Point2::new(pose.position[0] - dx, pose.position[1] - dy),
+                Point2::new(pose.position[0] + dx, pose.position[1] + dy),
+            )
+        };
+
+        let (nose, j01) = seg(self.state.segment0);
+        let (_, j12) = seg(self.state.segment1);
+        let (_, tail) = seg(self.state.segment2);
+
+        Locomotion2DSnapshot {
+            joints: vec![nose, j01, j12, tail],
+            bones: vec![(0, 1), (1, 2), (2, 3)],
+            ground_y: None,
+            com: None,
+            contacts: vec![],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Exact comparison is intentional throughout this test module: the values

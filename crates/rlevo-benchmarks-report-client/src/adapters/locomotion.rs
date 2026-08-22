@@ -9,7 +9,9 @@
 //!
 //! - **Bones** as straight lines between connected joints.
 //! - **Joints** as filled circles.
-//! - **Ground line** at `ground_y`.
+//! - **Ground line** at `ground_y`, omitted entirely when it is `None` —
+//!   a top-down, zero-gravity env such as `Swimmer` or `Reacher` has no
+//!   floor, and drawing one would put a horizon through the figure.
 //! - **Centre of mass** (optional) as a cross-hair marker.
 //! - **Contact points** (optional) as small open rings.
 //!
@@ -67,7 +69,11 @@ fn payload_bounds(payload: &Locomotion2DPayload) -> (f32, f32, f32, f32) {
         xs.push(c.x);
         ys.push(c.y);
     }
-    ys.push(payload.ground_y);
+    // A groundless env contributes no y here: including a placeholder would
+    // stretch the viewport toward a plane that is not in the scene.
+    if let Some(gy) = payload.ground_y {
+        ys.push(gy);
+    }
 
     let (x_min, x_max) = bounds(&xs).unwrap_or((-1.0, 1.0));
     let (y_min, y_max) = bounds(&ys).unwrap_or((0.0, 2.0));
@@ -175,9 +181,18 @@ fn view_with_payload(payload: &Locomotion2DPayload) -> AnyView {
         }
     });
 
-    // Ground line — payload y is in world units; project just the y.
-    let dummy_x = Point2::new(x_lo, payload.ground_y);
-    let (_, ground_svg_y) = xform(&dummy_x);
+    // Ground line — payload y is in world units; project just the y. `None`
+    // means the env has no ground plane, and no line is emitted at all.
+    let ground_svg = payload.ground_y.map(|gy| {
+        let (_, ground_svg_y) = xform(&Point2::new(x_lo, gy));
+        view! {
+            <line
+                x1=VB_PAD y1=ground_svg_y
+                x2=VB_W - VB_PAD y2=ground_svg_y
+                class="rlevo-locomotion-ground"
+            />
+        }
+    });
 
     let view_box = format!("0 0 {VB_W} {VB_H}");
 
@@ -189,11 +204,7 @@ fn view_with_payload(payload: &Locomotion2DPayload) -> AnyView {
                 role="img"
                 aria-label="locomotion sagittal-plane stick figure"
             >
-                <line
-                    x1=VB_PAD y1=ground_svg_y
-                    x2=VB_W - VB_PAD y2=ground_svg_y
-                    class="rlevo-locomotion-ground"
-                />
+                {ground_svg}
                 {bones_svg}
                 {joints_svg}
                 {contacts_svg}

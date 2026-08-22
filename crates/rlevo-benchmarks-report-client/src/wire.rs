@@ -177,8 +177,10 @@ pub struct Locomotion2DPayload {
     pub joints: Vec<Point2>,
     /// Pairs of joint indices defining bones; index into [`joints`](Self::joints).
     pub bones: Vec<(u32, u32)>,
-    /// World-space y-coordinate of the ground plane.
-    pub ground_y: f32,
+    /// World-space y-coordinate of the ground plane, or `None` for an env
+    /// with no ground (top-down, zero-gravity envs such as `Swimmer` and
+    /// `Reacher`).
+    pub ground_y: Option<f32>,
     /// Centre-of-mass position, if computed and available.
     pub com: Option<Point2>,
     /// Active contact points with the ground (rendered as open rings).
@@ -387,15 +389,16 @@ pub struct Classic2DPayload {
 /// | 5 | Added [`FamilyPayload::Grid`], [`FamilyPayload::TabularText`], [`FamilyPayload::Classic2D`] rich payloads. |
 /// | 6 | Added [`EpisodeKind`] to [`EpisodeRecordHeader`]; added run-provenance fields (`algorithm`, `rlevo_version`, `rustc_version`, `burn_version`, `platform`, `git_commit`, `git_dirty`, `device`, `num_seeds`, `success_threshold`) and `checkpoints` ([`CheckpointRef`]) to [`RunManifest`]. Defined by ADR 0014. |
 /// | 7 | Added [`ObjectiveSense`] and the `objective_sense` field to [`RunManifest`]; orients best/worst report transforms. |
+/// | 8 | [`Locomotion2DPayload::ground_y`] became `Option<f32>`. `Swimmer` and `Reacher` are top-down, zero-gravity envs with no ground plane; a bare `f32` forced them to name a floor that does not exist and the adapter drew it through the figure. |
 // Mirror of `rlevo-benchmarks::record::FORMAT_VERSION`.  Keep in sync;
 // the const assertions in rlevo-benchmarks/tests/wire_format_compat.rs
 // catch drift at compile time.
-pub const FORMAT_VERSION: u16 = 7;
+pub const FORMAT_VERSION: u16 = 8;
 
 /// Oldest on-disk version this client accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility before first release.
 // Mirror of `rlevo-benchmarks::record::MIN_SUPPORTED_VERSION`.
-pub const MIN_SUPPORTED_VERSION: u16 = 7;
+pub const MIN_SUPPORTED_VERSION: u16 = 8;
 
 /// Returns the standard bincode configuration used for all record encode/decode operations.
 #[must_use]

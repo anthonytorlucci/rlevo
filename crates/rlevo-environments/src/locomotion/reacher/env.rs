@@ -450,6 +450,60 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Report-tier payload — top-down (x, y) projection.
+//
+// Reacher is a planar manipulator: gravity is zero, both revolute joints spin
+// about world-z, and every body sits at z = 0. The natural view is therefore
+// top-down in (x, y), NOT the sagittal (x, z) plane the locomotion envs with a
+// floor use — and there is no floor, which is why `ground_y` is `None`.
+//
+// Joint positions come from reflecting each link's centre through the joint
+// below it: a link's centre is midway between its ends, so
+// `far_end = near_end + 2 * (centre - near_end)`. The shoulder is pinned at the
+// world origin, so `elbow = 2 * link1_centre` falls straight out of that.
+// ---------------------------------------------------------------------------
+
+impl rlevo_core::render::Locomotion2DPayloadSource for Reacher<Rapier3DBackend> {
+    /// Top-down stick figure: shoulder at the origin, elbow, fingertip.
+    ///
+    /// `ground_y` is `None` — this env has no ground plane, and a line drawn
+    /// across the frame would read as a floor the arm is resting on.
+    ///
+    /// The target disc is reported through `contacts`, which the report tier
+    /// draws as small open rings. That field is documented for *footstep
+    /// contact points*, and this is a deliberate reuse: the payload vocabulary
+    /// has no "point of interest" shape, and a Reacher frame without its target
+    /// shows an arm waving at nothing. Recorded as a vocabulary gap rather than
+    /// worked around silently.
+    fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
+        use rlevo_core::render::{Locomotion2DSnapshot, Point2};
+
+        let l1 = Rapier3DBackend::get_pose(&self.world, self.state.link1);
+        let l2 = Rapier3DBackend::get_pose(&self.world, self.state.link2);
+
+        // Shoulder is the fixed root at the world origin.
+        let elbow_x = 2.0 * l1.position[0];
+        let elbow_y = 2.0 * l1.position[1];
+        let tip_x = elbow_x + 2.0 * (l2.position[0] - elbow_x);
+        let tip_y = elbow_y + 2.0 * (l2.position[1] - elbow_y);
+
+        let [tx, ty] = self.state.target_xy;
+
+        Locomotion2DSnapshot {
+            joints: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(elbow_x, elbow_y),
+                Point2::new(tip_x, tip_y),
+            ],
+            bones: vec![(0, 1), (1, 2)],
+            ground_y: None,
+            com: None,
+            contacts: vec![Point2::new(tx, ty)],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Exact comparison is intentional throughout this test module: the values

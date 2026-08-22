@@ -118,7 +118,7 @@ fn populated_native_record() -> NativeRecord {
                 family_payload: NativePayload::Locomotion2D(NativeLocomotionPayload {
                     joints: vec![Point2::new(0.0, 1.0), Point2::new(0.5, 1.5)],
                     bones: vec![(0, 1)],
-                    ground_y: 0.0,
+                    ground_y: Some(0.0),
                     com: Some(Point2::new(0.25, 1.25)),
                     contacts: vec![Point2::new(0.0, 0.0)],
                 }),
