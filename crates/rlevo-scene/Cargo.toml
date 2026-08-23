@@ -1,0 +1,39 @@
+[package]
+name = "rlevo-scene"
+version.workspace = true
+authors.workspace = true
+description = "Wire types and codec for rlevo's binary episode-record format, shared by the benchmarks recorder and the WASM report client (ADR-0081)"
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# All three come from `[workspace.dependencies]`, so this crate cannot drift
+# from the writer and the reader it sits between. That matters most for
+# `bincode`: it is the codec, and a version skew across the three crates would
+# be a silent wire break -- the same class of defect this crate exists to make
+# impossible for the *types*. Pinning the codec in one place and the shapes in
+# one crate are two halves of the same guarantee.
+#
+# The crate is `#![no_std]` in its own right and builds for
+# `wasm32-unknown-unknown`, which is the property ADR 0081 asks for. It does not
+# additionally force `default-features = false` on the shared entries: cargo
+# unifies features across the graph, so serde would resolve with `std` anyway in
+# any build that also contains `rlevo-core`, and overriding here would buy a
+# guarantee the workspace cannot keep while costing a second version to
+# maintain.
+[dependencies]
+serde = { workspace = true }
+bincode = { workspace = true }
+# ADR 0081 said "serde and bincode, nothing else". Amended during
+# implementation: `BoundsError` and `DecodeError` both derive `thiserror::Error`
+# today, and the measurement behind that clause came from grepping `use` lines,
+# which a fully-qualified derive path does not appear on. thiserror 2.0 is
+# `no_std`-capable, is a proc-macro plus `core`, and already ships in the report
+# client's wasm32 cone -- so it costs the leaf nothing it was trying to avoid.
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

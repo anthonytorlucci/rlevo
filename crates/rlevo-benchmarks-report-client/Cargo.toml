@@ -23,7 +23,7 @@ js-sys = "0.3"
 console_error_panic_hook = "0.1"
 serde = { workspace = true }
 serde_json = "1"
-bincode = { version = "2", features = ["serde"] }
+bincode = { workspace = true }
 base64 = "0.22"
 thiserror = { workspace = true }
 # The client mirrors the rlevo-core::render::styled types in wire.rs

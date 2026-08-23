@@ -5,12 +5,19 @@
 //! deserialization via `#[serde(try_from = "(f32, f32)", into = "(f32, f32)")]`,
 //! which is well understood for JSON, and the record codec is **bincode**. If
 //! validation did not run there, the plan was to validate at construction
-//! instead. It does run, so the newtype carries its invariant onto the wire and
-//! ADR 0082 can adopt `Bounds` for `SceneDescriptor` unchanged.
+//! instead. It does run: the newtype carries its invariant onto the wire, and
+//! the encoded form is byte-identical to a bare `(f32, f32)`. So whatever
+//! validated-range type ADR 0082 gives `SceneDescriptor`, the `try_from`
+//! approach is a sound basis for it and costs no wire change.
 //!
 //! This file is the executed answer, kept as a guard rather than deleted: the
 //! property belongs to a serde attribute that a future edit could drop without
-//! any other test noticing. It travels with `Bounds` into `rlevo-scene`.
+//! any other test noticing.
+//!
+//! `Bounds` itself **stays in `rlevo-core`**, contrary to ADR 0081 decision 1.
+//! It is a config-validation primitive named in 47 files across the workspace,
+//! and nothing on today's wire uses it. The guard lives here, beside the codec
+//! it constrains.
 //!
 //! The control test is load-bearing. Two of these assert that decoding *fails*,
 //! which malformed bytes would also produce — so one test proves the very same

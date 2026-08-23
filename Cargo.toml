@@ -11,6 +11,7 @@ members = [
     "crates/rlevo-hybrid",
     "crates/rlevo-metrics-registry",
     "crates/rlevo-reinforcement-learning",
+    "crates/rlevo-scene",
     "crates/rlevo-test-support",
     "xtask",
 ]
@@ -64,6 +65,11 @@ rand = "0.10.1"
 rand_distr = "0.6.0"
 ringbuffer = "0.16.0"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
+# The record codec. Declared here rather than per-crate because a version skew
+# between the writer (`rlevo-benchmarks`), the wire types (`rlevo-scene`), and
+# the WASM reader (`rlevo-benchmarks-report-client`) is a silent wire break --
+# the exact failure `rlevo-scene` exists to make impossible for the types.
+bincode = { version = "2", features = ["serde"] }
 
 # Benchmarking and profiling
 criterion = { version = "0.8", features = ["html_reports"] }
