@@ -9,9 +9,11 @@
 //!
 //! - [`suites`] — preset [`Suite`] factories for the canonical envs, ready to
 //!   feed [`Evaluator::run_suite`].
-//! - [`family`] *(feature `record`)* —
-//!   [`RecordedEnvFamily`](crate::record::RecordedEnvFamily) impls tying each
-//!   built-in env to the recording family its frames decode as.
+//! - `family` *(feature `record`)* — `RecordedEnvFamily` impls tying each
+//!   built-in env to the recording family its frames decode as. Deliberately
+//!   unlinked: this overview compiles whenever `fixtures` is on, but the
+//!   module and the trait both need `record`, so an intra-doc link here is
+//!   unresolvable in the default configuration.
 //!
 //! There is no adapter type: [`Evaluator::run_suite`] binds directly on
 //! [`Environment`], so envs are registered as themselves (ADR 0076).
@@ -20,8 +22,8 @@
 //!
 //! Everything in this module names a `rlevo-benchmarks` item —
 //! [`EvaluatorConfig`](crate::evaluator::EvaluatorConfig), [`Suite`], and
-//! [`EnvFamily`](crate::record::EnvFamily) — and nothing else. Hosting it on
-//! the environments side meant `rlevo-environments` carried an optional
+//! `EnvFamily` (`record`-gated, hence unlinked) — and nothing else. Hosting
+//! it on the environments side meant `rlevo-environments` carried an optional
 //! dependency on the harness, which is the wrong direction: the harness
 //! consumes environments, environments do not consume the harness. The orphan
 //! rule permits the impls here because this crate owns the traits (ADR 0080,
