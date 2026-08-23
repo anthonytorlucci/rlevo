@@ -19,6 +19,7 @@
 pub mod box2d;
 pub mod classic;
 pub mod fallback;
+pub mod figure;
 pub mod grids;
 pub mod landscape;
 pub mod locomotion;
