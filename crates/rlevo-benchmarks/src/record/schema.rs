@@ -112,9 +112,17 @@ pub enum EnvFamily {
 ///
 /// This is deliberately **not** a supertrait of
 /// [`Environment`](rlevo_core::environment::Environment): family/render
-/// knowledge stays an opt-in concern off the behavioural trait, per ADR 0007.
-/// Impls for the built-in environments live in `rlevo-environments` behind
-/// its `record` feature.
+/// knowledge stays an opt-in concern off the behavioural trait, per ADR 0013,
+/// which carries forward the production-crate isolation rules first stated in
+/// the superseded ADR 0007.
+///
+/// Impls for the built-in environments live in this crate, in
+/// `fixtures::family`, behind its `fixtures` feature — unlinked because
+/// `fixtures` and `record` are independent, so the target is absent in a
+/// `record`-only build. They moved off the environments side in ADR 0080 so that
+/// `rlevo-environments` no longer carries an optional dependency on the
+/// harness; the orphan rule permits them there because this crate owns the
+/// trait.
 ///
 /// [`RecordingConfig`]: crate::record::writer::RecordingConfig
 /// [`RecordingConfig::for_env`]: crate::record::writer::RecordingConfig::for_env
