@@ -292,14 +292,13 @@ pub fn emit_static_html(
             length: ep.length,
             script_id,
             kind: match ep.kind {
-                crate::record::EpisodeKind::Training => "training",
                 crate::record::EpisodeKind::Evaluation => "evaluation",
-                // `EpisodeKind` is `#[non_exhaustive]` and now lives in
-                // `rlevo-scene`, so this match is cross-crate and needs an arm
-                // for a variant this build predates. `training` is the safe
-                // default: it is the enum's own `Default`, and the report uses
-                // this only to label and filter an episode list.
-                _ => "training",
+                // Training, and `#[non_exhaustive]`'s wildcard, share an arm.
+                // `EpisodeKind` lives in `rlevo-scene` now, so this match is
+                // cross-crate and must handle a variant this build predates;
+                // `training` is the safe default, being the enum's own
+                // `Default`, and this string only labels and filters a list.
+                crate::record::EpisodeKind::Training | _ => "training",
             },
         });
     }

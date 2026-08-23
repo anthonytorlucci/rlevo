@@ -29,8 +29,7 @@ use parking_lot::Mutex;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use rlevo_benchmarks::record::{
-    EnvFamily, FamilyPayload, FrameRecord, Landscape2DPayload, RecordSink, RecordWriter,
-    RecordingConfig,
+    EnvFamily, FamilyPayload, FrameRecord, RecordSink, RecordWriter, RecordingConfig,
 };
 use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 use rlevo_scene::{Landscape2DSnapshot, Point2};
@@ -117,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     current[0], current[1], current_f, best_f,
                 )),
                 styled: None,
-                family_payload: FamilyPayload::Landscape2D(Landscape2DPayload::from(snapshot)),
+                family_payload: FamilyPayload::Landscape2D(snapshot),
             };
             sink.lock().on_frame(frame);
         }

@@ -200,6 +200,7 @@ jobs:
           - rlevo-hybrid
           - rlevo-metrics-registry
           - rlevo-reinforcement-learning
+          - rlevo-scene
           - rlevo-test-support
           - rlevo
     # The per-crate feature overrides that used to live here as an `include:`
