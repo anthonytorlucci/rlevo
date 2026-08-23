@@ -17,24 +17,24 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-// ---- Mirror of rlevo_core::render::styled (kept thin; the cross-crate
+// ---- Mirror of rlevo_scene::styled (kept thin; the cross-crate
 // compat test in rlevo-benchmarks guards every field). -----------------
 
-/// Wire mirror of `rlevo_core::render::StyledFrame` — one complete rendered frame.
+/// Wire mirror of `rlevo_scene::StyledFrame` — one complete rendered frame.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StyledFrame {
     /// Ordered rows of the rendered frame, top to bottom.
     pub lines: Vec<StyledLine>,
 }
 
-/// Wire mirror of `rlevo_core::render::StyledLine` — one row of styled spans.
+/// Wire mirror of `rlevo_scene::StyledLine` — one row of styled spans.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StyledLine {
     /// Consecutive styled text segments that make up the row.
     pub spans: Vec<StyledSpan>,
 }
 
-/// Wire mirror of `rlevo_core::render::StyledSpan` — a run of identically-styled text.
+/// Wire mirror of `rlevo_scene::StyledSpan` — a run of identically-styled text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StyledSpan {
     /// The rendered text content of this span.
@@ -43,7 +43,7 @@ pub struct StyledSpan {
     pub style: SpanStyle,
 }
 
-/// Wire mirror of `rlevo_core::render::SpanStyle` — the visual attributes for one span.
+/// Wire mirror of `rlevo_scene::SpanStyle` — the visual attributes for one span.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpanStyle {
     /// Optional foreground colour; `None` means inherit the terminal default.
@@ -54,7 +54,7 @@ pub struct SpanStyle {
     pub modifier: Modifier,
 }
 
-/// Wire mirror of `rlevo_core::render::Color` — the named terminal palette plus an indexed escape.
+/// Wire mirror of `rlevo_scene::Color` — the named terminal palette plus an indexed escape.
 ///
 /// `Reset` and `Indexed(_)` map to no CSS class in the web renderer (see
 /// [`crate::styled::color_class`]).
@@ -82,7 +82,7 @@ pub enum Color {
     Indexed(u8),
 }
 
-/// Wire mirror of `rlevo_core::render::Modifier` — bit-packed text decoration flags.
+/// Wire mirror of `rlevo_scene::Modifier` — bit-packed text decoration flags.
 ///
 /// Bit layout: BOLD=1, DIM=2, ITALIC=4, UNDERLINED=8, REVERSED=16.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ pub struct Modifier(pub u8);
 
 // ---- /styled mirror ---------------------------------------------------
 
-// ---- Mirror of rlevo_core::render::payload (rich per-family payloads). --
+// ---- Mirror of rlevo_scene::payload (rich per-family payloads). --
 
 /// A 2-D point in world coordinates, shared by all rich family payloads.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]

@@ -23,7 +23,7 @@ use ratatui::widgets::{Paragraph, Sparkline, Widget};
 use crate::tui::convert::color_to_ratatui;
 use crate::tui::state::AppState;
 
-use rlevo_core::render::palette;
+use rlevo_scene::palette;
 
 /// Multiplier applied to the (shifted) return before truncating to `u64`.
 ///

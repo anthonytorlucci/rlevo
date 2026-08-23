@@ -320,7 +320,7 @@ pub struct SantaFeAntConfig {
     /// When `true`, each [`reset`](Environment::reset) /
     /// [`step`](Environment::step) renders the grid to ASCII as a debug side
     /// effect (the text is discarded). The structured report path
-    /// ([`GridPayloadSource`](rlevo_core::render::payload::GridPayloadSource)) and
+    /// ([`GridPayloadSource`](rlevo_scene::payload::GridPayloadSource)) and
     /// the [`AsciiRenderable`](crate::render::AsciiRenderable) impl are available
     /// regardless of this flag.
     pub render: bool,
@@ -714,8 +714,8 @@ const fn heading_glyph(dir: Direction) -> char {
 }
 
 /// Map the env-side [`Direction`] onto the wire-neutral grid facing.
-const fn heading_to_grid_dir(dir: Direction) -> rlevo_core::render::payload::GridDir {
-    use rlevo_core::render::payload::GridDir;
+const fn heading_to_grid_dir(dir: Direction) -> rlevo_scene::payload::GridDir {
+    use rlevo_scene::payload::GridDir;
     match dir {
         Direction::East => GridDir::East,
         Direction::South => GridDir::South,
@@ -736,13 +736,13 @@ const fn heading_to_grid_dir(dir: Direction) -> rlevo_core::render::payload::Gri
 ///   distinction losslessly (the report draws `Floor` like `Empty` today),
 /// - never food → [`GridTile::Empty`].
 ///
-/// [`GridTile::Ball`]: rlevo_core::render::payload::GridTile::Ball
-/// [`GridTile::Floor`]: rlevo_core::render::payload::GridTile::Floor
-/// [`GridTile::Empty`]: rlevo_core::render::payload::GridTile::Empty
-impl rlevo_core::render::payload::GridPayloadSource for SantaFeAnt {
+/// [`GridTile::Ball`]: rlevo_scene::payload::GridTile::Ball
+/// [`GridTile::Floor`]: rlevo_scene::payload::GridTile::Floor
+/// [`GridTile::Empty`]: rlevo_scene::payload::GridTile::Empty
+impl rlevo_scene::payload::GridPayloadSource for SantaFeAnt {
     #[allow(clippy::cast_possible_truncation)] // GRID_SIZE = 32 and all indices < 32 fit u16
-    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
-        use rlevo_core::render::payload::{GridAgentMarker, GridColor, GridSnapshot, GridTile};
+    fn grid_snapshot(&self) -> rlevo_scene::payload::GridSnapshot {
+        use rlevo_scene::payload::{GridAgentMarker, GridColor, GridSnapshot, GridTile};
 
         let (original, _): ([[bool; GRID_SIZE]; GRID_SIZE], _) = parse_trail(SANTA_FE_TRAIL);
         let mut tiles: Vec<GridTile> = Vec::with_capacity(GRID_SIZE * GRID_SIZE);
@@ -1285,18 +1285,16 @@ mod tests {
     // (0,1) as an *eaten* cell with the ant gone.
 
     use crate::render::AsciiRenderable;
-    use rlevo_core::render::payload::{
-        GridAgentMarker, GridColor, GridDir, GridPayloadSource, GridTile,
-    };
+    use rlevo_scene::payload::{GridAgentMarker, GridColor, GridDir, GridPayloadSource, GridTile};
 
-    fn ball_count(snap: &rlevo_core::render::payload::GridSnapshot) -> usize {
+    fn ball_count(snap: &rlevo_scene::payload::GridSnapshot) -> usize {
         snap.tiles
             .iter()
             .filter(|t| matches!(t, GridTile::Ball(GridColor::Green)))
             .count()
     }
 
-    fn floor_count(snap: &rlevo_core::render::payload::GridSnapshot) -> usize {
+    fn floor_count(snap: &rlevo_scene::payload::GridSnapshot) -> usize {
         snap.tiles
             .iter()
             .filter(|t| matches!(t, GridTile::Floor))

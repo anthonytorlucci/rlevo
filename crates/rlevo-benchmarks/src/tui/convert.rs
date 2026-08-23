@@ -1,22 +1,22 @@
-//! Bridge between [`rlevo_core::render`] styling types and `ratatui` style.
+//! Bridge between [`rlevo_scene`] styling types and `ratatui` style.
 //!
 //! The live TUI is metrics-only (ADR-0013), so this module no longer
-//! translates whole [`StyledFrame`](rlevo_core::render::StyledFrame)s into
+//! translates whole [`StyledFrame`](rlevo_scene::StyledFrame)s into
 //! terminal text. What remains is the colour/style translation the metric
 //! panels and [`theme`](crate::tui::theme) use to honour the semantic
-//! [`palette`](rlevo_core::render::palette) — mapping
-//! [`rlevo_core::render::Color`] / [`Modifier`] / [`SpanStyle`] onto their
+//! [`palette`](rlevo_scene::palette) — mapping
+//! [`rlevo_scene::Color`] / [`Modifier`] / [`SpanStyle`] onto their
 //! `ratatui` equivalents.
 //!
 //! Style translation is exhaustive over every variant of
-//! [`rlevo_core::render::Color`] *that exists today*. The enum is marked
+//! [`rlevo_scene::Color`] *that exists today*. The enum is marked
 //! `#[non_exhaustive]`, so a wildcard arm is mandatory; we map any unknown
 //! future variant to `ratatui::Color::Reset` (the terminal default) rather
 //! than panicking, so adding a variant in `rlevo-core` keeps the live tier
 //! degrading gracefully.
 
 use ratatui::style::{Color as RatColor, Modifier as RatModifier, Style as RatStyle};
-use rlevo_core::render::{Color, Modifier, SpanStyle};
+use rlevo_scene::{Color, Modifier, SpanStyle};
 
 /// Map a [`Color`] to its ratatui equivalent.
 #[must_use]
@@ -91,7 +91,7 @@ pub fn span_style_to_ratatui(s: SpanStyle) -> RatStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rlevo_core::render::palette;
+    use rlevo_scene::palette;
 
     /// Every `Color` variant declared today must map to a distinct
     /// `ratatui::Color`. Guards against silent collisions if either palette
@@ -152,7 +152,7 @@ mod tests {
         assert!(rs.add_modifier.contains(RatModifier::BOLD));
     }
 
-    /// Palette pairings from [`rlevo_core::render::palette`] arrive in the
+    /// Palette pairings from [`rlevo_scene::palette`] arrive in the
     /// terminal with their hue-redundant modifiers intact — the
     /// accessibility contract is preserved across the bridge.
     #[test]

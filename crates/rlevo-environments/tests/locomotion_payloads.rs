@@ -22,7 +22,7 @@
 #![cfg(feature = "locomotion")]
 
 use rlevo_core::environment::Environment;
-use rlevo_core::render::{Locomotion2DPayloadSource, Locomotion2DSnapshot, Point2};
+use rlevo_scene::{Locomotion2DPayloadSource, Locomotion2DSnapshot, Point2};
 
 use rlevo_environments::locomotion::inverted_double_pendulum::{
     config::InvertedDoublePendulumConfig, env::InvertedDoublePendulum,

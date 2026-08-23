@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 burn = { workspace = true }
+rlevo-scene = { path = "../rlevo-scene", version = "0.4.0" }
 rlevo-core = { path = '../rlevo-core', version = "0.4.0" }
 rand = { workspace = true }
 serde = { workspace = true }

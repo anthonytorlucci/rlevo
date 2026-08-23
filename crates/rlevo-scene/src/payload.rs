@@ -421,6 +421,63 @@ pub struct Classic2DSnapshot {
     pub bounds: (Point2, Point2),
 }
 
+// -------------------------------------------------------------------------
+// Producer-side opt-in traits
+// -------------------------------------------------------------------------
+//
+// An environment implements one of these to have the recording layer capture
+// the richer payload instead of falling back to `FamilyPayload::Ascii`.
+// They live beside the shapes they return: a trait whose only method returns
+// a wire type cannot be separated from that type without one crate depending
+// on the other, and `rlevo-core` is a dependency root that must stay one.
+
+/// Producer-side trait. An env implements this when it wants its
+/// recording to ship a `FamilyPayload::Landscape2D` instead of `Ascii`.
+pub trait Landscape2DPayloadSource {
+    /// Returns a [`Landscape2DSnapshot`] capturing the current frame.
+    fn landscape2d_snapshot(&self) -> Landscape2DSnapshot;
+}
+
+/// Producer-side trait. A box2d env implements this when it wants its
+/// recording to ship a `FamilyPayload::Box2D` instead of `Ascii`.
+pub trait Box2dPayloadSource {
+    /// Returns a [`Box2dSnapshot`] capturing the current frame.
+    fn box2d_snapshot(&self) -> Box2dSnapshot;
+}
+
+/// Producer-side trait. A locomotion env implements this to supply the only
+/// rendering pathway in the stack — locomotion envs do not implement
+/// [`AsciiRenderable`], so this payload is the canonical view.
+///
+/// [`AsciiRenderable`]: super::AsciiRenderable
+pub trait Locomotion2DPayloadSource {
+    /// Returns a [`Locomotion2DSnapshot`] capturing the current frame.
+    fn locomotion2d_snapshot(&self) -> Locomotion2DSnapshot;
+}
+
+/// Producer-side trait. A grid env implements this so its recording ships
+/// a `FamilyPayload::Grid` rendered from structured tile state instead of
+/// `Ascii` text.
+pub trait GridPayloadSource {
+    /// Returns a [`GridSnapshot`] capturing the current frame.
+    fn grid_snapshot(&self) -> GridSnapshot;
+}
+
+/// Producer-side trait. A toy-text env implements this so its recording
+/// ships a `FamilyPayload::TabularText` rendered from structured layout
+/// state instead of `Ascii` text.
+pub trait TabularPayloadSource {
+    /// Returns a [`TabularSnapshot`] capturing the current frame.
+    fn tabular_snapshot(&self) -> TabularSnapshot;
+}
+
+/// Producer-side trait. A classic-control env implements this so its
+/// recording ships a `FamilyPayload::Classic2D` rendered as SVG line-art
+/// instead of `Ascii` text.
+pub trait Classic2DPayloadSource {
+    /// Returns a [`Classic2DSnapshot`] capturing the current frame.
+    fn classic2d_snapshot(&self) -> Classic2DSnapshot;
+}
 #[cfg(test)]
 mod tests {
     use super::*;

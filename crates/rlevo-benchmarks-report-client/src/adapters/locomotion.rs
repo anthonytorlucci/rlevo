@@ -1,6 +1,6 @@
 //! Locomotion adapter — the **canonical view** for the family.
 //!
-//! Locomotion envs do not implement `rlevo_core::render::AsciiRenderable`;
+//! Locomotion envs do not implement `rlevo_scene::AsciiRenderable`;
 //! their only
 //! rendering pathway in the entire stack is this SVG adapter consuming
 //! [`FamilyPayload::Locomotion2D`].

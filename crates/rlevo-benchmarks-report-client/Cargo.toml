@@ -14,6 +14,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+rlevo-scene = { path = "../rlevo-scene", version = "0.4.0" }
 # Shared metric registry (ADR-0015): single source of truth for canonical
 # metric names + RL/EO grouping. no_std, wasm-safe, no transitive burn/rand.
 rlevo-metrics-registry = { path = "../rlevo-metrics-registry", version = "0.4.0" }

@@ -407,15 +407,15 @@ fn cart_half_z(config: &InvertedPendulumConfig) -> f32 {
 // `ground_y` is z = 0 — the floor plane the cart rests on.
 // ---------------------------------------------------------------------------
 
-impl rlevo_core::render::Locomotion2DPayloadSource for InvertedPendulum<Rapier3DBackend> {
+impl rlevo_scene::Locomotion2DPayloadSource for InvertedPendulum<Rapier3DBackend> {
     /// Returns a sagittal-plane (x–z) projection of the current physics state.
     ///
     /// Joint 0 is the cart centre; joint 1 is the pole tip, approximated as
     /// `cart_centre + 2 * (pole_centre - cart_centre)`. The single bone
     /// connects them. `ground_y` is `Some(0.0)` (world-z floor plane). `com` is set
     /// to the pole's centre of mass. No contact points are reported.
-    fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
-        use rlevo_core::render::{Locomotion2DSnapshot, Point2};
+    fn locomotion2d_snapshot(&self) -> rlevo_scene::Locomotion2DSnapshot {
+        use rlevo_scene::{Locomotion2DSnapshot, Point2};
 
         let cart_pose = Rapier3DBackend::get_pose(&self.world, self.state.cart);
         let pole_pose = Rapier3DBackend::get_pose(&self.world, self.state.pole);

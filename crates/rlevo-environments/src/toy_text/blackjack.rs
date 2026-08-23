@@ -580,9 +580,9 @@ impl crate::render::AsciiRenderable for Blackjack {
     }
 }
 
-impl rlevo_core::render::payload::TabularPayloadSource for Blackjack {
-    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
-        use rlevo_core::render::payload::{CardTable, TabularLayout, TabularSnapshot};
+impl rlevo_scene::payload::TabularPayloadSource for Blackjack {
+    fn tabular_snapshot(&self) -> rlevo_scene::payload::TabularSnapshot {
+        use rlevo_scene::payload::{CardTable, TabularLayout, TabularSnapshot};
         TabularSnapshot {
             layout: TabularLayout::Cards(CardTable {
                 player_cards: self.state.player_hand.clone(),

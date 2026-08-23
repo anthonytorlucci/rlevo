@@ -745,9 +745,9 @@ fn passenger_label(pass_loc: u8) -> &'static str {
     }
 }
 
-impl rlevo_core::render::payload::TabularPayloadSource for Taxi {
-    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
-        use rlevo_core::render::payload::{
+impl rlevo_scene::payload::TabularPayloadSource for Taxi {
+    fn tabular_snapshot(&self) -> rlevo_scene::payload::TabularSnapshot {
+        use rlevo_scene::payload::{
             TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
             TabularSnapshot,
         };

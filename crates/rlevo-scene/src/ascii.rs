@@ -13,7 +13,10 @@
 //! `rlevo-benchmarks` can still bound on it without a circular package dep.
 //! It is not a supertrait of `Environment`.
 
-use super::{Renderer, StyledFrame};
+use alloc::string::String;
+
+use crate::styled::StyledFrame;
+use crate::Renderer;
 
 /// An environment that can render itself as an ASCII string.
 ///
@@ -56,13 +59,13 @@ pub trait AsciiRenderable {
 ///
 /// Implements [`Renderer<E>`](super::Renderer) for any `E: AsciiRenderable`,
 /// delegating to [`AsciiRenderable::render_ascii`].  Pair with
-/// [`NullRenderer`](crate::render::NullRenderer) when rendering is
+/// [`NullRenderer`](crate::NullRenderer) when rendering is
 /// disabled so the call compiles away entirely.
 ///
 /// # Example
 ///
 /// ```no_run
-/// use rlevo_core::render::{AsciiRenderable, AsciiRenderer, Renderer};
+/// use rlevo_scene::{AsciiRenderable, AsciiRenderer, Renderer};
 ///
 /// struct GridEnv { width: usize, height: usize }
 ///

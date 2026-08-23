@@ -2,7 +2,7 @@
 //!
 //! Two responsibilities:
 //!
-//! 1. Bridge the semantic palette in [`rlevo_core::render::palette`] to
+//! 1. Bridge the semantic palette in [`rlevo_scene::palette`] to
 //!    ready-made `ratatui::style::Style` values. Panels that need an
 //!    "agent" or "hazard" style call into this module rather than mixing
 //!    palette constants with conversion functions at every site.
@@ -22,7 +22,7 @@
 //!   identifiable without colour.
 
 use ratatui::style::{Color as RatColor, Modifier as RatModifier, Style as RatStyle};
-use rlevo_core::render::palette;
+use rlevo_scene::palette;
 
 use crate::tui::convert::{color_to_ratatui, modifier_to_ratatui};
 

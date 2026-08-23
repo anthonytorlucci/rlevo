@@ -464,7 +464,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
 // world origin, so `elbow = 2 * link1_centre` falls straight out of that.
 // ---------------------------------------------------------------------------
 
-impl rlevo_core::render::Locomotion2DPayloadSource for Reacher<Rapier3DBackend> {
+impl rlevo_scene::Locomotion2DPayloadSource for Reacher<Rapier3DBackend> {
     /// Top-down stick figure: shoulder at the origin, elbow, fingertip.
     ///
     /// `ground_y` is `None` — this env has no ground plane, and a line drawn
@@ -476,8 +476,8 @@ impl rlevo_core::render::Locomotion2DPayloadSource for Reacher<Rapier3DBackend> 
     /// has no "point of interest" shape, and a Reacher frame without its target
     /// shows an arm waving at nothing. Recorded as a vocabulary gap rather than
     /// worked around silently.
-    fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
-        use rlevo_core::render::{Locomotion2DSnapshot, Point2};
+    fn locomotion2d_snapshot(&self) -> rlevo_scene::Locomotion2DSnapshot {
+        use rlevo_scene::{Locomotion2DSnapshot, Point2};
 
         let l1 = Rapier3DBackend::get_pose(&self.world, self.state.link1);
         let l2 = Rapier3DBackend::get_pose(&self.world, self.state.link2);

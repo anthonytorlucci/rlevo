@@ -998,13 +998,9 @@ fn style_label_line(line: &str, label: &str) -> crate::render::StyledLine {
     }
 }
 
-impl<D: AcrobotDynamicsFn + Default> rlevo_core::render::payload::Classic2DPayloadSource
-    for Acrobot<D>
-{
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{
-            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
-        };
+impl<D: AcrobotDynamicsFn + Default> rlevo_scene::payload::Classic2DPayloadSource for Acrobot<D> {
+    fn classic2d_snapshot(&self) -> rlevo_scene::payload::Classic2DSnapshot {
+        use rlevo_scene::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
         let l1 = self.config.link_length_1;
         let l2 = self.config.link_length_2;
         let t1 = self.state.theta1; // from downward vertical (0 = hanging down)

@@ -132,7 +132,7 @@ pub fn color_class(color: Color, foreground: bool) -> Option<&'static str> {
 }
 
 /// Decode the [`Modifier`] bit-set into one or more CSS classes. Bit
-/// layout mirrors `rlevo_core::render::Modifier` (BOLD=1, DIM=2,
+/// layout mirrors `rlevo_scene::Modifier` (BOLD=1, DIM=2,
 /// ITALIC=4, UNDERLINED=8, REVERSED=16). Unknown high bits are ignored.
 #[must_use]
 pub fn modifier_classes(modifier: Modifier) -> Vec<&'static str> {

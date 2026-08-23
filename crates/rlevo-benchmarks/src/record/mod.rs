@@ -34,7 +34,7 @@
 //! for the full binary layout.
 //!
 //! [`Environment`]: rlevo_core::environment::Environment
-//! [`AsciiRenderable`]: rlevo_core::render::AsciiRenderable
+//! [`AsciiRenderable`]: rlevo_scene::AsciiRenderable
 //!
 //! [`RecordWriter`]: crate::record::writer::RecordWriter
 //! [`InMemoryRecordSink`]: crate::record::writer::InMemoryRecordSink

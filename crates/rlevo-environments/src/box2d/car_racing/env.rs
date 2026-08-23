@@ -561,7 +561,7 @@ impl CarRacing {
 // through to the ASCII view — which by that same design shows no track at all.
 // ---------------------------------------------------------------------------
 
-impl rlevo_core::render::Box2dPayloadSource for CarRacing {
+impl rlevo_scene::Box2dPayloadSource for CarRacing {
     /// Emits the track tiles overlapping the camera viewport, then the four
     /// wheels, then the car body.
     ///
@@ -575,10 +575,10 @@ impl rlevo_core::render::Box2dPayloadSource for CarRacing {
     /// — the tile-visit state is the task, and it is invisible in the ASCII
     /// tier.
     ///
-    /// [`BodyKind::Goal`]: rlevo_core::render::BodyKind::Goal
-    /// [`BodyKind::Ground`]: rlevo_core::render::BodyKind::Ground
-    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
-        use rlevo_core::render::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
+    /// [`BodyKind::Goal`]: rlevo_scene::BodyKind::Goal
+    /// [`BodyKind::Ground`]: rlevo_scene::BodyKind::Ground
+    fn box2d_snapshot(&self) -> rlevo_scene::Box2dSnapshot {
+        use rlevo_scene::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
 
         let view = self.viewport();
         let mut bodies: Vec<RigidBody2D> = Vec::new();

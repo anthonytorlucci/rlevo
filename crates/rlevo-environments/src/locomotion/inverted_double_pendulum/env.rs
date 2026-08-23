@@ -538,15 +538,15 @@ fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
 // small-angle approximation.
 // ---------------------------------------------------------------------------
 
-impl rlevo_core::render::Locomotion2DPayloadSource for InvertedDoublePendulum<Rapier3DBackend> {
+impl rlevo_scene::Locomotion2DPayloadSource for InvertedDoublePendulum<Rapier3DBackend> {
     /// Sagittal-plane stick figure: cart, lower pole, upper pole.
     ///
     /// `com` is `None`. The three bodies have distinct masses and this env
     /// tracks no centre of mass, so any single body's centre reported as the
     /// system COM would be a plausible-looking wrong number — the field is
     /// optional precisely so an env can decline it.
-    fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
-        use rlevo_core::render::{Locomotion2DSnapshot, Point2};
+    fn locomotion2d_snapshot(&self) -> rlevo_scene::Locomotion2DSnapshot {
+        use rlevo_scene::{Locomotion2DSnapshot, Point2};
 
         let cart = Rapier3DBackend::get_pose(&self.world, self.state.cart);
         let pole1 = Rapier3DBackend::get_pose(&self.world, self.state.pole1);

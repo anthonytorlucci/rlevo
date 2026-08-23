@@ -38,8 +38,8 @@
 //! # let _ = handle;
 //! ```
 //!
-//! [`Color`]: rlevo_core::render::Color
-//! [`SpanStyle`]: rlevo_core::render::SpanStyle
+//! [`Color`]: rlevo_scene::Color
+//! [`SpanStyle`]: rlevo_scene::SpanStyle
 //! [`AppState`]: crate::tui::state::AppState
 
 pub mod convert;

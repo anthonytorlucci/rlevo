@@ -272,9 +272,7 @@ impl<E: RecordedEnvFamily> RecordedEnvFamily for TimeLimit<E> {
 mod tests {
     use crate::record::{Classic2DPayload, FamilyPayload, GridPayload, TabularPayload};
     use rlevo_core::environment::ConstructableEnv;
-    use rlevo_core::render::payload::{
-        Classic2DPayloadSource, GridPayloadSource, TabularPayloadSource,
-    };
+    use rlevo_scene::payload::{Classic2DPayloadSource, GridPayloadSource, TabularPayloadSource};
 
     use super::{
         Acrobot, AdversarialBandit, Blackjack, CartPole, CliffWalking, ContextualBandit,
@@ -347,7 +345,7 @@ mod tests {
     #[cfg(feature = "fixtures-box2d")]
     fn assert_box2d_family<E>()
     where
-        E: ConstructableEnv + rlevo_core::render::payload::Box2dPayloadSource + RecordedEnvFamily,
+        E: ConstructableEnv + rlevo_scene::payload::Box2dPayloadSource + RecordedEnvFamily,
     {
         use crate::record::Box2dPayload;
 
@@ -359,9 +357,7 @@ mod tests {
     #[cfg(feature = "fixtures-locomotion")]
     fn assert_locomotion_family<E>()
     where
-        E: ConstructableEnv
-            + rlevo_core::render::payload::Locomotion2DPayloadSource
-            + RecordedEnvFamily,
+        E: ConstructableEnv + rlevo_scene::payload::Locomotion2DPayloadSource + RecordedEnvFamily,
     {
         use crate::record::Locomotion2DPayload;
 

@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
-use rlevo_core::render::{
+use rlevo_scene::{
     AsciiRenderable, Box2dPayloadSource, Classic2DPayloadSource, GridPayloadSource,
     Landscape2DPayloadSource, Locomotion2DPayloadSource, StyledFrame, TabularPayloadSource,
 };
@@ -336,7 +336,7 @@ where
         self.inner.render_ascii()
     }
 
-    fn render_styled(&self) -> rlevo_core::render::StyledFrame {
+    fn render_styled(&self) -> rlevo_scene::StyledFrame {
         self.inner.render_styled()
     }
 }
@@ -465,8 +465,8 @@ mod tests {
     use parking_lot::Mutex;
     use rlevo_core::base::{Action, Observation, State};
     use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
-    use rlevo_core::render::AsciiRenderable;
     use rlevo_core::reward::ScalarReward;
+    use rlevo_scene::AsciiRenderable;
     use serde::{Deserialize, Serialize};
 
     use super::RecordingTap;
@@ -692,7 +692,7 @@ mod tests {
 
     #[test]
     fn custom_payload_extractor_lands_on_each_frame() {
-        use rlevo_core::render::{Landscape2DSnapshot, Point2};
+        use rlevo_scene::{Landscape2DSnapshot, Point2};
 
         use crate::record::{FamilyPayload, Landscape2DPayload};
 

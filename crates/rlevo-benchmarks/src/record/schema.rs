@@ -12,7 +12,7 @@
 
 use std::collections::BTreeMap;
 
-use rlevo_core::render::{
+use rlevo_scene::{
     Box2dSnapshot, Classic2DBody, Classic2DSnapshot, GridAgentMarker, GridSnapshot, GridTile,
     Landscape2DSnapshot, Locomotion2DSnapshot, Point2, RigidBody2D, StyledFrame, TabularLayout,
     TabularSnapshot,
@@ -131,7 +131,7 @@ pub trait RecordedEnvFamily {
     ///
     /// It must agree with the [`FamilyPayload`] variant the environment
     /// actually emits, via whichever producer-side payload trait it implements
-    /// — [`GridPayloadSource`](rlevo_core::render::GridPayloadSource) means
+    /// — [`GridPayloadSource`](rlevo_scene::GridPayloadSource) means
     /// [`FamilyPayload::Grid`] frames, which only the grids adapter can decode,
     /// hence [`EnvFamily::Grids`]. It is *not* the module the environment lives
     /// in, and not a statement about what kind of task it is.
@@ -197,7 +197,7 @@ pub enum FamilyPayload {
 // Per-family rich payload structs.
 //
 // These are bincode-stable mirrors of the snapshot types in
-// `rlevo_core::render::payload` plus serde derives. They live here so
+// `rlevo_scene::payload` plus serde derives. They live here so
 // the wire layer stays owned by `rlevo-benchmarks`; the core crate has
 // no bincode dependency.
 // ---------------------------------------------------------------------------
@@ -554,7 +554,7 @@ pub type Hyperparameters = BTreeMap<String, String>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rlevo_core::render::{StyledLine, StyledSpan};
+    use rlevo_scene::{StyledLine, StyledSpan};
 
     /// The policy invariant: no backward compatibility is maintained, so the
     /// oldest accepted version is always the current one. This is what must

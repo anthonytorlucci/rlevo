@@ -26,7 +26,7 @@ use rlevo_benchmarks::record::{
 };
 use rlevo_benchmarks_report_client::wire as client;
 use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
-use rlevo_core::render::{
+use rlevo_scene::{
     BodyKind, CardTable, Classic2DBody, Classic2DRole, Classic2DSnapshot, Color, GridAgentMarker,
     GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
     StyledSpan, TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,

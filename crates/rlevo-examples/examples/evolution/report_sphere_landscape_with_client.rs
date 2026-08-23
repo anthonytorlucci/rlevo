@@ -33,7 +33,7 @@ use rlevo_benchmarks::record::{
     RecordingConfig,
 };
 use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
-use rlevo_core::render::{Landscape2DSnapshot, Point2};
+use rlevo_scene::{Landscape2DSnapshot, Point2};
 
 use rlevo_environments::landscapes::sphere::Sphere;
 

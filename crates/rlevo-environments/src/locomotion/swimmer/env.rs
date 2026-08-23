@@ -534,14 +534,14 @@ fn apply_drag_to(world: &mut Rapier3DWorld, handles: [RigidBodyHandle; 3], k: f3
 // place the segments.
 // ---------------------------------------------------------------------------
 
-impl rlevo_core::render::Locomotion2DPayloadSource for Swimmer<Rapier3DBackend> {
+impl rlevo_scene::Locomotion2DPayloadSource for Swimmer<Rapier3DBackend> {
     /// Top-down stick figure: the three-link chain drawn through its four
     /// endpoints.
     ///
     /// `ground_y` is `None` — a swimmer in open water has no ground plane, and
     /// drawing one would put a seabed through the middle of the frame.
-    fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
-        use rlevo_core::render::{Locomotion2DSnapshot, Point2};
+    fn locomotion2d_snapshot(&self) -> rlevo_scene::Locomotion2DSnapshot {
+        use rlevo_scene::{Locomotion2DSnapshot, Point2};
 
         let half_l = self.config.segment_length * 0.5;
 

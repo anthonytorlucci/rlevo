@@ -25,7 +25,7 @@
 #![cfg(feature = "box2d")]
 
 use rlevo_core::environment::Environment;
-use rlevo_core::render::{Box2dPayloadSource, Box2dSnapshot};
+use rlevo_scene::{Box2dPayloadSource, Box2dSnapshot};
 
 use rlevo_environments::box2d::bipedal_walker::action::BipedalWalkerAction;
 use rlevo_environments::box2d::bipedal_walker::config::BipedalWalkerConfig;
@@ -123,7 +123,7 @@ fn bipedal_walker_payload_stays_finite_under_full_throttle() {
 /// segments are what this payload adds over it.
 #[test]
 fn bipedal_walker_payload_carries_hull_legs_and_terrain() {
-    use rlevo_core::render::BodyKind;
+    use rlevo_scene::BodyKind;
 
     let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid");
     env.reset().expect("reset");
@@ -178,7 +178,7 @@ fn no_nan_reaches_the_wire_from_a_diverged_car() {
 /// own comment says the report tier owns track rendering via this payload.
 #[test]
 fn car_racing_payload_carries_the_track() {
-    use rlevo_core::render::BodyKind;
+    use rlevo_scene::BodyKind;
 
     let mut env = CarRacing::with_config(CarRacingConfig::default()).expect("valid");
     env.reset().expect("reset");

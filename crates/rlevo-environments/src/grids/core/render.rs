@@ -13,7 +13,7 @@ use crate::render::palette::{
     AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, HAZARD_FG, HAZARD_MODIFIER, WALL_FG,
 };
 use crate::render::{SpanStyle, StyledFrame, StyledLine, StyledSpan};
-use rlevo_core::render::payload::{
+use rlevo_scene::payload::{
     GridAgentMarker, GridColor, GridDir, GridDoorState, GridSnapshot, GridTile,
 };
 
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn grid_snapshot_projects_tiles_and_agent() {
-        use rlevo_core::render::payload::{GridColor, GridDir, GridTile};
+        use rlevo_scene::payload::{GridColor, GridDir, GridTile};
 
         let mut g = Grid::new(3, 2);
         g.set(0, 0, Entity::Wall);

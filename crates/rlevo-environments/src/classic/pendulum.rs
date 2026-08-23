@@ -647,11 +647,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumActi
     }
 }
 
-impl rlevo_core::render::payload::Classic2DPayloadSource for Pendulum {
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{
-            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
-        };
+impl rlevo_scene::payload::Classic2DPayloadSource for Pendulum {
+    fn classic2d_snapshot(&self) -> rlevo_scene::payload::Classic2DSnapshot {
+        use rlevo_scene::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
         let l = self.config.l;
         let theta = self.state.theta; // 0 = upright, measured from up vertical
         // Tip: upright (+y) at theta=0; +theta rotates clockwise.

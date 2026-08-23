@@ -733,8 +733,8 @@ impl BipedalWalker {
 impl BipedalWalker {
     /// Local-frame corners of an axis-aligned box with the given half-extents,
     /// counter-clockwise as `RigidBody2D::vertices` requires.
-    fn box_vertices(hw: f32, hh: f32) -> Vec<rlevo_core::render::Point2> {
-        use rlevo_core::render::Point2;
+    fn box_vertices(hw: f32, hh: f32) -> Vec<rlevo_scene::Point2> {
+        use rlevo_scene::Point2;
         vec![
             Point2::new(-hw, -hh),
             Point2::new(hw, -hh),
@@ -744,7 +744,7 @@ impl BipedalWalker {
     }
 }
 
-impl rlevo_core::render::Box2dPayloadSource for BipedalWalker {
+impl rlevo_scene::Box2dPayloadSource for BipedalWalker {
     /// Emits the hull, the four leg segments, and every terrain segment
     /// overlapping the camera viewport.
     ///
@@ -761,8 +761,8 @@ impl rlevo_core::render::Box2dPayloadSource for BipedalWalker {
     /// carries its own "use a long flat cuboid for now" note — and emitting
     /// the slab here would hide it behind an unreadable viewport rather than
     /// fix it.
-    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
-        use rlevo_core::render::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
+    fn box2d_snapshot(&self) -> rlevo_scene::Box2dSnapshot {
+        use rlevo_scene::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
 
         let view = self.viewport();
         let mut bodies: Vec<RigidBody2D> = Vec::new();

@@ -919,11 +919,9 @@ impl CartPoleState {
     }
 }
 
-impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{
-            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
-        };
+impl rlevo_scene::payload::Classic2DPayloadSource for CartPole {
+    fn classic2d_snapshot(&self) -> rlevo_scene::payload::Classic2DSnapshot {
+        use rlevo_scene::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
         let x = self.state.x;
         let theta = self.state.theta; // 0 = upright, +clockwise
         let xt = self.config.x_threshold;
@@ -1023,7 +1021,7 @@ mod tests {
 
     #[test]
     fn classic2d_snapshot_has_track_cart_pole_and_upright_pole_at_theta_zero() {
-        use rlevo_core::render::payload::{Classic2DPayloadSource, Classic2DRole};
+        use rlevo_scene::payload::{Classic2DPayloadSource, Classic2DRole};
 
         let mut env = default_env();
         env.state.x = 0.0;

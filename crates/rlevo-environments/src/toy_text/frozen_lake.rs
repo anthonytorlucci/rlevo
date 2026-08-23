@@ -893,9 +893,9 @@ const fn tile_char(t: Tile) -> char {
     }
 }
 
-impl rlevo_core::render::payload::TabularPayloadSource for FrozenLake {
-    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
-        use rlevo_core::render::payload::{
+impl rlevo_scene::payload::TabularPayloadSource for FrozenLake {
+    fn tabular_snapshot(&self) -> rlevo_scene::payload::TabularSnapshot {
+        use rlevo_scene::payload::{
             TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
             TabularSnapshot,
         };
@@ -971,7 +971,7 @@ mod tests {
 
     #[test]
     fn tabular_snapshot_projects_grid_and_agent() {
-        use rlevo_core::render::payload::{
+        use rlevo_scene::payload::{
             TabularCell, TabularLayout, TabularMarkerKind, TabularPayloadSource,
         };
 

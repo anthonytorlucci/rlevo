@@ -19,12 +19,12 @@
 //! [`TuiEvent::EpisodeReturn`]: crate::reporter::tui::TuiEvent::EpisodeReturn
 
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
-use rlevo_core::render::payload::{
+use rlevo_scene::payload::{
     Box2dPayloadSource, Box2dSnapshot, Classic2DPayloadSource, Classic2DSnapshot,
     GridPayloadSource, GridSnapshot, Landscape2DPayloadSource, Landscape2DSnapshot,
     Locomotion2DPayloadSource, Locomotion2DSnapshot, TabularPayloadSource, TabularSnapshot,
 };
-use rlevo_core::render::{AsciiRenderable, StyledFrame};
+use rlevo_scene::{AsciiRenderable, StyledFrame};
 
 use crate::reporter::tui::TuiHandle;
 
@@ -280,8 +280,8 @@ mod tests {
 
     use rlevo_core::base::{Action, Observation, State};
     use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
-    use rlevo_core::render::AsciiRenderable;
     use rlevo_core::reward::ScalarReward;
+    use rlevo_scene::AsciiRenderable;
 
     use super::TuiEnvTap;
     use crate::reporter::tui::{TuiEvent, TuiHandle};

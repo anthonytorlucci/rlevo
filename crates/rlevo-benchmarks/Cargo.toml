@@ -12,6 +12,7 @@ categories.workspace = true
 build = "build.rs"
 
 [dependencies]
+rlevo-scene = { path = "../rlevo-scene", version = "0.4.0" }
 rlevo-core = { path = "../rlevo-core", version = "0.4.0" }
 # Shared single-source-of-truth metric registry (ADR-0015). Tiny no_std
 # leaf crate, also depended on by the WASM report client.

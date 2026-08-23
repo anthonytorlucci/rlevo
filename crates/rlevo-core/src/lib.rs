@@ -21,7 +21,6 @@
 //! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
 //! | [`probability`] | [`Probability`] — a `[0, 1]` rate valid by construction (rejects `NaN`, `Inf`, out-of-range) |
 //! | [`rate`] | [`NonNegativeRate`] — a finite non-negative magnitude valid by construction (BLX-α, σ) |
-//! | [`render`] | [`AsciiRenderable`], [`Renderer`](crate::render::Renderer), styled/palette/payload sub-modules — optional debug and TUI visualization layer |
 //! | [`agent`] | Reserved; empty while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
 //!
@@ -94,8 +93,6 @@
 //! [`Bounds`]: crate::bounds::Bounds
 //! [`Probability`]: crate::probability::Probability
 //! [`NonNegativeRate`]: crate::rate::NonNegativeRate
-//! [`AsciiRenderable`]: crate::render::AsciiRenderable
-//! [`Renderer`]: crate::render::Renderer
 
 /// Primitive trait vocabulary: [`Reward`], [`Observation`], [`State`],
 /// [`Action`], [`HostRow`], [`TensorConvertible`], and [`UpdateFunction`].
@@ -222,20 +219,6 @@ pub mod probability;
 /// [`NonNegativeRateError`]: crate::rate::NonNegativeRateError
 /// [`Probability`]: crate::probability::Probability
 pub mod rate;
-
-/// Optional rendering layer for debug output and TUI visualization.
-///
-/// Contains [`AsciiRenderable`], [`Renderer`] (via the [`ascii`] sub-module),
-/// styled color primitives ([`styled`] / [`palette`]), and environment
-/// payload types ([`payload`]).
-///
-/// [`AsciiRenderable`]: crate::render::AsciiRenderable
-/// [`Renderer`]: crate::render::Renderer
-/// [`ascii`]: crate::render::ascii
-/// [`styled`]: crate::render::styled
-/// [`palette`]: crate::render::palette
-/// [`payload`]: crate::render::payload
-pub mod render;
 
 /// Concrete reward types.
 ///

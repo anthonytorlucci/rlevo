@@ -41,7 +41,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use rlevo_core::environment::Environment;
-use rlevo_core::render::payload::{
+use rlevo_scene::payload::{
     Box2dPayloadSource, Classic2DPayloadSource, GridPayloadSource, Landscape2DPayloadSource,
     Locomotion2DPayloadSource, TabularPayloadSource,
 };
@@ -110,32 +110,32 @@ fn timelimit_forwards_every_payload_source() {
 enum AnySource {}
 
 impl Classic2DPayloadSource for AnySource {
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+    fn classic2d_snapshot(&self) -> rlevo_scene::payload::Classic2DSnapshot {
         match *self {}
     }
 }
 impl GridPayloadSource for AnySource {
-    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+    fn grid_snapshot(&self) -> rlevo_scene::payload::GridSnapshot {
         match *self {}
     }
 }
 impl TabularPayloadSource for AnySource {
-    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
+    fn tabular_snapshot(&self) -> rlevo_scene::payload::TabularSnapshot {
         match *self {}
     }
 }
 impl Box2dPayloadSource for AnySource {
-    fn box2d_snapshot(&self) -> rlevo_core::render::payload::Box2dSnapshot {
+    fn box2d_snapshot(&self) -> rlevo_scene::payload::Box2dSnapshot {
         match *self {}
     }
 }
 impl Locomotion2DPayloadSource for AnySource {
-    fn locomotion2d_snapshot(&self) -> rlevo_core::render::payload::Locomotion2DSnapshot {
+    fn locomotion2d_snapshot(&self) -> rlevo_scene::payload::Locomotion2DSnapshot {
         match *self {}
     }
 }
 impl Landscape2DPayloadSource for AnySource {
-    fn landscape2d_snapshot(&self) -> rlevo_core::render::payload::Landscape2DSnapshot {
+    fn landscape2d_snapshot(&self) -> rlevo_scene::payload::Landscape2DSnapshot {
         match *self {}
     }
 }
@@ -225,9 +225,14 @@ fn workspace_root() -> &'static Path {
         .expect("crates/rlevo always has two ancestors")
 }
 
-/// Every `pub trait *PayloadSource` declared in `rlevo-core`.
+/// Every `pub trait *PayloadSource` declared in `rlevo-scene`.
+///
+/// Reads the source off disk rather than reflecting over the crate, so a trait
+/// added without a forwarder is caught. That also makes the path load bearing:
+/// it moved from `rlevo-core/src/render/payload.rs` when the render surface left
+/// core (ADR 0081), and this test is what noticed.
 fn declared_payload_sources() -> Vec<String> {
-    let path = workspace_root().join("crates/rlevo-core/src/render/payload.rs");
+    let path = workspace_root().join("crates/rlevo-scene/src/payload.rs");
     let src =
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
 

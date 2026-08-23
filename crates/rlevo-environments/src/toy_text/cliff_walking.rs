@@ -562,9 +562,9 @@ fn cell_char(row: u8, col: u8, agent_row: u8, agent_col: u8) -> char {
     }
 }
 
-impl rlevo_core::render::payload::TabularPayloadSource for CliffWalking {
-    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
-        use rlevo_core::render::payload::{
+impl rlevo_scene::payload::TabularPayloadSource for CliffWalking {
+    fn tabular_snapshot(&self) -> rlevo_scene::payload::TabularSnapshot {
+        use rlevo_scene::payload::{
             TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
             TabularSnapshot,
         };

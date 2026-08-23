@@ -124,9 +124,9 @@ screenshot of the report still reads.
 
 Envs become payload sources by implementing one of:
 
-- `rlevo_core::render::Landscape2DPayloadSource`
-- `rlevo_core::render::Box2dPayloadSource`
-- `rlevo_core::render::Locomotion2DPayloadSource`
+- `rlevo_scene::Landscape2DPayloadSource`
+- `rlevo_scene::Box2dPayloadSource`
+- `rlevo_scene::Locomotion2DPayloadSource`
 
 `RecordingTap` then exposes per-family convenience constructors —
 `with_landscape_payload(env, sink)` / `with_box2d_payload(env, sink)` /

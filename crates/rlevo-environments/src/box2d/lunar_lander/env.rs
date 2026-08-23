@@ -749,8 +749,8 @@ impl crate::render::AsciiRenderable for LunarLanderDiscrete {
 // ---------------------------------------------------------------------------
 
 impl LunarLanderCore {
-    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
-        use rlevo_core::render::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
+    fn box2d_snapshot(&self) -> rlevo_scene::Box2dSnapshot {
+        use rlevo_scene::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
 
         let view = lander_viewport();
         let world = &self.world;
@@ -832,14 +832,14 @@ impl LunarLanderCore {
     }
 }
 
-impl rlevo_core::render::Box2dPayloadSource for LunarLanderDiscrete {
-    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+impl rlevo_scene::Box2dPayloadSource for LunarLanderDiscrete {
+    fn box2d_snapshot(&self) -> rlevo_scene::Box2dSnapshot {
         self.core.box2d_snapshot()
     }
 }
 
-impl rlevo_core::render::Box2dPayloadSource for LunarLanderContinuous {
-    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+impl rlevo_scene::Box2dPayloadSource for LunarLanderContinuous {
+    fn box2d_snapshot(&self) -> rlevo_scene::Box2dSnapshot {
         self.core.box2d_snapshot()
     }
 }

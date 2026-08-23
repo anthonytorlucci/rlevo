@@ -800,7 +800,7 @@ impl RecordSink for InMemoryRecordSink {
 mod tests {
     use super::*;
     use crate::record::schema::{CheckpointFormat, CheckpointKind};
-    use rlevo_core::render::{StyledFrame, StyledLine, StyledSpan};
+    use rlevo_scene::{StyledFrame, StyledLine, StyledSpan};
     use tempfile::tempdir;
 
     fn frame(step: u32, reward: f32) -> FrameRecord {

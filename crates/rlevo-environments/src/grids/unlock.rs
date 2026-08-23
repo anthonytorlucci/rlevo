@@ -484,8 +484,8 @@ impl Environment<3, 3, 1> for UnlockEnv {
     }
 }
 
-impl rlevo_core::render::payload::GridPayloadSource for UnlockEnv {
-    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+impl rlevo_scene::payload::GridPayloadSource for UnlockEnv {
+    fn grid_snapshot(&self) -> rlevo_scene::payload::GridSnapshot {
         crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
     }
 }

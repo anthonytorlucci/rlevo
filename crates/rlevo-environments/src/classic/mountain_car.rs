@@ -611,11 +611,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarA
     }
 }
 
-impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCar {
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{
-            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
-        };
+impl rlevo_scene::payload::Classic2DPayloadSource for MountainCar {
+    fn classic2d_snapshot(&self) -> rlevo_scene::payload::Classic2DSnapshot {
+        use rlevo_scene::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
         // Terrain profile y = sin(3x), sampled across the track.
         const SAMPLES: usize = 48;
         let (lo, hi) = (self.config.pos_bounds.lo(), self.config.pos_bounds.hi());
