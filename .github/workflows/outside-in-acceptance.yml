@@ -71,7 +71,7 @@ jobs:
       # The probes build burn + wgpu + rapier from source; without a cache these
       # are the slowest jobs in the repo by a wide margin. Both probes stage the
       # same crate list, so they share one cache key.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: outside-in-acceptance
 
