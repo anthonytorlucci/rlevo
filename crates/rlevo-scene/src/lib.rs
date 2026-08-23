@@ -68,7 +68,13 @@
 //! | [`styled`] | [`StyledFrame`] and friends — the colour-aware text projection both the TUI and the report render |
 //! | [`palette`] | semantic colour constants over [`Color`] |
 //! | [`payload`] | the per-family snapshot shapes a frame can carry, plus the opt-in `*PayloadSource` traits that produce them |
+//! | [`scene`] | the 3-D-native scene payload replacing them — geometry recorded once, poses per frame |
 //! | [`ascii`] | [`AsciiRenderable`] / [`AsciiRenderer`] — the optional plain-text tier |
+//!
+//! [`payload`] and [`scene`] overlap on purpose and only for now. ADR 0082
+//! migrates every continuous-geometry family onto [`scene`] and deletes the
+//! per-family snapshots it supersedes; both exist while the producers move
+//! across, one family at a time, each against golden-frame tests.
 //!
 //! # `Bounds` stays in `rlevo-core`
 //!
@@ -96,6 +102,7 @@ pub mod ascii;
 pub mod codec;
 pub mod palette;
 pub mod payload;
+pub mod scene;
 pub mod schema;
 pub mod styled;
 
@@ -107,6 +114,10 @@ pub use payload::{
     GridPayloadSource, GridSnapshot, GridTile, Landscape2DPayloadSource, Landscape2DSnapshot,
     Locomotion2DPayloadSource, Locomotion2DSnapshot, Point2, RigidBody2D, TabularCell, TabularGrid,
     TabularLayout, TabularMarker, TabularMarkerKind, TabularPayloadSource, TabularSnapshot,
+};
+pub use scene::{
+    Bone, Extent, ExtentError, Geometry, NodeId, Point3, SceneDescriptor, SceneNode,
+    ScenePayloadSource, ScenePose, Transform3,
 };
 pub use schema::{
     CheckpointFormat, CheckpointKind, CheckpointRef, EnvFamily, EpisodeKind, EpisodeRecord,

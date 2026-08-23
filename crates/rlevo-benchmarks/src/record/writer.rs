@@ -36,6 +36,7 @@ use super::schema::{
 // privately here. It used to exist twice -- this copy and a public one in the
 // client's `wire.rs` -- so the framing was forked as well as the payloads.
 use rlevo_scene::codec::RecordChunk;
+use rlevo_scene::scene::SceneDescriptor;
 
 /// Per-run configuration: the writer materialises this once at the
 /// start and re-uses it for every episode. `frame_stride = None`
@@ -101,6 +102,23 @@ pub trait RecordSink: Send + 'static {
     /// generation; RL producers never call it. Default no-op so impls
     /// outside the EA path don't need a stub.
     fn on_population_sample(&mut self, _sample: PopulationSample) {}
+
+    /// Declares the episode's static scene geometry, once, after
+    /// [`on_episode_start`](Self::on_episode_start) and before the first
+    /// [`on_frame`](Self::on_frame).
+    ///
+    /// Only producers emitting [`FamilyPayload::Scene`](rlevo_scene::FamilyPayload::Scene)
+    /// call this; a per-frame
+    /// [`ScenePose`](rlevo_scene::ScenePose) addresses nodes only the
+    /// descriptor declares, so a run that ships poses without a descriptor
+    /// renders nothing.
+    ///
+    /// **Additive and defaulted, rather than a new parameter on
+    /// `on_episode_start`.** `RecordSink` is public with unbounded
+    /// implementors: changing an existing signature breaks every one of them,
+    /// including third-party sinks, to serve producers that do not emit scenes.
+    /// A defaulted method breaks nobody and forces nobody to care.
+    fn on_scene(&mut self, _descriptor: SceneDescriptor) {}
 
     /// Take the first error the sink encountered during the run, clearing
     /// it. Writes are best-effort and non-fatal *during* the run (they log
@@ -515,6 +533,33 @@ impl RecordSink for RecordWriter {
         }
     }
 
+    fn on_scene(&mut self, descriptor: SceneDescriptor) {
+        if self.reject_concurrent_use() {
+            return;
+        }
+        // Structural check at the producer, in debug builds only. A malformed
+        // descriptor — a bone indexing past its vertex pool, a duplicate node
+        // id, a never-normalised quaternion — otherwise surfaces as a wrong or
+        // absent picture in the WASM report client, which is the worst place in
+        // the stack to debug it. Release keeps writing: a partly-wrong picture
+        // beats a lost recording.
+        debug_assert!(
+            descriptor.is_consistent(),
+            "scene descriptor fails its own structural invariants; \
+             see SceneDescriptor::is_consistent",
+        );
+        let Some(current) = self.current.as_mut() else {
+            return;
+        };
+        let res = write_chunk_raw(&mut current.writer, &RecordChunk::Scene(descriptor));
+        if let Err(e) = res {
+            self.record_error(RecordError::Io {
+                context: "write scene chunk",
+                source: e,
+            });
+        }
+    }
+
     fn on_episode_end(&mut self, return_value: f64, length: u32) {
         if self.reject_concurrent_use() {
             return;
@@ -625,11 +670,17 @@ pub fn read_episode_record(path: &Path) -> io::Result<EpisodeRecord> {
     let mut frames = Vec::new();
     let mut metrics = Vec::new();
     let mut population_samples = Vec::new();
+    let mut scene = None;
     while let Some(chunk) = read_chunk::<RecordChunk, _>(&mut f)? {
         match chunk {
             RecordChunk::Frame(fr) => frames.push(fr),
             RecordChunk::Metrics(ms) => metrics.extend(ms),
             RecordChunk::Population(ps) => population_samples.push(ps),
+            // First descriptor wins, matching `decode_episode_record`. The two
+            // decoders must agree: this one is the round-trip test's reader and
+            // the other is the report client's, so a divergence would make the
+            // tests assert something the client never does.
+            RecordChunk::Scene(sd) => scene = scene.or(Some(sd)),
         }
     }
     Ok(EpisodeRecord {
@@ -637,6 +688,7 @@ pub fn read_episode_record(path: &Path) -> io::Result<EpisodeRecord> {
         frames,
         metrics,
         population_samples,
+        scene,
     })
 }
 
@@ -737,6 +789,7 @@ impl RecordSink for InMemoryRecordSink {
                 frames: Vec::new(),
                 metrics: Vec::new(),
                 population_samples: Vec::new(),
+                scene: None,
             },
         );
     }
@@ -759,6 +812,22 @@ impl RecordSink for InMemoryRecordSink {
             && let Some(ep) = self.episodes.get_mut(&idx)
         {
             ep.population_samples.push(sample);
+        }
+    }
+    /// Overridden rather than left defaulted: this sink is what tests assert
+    /// against, and the default no-op would make every scene-producer test pass
+    /// by discarding what it was meant to check.
+    ///
+    /// First descriptor wins, as both file decoders do. No `debug_assert!` on
+    /// consistency here — [`RecordWriter`] carries that check, and duplicating
+    /// it would make an in-memory test that *deliberately* feeds a malformed
+    /// descriptor unable to observe what the writer does with one.
+    fn on_scene(&mut self, descriptor: SceneDescriptor) {
+        if let Some(idx) = self.current
+            && let Some(ep) = self.episodes.get_mut(&idx)
+            && ep.scene.is_none()
+        {
+            ep.scene = Some(descriptor);
         }
     }
     fn on_episode_end(&mut self, _return_value: f64, _length: u32) {

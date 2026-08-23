@@ -809,6 +809,7 @@ mod tests {
             frames: vec![],
             metrics,
             population_samples: vec![],
+            scene: None,
         }
     }
 
@@ -886,6 +887,7 @@ mod tests {
             frames: (0..frames).map(|s| frame(s, 0.0)).collect(),
             metrics,
             population_samples: vec![],
+            scene: None,
         }
     }
 
@@ -1134,6 +1136,7 @@ mod tests {
             frames,
             metrics,
             population_samples: Vec::new(),
+            scene: None,
         }
     }
 

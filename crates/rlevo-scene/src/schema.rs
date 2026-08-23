@@ -40,17 +40,18 @@ use crate::payload::{
     Box2dSnapshot, Classic2DSnapshot, GridSnapshot, Landscape2DSnapshot, Locomotion2DSnapshot,
     TabularSnapshot,
 };
+use crate::scene::{SceneDescriptor, ScenePose};
 use crate::styled::StyledFrame;
 
 /// Current on-disk schema version. The writer stamps this into every
 /// [`EpisodeRecordHeader`]; the loader rejects any file that does not
 /// carry exactly this value.
-pub const FORMAT_VERSION: u16 = 8;
+pub const FORMAT_VERSION: u16 = 9;
 
 /// Oldest on-disk version this loader accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility is maintained
 /// before the first production release.
-pub const MIN_SUPPORTED_VERSION: u16 = 8;
+pub const MIN_SUPPORTED_VERSION: u16 = 9;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -120,6 +121,17 @@ pub enum FamilyPayload {
     /// Structured 2-D line-art for `classic` physics envs (`CartPole` /
     /// `Pendulum` / `MountainCar` / `Acrobot`). Added in `FORMAT_VERSION = 5`.
     Classic2D(Classic2DSnapshot),
+    /// Per-frame placements for a scene whose geometry was recorded once, at
+    /// episode start, as a [`SceneDescriptor`] in
+    /// [`RecordChunk::Scene`](crate::codec::RecordChunk::Scene). Added in
+    /// `FORMAT_VERSION = 9`.
+    ///
+    /// This is the variant every continuous-geometry family migrates onto:
+    /// `Landscape2D`, `Box2dBodies`, `Locomotion2D`, and `Classic2D` all
+    /// describe the same thing — posed geometry in a viewport — through four
+    /// shapes, four client adapters, and four tap constructors. They are
+    /// retained while their producers move across one family at a time.
+    Scene(ScenePose),
 }
 
 /// Identifies the harness trial that produced an episode.
@@ -314,6 +326,16 @@ pub struct EpisodeRecord {
     /// EA population snapshots; empty for RL-only runs.
     #[serde(default)]
     pub population_samples: Vec<PopulationSample>,
+    /// Static scene geometry, recorded once at episode start. `None` for every
+    /// producer that has not migrated to [`FamilyPayload::Scene`].
+    ///
+    /// Singular, not a list: an episode describes one scene, and a second
+    /// descriptor in the same file means a producer re-declared its geometry
+    /// mid-episode. The decoder keeps the first and ignores the rest rather
+    /// than failing, since a pose keyed against the first descriptor is still
+    /// renderable. Added in `FORMAT_VERSION = 9`.
+    #[serde(default)]
+    pub scene: Option<SceneDescriptor>,
 }
 
 /// Free-form hyperparameter map captured in the run manifest. Per-algorithm
@@ -346,21 +368,23 @@ mod tests {
         );
     }
 
-    /// Tripwire against an *accidental* bump — the version is mirrored in
-    /// `rlevo-benchmarks-report-client/src/wire.rs` and stamped into the built
-    /// WASM bundle, so a stray edit here silently invalidates every recording
-    /// a reader might still hold.
+    /// Tripwire against an *accidental* bump. The version is stamped into every
+    /// recording and into the built WASM bundle, and
+    /// [`MIN_SUPPORTED_VERSION`] moves with it, so a stray edit here silently
+    /// invalidates every recording a reader might still hold.
     ///
     /// Deliberately named without the number in it. The previous name spelled
     /// the version out (`..._is_seven_and_min_supported_is_seven`), so every
     /// bump renamed the test as well as editing it — the same name-drift this
     /// suite avoids everywhere else.
     ///
-    /// Bumping is legitimate. When you do: update this literal, the mirror in
-    /// the client, and the changelog row in `wire.rs` that says what changed.
+    /// Bumping is legitimate; it is a *coordination* point, not a prohibition.
+    /// When you do, update this literal and the changelog table in the crate
+    /// docs. The client no longer keeps a copy of the constant to update —
+    /// there is one definition now.
     #[test]
     fn format_version_is_pinned() {
-        assert_eq!(FORMAT_VERSION, 8);
+        assert_eq!(FORMAT_VERSION, 9);
     }
 
     #[test]
@@ -532,6 +556,7 @@ mod tests {
             frames: vec![sample_frame(), sample_frame()],
             metrics: vec![sample_metric()],
             population_samples: vec![sample_population()],
+            scene: None,
         };
         let bytes = bincode::serde::encode_to_vec(&rec, bincode_config()).unwrap();
         let (decoded, _): (EpisodeRecord, usize) =

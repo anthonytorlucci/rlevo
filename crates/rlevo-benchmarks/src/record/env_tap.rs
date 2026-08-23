@@ -25,7 +25,8 @@ use parking_lot::Mutex;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_scene::{
     AsciiRenderable, Box2dPayloadSource, Classic2DPayloadSource, GridPayloadSource,
-    Landscape2DPayloadSource, Locomotion2DPayloadSource, StyledFrame, TabularPayloadSource,
+    Landscape2DPayloadSource, Locomotion2DPayloadSource, SceneDescriptor, ScenePayloadSource,
+    StyledFrame, TabularPayloadSource,
 };
 
 use super::action::RecordableAction;
@@ -51,6 +52,14 @@ pub type AsciiExtractor<E> = Box<dyn Fn(&E) -> Option<String> + Send + Sync>;
 /// the `locomotion` family is the canonical example.
 pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Sync>;
 
+/// Boxed extractor for the once-per-episode scene geometry.
+///
+/// `None` for every tap that does not emit `FamilyPayload::Scene`, which is
+/// what keeps the descriptor call off the path of producers that have no scene
+/// to declare. Set by
+/// [`RecordingTap::with_scene_payload`](RecordingTap::with_scene_payload).
+pub type SceneExtractor<E> = Option<Box<dyn Fn(&E) -> SceneDescriptor + Send + Sync>>;
+
 /// Environment wrapper that records every reset and step to a [`RecordSink`].
 ///
 /// Pushes a [`FrameRecord`] after every successful `reset` / `step`,
@@ -74,6 +83,9 @@ pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     payload_extractor: PayloadExtractor<E>,
     ascii_extractor: AsciiExtractor<E>,
     styled_extractor: StyledExtractor<E>,
+    /// Fired once per episode, between `on_episode_start` and the reset
+    /// frame. `None` for every non-scene producer.
+    scene_extractor: SceneExtractor<E>,
     step_idx: u32,
     episode_idx: u32,
     episode_return: f64,
@@ -130,6 +142,7 @@ where
             payload_extractor: Box::new(extractor),
             ascii_extractor: Box::new(|e: &E| Some(e.render_ascii())),
             styled_extractor: Box::new(|e: &E| Some(e.render_styled())),
+            scene_extractor: None,
             step_idx: 0,
             episode_idx: 0,
             episode_return: 0.0,
@@ -156,6 +169,7 @@ impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD,
             payload_extractor: Box::new(payload),
             ascii_extractor: Box::new(|_: &E| None),
             styled_extractor: Box::new(|_: &E| None),
+            scene_extractor: None,
             step_idx: 0,
             episode_idx: 0,
             episode_return: 0.0,
@@ -301,6 +315,56 @@ where
     }
 }
 
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: ScenePayloadSource + 'static,
+{
+    /// Convenience constructor for envs that describe themselves as a scene:
+    /// declares the geometry once per episode via
+    /// [`ScenePayloadSource::scene_descriptor`] and captures a
+    /// [`ScenePose`](rlevo_scene::ScenePose) per frame.
+    ///
+    /// This is the constructor the four per-family ones collapse into. They
+    /// each ship a payload that is geometry *and* pose fused together and
+    /// re-sent every frame; splitting them lets the descriptor be written once,
+    /// which is what makes a 3-D record affordable at all.
+    ///
+    /// Uses [`new_headless`](Self::new_headless): a scene is a complete
+    /// rendering surface, so no `ascii` / `styled` text is captured (ADR 0013).
+    /// An env that wants both can call
+    /// [`with_payload_extractor`](Self::with_payload_extractor) and
+    /// [`with_scene_descriptor`](Self::with_scene_descriptor) itself.
+    pub fn with_scene_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
+    where
+        E: Environment<D, SD, AD>,
+        E::ActionType: RecordableAction,
+    {
+        Self::new_headless(inner, sink, |e| FamilyPayload::Scene(e.scene_pose()))
+            .with_scene_descriptor(E::scene_descriptor)
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD> {
+    /// Attach a once-per-episode scene-geometry hook to an already-built tap.
+    ///
+    /// Called between [`RecordSink::on_episode_start`] and the reset frame, so
+    /// the descriptor is in the stream before any pose that keys against it.
+    ///
+    /// Separate from the payload extractor because the two run at different
+    /// rates — that difference is the entire point of the scene split — and
+    /// exposed on its own so a tap that captures ASCII *and* a scene is
+    /// expressible. [`with_scene_payload`](Self::with_scene_payload) is the
+    /// path most callers want.
+    #[must_use]
+    pub fn with_scene_descriptor<F>(mut self, descriptor: F) -> Self
+    where
+        F: Fn(&E) -> SceneDescriptor + Send + Sync + 'static,
+    {
+        self.scene_extractor = Some(Box::new(descriptor));
+        self
+    }
+}
+
 impl<E, const D: usize, const SD: usize, const AD: usize> std::fmt::Debug
     for RecordingTap<E, D, SD, AD>
 where
@@ -313,6 +377,13 @@ where
             .field("payload_extractor", &"Box<dyn Fn>")
             .field("ascii_extractor", &"Box<dyn Fn>")
             .field("styled_extractor", &"Box<dyn Fn>")
+            .field(
+                "scene_extractor",
+                match self.scene_extractor {
+                    Some(_) => &"Some(Box<dyn Fn>)",
+                    None => &"None",
+                },
+            )
             .field("step_idx", &self.step_idx)
             .field("episode_idx", &self.episode_idx)
             .field("episode_return", &self.episode_return)
@@ -394,6 +465,13 @@ where
         self.episode_return = 0.0;
         self.episode_length = 0;
         self.sink.lock().on_episode_start(self.episode_idx);
+        // Geometry before the first pose that keys against it. A scene sink
+        // that saw a pose first would have nothing to resolve its node ids
+        // against, and the reset frame carries one.
+        if let Some(extract) = self.scene_extractor.as_ref() {
+            let descriptor = extract(&self.inner);
+            self.sink.lock().on_scene(descriptor);
+        }
         self.capture_frame(Vec::new(), 0.0);
         Ok(snap)
     }

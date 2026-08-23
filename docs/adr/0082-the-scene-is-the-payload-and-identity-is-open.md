@@ -10,8 +10,15 @@ tags: [adr, decision, architecture, record-schema, wire-format, rendering, rlevo
 
 ## Status
 
-**Accepted (2026-08-23). Nothing implemented yet** — this ADR records the
-decision; the work is sequenced in the BYOE spec's Phase 3.
+**Accepted (2026-08-23). Decision 4 implemented; decisions 1, 2, 3, 5, 6, 7
+outstanding.** Sequence steps 1–3 have landed: the golden-frame tests, the scene
+types in `rlevo-scene`, `ScenePayloadSource`, `RecordSink::on_scene`,
+`FamilyPayload::Scene`, and the single `FORMAT_VERSION` bump 8 → 9. No producer
+has migrated yet, so every existing family payload is still live and the scene
+path has one synthetic producer — the test fixture — behind it.
+
+Six clauses of this ADR were contradicted by implementing it; they are tabulated
+under *Amendments from implementation* rather than edited away.
 
 **Accepted with #276 open by design** (decision 8). If that fork later resolves to
 "plumb `SnapshotMetadata` to the record tier", it costs a second `FORMAT_VERSION`
@@ -465,6 +472,10 @@ verification is opening four reports and looking.
 2. Scene types in `rlevo-scene` (ADR 0081); `ScenePayloadSource` in
    `rlevo-core::render`; `RecordSink::on_scene`.
 3. `FamilyPayload::Scene`, one `FORMAT_VERSION` bump, wire mirror, `wire_format_compat`.
+
+> **Amended 2026-08-23**, when steps 1–3 landed. Steps 1 and 3 are as written;
+> step 2's address is wrong and its trait is under-specified. Corrections are
+> tabulated in *Amendments from implementation* below.
 4. **Locomotion first** — it is the 3-D case and the only adapter with prior coverage.
 5. `Classic2D` and `Box2d`; delete four adapters, four tap constructors, the
    `TimeLimit` and `TuiEnvTap` forwardings, and shrink
@@ -531,6 +542,28 @@ default.
 This ADR does **not**: add a renderer-registration or plugin seam (BYOE-3); name a
 3-D engine; migrate `Grid` or `TabularText`; or resolve **#276**.
 
+## Amendments from implementation
+
+Added 2026-08-23, when decision 4's types landed. Each row quotes what this ADR
+said and states what is true, so the original decision stays readable and the
+correction is not buried in a rewrite.
+
+| Clause | This ADR said | What landed | Why |
+|---|---|---|---|
+| `ScenePayloadSource`'s address | *"joins the surviving `*PayloadSource` traits in `rlevo-core::render`"* | `rlevo-scene::scene` | `rlevo-core::render` no longer exists. ADR 0081's implementation moved the whole module — including all six `*PayloadSource` traits — into the leaf, because a trait whose only method returns a wire type cannot live apart from that type without inverting the dependency. This clause was written against 0081's *pre-amendment* split, which the same amendment already reversed. |
+| `ScenePayloadSource`'s methods | names only `scene_pose` | `scene_descriptor` **and** `scene_pose` | The two halves are recorded at different rates, which is decision 4's central claim; a trait supplying only the per-frame half leaves the once-per-episode half with no producer. One trait, not two: a pose addresses nodes only a descriptor can declare, so an env implementing one without the other has no coherent meaning. |
+| `Extent`'s invariant | *"`lo <= hi`, so NaN is excluded"* | also requires both endpoints finite | `lo <= hi` does exclude NaN, but admits `(-inf, inf)`. That span's reciprocal is zero, so every projected coordinate collapses onto the origin — the same silent-mis-render class the newtype exists to stop, and free to exclude at construction. |
+| `Polyline::is_consistent` | *"`Polyline` still has winding"*, listed as a checked invariant | checks arity and finiteness; **winding is not checked** | Winding has no observable effect under SVG's default `nonzero` fill rule for a simple polygon, and these points are 3-D, where "counter-clockwise" is undefined without naming a viewing direction. The check would have asserted nothing. |
+| How the descriptor reaches disk | not specified beyond `RecordSink::on_scene` | `RecordChunk::Scene` at bincode tag 3, plus `EpisodeRecord::scene` | The sink method needed a carrier. A chunk rather than a header field, because the header is written when the episode file opens — before the environment has been asked for anything. Decoders keep the first descriptor and ignore any later one: poses already written key against the first, so keeping it is what stays renderable. |
+| Drift guards | *"The mirror in `wire.rs` and `tests/wire_format_compat.rs` make drift a test failure … both grow by the scene types"* | neither exists; nothing grew | ADR 0081's implementation deleted both. There is one definition now, so drift is not a category and the scene types needed no mirror. |
+
+Two things the ADR specified were checked rather than assumed, and held:
+`Transform3`'s scalar-first `[w, x, y, z]` does match
+`rlevo-environments::locomotion::backend::Pose` exactly, and `#[serde(try_from,
+into)]` does validate on the bincode decode path while encoding byte-identically
+to the bare `(f32, f32)` it replaces — asserted directly against both formats in
+`Extent`'s own tests rather than inherited from the `Bounds` guard.
+
 ## Consequences
 
 **Wire format.** `FORMAT_VERSION` bumps once. `MIN_SUPPORTED_VERSION ==
@@ -540,6 +573,11 @@ variants append, preserving existing bincode tags. The mirror in
 `rlevo-benchmarks-report-client/src/wire.rs` and `tests/wire_format_compat.rs`
 make drift a test failure rather than a silent divergence; both grow by the scene
 types.
+
+> **Amended.** The last sentence is void: ADR 0081's implementation deleted both
+> the mirror and `wire_format_compat`, so neither grew. Drift is not a category
+> any more — there is one definition, in `rlevo-scene`. `FORMAT_VERSION` is the
+> only enforcement, and it did bump exactly once, 8 → 9.
 
 **BYOA-1 step 8 goes green** on decision 1 alone.
 
