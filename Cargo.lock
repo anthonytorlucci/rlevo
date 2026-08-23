@@ -6399,7 +6399,6 @@ dependencies = [
  "rand_distr 0.6.0",
  "ratatui",
  "rayon",
- "rlevo-benchmarks-report-client",
  "rlevo-core",
  "rlevo-environments",
  "rlevo-evolution",

@@ -86,9 +86,17 @@ features_for() {
         # `tests/{cartpole_report_smoke,recording_episode_count}.rs` are
         # `required-features = ["viz-report"]`, absent from `rlevo`'s defaults.
         rlevo) echo "--features viz-report" ;;
-        # `tests/wire_format_compat.rs` is `#![cfg(feature = "record")]`;
-        # `rlevo-benchmarks` defaults to `json` only.
-        rlevo-benchmarks) echo "--features record" ;;
+        # `rlevo-benchmarks` defaults to `json` only, so a bare run compiles
+        # neither the record tier nor the fixtures.
+        #
+        # `fixtures` is here because leaving it out cost a real miss: ADR 0081
+        # deleted the `*Payload` wire mirrors, and `src/fixtures/family.rs`'s
+        # test module still named five of them. It compiled nowhere in CI, so
+        # four workflows went green over code that did not build. The two
+        # passthroughs add no new dependency -- `rlevo-environments` already
+        # defaults to `box2d` + `locomotion`, so this tier builds rapier
+        # either way.
+        rlevo-benchmarks) echo "--features record,fixtures,fixtures-box2d,fixtures-locomotion" ;;
         *) echo "" ;;
     esac
 }

@@ -53,10 +53,13 @@ tempfile = "3"
 # Same narrowed feature set as the optional `[dependencies]` entry above, so a
 # test build adds no crate the `tui`/`record` builds do not already link.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
-# Cross-crate compatibility test only: guards the wire-format mirror in
-# the report client against schema drift. The client itself is not a
-# build-time dep of any production crate.
-rlevo-benchmarks-report-client = { path = "../rlevo-benchmarks-report-client" }
+# `rlevo-benchmarks-report-client` was a dev-dependency here for exactly one
+# test -- `tests/wire_format_compat.rs`, which held the client's hand-written
+# wire mirror in sync with this crate's schema. ADR 0081 deleted the mirror and
+# the test with it: both sides now use `rlevo-scene`, so there is nothing to
+# hold in sync. Do not re-add the edge to "test against the client" -- the
+# shared definition is the guarantee, and a dev-dep here drags the whole Leptos
+# tree into `cargo test -p rlevo-benchmarks` for no coverage.
 
 [features]
 default = ["json"]

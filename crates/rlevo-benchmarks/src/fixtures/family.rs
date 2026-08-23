@@ -270,7 +270,7 @@ impl<E: RecordedEnvFamily> RecordedEnvFamily for TimeLimit<E> {
 
 #[cfg(test)]
 mod tests {
-    use crate::record::{Classic2DPayload, FamilyPayload, GridPayload, TabularPayload};
+    use crate::record::FamilyPayload;
     use rlevo_core::environment::ConstructableEnv;
     use rlevo_scene::payload::{Classic2DPayloadSource, GridPayloadSource, TabularPayloadSource};
 
@@ -320,7 +320,7 @@ mod tests {
         E: ConstructableEnv + Classic2DPayloadSource + RecordedEnvFamily,
     {
         let env = E::new(false);
-        let emitted = FamilyPayload::Classic2D(Classic2DPayload::from(env.classic2d_snapshot()));
+        let emitted = FamilyPayload::Classic2D(env.classic2d_snapshot());
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
@@ -329,7 +329,7 @@ mod tests {
         E: ConstructableEnv + GridPayloadSource + RecordedEnvFamily,
     {
         let env = E::new(false);
-        let emitted = FamilyPayload::Grid(GridPayload::from(env.grid_snapshot()));
+        let emitted = FamilyPayload::Grid(env.grid_snapshot());
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
@@ -338,7 +338,7 @@ mod tests {
         E: ConstructableEnv + TabularPayloadSource + RecordedEnvFamily,
     {
         let env = E::new(false);
-        let emitted = FamilyPayload::TabularText(TabularPayload::from(env.tabular_snapshot()));
+        let emitted = FamilyPayload::TabularText(env.tabular_snapshot());
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
@@ -347,10 +347,8 @@ mod tests {
     where
         E: ConstructableEnv + rlevo_scene::payload::Box2dPayloadSource + RecordedEnvFamily,
     {
-        use crate::record::Box2dPayload;
-
         let env = E::new(false);
-        let emitted = FamilyPayload::Box2dBodies(Box2dPayload::from(env.box2d_snapshot()));
+        let emitted = FamilyPayload::Box2dBodies(env.box2d_snapshot());
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
@@ -359,11 +357,8 @@ mod tests {
     where
         E: ConstructableEnv + rlevo_scene::payload::Locomotion2DPayloadSource + RecordedEnvFamily,
     {
-        use crate::record::Locomotion2DPayload;
-
         let env = E::new(false);
-        let emitted =
-            FamilyPayload::Locomotion2D(Locomotion2DPayload::from(env.locomotion2d_snapshot()));
+        let emitted = FamilyPayload::Locomotion2D(env.locomotion2d_snapshot());
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
