@@ -21,6 +21,14 @@ bump. That was weighed and accepted rather than overlooked.
 probe emits a scene (Consequences), and the golden-frame prerequisite in decision
 6 gates the migration.
 
+**Amended 2026-08-23**, when ADR 0081's first implementation slice landed and
+corrected where `Bounds` lives. This ADR specified `SceneDescriptor::bounds` as a
+`Bounds` triple on the assumption that ADR 0081 would move `Bounds` into the leaf
+crate; it does not, so the field gets a leaf-native range type instead. See
+decision 4's viewport-range subsection, retitled and rewritten. The
+*intent* — a validated, per-axis viewport range rather than four bare tuples — is
+unchanged, and #942's argument is still adopted in full.
+
 **Sequenced after ADR
 [0081](0081-the-record-format-is-a-leaf-crate.md)**, which extracts the
 `rlevo-scene` leaf crate this ADR's new types land in. Not a hard dependency —
@@ -263,9 +271,9 @@ pub struct SceneNode {
 /// Recorded once, at episode start.
 pub struct SceneDescriptor {
     pub nodes: Vec<SceneNode>,
-    /// Viewport the renderer fits to. `Bounds` per ADR 0027, not a bare
-    /// tuple — see "Bounds are a newtype" below.
-    pub bounds: (Bounds, Bounds, Bounds),
+    /// Viewport the renderer fits to, one `Extent` per axis. A validated
+    /// newtype rather than a bare tuple — see below.
+    pub bounds: (Extent, Extent, Extent),
     /// Named background — a landscape heatmap, a ground plane. `None` for neither.
     pub background: Option<String>,
 }
@@ -326,12 +334,37 @@ per #944's suggested fix, `debug_assert!`ed by the recording tier at capture tim
 priority" companion, which it scopes to a `FORMAT_VERSION` bump — this is that
 bump, and doing it later would need another one.
 
-#### Bounds are a newtype
+#### The viewport range is a validated newtype — a leaf-native one
 
-`SceneDescriptor::bounds` uses `Bounds` (ADR 0027) per **#942**, which flags
+```rust
+/// An inclusive `[lo, hi]` range over one axis, valid by construction.
+/// Serializes as `(f32, f32)` via `#[serde(try_from, into)]`.
+pub struct Extent { lo: f32, hi: f32 }
+```
+
+`SceneDescriptor::bounds` uses a validated range newtype per **#942**, which flags
 `Landscape2DSnapshot`'s `bounds_x`/`bounds_y` as *"a straggler from that
 migration"* — an inverted or NaN range sailing through serialization into the
 client, "whose viewport-fitting math then divides by a negative or NaN span".
+
+> **Amended.** This subsection originally said the field *"uses `Bounds`
+> (ADR 0027)"*, because ADR 0081 was going to move `Bounds` into `rlevo-scene`.
+> It does not: `Bounds` is a config-validation primitive named in 47 files across
+> evolution, RL, and environments, and nothing on today's wire uses it, so it
+> stays in `rlevo-core` — which the leaf cannot reach.
+>
+> The field therefore takes a **leaf-native** range type carrying the same
+> invariant (`lo <= hi`, so NaN is excluded) and the same
+> `#[serde(try_from, into)]` mechanism. That mechanism is **verified** rather
+> than assumed: see ADR 0081's Status. Validation runs under bincode and the
+> encoded form is byte-identical to a bare `(f32, f32)`, so this costs no wire
+> change.
+>
+> Two types with one invariant is the right outcome, not a duplication to
+> apologise for. A config bound constrains a hyperparameter at construction; a
+> viewport extent describes what a renderer should fit. They share an invariant
+> and nothing else, and collapsing them would put a workspace-wide config
+> primitive in a record crate permanently to save one small type.
 
 The scope is wider than #942's title suggests. `payload.rs` has **four** bare
 bounds sites — `Landscape2DSnapshot`'s two, `Box2dSnapshot::world_bounds`,
@@ -339,15 +372,15 @@ bounds sites — `Landscape2DSnapshot`'s two, `Box2dSnapshot::world_bounds`,
 `Landscape2D` (decision 6) moots #942's literal target while generalizing its
 argument; getting the type right once fixes what four sites had wrong.
 
-Per #942, `Bounds` serializes as `(f32, f32)` through
+Per #942, the newtype serializes as `(f32, f32)` through
 `#[serde(try_from, into)]`, so the wire shape is unchanged and deserialization
-simply begins rejecting invalid ranges. **#942's second caveat lands on ADR 0081
-and must be discharged there**: confirm `try_from`-validated deserialization
-behaves as expected under bincode, since ADR 0081 moves the codec into the leaf.
-If it does not, the fallback is validating at construction instead, not reverting
-to bare tuples.
+simply begins rejecting invalid ranges. **#942's second caveat is discharged**:
+`try_from`-validated deserialization was asserted to behave under bincode, and it
+does — the same bytes that decode cleanly as a `(f32, f32)` are rejected when
+decoded as a validated range. The "validate at construction instead" fallback is
+not needed. Guard: `crates/rlevo-benchmarks/tests/bounds_bincode_validation.rs`.
 
-A per-axis `Bounds` triple also makes a non-square domain representable, which is
+A per-axis `Extent` triple also makes a non-square domain representable, which is
 the blocker **#304** is explicitly waiting on.
 
 `SceneDescriptor` reaches the sink through a **new defaulted** method,
@@ -405,7 +438,7 @@ The deletion is still the right call, and it arguably *helps* #304: that issue i
 blocked because the ASCII tier would draw a true-domain rectangle while the report
 tier draws a search box, so "the same landscape produces two disagreeing frames".
 Removing the report-tier rectangle removes one of the two conventions, and
-decision 4's per-axis `Bounds` triple makes the surviving one representable.
+decision 4's per-axis `Extent` triple makes the surviving one representable.
 
 `Grid` and `TabularText` are **not** deprecated and will not migrate. See Context.
 
@@ -475,7 +508,7 @@ is queued behind the next bump, and this is the next bump.
 | Issue | What it wants from a bump | Ruling here |
 |---|---|---|
 | **#944** companion — `bones` as a named `Bone` struct rather than `(u32, u32)` | scoped by the issue to "alongside a `FORMAT_VERSION` bump per ADR 0014's precedent" | **adopted**, decision 4 |
-| **#942** — `Bounds` newtype for payload ranges | wire shape unchanged, but the type changes | **adopted**, decision 4 |
+| **#942** — a validated newtype for payload ranges | wire shape unchanged, but the type changes | **adopted** as `Extent`, decision 4 |
 | **#276** — `SnapshotMetadata`'s fate: plumb to the record tier, or remove | option (a) "needs a record `FORMAT_VERSION` bump" | **explicitly not decided** — see below |
 
 **#276 is deliberately left open, and that is a cost this ADR accepts.** It asks
@@ -655,8 +688,8 @@ argument worth making while the metrics axis does not do it.
 - ADR [0079](0079-harness-metrics-are-a-privileged-absorption-path.md) — the `agent/` prefix reservation, and the additive-defaulted-method polarity reused for `on_scene`
 - ADR [0080](0080-harness-owns-the-environment-glue-and-the-umbrella-carries-the-harness.md) — `rlevo-benchmarks::fixtures`, where the `RecordedEnvFamily` impls now live
 - ADR [0081](0081-the-record-format-is-a-leaf-crate.md) — sequenced before this; extracts `rlevo-scene`, where this ADR's types land
-- ADR [0027](0027-bounds-newtype-for-closed-ranges.md) — the `Bounds` newtype `SceneDescriptor` adopts
-- Issues that **changed** this draft: **#944** (unenforced cross-field invariants — caught the positional `ScenePose` defect; its `Bone` companion is adopted), **#942** (`Bounds` for payload ranges), **#276** (`SnapshotMetadata`'s fate, queued behind a `FORMAT_VERSION` bump — deliberately left open, decision 8)
+- ADR [0027](0027-bounds-newtype-for-closed-ranges.md) — the `Bounds` newtype whose *approach* `Extent` reuses. `Bounds` itself stays in `rlevo-core` (amended; see ADR 0081 decision 2)
+- Issues that **changed** this draft: **#944** (unenforced cross-field invariants — caught the positional `ScenePose` defect; its `Bone` companion is adopted), **#942** (a validated newtype for payload ranges), **#276** (`SnapshotMetadata`'s fate, queued behind a `FORMAT_VERSION` bump — deliberately left open, decision 8)
 - Issues that **confirmed** it: **#671** (per-call `Vec<BodyRecord>` allocation — the static/per-frame split is its "hot caller"), **#846** / **#873** (why `Grid` must not migrate), **#304** (what deleting `Landscape2D` unblocks and what must be re-triaged)
 - Issue **not** resolved by this ADR, contrary to first appearance: **#709** — see Consequences
 - `xtask/byoe/README.md`, `xtask/byoa/README.md` — the two probes; both currently fail at step 8 of 9, for different reasons

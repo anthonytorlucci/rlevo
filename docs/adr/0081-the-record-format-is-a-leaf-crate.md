@@ -10,14 +10,35 @@ tags: [adr, decision, architecture, crates, record-schema, wire-format, rlevo-co
 
 ## Status
 
-**Accepted (2026-08-23). Nothing implemented yet** — this ADR records the
-decision; the work is sequenced in the BYOE spec's Phase 3 as item 0.
+**Accepted (2026-08-23). Amended the same day, during implementation** — see
+"Amendments" below. The core decision is unchanged and `rlevo-scene` exists; four
+specifics in it were wrong and are corrected in place rather than left standing.
 
-**One verification is deferred to landing, not to acceptance.** Decision 1 depends
-on `Bounds`'s `#[serde(try_from, into)]` validation behaving as expected under
-**bincode** (issue #942's second caveat). If it does not, validate at construction
-instead — the decision to move `Bounds` into the leaf stands either way, because
-the dependency-inversion argument for moving it does not rest on the codec.
+**The deferred verification is discharged.** Decision 1 depended on `Bounds`'s
+`#[serde(try_from, into)]` validation behaving as expected under **bincode**
+(issue #942's second caveat), with "validate at construction instead" as the
+fallback. Executed: validation **does** run under bincode, and the encoded form
+is byte-identical to a bare `(f32, f32)`. The fallback is not needed, and any
+validated range ADR 0082 adds to the wire can use the same mechanism at no wire
+cost. Guard: `crates/rlevo-benchmarks/tests/bounds_bincode_validation.rs`.
+
+### Amendments (2026-08-23)
+
+Normally an accepted ADR is superseded rather than edited. These landed within
+hours of acceptance, from executing the very first slice, and a successor ADR
+correcting four clauses of an unimplemented decision would be harder to read
+than the correction itself. The original claims are quoted at each site so the
+error stays visible.
+
+| # | Original claim | What measurement showed |
+|---|---|---|
+| 1 | dependencies are "`serde` and `bincode`. Nothing else" | `BoundsError` and `DecodeError` derive `thiserror::Error`. The measurement behind the clause grepped `use` lines, which a fully-qualified derive path never appears on. |
+| 2 | the leaf owns `RunManifest` | The manifest crosses to the client as **JSON**, not bincode. It stays in `rlevo-benchmarks`. |
+| 3 | the leaf owns `Bounds` | It is a config-validation primitive named in **47 files** across evolution, RL, and environments, and **nothing on today's wire uses it**. It stays in `rlevo-core`. |
+| 4 | "`wire.rs` is **deleted** — 839 lines" | Nearly all of it goes; the `RunManifest` / `ObjectiveSense` JSON view survives, deliberately. |
+
+Amendments 2 and 3 share a root cause worth naming: **this ADR drew the boundary
+around a crate diagram when the real boundary is a transport.** See decision 2.
 
 **Sequenced before ADR
 [0082](0082-the-scene-is-the-payload-and-identity-is-open.md)**, which rewrites
@@ -106,55 +127,69 @@ wants to be a leaf crate."*
 ### 1. Extract `rlevo-scene`
 
 A new leaf crate, `#![no_std]` with `extern crate alloc`, holding the **data and
-the codec** of the record format:
+the codec** of everything that crosses the boundary as bincode:
 
 - the styled-text types — `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`,
   `Color`, `Modifier`
 - `render::palette`'s constants, which are pure data over those types
 - the payload types — every `*Snapshot`, and under ADR 0082 the scene types
-- **`Bounds`** (ADR 0027), currently `rlevo-core/src/bounds.rs`
 - the record schema — `EnvFamily`, `FamilyPayload`, `EpisodeRecord`,
-  `RunManifest`, `MetricSample`, `FrameRecord`, and the rest
+  `MetricSample`, `FrameRecord`, `RecordChunk`, and the rest
 - `FORMAT_VERSION`, `MIN_SUPPORTED_VERSION`, `bincode_config()`
-- `decode_episode_record` and its chunk reader
+- `decode_episode_record`, its chunk reader, and `DecodeError`
 
-Dependencies: `serde` and `bincode`, both with `alloc` features. Nothing else.
-The crate must build for `wasm32-unknown-unknown` with no feature gating, and that
-should be a CI target rather than an assumption.
+> **Amended.** The original list also named **`RunManifest`** and **`Bounds`**.
+> Neither belongs here; see decision 2 for the rule that excludes them.
 
-**`Bounds` moves because otherwise the leaf inverts its own dependency.** #942
-argues the payload types' bare `(f32, f32)` ranges should be the `Bounds` newtype
-— ADR 0027's whole case — and ADR 0082 adopts that for `SceneDescriptor::bounds`.
-If `Bounds` stayed in `rlevo-core` while the payloads moved here, this crate would
-have to depend on `rlevo-core`, which is the burn edge the extraction exists to
-escape. Measured, `bounds.rs` is 321 lines whose only import is `serde` — the same
-already-a-leaf shape as `render/`, found for the same reason. `rlevo-core`
-re-exports it so `rlevo_core::bounds::Bounds` keeps resolving.
+Dependencies: `serde`, `bincode`, and `thiserror`, **all three taken from
+`[workspace.dependencies]`**. The crate must build for `wasm32-unknown-unknown`
+with no feature gating, and that is a CI target rather than an assumption.
 
-**One caveat inherited from #942 must be discharged during this extraction, not
-after.** `Bounds` validates on deserialization via
-`#[serde(try_from = "(f32, f32)", into = "(f32, f32)")]`. That is well understood
-for JSON; #942's second caveat asks whether `try_from`-validated deserialization
-behaves as expected under **bincode**, which is this crate's codec. Confirm it
-before the types depend on it. If it does not hold, validate at construction
-instead — do not revert to bare tuples, which is the state #942 exists to end.
+> **Amended.** The original clause read *"`serde` and `bincode`, both with
+> `alloc` features. Nothing else."* Two of the three claims were wrong.
+>
+> **`thiserror` is required.** `BoundsError` and `DecodeError` both derive
+> `thiserror::Error`. The measurement behind "nothing else" came from grepping
+> `use` lines, and a fully-qualified derive path never appears on one. thiserror
+> 2.0 is `no_std`-capable, is a proc-macro plus `core`, and already ships in the
+> report client's wasm32 cone, so it costs the leaf nothing it was avoiding.
+>
+> **Workspace entries, not pinned locally, and no `default-features = false`.**
+> Taking the versions from the workspace is what stops this crate drifting from
+> the writer and the reader it sits between — which matters most for `bincode`,
+> because it is the codec and a version skew across the three crates is a silent
+> wire break, the same defect class this crate closes for the *types*. That
+> promoted `bincode` to `[workspace.dependencies]`; it had been declared **four**
+> separate times. Forcing `default-features = false` on shared entries was
+> dropped: cargo unifies features across the graph, so serde resolves with `std`
+> anyway in any build containing `rlevo-core`, and the override would buy a
+> guarantee the workspace cannot keep while costing a second version to maintain.
+> The crate is `#![no_std]` in its own right and builds for wasm32, which is the
+> property actually being asked for.
 
 **Not zero-dep, unlike the ADR 0015 precedent.** These types need `String` and
 `Vec`, so `no_std` + `alloc` is the honest ceiling. The property that matters is
 unchanged: no burn, no rand, no getrandom, no transitive path to any of them.
+Verified — the resolved cone is `serde`, `bincode`, `thiserror`, and nothing else.
 
 **On the name.** `rlevo-scene` is broader than its contents strictly warrant
-today — the crate also holds styled text, the run manifest, and the codec, none of
-which is a scene. It is named for the part that dominates it in size, changes
-most, and third parties actually reach for, and it reads as a vocabulary rather
-than a mechanism. Two rejected candidates and why: `rlevo-record` collides with
+today — the crate also holds styled text and the codec, neither of which is a
+scene. It is named for the part that dominates it in size, changes most, and
+third parties actually reach for, and it reads as a vocabulary rather than a
+mechanism.
+
+> **Amended, in the name's favour.** The original sentence listed *"styled text,
+> the run manifest, and the codec"* as the parts the name did not fit. The
+> manifest is no longer in the crate, and `ObjectiveSense` never enters it, so
+> the gap between the name and the contents is narrower than when the name was
+> chosen. The question was reopened on that basis and `rlevo-scene` was kept. Two rejected candidates and why: `rlevo-record` collides with
 `rlevo-benchmarks::record`, the module that will re-export it, so every doc
 sentence would need to say which one it meant; `rlevo-wire` names the transport
 rather than the thing transported, and the crate's job is to define shapes, not to
 move bytes. Under ADR 0082 the scene payload absorbs four of the six payload
 variants, so the name gets more accurate rather than less.
 
-### 2. The leaf owns the data; `rlevo-core` keeps the traits
+### 2. The boundary is the transport, and core keeps the traits
 
 `rlevo-core::render` stays, and keeps every trait: `AsciiRenderable`,
 `AsciiRenderer`, `Renderer`, and the `*PayloadSource` family. Those are
@@ -164,8 +199,40 @@ It re-exports the leaf's types, so existing paths like
 `rlevo_core::render::Point2` keep resolving and no environment changes an import.
 `rlevo-core` gains `rlevo-scene` as a normal dependency.
 
-The split is: **the leaf owns what goes on the wire; core owns what an environment
-must implement to put it there.**
+So the first half of the split is: **the leaf owns what goes on the wire; core
+owns what an environment must implement to put it there.**
+
+> **Amended — the second half was missing, and it is the one that decides the
+> hard cases.** "What goes on the wire" is not one thing. Two formats cross this
+> boundary with opposite failure modes:
+>
+> | Crosses as | Keyed by | Drift behaviour | Treatment |
+> |---|---|---|---|
+> | bincode | position / variant tag | **silent corruption** | one definition, in the leaf |
+> | JSON | field name | graceful — unknown ignored, missing become `None` | mirroring is safe |
+>
+> Measured: the report emitter does `serde_json::to_string(run.manifest())` and
+> the client reads it from a `<script type="application/json">` block, while
+> episode records travel as length-prefixed bincode. The drift guard and the
+> three-way fork this ADR exists to kill are entirely a **bincode** problem.
+>
+> **Mirror what is self-describing; share what is positional.**
+>
+> That rule excludes `RunManifest` from the leaf, and excluding it also keeps
+> `ObjectiveSense` in `rlevo-core` — which is where an optimisation concept
+> belongs, and which the original list would have dragged into a record crate as
+> a side effect of a boundary drawn one level too coarse.
+>
+> It excludes **`Bounds`** for a second, independent reason: nothing on today's
+> wire uses it (`Landscape2DSnapshot` carries bare `(f32, f32)`,
+> `Box2dSnapshot::world_bounds` a `(Point2, Point2)`), while **47 files** across
+> `rlevo-evolution`, `rlevo-reinforcement-learning`, and `rlevo-environments`
+> name it as a config-validation primitive — 173 mentions in the first two alone.
+> The original argument for moving it was purely to pre-satisfy ADR 0082, and
+> relocating a workspace-wide primitive into a record crate to serve a type that
+> does not exist yet puts it in the wrong place permanently. ADR 0082's viewport
+> range is a wire concern and gets its own type in the leaf; that a config bound
+> and a viewport extent share an invariant does not make them the same type.
 
 ### 3. Copies 2 and 3 are deleted
 
@@ -174,9 +241,17 @@ must implement to put it there.**
 - `rlevo-benchmarks::record` becomes a thin re-export module over `rlevo-scene`,
   exactly as `rlevo-benchmarks::metrics_registry` is today over
   `rlevo-metrics-registry` (ADR 0015's shape).
-- `rlevo-benchmarks-report-client/src/wire.rs` is **deleted** — 839 lines — and
+- `rlevo-benchmarks-report-client/src/wire.rs` is **all but deleted** and
   replaced by `use rlevo_scene::…`. The client takes `rlevo-scene` as a normal
   dependency.
+
+  > **Amended** from *"is **deleted** — 839 lines"*. What survives is the
+  > `RunManifest` view and the `ObjectiveSense` it carries — roughly 70 of the
+  > 839 lines — because the manifest arrives as JSON and decision 2 says a
+  > self-describing mirror is safe. This is a mirror kept **on purpose**, with a
+  > stated reason, rather than one nobody got round to deleting; it should carry
+  > a comment saying so, or a later reader will "finish the job" and re-couple
+  > the client to `rlevo-core`.
 - `crates/rlevo-benchmarks/tests/wire_format_compat.rs` is **deleted** — 495
   lines. A drift guard between two definitions is unnecessary when there is one
   definition. This is the load-bearing win: the test could only ever catch drift
@@ -234,9 +309,12 @@ contents, and does so afterwards.
 
 ## Consequences
 
-**Roughly 1,300 lines deleted outright** — `wire.rs` at 839, the drift guard at
-495 — against a new crate that is mostly moved code plus a manifest. The six
-mirror structs and their `From` impls go too.
+**Roughly 1,250 lines deleted outright** — about 770 of `wire.rs`'s 839, plus the
+495-line drift guard — against a new crate that is mostly moved code plus a
+manifest. The six mirror structs and their `From` impls go too.
+
+> **Amended** from "roughly 1,300". The ~70-line `RunManifest` JSON view stays in
+> the client by decision 2.
 
 **One definition, so drift stops being a category.** Today a field added to
 `Locomotion2DSnapshot` must be propagated to `Locomotion2DPayload` and then to the
@@ -310,6 +388,6 @@ means writing the new types three times and merging them afterwards.
 - ADR [0080](0080-harness-owns-the-environment-glue-and-the-umbrella-carries-the-harness.md) — the same "already writable from the other side" finding, applied to the fixtures glue
 - ADR [0082](0082-the-scene-is-the-payload-and-identity-is-open.md) — sequenced after this; its scene types land in `rlevo-scene`
 - ADR [0007](0007-visualisation-crates-isolated-from-production-crates.md) — the viz-dependency prohibition `rlevo-scene` must satisfy
-- ADR [0027](0027-bounds-newtype-for-closed-ranges.md) — the `Bounds` newtype moving into the leaf
-- Issues reviewed before drafting: **#942** (`Bounds` for payload ranges; its bincode caveat is discharged here), **#945** (a third of `payload.rs`'s public surface undocumented — hence `deny(missing_docs)`), **#991** / **#697** (accidental `Send + Sync`)
+- ADR [0027](0027-bounds-newtype-for-closed-ranges.md) — the `Bounds` newtype, which **stays in `rlevo-core`** (amended; see decision 2)
+- Issues reviewed before drafting: **#942** (`Bounds` for payload ranges; its bincode caveat is discharged in Status, with the opposite consequence to the one assumed), **#945** (a third of `payload.rs`'s public surface undocumented — hence `deny(missing_docs)`; 29 items paid off on the first commit), **#991** / **#697** (accidental `Send + Sync`)
 - Spec: `docs/.private/specs/2026-08-21-byoe-first-class-citizen/` (design point 3, "The record schema wants to be a leaf crate")
