@@ -41,6 +41,10 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEMPLATE_DIR="$REPO_ROOT/xtask/byoe/probe"
 
+# Publish-boundary simulation, shared with BYOA-1. See xtask/common/stage.sh.
+# shellcheck source=../common/stage.sh
+. "$REPO_ROOT/xtask/common/stage.sh"
+
 # Crates the probe's dependency cone needs, in no particular order. Excludes
 # the three `publish = false` crates, which a consumer can never obtain.
 PUBLISHABLE=(
@@ -58,10 +62,7 @@ log()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 info() { printf '   %s\n' "$*"; }
 die()  { printf '\n\033[1;31mBYOE-1 ABORTED: %s\033[0m\n' "$*" >&2; exit 90; }
 
-VERSION="$(
-    sed -n '/^\[workspace.package\]/,/^\[/p' "$REPO_ROOT/Cargo.toml" |
-    sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1
-)"
+VERSION="$(workspace_version "$REPO_ROOT")"
 [[ -n "$VERSION" ]] || die "could not read version from [workspace.package]"
 
 # Everything lives outside the repo so cargo cannot adopt the probe or the
@@ -86,71 +87,7 @@ info "staging: $WORK"
 # ---------------------------------------------------------------------------
 # Package and stage. This is the publish boundary standing in for crates.io.
 # ---------------------------------------------------------------------------
-#
-# `PUBLISHABLE` is in dependency order, and it has to be: after packaging each
-# crate we add a `[patch.crates-io]` entry pointing at its freshly staged copy,
-# so the *next* crate's packaging resolves siblings from this working tree.
-#
-# Without that patch, `cargo package` resolves internal `path + version` deps
-# against the real crates.io index whenever a satisfying version is already
-# published there — a blind spot documented in the maintainer's publishing
-# guide, and one BYOE-1 inherits. It bites hardest exactly when the workspace
-# has *changed*: adding a feature to a member crate makes packaging its
-# dependents abort with "does not have that feature", naming the published
-# version's feature list, because the local manifest that does have it was
-# never consulted. Nothing about the working tree is being tested at that
-# point, which is the opposite of what this script exists for.
-PATCH_ARGS=()
-log "Packaging ${#PUBLISHABLE[@]} publishable crates"
-for crate in "${PUBLISHABLE[@]}"; do
-    if ! cargo package --quiet -p "$crate" --no-verify --allow-dirty \
-            --manifest-path "$REPO_ROOT/Cargo.toml" \
-            ${PATCH_ARGS[@]+"${PATCH_ARGS[@]}"} 2>"$WORK/pkg-$crate.err"; then
-        cat "$WORK/pkg-$crate.err" >&2
-        die "cargo package failed for $crate (this is itself a finding)"
-    fi
-    tar -xf "$REPO_ROOT/target/package/$crate-$VERSION.crate" -C "$STAGE" ||
-        die "could not extract $crate-$VERSION.crate"
-    PATCH_ARGS+=(--config "patch.crates-io.$crate.path=\"$STAGE/$crate-$VERSION\"")
-    info "staged $crate-$VERSION"
-done
-
-# Re-point intra-workspace dependencies at the staged siblings. `cargo package`
-# strips `path` and leaves `version = "x.y.z"`, which cannot resolve without a
-# registry. Only rlevo-* entries are touched; third-party deps still resolve
-# from crates.io exactly as a real consumer's would.
-log "Re-pointing staged rlevo-* dependencies at siblings"
-python3 - "$STAGE" "$VERSION" <<'PY' || die "manifest rewrite failed"
-import pathlib, re, sys
-
-stage, version = pathlib.Path(sys.argv[1]), sys.argv[2]
-# Matches `[dependencies.rlevo-core]`, `[dev-dependencies.rlevo-x]`,
-# `[target.'cfg(..)'.dependencies.rlevo-y]`, ...
-header = re.compile(r"^\[[^\]]*dependencies\.(rlevo[-\w]*)\]\s*$")
-touched = 0
-
-for manifest in sorted(stage.glob("*/Cargo.toml")):
-    out, in_dep, dep = [], None, None
-    for line in manifest.read_text().splitlines():
-        m = header.match(line)
-        if m:
-            in_dep, dep = True, m.group(1)
-            out.append(line)
-            continue
-        if in_dep and line.startswith("["):
-            in_dep, dep = False, None
-        if in_dep and line.startswith("version"):
-            out.append(line)
-            out.append(f'path = "{stage / f"{dep}-{version}"}"')
-            touched += 1
-            continue
-        out.append(line)
-    manifest.write_text("\n".join(out) + "\n")
-
-print(f"   rewrote {touched} dependency entries")
-if touched == 0:
-    raise SystemExit("no rlevo-* dependency entries found - packaging layout changed")
-PY
+stage_crates "$STAGE" "$VERSION" "$REPO_ROOT" "$WORK" "${PUBLISHABLE[@]}"
 
 # ---------------------------------------------------------------------------
 # Steps 1 & 2 — scaffold the probe and declare its dependencies.

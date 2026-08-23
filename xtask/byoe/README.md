@@ -45,5 +45,8 @@ step 9. `./xtask/byoe/run.sh` works too — the alias just saves the path.
 As of the first run (2026-08-21) BYOE-1 **fails at step 8 of 9**: steps 1, 3-7
 pass, step 2 fails because `rlevo` alone is insufficient, and step 8 fails
 because a third-party environment's frames carry `FamilyPayload::Ascii`. The
-CI job is `continue-on-error` for exactly this reason. See the spec's Phase 0
+CI job is `continue-on-error` for exactly this reason. Its sibling is
+[BYOA-1](../byoa/README.md), which walks the same boundary from the algorithm
+side; they share the publish-boundary staging in
+[`xtask/common/stage.sh`](../common/stage.sh). See the spec's Phase 0
 results table.

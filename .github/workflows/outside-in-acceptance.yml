@@ -1,0 +1,140 @@
+name: outside-in-acceptance
+
+# The outside-in acceptance probes. Both ask the same kind of question — can
+# somebody who has never seen this repository reach a rendered report using only
+# published crates and public API? — from opposite directions:
+#
+#   BYOE-1  brings their own **environment**, uses our algorithms
+#   BYOA-1  brings their own **algorithm**, uses our environments
+#
+# Spec: docs/.private/specs/2026-08-21-byoe-first-class-citizen/
+#
+# BOTH JOBS ARE EXPECTED TO FAIL. They are landed red on purpose: the
+# positioning claims ("rlevo is for researchers who bring their own
+# environment", "the harness is a product you can submit an algorithm to") have
+# never been falsifiable, and these are the artifacts that make them so. The
+# failing step number is the deliverable, not a defect in the job.
+#
+# `continue-on-error` keeps the checks informational so they do not block merges
+# while the spec's blockers are open. Remove it per-probe once that probe
+# reaches its last step — at that point a regression genuinely should fail the
+# build.
+#
+# They run against `cargo package` tarballs rather than crates.io, so they need
+# no publish and catch pre-publish regressions. A crates.io variant belongs on a
+# schedule, not here.
+#
+# Renamed from `byoe-acceptance.yml` on 2026-08-23 when BYOA-1 landed. The check
+# names changed with it (`BYOE-1 outside-in acceptance` →
+# `outside-in (BYOE-1 ...)`); update any branch-protection rule that named the
+# old one. Nothing referenced it at the time of the rename.
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "xtask/**"
+      - ".github/workflows/outside-in-acceptance.yml"
+  workflow_dispatch:
+  schedule:
+    # Weekly, so packaging regressions surface even in quiet weeks.
+    - cron: "17 6 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: outside-in-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: "outside-in (${{ matrix.probe }})"
+    runs-on: ubuntu-latest
+    # Expected-red. See the header comment before deleting this line.
+    continue-on-error: true
+    strategy:
+      # One probe failing must not cancel the other: their step numbers are
+      # independent findings and we want both on every run.
+      fail-fast: false
+      matrix:
+        include:
+          - probe: BYOE-1
+            script: ./xtask/byoe/run.sh
+            blurb: "A third-party environment reaches a rendered report using public API only."
+          - probe: BYOA-1
+            script: ./xtask/byoa/run.sh
+            blurb: "A third-party algorithm is benched against our environments and a baseline."
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # The probes build burn + wgpu + rapier from source; without a cache these
+      # are the slowest jobs in the repo by a wide margin. Both probes stage the
+      # same crate list, so they share one cache key.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: outside-in-acceptance
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libudev-dev libasound2-dev pkg-config
+
+      # Invokes the script directly rather than through `cargo xtask`: the
+      # dispatcher would compile a crate purely to exec a shell script the
+      # runner can already run, and its exit code is what carries the verdict
+      # either way.
+      - name: Run ${{ matrix.probe }}
+        id: probe
+        run: ${{ matrix.script }}
+
+      # `continue-on-error` swallows the exit code, so surface the verdict in
+      # the run summary where a human will actually see it. `steps.*.outcome`
+      # is the pre-continue-on-error result.
+      - name: Publish verdict
+        if: always()
+        run: |
+          if [ "${{ steps.probe.outcome }}" = "success" ]; then
+            echo "### ${{ matrix.probe }} passes all 9 steps" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "${{ matrix.blurb }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "Consider removing \`continue-on-error\` so regressions block merges." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ${{ matrix.probe }} did not complete — expected while spec blockers are open" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "See the \`Run ${{ matrix.probe }}\` step log for the failing step number," >> "$GITHUB_STEP_SUMMARY"
+            echo "then record it in the spec." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Step | Meaning |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish BYOE-1 step table
+        if: always() && matrix.probe == 'BYOE-1' && steps.probe.outcome != 'success'
+        run: |
+          {
+            echo "| 2 | \`rlevo\` alone is not enough to reach the harness |"
+            echo "| 3 | the probe does not compile against the packaged public API |"
+            echo "| 4 | the post-terminal contract could not be satisfied |"
+            echo "| 6 | the harness could not be driven |"
+            echo "| 7 | the run could not be recorded |"
+            echo "| 8 | the report is missing, empty, or ASCII-fallback only |"
+            echo "| 9 | the interactive client is unreachable from crates.io |"
+            echo "| 90 | the script aborted before testing anything |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish BYOA-1 step table
+        if: always() && matrix.probe == 'BYOA-1' && steps.probe.outcome != 'success'
+        run: |
+          {
+            echo "| 2 | \`rlevo\` alone is not enough; extra crates by hand |"
+            echo "| 3 | the algorithm does not compile against the packaged public API |"
+            echo "| 4 | the documented entry point cannot express a learning algorithm |"
+            echo "| 5 | a shipped environment could not be trained against |"
+            echo "| 6 | the submission could not be compared with a baseline |"
+            echo "| 7 | the run could not be recorded |"
+            echo "| 8 | the submitter's own metrics never reach the report |"
+            echo "| 9 | two submissions cannot be proven to have faced the same task |"
+            echo "| 90 | the script aborted before testing anything |"
+          } >> "$GITHUB_STEP_SUMMARY"

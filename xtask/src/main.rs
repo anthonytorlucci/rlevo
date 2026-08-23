@@ -15,6 +15,9 @@
 //!   `xtask/test/run.sh`.
 //! - `byoe` — run the BYOE-1 outside-in acceptance test. Exits with the number
 //!   of the first failing step. See `xtask/byoe/README.md`.
+//! - `byoa` — run the BYOA-1 outside-in acceptance test, the bring-your-own-
+//!   *algorithm* mirror of `byoe`. Same exit-code convention. See
+//!   `xtask/byoa/README.md`.
 
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
@@ -34,7 +37,8 @@ fn usage() -> ExitCode {
          \n\
          tasks:\n\
          \x20 test <tier>   run a test tier: fast | heavy | gpu\n\
-         \x20 byoe          BYOE-1 outside-in acceptance test (exit code = first failing step)\n"
+         \x20 byoe          BYOE-1 outside-in acceptance test (exit code = first failing step)\n\
+         \x20 byoa          BYOA-1 bring-your-own-algorithm acceptance test (same convention)\n"
     );
     ExitCode::from(2)
 }
@@ -48,6 +52,7 @@ fn main() -> ExitCode {
     let script = match task.as_str() {
         "test" => "xtask/test/run.sh",
         "byoe" => "xtask/byoe/run.sh",
+        "byoa" => "xtask/byoa/run.sh",
         "-h" | "--help" | "help" => return usage(),
         other => {
             eprintln!("unknown task: {other}");

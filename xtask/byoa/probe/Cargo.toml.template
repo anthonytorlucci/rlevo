@@ -1,0 +1,52 @@
+# Template for the BYOA-1 probe crate. `xtask/byoa/run.sh` renders
+# @@STAGE@@ / @@VERSION@@ and writes the result outside the workspace.
+#
+# Stored as `.template`, not `Cargo.toml`, so cargo does not discover this
+# directory as a package of the rlevo workspace.
+#
+# Every `[dependencies]` entry below is a crate the *submitter* had to add by
+# hand. That count is a BYOA-1 step 2 finding, not incidental bookkeeping:
+#   rlevo              - expected; the one crate the README tells them about
+#   parking_lot        - forced by `Arc<Mutex<dyn RecordSink>>` in the record
+#                        API, and again by `Trial::run`'s
+#                        `&Mutex<&mut dyn Reporter>` parameter, which names
+#                        the type in a *public trait signature*
+#   rand               - forced by `BenchableAgent::act(&mut dyn Rng)`
+#   tracing            - forced by the only route from an algorithm's own
+#                        metrics into the record (see step 8)
+#   tracing-subscriber - forced again by the same route: `RecordingLayer` is
+#                        public but has no installer, so the submitter must
+#                        assemble the subscriber registry by hand. The only
+#                        worked example is in the harness's own #[cfg(test)]
+#                        module, which a consumer never sees.
+#
+# `serde` is absent, and its absence is the finding's mirror image: BYOE-1
+# needs it because `impl Environment for RecordingTap` requires
+# `E::ActionType: Serialize`, and BYOE-1 writes its own action type. BYOA-1
+# uses a *first-party* environment whose action type already derives it. Same
+# latent constraint, invisible from this side — which is exactly why running
+# both probes finds more than running either twice.
+[package]
+name = "byoa-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Empty table: this crate is standalone and must never be adopted into a
+# parent workspace, whatever directory the probe is staged in.
+[workspace]
+
+[dependencies]
+# `cargo add rlevo --features viz-report` - default features on plus the one
+# documented product flag, exactly as a new user following the README gets it.
+rlevo = { version = "@@VERSION@@", path = "@@STAGE@@/rlevo-@@VERSION@@", features = [
+    "viz-report",
+] }
+parking_lot = "0.12"
+rand = "0.10.1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[[bin]]
+name = "byoa-probe"
+path = "src/main.rs"
