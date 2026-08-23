@@ -57,6 +57,20 @@ pub use rlevo_evolution as evo;
 pub use rlevo_hybrid as hybrid;
 pub use rlevo_reinforcement_learning as rl;
 
+/// Wire types and codec for the record format, plus the rendering surface an
+/// environment opts into: `AsciiRenderable`, `Renderer`, the `*PayloadSource`
+/// traits, `StyledFrame`, the palette, and the per-family payload shapes.
+///
+/// These lived at `rlevo::core::render` until ADR 0081 moved them into their own
+/// leaf crate, so that the WASM report client could share one definition of the
+/// wire format instead of hand-mirroring it. `rlevo-core` is a dependency root
+/// and could not take the edge; see that ADR.
+///
+/// **This re-export is not cosmetic.** Without it the render surface is
+/// unreachable from the umbrella, which is the defect class ADR 0080 fixed for
+/// the harness — and BYOE-1 caught it here by regressing from step 8 to step 3.
+pub use rlevo_scene as scene;
+
 /// The most commonly used traits and types, importable with `use rlevo::prelude::*`.
 ///
 /// # Contents

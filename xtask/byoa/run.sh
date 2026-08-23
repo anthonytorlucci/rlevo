@@ -57,6 +57,7 @@ TEMPLATE_DIR="$REPO_ROOT/xtask/byoa/probe"
 # grown a consumer-visible seam that one persona sees and the other does not.
 PUBLISHABLE=(
     rlevo-metrics-registry
+    rlevo-scene
     rlevo-core
     rlevo-evolution
     rlevo-reinforcement-learning

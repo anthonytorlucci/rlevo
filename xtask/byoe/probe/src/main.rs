@@ -28,7 +28,12 @@ use rand::Rng;
 
 use rlevo::prelude::{Action, Environment, EnvironmentError, Observation, Snapshot, State};
 use rlevo::core::environment::{EpisodeStatus, SnapshotBase};
-use rlevo::core::render::AsciiRenderable;
+// FINDING (ADR 0081): the render surface moved out of `rlevo-core` into the
+// `rlevo-scene` leaf crate so the WASM report client could stop mirroring the
+// wire format. Reached through the umbrella, so it costs no extra dependency
+// -- but the path changed, and this probe is what proved the umbrella had not
+// re-exported it at all.
+use rlevo::scene::AsciiRenderable;
 use rlevo::core::reward::ScalarReward;
 
 use rlevo::benchmarks::agent::BenchableAgent;

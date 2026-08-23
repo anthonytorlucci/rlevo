@@ -49,6 +49,7 @@ TEMPLATE_DIR="$REPO_ROOT/xtask/byoe/probe"
 # the three `publish = false` crates, which a consumer can never obtain.
 PUBLISHABLE=(
     rlevo-metrics-registry
+    rlevo-scene
     rlevo-core
     rlevo-evolution
     rlevo-reinforcement-learning
