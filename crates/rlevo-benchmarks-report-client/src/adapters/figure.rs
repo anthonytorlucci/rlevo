@@ -192,10 +192,15 @@ pub fn prim_view(prim: &Prim) -> AnyView {
 }
 
 /// Formats a point list as an SVG `points` attribute.
+///
+/// Two decimals, matching what the classic and box2d adapters already emitted
+/// before they routed through here. The rounding is sub-pixel and invisible;
+/// the reason to keep it is that changing the emitted string for no visual gain
+/// is exactly the kind of silent diff a migration should not carry.
 fn points_attr(points: &[(f32, f32)]) -> String {
     points
         .iter()
-        .map(|(x, y)| format!("{x},{y}"))
+        .map(|(x, y)| format!("{x:.2},{y:.2}"))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -257,6 +262,9 @@ mod tests {
 
     #[test]
     fn points_attr_formats_svg_pairs() {
-        assert_eq!(points_attr(&[(1.0, 2.0), (3.5, 4.0)]), "1,2 3.5,4");
+        assert_eq!(
+            points_attr(&[(1.0, 2.0), (3.5, 4.0)]),
+            "1.00,2.00 3.50,4.00"
+        );
     }
 }
