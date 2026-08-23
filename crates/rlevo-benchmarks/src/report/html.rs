@@ -294,6 +294,12 @@ pub fn emit_static_html(
             kind: match ep.kind {
                 crate::record::EpisodeKind::Training => "training",
                 crate::record::EpisodeKind::Evaluation => "evaluation",
+                // `EpisodeKind` is `#[non_exhaustive]` and now lives in
+                // `rlevo-scene`, so this match is cross-crate and needs an arm
+                // for a variant this build predates. `training` is the safe
+                // default: it is the enum's own `Default`, and the report uses
+                // this only to label and filter an episode list.
+                _ => "training",
             },
         });
     }

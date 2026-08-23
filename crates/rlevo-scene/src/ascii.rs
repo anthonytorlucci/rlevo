@@ -15,8 +15,8 @@
 
 use alloc::string::String;
 
-use crate::styled::StyledFrame;
 use crate::Renderer;
+use crate::styled::StyledFrame;
 
 /// An environment that can render itself as an ASCII string.
 ///

@@ -137,7 +137,10 @@ pub fn color_class(color: Color, foreground: bool) -> Option<&'static str> {
 #[must_use]
 pub fn modifier_classes(modifier: Modifier) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let bits = modifier.0;
+    // `Modifier` keeps its bits private and exposes `bits()`. The client's old
+    // mirror declared the field `pub`, so this used to read `.0` -- one of two
+    // places where the copy was more permissive than the type it copied.
+    let bits = modifier.bits();
     if bits & 0b0000_0001 != 0 {
         out.push("rlevo-mod-bold");
     }
@@ -179,15 +182,27 @@ mod tests {
 
     #[test]
     fn modifier_classes_decode_each_bit() {
-        assert_eq!(modifier_classes(Modifier(0)), Vec::<&str>::new());
-        assert_eq!(modifier_classes(Modifier(1)), vec!["rlevo-mod-bold"]);
-        assert_eq!(modifier_classes(Modifier(16)), vec!["rlevo-mod-reversed"]);
+        // Built from the public constants rather than raw bits. The old mirror
+        // declared the field `pub`, so these used to be `Modifier(1)`; going
+        // through the real API means the test would notice a bit being
+        // reassigned, which a literal never could.
+        assert_eq!(modifier_classes(Modifier::EMPTY), Vec::<&str>::new());
+        assert_eq!(modifier_classes(Modifier::BOLD), vec!["rlevo-mod-bold"]);
         assert_eq!(
-            modifier_classes(Modifier(1 | 16)),
-            vec!["rlevo-mod-bold", "rlevo-mod-reversed"]
+            modifier_classes(Modifier::REVERSED),
+            vec!["rlevo-mod-reversed"]
         );
         assert_eq!(
-            modifier_classes(Modifier(0xFF)),
+            modifier_classes(Modifier::BOLD | Modifier::REVERSED),
+            vec!["rlevo-mod-bold", "rlevo-mod-reversed"]
+        );
+        let all = Modifier::BOLD
+            | Modifier::DIM
+            | Modifier::ITALIC
+            | Modifier::UNDERLINED
+            | Modifier::REVERSED;
+        assert_eq!(
+            modifier_classes(all),
             vec![
                 "rlevo-mod-bold",
                 "rlevo-mod-dim",
@@ -203,7 +218,7 @@ mod tests {
         let style = SpanStyle {
             fg: Some(Color::Green),
             bg: None,
-            modifier: Modifier(1),
+            modifier: Modifier::BOLD,
         };
         assert_eq!(span_classes(&style), "rlevo-fg-green rlevo-mod-bold");
     }
@@ -219,7 +234,7 @@ mod tests {
         let style = SpanStyle {
             fg: Some(Color::Reset),
             bg: Some(Color::Reset),
-            modifier: Modifier(0),
+            modifier: Modifier::EMPTY,
         };
         assert_eq!(span_classes(&style), "");
     }

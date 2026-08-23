@@ -32,6 +32,10 @@ use super::schema::{
     FrameRecord, MetricSample, PopulationSample, RecordedEnvFamily, RunId, TrialRef,
     bincode_config, default_frame_stride,
 };
+// The framed chunk type is shared with the report client rather than declared
+// privately here. It used to exist twice -- this copy and a public one in the
+// client's `wire.rs` -- so the framing was forked as well as the payloads.
+use rlevo_scene::codec::RecordChunk;
 
 /// Per-run configuration: the writer materialises this once at the
 /// start and re-uses it for every episode. `frame_stride = None`
@@ -148,17 +152,6 @@ pub trait RecordSink: Send + 'static {
     fn register_checkpoint(&mut self, _checkpoint: CheckpointRef) {}
 }
 
-/// One framed chunk in the per-episode wire stream.
-///
-/// **Variant ordering is wire-format-stable** — new variants append at
-/// the end so existing bincode tags keep decoding. `Population` is at tag 2.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-enum RecordChunk {
-    Frame(FrameRecord),
-    Metrics(Vec<MetricSample>),
-    Population(PopulationSample),
-}
-
 /// On-disk implementation of [`RecordSink`]. Opens one file per
 /// episode, fsyncs on close.
 pub struct RecordWriter {
@@ -259,7 +252,7 @@ impl RecordWriter {
     ///
     /// Returns any IO error from `create_dir_all`.
     pub fn open(dir: impl Into<PathBuf>, cfg: RecordingConfig) -> io::Result<Self> {
-        let run_id = cfg.run_id.clone().unwrap_or_else(RunId::new_now);
+        let run_id = cfg.run_id.clone().unwrap_or_else(super::schema::new_run_id);
         let stride = cfg.resolved_stride();
         let dir = dir.into().join(&run_id.0);
         fs::create_dir_all(&dir)?;

@@ -41,6 +41,14 @@ pub fn render(frame: &FrameRecord) -> AnyView {
         FamilyPayload::TabularText(payload) => match &payload.layout {
             TabularLayout::Grid(grid) => grid_view(grid),
             TabularLayout::Cards(cards) => cards_view(cards),
+            // `TabularLayout` is `#[non_exhaustive]`. A layout this build does
+            // not know is a missing view, not a broken payload, so it takes the
+            // same banner an unsupported payload takes.
+            _ => super::fallback::render(
+                crate::wire::EnvFamily::ToyText,
+                super::fallback::FallbackReason::UnsupportedPayload,
+                frame,
+            ),
         },
         _ => super::fallback::render(
             crate::wire::EnvFamily::ToyText,
@@ -54,11 +62,13 @@ pub fn render(frame: &FrameRecord) -> AnyView {
 /// Background CSS class for a tabular grid cell.
 const fn cell_class(cell: TabularCell) -> &'static str {
     match cell {
-        TabularCell::Empty => "rlevo-tab-empty",
         TabularCell::Frozen => "rlevo-tab-frozen",
         TabularCell::Start => "rlevo-tab-start",
         TabularCell::Goal => "rlevo-tab-goal",
         TabularCell::Hazard => "rlevo-tab-hazard",
+        // Empty, and `#[non_exhaustive]`'s wildcard, share an arm: a cell this
+        // build does not know renders as plain background rather than vanishing.
+        TabularCell::Empty | _ => "rlevo-tab-empty",
     }
 }
 
@@ -69,6 +79,9 @@ const fn marker_glyph(kind: TabularMarkerKind) -> (&'static str, &'static str) {
         TabularMarkerKind::Passenger => ("P", "rlevo-tab-passenger-fg"),
         TabularMarkerKind::Destination => ("D", "rlevo-tab-dest-fg"),
         TabularMarkerKind::Location => ("\u{25c6}", "rlevo-tab-loc-fg"),
+        // `#[non_exhaustive]`: an unknown marker still draws, as a neutral dot,
+        // rather than vanishing from the tile it belongs to.
+        _ => ("\u{2022}", "rlevo-tab-loc-fg"),
     }
 }
 

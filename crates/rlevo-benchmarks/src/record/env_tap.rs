@@ -29,10 +29,7 @@ use rlevo_scene::{
 };
 
 use super::action::RecordableAction;
-use super::schema::{
-    Box2dPayload, Classic2DPayload, FamilyPayload, FrameRecord, GridPayload, Landscape2DPayload,
-    Locomotion2DPayload, TabularPayload,
-};
+use super::schema::{FamilyPayload, FrameRecord};
 use super::writer::RecordSink;
 
 /// Boxed extractor that turns the wrapped env into a [`FamilyPayload`]
@@ -194,7 +191,7 @@ where
     E: AsciiRenderable + Landscape2DPayloadSource + 'static,
 {
     /// Convenience constructor for `landscapes` envs: extracts a
-    /// [`Landscape2DPayload`] per frame via [`Landscape2DPayloadSource`].
+    /// [`Landscape2DSnapshot`](rlevo_scene::Landscape2DSnapshot) per frame via [`Landscape2DPayloadSource`].
     /// Landscape envs implement [`AsciiRenderable`], so the static-frame
     /// ascii / styled projection is captured alongside the rich payload.
     pub fn with_landscape_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
@@ -203,7 +200,7 @@ where
         E::ActionType: RecordableAction,
     {
         Self::with_payload_extractor(inner, sink, |e| {
-            FamilyPayload::Landscape2D(Landscape2DPayload::from(e.landscape2d_snapshot()))
+            FamilyPayload::Landscape2D(e.landscape2d_snapshot())
         })
     }
 }
@@ -213,7 +210,7 @@ where
     E: AsciiRenderable + Box2dPayloadSource + 'static,
 {
     /// Convenience constructor for `box2d` envs: extracts a
-    /// [`Box2dPayload`] per frame via [`Box2dPayloadSource`]. `Box2D` envs
+    /// [`Box2dSnapshot`](rlevo_scene::Box2dSnapshot) per frame via [`Box2dPayloadSource`]. `Box2D` envs
     /// implement [`AsciiRenderable`], so the static-frame ascii / styled
     /// projection is captured alongside the rich payload.
     pub fn with_box2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
@@ -222,7 +219,7 @@ where
         E::ActionType: RecordableAction,
     {
         Self::with_payload_extractor(inner, sink, |e| {
-            FamilyPayload::Box2dBodies(Box2dPayload::from(e.box2d_snapshot()))
+            FamilyPayload::Box2dBodies(e.box2d_snapshot())
         })
     }
 }
@@ -232,7 +229,7 @@ where
     E: Locomotion2DPayloadSource + 'static,
 {
     /// Convenience constructor for `locomotion` envs: extracts a
-    /// [`Locomotion2DPayload`] per frame via [`Locomotion2DPayloadSource`].
+    /// [`Locomotion2DSnapshot`](rlevo_scene::Locomotion2DSnapshot) per frame via [`Locomotion2DPayloadSource`].
     /// This is locomotion's only rendering pathway in the report tier.
     /// Uses [`new_headless`](Self::new_headless) because locomotion envs
     /// do not implement [`AsciiRenderable`].
@@ -242,7 +239,7 @@ where
         E::ActionType: RecordableAction,
     {
         Self::new_headless(inner, sink, |e| {
-            FamilyPayload::Locomotion2D(Locomotion2DPayload::from(e.locomotion2d_snapshot()))
+            FamilyPayload::Locomotion2D(e.locomotion2d_snapshot())
         })
     }
 }
@@ -252,7 +249,7 @@ where
     E: GridPayloadSource + 'static,
 {
     /// Convenience constructor for `grids` envs: extracts a structured
-    /// [`GridPayload`] per frame via [`GridPayloadSource`]. Uses
+    /// [`GridSnapshot`](rlevo_scene::GridSnapshot) per frame via [`GridPayloadSource`]. Uses
     /// [`new_headless`](Self::new_headless) so the record is **structured-only**
     /// (ADR-0013) — no `ascii` / `styled` text is captured; the report renders
     /// SVG from the tile grid.
@@ -261,9 +258,7 @@ where
         E: Environment<D, SD, AD>,
         E::ActionType: RecordableAction,
     {
-        Self::new_headless(inner, sink, |e| {
-            FamilyPayload::Grid(GridPayload::from(e.grid_snapshot()))
-        })
+        Self::new_headless(inner, sink, |e| FamilyPayload::Grid(e.grid_snapshot()))
     }
 }
 
@@ -272,7 +267,7 @@ where
     E: TabularPayloadSource + 'static,
 {
     /// Convenience constructor for `toy_text` envs: extracts a structured
-    /// [`TabularPayload`] per frame via [`TabularPayloadSource`]. Uses
+    /// [`TabularSnapshot`](rlevo_scene::TabularSnapshot) per frame via [`TabularPayloadSource`]. Uses
     /// [`new_headless`](Self::new_headless) so the record is **structured-only**
     /// (ADR-0013) — the report renders the grid/card layout from typed state.
     pub fn with_tabular_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self
@@ -281,7 +276,7 @@ where
         E::ActionType: RecordableAction,
     {
         Self::new_headless(inner, sink, |e| {
-            FamilyPayload::TabularText(TabularPayload::from(e.tabular_snapshot()))
+            FamilyPayload::TabularText(e.tabular_snapshot())
         })
     }
 }
@@ -291,7 +286,7 @@ where
     E: Classic2DPayloadSource + 'static,
 {
     /// Convenience constructor for `classic` physics envs: extracts a
-    /// structured [`Classic2DPayload`] per frame via [`Classic2DPayloadSource`].
+    /// structured [`Classic2DSnapshot`](rlevo_scene::Classic2DSnapshot) per frame via [`Classic2DPayloadSource`].
     /// Uses [`new_headless`](Self::new_headless) so the record is
     /// **structured-only** (ADR-0013) — the report renders SVG line-art from
     /// the world-space bodies.
@@ -301,7 +296,7 @@ where
         E::ActionType: RecordableAction,
     {
         Self::new_headless(inner, sink, |e| {
-            FamilyPayload::Classic2D(Classic2DPayload::from(e.classic2d_snapshot()))
+            FamilyPayload::Classic2D(e.classic2d_snapshot())
         })
     }
 }
@@ -694,20 +689,20 @@ mod tests {
     fn custom_payload_extractor_lands_on_each_frame() {
         use rlevo_scene::{Landscape2DSnapshot, Point2};
 
-        use crate::record::{FamilyPayload, Landscape2DPayload};
+        use crate::record::FamilyPayload;
 
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.5, Termination::TerminateAt(2));
         let mut tap: RecordingTap<_, 1, 1, 1> =
             RecordingTap::with_payload_extractor(env, sink, |stub| {
-                FamilyPayload::Landscape2D(Landscape2DPayload::from(Landscape2DSnapshot {
+                FamilyPayload::Landscape2D(Landscape2DSnapshot {
                     bounds_x: (-1.0, 1.0),
                     bounds_y: (-1.0, 1.0),
                     current: Point2::new(f32::from(i16::try_from(stub.pos).unwrap_or(0)), 0.0),
                     best: None,
                     trail: vec![],
                     label: "stub".into(),
-                }))
+                })
             });
         tap.reset().unwrap();
         tap.step(StubAction(0)).unwrap();

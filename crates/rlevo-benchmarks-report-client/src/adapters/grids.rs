@@ -19,7 +19,7 @@
 use leptos::prelude::*;
 
 use crate::wire::{
-    FamilyPayload, FrameRecord, GridColor, GridDir, GridDoorState, GridPayload, GridTile,
+    FamilyPayload, FrameRecord, GridColor, GridDir, GridDoorState, GridSnapshot, GridTile,
 };
 
 /// Side length of one grid cell in SVG user units.
@@ -71,7 +71,10 @@ const fn color_class(c: GridColor) -> &'static str {
         GridColor::Blue => "rlevo-grid-blue",
         GridColor::Purple => "rlevo-grid-purple",
         GridColor::Yellow => "rlevo-grid-yellow",
-        GridColor::Grey => "rlevo-grid-grey",
+        // Grey, and `#[non_exhaustive]`'s wildcard, share an arm: an unknown
+        // colour falls back to grey, which is paired with a glyph so colour is
+        // never the sole signal anyway.
+        GridColor::Grey | _ => "rlevo-grid-grey",
     }
 }
 
@@ -119,7 +122,7 @@ fn agent_points(ax: u16, ay: u16, dir: GridDir) -> String {
     format!("{tx:.2},{ty:.2} {b1x:.2},{b1y:.2} {b2x:.2},{b2y:.2}")
 }
 
-/// Builds the full SVG `<figure>` for a [`GridPayload`].
+/// Builds the full SVG `<figure>` for a [`GridSnapshot`].
 ///
 /// Returns a `<p class="rlevo-warnings">` error node if the payload is
 /// degenerate: either dimension is zero, or `tiles.len()` does not equal
@@ -128,7 +131,7 @@ fn agent_points(ax: u16, ay: u16, dir: GridDir) -> String {
 ///
 /// On success produces one `<rect>` per cell, overlay glyphs for objects,
 /// the agent `<polygon>` triangle, and a `<figcaption>` legend.
-fn view_with_payload(payload: &GridPayload) -> AnyView {
+fn view_with_payload(payload: &GridSnapshot) -> AnyView {
     let w = payload.width;
     let h = payload.height;
     if w == 0 || h == 0 || payload.tiles.len() != usize::from(w) * usize::from(h) {

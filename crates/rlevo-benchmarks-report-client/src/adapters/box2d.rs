@@ -17,7 +17,7 @@
 
 use leptos::prelude::*;
 
-use crate::wire::{BodyKind, Box2dPayload, FamilyPayload, FrameRecord, Point2, RigidBody2D};
+use crate::wire::{BodyKind, Box2dSnapshot, FamilyPayload, FrameRecord, Point2, RigidBody2D};
 
 /// SVG viewBox width in user units.
 const VB_W: f32 = 480.0;
@@ -58,17 +58,20 @@ fn body_class(kind: BodyKind) -> &'static str {
         BodyKind::Wing => "rlevo-box2d-wing",
         BodyKind::Ground => "rlevo-box2d-ground",
         BodyKind::Goal => "rlevo-box2d-goal",
-        BodyKind::Other => "rlevo-box2d-other",
+        // `BodyKind` is `#[non_exhaustive]`, so a variant added upstream lands
+        // here rather than breaking the build. Neutral styling is the safe
+        // default: an unknown body still draws, just without a semantic class.
+        BodyKind::Other | _ => "rlevo-box2d-other",
     }
 }
 
-/// Builds the full SVG figure for a [`Box2dPayload`], including bodies, contacts, and legend.
+/// Builds the full SVG figure for a [`Box2dSnapshot`], including bodies, contacts, and legend.
 ///
 /// Computes a uniform scale from `world_bounds` so the entire scene fits
 /// inside the viewBox with [`VB_PAD`] margin on each edge, then flips the
 /// y-axis so physics-up maps to SVG-down.  Returns an error paragraph if
 /// `world_bounds` is degenerate (zero span on either axis).
-fn view_with_payload(payload: &Box2dPayload) -> AnyView {
+fn view_with_payload(payload: &Box2dSnapshot) -> AnyView {
     let (min, max) = payload.world_bounds;
     let span_x = max.x - min.x;
     let span_y = max.y - min.y;

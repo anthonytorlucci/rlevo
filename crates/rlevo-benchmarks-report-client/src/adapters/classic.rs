@@ -17,7 +17,7 @@
 use leptos::prelude::*;
 
 use crate::wire::{
-    Classic2DBody, Classic2DPayload, Classic2DRole, FamilyPayload, FrameRecord, Point2,
+    Classic2DBody, Classic2DRole, Classic2DSnapshot, FamilyPayload, FrameRecord, Point2,
 };
 
 /// Square SVG viewport size in user units.  The viewBox is always `0 0 VB VB`.
@@ -63,10 +63,13 @@ const fn role_class(role: Classic2DRole) -> &'static str {
         Classic2DRole::Link => "rlevo-classic-link",
         Classic2DRole::Car => "rlevo-classic-car",
         Classic2DRole::Hinge => "rlevo-classic-hinge",
+        // `#[non_exhaustive]`: an unknown role draws unstyled rather than
+        // failing to compile when the shared enum grows.
+        _ => "rlevo-classic-body",
     }
 }
 
-/// Builds the SVG figure for a [`Classic2DPayload`].
+/// Builds the SVG figure for a [`Classic2DSnapshot`].
 ///
 /// Applies a uniform-scale affine map from the payload's world-space `bounds`
 /// onto the padded inner square (`VB - 2*PAD`), centering the shorter axis.
@@ -74,7 +77,7 @@ const fn role_class(role: Classic2DRole) -> &'static str {
 ///
 /// Returns a warning paragraph instead of an SVG when `bounds` is degenerate
 /// (either dimension is zero or sub-epsilon).
-fn view_with_payload(payload: &Classic2DPayload) -> AnyView {
+fn view_with_payload(payload: &Classic2DSnapshot) -> AnyView {
     let (lo, hi) = payload.bounds;
     let (sx, sy) = (hi.x - lo.x, hi.y - lo.y);
     if sx.abs() < f32::EPSILON || sy.abs() < f32::EPSILON {

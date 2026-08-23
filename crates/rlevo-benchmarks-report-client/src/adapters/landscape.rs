@@ -21,7 +21,7 @@
 use leptos::prelude::*;
 
 use crate::series::landscape_field;
-use crate::wire::{FamilyPayload, FrameRecord, Landscape2DPayload};
+use crate::wire::{FamilyPayload, FrameRecord, Landscape2DSnapshot};
 
 /// SVG viewport size in user units (square canvas).
 const VB_SIZE: f32 = 320.0;
@@ -51,7 +51,7 @@ pub fn render(frame: &FrameRecord) -> AnyView {
     .into_any()
 }
 
-/// Builds the full SVG figure for a [`Landscape2DPayload`].
+/// Builds the full SVG figure for a [`Landscape2DSnapshot`].
 ///
 /// Computes a normalised affine map from landscape coordinates to SVG user
 /// units, flipping the y-axis so physics-up becomes SVG-down.  Renders (in
@@ -62,7 +62,7 @@ pub fn render(frame: &FrameRecord) -> AnyView {
 // Single paint-ordered SVG scene builder; grid-index→f32 casts for the heatmap
 // cells lose precision harmlessly at texture resolution.
 #[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
-fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
+fn view_with_payload(payload: &Landscape2DSnapshot) -> AnyView {
     let (xlo, xhi) = payload.bounds_x;
     let (ylo, yhi) = payload.bounds_y;
     // Guard against degenerate bounds — emit a banner rather than

@@ -23,7 +23,7 @@
 
 use leptos::prelude::*;
 
-use crate::wire::{FamilyPayload, FrameRecord, Locomotion2DPayload, Point2};
+use crate::wire::{FamilyPayload, FrameRecord, Locomotion2DSnapshot, Point2};
 
 /// SVG viewBox width in user units (wider than tall for a sagittal-plane view).
 const VB_W: f32 = 480.0;
@@ -56,7 +56,7 @@ pub fn render(frame: &FrameRecord) -> AnyView {
 /// Computed axis-aligned viewport in payload coordinates with padding.
 /// Returned as `(x_lo, x_hi, y_lo, y_hi)` after `MIN_HALF_RANGE`
 /// clamping so a static stick figure still renders visibly.
-fn payload_bounds(payload: &Locomotion2DPayload) -> (f32, f32, f32, f32) {
+fn payload_bounds(payload: &Locomotion2DSnapshot) -> (f32, f32, f32, f32) {
     const MIN_HALF_RANGE: f32 = 0.6;
 
     let mut xs: Vec<f32> = payload.joints.iter().map(|p| p.x).collect();
@@ -101,7 +101,7 @@ fn bounds(values: &[f32]) -> Option<(f32, f32)> {
     Some((lo, hi))
 }
 
-/// Builds the full SVG figure for a [`Locomotion2DPayload`].
+/// Builds the full SVG figure for a [`Locomotion2DSnapshot`].
 ///
 /// Derives world bounds from all joints, the centre of mass, contact points,
 /// and `ground_y` via [`payload_bounds`], then maps world coordinates to SVG
@@ -111,7 +111,7 @@ fn bounds(values: &[f32]) -> Option<(f32, f32)> {
 // Single paint-ordered SVG scene builder; splitting the passes would only thread
 // the shared affine map through helpers.
 #[allow(clippy::too_many_lines)]
-fn view_with_payload(payload: &Locomotion2DPayload) -> AnyView {
+fn view_with_payload(payload: &Locomotion2DSnapshot) -> AnyView {
     let (x_lo, x_hi, y_lo, y_hi) = payload_bounds(payload);
     let span_x = x_hi - x_lo;
     let span_y = y_hi - y_lo;
