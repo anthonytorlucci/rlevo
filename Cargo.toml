@@ -12,6 +12,7 @@ members = [
     "crates/rlevo-metrics-registry",
     "crates/rlevo-reinforcement-learning",
     "crates/rlevo-test-support",
+    "xtask",
 ]
 
 default-members = [

@@ -1,0 +1,21 @@
+[package]
+name = "xtask"
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+license.workspace = true
+edition.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# `tracel_xtask::group!` / `endgroup!` expand to `log::` calls at the call site,
+# so `log` must be a direct dependency of every crate that uses them.
+log = "0.4"
+strum = { version = "0.27.1", features = ["derive"] }
+tracel-xtask = { version = "5", features = ["build", "check", "fix", "test"] }
+
+[lints]
+workspace = true
