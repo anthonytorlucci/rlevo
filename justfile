@@ -72,10 +72,5 @@ clippy-vis-examples:
         -- -D warnings
 
 # ── Common checks ────────────────────────────────────────────────────────────
-
-# Fast workspace tests — all long-running RL training tests carry #[ignore] and are excluded.
-test-workspace:
-    cargo test --workspace --exclude rlevo-examples
-
 lint:
     cargo clippy --all-targets --all-features
