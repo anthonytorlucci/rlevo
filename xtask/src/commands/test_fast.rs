@@ -27,6 +27,8 @@ use anyhow::Result;
 use tracel_xtask::prelude::*;
 use tracel_xtask::utils::workspace::{WorkspaceMemberType, get_workspace_members};
 
+use super::tiers;
+
 /// A crate in the fast tier and the features its test targets need.
 struct FastCrate {
     /// Package name, as `cargo -p` spells it.
@@ -141,7 +143,7 @@ pub fn handle_command(args: &TestFastCmdArgs, _env: Environment, _ctx: Context) 
     assert_tier_is_total()?;
 
     if args.list {
-        crate::commands::print_json_list(FAST_CRATES.iter().map(|entry| entry.name.to_string()));
+        tiers::print_json_list(FAST_CRATES.iter().map(|entry| entry.name.to_string()));
         return Ok(());
     }
 

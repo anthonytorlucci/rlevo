@@ -39,6 +39,22 @@ Standard cargo invocations. Formatting is enforced in CI (`cargo fmt --all --che
 `.github/workflows/fmt.yml`) and the toolchain is pinned in `rust-toolchain.toml` so
 local and CI rustfmt agree — run `cargo fmt --all` before pushing.
 
+Tests are split into three tiers, each an `xtask` command that owns the list of
+what it runs. Together they partition the workspace's tests, and a `#[ignore]`d
+test claimed by no tier fails the command that notices — so a new heavy test
+cannot quietly end up run by nothing.
+
+| Command | Runs | Where |
+|---------|------|-------|
+| `cargo xtask test-fast` | every crate's default test set, with the features its test targets need | `crate-tests.yml`, the pull-request gate |
+| `cargo xtask test-heavy` | the `#[ignore]`d long tests a CPU can run | `weekly-tests.yml` |
+| `cargo xtask test-gpu` | the `#[ignore]`d tests needing a wgpu adapter | local only — never CI |
+
+Both CI workflows build their matrices from the tier tables (`--list`), so adding
+a crate or a heavy test target is a one-line change in `xtask/src/commands/`, not
+a YAML edit. `test-gpu` aborts rather than fails on a host with no adapter, which
+is why no workflow calls it.
+
 ## Working with the Codebase
 
 ### Common Generic Types
