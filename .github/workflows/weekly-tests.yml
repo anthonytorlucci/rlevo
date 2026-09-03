@@ -25,9 +25,8 @@ jobs:
   # This job derives the matrix from that table instead of restating it in YAML.
   # A restated list is a second source of truth that disagrees with the first in
   # silence: the target simply stops being run, and the workflow is green because
-  # nothing was checked. That is the same class the `test-matrix-coverage` job in
-  # `crate-tests.yml` exists to catch for the pull-request gate; deriving the list
-  # means it cannot arise here at all.
+  # nothing was checked. That is the issue #519 class, and `crate-tests.yml`'s
+  # `tier` job answers it the same way for the pull-request gate.
   tier:
     name: enumerate the heavy tier
     runs-on: ubuntu-latest

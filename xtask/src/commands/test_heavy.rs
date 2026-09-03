@@ -205,14 +205,7 @@ pub fn handle_command(args: &TestHeavyCmdArgs, _env: Environment, _ctx: Context)
     assert_tier_is_total()?;
 
     if args.list {
-        // Every label is an identifier built from a package or target name, so
-        // no JSON string needs escaping. The log goes to stderr, leaving stdout
-        // clean for `$(cargo xtask test-heavy --list)`.
-        let labels: Vec<String> = HEAVY_TARGETS
-            .iter()
-            .map(|entry| format!("\"{}\"", entry.label()))
-            .collect();
-        println!("[{}]", labels.join(","));
+        crate::commands::print_json_list(HEAVY_TARGETS.iter().map(HeavyTarget::label));
         return Ok(());
     }
 

@@ -1,8 +1,9 @@
 //! Fast tier — every crate's default test set, the pull-request gate.
 //!
-//! One `cargo test -p <crate>` per workspace crate, mirroring the `test` matrix
-//! in `.github/workflows/crate-tests.yml`. Two properties are load-bearing and
-//! are enforced here rather than left to convention:
+//! One `cargo test -p <crate>` per workspace crate. [`FAST_CRATES`] is the
+//! gate's source of truth: `.github/workflows/crate-tests.yml` builds its `test`
+//! matrix from `--list` rather than restating the crates in YAML. Two properties
+//! are load-bearing and are enforced here rather than left to convention:
 //!
 //! 1. **The tier is total over the workspace.** A crate absent from the tier
 //!    has its tests run by nothing. `assert_tier_is_total` compares the table
@@ -19,6 +20,7 @@
 //! cargo xtask test-fast
 //! cargo xtask test-fast rlevo-core
 //! cargo xtask test-fast -x rlevo-examples
+//! cargo xtask test-fast --list
 //! ```
 
 use anyhow::Result;
@@ -116,6 +118,13 @@ pub struct TestFastCmdArgs {
         required = false
     )]
     pub exclude: Vec<String>,
+    /// Print the tier's crates as a JSON array and exit, running nothing.
+    ///
+    /// `crate-tests.yml` builds its matrix from this with `fromJSON`, so the
+    /// tier table is the workflow's single source of truth rather than a list
+    /// the YAML restates and then drifts from.
+    #[arg(long, default_value_t = false)]
+    pub list: bool,
 }
 
 /// Run the fast tier, stopping at the first crate that fails.
@@ -130,6 +139,12 @@ pub struct TestFastCmdArgs {
 /// named a crate outside the tier, or if any crate's tests fail.
 pub fn handle_command(args: &TestFastCmdArgs, _env: Environment, _ctx: Context) -> Result<()> {
     assert_tier_is_total()?;
+
+    if args.list {
+        crate::commands::print_json_list(FAST_CRATES.iter().map(|entry| entry.name.to_string()));
+        return Ok(());
+    }
+
     reject_unknown_selection(args)?;
 
     for entry in FAST_CRATES {
@@ -140,10 +155,10 @@ pub fn handle_command(args: &TestFastCmdArgs, _env: Environment, _ctx: Context) 
 
 /// Fail if any workspace member is neither in the tier nor explicitly excused.
 ///
-/// The equivalent guard in `crate-tests.yml` greps the workflow YAML for each
-/// `crates/*/` directory name. Reading `cargo metadata` instead makes the check
-/// exact: it sees the real member list, not a directory listing that happens to
-/// resemble one.
+/// This replaced a `crate-tests.yml` job that grepped the workflow YAML for each
+/// `crates/*/` directory name. Reading `cargo metadata` makes the check exact:
+/// it sees the real member list, not a directory listing that happens to
+/// resemble one — `xtask` itself is a member and `crates/*/` never saw it.
 fn assert_tier_is_total() -> Result<()> {
     let missing: Vec<String> = get_workspace_members(WorkspaceMemberType::Crate)
         .into_iter()
