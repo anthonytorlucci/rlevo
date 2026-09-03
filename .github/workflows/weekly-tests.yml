@@ -15,46 +15,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Per-algorithm regression suites ─────────────────────────────────────────
+  # ── The tier, read from its single source of truth ───────────────────────────
   #
-  # The heavy RL convergence / reproducibility tests all carry `#[ignore]`, so
-  # the fast `test-workspace` suite skips them. This job runs every ignored test
-  # in an algorithm's integration binary in one shot:
+  # `HEAVY_TARGETS` in `xtask/src/commands/test_heavy.rs` lists every test target
+  # holding CPU-runnable `#[ignore]`d tests, and `cargo xtask test-heavy` proves
+  # on each invocation that the list is total over the workspace's ignored tests
+  # — a new heavy test fails the tier instead of quietly falling out of it.
   #
-  #     cargo test --release --test <binary> -- --ignored
+  # This job derives the matrix from that table instead of restating it in YAML.
+  # A restated list is a second source of truth that disagrees with the first in
+  # silence: the target simply stops being run, and the workflow is green because
+  # nothing was checked. That is the same class the `test-matrix-coverage` job in
+  # `crate-tests.yml` exists to catch for the pull-request gate; deriving the list
+  # means it cannot arise here at all.
+  tier:
+    name: enumerate the heavy tier
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      targets: ${{ steps.enumerate.outputs.targets }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: weekly-tier
+
+      # `--list` runs nothing; it asserts the tier is total and prints a JSON
+      # array on stdout (xtask logs to stderr, so the capture stays clean).
+      - name: Enumerate the tier
+        id: enumerate
+        run: |
+          targets=$(cargo xtask test-heavy --list)
+          echo "heavy tier: $targets"
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+
+  # ── Per-target regression suites ────────────────────────────────────────────
   #
-  # One matrix job per algorithm keeps failures isolated and individually
-  # re-runnable. Invoking the binary (not individual test names) is deliberate:
+  # The heavy convergence / reproducibility tests all carry `#[ignore]`, so the
+  # pull-request gate (`cargo xtask test-fast`) skips them. This job runs every
+  # ignored test in one target:
+  #
+  #     cargo xtask test-heavy <target>
+  #
+  # which expands to `cargo test --release -p <pkg> --test <target> -- --ignored`.
+  # One matrix job per target keeps failures isolated and individually
+  # re-runnable. Naming the binary rather than individual tests is deliberate:
   # the heavy tests are macro-generated (`rl_learning_test!` /
   # `rl_reproducibility_test!`) and were renamed once already — enumerating names
-  # here is exactly what drifts. `--release` keeps the training runs inside the
-  # timeout. QR-DQN's hours-long `qrdqn_cartpole_acceptance` is `--skip`ped here
-  # and runs in the separate `acceptance` job below.
+  # is exactly what drifts. `--release` is not optional at these step budgets and
+  # the xtask command always passes it.
+  #
+  # Targets whose ignored tests need a wgpu adapter are excused inside the tier
+  # (`GPU_ONLY`) and never reach a runner: cubecl-wgpu *aborts* on device init
+  # where there is no GPU, so they cannot be skipped by name from here.
+  #
+  # QR-DQN's hours-long `qrdqn_cartpole_acceptance` is deferred by the tier and
+  # runs in the separate `acceptance` job below.
   regression:
-    name: ${{ matrix.name }}
+    name: ${{ matrix.target }}
+    needs: tier
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: "DQN — heavy suite (CartPole converge + reproducibility)"
-            bin: dqn_integration
-          - name: "C51 — heavy suite (CartPole converge + reproducibility)"
-            bin: c51_integration
-          - name: "QR-DQN — heavy suite (excludes acceptance)"
-            bin: qrdqn_integration
-            skip: qrdqn_cartpole_acceptance
-          - name: "PPO — heavy suite (CartPole converge + Pendulum + reproducibility)"
-            bin: ppo_integration
-          - name: "PPG — heavy suite (aux phases, CartPole + reproducibility)"
-            bin: ppg_integration
-          - name: "DDPG — heavy suite (LinearEnv + Pendulum)"
-            bin: ddpg_integration
-          - name: "TD3 — heavy suite (LinearEnv + Pendulum 500k)"
-            bin: td3_integration
-          - name: "SAC — heavy suite (LinearEnv + Pendulum)"
-            bin: sac_integration
+        target: ${{ fromJSON(needs.tier.outputs.targets) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -62,40 +89,38 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           # Separate cache key per matrix job so jobs don't thrash each other.
-          key: weekly-${{ matrix.bin }}
+          key: weekly-${{ matrix.target }}
 
-      - name: Run ${{ matrix.name }}
-        run: >-
-          cargo test --release -p rlevo --test ${{ matrix.bin }}
-          -- --ignored
-          ${{ matrix.skip && format('--skip {0}', matrix.skip) }}
+      - name: Run ${{ matrix.target }}
+        run: cargo xtask test-heavy ${{ matrix.target }}
 
   # ── Full acceptance tests (~hours) ──────────────────────────────────────────
   #
   # Hours-long full-solve runs that won't fit the regression job's timeout. Run
   # every week alongside the regression suite, and on-demand via
-  # workflow_dispatch. Promote a test into the regression job when its runtime
-  # becomes acceptable as hardware improves.
+  # workflow_dispatch. Promote a test out of the tier's `deferred` list into the
+  # regression job when its runtime becomes acceptable as hardware improves.
+  #
+  # `--with-acceptance` lifts the tier's deferral for the whole binary, so this
+  # job re-runs `qrdqn_integration`'s ordinary heavy tests as well. That overlap
+  # is a few minutes against a multi-hour run, and it is the price of the tier
+  # having exactly two modes — default and everything — rather than a third that
+  # would need its own list of names to keep in sync.
+  #
+  # This job names its target directly rather than deriving it, so it does not
+  # need `tier`; `test-heavy` still asserts the tier is total before running, and
+  # rejects the target by name if it ever leaves the table.
   acceptance:
-    name: ${{ matrix.name }}
+    name: QR-DQN — CartPole acceptance (500k steps, reward ≥ 195)
     runs-on: ubuntu-latest
     timeout-minutes: 350
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: "QR-DQN — CartPole acceptance (500k steps, reward ≥ 195)"
-            bin: qrdqn_integration
-            test: qrdqn_cartpole_acceptance
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          key: weekly-${{ matrix.bin }}
+          key: weekly-qrdqn_integration
 
-      - name: Run ${{ matrix.name }}
-        run: >-
-          cargo test --release -p rlevo --test ${{ matrix.bin }}
-          -- --ignored ${{ matrix.test }}
+      - name: Run the QR-DQN acceptance suite
+        run: cargo xtask test-heavy --with-acceptance qrdqn_integration
