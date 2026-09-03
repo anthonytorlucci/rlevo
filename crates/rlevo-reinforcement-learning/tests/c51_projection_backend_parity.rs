@@ -103,8 +103,7 @@ fn project_rows<B: Backend>(rewards: &[f32], device: &B::Device) -> Vec<f32> {
 #[test]
 #[ignore = "requires a wgpu/Metal or wgpu/Vulkan adapter; every CI workflow runs on ubuntu-latest \
             with no GPU and cubecl-wgpu aborts on device init — run on a GPU host with \
-            `cargo test -p rlevo-reinforcement-learning --test c51_projection_backend_parity -- \
-            --ignored`"]
+            `cargo xtask test-gpu c51_projection_backend_parity`"]
 fn wgpu_matches_flex_on_non_finite_rewards() {
     // Row 0: NaN — must be non-finite on BOTH backends after the fix.
     // Row 1: +inf — must clamp to v_max (top atom) on both, WITHOUT becoming

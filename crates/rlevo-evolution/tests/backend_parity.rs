@@ -125,7 +125,7 @@ where
 }
 
 #[test]
-#[ignore = "requires a wgpu/Vulkan adapter; CI runners have no GPU and cubecl-wgpu aborts on device init — run on a GPU host with `cargo test -p rlevo-evolution --test backend_parity -- --ignored`"]
+#[ignore = "requires a wgpu/Vulkan adapter; CI runners have no GPU and cubecl-wgpu aborts on device init — run on a GPU host with `cargo xtask test-gpu backend_parity`"]
 fn wgpu_matches_flex_on_sphere_d10() {
     const SEED: u64 = 999;
     const GENS: usize = 400;

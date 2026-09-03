@@ -1912,9 +1912,8 @@ mod tests {
     #[test]
     #[ignore = "requires a wgpu/Metal or wgpu/Vulkan adapter; every CI workflow \
                 runs on ubuntu-latest with no GPU and cubecl-wgpu aborts on \
-                device init — run on a GPU host with `cargo test -p \
-                rlevo-reinforcement-learning --lib -- --ignored \
-                clamp_preserving_nan_matches_flex_on_wgpu`"]
+                device init — run on a GPU host with `cargo xtask test-gpu \
+                rlevo-reinforcement-learning:lib`"]
     fn clamp_preserving_nan_matches_flex_on_wgpu() {
         // NOT RUN IN CI. Regression protection for this class is a manual GPU
         // run; the assertion below is the only thing in the workspace that can
