@@ -73,42 +73,43 @@ jobs:
           fi
           echo "all crate manifests opt into [workspace.lints]"
 
-  # Issue #519: the `test` matrix below is hand-maintained, and nothing in cargo
-  # notices when a crate is missing from it — the crate's tests simply never
-  # run, and CI is green because nothing was checked. That is how `rlevo`'s 22
-  # test binaries, plus every test in four other crates, stayed out of the pull
-  # request gate. Same silent-inertness class as the #391 lint-opt-in job above,
-  # and the same remedy: make the omission fail the build.
-  test-matrix-coverage:
-    name: test matrix covers every crate
+  # ── The tier, read from its single source of truth ───────────────────────────
+  #
+  # Issue #519: a hand-maintained matrix is one nothing in cargo checks. A crate
+  # missing from it simply never has its tests run, and CI is green because
+  # nothing was tested. That is how `rlevo`'s 22 test binaries, plus every test
+  # in four other crates, stayed out of the pull-request gate.
+  #
+  # `FAST_CRATES` in `xtask/src/commands/test_fast.rs` is now the gate's crate
+  # list, and `cargo xtask test-fast` asserts on every invocation that it is
+  # total over `cargo metadata`'s workspace members — exact where the job this
+  # replaced compared `basename crates/*/` against a grep of this file, and blind
+  # to `xtask` itself, which is a member but not under `crates/`.
+  #
+  # Deriving the matrix here rather than restating it means the #519 drift cannot
+  # occur at all: there is no second list to disagree with the first.
+  tier:
+    name: enumerate the fast tier
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      crates: ${{ steps.enumerate.outputs.crates }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Every workspace crate must appear in the test matrix
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: crate-tests-tier
+
+      # `--list` runs no tests; it asserts the tier is total and prints a JSON
+      # array on stdout (xtask logs to stderr, so the capture stays clean).
+      - name: Enumerate the tier
+        id: enumerate
         run: |
-          # No exclusions: the matrix is total over `crates/*/`. If a crate ever
-          # genuinely cannot be tested in the gate, add it to an `excluded` list
-          # here together with the reason — do not silently drop it from the
-          # matrix, which is the failure mode this job exists to prevent.
-          missing=""
-          for dir in crates/*/; do
-            crate=$(basename "$dir")
-            # Whole-line match against a YAML list item, so `rlevo` is not
-            # considered covered by `rlevo-core`. Bare `- <name>` items appear
-            # only under the matrix's `crate:` key; every other list in this
-            # file is a mapping (`- uses:`, `- name:`, `- crate:`).
-            if ! grep -qE "^ +- ${crate}\$" .github/workflows/crate-tests.yml; then
-              missing="$missing  $crate\n"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::workspace crates absent from the crate-tests matrix (see issue #519):"
-            printf "$missing"
-            echo "A crate outside the matrix has its tests run by no pull-request check."
-            echo "Add it to the matrix, or to this job's 'excluded' list with a reason."
-            exit 1
-          fi
-          echo "every workspace crate is covered by the test matrix"
+          crates=$(cargo xtask test-fast --list)
+          echo "fast tier: $crates"
+          echo "crates=$crates" >> "$GITHUB_OUTPUT"
 
   # `[workspace.lints.rustdoc] broken_intra_doc_links = "deny"` sets the lint's
   # *level*, but nothing in the pull-request gate invoked rustdoc's link pass,
@@ -177,46 +178,25 @@ jobs:
           cargo clippy -p rlevo-environments --all-targets
           --no-default-features --features locomotion -- -D warnings
 
-  # Issue #519: a crate absent from this matrix has its tests compiled and run
-  # by no pull-request check. `rlevo` was the case that surfaced it — all 22 of
-  # its `crates/rlevo/tests/*.rs` binaries were reachable only by
-  # `weekly-tests.yml`, which runs `-- --ignored` and therefore *filters out*
-  # every non-ignored test in them. Four further crates were absent for no
-  # recorded reason at all. Keep this list total over `crates/*/`; the
-  # `test-matrix-coverage` job below fails the build if it drifts.
+  # ── Per-crate default test sets ─────────────────────────────────────────────
+  #
+  # `cargo xtask test-fast <crate>` expands to `cargo test -p <crate>` plus the
+  # features that crate's test targets need. Those overrides live in the tier
+  # table, not here: a bare `cargo test -p <crate>` *skips* a target whose
+  # `required-features` are unmet and compiles a `#![cfg(feature = ...)]` file to
+  # nothing — both silently, with a zero exit code. `rlevo` needs `viz-report`
+  # and `rlevo-benchmarks` needs `record` for exactly that reason.
+  #
+  # The heavy `#[ignore]`d tests are not run here; they are `weekly-tests.yml`'s
+  # `cargo xtask test-heavy` tier.
   test:
     name: ${{ matrix.crate }}
+    needs: tier
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        crate:
-          - rlevo-core
-          - rlevo-benchmarks
-          - rlevo-benchmarks-report-client
-          - rlevo-environments
-          - rlevo-evolution
-          - rlevo-examples
-          - rlevo-hybrid
-          - rlevo-metrics-registry
-          - rlevo-reinforcement-learning
-          - rlevo-test-support
-          - rlevo
-        include:
-          # `crates/rlevo/tests/recording_episode_count.rs` and
-          # `cartpole_report_smoke.rs` are gated behind `required-features =
-          # ["viz-report"]` (crates/rlevo/Cargo.toml), which is not among
-          # `rlevo`'s default features. A bare `cargo test -p rlevo` silently
-          # *skips* both binaries rather than running them.
-          - crate: rlevo
-            features: --features viz-report
-          # `crates/rlevo-benchmarks/tests/wire_format_compat.rs` (native
-          # EpisodeRecord vs. browser-client wire-format mirror parity) is
-          # `#![cfg(feature = "record")]`, which is not among
-          # `rlevo-benchmarks`'s default features (`json` only). Without this
-          # override the file compiles to nothing and the test never runs.
-          - crate: rlevo-benchmarks
-            features: --features record
+        crate: ${{ fromJSON(needs.tier.outputs.crates) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -225,6 +205,5 @@ jobs:
         with:
           key: crate-tests-${{ matrix.crate }}
 
-      # `matrix.features` is empty for every crate without an `include:` entry.
       - name: Test ${{ matrix.crate }}
-        run: cargo test --package ${{ matrix.crate }} ${{ matrix.features }}
+        run: cargo xtask test-fast ${{ matrix.crate }}
