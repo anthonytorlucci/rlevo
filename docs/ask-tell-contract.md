@@ -288,8 +288,3 @@ harness call).
 > exploration. The GA operators used in the code above — tournament selection,
 > BLX-α crossover, elitist replacement — are the same operators, with the same
 > convergence behaviour, that back every real-coded strategy in `rlevo::evo`.
-
----
-
-*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
-*Co-Authored-By: Anthropic Claude Opus 4.8*

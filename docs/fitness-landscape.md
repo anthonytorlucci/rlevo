@@ -91,8 +91,3 @@ upward step eventually reaches the top. In a maze of thousands of small peaks
 never learn that a far taller mountain sat behind the next ridge. Benchmark
 functions are the standardised maps we hand different hikers to see whose
 navigation holds up.
-
----
-
-*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
-*Co-Authored-By: Anthropic Claude Opus 4.8*

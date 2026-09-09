@@ -25,13 +25,11 @@ CLAUDE.local.md
 # Recorded benchmark runs (M4+) — example output, not source.
 runs/
 
-# mdbook outputs (scoped to the doc dirs — a bare `book/` also matches the
-# example source dir crates/rlevo-examples/examples/book/)
-docs/user-book/book/
-docs/contributor-book/book/
-
 # private specs, sessions, etc.
 docs/.private/
 
 # personal DRY scripts
 scripts/
+
+# graphify
+graphify-out
