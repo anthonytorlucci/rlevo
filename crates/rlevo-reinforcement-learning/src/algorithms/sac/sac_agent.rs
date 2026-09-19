@@ -634,12 +634,11 @@ where
     ///
     /// Panics if the actor slot is poisoned — i.e. a previous
     /// [`learn_step`](Self::learn_step) unwound *inside* the actor's optimizer
-    /// step. The agent cannot recover and must be rebuilt; see
-    /// [`Slot`](crate::algorithms::shared::Slot). Also panics if the actor's
-    /// output tensor is not `f32`: that host-read is an `.expect` on a named
-    /// invariant, the form `docs/rules.md` §4 sanctions here because `act`
-    /// returns a bare action and so has no error channel to report the failure
-    /// through.
+    /// step. The agent cannot recover and must be rebuilt; see [`Slot`]. Also
+    /// panics if the actor's output tensor is not `f32`: that host-read is an
+    /// `.expect` on a named invariant, the form `docs/rules.md` §4 sanctions
+    /// here because `act` returns a bare action and so has no error channel to
+    /// report the failure through.
     pub fn act(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::COMPONENTS)
@@ -907,10 +906,10 @@ where
     ///
     /// Returns `None` if the agent is still in warm-up.
     ///
-    /// Every network stays in its [`Slot`](crate::algorithms::shared::Slot) for
-    /// the whole forward / loss / `backward` region and is moved out only for
-    /// its own optimizer step, so a panic anywhere in that region leaves all
-    /// three networks intact and the agent usable.
+    /// Every network stays in its [`Slot`] for the whole forward / loss /
+    /// `backward` region and is moved out only for its own optimizer step, so a
+    /// panic anywhere in that region leaves all three networks intact and the
+    /// agent usable.
     ///
     /// # Panics
     ///

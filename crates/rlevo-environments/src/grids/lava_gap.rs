@@ -267,7 +267,7 @@ impl FromStr for LavaGapConfig {
 /// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 ///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
+/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
 ///
 /// # Examples
 ///

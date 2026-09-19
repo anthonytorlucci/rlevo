@@ -557,9 +557,8 @@ impl FromStr for MemoryConfig {
 /// the cue, so nothing in the configuration pins the answer to a side — the only
 /// way to score above chance is to remember the cue.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] /
-/// [`ScalarReward`].
+/// Implements [`Environment<3, 3, 1>`] with [`GridState`] / [`GridObservation`]
+/// / [`GridAction`] / [`ScalarReward`].
 ///
 /// The episode ends on the first [`GridAction::Done`] (or at the step budget);
 /// a [`step`](Environment::step) taken afterwards is rejected with

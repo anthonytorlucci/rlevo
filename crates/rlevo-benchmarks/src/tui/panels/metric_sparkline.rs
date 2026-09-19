@@ -6,10 +6,9 @@
 //! sparkline bars. The label area is fixed-width so several
 //! `MetricSparkline`s stack with their bar columns aligned.
 //!
-//! Reuses [`encode_returns`](super::reward_sparkline::encode_returns) for
-//! the f64→u64 dynamic-baseline encoding — the same algorithm the
-//! reward sparkline uses, so all panels in the metrics column behave
-//! consistently.
+//! Reuses [`encode_returns`] for the f64→u64 dynamic-baseline encoding — the
+//! same algorithm the reward sparkline uses, so all panels in the metrics
+//! column behave consistently.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};

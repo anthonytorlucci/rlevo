@@ -242,7 +242,8 @@ pub enum OpenError {
     /// The directory contained no `episode_*.rec` files.
     #[error("no episode_*.rec files found in {0}")]
     NoEpisodes(PathBuf),
-    /// `run.toml` was present but could not be deserialized as a [`RunManifest`](crate::record::RunManifest).
+    /// `run.toml` was present but could not be deserialized as a
+    /// [`RunManifest`].
     #[error("run.toml present but could not be parsed: {0}")]
     ManifestParse(#[source] toml::de::Error),
     /// An episode file could not be opened or decoded.

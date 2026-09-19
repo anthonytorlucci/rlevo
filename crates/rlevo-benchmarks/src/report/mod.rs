@@ -10,9 +10,8 @@
 //! - `replay` — random-access loader for previously recorded runs
 //! - `html` — static-HTML emitter for post-run visualisation
 //!
-//! [`Metric`](crate::metrics::Metric) is not directly serializable here; the
-//! JSON reporter flattens metrics into plain key/value maps at absorption
-//! time.
+//! [`Metric`] is not directly serializable here; the JSON reporter flattens
+//! metrics into plain key/value maps at absorption time.
 //!
 //! Absorption is split **by provenance**, not by trust:
 //!
@@ -20,8 +19,7 @@
 //!   measurements the trial itself made. It inserts verbatim.
 //! - [`TrialReport::absorb_metrics`] is the checked path, for metrics that came
 //!   from an agent or a probe. A name the harness owns (see
-//!   [`is_harness_reserved`](crate::metrics::core::is_harness_reserved)) is
-//!   re-homed under `agent/<name>` and recorded in
+//!   [`is_harness_reserved`]) is re-homed under `agent/<name>` and recorded in
 //!   [`TrialReport::displaced_metrics`] instead of overwriting the harness's
 //!   own value.
 //!
@@ -76,9 +74,8 @@ pub struct EpisodeSummary {
 ///
 /// # Invariants
 ///
-/// - A key for which
-///   [`is_harness_reserved`](crate::metrics::core::is_harness_reserved) holds
-///   carries the harness's own measurement, never an agent's.
+/// - A key for which [`is_harness_reserved`] holds carries the harness's own
+///   measurement, never an agent's.
 /// - The `agent/` namespace holds only re-homed agent metrics; the harness
 ///   never writes there directly.
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
@@ -150,11 +147,11 @@ impl TrialReport {
     ///
     /// - if the name is not harness-owned, it is inserted verbatim, overwriting
     ///   any earlier entry of the same name (unchanged behaviour);
-    /// - if [`is_harness_reserved`](crate::metrics::core::is_harness_reserved)
-    ///   holds for the name, the existing entry is left alone and the incoming
-    ///   value is stored under `agent/<name>` instead. The original name is
-    ///   pushed onto [`displaced_metrics`](Self::displaced_metrics) and exactly
-    ///   one `tracing::warn!` is emitted for the collision.
+    /// - if [`is_harness_reserved`] holds for the name, the existing entry is
+    ///   left alone and the incoming value is stored under `agent/<name>`
+    ///   instead. The original name is pushed onto
+    ///   [`displaced_metrics`](Self::displaced_metrics) and exactly one
+    ///   `tracing::warn!` is emitted for the collision.
     ///
     /// Because `agent/` is itself reserved, an agent that emits `agent/foo`
     /// directly is re-homed to `agent/agent/foo`: the landing zone is

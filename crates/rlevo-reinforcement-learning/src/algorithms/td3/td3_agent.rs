@@ -518,10 +518,10 @@ where
     /// future fourth loss site is added to this sum once, and cannot be
     /// silently omitted from the reporting path.
     ///
-    /// The sum is `saturating_add`-chained (the
-    /// [`AgentStats`](crate::metrics::AgentStats) counter precedent), so it
-    /// pins at `u64::MAX` rather than wrapping — an unreachable total in
-    /// practice, but a wrapped one would read as a *healthy* run.
+    /// The sum is `saturating_add`-chained (the [`AgentStats`] counter
+    /// precedent), so it pins at `u64::MAX` rather than wrapping — an
+    /// unreachable total in practice, but a wrapped one would read as a
+    /// *healthy* run.
     ///
     /// # It is a sum of unlike terms
     ///

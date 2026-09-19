@@ -856,8 +856,7 @@ where
     /// network. Every other operation here — sampling, the forward passes, the
     /// losses, `backward`, and gradient reduction — runs on a borrow, so a
     /// panic in any of them leaves the agent fully usable; only a panic inside
-    /// the optimizer step itself is terminal. See
-    /// [`Slot`](crate::algorithms::shared::Slot).
+    /// the optimizer step itself is terminal. See [`Slot`].
     ///
     /// # Errors
     ///

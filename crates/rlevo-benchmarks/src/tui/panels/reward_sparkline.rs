@@ -1,13 +1,12 @@
 //! Reward sparkline panel.
 //!
-//! Reads the bounded reward ring from
-//! [`AppState`](crate::tui::state::AppState) and renders a horizontal
-//! sparkline using `ratatui::widgets::Sparkline`. The sparkline widget
-//! consumes `u64`, but episode returns are `f64` and can be negative
-//! (`MountainCar` emits -1 per step). The conversion in [`encode_returns`]
-//! shifts the visible window so the minimum sits at 0 and scales by a
-//! fixed integer factor so the sparkline's bar quantization still has
-//! useful resolution on small-magnitude data.
+//! Reads the bounded reward ring from [`AppState`] and renders a horizontal
+//! sparkline using `ratatui::widgets::Sparkline`. The sparkline widget consumes
+//! `u64`, but episode returns are `f64` and can be negative (`MountainCar`
+//! emits -1 per step). The conversion in [`encode_returns`] shifts the visible
+//! window so the minimum sits at 0 and scales by a fixed integer factor so the
+//! sparkline's bar quantization still has useful resolution on small-magnitude
+//! data.
 //!
 //! Storing raw `f64`s in [`AppState`] and converting at render time —
 //! rather than pre-encoding into `u64` at push time — lets the baseline

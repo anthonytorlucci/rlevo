@@ -113,7 +113,7 @@ pub struct QrDqnTrainingConfig {
     ///
     /// [`validate`](Validate::validate) rejects `$\kappa \leq 0$`; every non-finite `$\kappa$`
     /// (`NaN` and `$\pm\infty$` alike, as
-    /// [`ConstraintKind::NotFinite`](rlevo_core::config::ConstraintKind::NotFinite)); and every
+    /// [`ConstraintKind::NotFinite`]); and every
     /// *finite* `$\kappa$` large enough that `$0.5 \cdot \kappa^2$` overflows `f32` — the last
     /// accepted value is `$\approx 2.6087635e19$` (`$\sqrt{2\,\text{f32::MAX}}$`).
     ///
