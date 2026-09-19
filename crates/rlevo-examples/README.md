@@ -35,13 +35,14 @@ and which report/TUI panels it lights up — read it alongside the entry below.
 
 ### Benchmarking harness — no features required
 
-These run the `Suite` → `Evaluator::run_suite` → `BenchmarkReport` path and
-print results to stdout. The quickest way to see the harness in action.
+These drive `Evaluator` to a `BenchmarkReport` and print results to stdout —
+`run_suite` for the episodic path, `run_trials` for the generation path. The
+quickest way to see the harness in action.
 
 | Example          | What it demonstrates                                                                                          | Run                                                  |
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
 | `tabular_bandit` | An $\epsilon$-greedy sample-average agent on `TenArmedBandit`; prints per-trial `return/mean` across the seed sweep.   | `cargo run -p rlevo-examples --example tabular_bandit` |
-| `ga_rastrigin`   | A hand-rolled GA on the Rastrigin landscape; exercises the `FitnessEvaluable` + `BenchEnv` harness contracts. | `cargo run -p rlevo-examples --example ga_rastrigin`   |
+| `ga_rastrigin`   | A hand-rolled GA on the Rastrigin landscape; exercises the `FitnessEvaluable` + `GenerationProbe` harness contracts, driven as a `GenerationTrial`. | `cargo run -p rlevo-examples --example ga_rastrigin`   |
 
 ### Evolutionary algorithms — no features required
 
