@@ -598,9 +598,9 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
     ///
     /// # Errors
     ///
-    /// Propagates [`PlacementError`] from [`build`](Self::build) if the left
-    /// room has no free cell for the agent or the key. No legal
-    /// [`DoorKeyConfig`] reaches that path.
+    /// Propagates [`PlacementError`] from `build` if the left room has no free
+    /// cell for the agent or the key. No legal [`DoorKeyConfig`] reaches that
+    /// path.
     ///
     /// A failed reset is a **total no-op**: the board, the step counter, and the
     /// guard all keep the previous episode's values, so a finished episode stays
@@ -611,7 +611,7 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
     /// its guard only after the delegated reset succeeds.
     ///
     /// That `Err` path is unreachable for any config this crate accepts (see
-    /// [`build`](Self::build)), so it carries no test — only this ordering.
+    /// `build`), so it carries no test — only this ordering.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         // Draw first: only a *successful* build actually starts a new episode.
         let layout = Self::build(&self.config, &mut self.rng)?;

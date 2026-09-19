@@ -74,9 +74,8 @@ use serde::{Deserialize, Serialize};
 /// An `ImportanceExponent` can never hold a `NaN`, an infinity, or a value
 /// outside `[0, 1]`. Every constructor enforces
 /// `b.is_finite() && (0.0..=1.0).contains(&b)`. As a result the `NaN`-weights →
-/// `NaN`-loss → poisoned-gradients chain described in the
-/// [module documentation](self) is unrepresentable wherever an
-/// `ImportanceExponent` is held.
+/// `NaN`-loss → poisoned-gradients chain described in the module documentation
+/// is unrepresentable wherever an `ImportanceExponent` is held.
 ///
 /// `0.0` applies no importance correction; `1.0` ([`ONE`](Self::ONE)) applies
 /// the full correction and is the endpoint of Schaul Table 3's `$\beta_0 = 0.4 \to 1.0$`

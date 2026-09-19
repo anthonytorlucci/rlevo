@@ -662,7 +662,7 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
     ///
     /// # Errors
     ///
-    /// Propagates a [`PlacementError`] from [`build`](Self::build) as an
+    /// Propagates a [`PlacementError`] from `build` as an
     /// [`EnvironmentError::Config`] if the fresh layout cannot be placed. On that
     /// path the whole reset is a no-op — board, step counter *and*
     /// [`EpisodeGuard`] are left exactly as they were. The guard is deliberately

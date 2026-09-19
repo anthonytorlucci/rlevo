@@ -142,9 +142,8 @@ impl ContinuousAction<1> for CarRacingAction {
 ///
 /// Source: Gymnasium `CarRacing-v3` declares
 /// `Box([-1, 0, 0], [1, 1, 1], (3,), float32)`, and this crate's own
-/// [`components_valid`](CarRacingAction::components_valid) enforces exactly the
-/// same ranges (`steer.abs() <= 1`, `(0.0..=1.0).contains(gas)`,
-/// `(0.0..=1.0).contains(brake)`), as does
+/// `components_valid` enforces exactly the same ranges (`steer.abs() <= 1`,
+/// `(0.0..=1.0).contains(gas)`, `(0.0..=1.0).contains(brake)`), as does
 /// [`random_valid`](CarRacingAction::random_valid). Spec and in-repo dynamics
 /// agree; nothing here is inferred.
 ///

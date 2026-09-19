@@ -643,7 +643,7 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
     ///
     /// # Errors
     ///
-    /// Propagates [`PlacementError`] from [`FourRoomsEnv::build`] as an
+    /// Propagates [`PlacementError`] from `FourRoomsEnv::build` as an
     /// [`EnvironmentError`]. On that path the guard is deliberately left
     /// **latched**: the sole fallible call runs first, and the guard is cleared
     /// only once a whole new episode is in hand. Clearing it first would re-open

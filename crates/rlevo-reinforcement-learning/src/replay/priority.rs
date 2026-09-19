@@ -68,7 +68,7 @@ use serde::{Deserialize, Serialize};
 /// A `Priority` can never hold a `NaN`, an infinity, a zero, or a negative
 /// value. Every constructor enforces `p.is_finite() && p > 0.0`. As a result the
 /// silent "`selected_pos` pinned at 0" degeneracy described in the
-/// [module documentation](self) is unrepresentable wherever a `Priority` is
+/// module documentation is unrepresentable wherever a `Priority` is
 /// held.
 ///
 /// Construct with [`new`](Self::new) for literals (panics on an invalid value),

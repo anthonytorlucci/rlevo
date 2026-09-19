@@ -77,8 +77,8 @@
 //! collapsing `log_std` announced itself with a `NaN`; with the clamp it would
 //! otherwise present as flat returns and no signal at all. Two mechanisms
 //! restore observability (ADR 0049 §4), and both are driven from
-//! [`read_log_std_extrema_and_warn`](TanhGaussianPolicyHead::read_log_std_extrema_and_warn),
-//! which [`min_log_std`](PpoPolicy::min_log_std) and
+//! `read_log_std_extrema_and_warn`, which
+//! [`min_log_std`](PpoPolicy::min_log_std) and
 //! [`max_log_std`](PpoPolicy::max_log_std) each project one half of:
 //!
 //! 1. **A one-shot `tracing::warn!` per bound** the first time the raw
@@ -100,11 +100,10 @@
 //!
 //! Deciding "did the clamp bind" means comparing the raw parameter against the
 //! bounds, which is inherently a **host-side** predicate: on a GPU backend
-//! (wgpu) it costs a device→host sync. Putting that in
-//! [`clamped_log_std`](TanhGaussianPolicyHead::clamped_log_std) would pay a
-//! sync on *every* forward pass — and gating it behind "stop checking once it
-//! fires" does not help, because the healthy runs we care most about never
-//! fire and would sync forever.
+//! (wgpu) it costs a device→host sync. Putting that in `clamped_log_std` would
+//! pay a sync on *every* forward pass — and gating it behind "stop checking
+//! once it fires" does not help, because the healthy runs we care most about
+//! never fire and would sync forever.
 //!
 //! So the check is deliberately *not* in the hot path. It rides along with the
 //! stats read in [`min_log_std`](PpoPolicy::min_log_std) /
@@ -341,9 +340,9 @@ impl Validate for TanhGaussianPolicyHeadConfig {
 /// only because Burn's `#[derive(Module)]` requires fields to be either
 /// `Param`s, sub-modules, or plain data.
 ///
-/// The `log_std` bounds are applied on every read (see
-/// [`clamped_log_std`](Self::clamped_log_std)); the [module docs](self)
-/// explain why the bound exists and why it is *not* the same as SAC's.
+/// The `log_std` bounds are applied on every read (see `clamped_log_std`); the
+/// [module docs](self) explain why the bound exists and why it is *not* the
+/// same as SAC's.
 ///
 /// They are stored as two `f32`s rather than as the config's
 /// [`Bounds`] because the clamp site is
@@ -413,8 +412,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
     /// Deliberately unclamped: this is the learnable parameter as stored, so
     /// callers can observe drift past the bounds. The values actually used by
     /// [`sample_with_logprob`](PpoPolicy::sample_with_logprob) and
-    /// [`evaluate`](PpoPolicy::evaluate) come from
-    /// [`clamped_log_std`](Self::clamped_log_std).
+    /// [`evaluate`](PpoPolicy::evaluate) come from `clamped_log_std`.
     pub fn log_std_vec(&self) -> Tensor<B, 1> {
         self.log_std.val()
     }

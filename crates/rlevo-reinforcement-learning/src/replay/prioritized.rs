@@ -94,8 +94,7 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// Priorities are [`Priority`] values: finite and strictly positive **by
 /// construction**. The pre-ADR-0050 `memory.rs` stored bare `f32` unvalidated,
 /// and a single `NaN` silently pinned its sampler on the oldest transition
-/// forever. See the [`priority`](super::priority) module docs for the full
-/// chain.
+/// forever. See the `priority` module docs for the full chain.
 ///
 /// # Reproducibility
 ///

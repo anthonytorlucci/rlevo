@@ -66,11 +66,11 @@ impl Widget for RewardSparkline<'_> {
 /// Behaviour:
 ///
 /// - Empty input → empty output.
-/// - All returns equal → uniform mid-range bars (every entry is
-///   [`REWARD_SCALE`] as `u64`), so the sparkline reads as a flat band
-///   rather than a phantom-empty plot.
+/// - All returns equal → uniform mid-range bars (every entry is `REWARD_SCALE`
+///   as `u64`), so the sparkline reads as a flat band rather than a
+///   phantom-empty plot.
 /// - Mixed returns → shifted so the smallest is `0` and scaled by
-///   [`REWARD_SCALE`]; NaN entries collapse to `0`.
+///   `REWARD_SCALE`; NaN entries collapse to `0`.
 #[must_use]
 #[allow(
     clippy::cast_possible_truncation,

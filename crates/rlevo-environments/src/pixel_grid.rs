@@ -862,7 +862,7 @@ impl Environment<3, 1, 1> for PixelGridEnv {
     /// Applies a 4-way move, then emits the resulting rank-3 pixel snapshot.
     ///
     /// Stepping onto the goal cell `Terminated`s the episode and pays
-    /// [`success_reward`]; exhausting `config.max_steps` `Truncated`s it with
+    /// `success_reward`; exhausting `config.max_steps` `Truncated`s it with
     /// reward `0.0`; anything else is `Running` with reward `0.0`.
     ///
     /// # Errors
