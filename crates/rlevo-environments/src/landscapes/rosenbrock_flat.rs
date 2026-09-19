@@ -26,7 +26,7 @@
 //! - The optimum `$(1, \ldots, 1)$` sits *well inside* `$[-30, 30]$`, so the box is
 //!   **reachable** — no certified minimiser is excluded on any coordinate.
 //! - `f` is a sum of `$100\lvert\cdot\rvert$` and `$(\cdot)^2$` terms, hence `$f \geq 0$` on all of
-//! `$\mathbb{R}^n$`
+//!   `$\mathbb{R}^n$`
 //!   with `$f = 0$` attained at `$(1, \ldots, 1)$`. No box — reduced or canonical —
 //!   can contain a point better than `$f^* = 0$`, so the reduction cannot
 //!   introduce a **spurious optimum**.
