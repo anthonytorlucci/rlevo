@@ -82,8 +82,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `#[non_exhaustive]` attribute now requires one anyway, and in exchange a
   future variant stops being a breaking change. No persisted data is involved:
   `ReplayBufferError` does not derive `serde`, so no wire or config format
-  changes. (Other types in `replay/` — `ReplayConfig`, `PrioritizedReplaySettings`,
-  `Priority`, `ImportanceExponent` — do derive it, and are untouched.)
+  changes. (Other types in `replay/` — `PrioritizedReplayConfig`,
+  `UniformReplayConfig`, `PrioritizedReplaySettings`, `Priority`,
+  `ImportanceExponent` — do derive it, and are untouched.)
 
 - **All eight agent error enums lose their unconstructed variants and become
   `#[non_exhaustive]`** (resolves #1070, and subsumes #467 and #484). The six
@@ -124,15 +125,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Struct Field Encapsulation rule (ADR 0055) names the remedy this entry
   applies — private fields, `#[must_use]` read accessors named after the field.
 
-  No test could have caught this, and the reason is the point. All 25 call sites
-  across 11 files — nine integration suites, the `ch03_dqn_cartpole` book
-  example, and production code at `algorithms/ppo/train.rs:295` — only ever
+  No test could have caught this, and the reason is the point. All 19 call sites
+  across 10 files — nine integration suites and production code at
+  `algorithms/ppo/train.rs:297` — only ever
   *read* these fields, which the accessors still permit; nothing anywhere in the
   workspace ever wrote to one. A test can only observe a missing guard by
   tripping it, so the defect was unreachable from inside this repository and
   reachable only by a downstream user of the published crate. (The issue itself
   understates the surface as a single three-line test site; the verified figure
-  is the 25/11 above, and the migration is read-only at every one of them.)
+  is the 19/10 above, and the migration is read-only at every one of them.)
 
 - **`PixelGridState::new` becomes fallible and is no longer `const`**: it is now
   `pub fn new(agent: u32, goal: u32) -> Result<Self, StateError>`, rejecting any
@@ -479,8 +480,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   #951, #971, #1093). Prospective hardening, not a live defect: the panic was
   and remains the documented `DiscreteAction::from_index` contract
   (`rlevo-core/src/action.rs:117-123`), and the sole in-tree caller
-  (`rlevo-examples/examples/toy_text/report_toy_text_with_client.rs:70`)
-  pre-clamps its index with `Uniform::new(0, ACTION_COUNT)`. What was actually wrong is that all four
+  (`rlevo-examples/examples/toy_text/report_toy_text_with_client.rs:68`)
+  pre-clamps its index with `Uniform::new(0, ACTION_COUNT)` at line 61. What was actually wrong is that all four
   impls carried no doc comment at all — so the panic was undocumented at the
   point a reader would look for it — and there was no non-panicking path for an
   index that arrives from data (a replay log, a deserialized trajectory, a
@@ -773,7 +774,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   changes. The known upstream NaN sources (#184, #173) are both closed, so
   there is no live trigger today. No test could have caught it, and the reason
   is the interesting part: the backup was an inline expression in the middle of
-  `train_step`, with no seam a test could reach. Lifting it into a named
+  `learn_step`, with no seam a test could reach. Lifting it into a named
   function is what made the poisoned case testable at all, and the five new
   tests cover it. Four sit on the helper — including that masking stays
   *per-row*, leaving a non-finite quantile on a non-terminal row for the
@@ -1056,8 +1057,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a decision rather than an oversight.
 
   The same shape one layer up — `TensorConversionFailed(String)`, declared and
-  unconstructed on all eight agent error enums — is **not** fixed here and is
-  tracked as #1070. It is deliberately a separate call: agents *are* where
+  unconstructed on all eight agent error enums — is **not** fixed in this entry
+  and was filed as #1070, which the next entry resolves. It is deliberately a separate call: agents *are* where
   staging happens, so deletion is not automatically the right remedy there.
 
 - **Twenty-four agent error variants that advertised failure modes the agents
