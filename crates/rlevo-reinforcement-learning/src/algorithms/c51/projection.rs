@@ -30,7 +30,7 @@
 //! and they are a pair — neither is safe without the other:
 //!
 //! 1. A `NaN` reward stays observable. Every clamp goes through
-//!    [`clamp_preserving_nan`] rather than [`Tensor::clamp`], because `clamp`'s
+//!    `clamp_preserving_nan` rather than [`Tensor::clamp`], because `clamp`'s
 //!    `NaN` behaviour differs between the host and GPU backends: Flex
 //!    propagates, wgpu/Metal rescues to the lower bound. Under the plain clamp
 //!    a `NaN` reward yielded an all-`NaN` row on Flex but a *well-formed* row
@@ -47,8 +47,6 @@
 //! the caller's `FiniteLossGuard` to skip the step — and an index that is
 //! in range on every backend. Assert on **finiteness** of the projected row,
 //! never on its sum: the pre-fix Metal row summed to exactly `1.0`.
-//!
-//! [`clamp_preserving_nan`]: crate::algorithms::shared::clamp_preserving_nan
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, Tensor};
@@ -129,7 +127,7 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   **every** element of **every** batch, for the whole run.
 ///
 ///   The assertion is a config-degeneracy backstop, not a memory-safety guard.
-///   The operator is `NaN`-safe by construction — [`clamp_preserving_nan`]
+///   The operator is `NaN`-safe by construction — `clamp_preserving_nan`
 ///   keeps the `NaN` observable and the clamp on the derived `Int` indices
 ///   keeps the scatter in range on both backends — so a degenerate support
 ///   could no longer corrupt anything; it would merely emit an all-`NaN` target
@@ -141,8 +139,6 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   *configuration* constant rather than per-batch data, so the right response
 ///   is to reject it at the call site with a message naming the offending
 ///   bounds, not to let it propagate.
-///
-/// [`clamp_preserving_nan`]: crate::algorithms::shared::clamp_preserving_nan
 #[allow(clippy::too_many_arguments)]
 // Structural size of the distributional support (atom / quantile count). The
 // configs cap these in the low hundreds, so the value is exact in f32 and
