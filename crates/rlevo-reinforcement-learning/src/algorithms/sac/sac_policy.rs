@@ -1,10 +1,9 @@
 //! Built-in squashed-Gaussian policy head for SAC.
 //!
-//! Two-hidden-layer MLP emitting a state-conditional mean and `$\log \sigma$` per
-//! action dimension. Samples via the reparameterization trick
-//! `$z = \mu + \sigma \cdot \epsilon$`, squashes to `a = action_scale · tanh(z) + action_bias`,
-//! and returns the log-probability of `a` under the true squashed-Gaussian
-//! density — Jacobian correction included.
+//! Two-hidden-layer MLP emitting a state-conditional mean and `$\log \sigma$` per action dimension.
+//! Samples via the reparameterization trick `$z = \mu + \sigma \cdot \epsilon$`, squashes to
+//! `$a = \text{action\_scale} \cdot \tanh(z) + \text{action\_bias}$`, and returns the
+//! log-probability of `a` under the true squashed-Gaussian density — Jacobian correction included.
 //!
 //! # Why state-conditional `$\log \sigma$`?
 //!
@@ -109,17 +108,15 @@ impl Validate for SquashedGaussianPolicyHeadConfig {
         config::nonzero(C, "obs_dim", self.obs_dim)?;
         config::nonzero(C, "hidden", self.hidden)?;
         config::nonzero(C, "action_dim", self.action_dim)?;
-        // Ordering is *not* checked here: `Bounds` cannot be constructed
-        // inverted, so `lo <= hi` holds by type (ADR 0027). What `Bounds` does
-        // permit and `config::ordered`'s strict `<` did not is the degenerate
-        // `lo == hi`, so that case is re-checked explicitly. A zero-width
-        // `log σ` range collapses σ to a constant for every observation: the
-        // clamp saturates, so ∂σ/∂(log σ head) is zero and the entropy term
-        // SAC's temperature is tuned against becomes a constant. Unlike PPO's
-        // shared `Param` this does not permanently freeze one weight — the
-        // `log_std` head still receives gradient through the mean path — but
-        // the policy is state-independently deterministic in scale, which is
-        // silent misconfiguration rather than a usable setting.
+        // Ordering is *not* checked here: `Bounds` cannot be constructed inverted, so `lo <= hi`
+        // holds by type (ADR 0027). What `Bounds` does permit and `config::ordered`'s strict `<`
+        // did not is the degenerate `lo == hi`, so that case is re-checked explicitly. A zero-width
+        // `$\log \sigma$` range collapses `$\sigma$` to a constant for every observation: the clamp
+        // saturates, so `$\partial\sigma/\partial(\log \sigma\ \text{head})$` is zero and the
+        // entropy term SAC's temperature is tuned against becomes a constant. Unlike PPO's shared
+        // `Param` this does not permanently freeze one weight — the `log_std` head still receives
+        // gradient through the mean path — but the policy is state-independently deterministic in
+        // scale, which is silent misconfiguration rather than a usable setting.
         config::nondegenerate_bounds(C, "log_std", self.log_std)?;
         config::positive(C, "action_scale", f64::from(self.action_scale))?;
         Ok(())
@@ -172,7 +169,8 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
         (mean, log_std)
     }
 
-    /// Squashed policy mean (deterministic action): `scale·tanh(μ) + bias`.
+    /// Squashed policy mean (deterministic action):
+    /// `$\text{scale} \cdot \tanh(\mu) + \text{bias}$`.
     pub fn mean_action(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
         let (mean, _) = self.mean_and_log_std(obs);
         tanh(mean)
@@ -185,7 +183,7 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
         self.action_scale
     }
 
-    /// Bias added after `scale·tanh(z)`.
+    /// Bias added after `$\text{scale} \cdot \tanh(z)$`.
     pub fn action_bias(&self) -> f32 {
         self.action_bias
     }
@@ -237,20 +235,20 @@ fn squashed_sample_log_prob<BK: Backend>(
     action_bias: f32,
 ) -> (Tensor<BK, 2>, Tensor<BK, 1>) {
     let action_dim = mean.dims()[1];
-    // z = μ + σ·ε
+    // `$z = \mu + \sigma\epsilon$`
     let std = log_std.clone().exp();
     let z = mean.clone() + std * eps;
 
-    // log N(z | μ, σ) per dim, summed across action dim.
+    // log N(z | `$\mu$`, `$\sigma$`) per dim, summed across action dim.
     let diff = z.clone() - mean;
     let scaled = diff / log_std.clone().exp();
     let scaled_sq = scaled.clone() * scaled;
     let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
     let per_dim_gauss: Tensor<BK, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
 
-    // Tanh Jacobian per dim: log(1 − tanh²(z)) = 2·(ln 2 − z − softplus(−2z))
-    // Additionally, `action = scale·tanh(z) + bias` introduces a `log|scale|`
-    // term per action dim (the `+bias` shift has unit Jacobian).
+    // Tanh Jacobian per dim: `$\log(1 - \tanh^2(z)) = 2(\ln 2 - z - \mathrm{softplus}(-2z))$`
+    // Additionally, `$\text{action} = \text{scale} \cdot \tanh(z) + \text{bias}$` introduces a
+    // `$\log\lvert\text{scale}\rvert$` term per action dim (the `+bias` shift has unit Jacobian).
     let ln_2 = std::f32::consts::LN_2;
     let neg_two_z = z.clone().mul_scalar(-2.0);
     let sp = softplus(neg_two_z, 1.0);
@@ -298,9 +296,9 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for SquashedGaussianPol
     }
 }
 
-/// Draws `rows × cols` iid standard-normal samples on CPU and stacks them
-/// into a `(rows, cols)` tensor on `device`. Callers own the RNG so the
-/// sampled noise stays reproducible under a seeded `rand::Rng`.
+/// Draws `$\text{rows} \times \text{cols}$` iid standard-normal samples on CPU and stacks them into
+/// a `(rows, cols)` tensor on `device`. Callers own the RNG so the sampled noise stays reproducible
+/// under a seeded `rand::Rng`.
 // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
@@ -368,11 +366,10 @@ mod tests {
         assert!(Bounds::try_new(-5.0, 2.0).is_ok());
     }
 
-    /// `Bounds` permits the degenerate `lo == hi` (clamping to a constant is
-    /// well-defined), but SAC does not: a zero-width range saturates the clamp
-    /// for every observation, pinning σ to a constant and flattening the
-    /// entropy term the temperature is tuned against. The old strict-`<`
-    /// `config::ordered` rejected this as a side effect; the explicit
+    /// `Bounds` permits the degenerate `lo == hi` (clamping to a constant is well-defined), but SAC
+    /// does not: a zero-width range saturates the clamp for every observation, pinning `$\sigma$`
+    /// to a constant and flattening the entropy term the temperature is tuned against. The old
+    /// strict-`<` `config::ordered` rejected this as a side effect; the explicit
     /// `config::nondegenerate_bounds` check preserves it.
     #[test]
     fn test_sac_policy_validate_rejects_equal_log_std_bounds() {
@@ -478,10 +475,10 @@ mod tests {
         );
     }
 
-    /// Pin μ=0, `log_std=0`, ε=0.5 (so z=0.5, σ=1) with scale=1, bias=0.
-    /// Hand-rolled reference:
-    ///   log N(0.5 | 0, 1)  = −0.5·log(2π) − 0.5·0.25
-    ///   − log|1 − tanh²(0.5)| (two terms since `action_dim=2` and we feed the
+    /// Pin `$\mu$`=0, `log_std=0`, `$\epsilon=0.5$` (so `$z=0.5$`, `$\sigma=1$`) with scale=1,
+    /// bias=0. Hand-rolled reference:
+    ///   `$\log N(0.5\mid 0,1) = -0.5\log(2\pi) - 0.5 \cdot 0.25$`
+    ///   `$-\log\lvert 1 - \tanh^2(0.5)\rvert$` (two terms since `action_dim=2` and we feed the
     ///   same values twice → just double the single-dim result).
     #[test]
     fn test_sac_policy_squashed_gaussian_logprob_matches_hand_roll_at_pinned_inputs() {
@@ -519,8 +516,8 @@ mod tests {
         assert!((slice[1] - expected_a).abs() < 1e-6);
     }
 
-    /// Evaluating `deterministic_action` yields `scale·tanh(μ) + bias` and
-    /// ignores any ε / `log_std` contribution.
+    /// Evaluating `deterministic_action` yields `$\text{scale} \cdot \tanh(\mu) + \text{bias}$` and
+    /// ignores any `$\epsilon$` / `log_std` contribution.
     #[test]
     fn test_sac_policy_deterministic_action_applies_scale_and_bias() {
         let device = Default::default();
@@ -547,7 +544,7 @@ mod tests {
         assert!((a.as_slice::<f32>().unwrap()[0] - b.as_slice::<f32>().unwrap()[0]).abs() < 1e-6);
     }
 
-    /// Two calls with the same ε produce identical samples and log-probs.
+    /// Two calls with the same `$\epsilon$` produce identical samples and log-probs.
     #[test]
     fn test_sac_policy_forward_sample_is_deterministic_under_same_eps() {
         let device = Default::default();

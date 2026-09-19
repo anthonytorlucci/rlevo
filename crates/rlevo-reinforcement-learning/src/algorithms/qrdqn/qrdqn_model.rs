@@ -1,12 +1,11 @@
 //! The [`QrDqnModel`] trait implemented by every network used with
 //! [`QrDqnAgent`](crate::algorithms::qrdqn::qrdqn_agent::QrDqnAgent).
 //!
-//! Parallel to [`C51Model`](crate::algorithms::c51::c51_model::C51Model), but
-//! the forward pass returns a rank-3 tensor of **raw quantile values**
-//! shaped `(batch, num_actions, num_quantiles)` rather than atom logits. No
-//! activation is applied at the head — quantile values are scalar
-//! estimates of the return distribution's quantile function at the implicit
-//! midpoints `τ_i = (i + 0.5) / N`.
+//! Parallel to [`C51Model`](crate::algorithms::c51::c51_model::C51Model), but the forward pass
+//! returns a rank-3 tensor of **raw quantile values** shaped `(batch, num_actions, num_quantiles)`
+//! rather than atom logits. No activation is applied at the head — quantile values are scalar
+//! estimates of the return distribution's quantile function at the implicit midpoints
+//! `$\tau_i = (i + 0.5)/N$`.
 
 use burn::module::AutodiffModule;
 use burn::tensor::Tensor;
@@ -23,7 +22,7 @@ use crate::utils::PolyakError;
 /// - [`forward_inner`](Self::forward_inner) — the same computation against
 ///   the inner non-autodiff module used as the frozen target network.
 /// - [`soft_update`](Self::soft_update) — Polyak averaging of the target
-///   network: `target ← (1 − τ) · target + τ · active`.
+///   network: `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`.
 ///
 /// The `BOR` const generic is the observation tensor rank *including* the
 /// leading batch dimension (e.g. `BOR = 2` for vector observations of shape

@@ -149,7 +149,7 @@ where
     /// - `reshaper`: reshaper whose template matches the evolved network `M`.
     /// - `env_factory`: builds a fresh `E` for each episode (independent seeds
     ///   are the factory's responsibility).
-    /// - `episodes_per_eval`: episodes averaged per genome (≥ 1).
+    /// - `episodes_per_eval`: episodes averaged per genome (`$\geq 1$`).
     /// - `max_steps_per_episode`: hard per-episode step cap. Required because
     ///   environments such as `CartPole` have no intrinsic terminal step limit;
     ///   the cap guarantees evaluation terminates regardless of policy skill.

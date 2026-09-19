@@ -7,10 +7,10 @@
 //!
 //! | Variant | Mutation formula |
 //! |---|---|
-//! | [`DeVariant::Rand1Bin`], [`DeVariant::Rand1Exp`] | `v = x_{r1} + F · (x_{r2} − x_{r3})` |
-//! | [`DeVariant::Best1Bin`] | `v = x_{best} + F · (x_{r2} − x_{r3})` |
-//! | [`DeVariant::CurrentToBest1Bin`] | `v = x_i + F · (x_{best} − x_i) + F · (x_{r1} − x_{r2})` |
-//! | [`DeVariant::Rand2Bin`] | `v = x_{r1} + F · (x_{r2} − x_{r3}) + F · (x_{r4} − x_{r5})` |
+//! | [`DeVariant::Rand1Bin`], [`DeVariant::Rand1Exp`] | `$v = x_{r1} + F (x_{r2} - x_{r3})$` |
+//! | [`DeVariant::Best1Bin`] | `$v = x_{best} + F (x_{r2} - x_{r3})$` |
+//! | [`DeVariant::CurrentToBest1Bin`] | `$v = x_i + F (x_{best} - x_i) + F (x_{r1} - x_{r2})$` |
+//! | [`DeVariant::Rand2Bin`] | `$v = x_{r1} + F (x_{r2} - x_{r3}) + F (x_{r4} - x_{r5})$` |
 //!
 //! The suffix `Bin`/`Exp` selects between binomial and exponential
 //! crossover. All index draws reject repeated and self-referential
@@ -45,49 +45,39 @@ use crate::strategy::{Strategy, StrategyMetrics};
 ///
 /// # Convergence caveats
 ///
-/// Not every variant converges to machine precision on every landscape
-/// within the same budget. On unimodal landscapes like Sphere,
-/// [`Best1Bin`](DeVariant::Best1Bin) and
-/// [`CurrentToBest1Bin`](DeVariant::CurrentToBest1Bin) tend to
-/// **converge prematurely**: the population collapses around the
-/// current best before the differential search has fully explored, and
-/// the per-generation variance `F · (x_{r2} − x_{r3})` shrinks to zero.
-/// Classical DE literature documents this as the core trade-off of
-/// best-biased variants. The crate's integration tests therefore only
-/// require strong *reduction* from the random baseline for those
-/// variants, not optimality — see
-/// `algorithms::de::tests::all_variants_converge_on_sphere_d10` for the
+/// Not every variant converges to machine precision on every landscape within the same budget. On
+/// unimodal landscapes like Sphere, [`Best1Bin`](DeVariant::Best1Bin) and
+/// [`CurrentToBest1Bin`](DeVariant::CurrentToBest1Bin) tend to **converge prematurely**: the
+/// population collapses around the current best before the differential search has fully explored,
+/// and the per-generation variance `$F (x_{r2} - x_{r3})$` shrinks to zero. Classical DE literature
+/// documents this as the core trade-off of best-biased variants. The crate's integration tests
+/// therefore only require strong *reduction* from the random baseline for those variants, not
+/// optimality — see `algorithms::de::tests::all_variants_converge_on_sphere_d10` for the
 /// per-variant tolerance choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeVariant {
-    /// `x_{r1} + F · (x_{r2} − x_{r3})`, binomial crossover. Balanced
-    /// exploration / exploitation; reaches machine precision on Sphere
-    /// within a few hundred generations.
+    /// `$x_{r1} + F (x_{r2} - x_{r3})$`, binomial crossover. Balanced exploration / exploitation;
+    /// reaches machine precision on Sphere within a few hundred generations.
     Rand1Bin,
-    /// `x_{best} + F · (x_{r2} − x_{r3})`, binomial crossover.
+    /// `$x_{best} + F (x_{r2} - x_{r3})$`, binomial crossover.
     ///
-    /// Strong exploitation — the mutation base is always the current
-    /// best, so the population concentrates quickly. Prone to
-    /// **premature convergence** on landscapes where the current best
-    /// is far from the global optimum; on Sphere-D10 with 500 gens this
-    /// variant stalls around `best_fitness ≈ 1` while `Rand1Bin` reaches
-    /// `< 1e-20`.
+    /// Strong exploitation — the mutation base is always the current best, so the population
+    /// concentrates quickly. Prone to **premature convergence** on landscapes where the current
+    /// best is far from the global optimum; on Sphere-D10 with 500 gens this variant stalls around
+    /// `$\text{best\_fitness} \approx 1$` while `Rand1Bin` reaches `< 1e-20`.
     Best1Bin,
-    /// `x_i + F · (x_{best} − x_i) + F · (x_{r1} − x_{r2})`, binomial.
+    /// `$x_i + F (x_{best} - x_i) + F (x_{r1} - x_{r2})$`, binomial.
     ///
-    /// Hybrid of the current individual and the best-so-far. Still
-    /// **prone to premature convergence** because the
-    /// `F · (x_{best} − x_i)` term dominates once the population is
-    /// near the best. Useful on multimodal landscapes where pure-best
-    /// variants get stuck in local basins, less useful on Sphere.
+    /// Hybrid of the current individual and the best-so-far. Still **prone to premature
+    /// convergence** because the `$F (x_{best} - x_i)$` term dominates once the population is near
+    /// the best. Useful on multimodal landscapes where pure-best variants get stuck in local
+    /// basins, less useful on Sphere.
     CurrentToBest1Bin,
-    /// `x_{r1} + F · (x_{r2} − x_{r3}) + F · (x_{r4} − x_{r5})`,
-    /// binomial. Higher variance than `Rand1Bin` thanks to two
-    /// difference vectors; converges on Sphere but more slowly.
+    /// `$x_{r1} + F (x_{r2} - x_{r3}) + F (x_{r4} - x_{r5})$`, binomial. Higher variance than
+    /// `Rand1Bin` thanks to two difference vectors; converges on Sphere but more slowly.
     Rand2Bin,
-    /// `x_{r1} + F · (x_{r2} − x_{r3})`, exponential crossover.
-    /// Identical mutation to `Rand1Bin`, different crossover mask shape.
-    /// Performance comparable to `Rand1Bin` in practice.
+    /// `$x_{r1} + F (x_{r2} - x_{r3})$`, exponential crossover. Identical mutation to `Rand1Bin`,
+    /// different crossover mask shape. Performance comparable to `Rand1Bin` in practice.
     Rand1Exp,
 }
 
@@ -111,7 +101,7 @@ impl DeVariant {
 /// Static configuration for a [`DifferentialEvolution`] run.
 #[derive(Debug, Clone)]
 pub struct DeConfig {
-    /// Population size (≥ 5 for `Rand2Bin`, ≥ 4 otherwise).
+    /// Population size (`$\geq$` 5 for `Rand2Bin`, `$\geq$` 4 otherwise).
     pub pop_size: usize,
     /// Genome dimensionality.
     pub genome_dim: usize,
@@ -687,11 +677,10 @@ mod tests {
         }
     }
 
-    /// A fitness function that yields `NaN` for many genomes must not crash the
-    /// run and must never report a `NaN` (or otherwise non-finite) best. The
-    /// harness sanitizes `NaN → −∞` at the driver chokepoint, so the poisoned
-    /// slots can never out-rank a finite individual or block replacement
-    /// (`de` §7, NaN regression).
+    /// A fitness function that yields `NaN` for many genomes must not crash the run and must never
+    /// report a `NaN` (or otherwise non-finite) best. The harness sanitizes
+    /// `$\text{NaN} \to -\infty$` at the driver chokepoint, so the poisoned slots can never
+    /// out-rank a finite individual or block replacement (`de` §7, NaN regression).
     #[test]
     fn nan_fitness_never_becomes_best() {
         let device = Default::default();

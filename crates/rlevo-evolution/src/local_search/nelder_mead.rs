@@ -47,13 +47,13 @@ pub struct NelderMeadParams {
     /// counting the up-to-`n + 1` simplex-initialization evaluations.
     /// Default `200`.
     pub max_iters: usize,
-    /// Reflection coefficient (α). Standard value `1.0`.
+    /// Reflection coefficient (`$\alpha$`). Standard value `1.0`.
     pub alpha: f32,
-    /// Expansion coefficient (γ). Standard value `2.0`.
+    /// Expansion coefficient (`$\gamma$`). Standard value `2.0`.
     pub gamma: f32,
-    /// Contraction coefficient (ρ). Standard value `0.5`.
+    /// Contraction coefficient (`$\rho$`). Standard value `0.5`.
     pub rho: f32,
-    /// Shrink coefficient (σ). Standard value `0.5`.
+    /// Shrink coefficient (`$\sigma$`). Standard value `0.5`.
     pub sigma: f32,
     /// Axis nudge used to build the initial simplex from the input vertex.
     /// Vertex `j` (for `j` in `1..=n`) perturbs coordinate `j - 1` of the input
@@ -247,10 +247,9 @@ impl NelderMead {
         // budget is exhausted and we stop immediately.
         let n: usize = simplex.len(); // == dim + 1
         loop {
-            // Sort descending by fitness: index 0 is best (highest), last is
-            // worst (lowest). Simplex fitnesses flow through `BudgetedEval`,
-            // which already sanitizes NaN → −inf, so `total_cmp` needs no extra
-            // guard here.
+            // Sort descending by fitness: index 0 is best (highest), last is worst (lowest).
+            // Simplex fitnesses flow through `BudgetedEval`, which already sanitizes NaN →
+            // `$-\infty$`, so `total_cmp` needs no extra guard here.
             simplex.sort_by(|a, b| b.fitness.total_cmp(&a.fitness));
 
             let f_best: f32 = simplex[0].fitness;

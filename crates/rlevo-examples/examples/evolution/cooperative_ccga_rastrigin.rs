@@ -39,8 +39,8 @@ const HALF: usize = TOTAL / 2;
 const POP: usize = 64;
 const GENS: usize = 120;
 
-/// Rastrigin value of one genome row: `10·n + Σ (x_i² − 10·cos(2π x_i))`,
-/// minimized at the all-zeros vector (value 0).
+/// Rastrigin value of one genome row: `$10n + \sum (x_i^2 - 10\cos(2\pi x_i))$`, minimized at the
+/// all-zeros vector (value 0).
 fn rastrigin(x: &[f32]) -> f32 {
     #[allow(clippy::cast_precision_loss)]
     let base = 10.0 * x.len() as f32;
@@ -54,10 +54,9 @@ fn rastrigin(x: &[f32]) -> f32 {
 /// already-assembled full-dimensional candidates, so this never sees the
 /// dimension split or representatives — it just scores each row.
 ///
-/// This returns the pre-negated fitness `−rastrigin` (higher is better) and
-/// declares [`ObjectiveSense::Maximize`], so the co-evolution algorithm's
-/// canonicalisation chokepoint passes it through unchanged; the driver negates
-/// back to the natural cost for display.
+/// This returns the pre-negated fitness `$-\text{rastrigin}$` (higher is better) and declares
+/// [`ObjectiveSense::Maximize`], so the co-evolution algorithm's canonicalisation chokepoint passes
+/// it through unchanged; the driver negates back to the natural cost for display.
 struct RastriginCoupled;
 
 impl CoupledFitness<B> for RastriginCoupled {
@@ -123,7 +122,7 @@ fn main() {
         let (next, metrics) = algo.step(&params, state, &mut rng, &device);
         state = next;
         if g % 10 == 0 || g == GENS - 1 {
-            // Metrics are canonical (−rastrigin); negate to show natural cost.
+            // Metrics are canonical (`$-$`rastrigin); negate to show natural cost.
             println!(
                 " {:>3} | {:>9.5} | {:>9.5}",
                 metrics.generation, -metrics.best_fitness_a, -metrics.best_fitness_b

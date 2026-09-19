@@ -370,8 +370,8 @@ mod tests {
             prev_v = v;
         }
 
-        // Every per-step Δv must match the first within a tight tolerance. With
-        // the accumulation bug the last Δv would be ~60× the first.
+        // Every per-step `$\Delta v$` must match the first within a tight tolerance. With the
+        // accumulation bug the last `$\Delta v$` would be `$\sim 60\times$` the first.
         let first: f32 = deltas[0];
         assert!(first > 0.0, "force should accelerate the body");
         for (i, &d) in deltas.iter().enumerate() {

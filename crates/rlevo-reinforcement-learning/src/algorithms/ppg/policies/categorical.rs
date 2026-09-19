@@ -94,7 +94,7 @@ impl<B: Backend> PpgCategoricalPolicyHead<B> {
         self.num_actions
     }
 
-    /// Shared two-layer `tanh` trunk: `tanh(W2 · tanh(W1 · obs))`.
+    /// Shared two-layer `tanh` trunk: `$\tanh(W_2 \tanh(W_1 \,\text{obs}))$`.
     ///
     /// Both the logits head and the auxiliary value head branch off this
     /// intermediate representation.

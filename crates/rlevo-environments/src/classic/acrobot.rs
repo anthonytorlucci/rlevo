@@ -170,24 +170,24 @@ pub trait AcrobotDynamicsFn: fmt::Debug + Clone + Send + Sync {
     /// Computes the state derivative `$\dot\theta_1, \dot\theta_2, \ddot\theta_1, \ddot\theta_2$`
     /// for the given state and torque.
     ///
-    /// `s` is `[theta1, theta2, dtheta1, dtheta2]` and `a` is the applied
-    /// torque (N·m). The returned array has the same layout — the first two
-    /// entries are the velocities, the last two the accelerations.
+    /// `s` is `[theta1, theta2, dtheta1, dtheta2]` and `a` is the applied torque
+    /// (`$\text{N}\cdot\text{m}$`). The returned array has the same layout — the first two entries
+    /// are the velocities, the last two the accelerations.
     fn dsdt(&self, s: [f32; 4], a: f32, cfg: &AcrobotConfig) -> [f32; 4];
 }
 
 /// Sutton & Barto textbook dynamics — the Gymnasium default.
 ///
-/// Includes the full `$2 \cdot \dot\theta_2 \cdot \dot\theta_1$` Coriolis cross-term and the `$\dot\theta_1^2$`
-/// centripetal term in φ₁. This is the recommended choice for reproducing
-/// published benchmark results.
+/// Includes the full `$2 \cdot \dot\theta_2 \cdot \dot\theta_1$` Coriolis cross-term and the
+/// `$\dot\theta_1^2$` centripetal term in `$\phi_1$`. This is the recommended choice for
+/// reproducing published benchmark results.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BookDynamics;
 
 /// Original NIPS-1995 dynamics — omits certain cross-terms.
 ///
-/// φ₁ drops the `$2 \cdot \dot\theta_2 \cdot \dot\theta_1$` Coriolis cross-term and the `$\dot\theta_1^2$`
-/// centripetal term present in [`BookDynamics`]. Produces subtly different
+/// `$\phi_1$` drops the `$2 \cdot \dot\theta_2 \cdot \dot\theta_1$` Coriolis cross-term and the
+/// `$\dot\theta_1^2$` centripetal term present in [`BookDynamics`]. Produces subtly different
 /// trajectories and is provided for historical reproducibility.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NipsDynamics;
@@ -320,7 +320,7 @@ pub struct AcrobotConfig {
     pub link_com_pos_2: f32,
     /// Moment of inertia for both links. Default: `1.0`.
     pub link_moi: f32,
-    /// Gravitational acceleration (m/s²). Default: `9.8`.
+    /// Gravitational acceleration (`$\text{m/s}^2$`). Default: `9.8`.
     pub gravity: f32,
     /// Max angular velocity for joint 1 (rad/s). Default: `$4\pi$`.
     pub max_vel_1: f32,
@@ -571,16 +571,16 @@ impl Observation<1> for AcrobotObservation {
 /// Discrete torque action for [`Acrobot`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AcrobotAction {
-    /// Apply torque `-1` N·m.
+    /// Apply torque `-1` `$\text{N}\cdot\text{m}$`.
     TorqueNeg,
-    /// Apply torque `0` N·m.
+    /// Apply torque `0` `$\text{N}\cdot\text{m}$`.
     TorqueZero,
-    /// Apply torque `+1` N·m.
+    /// Apply torque `+1` `$\text{N}\cdot\text{m}$`.
     TorquePos,
 }
 
 impl AcrobotAction {
-    /// Returns the torque value in N·m (`-1.0`, `0.0`, or `+1.0`).
+    /// Returns the torque value in `$\text{N}\cdot\text{m}$` (`-1.0`, `0.0`, or `+1.0`).
     fn to_torque(self) -> f32 {
         match self {
             Self::TorqueNeg => -1.0,
@@ -743,7 +743,8 @@ impl<D: AcrobotDynamicsFn> Acrobot<D> {
     fn is_terminal(state: &AcrobotState, cfg: &AcrobotConfig) -> bool {
         let l1 = cfg.link_length_1;
         let l2 = cfg.link_length_2;
-        // end-effector height (positive = up): -cos(θ1)*l1 - cos(θ1+θ2)*l2
+        // end-effector height (positive = up):
+        // `$-\cos(\theta_1) l_1 - \cos(\theta_1+\theta_2) l_2$`
         -l1 * state.theta1.cos() - l2 * (state.theta1 + state.theta2).cos() > 1.0
     }
 }
@@ -1162,8 +1163,8 @@ mod tests {
     #[test]
     fn termination_condition_at_upright() {
         let cfg = AcrobotConfig::default();
-        // θ1 = π (link 1 pointing straight up), θ2 = 0
-        // height = -cos(π)*1 - cos(π+0)*1 = 1 + 1 = 2 > 1
+        // `$\theta_1 = \pi$` (link 1 pointing straight up), `$\theta_2 = 0$` height
+        // `$= -\cos(\pi)\cdot 1 - \cos(\pi+0)\cdot 1 = 1 + 1 = 2 > 1$`
         let state = AcrobotState {
             theta1: std::f32::consts::PI,
             theta2: 0.0,

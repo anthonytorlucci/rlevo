@@ -1,8 +1,8 @@
 //! CliffWalking-v1 environment.
 //!
-//! A 4×12 grid-world where the agent navigates from a fixed start to a fixed goal while
-//! avoiding a cliff that lines the bottom row. The environment is deterministic by default;
-//! enable `is_slippery` for stochastic transitions.
+//! A `$4 \times 12$` grid-world where the agent navigates from a fixed start to a fixed goal while
+//! avoiding a cliff that lines the bottom row. The environment is deterministic by default; enable
+//! `is_slippery` for stochastic transitions.
 //!
 //! ## Layout
 //!
@@ -21,9 +21,9 @@
 //!
 //! | Event          | Reward |
 //! |----------------|--------|
-//! | Step onto cliff | −100 (teleports to start; episode continues) |
-//! | Any other step  | −1   |
-//! | Goal step       | −1 (terminates) |
+//! | Step onto cliff | `$-100$` (teleports to start; episode continues) |
+//! | Any other step  | `$-1$`   |
+//! | Goal step       | `$-1$` (terminates) |
 //!
 //! ## Episode lifecycle
 //!
@@ -34,7 +34,7 @@
 //!
 //! ## Observation space
 //!
-//! Integer state id in `[0, 48)` encoded as `row × 12 + col`.
+//! Integer state id in `[0, 48)` encoded as `$\text{row} \times 12 + \text{col}$`.
 //!
 //! ## Action space
 //!
@@ -140,7 +140,7 @@ impl CliffWalkingConfigBuilder {
 
 // ── state ─────────────────────────────────────────────────────────────────────
 
-/// Full state: grid position `(row, col)` in a 4×12 grid.
+/// Full state: grid position `(row, col)` in a `$4 \times 12$` grid.
 #[derive(Debug, Clone)]
 pub struct CliffWalkingState {
     /// Row index in `[0, 4)`, where row 3 contains the cliff and the goal.
@@ -191,11 +191,11 @@ impl State<1> for CliffWalkingState {
 
 /// Agent-visible observation: integer state id in `[0, 48)`.
 ///
-/// Encoded as `row × 12 + col`. Convertible to/from [`CliffWalkingState`] via
+/// Encoded as `$\text{row} \times 12 + \text{col}$`. Convertible to/from [`CliffWalkingState`] via
 /// `TryFrom<u16>` / `From<CliffWalkingState>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CliffWalkingObservation {
-    /// Linear grid index: `row × NCOL + col`.
+    /// Linear grid index: `$\text{row} \times \text{NCOL} + \text{col}$`.
     pub state_id: u16,
 }
 
@@ -209,8 +209,8 @@ impl Observation<1> for CliffWalkingObservation {
 
 /// Four-direction action space for grid navigation.
 ///
-/// Movements are clamped at grid boundaries — attempting to leave the grid is a no-op
-/// that still costs −1.
+/// Movements are clamped at grid boundaries — attempting to leave the grid is a no-op that still
+/// costs `$-1$`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliffWalkingAction {
     /// Move one row toward row 0 (north).
@@ -350,10 +350,9 @@ pub struct CliffWalking {
     state: CliffWalkingState,
     config: CliffWalkingConfig,
     rng: StdRng,
-    /// Rejects a `step()` taken after the goal ended the episode. Without it, the
-    /// post-terminal `Left` from the goal `(3, 11)` lands on the cliff `(3, 10)`,
-    /// teleporting the agent to the start and emitting −100 on a `Running`
-    /// snapshot — resurrecting a finished episode.
+    /// Rejects a `step()` taken after the goal ended the episode. Without it, the post-terminal
+    /// `Left` from the goal `(3, 11)` lands on the cliff `(3, 10)`, teleporting the agent to the
+    /// start and emitting `$-100$` on a `Running` snapshot — resurrecting a finished episode.
     guard: EpisodeGuard,
 }
 
@@ -568,8 +567,8 @@ impl rlevo_core::render::payload::TabularPayloadSource for CliffWalking {
             TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
             TabularSnapshot,
         };
-        // Fixed 4×12 grid: bottom-row interior is the cliff; corners are
-        // start (3,0) and goal (3,11).
+        // Fixed `$4 \times 12$` grid: bottom-row interior is the cliff; corners are start (3,0) and
+        // goal (3,11).
         let height: u8 = 4;
         let mut cells = Vec::with_capacity(usize::from(height) * usize::from(NCOL));
         for row in 0..height {
@@ -619,8 +618,8 @@ mod tests {
         CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config")
     }
 
-    /// Walks the optimal path `Up, Right×11, Down` from the start onto the goal and
-    /// returns the terminal snapshot. Deterministic mode only.
+    /// Walks the optimal path `$\text{Up}, \text{Right}\times 11, \text{Down}$` from the start onto
+    /// the goal and returns the terminal snapshot. Deterministic mode only.
     fn drive_to_goal(
         env: &mut CliffWalking,
     ) -> SnapshotBase<1, CliffWalkingObservation, ScalarReward> {
@@ -743,7 +742,8 @@ mod tests {
     }
 
     #[test]
-    /// Verifies a cliff step teleports to start, costs −100, and does not terminate the episode.
+    /// Verifies a cliff step teleports to start, costs `$-100$`, and does not terminate the
+    /// episode.
     fn cliff_step_teleports_and_costs_100() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -760,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    /// Verifies stepping onto the goal terminates the episode with reward −1.
+    /// Verifies stepping onto the goal terminates the episode with reward `$-1$`.
     fn goal_step_terminates_with_minus_one() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -790,9 +790,10 @@ mod tests {
     }
 
     #[test]
-    /// Verifies the optimal (13-step) path yields a total reward of −13.
+    /// Verifies the optimal (13-step) path yields a total reward of `$-13$`.
     fn shortest_path_minus_13() {
-        // Optimal: up (1 step) + right×11 + down (1 step) = 13 steps at −1 each = −13.
+        // Optimal: up (1 step) + `$\text{right}\times 11$` + down (1 step) = 13 steps at `$-1$`
+        // each = `$-13$`.
         let mut env = make_env();
         env.reset().unwrap();
         let mut total = 0.0_f32;
@@ -944,15 +945,13 @@ mod tests {
 
     // ── post-terminal step guard ─────────────────────────────────────────────
     //
-    // Before this guard, `CliffWalking` tracked no `done` state at all: a
-    // `step()` called after the agent reached the goal would keep moving it,
-    // and because the goal `(3, 11)` sits directly beside the cliff region
-    // `(3, 1..=10)`, a `Left` from the goal targets a cliff cell — triggering
-    // the −100 penalty and teleport-to-start rule on an already-finished
-    // episode. `EpisodeGuard` closes that hole — `step()` calls `guard.check()`
-    // first and short-circuits with `StepAfterEpisodeEnd` once terminated,
-    // then `guard.record(status)` from the emitted snapshot so the guard and
-    // the snapshot can never disagree (see `EpisodeGuard`, ADR 0044).
+    // Before this guard, `CliffWalking` tracked no `done` state at all: a `step()` called after the
+    // agent reached the goal would keep moving it, and because the goal `(3, 11)` sits directly
+    // beside the cliff region `(3, 1..=10)`, a `Left` from the goal targets a cliff cell —
+    // triggering the `$-100$` penalty and teleport-to-start rule on an already-finished episode.
+    // `EpisodeGuard` closes that hole — `step()` calls `guard.check()` first and short-circuits
+    // with `StepAfterEpisodeEnd` once terminated, then `guard.record(status)` from the emitted
+    // snapshot so the guard and the snapshot can never disagree (see `EpisodeGuard`, ADR 0044).
 
     #[test]
     /// Verifies `CliffWalking` satisfies the shared post-terminal conformance check:
@@ -964,12 +963,11 @@ mod tests {
     }
 
     #[test]
-    /// Regression for the cliff-teleport defect: the goal `(3, 11)` sits directly
-    /// beside the cliff `(3, 10)`, so before the guard existed, a post-terminal
-    /// `Left` taken after the agent had already reached the goal moved it onto
-    /// the cliff and triggered the teleport-to-start rule, emitting −100 on a
-    /// *`Running`* snapshot — resurrecting and re-punishing an already-finished
-    /// episode. The guard must reject the step instead, leave the agent standing
+    /// Regression for the cliff-teleport defect: the goal `(3, 11)` sits directly beside the cliff
+    /// `(3, 10)`, so before the guard existed, a post-terminal `Left` taken after the agent had
+    /// already reached the goal moved it onto the cliff and triggered the teleport-to-start rule,
+    /// emitting `$-100$` on a *`Running`* snapshot — resurrecting and re-punishing an
+    /// already-finished episode. The guard must reject the step instead, leave the agent standing
     /// on the goal, and emit no snapshot at all.
     fn test_cliff_walking_post_terminal_step_into_cliff_does_not_resurrect_episode() {
         let mut env = make_env();

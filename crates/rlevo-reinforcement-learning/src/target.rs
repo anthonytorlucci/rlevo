@@ -1,14 +1,12 @@
 //! Target-network update rule: the [`PolyakTau`] newtype, the [`TargetUpdate`]
 //! config type, and [`TargetUpdateError`].
 //!
-//! Every off-policy algorithm in this crate (DQN, C51, QR-DQN, DDPG, TD3, SAC)
-//! keeps a lagged copy of one or more networks and periodically moves it toward
-//! the live network. Historically each agent spelled that rule out with two
-//! independent scalars — a `tau: f32` and a `target_update_frequency: usize` —
-//! and the two meant *different things in different agents*: the value-based
-//! agents treated the frequency as a **hard-copy** cadence and ignored τ, while
-//! the actor-critic agents treated it as a **Polyak** cadence. Same field name,
-//! two mechanisms.
+//! Every off-policy algorithm in this crate (DQN, C51, QR-DQN, DDPG, TD3, SAC) keeps a lagged copy
+//! of one or more networks and periodically moves it toward the live network. Historically each
+//! agent spelled that rule out with two independent scalars — a `tau: f32` and a
+//! `target_update_frequency: usize` — and the two meant *different things in different agents*: the
+//! value-based agents treated the frequency as a **hard-copy** cadence and ignored `$\tau$`, while
+//! the actor-critic agents treated it as a **Polyak** cadence. Same field name, two mechanisms.
 //!
 //! [`TargetUpdate`] collapses that into **one** mechanism with two knobs:
 //!
@@ -24,27 +22,23 @@
 //!
 //! # Why no enum
 //!
-//! The obvious alternative is an enum with `Hard { every }` and
-//! `Polyak { tau, every }` arms. It is the wrong shape here, because
-//! `Hard { every: n }` and `Polyak { tau: 1.0, every: n }` would denote the
-//! *same* state: two spellings of one behaviour, which every downstream `match`
-//! must then either handle twice or accidentally handle once. That
-//! representable-but-equivalent redundancy is exactly the defect this type
-//! exists to remove — replacing two overloaded scalars with two overloaded
-//! variants would move the ambiguity rather than delete it. A struct with a
-//! validated τ has a single representation per behaviour, and the
-//! [`hard`](TargetUpdate::hard) constructor recovers all of the discoverability
-//! a variant would have offered.
+//! The obvious alternative is an enum with `Hard { every }` and `Polyak { tau, every }` arms. It is
+//! the wrong shape here, because `Hard { every: n }` and `Polyak { tau: 1.0, every: n }` would
+//! denote the *same* state: two spellings of one behaviour, which every downstream `match` must
+//! then either handle twice or accidentally handle once. That representable-but-equivalent
+//! redundancy is exactly the defect this type exists to remove — replacing two overloaded scalars
+//! with two overloaded variants would move the ambiguity rather than delete it. A struct with a
+//! validated `$\tau$` has a single representation per behaviour, and the
+//! [`hard`](TargetUpdate::hard) constructor recovers all of the discoverability a variant would
+//! have offered.
 //!
 //! # Why `PolyakTau` and not [`Probability`]
 //!
-//! [`Probability`]'s invariant is the *closed* unit interval `$0 \leq p \leq 1$`, so
-//! it admits `0.0`. A τ of `0.0` is a permanently frozen target — the update
-//! fires on schedule and moves nothing, a silent no-op that looks like a
-//! configured update. [`PolyakTau`] excludes zero: its invariant is the
-//! half-open interval `$0 < \tau \leq 1$`. A caller who genuinely wants no target
-//! tracking omits the target network, rather than configuring one that never
-//! moves.
+//! [`Probability`]'s invariant is the *closed* unit interval `$0 \leq p \leq 1$`, so it admits
+//! `0.0`. A `$\tau$` of `0.0` is a permanently frozen target — the update fires on schedule and
+//! moves nothing, a silent no-op that looks like a configured update. [`PolyakTau`] excludes zero:
+//! its invariant is the half-open interval `$0 < \tau \leq 1$`. A caller who genuinely wants no
+//! target tracking omits the target network, rather than configuring one that never moves.
 //!
 //! # Why this lives in the RL crate
 //!
@@ -87,13 +81,14 @@
 
 use std::num::NonZeroUsize;
 
-/// A Polyak (soft-update) coefficient τ in the half-open interval `$(0, 1]$`,
-/// valid by construction.
+/// A Polyak (soft-update) coefficient `$\tau$` in the half-open interval `$(0, 1]$`, valid by
+/// construction.
 ///
-/// τ is the interpolation weight of `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`. A
-/// `PolyakTau` can never hold a `NaN`, an infinity, a negative, a zero, or a
-/// value above one: every constructor enforces `$0.0 < \tau \leq 1.0$`, which a
-/// `NaN`/`Inf` fails. Both excluded endpoints matter:
+/// `$\tau$` is the interpolation weight of
+/// `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`. A
+/// `PolyakTau` can never hold a `NaN`, an infinity, a negative, a zero, or a value above one: every
+/// constructor enforces `$0.0 < \tau \leq 1.0$`, which a `NaN`/`Inf` fails. Both excluded endpoints
+/// matter:
 ///
 /// - `$\tau = 0.0$` would be a frozen target — the update fires on schedule and
 ///   moves nothing. That is why this is not a
@@ -125,7 +120,7 @@ use std::num::NonZeroUsize;
 pub struct PolyakTau(f32);
 
 impl PolyakTau {
-    /// Builds a τ from a compile-time-known value, panicking on an invalid one.
+    /// Builds a `$\tau$` from a compile-time-known value, panicking on an invalid one.
     ///
     /// This is the constructor for literals and `Default`s — the bad value is
     /// right at the call site, mirroring the documented builder-setter panic
@@ -145,7 +140,7 @@ impl PolyakTau {
         Self(tau)
     }
 
-    /// Builds a τ from a runtime / user-supplied value.
+    /// Builds a `$\tau$` from a runtime / user-supplied value.
     ///
     /// # Errors
     ///
@@ -181,12 +176,12 @@ impl PolyakTau {
 
 /// One target-network update rule: a cadence and a Polyak coefficient.
 ///
-/// The rule is read as "every `every` gradient updates, move the target toward
-/// the live network by τ": `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`. There is a
-/// single mechanism — a hard copy is the degenerate `$\tau = 1.0$`, reachable via
-/// [`hard`](Self::hard), not a second variant. See the
-/// [module docs](self#why-no-enum) for why this is a struct rather than an
-/// enum.
+/// The rule is read as "every `every` gradient updates, move the target toward the live network by
+/// `$\tau$`":
+/// `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`. There is
+/// a single mechanism — a hard copy is the degenerate `$\tau = 1.0$`, reachable via
+/// [`hard`](Self::hard), not a second variant. See the [module docs](self#why-no-enum) for why this
+/// is a struct rather than an enum.
 ///
 /// The cadence counts **gradient/optimizer updates, not environment steps**;
 /// see [`every`](Self::every).
@@ -304,8 +299,7 @@ impl TargetUpdate {
     /// # Errors
     ///
     /// Returns [`TargetUpdateError::Tau`] when `tau` is outside `(0, 1]`, or
-    /// [`TargetUpdateError::ZeroEvery`] when `every` is zero. τ is validated
-    /// first.
+    /// [`TargetUpdateError::ZeroEvery`] when `every` is zero. `$\tau$` is validated first.
     ///
     /// # Examples
     ///
@@ -358,17 +352,16 @@ impl TargetUpdate {
     ///
     /// This is a query over the single representation, not a tag: `hard(n)` and
     /// `polyak(1.0, n)` are the same value and both report `true`.
-    // Exact equality is the intended predicate: τ is stored verbatim from the
-    // constructor and never arithmetically derived, so `1.0` is a bit-exact
-    // sentinel rather than the result of a computation.
+    // Exact equality is the intended predicate: `$\tau$` is stored verbatim from the constructor
+    // and never arithmetically derived, so `1.0` is a bit-exact sentinel rather than the result of
+    // a computation.
     #[allow(clippy::float_cmp)]
     #[must_use]
     pub const fn is_hard(self) -> bool {
         self.tau.get() == 1.0
     }
 
-    /// `Some(τ)` when an update fires at gradient-update index `updates`, else
-    /// `None`.
+    /// `$\text{Some}(\tau)$` when an update fires at gradient-update index `updates`, else `None`.
     ///
     /// `updates` is a **gradient/optimizer-update** count, not an
     /// environment-step count (see [`every`](Self::every)). Callers pass their
@@ -434,8 +427,8 @@ mod tests {
 
     use approx::assert_abs_diff_eq;
 
-    /// τ is stored and read back without arithmetic, so the only slack these
-    /// assertions need is the `f32`→`f64` widening, which is exact.
+    /// `$\tau$` is stored and read back without arithmetic, so the only slack these assertions need
+    /// is the `f32`→`f64` widening, which is exact.
     const EPS: f64 = 1e-12;
 
     // -----------------------------------------------------------------------
@@ -513,7 +506,7 @@ mod tests {
 
     #[test]
     fn try_polyak_validates_tau_before_cadence() {
-        // Both arguments are invalid; τ is checked first, so the τ error wins.
+        // Both arguments are invalid; `$\tau$` is checked first, so the `$\tau$` error wins.
         assert_eq!(
             TargetUpdate::try_polyak(0.0, 0),
             Err(TargetUpdateError::Tau { got: 0.0 })

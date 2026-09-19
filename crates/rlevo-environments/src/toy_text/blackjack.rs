@@ -101,8 +101,8 @@ pub enum BlackjackVariant {
     Standard { natural_pays_bonus: bool },
     /// Strict Sutton & Barto (S&B) Example 5.1 rules.
     ///
-    /// A player natural against a non-natural dealer ends the episode immediately with reward
-    /// +1.0; a dealer natural against a non-natural player ends it with reward −1.0.
+    /// A player natural against a non-natural dealer ends the episode immediately with reward +1.0;
+    /// a dealer natural against a non-natural player ends it with reward `$-1.0$`.
     SuttonBarto,
 }
 
@@ -737,9 +737,9 @@ mod tests {
     }
 
     #[test]
-    /// Verifies that a player bust on `Hit` yields reward −1 and terminates the episode.
+    /// Verifies that a player bust on `Hit` yields reward `$-1$` and terminates the episode.
     fn bust_on_hit_returns_negative_one() {
-        // Player at 20 (two 10s), any hit ≥ 2 busts. Try seeds until we get a bust.
+        // Player at 20 (two 10s), any hit `$\geq 2$` busts. Try seeds until we get a bust.
         for seed in 0u64..200 {
             let mut env = make_env();
             env.reset().unwrap();
@@ -779,7 +779,7 @@ mod tests {
     fn push_on_equal_sums() {
         let mut env = make_env();
         env.reset().unwrap();
-        // Player 18, dealer 18 (10+8) → no draw needed (18 ≥ 17).
+        // Player 18, dealer 18 (10+8) → no draw needed (`$18 \geq 17$`).
         env.set_hands(vec![9, 9], vec![10, 8]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
         let r: f32 = (*snap.reward()).into();
@@ -827,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    /// Verifies the S&B variant charges −1.0 on a dealer natural vs non-natural player.
+    /// Verifies the S&B variant charges `$-1.0$` on a dealer natural vs non-natural player.
     fn sab_dealer_natural_costs_one() {
         let cfg = BlackjackConfig::builder()
             .variant(BlackjackVariant::SuttonBarto)

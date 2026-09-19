@@ -27,7 +27,7 @@
 //!   and delayed actor/Polyak updates per Fujimoto et al. 2018.
 //! - [`algorithms::sac`] — Soft Actor-Critic (off-policy, continuous actions):
 //!   stochastic squashed-Gaussian actor + twin critics with entropy-augmented
-//!   Bellman backup and auto-tuned temperature α per Haarnoja et al. 2018.
+//!   Bellman backup and auto-tuned temperature `$\alpha$` per Haarnoja et al. 2018.
 //! - [`replay`] — The replay-strategy seam (ADR 0050): [`replay::Transition`],
 //!   the [`replay::ReplayStrategy`] trait, and [`replay::UniformReplay`], the
 //!   FIFO uniform buffer every off-policy agent above draws its batches from.
@@ -179,15 +179,13 @@ pub mod algorithms {
         //! Soft Actor-Critic (SAC): off-policy, stochastic-actor,
         //! maximum-entropy algorithm for continuous-action spaces.
         //!
-        //! Pairs a squashed-Gaussian
-        //! [`sac_policy::SquashedGaussianPolicyHead`] actor with two
-        //! [`sac_model::ContinuousQ`] critics (each with a Polyak-averaged
-        //! target), a scalar [`sac_alpha::LogAlpha`] learnable temperature,
-        //! and a uniform replay buffer. The Bellman target includes the
-        //! entropy term `$-\alpha \cdot \log \pi(a'|s')$`; the actor is trained via
-        //! reparameterization, and α is auto-tuned toward the heuristic
-        //! target entropy `-|A|` by default. `CleanRL`'s
-        //! `sac_continuous_action.py` is the reference implementation.
+        //! Pairs a squashed-Gaussian [`sac_policy::SquashedGaussianPolicyHead`] actor with two
+        //! [`sac_model::ContinuousQ`] critics (each with a Polyak-averaged target), a scalar
+        //! [`sac_alpha::LogAlpha`] learnable temperature, and a uniform replay buffer. The Bellman
+        //! target includes the entropy term `$-\alpha \cdot \log \pi(a'|s')$`; the actor is trained
+        //! via reparameterization, and `$\alpha$` is auto-tuned toward the heuristic target entropy
+        //! `-|A|` by default. `CleanRL`'s `sac_continuous_action.py` is the reference
+        //! implementation.
 
         pub mod sac_agent;
         pub mod sac_alpha;

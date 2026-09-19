@@ -795,7 +795,7 @@ mod tests {
     #[test]
     fn test_multidiscrete_action_enumerate() {
         let actions = MultiActionTest::enumerate();
-        // 4 directions × 3 intensities = 12 total actions
+        // 4 directions `$\times$` 3 intensities = 12 total actions
         assert_eq!(actions.len(), 12);
 
         // Verify all combinations are present

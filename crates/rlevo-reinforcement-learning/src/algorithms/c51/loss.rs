@@ -26,10 +26,10 @@ use burn::tensor::backend::Backend;
 /// # Returns
 ///
 /// An **unreduced** `Tensor<B, 1>` of shape `[batch]` — element `n` is
-/// `−Σ_i target_probs[n, i] · predicted_log_probs[n, i]`. This is *not* a
-/// scalar: a caller that wants the usual training loss must apply its own
-/// reduction (`.mean()`), and a caller that omits it will either hit a shape
-/// error or silently backpropagate a summed-over-batch gradient.
+/// `$-\sum_i \text{target\_probs}[n,i] \cdot \text{predicted\_log\_probs}[n,i]$`. This is *not* a
+/// scalar: a caller that wants the usual training loss must apply its own reduction (`.mean()`),
+/// and a caller that omits it will either hit a shape error or silently backpropagate a
+/// summed-over-batch gradient.
 ///
 /// `predicted_log_probs` must already be log-probabilities along the atom
 /// axis (typically produced via `tensor.log_softmax(atom_axis)`); no
@@ -45,7 +45,8 @@ pub fn categorical_cross_entropy_per_sample<B: Backend>(
 }
 
 /// Clamp floor for `log(target)` so that an exact-zero atom contributes
-/// `0 · log(TINY) = 0` to the entropy term rather than `0 · (−∞) = NaN`.
+/// `$0 \cdot \log(\text{TINY}) = 0$` to the entropy term rather than
+/// `$0 \cdot (-\infty) = \text{NaN}$`.
 ///
 /// A projected C51 target routinely has exact-zero atoms outside the two bins a
 /// backed-up value lands in, so this guard is load-bearing, not defensive.
@@ -86,14 +87,14 @@ pub fn categorical_kl_per_sample<B: Backend>(
     target_probs: Tensor<B, 2>,
     predicted_log_probs: Tensor<B, 2>,
 ) -> Tensor<B, 1> {
-    // CE = −Σ t·log p.
+    // `$\text{CE} = -\sum t\log p$`.
     let ce = categorical_cross_entropy_per_sample(target_probs.clone(), predicted_log_probs);
-    // Σ t·log t  (= −H(t), ≤ 0). The clamp floors log(0) so a zero atom's
-    // `t·log t` is `0·log(TINY) = 0` rather than `0·(−∞) = NaN`.
+    // `$\sum t\log t$` (`$= -H(t) \leq 0$`). The clamp floors log(0) so a zero atom's `$t\log t$`
+    // is `$0 \cdot \log(\text{TINY}) = 0$` rather than `$0 \cdot (-\infty) = \text{NaN}$`.
     let neg_entropy = (target_probs.clone() * target_probs.clamp_min(KL_LOG_FLOOR).log())
         .sum_dim(1)
         .squeeze_dim::<1>(1);
-    // KL = CE − H(t) = CE + Σ t·log t.
+    // `$\text{KL} = \text{CE} - H(t) = \text{CE} + \sum t\log t$`.
     ce + neg_entropy
 }
 
@@ -194,13 +195,13 @@ mod tests {
     #[test]
     fn kl_matches_hand_computed_values() {
         // Sample A: t = [0.5, 0.5], p = [0.6, 0.4].
-        //   CE_A = −(0.5·ln0.6 + 0.5·ln0.4) = 0.71355818
+        //   `$\text{CE}_A = -(0.5\ln 0.6 + 0.5\ln 0.4) = 0.71355818$`
         //   H_A  = ln 2 = 0.69314718
-        //   KL_A = CE_A − H_A = 0.02041100
+        //   `$\text{KL}_A = \text{CE}_A - H_A = 0.02041100$`
         // Sample B: t = [0.9, 0.1], p = [0.7, 0.3].
-        //   CE_B = −(0.9·ln0.7 + 0.1·ln0.3) = 0.44140473
-        //   H_B  = −(0.9·ln0.9 + 0.1·ln0.1) = 0.32508297
-        //   KL_B = CE_B − H_B = 0.11632176
+        //   `$\text{CE}_B = -(0.9\ln 0.7 + 0.1\ln 0.3) = 0.44140473$`
+        //   `$H_B = -(0.9\ln 0.9 + 0.1\ln 0.1) = 0.32508297$`
+        //   `$\text{KL}_B = \text{CE}_B - H_B = 0.11632176$`
         let target = tensor_2d(vec![0.5, 0.5, 0.9, 0.1], 2, 2);
         let log_p = log_of(vec![0.6, 0.4, 0.7, 0.3], 2, 2);
         let kl = to_vec(categorical_kl_per_sample(target, log_p));
@@ -272,7 +273,7 @@ mod tests {
 
     #[test]
     fn kl_is_nonnegative_and_zero_on_identity() {
-        // D_KL(t ‖ t) = 0, and KL ≥ 0 for any distributions.
+        // `$D_{KL}(t \Vert t) = 0$`, and `$\text{KL} \geq 0$` for any distributions.
         let target = tensor_2d(vec![0.2, 0.3, 0.5, 0.6, 0.1, 0.3], 2, 3);
         let identical = to_vec(categorical_kl_per_sample(
             target.clone(),
@@ -294,7 +295,7 @@ mod tests {
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
     fn cross_entropy_nonnegative_on_uniform() {
-        // For any valid probability distributions, CE ≥ 0.
+        // For any valid probability distributions, CE `$\geq$` 0.
         let n = 4;
         let batch = 3;
         let target = tensor_2d(vec![1.0 / n as f32; batch * n], batch, n);

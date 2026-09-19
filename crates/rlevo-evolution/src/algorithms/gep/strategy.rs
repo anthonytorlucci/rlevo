@@ -545,9 +545,9 @@ mod tests {
         for &i in &picks {
             counts[i] += 1;
         }
-        // Uniform expectation is N/4 = 1000; allow a generous ±40% band so the
-        // fixed-seed draw cannot flake while still rejecting a collapsed
-        // distribution (e.g. every draw landing on one index).
+        // Uniform expectation is N/4 = 1000; allow a generous `$\pm$`40% band so the fixed-seed
+        // draw cannot flake while still rejecting a collapsed distribution (e.g. every draw landing
+        // on one index).
         let expected: usize = N / 4;
         let low = expected - expected * 2 / 5;
         let high = expected + expected * 2 / 5;
@@ -576,13 +576,13 @@ mod tests {
         assert!(picks.is_empty());
     }
 
-    /// With all-negative (canonical) fitness the shift `f − min_finite` still
-    /// favours the least-negative individual; it is picked more often than the
-    /// most-negative one, and every draw is in range.
+    /// With all-negative (canonical) fitness the shift `$f - \text{min\_finite}$` still favours the
+    /// least-negative individual; it is picked more often than the most-negative one, and every
+    /// draw is in range.
     #[test]
     fn roulette_negative_fitness_favours_highest() {
         let mut rng = seed_stream(35, 0, SeedPurpose::Selection);
-        // Index 2 (−1.0) is the largest; index 0 (−100.0) the smallest.
+        // Index 2 (`$-1.0$`) is the largest; index 0 (`$-100.0$`) the smallest.
         let fits: Vec<f32> = vec![-100.0, -50.0, -1.0, -75.0];
         let picks: Vec<usize> = roulette_select(&fits, 2000, &mut rng);
         assert!(picks.iter().all(|&i| i < 4));
@@ -644,7 +644,7 @@ mod tests {
         assert!(best <= 0.01, "expected MSE <= 0.01, got {best}");
     }
 
-    /// Converges on `f(x) = sin(x) · x` over 20 points in [-3, 3].
+    /// Converges on `$f(x) = \sin(x) \cdot x$` over 20 points in [-3, 3].
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn converges_on_sin_times_x() {
@@ -702,7 +702,8 @@ mod tests {
         );
     }
 
-    /// Converges on `$f(x, y) = x^2 + y^2$` over a 5×5 grid in [-2, 2]² (`n_vars` = 2).
+    /// Converges on `$f(x, y) = x^2 + y^2$` over a `$5 \times 5$` grid in `$[-2, 2]^2$` (`n_vars` =
+    /// 2).
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn converges_on_sum_of_squares() {

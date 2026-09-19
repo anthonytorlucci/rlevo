@@ -257,12 +257,11 @@ fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
         entropy = stats.entropy,
         approx_kl = stats.approx_kl,
         clip_frac = stats.clip_frac,
-        // The ADR 0049 §4 metric channel. Both read `None` for every PPG run
-        // today — PPG is discrete-only in v1 — and are emitted anyway so that a
-        // future Gaussian PPG head is observable the moment it lands, rather
-        // than shipping a silent trap door. `?` (Debug) renders the
-        // `Option` honestly instead of fabricating a `0.0` for a policy with no
-        // σ.
+        // The ADR 0049 §4 metric channel. Both read `None` for every PPG run today — PPG is
+        // discrete-only in v1 — and are emitted anyway so that a future Gaussian PPG head is
+        // observable the moment it lands, rather than shipping a silent trap door. `?` (Debug)
+        // renders the `Option` honestly instead of fabricating a `0.0` for a policy with no
+        // `$\sigma$`.
         min_log_std = ?stats.min_log_std,
         max_log_std = ?stats.max_log_std,
         // Canonical `skipped_updates` (Rl / PerUpdate / cumulative, ADR 0072).

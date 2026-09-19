@@ -114,8 +114,8 @@ pub fn encode_returns(ring: &VecDeque<f64>) -> Vec<u64> {
                 0u64
             } else {
                 let shifted = (v - min) * REWARD_SCALE;
-                // Clamp negatives to zero defensively; `shifted` is
-                // already non-negative when min ≤ v.
+                // Clamp negatives to zero defensively; `shifted` is already non-negative when
+                // `$\text{min} \leq v$`.
                 shifted.max(0.0) as u64
             }
         })

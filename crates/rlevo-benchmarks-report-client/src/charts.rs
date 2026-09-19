@@ -183,10 +183,9 @@ pub fn interactive_line_view(
 /// when the `*_fitness` metrics are present. Empty panels are
 /// suppressed entirely.
 ///
-/// `records` may arrive in any order and may span multiple seeds; the
-/// x-axis toggle lets readers choose episode-index, cumulative env-step,
-/// or wall-clock time without page reload.  Multi-seed runs also get a
-/// mean±std band section rendered by `multi_seed_section`.
+/// `records` may arrive in any order and may span multiple seeds; the x-axis toggle lets readers
+/// choose episode-index, cumulative env-step, or wall-clock time without page reload. Multi-seed
+/// runs also get a mean`$\pm$`std band section rendered by `multi_seed_section`.
 ///
 /// `family` is currently unused — the suppression rule keys off
 /// per-metric presence, which already distinguishes RL from EA runs.
@@ -369,11 +368,11 @@ fn episode_outcome_panels(records: &[EpisodeRecord], window: usize) -> AnyView {
     .into_any()
 }
 
-/// Renders the cross-seed mean±std band section when the record set spans two
-/// or more distinct seeds, or nothing for a single-seed run.
+/// Renders the cross-seed mean`$\pm$`std band section when the record set spans two or more
+/// distinct seeds, or nothing for a single-seed run.
 ///
-/// One band panel per metric that has at least one step with ≥2 contributing
-/// seeds; per-generation EA metrics are excluded (population panels cover them).
+/// One band panel per metric that has at least one step with `$\geq 2$` contributing seeds;
+/// per-generation EA metrics are excluded (population panels cover them).
 fn multi_seed_section(records: &[EpisodeRecord]) -> AnyView {
     if distinct_seed_count(records) < 2 {
         return ().into_any();
@@ -406,12 +405,11 @@ fn multi_seed_section(records: &[EpisodeRecord]) -> AnyView {
     .into_any()
 }
 
-/// Hand-rolled SVG mean±std band panel.
+/// Hand-rolled SVG mean`$\pm$`std band panel.
 ///
-/// `leptos-chartistry` 0.2 has no area primitive, so the ±std envelope is a
-/// filled `<polygon>` (upper edge left→right, lower edge right→left) under a
-/// solid mean `<polyline>`. The fill/line pairing keeps the band legible in
-/// B/W per the a11y contract.
+/// `leptos-chartistry` 0.2 has no area primitive, so the `$\pm$`std envelope is a filled
+/// `<polygon>` (upper edge left→right, lower edge right→left) under a solid mean `<polyline>`. The
+/// fill/line pairing keeps the band legible in B/W per the a11y contract.
 #[must_use]
 pub fn band_chart_view(title: String, y_title: &str, band: &[BandPoint]) -> AnyView {
     use std::fmt::Write as _;
@@ -551,9 +549,9 @@ const PLOT_BOTTOM: f64 = BOX_VB_H - BOX_M_B;
 
 /// "Nice" axis ticks: at most `target`-ish round values spanning `[min, max]`.
 ///
-/// Picks a 1/2/5×10ⁿ step so labels land on human-readable numbers (0, 100,
-/// 200 … rather than 0, 137, 274 …). Degenerate ranges collapse to a single
-/// tick so callers can still render an axis without dividing by zero.
+/// Picks a `$1/2/5 \times 10^n$` step so labels land on human-readable numbers (0, 100, 200 …
+/// rather than 0, 137, 274 …). Degenerate ranges collapse to a single tick so callers can still
+/// render an axis without dividing by zero.
 fn nice_ticks(min: f64, max: f64, target: usize) -> Vec<f64> {
     let target = target.max(2);
     if !(min.is_finite() && max.is_finite()) || (max - min).abs() < f64::EPSILON {
@@ -590,11 +588,11 @@ fn nice_ticks(min: f64, max: f64, target: usize) -> Vec<f64> {
 
 /// Formats a tick value for axis labels.
 ///
-/// When `as_int` is `true` the value is rounded to the nearest integer, which
-/// keeps episode/generation/step axes clean (e.g. `100` instead of `100.00`).
-/// When `false`, adaptive decimal precision is used: magnitude ≥10 → no
-/// decimals, ≥1 → two, ≥0.01 → three, smaller → scientific notation.  This
-/// keeps both `500` and `0.012` legible without trailing-zero noise.
+/// When `as_int` is `true` the value is rounded to the nearest integer, which keeps
+/// episode/generation/step axes clean (e.g. `100` instead of `100.00`). When `false`, adaptive
+/// decimal precision is used: magnitude `$\geq 10$` → no decimals, `$\geq 1$` → two, `$\geq 0.01$`
+/// → three, smaller → scientific notation. This keeps both `500` and `0.012` legible without
+/// trailing-zero noise.
 fn fmt_tick(v: f64, as_int: bool) -> String {
     if as_int {
         return format!("{:.0}", v.round());
@@ -785,11 +783,10 @@ fn jitter_unit(i: u64) -> f64 {
 
 /// Renders the hand-rolled per-generation fitness box plot SVG panel.
 ///
-/// Inside each generation slot: a filled rect for `[Q1, Q3]`, a horizontal
-/// median tick, vertical whiskers clipped at the Tukey 1.5×IQR fence, and
-/// outliers as small open circles. Three overlay polylines (best, median,
-/// worst) pair colour with distinct dash patterns so the a11y contract
-/// survives a B/W screenshot. An optional strip-plot scatter is toggled by an
+/// Inside each generation slot: a filled rect for `[Q1, Q3]`, a horizontal median tick, vertical
+/// whiskers clipped at the Tukey `$1.5 \times \text{IQR}$` fence, and outliers as small open
+/// circles. Three overlay polylines (best, median, worst) pair colour with distinct dash patterns
+/// so the a11y contract survives a B/W screenshot. An optional strip-plot scatter is toggled by an
 /// "Individual points" button in the toolbar.
 ///
 /// `overlays` is the `(best, median, worst)` triple returned by

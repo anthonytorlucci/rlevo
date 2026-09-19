@@ -12,11 +12,11 @@
 //!
 //! 2. **GPUs win on the workload they were built for: large batched matmuls.**
 //!    A single-environment PPO rollout is the opposite — tiny, sequential,
-//!    sync-bound ops where a CPU backend is ~70× faster (see the sibling
+//!    sync-bound ops where a CPU backend is ~`$70\times$` faster (see the sibling
 //!    `ppo_cartpole` scaffolding, which is pinned to `Flex` for exactly that
 //!    reason). Neuroevolution flips every one of those properties: a whole
 //!    *population* of candidate networks is one `(pop, …)` tensor, and scoring
-//!    it is a batched forward pass — `pop × samples × in × hidden` fused
+//!    it is a batched forward pass — `$\text{pop} \times \text{samples} \times \text{in} \times \text{hidden}$` fused
 //!    multiply-adds with **no autodiff tape and no per-step host sync**. That is
 //!    GPU territory, and the GPU's margin *widens* as you scale `pop_size`.
 //!
@@ -44,14 +44,12 @@
 //!     4096       64.829 s         3.000 s       21.61x
 //! ```
 //!
-//! Note there is no CPU-favourable crossover *inside* this range: once the work
-//! is a batched matmul, the GPU wins even at `pop_size = 64`, and its margin
-//! **widens** with the population. The regime where the CPU wins is the *other*
-//! extreme — the tiny, sequential, single-environment PPO rollout in the
-//! sibling `ppo_cartpole` scaffolding, where `Flex` is ~70× faster. The two
-//! examples bracket the trade-off: sequential-and-tiny favours CPU,
-//! batched-and-large favours GPU. The absolute numbers are machine-specific;
-//! the *shape* of the result is the lesson.
+//! Note there is no CPU-favourable crossover *inside* this range: once the work is a batched
+//! matmul, the GPU wins even at `pop_size = 64`, and its margin **widens** with the population. The
+//! regime where the CPU wins is the *other* extreme — the tiny, sequential, single-environment PPO
+//! rollout in the sibling `ppo_cartpole` scaffolding, where `Flex` is ~`$70\times$` faster. The two
+//! examples bracket the trade-off: sequential-and-tiny favours CPU, batched-and-large favours GPU.
+//! The absolute numbers are machine-specific; the *shape* of the result is the lesson.
 //!
 //! This example deliberately installs **no** `tracing` subscriber. The verbose
 //! adapter-selection / autotune log lines you may have seen from the GPU path
@@ -108,7 +106,7 @@ struct SweepConfig {
 
 impl SweepConfig {
     /// Flat genome length for an `in → hidden → 1` MLP:
-    /// `W1 (in·hidden) + b1 (hidden) + W2 (hidden·1) + b2 (1)`.
+    /// `$W_1(\text{in}\cdot\text{hidden}) + b_1(\text{hidden}) + W_2(\text{hidden}\cdot 1) + b_2(1)$`.
     fn genome_dim(&self) -> usize {
         self.in_dim * self.hidden + self.hidden + self.hidden + 1
     }
@@ -207,9 +205,9 @@ impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for MlpRegressionFitness<B> {
         // Broadcast the shared input batch across the population: (pop, samples, in).
         let inputs = self.inputs.clone().unsqueeze_dim::<3>(0).repeat_dim(0, pop);
 
-        // ANCHOR: forward
-        // Batched forward pass — the heavy, GPU-favourable work.
-        // (pop, samples, in)·(pop, in, hidden) -> (pop, samples, hidden), then ·(pop, hidden, 1).
+        // ANCHOR: forward Batched forward pass — the heavy, GPU-favourable work.
+        // `$(\text{pop},\text{samples},\text{in}) \cdot (\text{pop},\text{in},\text{hidden}) \to (\text{pop},\text{samples},\text{hidden})$`,
+        // then `$\cdot(\text{pop},\text{hidden},1)$`.
         let activated = tanh(inputs.matmul(w1) + b1); // (pop, samples, hidden)
         let out = (activated.matmul(w2) + b2).reshape([pop, samples]); // (pop, samples)
 

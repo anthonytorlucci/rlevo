@@ -43,9 +43,9 @@ const SPAWN_PAD: usize = 20;
 
 /// Rejects a value that is not both non-negative and finite.
 ///
-/// Neither [`config::positive`] (allows `+∞`) nor [`config::in_range`] with an
-/// infinite upper bound (also allows `+∞`) expresses "finite and `>= 0`", so
-/// terrain validation needs this local check.
+/// Neither [`config::positive`] (allows `$+\infty$`) nor [`config::in_range`] with an infinite
+/// upper bound (also allows `$+\infty$`) expresses "finite and `>= 0`", so terrain validation needs
+/// this local check.
 fn nonneg_finite(config: &'static str, field: &'static str, got: f32) -> Result<(), ConfigError> {
     if got.is_finite() && got >= 0.0 {
         Ok(())
@@ -64,8 +64,8 @@ fn nonneg_finite(config: &'static str, field: &'static str, got: f32) -> Result<
 
 /// Rejects a value that is not both strictly positive and finite.
 ///
-/// [`config::positive`] alone accepts `+∞` (`+∞ > 0`), so it cannot guard a
-/// step size that must be a usable finite length.
+/// [`config::positive`] alone accepts `$+\infty$` (`$+\infty > 0$`), so it cannot guard a step size
+/// that must be a usable finite length.
 fn positive_finite(config: &'static str, field: &'static str, got: f32) -> Result<(), ConfigError> {
     if got.is_finite() && got > 0.0 {
         Ok(())
@@ -128,14 +128,14 @@ pub trait TerrainGenerator: std::fmt::Debug + Send + Sync {
 
 /// Flat terrain: a straight horizontal ground plane at y = 0.
 ///
-/// Produces 201 evenly spaced points spanning x ∈ `[-10, 190]`.
-/// No randomness is used; `rng` is ignored.
+/// Produces 201 evenly spaced points spanning `$x \in [-10, 190]$`. No randomness is used; `rng` is
+/// ignored.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FlatTerrain;
 
 impl TerrainGenerator for FlatTerrain {
     fn generate(&self, _rng: &mut StdRng) -> Vec<[f32; 2]> {
-        // 200-unit-wide flat surface at y = 0, spanning x ∈ [-10, 190].
+        // 200-unit-wide flat surface at y = 0, spanning `$x \in [-10, 190]$`.
         (0..=200).map(|i| [i as f32 - 10.0, 0.0]).collect()
     }
 }
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_flat_terrain_extent() {
-        // §7.2: exact extent — 201 points spanning world x ∈ [-10, 190].
+        // §7.2: exact extent — 201 points spanning world `$x \in [-10, 190]$`.
         let mut rng = StdRng::seed_from_u64(0);
         let pts = FlatTerrain.generate(&mut rng);
         assert_eq!(pts.len(), 201, "flat terrain must have 201 points");

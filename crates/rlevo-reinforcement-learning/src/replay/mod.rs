@@ -22,7 +22,7 @@
 //!   max-normalized over the sampled minibatch, and the `update_priorities`
 //!   feedback edge. Its priorities are [`Priority`] values, finite and strictly
 //!   positive by construction, configured by [`PrioritizedReplayConfig`].
-//! - [`ImportanceExponent`] — the β passed to [`ReplayStrategy::sample`],
+//! - [`ImportanceExponent`] — the `$\beta$` passed to [`ReplayStrategy::sample`],
 //!   `finite && [0, 1]` by construction so a non-finite exponent cannot reach
 //!   `powf` and turn the importance weights — and then the loss, and then every
 //!   gradient — into `NaN` (ADR 0051 §3).
@@ -38,10 +38,10 @@
 //! contested-to-negative on vanilla PER, so enabling it there would be a
 //! paper-fidelity defect dressed as a feature (ADR 0050 §Context).
 //!
-//! The two are separate types rather than one α-parameterised implementation
-//! because their **draw semantics differ**: uniform is i.i.d. with replacement,
-//! Schaul's is stratified without it. One implementation cannot honour both, and
-//! either choice would silently change the other's behaviour (ADR 0050 §4).
+//! The two are separate types rather than one `$\alpha$`-parameterised implementation because their
+//! **draw semantics differ**: uniform is i.i.d. with replacement, Schaul's is stratified without
+//! it. One implementation cannot honour both, and either choice would silently change the other's
+//! behaviour (ADR 0050 §4).
 //!
 //! # Where the line is drawn
 //!
@@ -302,10 +302,10 @@ pub trait ReplayStrategy<T> {
     ///
     /// # Errors
     ///
-    /// Returns [`ReplayBufferError::InsufficientData`] when the buffer holds
-    /// fewer than `batch_size` transitions. Note that this is *not* the place a
-    /// bad β is reported: β cannot be bad here, so [`UniformReplay`] is not made
-    /// to carry an error variant it could never produce (ADR 0051 §2).
+    /// Returns [`ReplayBufferError::InsufficientData`] when the buffer holds fewer than
+    /// `batch_size` transitions. Note that this is *not* the place a bad `$\beta$` is reported:
+    /// `$\beta$` cannot be bad here, so [`UniformReplay`] is not made to carry an error variant it
+    /// could never produce (ADR 0051 §2).
     fn sample<R: rand::Rng + ?Sized>(
         &self,
         batch_size: usize,

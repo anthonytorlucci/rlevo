@@ -62,8 +62,8 @@ pub struct EvaluatorConfig {
     pub checkpoint_dir: Option<PathBuf>,
     /// Abort the suite after the first errored trial.
     pub fail_fast: bool,
-    /// When `Some(threshold)`, a `success_rate` metric is emitted per trial
-    /// counting the fraction of episodes whose return ≥ `threshold`.
+    /// When `Some(threshold)`, a `success_rate` metric is emitted per trial counting the fraction
+    /// of episodes whose return `$\geq$` `threshold`.
     pub success_threshold: Option<f64>,
 }
 

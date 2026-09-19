@@ -12,12 +12,11 @@
 //! diff that deletes a `config::ordered` line "because the type now guarantees
 //! it" reads as a pure refactor while being a semantic loosening.
 //!
-//! In **this crate** zero width is never legitimate: both `Bounds` fields are a
-//! `log σ` clamp range, and pinning it collapses σ to a constant — for PPO
-//! permanently, because `log_std` is a single shared `Param` whose gradient
-//! freezes at step 0; for SAC into a state-independently deterministic scale,
-//! which is precisely the quantity the entropy temperature is tuned against.
-//! Neither produces a `NaN`, a panic, or a failed assertion. Both produce a run
+//! In **this crate** zero width is never legitimate: both `Bounds` fields are a `$\log \sigma$`
+//! clamp range, and pinning it collapses `$\sigma$` to a constant — for PPO permanently, because
+//! `log_std` is a single shared `Param` whose gradient freezes at step 0; for SAC into a
+//! state-independently deterministic scale, which is precisely the quantity the entropy temperature
+//! is tuned against. Neither produces a `NaN`, a panic, or a failed assertion. Both produce a run
 //! that trains and reports finite numbers.
 //!
 //! That is why the scan is **crate-scoped** rather than workspace-wide, and the
@@ -186,9 +185,9 @@ struct ExemptField {
     why: &'static str,
 }
 
-/// Every `Bounds` field in `rlevo-reinforcement-learning` that must re-assert
-/// strictness. Two rows, both the `log σ` clamp of a continuous-action Gaussian
-/// head (ADR 0068 §Context: the entire strict population in the workspace).
+/// Every `Bounds` field in `rlevo-reinforcement-learning` that must re-assert strictness. Two rows,
+/// both the `$\log \sigma$` clamp of a continuous-action Gaussian head (ADR 0068 §Context: the
+/// entire strict population in the workspace).
 static STRICT_BOUNDS_FIELDS: &[StrictField] = &[
     StrictField {
         config: "TanhGaussianPolicyHeadConfig",

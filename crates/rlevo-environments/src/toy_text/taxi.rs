@@ -1,14 +1,15 @@
 //! Taxi-v3 environment.
 //!
-//! A 5×5 grid-world where a taxi must navigate to a passenger, pick them up, and drop them off
-//! at the correct destination. The grid contains hard-coded east–west walls and four named
+//! A `$5 \times 5$` grid-world where a taxi must navigate to a passenger, pick them up, and drop
+//! them off at the correct destination. The grid contains hard-coded east–west walls and four named
 //! pickup/dropoff locations.
 //!
 //! ## State space
 //!
-//! 500 discrete states encoded as `((row×5 + col)×5 + passenger_loc)×4 + destination`.
+//! 500 discrete states encoded as
+//! `$((\text{row}\times 5 + \text{col})\times 5 + \text{passenger\_loc})\times 4 + \text{destination}$`.
 //!
-//! - **Taxi position**: 5×5 = 25 cells
+//! - **Taxi position**: `$5 \times 5 = 25$` cells
 //! - **Passenger location**: 0–3 (at a named location) or 4 (in the taxi)
 //! - **Destination**: 0–3 (R, G, Y, B)
 //!
@@ -30,10 +31,10 @@
 //!
 //! | Event              | Reward |
 //! |--------------------|--------|
-//! | Movement step      | −1     |
+//! | Movement step      | `$-1$`     |
 //! | Correct dropoff    | +20 (terminates) |
-//! | Illegal pickup     | −10    |
-//! | Illegal dropoff    | −10    |
+//! | Illegal pickup     | `$-10$`    |
+//! | Illegal dropoff    | `$-10$`    |
 //!
 //! ## Variants
 //!
@@ -235,7 +236,8 @@ impl State<1> for TaxiState {
 
 /// Agent-visible observation: integer state id in `[0, 500)`.
 ///
-/// Encoded as `((taxi_row×5 + taxi_col)×5 + passenger_loc)×4 + destination`.
+/// Encoded as
+/// `$((\text{taxi\_row}\times 5 + \text{taxi\_col})\times 5 + \text{passenger\_loc})\times 4 + \text{destination}$`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxiObservation {
     /// Packed state id in the range `[0, 500)`.
@@ -252,8 +254,8 @@ impl Observation<1> for TaxiObservation {
 
 /// Six-action Taxi space: four movement directions plus pickup and dropoff.
 ///
-/// East–West movement respects the hard-coded grid walls; blocked moves are no-ops that
-/// still cost −1.
+/// East–West movement respects the hard-coded grid walls; blocked moves are no-ops that still cost
+/// `$-1$`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaxiAction {
     /// Move one row toward row 4 (south).
@@ -264,9 +266,11 @@ pub enum TaxiAction {
     East = 2,
     /// Move one column toward col 0 (west), if no wall blocks the move.
     West = 3,
-    /// Pick up the passenger if the taxi is at the passenger's named location; costs −10 otherwise.
+    /// Pick up the passenger if the taxi is at the passenger's named location; costs `$-10$`
+    /// otherwise.
     Pickup = 4,
-    /// Drop off the passenger if the taxi is at the destination and the passenger is aboard; costs −10 otherwise.
+    /// Drop off the passenger if the taxi is at the destination and the passenger is aboard; costs
+    /// `$-10$` otherwise.
     Dropoff = 5,
 }
 
@@ -387,7 +391,7 @@ fn attempt_move(row: u8, col: u8, action: TaxiAction) -> (u8, u8) {
 
 // ── environment ───────────────────────────────────────────────────────────────
 
-/// Taxi-v3 environment (5×5 grid, 500 discrete states, 6 actions).
+/// Taxi-v3 environment (`$5 \times 5$` grid, 500 discrete states, 6 actions).
 ///
 /// Each episode begins with the taxi, passenger, and destination placed at randomly sampled
 /// positions. The episode ends only on a correct [`TaxiAction::Dropoff`]; there is no step
@@ -751,9 +755,9 @@ impl rlevo_core::render::payload::TabularPayloadSource for Taxi {
             TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
             TabularSnapshot,
         };
-        // Fixed 5×5 grid. Inter-cell walls are omitted from the structured
-        // view (a deliberate stopgap, like locomotion's 2D projection); the
-        // taxi / passenger / destination markers carry the task dynamics.
+        // Fixed `$5 \times 5$` grid. Inter-cell walls are omitted from the structured view (a
+        // deliberate stopgap, like locomotion's 2D projection); the taxi / passenger / destination
+        // markers carry the task dynamics.
         const SIZE: u16 = 5;
         let cells = vec![TabularCell::Empty; (SIZE * SIZE) as usize];
         let mut markers = Vec::with_capacity(3);
@@ -942,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    /// Verifies that moving into a wall is a no-op and still costs −1.
+    /// Verifies that moving into a wall is a no-op and still costs `$-1$`.
     fn wall_collision_is_no_op_cost_minus_one() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -961,7 +965,7 @@ mod tests {
     }
 
     #[test]
-    /// Verifies that a pickup attempt at the wrong cell costs −10.
+    /// Verifies that a pickup attempt at the wrong cell costs `$-10$`.
     fn pickup_at_wrong_location_costs_ten() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -1030,7 +1034,8 @@ mod tests {
     }
 
     #[test]
-    /// Verifies the fickle-passenger mode resamples the destination with ≈30% probability.
+    /// Verifies the fickle-passenger mode resamples the destination with `$\approx 30\%$`
+    /// probability.
     fn fickle_passenger_30pct() {
         let cfg = TaxiConfig::builder()
             .fickle_passenger(true)

@@ -1,10 +1,9 @@
 //! End-to-end training loop for DQN.
 //!
-//! [`train`] drives the collect-learn cycle: reset the environment, step with
-//! ε-greedy actions, push each transition into the agent's replay buffer, and
-//! call [`DqnAgent::learn_step`] on the configured cadence. Per-episode metrics
-//! are accumulated into the agent's [`AgentStats`]. The target network is
-//! maintained inside `learn_step`, not here — this loop has no target-sync
+//! [`train`] drives the collect-learn cycle: reset the environment, step with `$\epsilon$`-greedy
+//! actions, push each transition into the agent's replay buffer, and call [`DqnAgent::learn_step`]
+//! on the configured cadence. Per-episode metrics are accumulated into the agent's [`AgentStats`].
+//! The target network is maintained inside `learn_step`, not here — this loop has no target-sync
 //! step to forget (ADR 0059).
 //!
 //! [`AgentStats`]: crate::metrics::AgentStats
@@ -23,13 +22,13 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 ///
 /// Each iteration of the loop:
 ///
-/// 1. Selects an action via [`DqnAgent::act`] (ε-greedy).
+/// 1. Selects an action via [`DqnAgent::act`] (`$\epsilon$`-greedy).
 /// 2. Steps the environment and pushes the resulting transition into the
 ///    replay buffer with [`DqnAgent::remember`].
 /// 3. Calls [`DqnAgent::learn_step`] when `agent.should_train()` returns
 ///    `true` (controlled by [`DqnTrainingConfig::train_frequency`], in
 ///    environment steps).
-/// 4. Decays ε with [`DqnAgent::decay_exploration`].
+/// 4. Decays `$\epsilon$` with [`DqnAgent::decay_exploration`].
 ///
 /// The target network is **not** this loop's business. It is updated inside
 /// [`DqnAgent::learn_step`], on the cadence in
@@ -55,7 +54,7 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 /// - `agent` — mutable DQN agent holding network weights and replay buffer.
 /// - `env` — environment implementing [`Environment`]; must use the same
 ///   observation type `O` and action type `A` as the agent.
-/// - `rng` — caller-owned RNG used for ε-greedy sampling and batch selection.
+/// - `rng` — caller-owned RNG used for `$\epsilon$`-greedy sampling and batch selection.
 /// - `total_steps` — total number of environment steps to run.
 /// - `log_every` — emit a [`tracing::info!`] progress line every this many
 ///   steps. Pass `0` to disable all progress logging.
@@ -106,13 +105,12 @@ where
         // `done` drives episode bookkeeping (metrics, `env.reset()`): the
         // episode is over either way.
         //
-        // `terminated` is the Bellman bootstrap mask and is true only for an
-        // *environmental* termination. On a truncation (time-limit cutoff) the
-        // MDP has not ended, so `next_obs` is a real continuation state and
-        // `γ · V(next_obs)` must survive in the target. Masking on `done` here
-        // would zero the bootstrap at every timeout and bias Q downward on any
-        // time-limited env (Pardo et al., "Time Limits in Reinforcement
-        // Learning", ICML 2018, Eq. 6 — partial-episode bootstrapping).
+        // `terminated` is the Bellman bootstrap mask and is true only for an *environmental*
+        // termination. On a truncation (time-limit cutoff) the MDP has not ended, so `next_obs` is
+        // a real continuation state and `$\gamma \cdot V(\text{next\_obs})$` must survive in the
+        // target. Masking on `done` here would zero the bootstrap at every timeout and bias Q
+        // downward on any time-limited env (Pardo et al., "Time Limits in Reinforcement Learning",
+        // ICML 2018, Eq. 6 — partial-episode bootstrapping).
         let done = next_snapshot.is_done();
         let terminated = next_snapshot.is_terminated();
         let next_obs = next_snapshot.observation().clone();

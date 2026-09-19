@@ -93,10 +93,10 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
     // A max reduction cannot overflow, so this is safe to take on raw fitness
     // (unlike the sum below). See the `# Saturated fitness` section above.
     let scale_raw = fitness.clone().max_abs().into_scalar().elem::<f32>();
-    // Non-finite max ⇒ the input carries a raw `±∞`; zero max ⇒ an all-zero
-    // population; an empty population has no max at all. A scale of `1.0`
-    // reproduces the unscaled arithmetic bit-for-bit, so none of those three
-    // cases changes behaviour relative to the pre-ADR-0069 formula.
+    // Non-finite max `$\Rightarrow$` the input carries a raw `$\pm\infty$`; zero max
+    // `$\Rightarrow$` an all-zero population; an empty population has no max at all. A scale of
+    // `1.0` reproduces the unscaled arithmetic bit-for-bit, so none of those three cases changes
+    // behaviour relative to the pre-ADR-0069 formula.
     let scale = if scale_raw.is_finite() && scale_raw > 0.0 {
         scale_raw
     } else {
@@ -174,8 +174,8 @@ pub fn centered_rank<B: Backend>(
     if n == 0 {
         return Ok(Tensor::<B, 1>::from_floats([0.0f32; 0], device));
     }
-    // Sanitize NaN → −inf (worst under maximise) so a NaN fitness ranks lowest
-    // rather than corrupting the ascending order.
+    // Sanitize NaN → `$-\infty$` (worst under maximise) so a NaN fitness ranks lowest rather than
+    // corrupting the ascending order.
     let data: Vec<f32> = raw
         .iter()
         .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -335,7 +335,7 @@ mod tests {
             [1.0f32, 2.0, 3.0, 4.0, 5.0],
             &device,
         )));
-        // mean 3, population std sqrt(2) → ±2/√2, ±1/√2, 0
+        // mean 3, population std `$\sqrt{2}$` → `$\pm 2/\sqrt{2}$`, `$\pm 1/\sqrt{2}$`, 0
         let expected = [
             -std::f32::consts::SQRT_2,
             -std::f32::consts::FRAC_1_SQRT_2,
@@ -524,19 +524,18 @@ mod tests {
             shift in -100i32..=100,
             headroom in 0u32..=160,
         ) {
-            // A degenerate (all-equal) population is the case the floor exists
-            // for; it has no positive `c` window at all (σ = 0), so it is out of
-            // the property's domain by construction rather than by tolerance.
+            // A degenerate (all-equal) population is the case the floor exists for; it has no
+            // positive `c` window at all (`$\sigma$` = 0), so it is out of the property's domain by
+            // construction rather than by tolerance.
             prop_assume!(xs.iter().any(|&v| v != xs[0]));
 
             #[allow(clippy::cast_precision_loss)]
             let base: Vec<f32> = xs.iter().map(|&v| v as f32).collect();
             #[allow(clippy::cast_precision_loss)]
             let d = shift as f32;
-            // Integers in `[-100, 100]` plus a shift in `[-100, 100]` are exact
-            // in `f32`, and a power-of-two `c` scales them without error, so
-            // `c·(x + d)` carries no rounding whatsoever. See "Why the offset is
-            // inside the scale" above.
+            // Integers in `[-100, 100]` plus a shift in `[-100, 100]` are exact in `f32`, and a
+            // power-of-two `c` scales them without error, so `$c(x + d)$` carries no rounding
+            // whatsoever. See "Why the offset is inside the scale" above.
             let affine = |c: f32| -> Vec<f32> { base.iter().map(|&v| c * (v + d)).collect() };
 
             let max_abs = base.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
@@ -549,12 +548,13 @@ mod tests {
             while affine(2.0_f32.powi(k_max)).iter().any(|v| !v.is_finite()) {
                 k_max -= 1;
             }
-            // `c·σ ≥ 2·STD_FLOOR` — the derived lower bound with a factor-2 margin.
+            // `$c\sigma \geq 2\,\text{STD\_FLOOR}$` — the derived lower bound with a factor-2
+            // margin.
             #[allow(clippy::cast_possible_truncation)]
             let k_min = (2.0 * f64::from(STD_FLOOR) / sigma).log2().ceil() as i32;
-            // Non-empty by construction for this generator (`k_min ≈ -24`,
-            // `k_max ≈ 120`); asserted so an inverted window reads as a failed
-            // property rather than as a `clamp` panic.
+            // Non-empty by construction for this generator (`$k_{min} \approx -24$`,
+            // `$k_{max} \approx 120$`); asserted so an inverted window reads as a failed property
+            // rather than as a `clamp` panic.
             prop_assert!(k_min <= k_max, "empty admissible window [2^{k_min}, 2^{k_max}]");
             #[allow(clippy::cast_possible_wrap)]
             let k = (k_max - headroom as i32).clamp(k_min, k_max);
@@ -581,10 +581,10 @@ mod tests {
                     &device,
                 )));
                 for (i, (got, want)) in z.iter().zip(&z_base).enumerate() {
-                    // Bit-exact whenever `d == 0` (a power-of-two rescale cancels
-                    // exactly against the max-abs divisor); the tolerance covers
-                    // only the centering cancellation the shift introduces, whose
-                    // worst case here is `(max|x + d| / σ)·f32::EPSILON ≈ 1e-4`.
+                    // Bit-exact whenever `d == 0` (a power-of-two rescale cancels exactly against
+                    // the max-abs divisor); the tolerance covers only the centering cancellation
+                    // the shift introduces, whose worst case here is
+                    // `$(\max\lvert x + d\rvert / \sigma) \cdot \text{f32::EPSILON} \approx 10^{-4}$`.
                     prop_assert!(
                         (got - want).abs() <= 5e-3,
                         "element {i} moved from {want} to {got} under \

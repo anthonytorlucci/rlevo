@@ -55,7 +55,7 @@
 //! Both boards are real `ascii()` output, pinned by
 //! `tests::module_doc_snapshots_are_current`.
 //!
-//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell  |
+//! | Observation | `$7 \times 7$` egocentric grid encoded as `[type, color, state]` per cell  |
 //! |-------------|---------------------------------------------------------------------|
 //! | Action      | `TurnLeft`, `TurnRight`, `Forward`                                  |
 //! | Reward      | `success_reward(steps, max_steps)` on goal; `0.0` on lava / timeout |
@@ -129,7 +129,7 @@ const _: () = assert!(
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LavaGapConfig {
-    /// Grid side length in cells (width = height = `size`); must be ≥ `MIN_SIZE` (5).
+    /// Grid side length in cells (width = height = `size`); must be `$\geq$` `MIN_SIZE` (5).
     ///
     /// It also bounds the layout draws: the lava column comes from `2..size-2`
     /// and the gap row from `1..size-1`. At the `MIN_SIZE` floor the former is
@@ -847,10 +847,10 @@ mod tests {
     /// *narrow*, which is the direction an off-by-one on a half-open bound
     /// actually fails in.
     ///
-    /// Run at size 9, where the sets are `{2,3,4,5,6}` and `{1,…,7}`.
-    /// `WIDE_SEEDS` is sized so that missing any one of the seven rows by chance
-    /// has probability `$7 \cdot (6/7)^{512} \approx 5 \times 10^{-34}$`; the assertion is deterministic
-    /// for every practical purpose, and 512 resets of a 9×9 board are free.
+    /// Run at size 9, where the sets are `{2,3,4,5,6}` and `{1,…,7}`. `WIDE_SEEDS` is sized so that
+    /// missing any one of the seven rows by chance has probability
+    /// `$7 \cdot (6/7)^{512} \approx 5 \times 10^{-34}$`; the assertion is deterministic for every
+    /// practical purpose, and 512 resets of a `$9 \times 9$` board are free.
     #[test]
     fn the_draws_cover_their_whole_range() {
         const WIDE_SEEDS: u64 = 512;
@@ -1419,7 +1419,7 @@ mod tests {
     ///    flip [`LavaGapEnv::VISIBILITY`] to [`Visibility::SeeThrough`] and this
     ///    clause fails.
     /// 2. **Every masked cell — at every pose — lies outside the room**, swept
-    ///    over sizes 5/7/9 × 16 seeds × every passable cell × all four facings.
+    ///    over sizes 5/7/9 `$\times$` 16 seeds `$\times$` every passable cell `$\times$` all four facings.
     ///    Occlusion cannot cost this agent one cell of the board it must solve.
     ///
     /// Clause 2 on its own is vacuous under `SeeThrough` (nothing is masked, so

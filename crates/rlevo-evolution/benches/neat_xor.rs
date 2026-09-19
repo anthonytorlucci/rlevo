@@ -5,18 +5,18 @@
 //!
 //! - `neat_xor` — one full NEAT generation (`ask` → evaluate → `tell`) at a
 //!   **fixed** `pop_size = 64`, comparing the interpreted per-genome evaluation
-//!   (`generation_pop64`, the ≈ 590 µs reference) against the dense-padded
-//!   batched evaluation (`generation_batched_pop64`). At XOR scale (`N ≈ 5–10`)
-//!   the two run at **par** (~580 µs vs ~590 µs): the workload is too small for
+//!   (`generation_pop64`, the `$\approx$` 590 `$\mu\text{s}$` reference) against the dense-padded
+//!   batched evaluation (`generation_batched_pop64`). At XOR scale (`$N \approx 5\text{–}10$`)
+//!   the two run at **par** (~580 `$\mu\text{s}$` vs ~590 `$\mu\text{s}$`): the workload is too small for
 //!   batching to pay off, and the per-generation cost is dominated by host-side
 //!   reproduction, not evaluation. This run measures, it does not threshold.
 //! - `neat_eval_scale` — the forward-pass hotspot only (the part that is
 //!   tensorized), interpreted loop vs. dense-batched, on a synthetic wide
 //!   feedforward population at `P = 256` and growing hidden width. The batched
-//!   path wins and the margin grows with width (measured ~1.7× at `h = 10`,
-//!   ~1.9× at `h = 100` on Flex/CPU) — the asymptotic tensorization benefit. The
+//!   path wins and the margin grows with width (measured ~`$1.7\times$` at `h = 10`,
+//!   ~`$1.9\times$` at `h = 100` on Flex/CPU) — the asymptotic tensorization benefit. The
 //!   win hinges on the **depth-bounded** iteration count (these genomes are
-//!   shallow); a naive static `N − 1` bound erases it and then some.
+//!   shallow); a naive static `$N - 1$` bound erases it and then some.
 //!
 //! Run with `cargo bench -p rlevo-evolution --bench neat_xor`.
 
@@ -38,7 +38,7 @@ use rlevo_evolution::{BatchGraphFitness, GraphFitnessFn, NeatParams, NeatStrateg
 
 type B = Flex;
 
-/// XOR fitness `4 − Σ(out − target)²` over the four binary input rows.
+/// XOR fitness `$4 - \sum(\text{out} - \text{target})^2$` over the four binary input rows.
 struct XorFitness {
     inputs: Tensor<B, 2>,
     targets: [f32; 4],

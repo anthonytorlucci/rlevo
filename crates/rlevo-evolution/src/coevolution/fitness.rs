@@ -88,16 +88,15 @@ pub trait CoupledFitness<B: Backend>: Send + Sync {
     ///
     /// # Sanitization boundary
     ///
-    /// The returned fitness vectors **may contain `NaN` or `±∞`** —
-    /// implementors are not required to sanitize. Co-evolution is its own
-    /// driver (there is no [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness)
-    /// above it), so the co-evolutionary algorithms canonicalise **and then**
-    /// sanitize (`NaN → −∞`, `+∞ → f32::MAX`) at their state-write chokepoint
-    /// immediately after this call — sanitisation runs *after* canonicalisation
-    /// because "`NaN` = worst" is only well-defined in maximise space — before
-    /// any per-population `tell`, metric, or hall-of-fame sees the fitness
-    /// (ADR 0034). A direct caller that bypasses those algorithms must apply the
-    /// same canonicalise-then-sanitize itself.
+    /// The returned fitness vectors **may contain `NaN` or `$\pm\infty$`** — implementors are not
+    /// required to sanitize. Co-evolution is its own driver (there is no
+    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) above it), so the
+    /// co-evolutionary algorithms canonicalise **and then** sanitize (`$\text{NaN} \to -\infty$`,
+    /// `$+\infty \to \text{f32::MAX}$`) at their state-write chokepoint immediately after this call
+    /// — sanitisation runs *after* canonicalisation because "`NaN` = worst" is only well-defined in
+    /// maximise space — before any per-population `tell`, metric, or hall-of-fame sees the fitness
+    /// (ADR 0034). A direct caller that bypasses those algorithms must apply the same
+    /// canonicalise-then-sanitize itself.
     fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>>;
 
     /// Objective direction — the **single source of truth** (ADR 0023).

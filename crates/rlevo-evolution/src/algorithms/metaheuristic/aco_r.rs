@@ -42,10 +42,10 @@ pub struct AcoRConfig {
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: Bounds,
-    /// Exploration scale (`ξ`). Higher → wider sampling. Canonical 0.85.
+    /// Exploration scale (`$\xi$`). Higher → wider sampling. Canonical 0.85.
     pub xi: f32,
-    /// Rank-weight decay (`q`). Smaller → stronger bias toward top of
-    /// the archive. Canonical `q = 0.01` (sharp) up to `q ≈ 0.5` (flat).
+    /// Rank-weight decay (`q`). Smaller → stronger bias toward top of the archive. Canonical
+    /// `q = 0.01` (sharp) up to `$q \approx 0.5$` (flat).
     pub q: f32,
 }
 
@@ -63,9 +63,9 @@ impl AcoRConfig {
         }
     }
 
-    /// Steady-state offspring count per generation (`m`). Note that
-    /// the very first generation evaluates the full initial archive
-    /// (`archive_size` rows) instead — only generations ≥ 1 score `m`.
+    /// Steady-state offspring count per generation (`m`). Note that the very first generation
+    /// evaluates the full initial archive (`archive_size` rows) instead — only generations `$\geq$`
+    /// 1 score `m`.
     #[must_use]
     pub fn steady_state_pop_size(&self) -> usize {
         self.m
@@ -104,9 +104,9 @@ pub struct AcoRState<B: Backend> {
 
 /// Ant Colony Optimization (continuous domains).
 ///
-/// The `archive_size >= 2` (the σ computation needs at least two archive
-/// solutions to take a pairwise distance) and `m >= 1` invariants are enforced
-/// by [`Validate::validate`] at the harness chokepoint.
+/// The `archive_size >= 2` (the `$\sigma$` computation needs at least two archive solutions to take
+/// a pairwise distance) and `m >= 1` invariants are enforced by [`Validate::validate`] at the
+/// harness chokepoint.
 ///
 /// # Example
 ///
@@ -138,10 +138,10 @@ impl<B: Backend> AntColonyReal<B> {
         #[allow(clippy::cast_precision_loss)]
         let k = archive_size as f32;
         let denom = 2.0 * q * q * k * k;
-        // Drop the Gaussian-PDF normalisation constant: it cancels exactly under
-        // the sum-to-one renormalisation below, and for tiny q·k it overflows to
-        // +inf, producing inf/inf = NaN. `l` is 0-indexed here; equivalent to the
-        // paper's 1-indexed (l−1)² after normalisation.
+        // Drop the Gaussian-PDF normalisation constant: it cancels exactly under the sum-to-one
+        // renormalisation below, and for tiny `$q \cdot k$` it overflows to +inf, producing inf/inf
+        // = NaN. `l` is 0-indexed here; equivalent to the paper's 1-indexed `$(l-1)^2$` after
+        // normalisation.
         let mut w: Vec<f32> = (0..archive_size)
             .map(|l| {
                 #[allow(clippy::cast_precision_loss)]
@@ -171,7 +171,7 @@ where
     type State = AcoRState<B>;
     type Genome = Tensor<B, 2>;
 
-    /// Initialises the archive by host-sampling `archive_size × genome_dim`
+    /// Initialises the archive by host-sampling `$\text{archive\_size} \times \text{genome\_dim}$`
     /// values uniformly from `params.bounds`.
     ///
     /// All random draws go through [`seed_stream`] derived from `rng` rather
@@ -249,9 +249,9 @@ where
         let m = params.m;
         let d = params.genome_dim;
 
-        // σ[l, j] = ξ · (1/(k-1)) · Σ_e |archive[e, j] - archive[l, j]|
-        // Computed on-device by expanding archive along axis 0 to (k, k, d),
-        // taking |a - b|, reducing along axis 0 (the "e" axis).
+        // `$\sigma[l,j] = \xi \cdot (1/(k-1)) \cdot \sum_e \lvert \text{archive}[e,j] - \text{archive}[l,j]\rvert$`
+        // Computed on-device by expanding archive along axis 0 to (k, k, d), taking |a - b|,
+        // reducing along axis 0 (the "e" axis).
         let archive_l = state.archive.clone().unsqueeze_dim::<3>(0); // (1, k, d)
         let archive_e = state.archive.clone().unsqueeze_dim::<3>(1); // (k, 1, d)
         let diffs = (archive_l.expand([k, k, d]) - archive_e.expand([k, k, d])).abs();
@@ -259,7 +259,7 @@ where
         let inv = params.xi / ((k - 1).max(1) as f32);
         let sigma = diffs.sum_dim(0).squeeze_dim::<2>(0).mul_scalar(inv); // (k, d)
 
-        // Weighted index sampling (host-side) — `m · d` independent draws.
+        // Weighted index sampling (host-side) — `$m \cdot d$` independent draws.
         let mut stream = seed_stream(
             rng.next_u64(),
             state.generation as u64,
@@ -309,11 +309,10 @@ where
             SeedPurpose::Mutation,
         );
         for (idx, out) in offspring.iter_mut().enumerate() {
-            // A non-finite σ falls back to the archive mean rather than
-            // panicking (σ is already floored to 1e-12 above, so this is a
-            // belt-and-braces guard). A NaN mean would pass through unchanged;
-            // the clamp below bounds finite draws but does NOT launder a NaN —
-            // that is neutralized by the ADR-0034 fitness-hygiene chokepoint
+            // A non-finite `$\sigma$` falls back to the archive mean rather than panicking
+            // (`$\sigma$` is already floored to 1e-12 above, so this is a belt-and-braces guard). A
+            // NaN mean would pass through unchanged; the clamp below bounds finite draws but does
+            // NOT launder a NaN — that is neutralized by the ADR-0034 fitness-hygiene chokepoint
             // downstream.
             *out =
                 crate::sampling::normal_or_mean(mean_rows[idx], sigma_rows[idx], &mut sample_rng);
@@ -348,14 +347,12 @@ where
         mut state: AcoRState<B>,
         _rng: &mut dyn Rng,
     ) -> (AcoRState<B>, StrategyMetrics) {
-        // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
-        // per-site correctness floor for a caller driving `ask`/`tell`
-        // directly instead of `EvolutionaryHarness::step`, which already
-        // sanitizes (the ADR 0034 decision-3 bypass hole): the local `sane`
-        // derivations below only fix the *ranking*, while the stored
-        // `state.archive_fitness` would still carry the raw NaN.
-        // `sanitize_fitness` is idempotent, so on the harness path this is a
-        // provable no-op — not redundant, load-bearing.
+        // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
+        // correctness floor for a caller driving `ask`/`tell` directly instead of
+        // `EvolutionaryHarness::step`, which already sanitizes (the ADR 0034 decision-3 bypass
+        // hole): the local `sane` derivations below only fix the *ranking*, while the stored
+        // `state.archive_fitness` would still carry the raw NaN. `sanitize_fitness` is idempotent,
+        // so on the harness path this is a provable no-op — not redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -370,7 +367,7 @@ where
         if state.archive_fitness.is_empty() {
             // Sort archive by fitness, best (highest) first.
             let mut idx: Vec<usize> = (0..fitness_host.len()).collect();
-            // Sanitize NaN → −inf (worst) so it can never rank as best; descending.
+            // Sanitize NaN → `$-\infty$` (worst) so it can never rank as best; descending.
             let sane: Vec<f32> = fitness_host
                 .iter()
                 .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -402,7 +399,7 @@ where
         let mut combined_f: Vec<f32> = state.archive_fitness.clone();
         combined_f.extend_from_slice(&fitness_host);
         let mut idx: Vec<usize> = (0..combined_f.len()).collect();
-        // Sanitize NaN → −inf (worst) so it can never rank as best; descending.
+        // Sanitize NaN → `$-\infty$` (worst) so it can never rank as best; descending.
         let sane: Vec<f32> = combined_f
             .iter()
             .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -521,10 +518,9 @@ mod tests {
     // assert `ask` neither panics nor returns garbage where the guard should
     // recover. Directly injectable because every `AcoRState` field is `pub`.
 
-    /// Builds a 3-row archive whose weights force the roulette in `ask` to
-    /// always select archive row 0 (`weights = [1, 0, 0]` ⇒ CDF `[1, 1, 1]` ⇒
-    /// `pick(u) == 0` for every `$u \in [0, 1)$`), so the sampled mean is
-    /// deterministically `archive[0, :]`.
+    /// Builds a 3-row archive whose weights force the roulette in `ask` to always select archive
+    /// row 0 (`weights = [1, 0, 0]` `$\Rightarrow$` CDF `[1, 1, 1]` `$\Rightarrow$` `pick(u) == 0`
+    /// for every `$u \in [0, 1)$`), so the sampled mean is deterministically `archive[0, :]`.
     fn state_forcing_row_zero(
         archive_vals: Vec<f32>,
         device: FlexDevice,
@@ -545,10 +541,11 @@ mod tests {
 
     #[test]
     fn ask_recovers_from_infinite_sigma_via_mean_fallback() {
-        // Row 1, column 0 holds +∞. The on-device σ for column 0 becomes
-        // Σ_e |archive[e,0] − archive[0,0]| ⊇ |∞ − 1| = ∞, and ∞.max(1e-12) == ∞
-        // survives the floor — so `normal_or_mean(mean=1.0, std=∞)` hits the
-        // `Err` fallback and returns the finite mean instead of panicking.
+        // Row 1, column 0 holds `$+\infty$`. The on-device `$\sigma$` for column 0 becomes
+        // `$\sum_e \lvert \text{archive}[e,0] - \text{archive}[0,0]\rvert \supseteq \lvert \infty - 1\rvert = \infty$`,
+        // and `$\infty\text{.max(1e-12)} = \infty$` survives the floor — so
+        // `$\text{normal\_or\_mean}(\text{mean}=1.0, \text{std}=\infty)$` hits the `Err` fallback
+        // and returns the finite mean instead of panicking.
         let device: FlexDevice = Default::default();
         let strategy: AntColonyReal<TestBackend> = AntColonyReal::new();
         let params: AcoRConfig = AcoRConfig::default_for(3, 4, 2);
@@ -577,11 +574,11 @@ mod tests {
 
     #[test]
     fn ask_passes_nan_mean_through_for_downstream_hygiene() {
-        // Row 0, column 0 holds NaN and is the always-selected mean. σ for
-        // column 0 is NaN, but NaN.max(1e-12) == 1e-12 (the floor launders the
-        // NaN σ), so `normal_or_mean(mean=NaN, std=1e-12)` takes the `Ok` path
-        // and the NaN *mean* propagates: `ask` intentionally does NOT launder it
-        // (that is the ADR-0034 fitness-hygiene chokepoint's job downstream).
+        // Row 0, column 0 holds NaN and is the always-selected mean. `$\sigma$` for column 0 is
+        // NaN, but NaN.max(1e-12) == 1e-12 (the floor launders the NaN `$\sigma$`), so
+        // `normal_or_mean(mean=NaN, std=1e-12)` takes the `Ok` path and the NaN *mean* propagates:
+        // `ask` intentionally does NOT launder it (that is the ADR-0034 fitness-hygiene
+        // chokepoint's job downstream).
         let device: FlexDevice = Default::default();
         let strategy: AntColonyReal<TestBackend> = AntColonyReal::new();
         let params: AcoRConfig = AcoRConfig::default_for(3, 4, 2);
@@ -605,7 +602,7 @@ mod tests {
                 "expected NaN passthrough at column 0, got {}",
                 vals[i * 2]
             );
-            // Column 1: finite mean/σ still yield a finite draw.
+            // Column 1: finite mean/`$\sigma$` still yield a finite draw.
             assert!(
                 vals[i * 2 + 1].is_finite(),
                 "column 1 offspring should stay finite, got {}",
@@ -719,8 +716,8 @@ mod tests {
         }
     }
 
-    // Gap (d): the smallest archive (`archive_size = 2`, so the σ pairwise
-    // distance has exactly one term) drives a full run without panicking.
+    // Gap (d): the smallest archive (`archive_size = 2`, so the `$\sigma$` pairwise distance has
+    // exactly one term) drives a full run without panicking.
     #[test]
     fn boundary_archive_size_two_runs() {
         let device: FlexDevice = Default::default();
@@ -743,10 +740,9 @@ mod tests {
         );
     }
 
-    // The `genome_dim = 1` case: the σ reduction
-    // `diffs.sum_dim(0).squeeze_dim::<2>(0)` removes only the reduced axis,
-    // so the `(1, k, 1)` intermediate correctly collapses to `(k, 1)` instead of
-    // panicking inside burn's `Squeeze` rank-check. Runs a full harness to
+    // The `genome_dim = 1` case: the `$\sigma$` reduction `diffs.sum_dim(0).squeeze_dim::<2>(0)`
+    // removes only the reduced axis, so the `(1, k, 1)` intermediate correctly collapses to
+    // `(k, 1)` instead of panicking inside burn's `Squeeze` rank-check. Runs a full harness to
     // completion and asserts a finite best.
     #[test]
     fn boundary_genome_dim_one_runs() {
@@ -825,15 +821,13 @@ mod tests {
             "raw NaN reached the public archive fitness: {:?}",
             state.archive_fitness
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. ACO_R differs from its siblings in *where*
-        // the value lands: the first-tell branch sorts the archive descending,
-        // so the sanitized row is demoted from index 0 to the tail. Any other
-        // finite substitute (e.g. `0.0`) clears `is_nan` yet would sort the
-        // NaN-scoring ant *above* every finite -2/-3/… row, into archive slot 0
-        // and straight into `best_fitness` — the leader poisoning this
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. ACO_R differs from its siblings
+        // in *where* the value lands: the first-tell branch sorts the archive descending, so the
+        // sanitized row is demoted from index 0 to the tail. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would sort the NaN-scoring ant *above* every finite -2/-3/…
+        // row, into archive slot 0 and straight into `best_fitness` — the leader poisoning this
         // regression exists to catch.
         let tail = state.archive_fitness[n - 1];
         assert!(

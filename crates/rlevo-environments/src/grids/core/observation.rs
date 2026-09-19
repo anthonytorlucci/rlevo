@@ -1,4 +1,4 @@
-//! 7×7×3 egocentric observation emitted by every grid environment.
+//! `$7 \times 7 \times 3$` egocentric observation emitted by every grid environment.
 //!
 //! The agent sits at the bottom-center of its view window and looks toward
 //! the top. Every visible cell is encoded into three bytes — entity type,
@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 
 /// Side length (height and width) of the agent's local view window in cells.
 ///
-/// Matches the Minigrid default of 7, giving the agent a `7 × 7` field of
-/// view centered one cell in front of its current position.
+/// Matches the Minigrid default of 7, giving the agent a `$7 \times 7$` field of view centered one
+/// cell in front of its current position.
 pub const VIEW_SIZE: usize = 7;
 
 /// Number of per-cell encoding channels: entity type, color index, and door state.
@@ -68,7 +68,7 @@ pub const OBS_CHANNELS: usize = 3;
 /// [`Entity::Empty`]: super::entity::Entity::Empty
 pub const UNSEEN_TYPE: u8 = 0;
 
-/// Egocentric observation of the 7×7 cells around the agent.
+/// Egocentric observation of the `$7 \times 7$` cells around the agent.
 ///
 /// The agent sits at view row `VIEW_SIZE - 1`, column `VIEW_SIZE / 2`, and
 /// faces toward row `0`. Cells that fall outside the world decode as
@@ -132,8 +132,8 @@ pub struct GridObservation {
 }
 
 impl GridObservation {
-    /// Encode a visibility-masked 7×7 entity view and the agent's facing into
-    /// an observation.
+    /// Encode a visibility-masked `$7 \times 7$` entity view and the agent's facing into an
+    /// observation.
     ///
     /// This is the single encoder behind every grid observation. A `Some` cell
     /// is encoded from its [`Entity`]; a `None` cell — one the shadow cast in
@@ -185,7 +185,7 @@ impl GridObservation {
         }
     }
 
-    /// Encode a fully visible 7×7 entity view and the agent's facing into an
+    /// Encode a fully visible `$7 \times 7$` entity view and the agent's facing into an
     /// observation.
     ///
     /// Equivalent to wrapping every cell in `Some` and calling
@@ -232,14 +232,14 @@ impl HostRow<3> for GridObservation {
         // array, so a change to the element type, the channel count, or the
         // view extent all break it.
         let _: &[[[u8; OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE] = &self.view;
-        // `u8 -> f32` is total: no element of this row can be NaN or ±Inf.
+        // `u8 -> f32` is total: no element of this row can be `NaN` or `$\pm\infty$`.
         // `agent_direction` is not written into the row at all.
         true
     }
 }
 
 impl<B: Backend> TensorConvertible<3, B> for GridObservation {
-    /// Reconstructs the 7×7×3 view from a tensor.
+    /// Reconstructs the `$7 \times 7 \times 3$` view from a tensor.
     ///
     /// The tensor carries only the view channels, because the view is already
     /// rotated into the agent's frame and the absolute facing adds nothing a
@@ -528,8 +528,8 @@ mod tests {
             Entity::Goal,
             Entity::Lava,
         ];
-        // Nine variants do not fit down one column of a 7×7 window, so lay them
-        // out in row-major order and keep the mapping for the assertions.
+        // Nine variants do not fit down one column of a `$7 \times 7$` window, so lay them out in
+        // row-major order and keep the mapping for the assertions.
         let cell_of = |i: usize| (i / VIEW_SIZE, i % VIEW_SIZE);
         assert!(
             entities.len() < VIEW_SIZE * VIEW_SIZE,

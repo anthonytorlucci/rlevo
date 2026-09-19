@@ -15,12 +15,13 @@ use super::observation::ReacherObservation;
 /// env struct directly.
 #[derive(Debug, Clone)]
 pub struct ReacherState {
-    /// Handle to the link 1 (upper-arm) rigid body. Its orientation encodes
-    /// the shoulder angle θ₁; its angular velocity gives θ̇₁.
+    /// Handle to the link 1 (upper-arm) rigid body. Its orientation encodes the shoulder angle
+    /// `$\theta_1$`; its angular velocity gives `$\dot{\theta}_1$`.
     pub link1: RigidBodyHandle,
-    /// Handle to the link 2 (forearm) rigid body. Its orientation encodes
-    /// the world-frame angle `$\theta_{\text{world2}}$`; the relative elbow angle is
-    /// θ₂ = `$\theta_{\text{world2}}$` − θ₁. The fingertip lies at body-local `(+link2_length/2, 0, 0)`.
+    /// Handle to the link 2 (forearm) rigid body. Its orientation encodes the world-frame angle
+    /// `$\theta_{\text{world2}}$`; the relative elbow angle is
+    /// `$\theta_2 = \theta_{\text{world2}} - \theta_1$`. The fingertip lies at body-local
+    /// `(+link2_length/2, 0, 0)`.
     pub link2: RigidBodyHandle,
     /// Handle to the fixed target body. Its world-frame translation is
     /// `[target_xy[0], target_xy[1], 0.0]`.

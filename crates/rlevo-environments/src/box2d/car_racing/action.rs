@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 /// 3-dimensional continuous action for `CarRacing`.
 ///
 /// Components and their valid ranges:
-/// * `steer ∈ [−1, 1]` — steering angle
-/// * `gas   ∈ [ 0, 1]` — throttle
-/// * `brake ∈ [ 0, 1]` — braking force
+/// * `$\text{steer} \in [-1, 1]$` — steering angle
+/// * `$\text{gas} \in [0, 1]$` — throttle
+/// * `$\text{brake} \in [0, 1]$` — braking force
 ///
 /// The three components are stored contiguously as `[steer, gas, brake]` so
 /// [`as_slice`](ContinuousAction::as_slice) can expose all of them at once.
@@ -34,7 +34,7 @@ impl CarRacingAction {
         }
     }
 
-    /// Returns the steering component `[−1, 1]`.
+    /// Returns the steering component `$[-1, 1]$`.
     #[must_use]
     pub fn steer(&self) -> f32 {
         self.components[0]
@@ -69,8 +69,8 @@ impl CarRacingAction {
             && (0.0..=1.0).contains(&brake)
     }
 
-    /// Generate a random valid action sampled uniformly within the asymmetric
-    /// bounds: `steer ∈ [−1, 1]`, `gas ∈ [0, 1]`, `brake ∈ [0, 1]`.
+    /// Generate a random valid action sampled uniformly within the asymmetric bounds:
+    /// `$\text{steer} \in [-1, 1]$`, `$\text{gas} \in [0, 1]$`, `$\text{brake} \in [0, 1]$`.
     ///
     /// Generic over the RNG so it can back both the deterministic seeded path
     /// and the [`ContinuousAction::random`] override (ADR 0038).

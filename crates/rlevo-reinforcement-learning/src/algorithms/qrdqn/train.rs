@@ -4,7 +4,7 @@
 //! [`QrDqnAgent`] against any [`Environment`] for a fixed number of
 //! environment steps. The loop follows the standard off-policy DQN cadence:
 //!
-//! 1. Select an action with ε-greedy exploration ([`QrDqnAgent::act`]).
+//! 1. Select an action with `$\epsilon$`-greedy exploration ([`QrDqnAgent::act`]).
 //! 2. Step the environment and store the transition in the replay buffer.
 //! 3. Every `train_frequency` steps, run one gradient update
 //!    ([`QrDqnAgent::learn_step`]).
@@ -45,7 +45,7 @@ use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 /// - `agent` — mutable reference to the [`QrDqnAgent`] being trained.
 /// - `env` — mutable reference to the environment; must implement
 ///   [`Environment`] with matching type parameters.
-/// - `rng` — entropy source for ε-greedy exploration and replay sampling.
+/// - `rng` — entropy source for `$\epsilon$`-greedy exploration and replay sampling.
 /// - `total_steps` — number of environment steps to run.
 /// - `log_every` — emit a `tracing::info!` progress line every this many
 ///   steps. Pass `0` to disable all logging.
@@ -92,13 +92,12 @@ where
         // `done` drives episode bookkeeping (metrics, `env.reset()`): the
         // episode is over either way.
         //
-        // `terminated` is the Bellman bootstrap mask and is true only for an
-        // *environmental* termination. On a truncation (time-limit cutoff) the
-        // MDP has not ended, so `next_obs` is a real continuation state and
-        // `γ · V(next_obs)` must survive in the target. Masking on `done` here
-        // would zero the bootstrap at every timeout and bias Q downward on any
-        // time-limited env (Pardo et al., "Time Limits in Reinforcement
-        // Learning", ICML 2018, Eq. 6 — partial-episode bootstrapping).
+        // `terminated` is the Bellman bootstrap mask and is true only for an *environmental*
+        // termination. On a truncation (time-limit cutoff) the MDP has not ended, so `next_obs` is
+        // a real continuation state and `$\gamma \cdot V(\text{next\_obs})$` must survive in the
+        // target. Masking on `done` here would zero the bootstrap at every timeout and bias Q
+        // downward on any time-limited env (Pardo et al., "Time Limits in Reinforcement Learning",
+        // ICML 2018, Eq. 6 — partial-episode bootstrapping).
         let done = next_snapshot.is_done();
         let terminated = next_snapshot.is_terminated();
         let next_obs = next_snapshot.observation().clone();

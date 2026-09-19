@@ -487,11 +487,10 @@ where
     ///
     /// # Behavior on a non-finite observation
     ///
-    /// The observation row is checked for finiteness before it reaches the
-    /// actor. A `NaN` / `±Inf` row is **counted and warned about, and the
-    /// action is returned unchanged** — nothing is substituted, no fallback is
-    /// returned, and the clamping is not altered (ADR 0067 §Decision 4). Read
-    /// the count with
+    /// The observation row is checked for finiteness before it reaches the actor. A `NaN` /
+    /// `$\pm\infty$` row is **counted and warned about, and the action is returned unchanged** —
+    /// nothing is substituted, no fallback is returned, and the clamping is not altered (ADR 0067
+    /// §Decision 4). Read the count with
     /// [`degenerate_action_selections`](Self::degenerate_action_selections).
     ///
     /// The warm-up branch is deliberately outside the check: it never reads
@@ -553,13 +552,12 @@ where
             return A::from_slice(&sample);
         }
 
-        // `&self` (agents must stay `Sync` — the evolution layer evaluates them
-        // in parallel), so the staging buffer cannot be a field and must not be
-        // a shared `RefCell` / `Mutex`. Cost of the deliberate alternative: one
-        // `Vec<f32>` allocation per call, and only for f32 feature-vector
-        // observations (≤24 elements in this workspace). The four integer-backed
-        // observation types override `row_is_finite` without touching `scratch`,
-        // so this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
+        // `&self` (agents must stay `Sync` — the evolution layer evaluates them in parallel), so
+        // the staging buffer cannot be a field and must not be a shared `RefCell` / `Mutex`. Cost
+        // of the deliberate alternative: one `Vec<f32>` allocation per call, and only for f32
+        // feature-vector observations (`$\leq 24$` elements in this workspace). The four
+        // integer-backed observation types override `row_is_finite` without touching `scratch`, so
+        // this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
@@ -651,15 +649,12 @@ where
     ///
     /// # Behavior
     ///
-    /// A non-finite `reward` (`NaN` or `±Inf`) is **discarded, not stored**:
-    /// the transition never enters the replay buffer and the call is otherwise
-    /// a no-op. Storing it would let every minibatch that later resampled it
-    /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
-    /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
-    /// 10th, 100th, … drop; use
-    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
-    /// programmatically.
+    /// A non-finite `reward` (`NaN` or `$\pm\infty$`) is **discarded, not stored**: the transition
+    /// never enters the replay buffer and the call is otherwise a no-op. Storing it would let every
+    /// minibatch that later resampled it produce a non-finite loss, which `FiniteLossGuard` then
+    /// skips — silently costing gradient updates for as long as the poisoned transition stayed
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st, 10th, 100th, … drop; use
+    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss programmatically.
     ///
     /// A non-finite **observation** — on either `obs` or `next_obs` — is
     /// discarded the same way, with its own counter
@@ -717,8 +712,8 @@ where
         self.reward_guard.dropped()
     }
 
-    /// Number of transitions [`remember`](Self::remember) discarded because
-    /// `obs` or `next_obs` carried a non-finite value (`NaN` / `±Inf`).
+    /// Number of transitions [`remember`](Self::remember) discarded because `obs` or `next_obs`
+    /// carried a non-finite value (`NaN` / `$\pm\infty$`).
     ///
     /// A non-zero count means those environment steps **never entered the
     /// replay buffer** and can never be sampled. The usual source is the
@@ -766,7 +761,7 @@ where
     /// place the guard on opposite sides of their random-action branch.
     ///
     /// - **Discrete** (`dqn`, `c51`, `qrdqn`) — the guard sits *inside* the
-    ///   ε-explore branch, and the greedy branch delegates to `act_greedy`,
+    ///   `$\epsilon$`-explore branch, and the greedy branch delegates to `act_greedy`,
     ///   which guards itself. So **every** `act` call is counted, including the
     ///   whole early period where `epsilon_start = 1.0` means every action is
     ///   random and `obs` is read *only* to run this check.
@@ -846,15 +841,13 @@ where
     /// Returns `None` if the agent is still in warm-up (see
     /// [`can_learn`](Self::can_learn)).
     ///
-    /// The critic is updated every call via mean-squared Bellman error. The
-    /// actor is updated with the deterministic policy gradient (negative mean
-    /// Q-value over the batch). Both target networks are Polyak-averaged
-    /// toward the active networks with rate τ
-    /// ([`DdpgTrainingConfig::target_update`]) on their own cadence — which is
-    /// independent of `policy_frequency` since ADR 0058, though the two
-    /// coincide at the shipped defaults. When both fire on the same critic
-    /// update the actor step runs first, so the target never tracks a stale
-    /// actor.
+    /// The critic is updated every call via mean-squared Bellman error. The actor is updated with
+    /// the deterministic policy gradient (negative mean Q-value over the batch). Both target
+    /// networks are Polyak-averaged toward the active networks with rate `$\tau$`
+    /// ([`DdpgTrainingConfig::target_update`]) on their own cadence — which is independent of
+    /// `policy_frequency` since ADR 0058, though the two coincide at the shipped defaults. When
+    /// both fire on the same critic update the actor step runs first, so the target never tracks a
+    /// stale actor.
     ///
     /// # Panics
     ///

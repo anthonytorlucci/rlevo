@@ -17,7 +17,7 @@ pub enum Direction {
 }
 
 impl Direction {
-    /// Rotate 90° counter-clockwise.
+    /// Rotate `$90^\circ$` counter-clockwise.
     #[must_use]
     pub const fn left(self) -> Self {
         match self {
@@ -28,7 +28,7 @@ impl Direction {
         }
     }
 
-    /// Rotate 90° clockwise.
+    /// Rotate `$90^\circ$` clockwise.
     #[must_use]
     pub const fn right(self) -> Self {
         match self {

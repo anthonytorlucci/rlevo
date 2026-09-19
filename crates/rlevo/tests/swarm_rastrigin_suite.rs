@@ -82,11 +82,11 @@ fn cfg() -> EvaluatorConfig {
 /// Runs the given environment factory through the full suite evaluator and returns
 /// the mean best-fitness (per-step average) across all trials as a single `f64`.
 ///
-/// The evaluator stores cumulative reward as `−best_fitness` in `episode.return_value`
-/// (lower raw fitness is better, so the harness negates it to keep the reward signal
-/// positive). The expression `-e.return_value / steps` therefore inverts that negation
-/// and divides by the generation count to produce a per-step mean best-fitness value
-/// comparable across functions with different absolute scales.
+/// The evaluator stores cumulative reward as `$-\text{best\_fitness}$` in `episode.return_value`
+/// (lower raw fitness is better, so the harness negates it to keep the reward signal positive). The
+/// expression `-e.return_value / steps` therefore inverts that negation and divides by the
+/// generation count to produce a per-step mean best-fitness value comparable across functions with
+/// different absolute scales.
 ///
 /// The return value is the arithmetic mean over trials, not a `Vec<f64>`. This differs
 /// from `rastrigin_run_suite.rs`'s `collect_best_returns`, which returns each trial's

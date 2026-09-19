@@ -214,11 +214,10 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateGaussian {
             }
         }
         for v in &mut variance {
-            // Floor the lower bound AND reject non-finite estimates. `f32::max`
-            // suppresses `NaN` (returns `min_variance`), but an overflowed `inf`
-            // MLE variance would flow through as `inf` → `inf` std →
-            // `Normal::new` rejects non-finite σ → `sample` panics. Making the
-            // stored variance always finite and `≥ min_variance` keeps `sample`
+            // Floor the lower bound AND reject non-finite estimates. `f32::max` suppresses `NaN`
+            // (returns `min_variance`), but an overflowed `inf` MLE variance would flow through as
+            // `inf` → `inf` std → `Normal::new` rejects non-finite `$\sigma$` → `sample` panics.
+            // Making the stored variance always finite and `$\geq$` `min_variance` keeps `sample`
             // panic-free.
             let mle = *v / kf;
             *v = if mle.is_finite() && mle > params.min_variance {
@@ -698,11 +697,11 @@ mod tests {
         /// `StdRng::seed_from_u64(seed)` (module idiom), never `B::seed` /
         /// `Tensor::random`.
         ///
-        /// Flakiness margin: the standard error of the mean is `sigma / sqrt(n)`.
-        /// With `n >= 5000`, `SE <= sigma / sqrt(5000) ≈ 0.01414 * sigma`, so the
-        /// `0.1 * sigma` bound is ≈ `7.07 * SE` at the worst case (and looser for
-        /// larger `n`). At ~7 sigma the per-case failure probability is ≈ 1e-12,
-        /// so 16 cases across arbitrary seeds do not flake.
+        /// Flakiness margin: the standard error of the mean is `sigma / sqrt(n)`. With `n >= 5000`,
+        /// `$SE \leq \sigma/\sqrt{5000} \approx 0.01414\,\sigma$`, so the `0.1 * sigma` bound is
+        /// `$\approx$` `7.07 * SE` at the worst case (and looser for larger `n`). At ~7 sigma the
+        /// per-case failure probability is `$\approx$` 1e-12, so 16 cases across arbitrary seeds do
+        /// not flake.
         #[test]
         fn sample_mean_is_unbiased(
             mu in -10f32..10f32,

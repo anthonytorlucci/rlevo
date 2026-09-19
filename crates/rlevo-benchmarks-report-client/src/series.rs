@@ -59,12 +59,11 @@ pub const DOWNSAMPLE_BUCKETS: usize = 2_048;
 
 /// Min/max-per-bucket decimation that preserves visual extremes.
 ///
-/// Series at or below [`DOWNSAMPLE_THRESHOLD`] points are returned unchanged.
-/// Longer series are split into `DOWNSAMPLE_BUCKETS` equal-width index buckets;
-/// each bucket contributes its minimum-y and maximum-y points, emitted in x
-/// order, so peaks and troughs survive decimation (a plain stride would alias
-/// them away). Non-finite (`NaN`/`±Inf`) y-values are dropped. The first and
-/// last finite points are always retained so the curve spans its full domain.
+/// Series at or below [`DOWNSAMPLE_THRESHOLD`] points are returned unchanged. Longer series are
+/// split into `DOWNSAMPLE_BUCKETS` equal-width index buckets; each bucket contributes its minimum-y
+/// and maximum-y points, emitted in x order, so peaks and troughs survive decimation (a plain
+/// stride would alias them away). Non-finite (`NaN`/`$\pm\infty$`) y-values are dropped. The first
+/// and last finite points are always retained so the curve spans its full domain.
 ///
 /// This is a *display* transform — keep the raw series for exact-value tooltips.
 #[must_use]
@@ -221,7 +220,7 @@ pub fn landscape_value(label: &str, x: f64, y: f64) -> Option<f64> {
 /// report's heatmap background.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LandscapeField {
-    /// Grid resolution (the field is `n × n` cells).
+    /// Grid resolution (the field is `$n \times n$` cells).
     pub n: usize,
     /// Row-major normalised values in `[0, 1]` (0 = grid minimum = best for a
     /// minimisation surface). Row 0 is the top of the view (high `y`), column 0
@@ -229,8 +228,8 @@ pub struct LandscapeField {
     pub cells: Vec<f32>,
 }
 
-/// Samples a known landscape over `bounds_x × bounds_y` into an `n × n`
-/// normalised [`LandscapeField`] (cell-centre evaluation).
+/// Samples a known landscape over `$\text{bounds\_x} \times \text{bounds\_y}$` into an
+/// `$n \times n$` normalised [`LandscapeField`] (cell-centre evaluation).
 ///
 /// Returns `None` for an unknown `label`, a non-positive `n`, or degenerate
 /// bounds. Values are min/max-normalised across the grid so the ramp uses the
@@ -383,7 +382,7 @@ pub struct BandPoint {
 
 /// Returns the number of distinct run seeds (`EpisodeRecordHeader::seed`) in the record set.
 ///
-/// A count of `>= 2` means the report can draw a cross-seed mean±std band.
+/// A count of `>= 2` means the report can draw a cross-seed mean`$\pm$`std band.
 #[must_use]
 pub fn distinct_seed_count(records: &[EpisodeRecord]) -> usize {
     let mut seeds: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
@@ -393,7 +392,7 @@ pub fn distinct_seed_count(records: &[EpisodeRecord]) -> usize {
     seeds.len()
 }
 
-/// Cross-seed aggregation of one metric into a mean±std band.
+/// Cross-seed aggregation of one metric into a mean`$\pm$`std band.
 ///
 /// Records are grouped by `header.seed`; within a seed, repeated samples at the
 /// same step are averaged. At each step the per-seed values are reduced to a
@@ -496,16 +495,15 @@ pub fn rolling_mean(samples: &[(u32, f64)], window: usize) -> Vec<(u32, f64)> {
 
 /// Per-generation summary statistics for the Population box plot.
 ///
-/// Quartiles use linear interpolation between order statistics
-/// (Tukey-style positions: `(n - 1) * p`). Outliers follow Tukey's
-/// 1.5×IQR rule: anything below `Q1 - 1.5·IQR` or above `Q3 + 1.5·IQR`
-/// lands in `outliers` and the whiskers (`min` / `max`) clip to the
-/// nearest sample inside the fence.
+/// Quartiles use linear interpolation between order statistics (Tukey-style positions:
+/// `(n - 1) * p`). Outliers follow Tukey's `$1.5 \times \text{IQR}$` rule: anything below
+/// `$Q_1 - 1.5\,\text{IQR}$` or above `$Q_3 + 1.5\,\text{IQR}$` lands in `outliers` and the
+/// whiskers (`min` / `max`) clip to the nearest sample inside the fence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoxStats {
     /// EA generation index; used as the x-axis position in the box plot.
     pub generation: u32,
-    /// Lower whisker — minimum fitness value inside the Tukey 1.5×IQR fence.
+    /// Lower whisker — minimum fitness value inside the Tukey `$1.5 \times \text{IQR}$` fence.
     pub min: f64,
     /// First quartile (25th percentile), linearly interpolated.
     pub q1: f64,
@@ -513,9 +511,9 @@ pub struct BoxStats {
     pub median: f64,
     /// Third quartile (75th percentile), linearly interpolated.
     pub q3: f64,
-    /// Upper whisker — maximum fitness value inside the Tukey 1.5×IQR fence.
+    /// Upper whisker — maximum fitness value inside the Tukey `$1.5 \times \text{IQR}$` fence.
     pub max: f64,
-    /// Values outside `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]`; rendered as open circles.
+    /// Values outside `$[Q_1 - 1.5\,\text{IQR}, Q_3 + 1.5\,\text{IQR}]$`; rendered as open circles.
     pub outliers: Vec<f64>,
     /// Per-individual fitness values for the optional strip-plot overlay.
     ///
@@ -540,10 +538,10 @@ pub fn population_box_data(samples: &[PopulationSample]) -> Vec<BoxStats> {
 
 /// Computes [`BoxStats`] for one generation from a raw fitness slice.
 ///
-/// Sorts values ascending, derives Q1/median/Q3 via [`quantile`], applies
-/// Tukey's 1.5×IQR rule to split whisker values from outliers.  When every
-/// value is an outlier (e.g. a constant series with IQR = 0), falls back to
-/// the raw min/max so the box still renders.
+/// Sorts values ascending, derives Q1/median/Q3 via [`quantile`], applies Tukey's
+/// `$1.5 \times \text{IQR}$` rule to split whisker values from outliers. When every value is an
+/// outlier (e.g. a constant series with IQR = 0), falls back to the raw min/max so the box still
+/// renders.
 fn box_stats_for(generation: u32, fitnesses: &[f32]) -> BoxStats {
     let mut sorted: Vec<f64> = fitnesses.iter().map(|f| f64::from(*f)).collect();
     sorted.sort_by(f64::total_cmp);
@@ -634,9 +632,9 @@ pub fn diversity_series(samples: &[PopulationSample]) -> Vec<(u32, f64)> {
 /// generations whose median is zero (degenerate, all-zero fitness) and
 /// generations with no finite fitness values.
 ///
-/// Non-finite fitnesses (`NaN`, `±inf`) are dropped before ordering: a positive
-/// `NaN` sorts as the maximum under `total_cmp` and would otherwise be reported
-/// as the "best" value under [`ObjectiveSense::Maximize`].
+/// Non-finite fitnesses (`NaN`, `$\pm\infty$`) are dropped before ordering: a positive `NaN` sorts
+/// as the maximum under `total_cmp` and would otherwise be reported as the "best" value under
+/// [`ObjectiveSense::Maximize`].
 ///
 /// `sense` orients which end of the sorted fitness vector counts as "best":
 /// for [`ObjectiveSense::Maximize`] the best is the largest value, for
@@ -677,9 +675,9 @@ pub fn selection_pressure_series(
 /// lines. One tuple of three series, all sharing the same x-axis
 /// (generation). Samples with no finite fitness produce no point.
 ///
-/// Non-finite fitnesses (`NaN`, `±inf`) are dropped before ordering: a positive
-/// `NaN` sorts as the maximum under `total_cmp` and would otherwise be reported
-/// as the "best" value under [`ObjectiveSense::Maximize`].
+/// Non-finite fitnesses (`NaN`, `$\pm\infty$`) are dropped before ordering: a positive `NaN` sorts
+/// as the maximum under `total_cmp` and would otherwise be reported as the "best" value under
+/// [`ObjectiveSense::Maximize`].
 ///
 /// `sense` orients which end of the sorted fitness vector is "best": for
 /// [`ObjectiveSense::Maximize`] best is the largest value and worst the
@@ -1034,7 +1032,7 @@ mod tests {
     fn low_diversity_threshold_5th_pct_of_first_ten() {
         // 12 generations; only the first 10 count. Values 10..=19 over gens 0..9.
         let div: Vec<(u32, f64)> = (0..12).map(|g| (g, 10.0 + f64::from(g))).collect();
-        // First ten sorted = [10..19]; 5th percentile ≈ 10 + 0.05*(9) = 10.45.
+        // First ten sorted = [10..19]; 5th percentile `$\approx 10 + 0.05 \cdot 9 = 10.45$`.
         let t = low_diversity_threshold(&div).unwrap();
         assert!((t - 10.45).abs() < 1e-9, "got {t}");
     }

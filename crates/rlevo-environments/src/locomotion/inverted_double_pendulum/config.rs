@@ -23,7 +23,7 @@ pub struct InvertedDoublePendulumConfig {
     /// Number of Rapier substeps per `Environment::step` call. Default `1`.
     pub frame_skip: u32,
     /// Gate on the tip's world-z (Gymnasium's `y_tip`). Default
-    /// `z_range = Some((1.0, ∞))`.
+    /// `$\text{z\_range} = \text{Some}((1.0, \infty))$`.
     pub healthy: HealthyCheck,
     /// Whether an unhealthy state triggers `Terminated` or is ignored.
     /// Default `TerminationMode::OnUnhealthy`.

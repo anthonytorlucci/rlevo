@@ -1,11 +1,11 @@
 //! Hyperparameter configuration for the TD3 algorithm.
 //!
-//! Fields and defaults track `CleanRL`'s `td3_continuous_action.py` so that
-//! reproducing published Pendulum/MuJoCo numbers is a matter of plugging the
-//! same values in. TD3 extends DDPG with two extra knobs on top of
-//! [`DdpgTrainingConfig`](crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig):
-//! Gaussian target-policy-smoothing noise σ (`policy_noise`) and its
-//! symmetric clip range (`noise_clip`).
+//! Fields and defaults track `CleanRL`'s `td3_continuous_action.py` so that reproducing published
+//! Pendulum/MuJoCo numbers is a matter of plugging the same values in. TD3 extends DDPG with two
+//! extra knobs on top of
+//! [`DdpgTrainingConfig`](crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig): Gaussian
+//! target-policy-smoothing noise `$\sigma$` (`policy_noise`) and its symmetric clip range
+//! (`noise_clip`).
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
@@ -37,15 +37,13 @@ pub struct Td3TrainingConfig {
     pub actor_lr: f64,
     /// Learning rate for both critics' Adam optimizers (a shared schedule).
     pub critic_lr: f64,
-    /// Discount factor γ applied to the bootstrap target.
+    /// Discount factor `$\gamma$` applied to the bootstrap target.
     pub gamma: f32,
-    /// Standard deviation σ of the Gaussian exploration noise added to the
-    /// actor's output at action selection time (before clipping to
-    /// `[low, high]`).
+    /// Standard deviation `$\sigma$` of the Gaussian exploration noise added to the actor's output
+    /// at action selection time (before clipping to `[low, high]`).
     pub exploration_noise: f32,
-    /// Standard deviation σ of the Gaussian noise added to the *target*
-    /// actor's output during target-Q computation (target-policy smoothing).
-    /// `0.2` matches `CleanRL`'s default.
+    /// Standard deviation `$\sigma$` of the Gaussian noise added to the *target* actor's output
+    /// during target-Q computation (target-policy smoothing). `0.2` matches `CleanRL`'s default.
     pub policy_noise: f32,
     /// Symmetric clip applied to the target-policy-smoothing noise: the raw
     /// noise is bounded to `[-noise_clip, +noise_clip]` before being added to
@@ -60,8 +58,8 @@ pub struct Td3TrainingConfig {
     /// [`target_update`](Self::target_update), so the two are independently
     /// settable.
     pub policy_frequency: usize,
-    /// Update rule for the target actor and both critic targets: the Polyak
-    /// coefficient τ and the cadence at which it fires.
+    /// Update rule for the target actor and both critic targets: the Polyak coefficient `$\tau$`
+    /// and the cadence at which it fires.
     ///
     /// The cadence counts **gradient (critic) updates**, not environment steps
     /// (ADR 0059) — unlike [`learning_starts`](Self::learning_starts), which is
@@ -73,8 +71,8 @@ pub struct Td3TrainingConfig {
     pub target_update: TargetUpdate,
     /// Optional gradient clipping applied to actor and both critic grads.
     pub clip_grad: Option<GradientClippingConfig>,
-    /// Base Adam configuration; cloned for each optimizer so actor and both
-    /// critics share β-params but keep independent moment estimates.
+    /// Base Adam configuration; cloned for each optimizer so actor and both critics share
+    /// `$\beta$`-params but keep independent moment estimates.
     pub optimizer: AdamConfig,
 }
 
@@ -144,10 +142,10 @@ impl Validate for Td3TrainingConfig {
             f64::from(self.noise_clip),
         )?;
         config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
-        // `target_update` carries no check here: `TargetUpdate` is valid by
-        // construction (τ ∈ (0, 1], cadence ≥ 1), so the newtype *removes* the
-        // paired `config::in_range(C, "tau", ...)` line rather than duplicating
-        // it — ADR 0027 §3, ADR 0058 §Consequences.
+        // `target_update` carries no check here: `TargetUpdate` is valid by construction (`$\tau$`
+        // `$\in$` (0, 1], cadence `$\geq$` 1), so the newtype *removes* the paired
+        // `config::in_range(C, "tau", ...)` line rather than duplicating it — ADR 0027 §3, ADR 0058
+        // §Consequences.
         Ok(())
     }
 }
@@ -223,21 +221,21 @@ impl Td3TrainingConfigBuilder {
         self
     }
 
-    /// Sets the discount factor γ.
+    /// Sets the discount factor `$\gamma$`.
     #[must_use]
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
         self
     }
 
-    /// Sets the action-selection Gaussian exploration-noise σ.
+    /// Sets the action-selection Gaussian exploration-noise `$\sigma$`.
     #[must_use]
     pub fn exploration_noise(mut self, sigma: f32) -> Self {
         self.config.exploration_noise = sigma;
         self
     }
 
-    /// Sets the target-policy-smoothing Gaussian noise σ.
+    /// Sets the target-policy-smoothing Gaussian noise `$\sigma$`.
     #[must_use]
     pub fn policy_noise(mut self, sigma: f32) -> Self {
         self.config.policy_noise = sigma;
@@ -260,8 +258,8 @@ impl Td3TrainingConfigBuilder {
         self
     }
 
-    /// Sets all three target networks' update rule: the Polyak coefficient τ
-    /// and the critic-update cadence at which it fires.
+    /// Sets all three target networks' update rule: the Polyak coefficient `$\tau$` and the
+    /// critic-update cadence at which it fires.
     ///
     /// ```rust
     /// use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
@@ -450,12 +448,11 @@ mod tests {
     /// this one exercises the idiom where a regression would actually bite —
     /// `noise_clip` spelled "non-negative, unbounded above".
     ///
-    /// Both halves are load-bearing. The failing half pins that an infinite
-    /// config *value* is now rejected, and as `NotFinite` rather than
-    /// `OutOfRange` — under `hi = ∞` a comparison-only check would *accept*
-    /// it. The passing half pins that the *bound* stays legal: a future change
-    /// that "simplifies" `in_range` to reject infinite bounds too would break
-    /// it, which is the whole point of the test.
+    /// Both halves are load-bearing. The failing half pins that an infinite config *value* is now
+    /// rejected, and as `NotFinite` rather than `OutOfRange` — under `$\text{hi} = \infty$` a
+    /// comparison-only check would *accept* it. The passing half pins that the *bound* stays legal:
+    /// a future change that "simplifies" `in_range` to reject infinite bounds too would break it,
+    /// which is the whole point of the test.
     #[test]
     fn test_td3config_noise_clip_accepts_large_finite_but_rejects_infinity() {
         let cfg = Td3TrainingConfigBuilder::new()
@@ -507,8 +504,8 @@ mod tests {
     fn test_td3config_nan_tau_cannot_be_constructed_for_struct_update_syntax() {
         assert!(TargetUpdate::try_polyak(f32::NAN, 1).is_err());
         assert!(TargetUpdate::try_polyak(f32::INFINITY, 1).is_err());
-        // Every τ a struct-update config can carry came through `PolyakTau`, so
-        // the result is necessarily valid.
+        // Every `$\tau$` a struct-update config can carry came through `PolyakTau`, so the result
+        // is necessarily valid.
         let config = Td3TrainingConfig {
             target_update: TargetUpdate::polyak(0.005, 2),
             ..Default::default()

@@ -30,9 +30,8 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
 
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
-// ---------------------------------------------------------------------------
-// ActorMlp — deterministic tanh-scaled actor for DDPG and TD3
-// (batch, 3) → (batch, 1) ∈ [-2, 2]
+// --------------------------------------------------------------------------- ActorMlp —
+// deterministic tanh-scaled actor for DDPG and TD3 (batch, 3) → (batch, 1) `$\in$` [-2, 2]
 // ---------------------------------------------------------------------------
 
 /// Deterministic tanh-scaled actor for DDPG and TD3.
@@ -182,9 +181,8 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// StochasticActor — squashed-Gaussian reparameterized actor for SAC
-// (batch, 3) → (batch, 1) ∈ [-2, 2]
+// --------------------------------------------------------------------------- StochasticActor —
+// squashed-Gaussian reparameterized actor for SAC (batch, 3) → (batch, 1) `$\in$` [-2, 2]
 // ---------------------------------------------------------------------------
 
 /// Lower clamp on the log-standard-deviation output, preventing near-zero std
@@ -253,15 +251,15 @@ impl<B: Backend> StochasticActor<B> {
         (mean, log_std)
     }
 
-    /// Draws one squashed-Gaussian sample per row using the pre-sampled noise
-    /// `eps ~ N(0, I)` (reparameterization trick) and returns the action
+    /// Draws one squashed-Gaussian sample per row using the pre-sampled noise `eps`
+    /// (`$\epsilon \sim \mathcal{N}(0, I)$`, the reparameterization trick) and returns the action
     /// together with its log-probability.
     ///
-    /// The log-probability is computed as the Gaussian log-density of the
-    /// pre-squash sample `z`, minus the tanh Jacobian correction
-    /// `sum_j 2(log 2 - z_j - softplus(-2 z_j))`, minus the log of
-    /// `|action_scale|` per action dimension. This matches the numerically
-    /// stable form from the SAC paper appendix.
+    /// The log-probability is computed as the Gaussian log-density of the pre-squash sample `z`,
+    /// minus the tanh Jacobian correction
+    /// `$\sum_j 2\left(\log 2 - z_j - \mathrm{softplus}(-2 z_j)\right)$`, minus the log of
+    /// `action_scale`'s absolute value per action dimension. This matches the numerically stable
+    /// form from the SAC paper appendix.
     #[allow(clippy::cast_precision_loss)]
     fn squashed_sample(
         &self,

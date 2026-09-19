@@ -116,10 +116,9 @@ fn agent_points(ax: u16, ay: u16, dir: GridDir) -> String {
 
 /// Builds the full SVG `<figure>` for a [`GridPayload`].
 ///
-/// Returns a `<p class="rlevo-warnings">` error node if the payload is
-/// degenerate: either dimension is zero, or `tiles.len()` does not equal
-/// `width × height` (which would indicate a serialisation mismatch between
-/// the record producer and this client).
+/// Returns a `<p class="rlevo-warnings">` error node if the payload is degenerate: either dimension
+/// is zero, or `tiles.len()` does not equal `$\text{width} \times \text{height}$` (which would
+/// indicate a serialisation mismatch between the record producer and this client).
 ///
 /// On success produces one `<rect>` per cell, overlay glyphs for objects,
 /// the agent `<polygon>` triangle, and a `<figcaption>` legend.

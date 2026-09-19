@@ -174,16 +174,15 @@ where
             .evaluate_coupled(&[pop_a.clone(), pop_b.clone()]);
         debug_assert_eq!(fits.len(), 2, "competitive co-evolution is bi-population");
 
-        // Canonicalise-then-sanitize chokepoint for the coupled-fitness path
-        // (ADR 0023 / 0034), mirroring `EvolutionaryHarness::step`. First map
-        // NATURAL → canonical (maximise-native: negate iff `Minimize`) so the
-        // maximise-native engine optimises `−cost`, THEN sanitize (`NaN → −∞`
-        // worst, `+∞ → f32::MAX`). The ordering is load-bearing: "NaN = worst"
-        // is only well-defined in maximise space, so sanitizing before `neg()`
-        // would flip a `NaN` cost to `+∞` = canonical *best* under `Minimize`.
-        // After this, the per-population `tell`, the `snapshot` best/mean written
-        // into `CoEAState`, and any `HallOfFameFitness` downstream all see
-        // canonical, finite-or-`−∞` fitness.
+        // Canonicalise-then-sanitize chokepoint for the coupled-fitness path (ADR 0023 / 0034),
+        // mirroring `EvolutionaryHarness::step`. First map NATURAL → canonical (maximise-native:
+        // negate iff `Minimize`) so the maximise-native engine optimises `$-\text{cost}$`, THEN
+        // sanitize (`$\text{NaN} \to -\infty$` worst, `$+\infty \to \text{f32::MAX}$`). The
+        // ordering is load-bearing: "NaN = worst" is only well-defined in maximise space, so
+        // sanitizing before `neg()` would flip a `NaN` cost to `$+\infty$` = canonical *best* under
+        // `Minimize`. After this, the per-population `tell`, the `snapshot` best/mean written into
+        // `CoEAState`, and any `HallOfFameFitness` downstream all see canonical,
+        // finite-or-`$-\infty$` fitness.
         let canon = |t: Tensor<B, 1>| {
             let c = match sense {
                 ObjectiveSense::Maximize => t,
@@ -413,13 +412,13 @@ mod tests {
     #[test]
     fn minimize_objective_is_maximized_and_reported_natural() {
         let m = run_one_step(NegCost);
-        // The engine optimises `−cost`; the best natural cost is 0.0 (row 0).
-        // `best_fitness_a` is reported in natural sense, so it reads back as the
-        // low cost `0.0` — NOT the high-cost row.
+        // The engine optimises `$-\text{cost}$`; the best natural cost is 0.0 (row 0).
+        // `best_fitness_a` is reported in natural sense, so it reads back as the low cost `0.0` —
+        // NOT the high-cost row.
         approx::assert_relative_eq!(m.best_fitness_a, 0.0, epsilon = 1e-6);
         approx::assert_relative_eq!(m.best_fitness_b, 0.0, epsilon = 1e-6);
-        // The canonical best is `from_canonical` of the natural best under
-        // Minimize, i.e. `−0.0 == 0.0`; binding = min of the two canonical bests.
+        // The canonical best is `from_canonical` of the natural best under Minimize, i.e.
+        // `$-0.0 = 0.0$`; binding = min of the two canonical bests.
         assert!(
             m.binding_fitness.is_finite(),
             "binding_fitness must be finite, got {}",

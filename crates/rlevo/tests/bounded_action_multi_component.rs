@@ -12,11 +12,10 @@
 //! not `[f32; R]` — see `BoundedAction::low()`/`high()` below) and migrates
 //! DDPG/TD3/SAC's action paths off `A::RANK`.
 //!
-//! The fixture here is deliberately the shape no existing impl had before
-//! the fix, and the shape ADR 0053 §7 names as the regression witness: rank
-//! 1, `COMPONENTS = 3`, and **asymmetric** per-component bounds
-//! `[-1, 0, 0] .. [1, 1, 1]` — the real Gymnasium `CarRacing` action space
-//! (steer ∈ [-1,1], gas ∈ [0,1], brake ∈ [0,1]).
+//! The fixture here is deliberately the shape no existing impl had before the fix, and the shape
+//! ADR 0053 §7 names as the regression witness: rank 1, `COMPONENTS = 3`, and **asymmetric**
+//! per-component bounds `[-1, 0, 0] .. [1, 1, 1]` — the real Gymnasium `CarRacing` action space
+//! (`$\text{steer} \in [-1,1]$`, `$\text{gas} \in [0,1]$`, `$\text{brake} \in [0,1]$`).
 //!
 //! These tests were verified to **fail** against the pre-fix agent code (the
 //! `A::RANK`-keyed loops temporarily restored): three of the four panicked,
@@ -381,8 +380,8 @@ struct SquashedActor<B: Backend> {
 }
 
 impl<B: Backend> SquashedActor<B> {
-    /// σ on the reparameterized sample. Small enough that a `gain`-saturated
-    /// mean stays saturated for any plausible ε.
+    /// `$\sigma$` on the reparameterized sample. Small enough that a `gain`-saturated mean stays
+    /// saturated for any plausible `$\epsilon$`.
     const SIGMA: f32 = 0.1;
 
     fn new(
@@ -486,7 +485,7 @@ fn sac_policy_action_clamps_each_component_against_its_own_bound() {
     let agent = build_sac_agent(0, 10.0);
     let mut rng = StdRng::seed_from_u64(0x5AC0_0002);
 
-    // `training = false` ⇒ ε = 0 ⇒ the deterministic squashed mean.
+    // `training = false` `$\Rightarrow \epsilon = 0 \Rightarrow$` the deterministic squashed mean.
     let action = agent.act(&LinearObservation { x: -1.0 }, false, &mut rng);
     assert_within_per_component_bounds(&action);
     let values = action.as_slice();

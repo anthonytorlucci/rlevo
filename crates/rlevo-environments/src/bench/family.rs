@@ -120,9 +120,8 @@ impl<const C: usize, const K: usize> RecordedEnvFamily for ContextualBandit<C, K
 // Grids — `GridPayloadSource` (structured tile grid).
 // ---------------------------------------------------------------------------
 
-// The Santa Fe ant projects its 32×32 trail onto a `FamilyPayload::Grid`
-// (it implements `GridPayloadSource`), so it records as the `Grids` family
-// despite living in `classic/`.
+// The Santa Fe ant projects its `$32 \times 32$` trail onto a `FamilyPayload::Grid` (it implements
+// `GridPayloadSource`), so it records as the `Grids` family despite living in `classic/`.
 impl RecordedEnvFamily for SantaFeAnt {
     const FAMILY: EnvFamily = EnvFamily::Grids;
 }

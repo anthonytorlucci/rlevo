@@ -187,7 +187,7 @@ pub fn median(xs: &[f64]) -> f64 {
     }
 }
 
-/// Computes the sample standard deviation (Bessel-corrected, *n* − 1 denominator).
+/// Computes the sample standard deviation (Bessel-corrected, `$n - 1$` denominator).
 ///
 /// Bessel's correction keeps the estimator unbiased when episode counts are small,
 /// which is common during early training. Returns `0.0` for slices with fewer than

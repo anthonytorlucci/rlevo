@@ -1,10 +1,9 @@
 //! Navigate an empty walled room to reach the goal tile.
 //!
-//! Ports Farama Minigrid's [`EmptyEnv`]. The grid is an `N×N` room with a
-//! wall perimeter, a single [`Goal`] tile at `(size - 2, size - 2)`, and the
-//! agent starting at `(1, 1)` facing East. Stepping onto the goal terminates
-//! the episode and pays [`success_reward`]; exceeding `max_steps` terminates
-//! with reward `0.0`.
+//! Ports Farama Minigrid's [`EmptyEnv`]. The grid is an `$N \times N$` room with a wall perimeter,
+//! a single [`Goal`] tile at `(size - 2, size - 2)`, and the agent starting at `(1, 1)` facing
+//! East. Stepping onto the goal terminates the episode and pays [`success_reward`]; exceeding
+//! `max_steps` terminates with reward `0.0`.
 //!
 //! This is the simplest grid environment — no obstacles, no items, no doors.
 //! It serves as a baseline for testing navigation policies and as a reference
@@ -84,8 +83,7 @@ const MIN_SIZE: usize = 4;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmptyConfig {
-    /// Grid side length in cells (including perimeter walls); must be ≥
-    /// `MIN_SIZE` (4).
+    /// Grid side length in cells (including perimeter walls); must be `$\geq$` `MIN_SIZE` (4).
     pub size: usize,
     /// Maximum number of steps before the episode times out.
     pub max_steps: usize,
@@ -234,18 +232,16 @@ pub struct EmptyEnv {
     config: EmptyConfig,
     steps: usize,
     render: bool,
-    /// Rejects a `step()` taken after the episode ended. Reaching the goal does
-    /// not consume the [`Goal`] tile or freeze the agent, and `done` is
-    /// recomputed from the *current* outcome each call, so without this guard a
-    /// post-terminal `step()` emitted a fresh **`Running`** snapshot — silently
-    /// resurrecting a finished episode — while `steps` kept advancing past the
-    /// true episode length. Worse, the agent stands *on* the goal: stepping off
-    /// and back on re-triggers `StepOutcome::ReachedGoal` and pays
-    /// [`success_reward`] a second time. On a 5×5 grid with `max_steps = 100`
-    /// the optimal rollout terminates at step 5 with `0.955`, then six more
-    /// steps re-pay `0.901` — an episode return of `1.856` for one goal, and
-    /// unbounded under repetition. The inflated `steps` also deflates every
-    /// later payout, since `success_reward` divides by the step count.
+    /// Rejects a `step()` taken after the episode ended. Reaching the goal does not consume the
+    /// [`Goal`] tile or freeze the agent, and `done` is recomputed from the *current* outcome each
+    /// call, so without this guard a post-terminal `step()` emitted a fresh **`Running`** snapshot
+    /// — silently resurrecting a finished episode — while `steps` kept advancing past the true
+    /// episode length. Worse, the agent stands *on* the goal: stepping off and back on re-triggers
+    /// `StepOutcome::ReachedGoal` and pays [`success_reward`] a second time. On a `$5 \times 5$`
+    /// grid with `max_steps = 100` the optimal rollout terminates at step 5 with `0.955`, then six
+    /// more steps re-pay `0.901` — an episode return of `1.856` for one goal, and unbounded under
+    /// repetition. The inflated `steps` also deflates every later payout, since `success_reward`
+    /// divides by the step count.
     guard: EpisodeGuard,
 }
 
@@ -668,7 +664,7 @@ mod tests {
 
     // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
-    /// Drives a fresh 5×5 episode to the goal with real `step()` calls.
+    /// Drives a fresh `$5 \times 5$` episode to the goal with real `step()` calls.
     ///
     /// The termination is a **goal arrival**, deliberately not a step-limit
     /// cutoff: `step()` OR-s the genuine terminal condition (goal reached)
@@ -710,12 +706,11 @@ mod tests {
     }
 
     #[test]
-    /// Regression for the concrete defect the guard prevents. Reaching the goal
-    /// neither consumes the `Goal` tile nor freezes the agent, so an unguarded
-    /// post-terminal `step()` advanced `steps`, moved the agent, and emitted a
-    /// fresh `Running` snapshot — and walking off the goal and back on re-paid
-    /// `success_reward` (measured: `0.955` then another `0.901` on this 5×5).
-    /// A rejected step must mutate nothing at all.
+    /// Regression for the concrete defect the guard prevents. Reaching the goal neither consumes
+    /// the `Goal` tile nor freezes the agent, so an unguarded post-terminal `step()` advanced
+    /// `steps`, moved the agent, and emitted a fresh `Running` snapshot — and walking off the goal
+    /// and back on re-paid `success_reward` (measured: `0.955` then another `0.901` on this
+    /// `$5 \times 5$`). A rejected step must mutate nothing at all.
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = goal_env();
         let terminal = drive_to_goal(&mut env);

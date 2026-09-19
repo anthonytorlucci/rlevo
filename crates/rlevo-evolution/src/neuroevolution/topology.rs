@@ -233,8 +233,8 @@ impl TopologyGenome {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` is non-finite (`+∞` or `NaN`), or (in debug
-    /// builds) if `registry`'s counters disagree with the seed sizes.
+    /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`), or (in debug builds) if
+    /// `registry`'s counters disagree with the seed sizes.
     #[must_use]
     pub fn minimal(
         num_inputs: usize,
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "weight_init_std")]
     fn test_minimal_panics_on_infinite_std() {
-        // `+∞` std is likewise rejected by `Normal::new`, reaching the panic.
+        // `$+\infty$` std is likewise rejected by `Normal::new`, reaching the panic.
         let registry: InnovationRegistry = InnovationRegistry::new(3, 2);
         let mut rng: StdRng = StdRng::seed_from_u64(1);
         let _g = TopologyGenome::minimal(2, 1, &registry, &mut rng, f32::INFINITY);
@@ -450,11 +450,10 @@ mod tests {
 
     #[test]
     fn test_minimal_negative_std_does_not_panic() {
-        // NOTE: contrary to the naive expectation, a *negative* std_dev is NOT
-        // rejected by `rand_distr::Normal::new` — only non-finite std_dev
-        // (`NaN` / `±∞`) returns `Err`. So `minimal` does not panic here; it
-        // builds a valid seed genome. This test pins that boundary so a future
-        // rand_distr change that tightens the check is caught.
+        // NOTE: contrary to the naive expectation, a *negative* std_dev is NOT rejected by
+        // `rand_distr::Normal::new` — only non-finite std_dev (`NaN` / `$\pm\infty$`) returns
+        // `Err`. So `minimal` does not panic here; it builds a valid seed genome. This test pins
+        // that boundary so a future rand_distr change that tightens the check is caught.
         let registry: InnovationRegistry = InnovationRegistry::new(3, 2);
         let mut rng: StdRng = StdRng::seed_from_u64(1);
         let g: TopologyGenome = TopologyGenome::minimal(2, 1, &registry, &mut rng, -1.0);

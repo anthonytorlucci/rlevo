@@ -119,9 +119,9 @@ impl InvertedPendulum<Rapier3DBackend> {
         let cart_z = config.cart_half_extents[2]; // rest cart on z = half-height
         let pole_half = config.pole_length * 0.5;
 
-        // Cart: dynamic, x-only translation, no rotation. Mass is derived from
-        // the collider's density × volume so the body has a valid inertia tensor
-        // (important for the attached pole's joint reactions).
+        // Cart: dynamic, x-only translation, no rotation. Mass is derived from the collider's
+        // density `$\times$` volume so the body has a valid inertia tensor (important for the
+        // attached pole's joint reactions).
         let cart_volume = config.cart_half_extents[0]
             * config.cart_half_extents[1]
             * config.cart_half_extents[2]
@@ -194,10 +194,10 @@ impl InvertedPendulum<Rapier3DBackend> {
         let pole_vel = Rapier3DBackend::get_vel(&self.world, self.state.pole);
 
         // Pole orientation is pure rotation about world-y. Its quaternion is
-        // `$(\cos(\theta/2), 0, \sin(\theta/2), 0)$` in `[w, x, y, z]` order. Recover θ:
+        // `$(\cos(\theta/2), 0, \sin(\theta/2), 0)$` in `[w, x, y, z]` order. Recover `$\theta$`:
         let [w, _, y, _] = pole_pose.orientation;
         let pole_angle = 2.0 * y.atan2(w);
-        // Normalise to (-π, π].
+        // Normalise to `$(-\pi, \pi]$`.
         let pole_angle = wrap_to_pi(pole_angle);
 
         InvertedPendulumObservation([
@@ -317,11 +317,10 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
     ///
     /// # Errors
     ///
-    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
-    /// already ended (the pole fell, or `max_steps` was reached); call
-    /// [`reset`](Environment::reset) first. Returns
-    /// [`EnvironmentError::InvalidAction`] if the action value is non-finite
-    /// (NaN or ±infinity).
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has already ended (the pole
+    /// fell, or `max_steps` was reached); call [`reset`](Environment::reset) first. Returns
+    /// [`EnvironmentError::InvalidAction`] if the action value is non-finite (`NaN` or
+    /// `$\pm\infty$`).
     fn step(
         &mut self,
         action: InvertedPendulumAction,
@@ -519,9 +518,9 @@ mod tests {
 
     #[test]
     fn terminates_when_pole_angle_leaves_band() {
-        // Start with a mild tilt (within healthy band), no reset noise, then
-        // apply force in the tilt direction. Gravity does the rest: the pole
-        // must reach |θ| ≥ 0.2 and terminate.
+        // Start with a mild tilt (within healthy band), no reset noise, then apply force in the
+        // tilt direction. Gravity does the rest: the pole must reach
+        // `$\lvert\theta\rvert \geq 0.2$` and terminate.
         let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
             reset_noise_scale: 0.0,
             max_steps: 2000,
@@ -622,16 +621,13 @@ mod tests {
 
     #[test]
     fn constant_force_does_not_accumulate() {
-        // Regression test (ADR 0037): a constant action must produce a
-        // stationary per-step cart-velocity increment. Rapier does not
-        // auto-clear applied forces each step despite the vendored 0.32 doc
-        // comment's claim to the contrary, so an unguarded `add_force` call
-        // accumulated across steps and silently corrupted the control
-        // dynamics; qualitative "did the joint move" tests stayed green
-        // throughout. Fixed once in `RapierWorld::step()` (reset forces and
-        // torques every step) with per-env force constants re-tuned
-        // afterward. Without that fix, Δvx grows ~linearly instead of
-        // holding steady.
+        // Regression test (ADR 0037): a constant action must produce a stationary per-step
+        // cart-velocity increment. Rapier does not auto-clear applied forces each step despite the
+        // vendored 0.32 doc comment's claim to the contrary, so an unguarded `add_force` call
+        // accumulated across steps and silently corrupted the control dynamics; qualitative "did
+        // the joint move" tests stayed green throughout. Fixed once in `RapierWorld::step()` (reset
+        // forces and torques every step) with per-env force constants re-tuned afterward. Without
+        // that fix, `$\Delta v_x$` grows ~linearly instead of holding steady.
         let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
             reset_noise_scale: 0.0,
             termination: TerminationMode::Never,
@@ -651,8 +647,8 @@ mod tests {
             prev_vx = vx;
         }
 
-        // Early vs late per-step increment. Constant force ⇒ ratio ≈ 1 (plus mild
-        // pole coupling); the accumulation bug drives it well above 5×.
+        // Early vs late per-step increment. Constant force `$\Rightarrow$` ratio `$\approx 1$`
+        // (plus mild pole coupling); the accumulation bug drives it well above `$5\times$`.
         let early: f32 = deltas[0..5].iter().sum::<f32>() / 5.0;
         let late: f32 = deltas[35..40].iter().sum::<f32>() / 5.0;
         assert!(

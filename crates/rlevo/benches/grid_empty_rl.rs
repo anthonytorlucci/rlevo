@@ -12,10 +12,9 @@
 //! 2. **Throughput** — a Criterion group timing per-step rollout cost of the
 //!    random policy vs. DQN-greedy inference (a network forward per step).
 //!
-//! The DQN model is a flatten + MLP over the `7×7×3` egocentric grid
-//! observation (rank-3 → rank-4 batched), mapping to the 7-way
-//! [`GridAction`] space; the model and Polyak target update are shared with
-//! the other `*_dqn` benches via [`support`].
+//! The DQN model is a flatten + MLP over the `$7 \times 7 \times 3$` egocentric grid observation
+//! (rank-3 → rank-4 batched), mapping to the 7-way [`GridAction`] space; the model and Polyak
+//! target update are shared with the other `*_dqn` benches via [`support`].
 //!
 //! # Run with
 //!
@@ -52,8 +51,8 @@ use support::GridMlpDqn;
 const SEED: u64 = 2026;
 /// Flattened observation width: `7 * 7 * 3 = 147`.
 const OBS_FEATURES: usize = VIEW_SIZE * VIEW_SIZE * OBS_CHANNELS;
-/// Discrete action count for the grid family (turn ×2, forward, pickup,
-/// drop, toggle, done).
+/// Discrete action count for the grid family (turn `$\times 2$`, forward, pickup, drop, toggle,
+/// done).
 const ACTIONS: usize = GridAction::ACTION_COUNT;
 /// Environment steps used to train the DQN before the comparison.
 const TRAIN_TIMESTEPS: usize = 30_000;

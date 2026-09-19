@@ -693,9 +693,8 @@ impl<B: Backend> ArchNasStrategy<B> {
             .expect("weights tensor must be readable as f32");
         let resident_arch = &state.population.arch_ids;
 
-        // Elitism: indices sorted by descending (better, canonical maximise)
-        // fitness — highest first; NaN sanitised to −inf so it never ranks
-        // as best.
+        // Elitism: indices sorted by descending (better, canonical maximise) fitness — highest
+        // first; NaN sanitised to `$-\infty$` so it never ranks as best.
         let order: Vec<usize> = truncation_indices_host(&state.fitness, pop)
             .into_iter()
             .map(|i| usize::try_from(i).expect("winner index is non-negative"))
@@ -801,8 +800,8 @@ impl<B: Backend> ArchNasStrategy<B> {
             .into_data()
             .into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
-        // Driver chokepoint (ADR 0034): sanitize before update_best/store so a
-        // NaN/±∞ can neither become the champion nor pollute the next ask.
+        // Driver chokepoint (ADR 0034): sanitize before update_best/store so a NaN/`$\pm\infty$`
+        // can neither become the champion nor pollute the next ask.
         let fitness_host: Vec<f32> = raw
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -1168,8 +1167,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(9);
         let state = strat.init(&params, &mut rng, &device);
 
-        // One ask, then hand-craft the fitness: NaN (must never champion), +∞
-        // (ranks top but finite), two plain values. Row 1 (+∞) is the champion.
+        // One ask, then hand-craft the fitness: NaN (must never champion), `$+\infty$` (ranks top
+        // but finite), two plain values. Row 1 (`$+\infty$`) is the champion.
         let (genome, next) = strat.ask(&params, &state, &mut rng, &device);
         let champion_arch = genome.arch_ids[1];
         let fitness = Tensor::<TestBackend, 1>::from_data(
@@ -1178,7 +1177,7 @@ mod tests {
         );
         let state = strat.tell(&params, genome, fitness, next, &mut rng);
 
-        // Stored fitness is sanitized: no NaN; NaN → −∞, +∞ → f32::MAX.
+        // Stored fitness is sanitized: no NaN; NaN → `$-\infty$`, `$+\infty$` → f32::MAX.
         assert!(
             state.fitness.iter().all(|f| !f.is_nan()),
             "no stored fitness is NaN after the tell chokepoint"
@@ -1189,8 +1188,8 @@ mod tests {
         );
         approx::assert_relative_eq!(state.fitness[1], f32::MAX);
 
-        // The champion is the sanitized +∞ = f32::MAX (finite), at row 1 — not
-        // the NaN row.
+        // The champion is the sanitized `$+\infty$` = f32::MAX (finite), at row 1 — not the NaN
+        // row.
         let (best_arch, _weights, best_f) = strat.best(&state).expect("best exists after tell");
         assert!(
             best_f.is_finite(),

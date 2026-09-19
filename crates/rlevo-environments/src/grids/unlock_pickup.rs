@@ -60,7 +60,7 @@
 //! toggle twice (unlock then open) → cross into the far room → drop the key →
 //! pick up the box.
 //!
-//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell      |
+//! | Observation | `$7 \times 7$` egocentric grid encoded as `[type, color, state]` per cell      |
 //! |-------------|------------------------------------------------------------------------|
 //! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Pickup`, `Drop`, `Toggle`         |
 //! | Reward      | `success_reward(steps, max_steps)` when box is carried; `0.0` on timeout |
@@ -108,9 +108,9 @@ use std::str::FromStr;
 /// Minimum side length, enforced as this environment's documented policy by
 /// [`Validate`].
 ///
-/// At the floor the split column sits at `x = 3` and leaves a `2 × 5` room on
-/// each side of it, so the key, the agent, and the box each have room to be
-/// drawn without the two rooms degenerating into corridors of a single cell.
+/// At the floor the split column sits at `x = 3` and leaves a `$2 \times 5$` room on each side of
+/// it, so the key, the agent, and the box each have room to be drawn without the two rooms
+/// degenerating into corridors of a single cell.
 const MIN_SIZE: usize = 7;
 
 /// Configuration for [`UnlockPickupEnv`].
@@ -125,7 +125,7 @@ const MIN_SIZE: usize = 7;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnlockPickupConfig {
-    /// Grid side length in cells (width = height = `size`); must be ≥ `MIN_SIZE` (7).
+    /// Grid side length in cells (width = height = `size`); must be `$\geq$` `MIN_SIZE` (7).
     ///
     /// The interior wall sits at `x = size / 2` and splits the board into a left
     /// room spanning `$x \in 1 ..= \text{size} / 2 - 1$` and a right room spanning
@@ -152,8 +152,8 @@ pub struct UnlockPickupConfig {
     /// here because ADR 0062 §1 requires a deviation to be visible at the config
     /// field rather than only in a tracker:
     ///
-    /// - **Board shape.** Upstream is an `11 × 6` `RoomGrid` of two `6 × 6`
-    ///   rooms; rlevo uses one square `size × size` board with a wall column at
+    /// - **Board shape.** Upstream is an `$11 \times 6$` `RoomGrid` of two `$6 \times 6$`
+    ///   rooms; rlevo uses one square `$\text{size} \times \text{size}$` board with a wall column at
     ///   `x = size / 2`. The two-room topology is the same; the extent is
     ///   configurable.
     /// - **No `reject_next_to` veto on the box and the key.** Upstream's
@@ -208,17 +208,15 @@ impl Default for UnlockPickupConfig {
 impl Validate for UnlockPickupConfig {
     /// Rejects any `size` below `MIN_SIZE` (7) and a zero `max_steps`.
     ///
-    /// The `size` guard lives **here**, not only in [`FromStr`]:
-    /// `UnlockPickupConfig` derives `Deserialize`, so a config loaded from a
-    /// file is user-supplied runtime data that never passes through `from_str`
-    /// (rules.md §4 — "if an invalid value can arrive via `Deserialize`, it must
-    /// be an `Err`"). Below the floor the two rooms the layout sampler draws
-    /// into stop being well-formed: at `$\text{size} \leq 4$` the right room's rectangle is
-    /// empty or inverted, which [`UnlockPickupEnv::with_config`] surfaces as a
-    /// [`PlacementError`]-derived `ConfigError` rather than a panic. Sizes `5`
-    /// and `6` do build a playable board and are rejected anyway, so `MIN_SIZE`
-    /// is a documented policy — every shipped `UnlockPickup` board has at least
-    /// a `2 × 5` room on each side of the split — not merely a crash guard.
+    /// The `size` guard lives **here**, not only in [`FromStr`]: `UnlockPickupConfig` derives
+    /// `Deserialize`, so a config loaded from a file is user-supplied runtime data that never
+    /// passes through `from_str` (rules.md §4 — "if an invalid value can arrive via `Deserialize`,
+    /// it must be an `Err`"). Below the floor the two rooms the layout sampler draws into stop
+    /// being well-formed: at `$\text{size} \leq 4$` the right room's rectangle is empty or
+    /// inverted, which [`UnlockPickupEnv::with_config`] surfaces as a [`PlacementError`]-derived
+    /// `ConfigError` rather than a panic. Sizes `5` and `6` do build a playable board and are
+    /// rejected anyway, so `MIN_SIZE` is a documented policy — every shipped `UnlockPickup` board
+    /// has at least a `$2 \times 5$` room on each side of the split — not merely a crash guard.
     ///
     /// `at_least` subsumes the previous `nonzero` check — `MIN_SIZE >= 1`, so a
     /// zero `size` is still rejected, now as

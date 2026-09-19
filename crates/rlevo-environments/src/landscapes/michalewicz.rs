@@ -6,8 +6,8 @@
 //! vanishingly small almost everywhere, leaving near-zero gradients outside narrow
 //! ridges; lowering `m` smooths the surface.
 //!
-//! Evaluated over `$[0, \pi]^n$`. Certified optima (Vanaret et al. 2020, interval
-//! arithmetic): `$f^* \approx -1.8013$` (n=2), `−4.68765818` (n=5), `−9.66015171564` (n=10).
+//! Evaluated over `$[0, \pi]^n$`. Certified optima (Vanaret et al. 2020, interval arithmetic):
+//! `$f^* \approx -1.8013$` (n=2), `$-4.68765818$` (n=5), `$-9.66015171564$` (n=10).
 //!
 //! Requires `$n \geq 1$`.
 
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        // Certified n=2 optimum f* ≈ −1.8013 near (2.20, π/2).
+        // Certified n=2 optimum `$f^* \approx -1.8013$` near `$(2.20, \pi/2)$`.
         let m = Michalewicz::new(2).expect("dim >= 1");
         assert_relative_eq!(
             m.evaluate(&[2.20290552, FRAC_PI_2]),
@@ -144,8 +144,8 @@ mod tests {
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        // f is ≤ 0 everywhere; a generic interior point exceeds (is greater than)
-        // the global minimum value.
+        // f is `$\leq 0$` everywhere; a generic interior point exceeds (is greater than) the global
+        // minimum value.
         let m = Michalewicz::new(2).expect("dim >= 1");
         assert!(
             m.evaluate(&[0.5, 0.5]) > m.evaluate(&[2.20290552, FRAC_PI_2]),
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn always_non_positive() {
-        // The outer minus sign and sin^{2m} ∈ [0, 1] keep f ≤ 0 across the domain.
+        // The outer minus sign and `$\sin^{2m} \in [0, 1]$` keep `$f \leq 0$` across the domain.
         let m = Michalewicz::new(3).expect("dim >= 1");
         for &xi in &[0.1, 0.8, 1.6, 2.4, 3.0] {
             assert!(

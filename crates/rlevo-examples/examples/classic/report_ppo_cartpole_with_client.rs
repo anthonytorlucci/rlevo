@@ -99,13 +99,11 @@ const NUM_ACTIONS: usize = 2;
 
 /// Autodiff backend the cartpole viz examples train on.
 ///
-/// `Flex` (a portable CPU backend), not `Wgpu`, is deliberate. A
-/// single-environment PPO rollout is tiny and sequential — every step is a
-/// handful of small ops with a host sync to pick an action — so the GPU's
-/// per-dispatch overhead dominates and CPU is ~70× faster here. The GPU wins
-/// on the opposite shape (large batched work): see the
-/// `backend_sweep_neuroevolution` example and the user-book chapter
-/// "Choosing a Backend: CPU vs GPU" for the measured comparison.
+/// `Flex` (a portable CPU backend), not `Wgpu`, is deliberate. A single-environment PPO rollout is
+/// tiny and sequential — every step is a handful of small ops with a host sync to pick an action —
+/// so the GPU's per-dispatch overhead dominates and CPU is ~`$70\times$` faster here. The GPU wins
+/// on the opposite shape (large batched work): see the `backend_sweep_neuroevolution` example and
+/// the user-book chapter "Choosing a Backend: CPU vs GPU" for the measured comparison.
 pub type Be = Autodiff<Flex>;
 
 /// Concrete PPO agent type the examples drive — a categorical policy head
@@ -217,7 +215,7 @@ pub fn base_env() -> TimeLimit<CartPole> {
 /// | `num_envs` | 1 | One parallel environment (no vectorization here) |
 /// | `num_steps` | 128 | Collect 128 steps of experience before each update |
 /// | `num_minibatches` | 4 | Split those 128 steps into 4 mini-batches of 32 |
-/// | `update_epochs` | 4 | Reuse the collected data 4× per rollout (PPO's signature reuse) |
+/// | `update_epochs` | 4 | Reuse the collected data `$4\times$` per rollout (PPO's signature reuse) |
 /// | `learning_rate` | 2.5e-4 | Optimizer step size |
 /// | `clip_coef` | 0.2 | The PPO clip radius — the heart of the algorithm |
 /// | `entropy_coef` | 0.01 | Bonus to keep the policy *exploring* (avoid collapse to one action) |

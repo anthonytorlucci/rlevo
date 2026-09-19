@@ -91,9 +91,9 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
 /// produce bit-for-bit identical initial weights. Callers must hold the
 /// [`flex_guard`] lock for the duration of the test.
 ///
-/// The hyperparameters (clip coefficient, entropy coefficient, GAE λ, learning
-/// rate, minibatch count) are tuned for the 4-observation / 2-action discrete
-/// `CartPole` task with a 128-step rollout buffer.
+/// The hyperparameters (clip coefficient, entropy coefficient, GAE `$\lambda$`, learning rate,
+/// minibatch count) are tuned for the 4-observation / 2-action discrete `CartPole` task with a
+/// 128-step rollout buffer.
 fn make_cart_pole_agent(
     seed: u64,
     num_steps: usize,
@@ -231,11 +231,10 @@ fn ppo_cartpole_produces_finite_rewards() {
 /// produce identical initial weights. Callers must hold the [`flex_guard`] lock
 /// for the duration of the test.
 ///
-/// The hyperparameters (higher `update_epochs`, zero entropy coefficient, GAE
-/// λ, γ=0.9) are tuned for the 3-observation / 1-action continuous Pendulum
-/// task with a 2 048-step rollout buffer. The head's `action_scale` matches
-/// the ±2 N·m torque limit and is set on `TanhGaussianPolicyHeadConfig`, the
-/// only place it exists.
+/// The hyperparameters (higher `update_epochs`, zero entropy coefficient, GAE `$\lambda$`,
+/// `$\gamma=0.9$`) are tuned for the 3-observation / 1-action continuous Pendulum task with a 2
+/// 048-step rollout buffer. The head's `action_scale` matches the `$\pm 2\ \text{N}\cdot\text{m}$`
+/// torque limit and is set on `TanhGaussianPolicyHeadConfig`, the only place it exists.
 fn make_pendulum_agent(
     seed: u64,
     num_steps: usize,
@@ -305,11 +304,10 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
 /// Drives one real PPO update and checks that the `log_std` telemetry added
 /// alongside the `log_std` clamp is actually populated end-to-end.
 ///
-/// The clamp turns a `NaN` blow-up into a silently frozen σ, so the `log_std`
-/// extrema are the only signal a user has that the policy is collapsing — or
-/// diverging. A `None` here on a Gaussian head — or a value outside the head's
-/// configured bounds — would mean the metric is wired up but dead, which is
-/// worse than not having it.
+/// The clamp turns a `NaN` blow-up into a silently frozen `$\sigma$`, so the `log_std` extrema are
+/// the only signal a user has that the policy is collapsing — or diverging. A `None` here on a
+/// Gaussian head — or a value outside the head's configured bounds — would mean the metric is wired
+/// up but dead, which is worse than not having it.
 ///
 /// **Both** extrema are checked. `max_log_std` is not decoration: a minimum
 /// reports the healthiest dim, so a head with a dim pinned at `log_std_max`
@@ -410,8 +408,8 @@ fn ppo_pendulum_update_reports_log_std_extrema() {
     );
 }
 
-/// The discrete head has no `log σ`, so the shared `PpoUpdateStats` field must
-/// come back `None` rather than a meaningless number.
+/// The discrete head has no `$\log \sigma$`, so the shared `PpoUpdateStats` field must come back
+/// `None` rather than a meaningless number.
 #[test]
 fn ppo_cartpole_update_reports_no_min_log_std() {
     use rlevo_core::environment::{Environment, Snapshot};

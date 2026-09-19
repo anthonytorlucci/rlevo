@@ -59,9 +59,9 @@ pub struct BatConfig {
     pub a0: f32,
     /// Initial pulse rate.
     pub r0: f32,
-    /// Loudness decay factor (0 < α ≤ 1). Canonical `$\alpha = 0.9$`.
+    /// Loudness decay factor (0 < `$\alpha$` `$\leq$` 1). Canonical `$\alpha = 0.9$`.
     pub alpha: f32,
-    /// Pulse-rate growth factor (γ > 0). Canonical `$\gamma = 0.9$`.
+    /// Pulse-rate growth factor (`$\gamma$` > 0). Canonical `$\gamma = 0.9$`.
     pub gamma: f32,
 }
 
@@ -97,7 +97,7 @@ impl Validate for BatConfig {
         }
         config::in_range(C, "a0", 0.0, f64::INFINITY, f64::from(self.a0))?;
         config::in_range(C, "r0", 0.0, 1.0, f64::from(self.r0))?;
-        // α ∈ (0, 1]: strictly positive and at most one.
+        // `$\alpha$` `$\in$` (0, 1]: strictly positive and at most one.
         config::positive(C, "alpha", f64::from(self.alpha))?;
         config::in_range(C, "alpha", 0.0, 1.0, f64::from(self.alpha))?;
         config::positive(C, "gamma", f64::from(self.gamma))?;
@@ -352,10 +352,9 @@ where
         let genome_dim = params.genome_dim;
         let (lo, hi): (f32, f32) = params.bounds.into();
 
-        // Host-side sampling for β, pulse check, acceptance draw, and
-        // local-walk ε. Keeping these on host preserves bit-parity
-        // across backends (Mantegna / wgpu normal RNG has documented
-        // fp drift under FMA reordering; BA draws are mostly uniform).
+        // Host-side sampling for `$\beta$`, pulse check, acceptance draw, and local-walk
+        // `$\epsilon$`. Keeping these on host preserves bit-parity across backends (Mantegna / wgpu
+        // normal RNG has documented fp drift under FMA reordering; BA draws are mostly uniform).
         let mut stream = seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Other);
 
         let mut betas = Vec::with_capacity(pop);
@@ -371,8 +370,8 @@ where
             }
         }
 
-        // Mean loudness across the colony — used by the local-walk
-        // step to scale its ε perturbation.
+        // Mean loudness across the colony — used by the local-walk step to scale its `$\epsilon$`
+        // perturbation.
         let mean_loudness: f32 = {
             let s: f32 = state.loudness.iter().sum();
             #[allow(clippy::cast_precision_loss)]
@@ -388,7 +387,8 @@ where
             .clone()
             .expand([pop, genome_dim]);
 
-        // Frequency: f_i = f_min + (f_max - f_min) · β_i  → shape (pop, 1) → (pop, D).
+        // Frequency: `$f_i = f_{min} + (f_{max} - f_{min})\cdot\beta_i$` → shape (pop, 1) → (pop,
+        // D).
         let f_vec: Vec<f32> = betas
             .iter()
             .map(|b| params.f_min + (params.f_max - params.f_min) * b)
@@ -397,14 +397,14 @@ where
             .unsqueeze_dim::<2>(1)
             .expand([pop, genome_dim]);
 
-        // Clamp velocity to the search extent to prevent unbounded ±∞/NaN
-        // drift when a bat is pinned against a bound (parity with PSO's v_max).
+        // Clamp velocity to the search extent to prevent unbounded `$\pm\infty$`/NaN drift when a
+        // bat is pinned against a bound (parity with PSO's v_max).
         let span = (hi - lo).abs();
         let new_velocities = (state.velocities.clone()
             + (state.positions.clone() - best.clone()).mul(f_mat))
         .clamp(-span, span);
         let global_move = state.positions.clone() + new_velocities.clone();
-        // Local walk: x_best + ε · mean(A).
+        // Local walk: `$x_{best} + \epsilon \cdot \mathrm{mean}(A)$`.
         let eps =
             Tensor::<B, 2>::from_data(TensorData::new(epsilon_rows, [pop, genome_dim]), device);
         let local_move = best + eps.mul_scalar(mean_loudness);
@@ -440,10 +440,9 @@ where
     /// unconditionally accepted and loudness/pulse-rate updates are
     /// skipped.
     ///
-    /// On subsequent calls candidate `i` replaces position `i` iff
-    /// `pending_accept[i]` (drawn in [`ask`](Strategy::ask)) **and**
-    /// `fitness[i] ≥ state.fitness[i]`.  On acceptance, loudness decays
-    /// (`$A_i \leftarrow A_i \cdot \alpha$`) and pulse rate grows
+    /// On subsequent calls candidate `i` replaces position `i` iff `pending_accept[i]` (drawn in
+    /// [`ask`](Strategy::ask)) **and** `$\text{fitness}[i] \geq \text{state.fitness}[i]$`. On
+    /// acceptance, loudness decays (`$A_i \leftarrow A_i \cdot \alpha$`) and pulse rate grows
     /// (`$r_i = r_0 \cdot (1 - \exp(-\gamma t))$`).
     fn tell(
         &self,
@@ -453,18 +452,15 @@ where
         mut state: BatState<B>,
         _rng: &mut dyn Rng,
     ) -> (BatState<B>, StrategyMetrics) {
-        // Sanitise on the host pull, per the maximise convention (`rules.md`
-        // §3, ADR 0034): `NaN → −∞` (worst), `+∞ → f32::MAX`. This is the
-        // per-site correctness floor for callers that bypass
-        // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
-        // so a hand-rolled `ask`/`tell` driver reaches this line with raw
-        // values (ADR 0034 decision 3). One sanitise here covers
-        // both the bootstrap seed of `state.fitness` and the accept-store
-        // below; a raw `NaN` latched into a bat's cache loses every later
-        // `fitness_host[i] >= state.fitness[i]` comparison, and BA has no
-        // scout or abandonment mechanism to rescue the frozen slot.
-        // `sanitize_fitness` is idempotent, so on the harness path (which
-        // pre-sanitises) this is a provable no-op — do not delete it as
+        // Sanitise on the host pull, per the maximise convention (`rules.md` §3, ADR 0034):
+        // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. This is the per-site
+        // correctness floor for callers that bypass `EvolutionaryHarness::step` — `Strategy` is
+        // public and re-exported, so a hand-rolled `ask`/`tell` driver reaches this line with raw
+        // values (ADR 0034 decision 3). One sanitise here covers both the bootstrap seed of
+        // `state.fitness` and the accept-store below; a raw `NaN` latched into a bat's cache loses
+        // every later `fitness_host[i] >= state.fitness[i]` comparison, and BA has no scout or
+        // abandonment mechanism to rescue the frozen slot. `sanitize_fitness` is idempotent, so on
+        // the harness path (which pre-sanitises) this is a provable no-op — do not delete it as
         // redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
@@ -584,7 +580,7 @@ mod tests {
             )
             .is_ok()
         );
-        // loudness length 2 ≠ pop 3.
+        // loudness length 2 `$\neq$` pop 3.
         assert!(
             BatState::try_new(
                 pos,
@@ -626,12 +622,11 @@ mod tests {
 
     #[test]
     fn bat_converges_on_sphere_d10() {
-        // Bat is a "legacy comparator" per the module-level candor
-        // note. We require strong reduction from the random baseline,
-        // not machine precision — the probabilistic acceptance gate
-        // (A_i decay) throttles late-stage progress. Threshold 0.1 on
-        // Sphere-D10 in 800 generations is still orders of magnitude
-        // below the uniform-random baseline (≈ 87).
+        // Bat is a "legacy comparator" per the module-level candor note. We require strong
+        // reduction from the random baseline, not machine precision — the probabilistic acceptance
+        // gate (A_i decay) throttles late-stage progress. Threshold 0.1 on Sphere-D10 in 800
+        // generations is still orders of magnitude below the uniform-random baseline (`$\approx$`
+        // 87).
         let device = Default::default();
         let strategy = BatAlgorithm::<TestBackend>::new();
         let params = BatConfig::default_for(40, 10);
@@ -648,16 +643,14 @@ mod tests {
 
     #[test]
     fn velocities_stay_finite_and_bounded_under_pinning() {
-        // Regression for velocities drifting unclamped to ±infinity/NaN. The
-        // velocity update `v ← v + (x − x_best)·f` is repulsive for a bat sitting away
-        // from `x_best`, and `ask` rewrites `state.velocities` every
-        // generation regardless of `tell`'s acceptance gate. A bat whose
-        // position stays fixed while `x_best` sits elsewhere therefore
-        // accrues a near-constant increment each generation, so unclamped
-        // velocities drift linearly to ±∞ and then to NaN (via `inf − inf`).
-        // The ±span clamp (parity with PSO's `v_max`) must keep every
-        // velocity finite and within the search extent no matter how long
-        // the swarm runs.
+        // Regression for velocities drifting unclamped to `$\pm$`infinity/NaN. The velocity update
+        // `$v \leftarrow v + (x - x_{best}) \cdot f$` is repulsive for a bat sitting away from
+        // `x_best`, and `ask` rewrites `state.velocities` every generation regardless of `tell`'s
+        // acceptance gate. A bat whose position stays fixed while `x_best` sits elsewhere therefore
+        // accrues a near-constant increment each generation, so unclamped velocities drift linearly
+        // to `$\pm\infty$` and then to NaN (via `$\infty - \infty$`). The `$\pm$`span clamp (parity
+        // with PSO's `v_max`) must keep every velocity finite and within the search extent no
+        // matter how long the swarm runs.
         let device = Default::default();
         let strategy = BatAlgorithm::<TestBackend>::new();
         let params = BatConfig::default_for(20, 4);
@@ -707,9 +700,9 @@ mod tests {
         }
     }
 
-    /// Builds a steady-state (generation ≥ 1) bat swarm at the origin with a
-    /// non-empty fitness cache and a populated `best_genome`, so `ask` takes the
-    /// velocity-update path rather than the bootstrap early return.
+    /// Builds a steady-state (generation `$\geq$` 1) bat swarm at the origin with a non-empty
+    /// fitness cache and a populated `best_genome`, so `ask` takes the velocity-update path rather
+    /// than the bootstrap early return.
     fn steady_state(
         pop: usize,
         d: usize,
@@ -794,11 +787,10 @@ mod tests {
         }
     }
 
-    // Gap (c): the BA-specific loudness/pulse update math and the acceptance
-    // gate. Bee 0 has `pending_accept = true` and an improving candidate, so it
-    // accepts: loudness decays by α and pulse rate jumps to
-    // `r₀·(1 − exp(−γ·t))`, and its position becomes the candidate. Bee 1 has
-    // `pending_accept = false`, so despite an improving candidate it is
+    // Gap (c): the BA-specific loudness/pulse update math and the acceptance gate. Bee 0 has
+    // `pending_accept = true` and an improving candidate, so it accepts: loudness decays by
+    // `$\alpha$` and pulse rate jumps to `$r_0 (1 - \exp(-\gamma t))$`, and its position becomes
+    // the candidate. Bee 1 has `pending_accept = false`, so despite an improving candidate it is
     // rejected: loudness, pulse rate, and position are all untouched.
     #[test]
     fn loudness_decay_pulse_growth_and_acceptance_gate() {
@@ -819,17 +811,17 @@ mod tests {
         )
         .expect("valid state");
         let candidates = Tensor::<TestBackend, 2>::full([2, 1], 0.1, &device);
-        // Both candidates improve (1.0 ≥ 0.0), isolating the acceptance gate.
+        // Both candidates improve (1.0 `$\geq$` 0.0), isolating the acceptance gate.
         let fit =
             Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![1.0_f32, 1.0], [2]), &device);
         let mut rng = StdRng::seed_from_u64(0);
         let (next, _m) = strategy.tell(&params, candidates, fit, state, &mut rng);
 
-        // Bee 0 accepted → loudness *= α; bee 1 rejected → unchanged.
+        // Bee 0 accepted → loudness *= `$\alpha$`; bee 1 rejected → unchanged.
         approx::assert_relative_eq!(next.loudness()[0], 0.9, epsilon = 1e-6);
         approx::assert_relative_eq!(next.loudness()[1], 1.0, epsilon = 1e-6);
 
-        // Bee 0 accepted → pulse = r0·(1 − exp(−γ·t)); bee 1 rejected → stays r0.
+        // Bee 0 accepted → pulse `$= r_0(1 - \exp(-\gamma t))$`; bee 1 rejected → stays r0.
         #[allow(clippy::cast_precision_loss)]
         let expected_pulse = 0.5 * (1.0 - (-0.9_f32 * generation as f32).exp());
         approx::assert_relative_eq!(next.pulse_rate()[0], expected_pulse, epsilon = 1e-6);
@@ -912,13 +904,12 @@ mod tests {
             "raw NaN latched into the bat-0 fitness cache: {:?}",
             state.fitness()
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
-        // clears `is_nan` yet would rank bat 0 *above* the finite -1/-2/-3
-        // scores and make the NaN-scoring bat the reported population best —
-        // the leader poisoning this regression exists to catch.
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would rank bat 0 *above* the finite -1/-2/-3 scores and make
+        // the NaN-scoring bat the reported population best — the leader poisoning this regression
+        // exists to catch.
         assert!(
             state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
             "sanitized NaN must land as -inf in the bat-0 fitness cache: {:?}",

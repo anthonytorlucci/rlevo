@@ -152,8 +152,8 @@ mod tests {
 
     #[test]
     fn no_nan_in_domain() {
-        // At a zero crossing of the first absolute-value argument (x2 = x1 − 47),
-        // sqrt(0) must not produce NaN.
+        // At a zero crossing of the first absolute-value argument (`$x_2 = x_1 - 47$`), sqrt(0)
+        // must not produce NaN.
         let e = Eggholder::new(2).expect("dim >= 2");
         let v = e.evaluate(&[47.0, 0.0]);
         assert!(!v.is_nan(), "NaN at zero crossing");

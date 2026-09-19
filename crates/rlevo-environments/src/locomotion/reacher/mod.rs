@@ -25,10 +25,10 @@
 //! * Observation (10-dim):
 //!   `$[\cos\theta_1, \cos\theta_2, \sin\theta_1, \sin\theta_2, \text{target\_x}, \text{target\_y}, \dot\theta_1, \dot\theta_2,
 //!     (\text{finger} - \text{target})_x, (\text{finger} - \text{target})_y]$`.
-//!   θ₂ is the **relative** elbow angle (link2 − link1), wrapped to `$(-\pi, \pi]$`.
+//!   `$\theta_2$` is the **relative** elbow angle (`$\text{link2} - \text{link1}$`), wrapped to `$(-\pi, \pi]$`.
 //! * Reward: `reward_distance + reward_control` with
 //!   `$\text{reward\_distance} = -\|\text{finger} - \text{target}\|$` and
-//!   `$\text{reward\_control} = -0.1 \cdot \|\text{action}\|^2$`; both components ≤ 0.
+//!   `$\text{reward\_control} = -0.1 \cdot \|\text{action}\|^2$`; both components `$\leq 0$`.
 //! * Termination: never (`TerminationMode::Never`).
 //! * Truncation: `max_steps = 50`.
 //!

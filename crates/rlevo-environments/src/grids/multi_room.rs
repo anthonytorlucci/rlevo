@@ -38,10 +38,10 @@
 //! # # # # # # # # # # # # # # # #   G = goal (14, 2);  # = wall
 //! ```
 //!
-//! Dividing walls sit at `x = i × room_width` for `i` in `1..num_rooms`.
-//! Each wall has a single closed door at the corridor row (`height / 2`).
+//! Dividing walls sit at `$x = i \times \text{room\_width}$` for `i` in `1..num_rooms`. Each wall
+//! has a single closed door at the corridor row (`height / 2`).
 //!
-//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell |
+//! | Observation | `$7 \times 7$` egocentric grid encoded as `[type, color, state]` per cell |
 //! |-------------|------------------------------------------------------------------|
 //! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Toggle`                     |
 //! | Reward      | `success_reward(steps, max_steps)` on goal; `0.0` on timeout     |
@@ -110,11 +110,12 @@ const DOOR_COLOR: Color = Color::Grey;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultiRoomConfig {
-    /// Number of rooms along the horizontal axis; must be ≥ `MIN_NUM_ROOMS` (2).
+    /// Number of rooms along the horizontal axis; must be `$\geq$` `MIN_NUM_ROOMS` (2).
     pub num_rooms: usize,
-    /// Width of each individual room, including its right-hand wall; must be ≥ `MIN_ROOM_WIDTH` (3).
+    /// Width of each individual room, including its right-hand wall; must be `$\geq$`
+    /// `MIN_ROOM_WIDTH` (3).
     pub room_width: usize,
-    /// Height of the strip in cells; must be ≥ `MIN_HEIGHT` (5).
+    /// Height of the strip in cells; must be `$\geq$` `MIN_HEIGHT` (5).
     pub height: usize,
     /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,

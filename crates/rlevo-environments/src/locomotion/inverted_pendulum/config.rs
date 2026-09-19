@@ -48,8 +48,8 @@ pub struct InvertedPendulumConfig {
     /// Half-extents `[x, y, z]` of the cart cuboid collider in metres.
     /// Default: `[0.15, 0.05, 0.05]`.
     pub cart_half_extents: [f32; 3],
-    /// Gravitational acceleration along the world-z axis in m/s².
-    /// Should be negative for downward gravity. Default: `-9.81 m/s²`.
+    /// Gravitational acceleration along the world-z axis in `$\text{m/s}^2$`. Should be negative
+    /// for downward gravity. Default: `$-9.81\ \text{m/s}^2$`.
     pub gravity: f32,
 }
 

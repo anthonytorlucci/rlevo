@@ -32,7 +32,7 @@ pub enum WindMode {
 pub struct LunarLanderConfig {
     /// Wind model applied each step.
     pub wind_mode: WindMode,
-    /// Gravitational acceleration (negative = downward, default −10.0).
+    /// Gravitational acceleration (negative = downward, default `$-10.0$`).
     pub gravity: f32,
     /// Main engine thrust (Newtons, default 13.0).
     pub main_engine_power: f32,

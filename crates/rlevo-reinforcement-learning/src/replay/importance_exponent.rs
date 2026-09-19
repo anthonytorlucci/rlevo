@@ -3,13 +3,12 @@
 //!
 //! # The defect this closes
 //!
-//! [`PrioritizedReplay`](super::PrioritizedReplay)'s
-//! [`sample`](super::ReplayStrategy::sample) raises a
-//! probability ratio to β. Before this newtype the parameter was a bare `f32`
-//! guarded only by a `debug_assert!`, so in a **release** build a non-finite or
-//! out-of-range β propagated as follows:
+//! [`PrioritizedReplay`](super::PrioritizedReplay)'s [`sample`](super::ReplayStrategy::sample)
+//! raises a probability ratio to `$\beta$`. Before this newtype the parameter was a bare `f32`
+//! guarded only by a `debug_assert!`, so in a **release** build a non-finite or out-of-range
+//! `$\beta$` propagated as follows:
 //!
-//! 1. `(min_mass / m).powf(beta)` yields `NaN` (β = `NaN`) or `$\pm\infty$`/`0` (β
+//! 1. `(min_mass / m).powf(beta)` yields `NaN` (`$\beta$` = `NaN`) or `$\pm\infty$`/`0` (`$\beta$`
 //!    unbounded).
 //! 2. The `NaN` lands in the batch's importance weights.
 //! 3. The agent uploads those weights as a tensor and multiplies the per-sample
@@ -21,10 +20,9 @@
 //!
 //! # Why the caller's schedule cannot be the validation site
 //!
-//! ADR 0050 §11 put the β schedule on the agent config and accepted, as a cost,
-//! that "a caller can pass a nonsense β" with `Validate` on the config as the
-//! mitigation. ADR 0051 **withdraws** that as unsound, and this type is the
-//! replacement.
+//! ADR 0050 §11 put the `$\beta$` schedule on the agent config and accepted, as a cost, that "a
+//! caller can pass a nonsense `$\beta$`" with `Validate` on the config as the mitigation. ADR 0051
+//! **withdraws** that as unsound, and this type is the replacement.
 //!
 //! A config holds schedule *endpoints* — `beta_start`, `beta_end`,
 //! `beta_anneal_steps`. What reaches `powf` is the *evaluated* interpolation:
@@ -70,8 +68,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Schaul et al. (2016) §3.4's importance-sampling exponent β: finite and
-/// within `[0, 1]` by construction.
+/// Schaul et al. (2016) §3.4's importance-sampling exponent `$\beta$`: finite and within `[0, 1]`
+/// by construction.
 ///
 /// An `ImportanceExponent` can never hold a `NaN`, an infinity, or a value
 /// outside `[0, 1]`. Every constructor enforces
@@ -84,11 +82,11 @@ use serde::{Deserialize, Serialize};
 /// the full correction and is the endpoint of Schaul Table 3's `$\beta_0 = 0.4 \to 1.0$`
 /// annealing schedule.
 ///
-/// Construct with [`new`](Self::new) for literals (panics on an invalid value)
-/// or [`try_new`](Self::try_new) for runtime data — including a schedule
-/// evaluated against a step counter, which is precisely the value that can
-/// arrive as `NaN`. `Deserialize` routes through [`try_new`] via [`TryFrom`], so
-/// a β loaded from a file cannot deserialize into an invalid one.
+/// Construct with [`new`](Self::new) for literals (panics on an invalid value) or
+/// [`try_new`](Self::try_new) for runtime data — including a schedule evaluated against a step
+/// counter, which is precisely the value that can arrive as `NaN`. `Deserialize` routes through
+/// [`try_new`] via [`TryFrom`], so a `$\beta$` loaded from a file cannot deserialize into an
+/// invalid one.
 ///
 /// [`try_new`]: Self::try_new
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -99,9 +97,9 @@ impl ImportanceExponent {
     /// Full importance-sampling correction — Schaul Table 3's annealed
     /// endpoint, and the value a strategy that emits no weights is handed.
     ///
-    /// Named rather than spelled `1.0` at each call site so that "the schedule
-    /// has finished annealing" and "this strategy ignores β anyway" read as the
-    /// same documented intent everywhere they appear.
+    /// Named rather than spelled `1.0` at each call site so that "the schedule has finished
+    /// annealing" and "this strategy ignores `$\beta$` anyway" read as the same documented intent
+    /// everywhere they appear.
     pub const ONE: Self = Self(1.0);
 
     /// Builds an exponent from a compile-time-known value, panicking on an
@@ -162,10 +160,10 @@ impl From<ImportanceExponent> for f32 {
 
 /// The single way constructing an [`ImportanceExponent`] can fail.
 ///
-/// Allocation-free and `Copy`, carrying the offending value. A dedicated error
-/// rather than [`ConfigError`](rlevo_core::config::ConfigError) because
-/// construction has no config/field name to report — an agent config that
-/// evaluates its own β schedule wraps this as needed (ADR 0027 §5).
+/// Allocation-free and `Copy`, carrying the offending value. A dedicated error rather than
+/// [`ConfigError`](rlevo_core::config::ConfigError) because construction has no config/field name
+/// to report — an agent config that evaluates its own `$\beta$` schedule wraps this as needed (ADR
+/// 0027 §5).
 #[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
 #[error("invalid importance exponent: {got} must be finite and within [0, 1]")]
 pub struct ImportanceExponentError {
@@ -216,10 +214,10 @@ mod tests {
         }
     }
 
-    /// `-0.0` is finite and compares equal to `0.0`, so it is inside the range
-    /// and `powf` treats it exactly as `0.0` does. Unlike `Priority`, where a
-    /// zero starves a transition, a zero β is a *meaningful* setting (no
-    /// importance correction), so this is an accept, not a reject.
+    /// `-0.0` is finite and compares equal to `0.0`, so it is inside the range and `powf` treats it
+    /// exactly as `0.0` does. Unlike `Priority`, where a zero starves a transition, a zero
+    /// `$\beta$` is a *meaningful* setting (no importance correction), so this is an accept, not a
+    /// reject.
     #[test]
     fn test_importance_exponent_accepts_negative_zero_as_zero() {
         let b = ImportanceExponent::try_new(-0.0).expect("-0.0 == 0.0 is in range");
@@ -254,12 +252,11 @@ mod tests {
 
     /// The unsoundness ADR 0051 §3 records, spelled as executable code.
     ///
-    /// Both schedule *endpoints* are individually valid, yet with
-    /// `anneal_steps == 0` the progress fraction is `0.0 / 0.0` = `NaN` at
-    /// `step == 0`. Whether that `NaN` reaches `powf` then depends on an
-    /// incidental IEEE-754 detail of the limiter spelling — and *that* is the
-    /// point: the soundness of the evaluated β is not a property the config can
-    /// see, so endpoint validation cannot establish it.
+    /// Both schedule *endpoints* are individually valid, yet with `anneal_steps == 0` the progress
+    /// fraction is `0.0 / 0.0` = `NaN` at `step == 0`. Whether that `NaN` reaches `powf` then
+    /// depends on an incidental IEEE-754 detail of the limiter spelling — and *that* is the point:
+    /// the soundness of the evaluated `$\beta$` is not a property the config can see, so endpoint
+    /// validation cannot establish it.
     #[test]
     // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
     // Narrowing to the tensor's own dtype is the intent, and the sample is finite

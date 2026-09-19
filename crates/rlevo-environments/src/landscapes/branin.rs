@@ -18,17 +18,15 @@
 //! both `[-5, 10]` and `[0, 15]`.
 //!
 //! The hull is required for **reachability**: the minimum `$(-\pi, 12.275)$` has
-//! `x₂ = 12.275 > 10`, so a `(-5.0, 10.0)` box would place one of the three
-//! certified minima outside the search space, where no optimiser could ever
-//! find it.
+//! `$x_2 = 12.275 > 10$`, so a `(-5.0, 10.0)` box would place one of the three certified minima
+//! outside the search space, where no optimiser could ever find it.
 //!
-//! The hull also admits points outside the published rectangle (e.g.
-//! `$x_2 \in (10, 15]$` paired with `$x_1 \in (10, 15]$`, or `x₂ < 0`). That is harmless:
-//! `$f^* = 10/(8\pi)$` is the global **infimum of Branin over all of ℝ²** (see the
-//! derivation on [`bounds`](Branin::bounds)), so no widening of the box can
-//! admit a point better than `f*`. Widening buys the third certified minimum
-//! and nothing else. The evaluator never clamps — the benchmark harness owns
-//! domain enforcement.
+//! The hull also admits points outside the published rectangle (e.g. `$x_2 \in (10, 15]$` paired
+//! with `$x_1 \in (10, 15]$`, or `$x_2 < 0$`). That is harmless: `$f^* = 10/(8\pi)$` is the global
+//! **infimum of Branin over all of `$\mathbb{R}^2$`** (see the derivation on
+//! [`bounds`](Branin::bounds)), so no widening of the box can admit a point better than `f*`.
+//! Widening buys the third certified minimum and nothing else. The evaluator never clamps — the
+//! benchmark harness owns domain enforcement.
 //!
 //! # References
 //!
@@ -65,21 +63,21 @@ impl Branin {
     pub const fn bounds(&self) -> (f64, f64) {
         // Why widening from the x1 range (-5, 10) to the hull (-5, 15) is safe:
         //
-        //   f(x1,x2) = a² + 10·(1 − 1/(8π))·cos(x1) + 10,
-        //   where a = x2 − 5.1·x1²/(4π²) + 5·x1/π − 6.
+        //   `$f(x_1, x_2) = a^2 + 10 \cdot (1 - 1/(8\pi)) \cdot \cos(x_1) + 10$`,
+        //   where `$a = x_2 - 5.1 \cdot x_1^2/(4\pi^2) + 5 \cdot x_1/\pi - 6$`.
         //
-        // a² ≥ 0 and cos(x1) ≥ −1, so for every (x1, x2) ∈ ℝ²:
+        // `$a^2 \geq 0$` and `$\cos(x_1) \geq -1$`, so for every `$(x_1, x_2) \in \mathbb{R}^2$`:
         //
-        //   f ≥ 0 + 10·(1 − 1/(8π))·(−1) + 10
-        //     = 10 − 10·(1 − 1/(8π))
-        //     = 10/(8π)
+        //   `$f \geq 0 + 10 \cdot (1 - 1/(8\pi)) \cdot (-1) + 10$`
+        //     `$= 10 - 10 \cdot (1 - 1/(8\pi))$`
+        //     `$= 10/(8\pi)$`
         //     = 0.397887357729738…  =  f*
         //
-        // i.e. f* is the global *infimum of Branin over all of ℝ²*, not merely
-        // over the published rectangle. Enlarging the search box therefore can
-        // never expose a point with f < f* (obligation O2). It exposes exactly
-        // the third certified minimum (−π, 12.275), whose x2 = 12.275 lies
-        // above the x1 range's upper end of 10 (obligation O1).
+        // i.e. f* is the global *infimum of Branin over all of `$\mathbb{R}^2$`*, not merely over
+        // the published rectangle. Enlarging the search box therefore can never expose a point with
+        // f < f* (obligation O2). It exposes exactly the third certified minimum
+        // `$(-\pi, 12.275)$`, whose `$x_2 = 12.275$` lies above the x1 range's upper end of 10
+        // (obligation O1).
         (-5.0, 15.0)
     }
 
@@ -148,10 +146,10 @@ mod tests {
 
     #[test]
     fn bounds_box_contains_all_optima_on_both_axes() {
-        // O1 — reachability. The single `(lo, hi)` pair is applied per-coordinate,
-        // so EVERY certified minimum must lie inside [lo, hi] on BOTH axes for a
-        // search harness to be able to reach it. The historical `(-5.0, 10.0)` box
-        // failed here: (−π, 12.275) has x2 = 12.275 > 10.
+        // O1 — reachability. The single `(lo, hi)` pair is applied per-coordinate, so EVERY
+        // certified minimum must lie inside [lo, hi] on BOTH axes for a search harness to be able
+        // to reach it. The historical `(-5.0, 10.0)` box failed here: `$(-\pi, 12.275)$` has
+        // `$x_2 = 12.275 > 10$`.
         let (lo, hi) = Branin::new().bounds();
         for (opt_x1, opt_x2) in [(-PI, 12.275_f64), (PI, 2.275_f64), (3.0 * PI, 2.475_f64)] {
             assert!(
@@ -167,7 +165,7 @@ mod tests {
 
     #[test]
     fn bounds_box_contains_full_asymmetric_domain() {
-        // O1 — the square hull must cover x1 ∈ [-5, 10] and x2 ∈ [0, 15].
+        // O1 — the square hull must cover `$x_1 \in [-5, 10]$` and `$x_2 \in [0, 15]$`.
         let (lo, hi) = Branin::new().bounds();
         assert!(lo <= -5.0 && hi >= 10.0, "x1 domain not covered");
         assert!(lo <= 0.0 && hi >= 15.0, "x2 domain not covered");
@@ -175,10 +173,10 @@ mod tests {
 
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {
-        // O2 — no spurious optimum. Widening the box to the square hull must not
-        // admit any point with f < f*. Guaranteed analytically (f* = 10/(8π) is the
-        // infimum of Branin over all of ℝ² — see the comment on `bounds`); this is
-        // the deterministic empirical check over a dense grid of the returned box.
+        // O2 — no spurious optimum. Widening the box to the square hull must not admit any point
+        // with f < f*. Guaranteed analytically (`$f^* = 10/(8\pi)$` is the infimum of Branin over
+        // all of `$\mathbb{R}^2$` — see the comment on `bounds`); this is the deterministic
+        // empirical check over a dense grid of the returned box.
         const CELLS: i32 = 400;
 
         let b = Branin::new();

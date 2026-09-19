@@ -270,7 +270,7 @@ fn ddpg_act_with_matches_deterministic_act() {
     let mut rng = StdRng::seed_from_u64(seed);
     for &x in &[-0.9_f32, -0.3, 0.0, 0.25, 0.8] {
         let obs = LinearObservation { x };
-        // training=false ⇒ deterministic mean + bound clip; rng is unused.
+        // training=false `$\Rightarrow$` deterministic mean + bound clip; rng is unused.
         let det = agent.act(&obs, false, &mut rng);
         let greedy = agent.act_with(&net, &obs);
         let a = det.as_slice()[0];

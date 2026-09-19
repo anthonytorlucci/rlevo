@@ -83,17 +83,17 @@ impl fmt::Display for Symbol {
 
 /// Collapses a non-finite phenotype value to the inert `0.0`.
 ///
-/// This is the **node-level** numerical-stability guard: intermediate node
-/// values in the CGP ([`evaluate_cgp_with`](crate::algorithms::gp_cgp)) and GEP
-/// ([`ExpressionTree::eval`](crate::algorithms::gep::ExpressionTree::eval))
-/// evaluators are fed back into downstream node arithmetic, so a non-finite
-/// intermediate (overflow `±inf`, `0/0` `NaN`) must be neutralized *in place*
-/// with a finite value rather than allowed to poison the rest of the tree.
+/// This is the **node-level** numerical-stability guard: intermediate node values in the CGP
+/// ([`evaluate_cgp_with`](crate::algorithms::gp_cgp)) and GEP
+/// ([`ExpressionTree::eval`](crate::algorithms::gep::ExpressionTree::eval)) evaluators are fed back
+/// into downstream node arithmetic, so a non-finite intermediate (overflow `$\pm\infty$`, `0/0`
+/// `NaN`) must be neutralized *in place* with a finite value rather than allowed to poison the rest
+/// of the tree.
 ///
-/// This is **not** the fitness `NaN → −inf` convention from `rules.md §3`: that
-/// rule applies to the final aggregated fitness and is handled separately by
-/// [`sanitize_fitness`](crate::fitness::sanitize_fitness). `0.0` is correct
-/// here precisely because the value is an operand, not a fitness score.
+/// This is **not** the fitness `$\text{NaN} \to -\infty$` convention from `rules.md §3`: that rule
+/// applies to the final aggregated fitness and is handled separately by
+/// [`sanitize_fitness`](crate::fitness::sanitize_fitness). `0.0` is correct here precisely because
+/// the value is an operand, not a fitness score.
 #[must_use]
 #[inline]
 pub(crate) fn finite_or_zero(v: f32) -> f32 {
@@ -141,13 +141,12 @@ pub trait FunctionSet: Send + Sync + Debug {
     ///
     /// # Numerical
     ///
-    /// `apply` performs raw IEEE-754 `f32` arithmetic and **may return a
-    /// non-finite value** — overflow yields `±inf`, `0.0 / 0.0` yields `NaN`.
-    /// It does **not** sanitize its result. Finiteness is the caller's
-    /// responsibility at two distinct layers: intermediate node values are
-    /// collapsed to `0.0` for phenotype-evaluation stability (see the
-    /// `finite_or_zero` helper), and the final fitness is mapped to `−inf` by
-    /// the crate's `sanitize_fitness` per `rules.md §3`.
+    /// `apply` performs raw IEEE-754 `f32` arithmetic and **may return a non-finite value** —
+    /// overflow yields `$\pm\infty$`, `0.0 / 0.0` yields `NaN`. It does **not** sanitize its
+    /// result. Finiteness is the caller's responsibility at two distinct layers: intermediate node
+    /// values are collapsed to `0.0` for phenotype-evaluation stability (see the `finite_or_zero`
+    /// helper), and the final fitness is mapped to `$-\infty$` by the crate's `sanitize_fitness`
+    /// per `rules.md §3`.
     fn apply(&self, symbol: Symbol, args: &[f32]) -> f32;
 }
 

@@ -13,10 +13,9 @@
 //!
 //!   `$X_i \leftarrow (X_i + X_{i-1}) / 2$`.
 //!
-//! The follower rule is realized as a parallel stencil — the shifted
-//! copy is `concat([last_leader, followers[..−1]])` — rather than a
-//! host-side Python-style loop. That keeps the update GPU-friendly and
-//! deterministic.
+//! The follower rule is realized as a parallel stencil — the shifted copy is
+//! `$\text{concat}([\text{last\_leader}, \text{followers}[..-1]])$` — rather than a host-side
+//! Python-style loop. That keeps the update GPU-friendly and deterministic.
 //!
 //! # Candor
 //!
@@ -285,13 +284,12 @@ where
         mut state: SalpState<B>,
         _rng: &mut dyn Rng,
     ) -> (SalpState<B>, StrategyMetrics) {
-        // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
-        // per-site correctness floor for a caller driving `ask`/`tell`
-        // directly instead of `EvolutionaryHarness::step`, which already
-        // sanitizes (the ADR 0034 decision-3 bypass hole): otherwise a raw
-        // NaN lands in the public `state.fitness` cache. `sanitize_fitness`
-        // is idempotent, so on the harness path this is a provable no-op —
-        // not redundant, load-bearing.
+        // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
+        // correctness floor for a caller driving `ask`/`tell` directly instead of
+        // `EvolutionaryHarness::step`, which already sanitizes (the ADR 0034 decision-3 bypass
+        // hole): otherwise a raw NaN lands in the public `state.fitness` cache. `sanitize_fitness`
+        // is idempotent, so on the harness path this is a provable no-op — not redundant,
+        // load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -523,13 +521,12 @@ mod tests {
             "raw NaN reached the public fitness cache: {:?}",
             state.fitness
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
-        // clears `is_nan` yet would rank salp 0 *above* every finite -1/-2/…
-        // row and elect the NaN-scoring salp as the food source — the leader
-        // poisoning this regression exists to catch.
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would rank salp 0 *above* every finite -1/-2/… row and elect
+        // the NaN-scoring salp as the food source — the leader poisoning this regression exists to
+        // catch.
         assert!(
             state.fitness[0].is_infinite() && state.fitness[0].is_sign_negative(),
             "sanitized NaN must land as -inf in the salp-0 fitness cache: {:?}",

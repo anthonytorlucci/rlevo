@@ -134,20 +134,18 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 ///   case is irreducible.
 pub(crate) struct Slot<M>(Option<M>);
 
-/// The importance-sampling exponent (β) the off-policy agents pass to
+/// The importance-sampling exponent (`$\beta$`) the off-policy agents pass to
 /// [`ReplayStrategy::sample`].
 ///
-/// Every agent draws from a [`UniformReplay`], which emits no IS weights and
-/// therefore ignores β entirely (ADR 0050 §3). The value is
-/// [`ImportanceExponent::ONE`] — the fully-annealed, no-correction end of
-/// Schaul's schedule — so that it stays correct as a fallback rather than merely
-/// inert. When prioritized replay is wired in (ADR 0050 step 4) the agents that
-/// adopt it replace this constant with `beta(self.step)` off their own config
-/// schedule; the ones that keep uniform replay keep this.
+/// Every agent draws from a [`UniformReplay`], which emits no IS weights and therefore ignores
+/// `$\beta$` entirely (ADR 0050 §3). The value is [`ImportanceExponent::ONE`] — the fully-annealed,
+/// no-correction end of Schaul's schedule — so that it stays correct as a fallback rather than
+/// merely inert. When prioritized replay is wired in (ADR 0050 step 4) the agents that adopt it
+/// replace this constant with `beta(self.step)` off their own config schedule; the ones that keep
+/// uniform replay keep this.
 ///
-/// The type is [`ImportanceExponent`], not `f32`: β is `finite && [0, 1]` by
-/// construction so that a bad value cannot reach `powf` and poison a batch's
-/// importance weights (ADR 0051 §3).
+/// The type is [`ImportanceExponent`], not `f32`: `$\beta$` is `finite && [0, 1]` by construction
+/// so that a bad value cannot reach `powf` and poison a batch's importance weights (ADR 0051 §3).
 ///
 /// [`ReplayStrategy::sample`]: crate::replay::ReplayStrategy::sample
 /// [`UniformReplay`]: crate::replay::UniformReplay
@@ -324,15 +322,14 @@ pub(crate) fn reduce_weighted_loss<B: Backend>(
 ///
 /// # Why a plain sum is enough
 ///
-/// Polyak averaging is *linear* in each parameter, so the sum is exact under
-/// it: if `$t$` and `$a$` are the target's and active network's checksums before an
-/// update, the checksum after `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$` is
+/// Polyak averaging is *linear* in each parameter, so the sum is exact under it: if `$t$` and `$a$`
+/// are the target's and active network's checksums before an update, the checksum after
+/// `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$` is
 /// `$(1 - \tau) \cdot t + \tau \cdot a$`, up to `f32` rounding. A caller can therefore assert not
-/// merely *that* the target moved but that it moved by exactly τ of the gap —
-/// the property a cadence test needs. It cannot distinguish two different
-/// weight vectors with equal sums, so a caller asserting "unchanged" should
-/// first assert that the live and target checksums genuinely differ, or the
-/// assertion is vacuous.
+/// merely *that* the target moved but that it moved by exactly `$\tau$` of the gap — the property a
+/// cadence test needs. It cannot distinguish two different weight vectors with equal sums, so a
+/// caller asserting "unchanged" should first assert that the live and target checksums genuinely
+/// differ, or the assertion is vacuous.
 ///
 /// Int and bool parameters are not visited: `polyak_update` blends floats only,
 /// so anything else is invariant under the operation being observed.
@@ -500,12 +497,11 @@ impl<M> Slot<M> {
 ///
 /// # `is_nan`, not `is_finite` — deliberately
 ///
-/// `±inf` is **not** masked, because `clamp` already handles it correctly and
-/// identically on both backends: it pins `+inf` to `hi` and `-inf` to `lo`.
-/// For the projection that is the algorithm's intended semantics (an infinite
-/// reward genuinely means "a return of at least `v_max`"), so masking on
-/// `is_finite` would regress a currently-correct path into an all-`NaN` target.
-/// Only `NaN` — the value with no meaningful clamp — is preserved.
+/// `$\pm\infty$` is **not** masked, because `clamp` already handles it correctly and identically on
+/// both backends: it pins `+inf` to `hi` and `-inf` to `lo`. For the projection that is the
+/// algorithm's intended semantics (an infinite reward genuinely means "a return of at least
+/// `v_max`"), so masking on `is_finite` would regress a currently-correct path into an all-`NaN`
+/// target. Only `NaN` — the value with no meaningful clamp — is preserved.
 ///
 /// # The `is_nan` guarantee, and when to re-verify it
 ///
@@ -565,11 +561,10 @@ pub(crate) fn clamp_preserving_nan<B: Backend, const D: usize>(
 /// it tells the caller to skip both `backward()` and the optimizer step, so the
 /// poison never reaches the parameters and the next minibatch can recover.
 ///
-/// This generalizes the SAC-α optimizer guard
-/// ([`sac_alpha`](super::sac::sac_alpha)) from one hand-rolled optimizer to
-/// every agent's learn step. The canonical precedent outside RL is `PyTorch`
-/// AMP's `GradScaler`, which skips `optimizer.step()` when the unscaled
-/// gradients contain `inf`/`NaN` so the params stay uncorrupted, and continues.
+/// This generalizes the SAC-`$\alpha$` optimizer guard ([`sac_alpha`](super::sac::sac_alpha)) from
+/// one hand-rolled optimizer to every agent's learn step. The canonical precedent outside RL is
+/// `PyTorch` AMP's `GradScaler`, which skips `optimizer.step()` when the unscaled gradients contain
+/// `inf`/`NaN` so the params stay uncorrupted, and continues.
 ///
 /// # Why a decade schedule and not a one-shot latch
 ///
@@ -619,10 +614,9 @@ impl FiniteLossGuard {
         }
     }
 
-    /// Returns `true` if `loss` is finite — the caller proceeds to `backward()`
-    /// and the optimizer step. Returns `false` if non-finite (NaN/±Inf) — the
-    /// caller MUST skip both. Emits a `tracing::warn!` on the 1st, 10th, 100th,
-    /// … skip.
+    /// Returns `true` if `loss` is finite — the caller proceeds to `backward()` and the optimizer
+    /// step. Returns `false` if non-finite (NaN/`$\pm$`Inf) — the caller MUST skip both. Emits a
+    /// `tracing::warn!` on the 1st, 10th, 100th, … skip.
     ///
     /// CRITICAL: the skip (returning `false`) fires on EVERY non-finite
     /// occurrence; only the `warn!` is scheduled. Never gate the return value
@@ -738,10 +732,9 @@ impl FiniteRewardGuard {
         }
     }
 
-    /// Returns `true` if `reward` is finite — the caller proceeds to push the
-    /// transition into the replay buffer. Returns `false` if non-finite
-    /// (NaN/±Inf) — the caller MUST return without pushing. Emits a
-    /// `tracing::warn!` on the 1st, 10th, 100th, … rejection.
+    /// Returns `true` if `reward` is finite — the caller proceeds to push the transition into the
+    /// replay buffer. Returns `false` if non-finite (NaN/`$\pm$`Inf) — the caller MUST return
+    /// without pushing. Emits a `tracing::warn!` on the 1st, 10th, 100th, … rejection.
     ///
     /// CRITICAL: the rejection (returning `false`) fires on EVERY non-finite
     /// occurrence; only the `warn!` is scheduled. Never gate the return value
@@ -891,11 +884,10 @@ impl FiniteObsGuard {
         }
     }
 
-    /// Ingestion seam. Returns `true` if the observation row is finite — the
-    /// caller proceeds to push the transition into the replay buffer. Returns
-    /// `false` if the row carries a `NaN` or `±Inf` — the caller MUST return
-    /// without pushing. Emits a `tracing::warn!` on the 1st, 10th, 100th, …
-    /// rejection.
+    /// Ingestion seam. Returns `true` if the observation row is finite — the caller proceeds to
+    /// push the transition into the replay buffer. Returns `false` if the row carries a `NaN` or
+    /// `$\pm\infty$` — the caller MUST return without pushing. Emits a `tracing::warn!` on the 1st,
+    /// 10th, 100th, … rejection.
     ///
     /// `row_is_finite` is the already-evaluated predicate — typically
     /// `obs.row_is_finite(&mut scratch) && next_obs.row_is_finite(&mut scratch)`
@@ -1037,12 +1029,11 @@ impl FiniteObsGuard {
 /// step counter is never observed at every value — it is only ever observed at
 /// multiples of `num_steps` (128 by default).
 ///
-/// A divisibility test against a counter sampled on a stride fires on the
-/// *intersection* of the two schedules, i.e. every `lcm(num_steps, log_every)`
-/// steps — not every `log_every` steps. With `num_steps = 128` that silently
-/// turned `log_every = 100` into an effective cadence of 3200 (32× too sparse)
-/// and `log_every = 500` into 16 000 — so a 10 000-step run emitted **zero**
-/// progress lines despite asking for 20.
+/// A divisibility test against a counter sampled on a stride fires on the *intersection* of the two
+/// schedules, i.e. every `lcm(num_steps, log_every)` steps — not every `log_every` steps. With
+/// `num_steps = 128` that silently turned `log_every = 100` into an effective cadence of 3200
+/// (`$32\times$` too sparse) and `log_every = 500` into 16 000 — so a 10 000-step run emitted
+/// **zero** progress lines despite asking for 20.
 ///
 /// The watermark form has no such coupling: it fires as soon as at least
 /// `log_every` steps have elapsed since the previous log, whatever the stride,
@@ -1178,11 +1169,11 @@ mod tests {
 
     /// Reads the linear layer's weights back to the host, element-wise.
     ///
-    /// Deliberately not a `sum()` proxy: Adam's first step moves each weight by
-    /// roughly `±lr` in the direction of its gradient's sign, and for this
-    /// network the per-element steps very nearly cancel in the sum — a summed
-    /// proxy reports a ~5e-7 delta for an update that actually moved every
-    /// weight by ~1e-2, and would make "did the optimizer run" untestable.
+    /// Deliberately not a `sum()` proxy: Adam's first step moves each weight by roughly
+    /// `$\pm\text{lr}$` in the direction of its gradient's sign, and for this network the
+    /// per-element steps very nearly cancel in the sum — a summed proxy reports a ~5e-7 delta for
+    /// an update that actually moved every weight by ~1e-2, and would make "did the optimizer run"
+    /// untestable.
     fn weights(slot: &Slot<TestNet<B>>) -> Vec<f32> {
         slot.get()
             .linear
@@ -1889,11 +1880,10 @@ mod tests {
 
     #[test]
     fn clamp_preserving_nan_does_not_mask_infinities() {
-        // Pins the `is_nan`-not-`is_finite` choice. `clamp` already handles
-        // ±inf correctly and identically on both backends, and the C51
-        // projection relies on that (an infinite reward means "a return of at
-        // least v_max"). Masking on `is_finite` would turn both into NaN and
-        // regress a currently-correct path.
+        // Pins the `is_nan`-not-`is_finite` choice. `clamp` already handles `$\pm$`inf correctly
+        // and identically on both backends, and the C51 projection relies on that (an infinite
+        // reward means "a return of at least v_max"). Masking on `is_finite` would turn both into
+        // NaN and regress a currently-correct path.
         let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
         let got = clamped_row::<Flex>(&[f32::NEG_INFINITY, f32::INFINITY], -3.0, 7.0, &device);
 
@@ -2029,9 +2019,9 @@ mod tests {
 
     #[test]
     fn finite_loss_guard_counts_every_skip() {
-        // The counter is the `applied = attempts − skipped` term of ADR 0072
-        // §2, so it must track the true skip total across a mixed stream, not
-        // just a monotone run of failures.
+        // The counter is the `$\text{applied} = \text{attempts} - \text{skipped}$` term of ADR 0072
+        // §2, so it must track the true skip total across a mixed stream, not just a monotone run
+        // of failures.
         let mut guard = FiniteLossGuard::new("test/site");
         for i in 1..=100_u64 {
             assert!(!guard.check(f32::NAN), "NaN #{i} must be skipped");

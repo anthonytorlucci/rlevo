@@ -79,9 +79,8 @@ pub struct RunManifest {
     /// embedded). Empty for EA and un-wired RL. Added in v6.
     #[serde(default)]
     pub checkpoints: Vec<CheckpointRef>,
-    /// Objective direction for the run. `None` ⇒ `Maximize` (the canonical
-    /// engine sense), so RL and unspecified runs render "best/worst"
-    /// correctly.
+    /// Objective direction for the run. `None` `$\Rightarrow$` `Maximize` (the canonical engine
+    /// sense), so RL and unspecified runs render "best/worst" correctly.
     // Added in FORMAT_VERSION = 7
     #[serde(default)]
     pub objective_sense: Option<ObjectiveSense>,

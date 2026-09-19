@@ -38,9 +38,9 @@ pub fn point_mutation<F: FunctionSet>(
     rng: &mut dyn Rng,
 ) {
     for (i, locus) in chromosome.iter_mut().enumerate() {
-        // `< rate` reads as "mutate with probability `rate`" and is robust to a
-        // stray non-finite `rate` (`x < NaN` is `false` ⇒ no mutation). Callers
-        // pass a validated `Probability::get()`, so this is defense-in-depth.
+        // `< rate` reads as "mutate with probability `rate`" and is robust to a stray non-finite
+        // `rate` (`x < NaN` is `false` `$\Rightarrow$` no mutation). Callers pass a validated
+        // `Probability::get()`, so this is defense-in-depth.
         if rng.random::<f32>() < rate {
             *locus = if i < head_len {
                 alphabet.sample_head_symbol(rng)

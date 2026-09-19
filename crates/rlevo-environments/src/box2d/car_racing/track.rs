@@ -4,7 +4,7 @@
 //!
 //! 1. Placing `track_n_checkpoints` control points uniformly around a circle of
 //!    radius ~30 world units.
-//! 2. Perturbing each point's angle (±0.4 rad) and radius (×0.7–1.3) with the
+//! 2. Perturbing each point's angle (`$\pm 0.4$` rad) and radius (`$\times 0.7\text{–}1.3$`) with the
 //!    seeded RNG.
 //! 3. Fitting a Catmull-Rom spline through the control points (5 samples per
 //!    segment) to produce a smooth centreline.

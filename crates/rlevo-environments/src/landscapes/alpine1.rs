@@ -1,10 +1,9 @@
 //! Alpine function No.01 — a non-smooth n-D benchmark from absolute values.
 //!
 //! `$f(x) = \sum |x_i \cdot \sin(x_i) + 0.1 \cdot x_i|$`, global minimum `f* = 0` at `x = 0`.
-//! Non-negative everywhere and **non-smooth**: each dimension contributes
-//! roughly eight kinks across `[-10, 10]` (one at the origin plus the seven
-//! roots of `sin(x_i) = −0.1`), so gradient methods stall at the creases away
-//! from the optimum.
+//! Non-negative everywhere and **non-smooth**: each dimension contributes roughly eight kinks
+//! across `[-10, 10]` (one at the origin plus the seven roots of `$\sin(x_i) = -0.1$`), so gradient
+//! methods stall at the creases away from the optimum.
 //!
 //! Evaluated over `[-10, 10]^n`. Requires `$n \geq 1$`.
 //!
@@ -140,7 +139,7 @@ mod tests {
 
     #[test]
     fn known_value_at_pi() {
-        // At x = π: |π·sin(π) + 0.1·π| = 0.1π.
+        // At `$x = \pi$`: `$\lvert \pi \cdot \sin(\pi) + 0.1 \cdot \pi \rvert = 0.1\pi$`.
         let a = Alpine1::new(1).expect("dim >= 1");
         let expected = (PI * PI.sin() + 0.1 * PI).abs();
         assert_relative_eq!(a.evaluate(&[PI]), expected, epsilon = 1e-10);

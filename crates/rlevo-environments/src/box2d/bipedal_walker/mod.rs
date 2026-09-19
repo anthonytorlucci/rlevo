@@ -21,8 +21,8 @@
 //!
 //! ## Termination conditions
 //!
-//! - Hull contacts the ground → `Terminated` (−100 penalty applied).
-//! - Cumulative reward < −100 → `Terminated`.
+//! - Hull contacts the ground → `Terminated` (`$-100$` penalty applied).
+//! - Cumulative reward < `$-100$` → `Terminated`.
 //! - Step count reaches `config.max_steps` (default 1600) → `Truncated`.
 //!
 //! ## Quick start

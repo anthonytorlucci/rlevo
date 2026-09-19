@@ -54,7 +54,7 @@ impl Validate for AcoPermConfig {
         const C: &str = "AcoPermConfig";
         config::at_least(C, "pop_size", self.pop_size, 1)?;
         config::at_least(C, "n_nodes", self.n_nodes, 1)?;
-        // ρ ∈ (0, 1]: strictly positive and at most one.
+        // `$\rho$` `$\in$` (0, 1]: strictly positive and at most one.
         config::positive(C, "rho", f64::from(self.rho))?;
         config::in_range(C, "rho", 0.0, 1.0, f64::from(self.rho))?;
         config::in_range(C, "alpha", 0.0, f64::INFINITY, f64::from(self.alpha))?;

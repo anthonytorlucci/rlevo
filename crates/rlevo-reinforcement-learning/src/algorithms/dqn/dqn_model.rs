@@ -17,7 +17,7 @@ use crate::utils::PolyakError;
 /// - [`forward_inner`](Self::forward_inner) — the same computation against
 ///   the inner non-autodiff module used as the target network.
 /// - [`soft_update`](Self::soft_update) — Polyak averaging of the target
-///   network: `target ← (1 − τ) · target + τ · active`.
+///   network: `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`.
 ///
 /// The `BOR` const generic is the observation tensor rank *including* the
 /// leading batch dimension (e.g. `BOR = 2` for vector observations of shape
@@ -42,15 +42,15 @@ pub trait DqnModel<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
 
     /// Updates the target network via Polyak averaging.
     ///
-    /// Applies `target ← (1 − τ) · target + τ · active` element-wise to every
-    /// parameter tensor and returns the updated target network. `target` is
+    /// Applies
+    /// `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`
+    /// element-wise to every parameter tensor and returns the updated target network. `target` is
     /// consumed and replaced; `active` is borrowed read-only.
     ///
-    /// Typical `τ` values are in the range `[0.001, 0.01]`; `τ = 1.0` is a hard
-    /// copy of the policy into the target, by degeneracy of the same formula.
-    /// Callers do not choose τ per call — [`DqnTrainingConfig::target_update`]
-    /// owns both the coefficient and the cadence, and
-    /// [`TargetUpdate::fires_at`] hands the applicable τ to this method.
+    /// Typical `$\tau$` values are in the range `[0.001, 0.01]`; `$\tau = 1.0$` is a hard copy of
+    /// the policy into the target, by degeneracy of the same formula. Callers do not choose
+    /// `$\tau$` per call — [`DqnTrainingConfig::target_update`] owns both the coefficient and the
+    /// cadence, and [`TargetUpdate::fires_at`] hands the applicable `$\tau$` to this method.
     ///
     /// [`DqnTrainingConfig::target_update`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::target_update
     /// [`TargetUpdate::fires_at`]: crate::target::TargetUpdate::fires_at

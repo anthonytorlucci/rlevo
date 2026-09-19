@@ -29,8 +29,8 @@ pub struct ReacherConfig {
     /// effective environment timestep is `dt * frame_skip`. Default: `2`
     /// (env dt = 0.02 s).
     pub frame_skip: u32,
-    /// Half-width of the uniform noise added to each joint angle and joint
-    /// velocity at reset. Default: `0.1` rad / (rad s⁻¹).
+    /// Half-width of the uniform noise added to each joint angle and joint velocity at reset.
+    /// Default: `0.1` `$\text{rad}/(\text{rad s}^{-1})$`.
     pub reset_noise_scale: f32,
     /// Episode length limit. A step that reaches this count returns
     /// `EpisodeStatus::Truncated`. Default: `50`.

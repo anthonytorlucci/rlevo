@@ -14,37 +14,36 @@ use serde::{Deserialize, Serialize};
 
 use crate::MAX_BUFFER_CAPACITY;
 
-/// The ε floor of Schaul et al. (2016) §3.3's `$p_i = |\delta_i| + \epsilon$`.
+/// The `$\epsilon$` floor of Schaul et al. (2016) §3.3's `$p_i = |\delta_i| + \epsilon$`.
 ///
-/// **Schaul gives no numeric value for ε** — it is described only as "a small
-/// positive constant that prevents the edge-case of transitions not being
-/// revisited once their error is zero", and it does not appear in the paper's
-/// grid search or in Table 3. `1e-6` is therefore **our** choice, not the
-/// paper's, and is justified against the TD-error scale this library actually
-/// produces rather than by appeal to convention:
+/// **Schaul gives no numeric value for `$\epsilon$`** — it is described only as "a small positive
+/// constant that prevents the edge-case of transitions not being revisited once their error is
+/// zero", and it does not appear in the paper's grid search or in Table 3. `1e-6` is therefore
+/// **our** choice, not the paper's, and is justified against the TD-error scale this library
+/// actually produces rather than by appeal to convention:
 ///
 /// - **It must not reorder real TD errors.** The shipped configs use rewards of
 ///   order 1 (`CartPole`'s `+1` per step, the classic-control family, the bandit
 ///   family) with `$\gamma < 1$`, which puts a residual carrying signal at roughly
-///   `1e-2 … 1e1`. At `1e-6`, ε sits at least four orders of magnitude below
+///   `1e-2 … 1e1`. At `1e-6`, `$\epsilon$` sits at least four orders of magnitude below
 ///   the smallest such residual, so it perturbs no ordering that matters.
 /// - **It must survive `f32`.** `1e-6` is a normal `f32` and exceeds the `f32`
-///   spacing at `1.0` (≈`1.19e-7`), so `$|\delta| + \epsilon$` is not absorbed across the
+///   spacing at `1.0` (`$\approx$` `1.19e-7`), so `$|\delta| + \epsilon$` is not absorbed across the
 ///   residual range above. (For `$|\delta| \gtrsim 8$` the addition *is* absorbed —
-///   irrelevant, since ε only has work to do when `$|\delta| \approx 0$`.)
+///   irrelevant, since `$\epsilon$` only has work to do when `$|\delta| \approx 0$`.)
 /// - **It must leave a converged transition revisitable but strongly
 ///   deprioritized.** That is its entire purpose. Under the default
 ///   `priority_exponent = 0.6`, a fully-converged transition carries
-///   `(1e-6)^0.6 ≈ 4e-4` of unnormalized mass against a `$|\delta| = 1$` transition's
-///   `1.0` — non-zero, so it is never starved, but ~2500× less likely per draw.
+///   `$(10^{-6})^{0.6} \approx 4 \times 10^{-4}$` of unnormalized mass against a `$|\delta| = 1$` transition's
+///   `1.0` — non-zero, so it is never starved, but ~`$2500\times$` less likely per draw.
 /// - **It must not flatten the distribution when nothing has converged yet.** A
-///   larger ε (say `1e-2`) raises the floor to `(1e-2)^0.6 ≈ 6e-2`, pulling
+///   larger `$\epsilon$` (say `1e-2`) raises the floor to `$(10^{-2})^{0.6} \approx 6 \times 10^{-2}$`, pulling
 ///   prioritization toward uniform early in training when residuals are small
 ///   and roughly equal — the regime where prioritization is supposed to be
 ///   doing the most work.
 pub const DEFAULT_PRIORITY_EPSILON: f32 = 1e-6;
 
-/// Schaul et al. (2016) Table 3's α for the **proportional** variant.
+/// Schaul et al. (2016) Table 3's `$\alpha$` for the **proportional** variant.
 pub const DEFAULT_PRIORITY_EXPONENT: f32 = 0.6;
 
 /// Hyperparameters for [`PrioritizedReplay`](super::PrioritizedReplay).
@@ -57,17 +56,16 @@ pub const DEFAULT_PRIORITY_EXPONENT: f32 = 0.6;
 ///
 /// | Schaul symbol | Field |
 /// |---|---|
-/// | α (priority exponent) | [`priority_exponent`](Self::priority_exponent) |
-/// | ε (priority floor) | [`priority_epsilon`](Self::priority_epsilon) |
+/// | `$\alpha$` (priority exponent) | [`priority_exponent`](Self::priority_exponent) |
+/// | `$\epsilon$` (priority floor) | [`priority_epsilon`](Self::priority_epsilon) |
 ///
-/// # β is deliberately absent
+/// # `$\beta$` is deliberately absent
 ///
-/// The importance-sampling exponent β and its annealing schedule live on the
-/// **agent** config, and the agent passes the evaluated β into
-/// [`sample`](super::ReplayStrategy::sample) (ADR 0050 §11). The buffer has
-/// no step counter, and giving it one would duplicate the agent's — a second
-/// source of truth of exactly the shape `rules.md` §10 forbids — and would be
-/// wrong outright the moment two learners share one buffer.
+/// The importance-sampling exponent `$\beta$` and its annealing schedule live on the **agent**
+/// config, and the agent passes the evaluated `$\beta$` into
+/// [`sample`](super::ReplayStrategy::sample) (ADR 0050 §11). The buffer has no step counter, and
+/// giving it one would duplicate the agent's — a second source of truth of exactly the shape
+/// `rules.md` §10 forbids — and would be wrong outright the moment two learners share one buffer.
 ///
 /// # Examples
 ///
@@ -102,14 +100,14 @@ pub struct PrioritizedReplayConfig {
     /// magnitude above any published replay buffer.
     pub capacity: usize,
 
-    /// Schaul Eq. 1's α in `$P(i) = p_i^\alpha / \sum_k p_k^\alpha$`.
+    /// Schaul Eq. 1's `$\alpha$` in `$P(i) = p_i^\alpha / \sum_k p_k^\alpha$`.
     ///
     /// `0.0` is the uniform case (every stored transition maps to mass `1.0`),
     /// `1.0` is fully greedy prioritization. Must lie in `[0, 1]`. Defaults to
     /// [`DEFAULT_PRIORITY_EXPONENT`].
     pub priority_exponent: f32,
 
-    /// Schaul §3.3's ε in `$p_i = |\delta_i| + \epsilon$`.
+    /// Schaul §3.3's `$\epsilon$` in `$p_i = |\delta_i| + \epsilon$`.
     ///
     /// Must be finite and strictly positive. Defaults to
     /// [`DEFAULT_PRIORITY_EPSILON`] — see that constant for why `1e-6`, and for

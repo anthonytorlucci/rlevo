@@ -5,7 +5,7 @@
 //!   learned logits head, sampling via Gumbel-max on CPU.
 //! - [`TanhGaussianPolicyHead`] — continuous action spaces; state-independent
 //!   `log_std` parameter, sampling via reparameterisation `$z = \mu + \sigma \cdot \epsilon$` then
-//!   `a = scale · tanh(z)`.
+//!   `$a = \text{scale} \cdot \tanh(z)$`.
 //!
 //! Both heads are full MLPs with two hidden `tanh` layers (`CleanRL` default).
 //! Users who need a different architecture can `impl PpoPolicy` directly on

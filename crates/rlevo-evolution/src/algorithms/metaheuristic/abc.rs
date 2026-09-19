@@ -1,8 +1,7 @@
 //! Artificial Bee Colony.
 //!
-//! Canonical ABC fused into a single `Strategy::ask` / `tell` round per
-//! generation. Each generation produces `2 · pop_size` candidate
-//! solutions:
+//! Canonical ABC fused into a single `Strategy::ask` / `tell` round per generation. Each generation
+//! produces `$2 \cdot \text{pop\_size}$` candidate solutions:
 //!
 //! 1. **Employed phase** (`pop_size` candidates). For every bee `i`, pick
 //!    a neighbour `$k \neq i$`, pick a random dimension `j`, and perturb:
@@ -51,15 +50,15 @@ use crate::strategy::{Strategy, StrategyMetrics};
 /// Static configuration for [`ArtificialBeeColony`].
 #[derive(Debug, Clone)]
 pub struct AbcConfig {
-    /// Colony size. The algorithm draws `2 · pop_size` candidates per
-    /// generation (employed + onlooker).
+    /// Colony size. The algorithm draws `$2 \cdot \text{pop\_size}$` candidates per generation
+    /// (employed + onlooker).
     pub pop_size: usize,
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: Bounds,
-    /// Scout trigger. A bee with `trial > limit` is reinitialized.
-    /// Karaboga's canonical default is `pop_size · genome_dim / 2`.
+    /// Scout trigger. A bee with `trial > limit` is reinitialized. Karaboga's canonical default is
+    /// `$\text{pop\_size} \cdot \text{genome\_dim}/2$`.
     pub limit: usize,
     /// Tournament size for onlooker selection. Canonical ABC uses
     /// roulette (fitness-proportionate); tournament is a GPU-friendly
@@ -117,10 +116,9 @@ pub struct AbcState<B: Backend> {
     fitness: Vec<f32>,
     /// Per-bee trial counter.
     trial: Vec<usize>,
-    /// Target-bee mapping recorded by `ask` so `tell` knows which bee
-    /// each candidate belongs to. Empty after `init` and after the
-    /// bootstrap `ask` call (when `fitness` is still empty); populated
-    /// with `2 · pop_size` indices from the second `ask` onward.
+    /// Target-bee mapping recorded by `ask` so `tell` knows which bee each candidate belongs to.
+    /// Empty after `init` and after the bootstrap `ask` call (when `fitness` is still empty);
+    /// populated with `$2 \cdot \text{pop\_size}$` indices from the second `ask` onward.
     target_of_candidate: Vec<usize>,
     /// Best-so-far genome.
     best_genome: Option<Tensor<B, 2>>,
@@ -135,10 +133,9 @@ impl<B: Backend> AbcState<B> {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if the colony has zero rows, if `fitness` or
-    /// `trial` is non-empty with a length other than `pop_size`, or if
-    /// `target_of_candidate` is non-empty with a length other than
-    /// `2 · pop_size`.
+    /// Returns a [`ConfigError`] if the colony has zero rows, if `fitness` or `trial` is non-empty
+    /// with a length other than `pop_size`, or if `target_of_candidate` is non-empty with a length
+    /// other than `$2 \cdot \text{pop\_size}$`.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         colony: Tensor<B, 2>,
@@ -189,8 +186,8 @@ impl<B: Backend> AbcState<B> {
         &self.trial
     }
 
-    /// Candidate-to-bee mapping recorded by `ask` (`2 · pop_size` long, or
-    /// empty at bootstrap).
+    /// Candidate-to-bee mapping recorded by `ask` (`$2 \cdot \text{pop\_size}$` long, or empty at
+    /// bootstrap).
     #[must_use]
     pub fn target_of_candidate(&self) -> &[usize] {
         &self.target_of_candidate
@@ -283,7 +280,7 @@ impl<B: Backend> ArtificialBeeColony<B> {
             Tensor::<B, 2, Int>::from_data(TensorData::new(mask, [n_cand, genome_dim]), device)
                 .equal_elem(1);
 
-        // φ is per-row; broadcast to (n_cand, D).
+        // `$\varphi$` is per-row; broadcast to (n_cand, D).
         let phi_row = Tensor::<B, 1>::from_data(TensorData::new(phi.to_vec(), [n_cand]), device)
             .unsqueeze_dim::<2>(1)
             .expand([n_cand, genome_dim]);
@@ -369,7 +366,7 @@ where
                 .into_iter()
                 .map(|w| usize::try_from(w).expect("winner index is non-negative")),
         );
-        // Neighbour + dim + φ for every candidate.
+        // Neighbour + dim + `$\varphi$` for every candidate.
         for &t in &targets {
             let mut k = stream.random_range(0..pop);
             if k == t {
@@ -408,18 +405,15 @@ where
         mut state: AbcState<B>,
         rng: &mut dyn Rng,
     ) -> (AbcState<B>, StrategyMetrics) {
-        // Sanitise on the host pull, per the maximise convention (`rules.md`
-        // §3, ADR 0034): `NaN → −∞` (worst), `+∞ → f32::MAX`. This is the
-        // per-site correctness floor for callers that bypass
-        // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
-        // so a hand-rolled `ask`/`tell` driver reaches this line with raw
-        // values (ADR 0034 decision 3). One sanitise here covers
-        // both the bootstrap seed of `state.fitness` and the accept-store
-        // below; a raw `NaN` latched into a bee's cache loses every later
-        // `cand_fit >= state.fitness[t]` comparison, freezing that bee until
-        // the scout `limit` happens to rescue it. `sanitize_fitness` is
-        // idempotent, so on the harness path (which pre-sanitises) this is a
-        // provable no-op — do not delete it as redundant.
+        // Sanitise on the host pull, per the maximise convention (`rules.md` §3, ADR 0034):
+        // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. This is the per-site
+        // correctness floor for callers that bypass `EvolutionaryHarness::step` — `Strategy` is
+        // public and re-exported, so a hand-rolled `ask`/`tell` driver reaches this line with raw
+        // values (ADR 0034 decision 3). One sanitise here covers both the bootstrap seed of
+        // `state.fitness` and the accept-store below; a raw `NaN` latched into a bee's cache loses
+        // every later `cand_fit >= state.fitness[t]` comparison, freezing that bee until the scout
+        // `limit` happens to rescue it. `sanitize_fitness` is idempotent, so on the harness path
+        // (which pre-sanitises) this is a provable no-op — do not delete it as redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -530,9 +524,8 @@ where
                 {
                     rs2[scout] = (pop + k) as i64;
                 }
-                // Scout fitness is unknown until next generation —
-                // carry −INF (worst under maximise) so any candidate
-                // improves it.
+                // Scout fitness is unknown until next generation — carry `$-\infty$` (worst under
+                // maximise) so any candidate improves it.
                 state.fitness[scout] = f32::NEG_INFINITY;
             }
             let stacked2 = Tensor::cat(vec![state.colony.clone(), fresh], 0);
@@ -609,7 +602,7 @@ mod tests {
             )
             .is_ok()
         );
-        // fitness length 2 ≠ pop 3, and target_of_candidate 5 ≠ 2·pop.
+        // fitness length `$2 \neq$` pop 3, and target_of_candidate `$5 \neq 2\cdot\text{pop}$`.
         assert!(
             AbcState::try_new(
                 colony.clone(),
@@ -670,8 +663,8 @@ mod tests {
             .iter()
             .filter(|&&t| t == 3)
             .count();
-        // P(best wins an 8-ary tournament over pop 16) ≈ 0.40, so ~6 of
-        // 16 onlookers in expectation; the inverted sense yields ~0.
+        // P(best wins an 8-ary tournament over pop 16) `$\approx$` 0.40, so ~6 of 16 onlookers in
+        // expectation; the inverted sense yields ~0.
         assert!(
             onlooker_hits >= 3,
             "onlooker hits on the best bee = {onlooker_hits} (expected ~6)",
@@ -741,9 +734,9 @@ mod tests {
         assert!(next.target_of_candidate().is_empty());
     }
 
-    // Gap (a): a two-bee colony is the smallest legal ABC. The employed-phase
-    // neighbour draw `k ≠ i` degenerates to the wrap `(k + 1) % pop`; this pins
-    // that the wrap runs several generations without panicking.
+    // Gap (a): a two-bee colony is the smallest legal ABC. The employed-phase neighbour draw
+    // `$k \neq i$` degenerates to the wrap `(k + 1) % pop`; this pins that the wrap runs several
+    // generations without panicking.
     #[test]
     fn pop_size_two_minimal_colony_runs() {
         let device = Default::default();
@@ -813,7 +806,7 @@ mod tests {
             5,
         )
         .expect("valid state");
-        // 2·pop candidates far from origin → canonical fitness −18 < 0; none
+        // `$2\cdot\text{pop}$` candidates far from origin → canonical fitness `$-18 < 0$`; none
         // improves its target, so no acceptance and every trial increments.
         let candidates = Tensor::<TestBackend, 2>::full([8, 2], 3.0, &device);
         let fit =
@@ -868,14 +861,12 @@ mod tests {
     }
 
     // Regression for the per-slot fitness-cache freeze on a bypass `tell`.
-    // `nan_fitness_survives_harness` above covers the harness path; this
-    // covers the documented bypass hole (ADR 0034 decision 3) — a direct
-    // `init` → `ask` → `tell` driver. A raw `NaN` latched into
-    // `state.fitness` loses every later `cand_fit >= state.fitness[t]`
-    // comparison, so bee 0 freezes: it accepts nothing, and only the scout
-    // `limit` eventually rescues it. The assertion is on the *cache*, not on
-    // convergence — a "reaches < ε on Sphere" check passes straight through
-    // this bug because of that self-heal.
+    // `nan_fitness_survives_harness` above covers the harness path; this covers the documented
+    // bypass hole (ADR 0034 decision 3) — a direct `init` → `ask` → `tell` driver. A raw `NaN`
+    // latched into `state.fitness` loses every later `cand_fit >= state.fitness[t]` comparison, so
+    // bee 0 freezes: it accepts nothing, and only the scout `limit` eventually rescues it. The
+    // assertion is on the *cache*, not on convergence — a "reaches < `$\epsilon$` on Sphere" check
+    // passes straight through this bug because of that self-heal.
     #[test]
     fn nan_fitness_does_not_latch_without_harness() {
         let device = Default::default();
@@ -905,13 +896,12 @@ mod tests {
             "raw NaN latched into the bee-0 fitness cache: {:?}",
             state.fitness()
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
-        // clears `is_nan` yet would rank bee 0 *above* the finite -1/-2/-3
-        // scores and make the NaN-scoring bee the reported population best —
-        // the leader poisoning this regression exists to catch.
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would rank bee 0 *above* the finite -1/-2/-3 scores and make
+        // the NaN-scoring bee the reported population best — the leader poisoning this regression
+        // exists to catch.
         assert!(
             state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
             "sanitized NaN must land as -inf in the bee-0 fitness cache: {:?}",
@@ -930,19 +920,16 @@ mod tests {
         approx::assert_relative_eq!(state.fitness()[0], 20.0, epsilon = 1e-6);
     }
 
-    // Regression for the per-slot fitness-cache freeze on a bypass `tell`,
-    // `+∞` half. The `nan_fitness_does_not_latch_without_harness` family
-    // above covers `NaN → −∞`; `sanitize_fitness` has a second rule,
-    // `+∞ → f32::MAX`, which the same bypass `tell` now applies. That rule
-    // is *observable* to a direct `ask`/`tell` driver: an individual scoring
-    // a genuine `+∞` is reported as a finite `f32::MAX` in both the fitness
-    // cache and `StrategyMetrics`, never as raw `+∞`. This is intended (ADR
-    // 0034 decision 1) — it keeps the top-ranked member top-ranked while
-    // stopping a single unbounded score from blowing the population
-    // mean/variance to `+∞`. One shared test covers the rule; the nine
-    // per-algorithm NaN tests already prove every `tell` routes its host
-    // pull through `sanitize_fitness`, so the `+∞` branch reaches all of
-    // them by the same path.
+    // Regression for the per-slot fitness-cache freeze on a bypass `tell`, `$+\infty$` half. The
+    // `nan_fitness_does_not_latch_without_harness` family above covers `$\text{NaN} \to -\infty$`;
+    // `sanitize_fitness` has a second rule, `$+\infty \to \text{f32::MAX}$`, which the same bypass
+    // `tell` now applies. That rule is *observable* to a direct `ask`/`tell` driver: an individual
+    // scoring a genuine `$+\infty$` is reported as a finite `f32::MAX` in both the fitness cache
+    // and `StrategyMetrics`, never as raw `$+\infty$`. This is intended (ADR 0034 decision 1) — it
+    // keeps the top-ranked member top-ranked while stopping a single unbounded score from blowing
+    // the population mean/variance to `$+\infty$`. One shared test covers the rule; the nine
+    // per-algorithm NaN tests already prove every `tell` routes its host pull through
+    // `sanitize_fitness`, so the `$+\infty$` branch reaches all of them by the same path.
     #[test]
     fn inf_fitness_clamps_finite_without_harness() {
         let device = Default::default();
@@ -950,7 +937,7 @@ mod tests {
         let params = AbcConfig::default_for(4, 2);
         let mut rng = StdRng::seed_from_u64(31);
 
-        // Generation 0 (bootstrap): bee 0 scores `+∞`, the rest finite.
+        // Generation 0 (bootstrap): bee 0 scores `$+\infty$`, the rest finite.
         let state = strategy.init(&params, &mut rng, &device);
         let (colony, state) = strategy.ask(&params, &state, &mut rng, &device);
         let fitness = Tensor::<TestBackend, 1>::from_data(
@@ -959,7 +946,7 @@ mod tests {
         );
         let (state, m) = strategy.tell(&params, colony, fitness, state, &mut rng);
 
-        // The cache holds the clamped, finite `f32::MAX` — not raw `+∞`.
+        // The cache holds the clamped, finite `f32::MAX` — not raw `$+\infty$`.
         assert!(
             state.fitness()[0].is_finite(),
             "raw +inf latched into the bee-0 fitness cache: {:?}",
@@ -967,9 +954,9 @@ mod tests {
         );
         approx::assert_relative_eq!(state.fitness()[0], f32::MAX);
 
-        // Clamping preserves the ranking: bee 0 is still the best, and every
-        // reported statistic stays finite (the point of the clamp — `+∞` would
-        // poison `mean_fitness` for the whole population).
+        // Clamping preserves the ranking: bee 0 is still the best, and every reported statistic
+        // stays finite (the point of the clamp — `$+\infty$` would poison `mean_fitness` for the
+        // whole population).
         approx::assert_relative_eq!(m.best_fitness(), f32::MAX);
         assert!(
             m.mean_fitness().is_finite(),
@@ -981,8 +968,8 @@ mod tests {
             "best_fitness_ever went non-finite under a +inf member: {}",
             m.best_fitness_ever()
         );
-        // A clamped `+∞` is a *usable* member, unlike a sanitized `NaN`: it is
-        // finite, so it is averaged in rather than counted broken.
+        // A clamped `$+\infty$` is a *usable* member, unlike a sanitized `NaN`: it is finite, so it
+        // is averaged in rather than counted broken.
         assert_eq!(
             m.broken_count(),
             0,

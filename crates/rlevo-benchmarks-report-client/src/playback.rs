@@ -23,8 +23,8 @@ use wasm_bindgen::JsCast;
 use crate::adapters;
 use crate::wire::{EnvFamily, EpisodeRecord};
 
-/// Base interval between play-loop ticks at 1× speed, in milliseconds.
-/// Higher speeds divide this value; the result is floored at 20 ms.
+/// Base interval between play-loop ticks at `$1\times$` speed, in milliseconds. Higher speeds
+/// divide this value; the result is floored at 20 ms.
 const PLAY_BASE_INTERVAL_MS: u64 = 200;
 
 /// Determine the next frame index when the play loop ticks. Returns
@@ -50,8 +50,8 @@ pub fn clamp_idx(requested: usize, frame_count: usize) -> usize {
     }
 }
 
-/// Compute the interval delay for the play loop given a speed
-/// multiplier. Clamps to a floor so 10× doesn't burn the browser.
+/// Compute the interval delay for the play loop given a speed multiplier. Clamps to a floor so
+/// `$10\times$` doesn't burn the browser.
 #[must_use]
 pub fn play_interval_ms(speed: u32) -> u64 {
     let s = u64::from(speed.max(1));

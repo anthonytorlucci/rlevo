@@ -5,11 +5,11 @@
 //! dispatch the interactive grids playback adapter (scrubber +
 //! play/pause + styled-frame rendering).
 //!
-//! A random agent plays [`NUM_EPISODES`] episodes on a [`GRID_SIZE`]×[`GRID_SIZE`]
-//! [`EmptyEnv`]. Each step is recorded as a frame via [`RecordingTap`];
-//! the completed run is serialised to a per-run directory under the workspace
-//! `target/` tree. `emit_static_html` then writes a single `index.html` into
-//! that same directory — open it in a browser to replay the episodes.
+//! A random agent plays [`NUM_EPISODES`] episodes on a [`GRID_SIZE`]`$\times$`[`GRID_SIZE`]
+//! [`EmptyEnv`]. Each step is recorded as a frame via [`RecordingTap`]; the completed run is
+//! serialised to a per-run directory under the workspace `target/` tree. `emit_static_html` then
+//! writes a single `index.html` into that same directory — open it in a browser to replay the
+//! episodes.
 //!
 //! # Run with
 //!

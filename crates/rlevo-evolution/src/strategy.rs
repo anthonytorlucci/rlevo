@@ -6,7 +6,7 @@
 //! generation:
 //!
 //! 1. [`init`](Strategy::init) — build the initial state (sampling the
-//!    population, initializing σ, generation counter, etc).
+//!    population, initializing `$\sigma$`, generation counter, etc).
 //! 2. [`ask`](Strategy::ask) — propose the next population as a genome
 //!    container.
 //! 3. [`tell`](Strategy::tell) — consume that population together with
@@ -88,10 +88,10 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 ///
 /// # Associated Types
 ///
-/// - `Params`: Static configuration for a run (population size, σ, F,
+/// - `Params`: Static configuration for a run (population size, `$\sigma$`, F,
 ///   CR, …). Adaptive algorithms mutate their adaptive quantities inside
 ///   `State`, not `Params`.
-/// - `State`: Generation-to-generation state (current population, σ,
+/// - `State`: Generation-to-generation state (current population, `$\sigma$`,
 ///   best-so-far, RNG-free sub-statistics). Must be clonable so the
 ///   harness can snapshot before a risky step if needed.
 /// - `Genome`: Genome container produced by `ask` and consumed by
@@ -281,11 +281,10 @@ impl StrategyMetrics {
     pub fn from_host_fitness(generation: usize, fitnesses: &[f32], best_fitness_ever: f32) -> Self {
         assert!(!fitnesses.is_empty(), "fitness slice must be non-empty");
         let population_size = fitnesses.len();
-        // Canonical (maximise) space: best is the largest value, worst the
-        // smallest, best-ever a rolling maximum. Each value is sanitized up front
-        // so all statistics agree on the crate-wide convention. The mean is taken
-        // over finite members only; non-finite (`−∞`) members are counted as
-        // broken rather than dragging the mean to `−∞`.
+        // Canonical (maximise) space: best is the largest value, worst the smallest, best-ever a
+        // rolling maximum. Each value is sanitized up front so all statistics agree on the
+        // crate-wide convention. The mean is taken over finite members only; non-finite
+        // (`$-\infty$`) members are counted as broken rather than dragging the mean to `$-\infty$`.
         //
         // Extrema and the broken tally are order statistics, not reductions, so
         // they stay `f32` (ADR 0069 §Decision 1 excludes ordering explicitly).
@@ -304,20 +303,19 @@ impl StrategyMetrics {
                 broken_count += 1;
             }
         }
-        // The mean *is* a reduction, and it runs through `sanitized_mean`: `f64`
-        // accumulator, one narrowing after the division (ADR 0069 §Decision 2).
-        // The primitive averages every value it is given, so the
-        // mean-over-finite-members semantics is expressed by the `filter` — a
-        // sanitized `−∞` is excluded here and counted as broken above, whereas a
-        // sanitized `+∞` is `f32::MAX`, is finite, and *is* averaged in.
+        // The mean *is* a reduction, and it runs through `sanitized_mean`: `f64` accumulator, one
+        // narrowing after the division (ADR 0069 §Decision 2). The primitive averages every value
+        // it is given, so the mean-over-finite-members semantics is expressed by the `filter` — a
+        // sanitized `$-\infty$` is excluded here and counted as broken above, whereas a sanitized
+        // `$+\infty$` is `f32::MAX`, is finite, and *is* averaged in.
         //
         // The filter re-sanitizes (`sanitize_fitness` is idempotent and is two
         // branches) rather than materialising the sanitized values, keeping this
         // once-per-generation statistic allocation-free.
         //
-        // An all-broken population leaves the filter empty, and `sanitized_mean`
-        // documents that case as `−∞` — degenerate but well-defined, and exactly
-        // the value this function reported before it adopted the primitive.
+        // An all-broken population leaves the filter empty, and `sanitized_mean` documents that
+        // case as `$-\infty$` — degenerate but well-defined, and exactly the value this function
+        // reported before it adopted the primitive.
         let mean = crate::fitness::sanitized_mean(
             fitnesses
                 .iter()
@@ -481,16 +479,13 @@ pub struct GenerationStep {
 /// while !harness.step(()).done {}
 /// ```
 ///
-/// Each [`step`](Self::step) runs one generation (ask → evaluate →
-/// tell). The harness is the sole canonicaliser: it reads the fitness fn's
-/// [`ObjectiveSense`], negates a
-/// `Minimize` objective into the engine's maximise space before `tell`, and
-/// maps the metrics back to the declared sense for reporting. The reward
-/// returned is the **canonical** `best_fitness_ever` directly (already
-/// higher-is-better — no negation), so the per-episode cumulative return
-/// (Σ step rewards) integrates the optimization trajectory. The harness only
-/// exposes episode-level returns to reporters, so the "best at end" signal
-/// would otherwise be lost.
+/// Each [`step`](Self::step) runs one generation (ask → evaluate → tell). The harness is the sole
+/// canonicaliser: it reads the fitness fn's [`ObjectiveSense`], negates a `Minimize` objective into
+/// the engine's maximise space before `tell`, and maps the metrics back to the declared sense for
+/// reporting. The reward returned is the **canonical** `best_fitness_ever` directly (already
+/// higher-is-better — no negation), so the per-episode cumulative return (`$\sum$` step rewards)
+/// integrates the optimization trajectory. The harness only exposes episode-level returns to
+/// reporters, so the "best at end" signal would otherwise be lost.
 ///
 /// # Determinism and parallel execution
 ///
@@ -713,13 +708,13 @@ where
             ObjectiveSense::Maximize => fitness_natural,
             ObjectiveSense::Minimize => fitness_natural.neg(),
         };
-        // Fitness-hygiene chokepoint (ADR 0034). Sanitize in CANONICAL (maximise)
-        // space — `NaN → −∞` (worst), `+∞ → f32::MAX` — so no `Strategy::tell`
-        // impl can be poisoned by a non-finite fitness and every downstream best/
-        // leader/metric is finite-or-`−∞`. This runs *after* the `sense` negation
-        // on purpose: "NaN = worst" is defined in maximise space, so sanitizing
-        // the natural tensor before `neg()` would flip a `NaN` cost to `+∞`
-        // (canonical *best*) under `Minimize`.
+        // Fitness-hygiene chokepoint (ADR 0034). Sanitize in CANONICAL (maximise) space —
+        // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$` — so no
+        // `Strategy::tell` impl can be poisoned by a non-finite fitness and every downstream best/
+        // leader/metric is finite-or-`$-\infty$`. This runs *after* the `sense` negation on
+        // purpose: "NaN = worst" is defined in maximise space, so sanitizing the natural tensor
+        // before `neg()` would flip a `NaN` cost to `$+\infty$` (canonical *best*) under
+        // `Minimize`.
         let fitness_canon = crate::fitness::sanitize_fitness_tensor(fitness_canon);
         let (new_state, metrics_canon) = self.strategy.tell(
             &self.params,
@@ -730,13 +725,12 @@ where
         );
         self.state = Some(new_state);
         self.generation += 1;
-        // The reward is the canonical `best_fitness_ever` directly — canonical
-        // space is already higher-is-better, so the old `-best_fitness_ever`
-        // negation is gone. It stays monotone non-decreasing over a run, so the
-        // cumulative return (Σ step reward) integrates the optimization
-        // trajectory under the best-so-far curve. The benchmark harness reads
-        // per-episode `return_value`, not per-step rewards, so a pure "last
-        // best" signal would be lost.
+        // The reward is the canonical `best_fitness_ever` directly — canonical space is already
+        // higher-is-better, so the old `-best_fitness_ever` negation is gone. It stays monotone
+        // non-decreasing over a run, so the cumulative return (`$\sum$` step reward) integrates the
+        // optimization trajectory under the best-so-far curve. The benchmark harness reads
+        // per-episode `return_value`, not per-step rewards, so a pure "last best" signal would be
+        // lost.
         let reward = f64::from(metrics_canon.best_fitness_ever);
         // Map the canonical metrics back into the objective's declared sense so
         // every surfaced value (tracing, `latest_metrics`, records) reads in
@@ -911,8 +905,8 @@ mod tests {
         }
 
         fn sense(&self) -> ObjectiveSense {
-            // Treated as a cost so the harness reports natural 42 and reward
-            // stays the canonical −42 the existing assertions expect.
+            // Treated as a cost so the harness reports natural 42 and reward stays the canonical
+            // `$-42$` the existing assertions expect.
             ObjectiveSense::Minimize
         }
     }
@@ -976,10 +970,10 @@ mod tests {
 
     #[test]
     fn from_host_fitness_sanitizes_nan() {
-        // A NaN is sanitized to −∞ (worst under maximise): it never becomes best,
-        // and it drags `worst` to −∞. Under ADR 0034 it is *excluded* from the
-        // mean (counted as broken) rather than blanking the mean to −∞: the mean
-        // is over the finite members {1, 3, 2} = 2.0, with broken_count == 1.
+        // A NaN is sanitized to `$-\infty$` (worst under maximise): it never becomes best, and it
+        // drags `worst` to `$-\infty$`. Under ADR 0034 it is *excluded* from the mean (counted as
+        // broken) rather than blanking the mean to `$-\infty$`: the mean is over the finite members
+        // {1, 3, 2} = 2.0, with broken_count == 1.
         let m = StrategyMetrics::from_host_fitness(0, &[1.0, f32::NAN, 3.0, 2.0], 0.0);
         approx::assert_relative_eq!(m.best_fitness(), 3.0, epsilon = 1e-6);
         assert!(m.worst_fitness().is_infinite() && m.worst_fitness().is_sign_negative());
@@ -990,11 +984,10 @@ mod tests {
 
     #[test]
     fn from_host_fitness_pos_inf_ranks_top_but_mean_stays_finite() {
-        // +∞ → f32::MAX (ADR 0034): it stays best/finite and is *included* in the
-        // mean (no −∞/broken). The clamp is only half of why the mean survives —
-        // the other half is the `f64` accumulator, which
-        // `from_host_fitness_two_pos_inf_members_keep_mean_finite` pins for the
-        // multi-member case this single-member test cannot reach.
+        // `$+\infty$` → f32::MAX (ADR 0034): it stays best/finite and is *included* in the mean (no
+        // `$-\infty$`/broken). The clamp is only half of why the mean survives — the other half is
+        // the `f64` accumulator, which `from_host_fitness_two_pos_inf_members_keep_mean_finite`
+        // pins for the multi-member case this single-member test cannot reach.
         let m = StrategyMetrics::from_host_fitness(0, &[1.0, f32::INFINITY, 3.0], 0.0);
         approx::assert_relative_eq!(m.best_fitness(), f32::MAX);
         assert_eq!(m.broken_count(), 0);
@@ -1003,14 +996,14 @@ mod tests {
 
     #[test]
     fn from_host_fitness_two_pos_inf_members_keep_mean_finite() {
-        // Regression: ADR 0034 maps `+∞ → f32::MAX` and claims the
-        // clamped value "cannot blow a mean up". `f32::MAX` passes `is_finite()`,
-        // so it is admitted into the accumulator — and *two* such members
-        // saturate an `f32` sum: `f32::MAX + f32::MAX == f32::INFINITY`. The
-        // accumulator, not the clamp, is what has to carry the guarantee, so the
-        // sum runs in `f64` (`f32::MAX + f32::MAX ≈ 6.8e38` is nowhere near
-        // `f64::MAX`) and is narrowed back to `f32` once, after the division.
-        // The mean here is `(1 + MAX + MAX + 3) / 4 ≈ 1.7e38`, comfortably
+        // Regression: ADR 0034 maps `$+\infty \to \text{f32::MAX}$` and claims the clamped value
+        // "cannot blow a mean up". `f32::MAX` passes `is_finite()`, so it is admitted into the
+        // accumulator — and *two* such members saturate an `f32` sum:
+        // `f32::MAX + f32::MAX == f32::INFINITY`. The accumulator, not the clamp, is what has to
+        // carry the guarantee, so the sum runs in `f64`
+        // (`$\text{f32::MAX} + \text{f32::MAX} \approx 6.8 \times 10^{38}$` is nowhere near
+        // `f64::MAX`) and is narrowed back to `f32` once, after the division. The mean here is
+        // `$(1 + \text{MAX} + \text{MAX} + 3)/4 \approx 1.7 \times 10^{38}$`, comfortably
         // representable in `f32`.
         let m = StrategyMetrics::from_host_fitness(
             0,
@@ -1032,7 +1025,7 @@ mod tests {
 
     #[test]
     fn from_host_fitness_all_broken_yields_neg_inf_mean() {
-        // Degenerate but well-defined: every member broken → mean = −∞.
+        // Degenerate but well-defined: every member broken → mean = `$-\infty$`.
         let m = StrategyMetrics::from_host_fitness(0, &[f32::NAN, f32::NAN], 0.0);
         assert_eq!(m.broken_count(), 2);
         assert!(m.mean_fitness().is_infinite() && m.mean_fitness().is_sign_negative());
@@ -1164,7 +1157,7 @@ mod tests {
 
         let received = &harness.state().expect("state after step").received;
         assert_eq!(received.len(), 4);
-        // The chokepoint guarantee: what `tell` saw is finite-or-`−∞`.
+        // The chokepoint guarantee: what `tell` saw is finite-or-`$-\infty$`.
         assert!(
             received.iter().all(|f| !f.is_nan()),
             "harness must strip NaN before tell; got {received:?}"
@@ -1175,7 +1168,7 @@ mod tests {
                 .all(|f| !(f.is_infinite() && f.is_sign_positive())),
             "harness must clamp +∞ before tell; got {received:?}"
         );
-        // Row 0 was NaN → −∞ (worst); row 1 was +∞ → f32::MAX (finite best).
+        // Row 0 was NaN → `$-\infty$` (worst); row 1 was `$+\infty$` → f32::MAX (finite best).
         assert!(
             received[0].is_infinite() && received[0].is_sign_negative(),
             "NaN row → −∞"
@@ -1423,8 +1416,8 @@ mod tests {
                 "mean {mean} escaped [{lo}, {hi}]"
             );
 
-            // The named case: every member is the sanitized `+∞` sentinel. Its
-            // mean is `f32::MAX`; an `f32` accumulator saturates at `n = 2`.
+            // The named case: every member is the sanitized `$+\infty$` sentinel. Its mean is
+            // `f32::MAX`; an `f32` accumulator saturates at `n = 2`.
             let saturated = vec![f32::MAX; values.len() + 1];
             let m = StrategyMetrics::from_host_fitness(generation, &saturated, f32::NEG_INFINITY);
             prop_assert!(

@@ -7,8 +7,8 @@
 //!               + (y_n-1)^2 \right\}
 //!        + \sum_{i=1}^{n} u(x_i)
 //! ```
-//! where `$y_i = 1 + (x_i + 1)/4$` and the penalty
-//! `$u(x) = 100(x-10)^4$` for `x > 10`, `$100(-x-10)^4$` for `x < −10`, else `0`.
+//! where `$y_i = 1 + (x_i + 1)/4$` and the penalty `$u(x) = 100(x-10)^4$` for `x > 10`,
+//! `$100(-x-10)^4$` for `$x < -10$`, else `0`.
 //!
 //! Global minimum at `$x_i = -1$` (which maps to `$y_i = 1$`, zeroing every
 //! sinusoidal term) where `$f(x^*) = 0$`. Evaluated over `$[-50, 50]^n$` with the
@@ -26,8 +26,8 @@ use rlevo_core::config::{self, ConfigError};
 
 /// Quartic boundary penalty `$u(x)$` with `$a = 10$`, `$k = 100$`, `$m = 4$`.
 fn penalty(x: f64) -> f64 {
-    // non-differentiable in f'' at x = ±10 (penalty activation) — explicit
-    // piecewise branches are intentional; no smooth approximation.
+    // non-differentiable in f'' at `$x = \pm 10$` (penalty activation) — explicit piecewise
+    // branches are intentional; no smooth approximation.
     if x > 10.0 {
         100.0 * (x - 10.0).powi(4)
     } else if x < -10.0 {
@@ -54,9 +54,8 @@ impl Penalized1 {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] when `dim == 0`: the `$\pi/n$` prefactor would divide
-    /// by zero (yielding `inf`/`NaN`) and the `y[0]` / `y[n−1]` accesses would
-    /// index out of bounds.
+    /// Returns [`ConfigError`] when `dim == 0`: the `$\pi/n$` prefactor would divide by zero
+    /// (yielding `inf`/`NaN`) and the `y[0]` / `$y[n-1]$` accesses would index out of bounds.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
         const C: &str = "Penalized1";
         config::nonzero(C, "dim", dim)?;
@@ -98,8 +97,8 @@ impl Penalized1 {
 
     /// 2D projection of [`evaluate`](Self::evaluate) for visualisation.
     ///
-    /// Coordinates beyond the first two are fixed at `−1.0` (the per-dimension
-    /// optimum) so the rendered slice passes through the global minimum.
+    /// Coordinates beyond the first two are fixed at `$-1.0$` (the per-dimension optimum) so the
+    /// rendered slice passes through the global minimum.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         // `new` guarantees `dim >= 1`, so index 0 always exists.
         let mut p = vec![-1.0_f64; self.dim];
@@ -140,7 +139,7 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        // x_i = −1 ⇒ y_i = 1 ⇒ every sinusoidal term and penalty vanishes.
+        // `$x_i = -1 \Rightarrow y_i = 1 \Rightarrow$` every sinusoidal term and penalty vanishes.
         let p = Penalized1::new(4).expect("dim >= 1");
         assert_relative_eq!(p.evaluate(&[-1.0; 4]), 0.0, epsilon = 1e-12);
     }
@@ -167,10 +166,10 @@ mod tests {
 
     #[test]
     fn dim_one_is_well_defined_and_attains_optimum() {
-        // n = 1 is valid (Yao, Liu & Lin 1999, f12): the Σ_{i=1}^{n-1} term is
-        // empty, but 10·sin²(π·y_1) and (y_n−1)² sit outside it and survive with
-        // y_n == y_1. The published optimum x* = (−1), f(x*) = 0 still holds.
-        // Do NOT tighten the guard to `dim >= 2`.
+        // n = 1 is valid (Yao, Liu & Lin 1999, f12): the `$\sum_{i=1}^{n-1}$` term is empty, but
+        // `$10\sin^2(\pi y_1)$` and `$(y_n - 1)^2$` sit outside it and survive with y_n == y_1. The
+        // published optimum `$x^* = (-1)$`, `$f(x^*) = 0$` still holds. Do NOT tighten the guard to
+        // `dim >= 2`.
         let p = Penalized1::new(1).expect("dim = 1 is valid for Penalized1");
         assert_eq!(p.dim(), 1);
 
@@ -181,11 +180,12 @@ mod tests {
         );
         assert_relative_eq!(at_opt, 0.0, epsilon = 1e-12);
 
-        // Not bit-exact 0.0: x = −1 ⇒ y_1 = 1.0 exactly, but sin(π_f64) ≈ 1.22e-16
-        // (π is not exactly representable), so 10·sin²(π·y_1) ≈ 1.5e-31 and
-        // f(−1) ≈ 4.7e-31. This is the same fp residue the dim = 2 / dim = 4
-        // optimum tests above carry (≈ 2.4e-31), not an n = 1 pathology. Bound it
-        // tightly so a genuinely nonzero optimum would still fail here.
+        // Not bit-exact 0.0: `$x = -1 \Rightarrow y_1 = 1.0$` exactly, but
+        // `$\sin(\pi_{\text{f64}})$` `$\approx$` 1.22e-16 (`$\pi$` is not exactly representable),
+        // so `$10\sin^2(\pi y_1)$` `$\approx$` 1.5e-31 and `$f(-1)$` `$\approx$` 4.7e-31. This is
+        // the same fp residue the dim = 2 / dim = 4 optimum tests above carry (`$\approx$`
+        // 2.4e-31), not an n = 1 pathology. Bound it tightly so a genuinely nonzero optimum would
+        // still fail here.
         assert!(
             at_opt.abs() < 1e-28,
             "f(−1) must be zero up to the sin(π) fp residue, got {at_opt:e}"
@@ -213,10 +213,10 @@ mod tests {
 
     #[test]
     fn penalty_zero_inside_soft_bounds() {
-        // u(5.0) and u(−5.0) lie inside [−10, 10] and contribute nothing.
+        // `$u(5.0)$` and `$u(-5.0)$` lie inside `$[-10, 10]$` and contribute nothing.
         assert_relative_eq!(penalty(5.0), 0.0, epsilon = 1e-12);
         assert_relative_eq!(penalty(-5.0), 0.0, epsilon = 1e-12);
-        // u(11.0) = 100·(1)⁴ = 100.
+        // `$u(11.0) = 100 \cdot (1)^4 = 100$`.
         assert_relative_eq!(penalty(11.0), 100.0, epsilon = 1e-12);
     }
 

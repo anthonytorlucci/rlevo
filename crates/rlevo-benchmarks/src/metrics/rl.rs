@@ -14,7 +14,8 @@ pub const VALUE_LOSS: &str = "rl/value_loss";
 pub const APPROX_KL: &str = "rl/approx_kl";
 /// Metric key for the policy entropy — higher values indicate more exploratory behaviour.
 pub const ENTROPY: &str = "rl/entropy";
-/// Metric key for the ε-greedy exploration rate — emitted by value-based agents (DQN, etc.).
+/// Metric key for the `$\epsilon$`-greedy exploration rate — emitted by value-based agents (DQN,
+/// etc.).
 pub const EPSILON: &str = "rl/epsilon";
 /// Metric key for the current learning rate — useful when a LR schedule is active.
 pub const LEARNING_RATE: &str = "rl/learning_rate";

@@ -14,8 +14,8 @@
 //!    modeling exploits Rosenbrock's adjacent-variable coupling, which a
 //!    univariate model cannot represent.
 //! 3. BOA ([`BayesianNetwork`]) solves the deceptive
-//!    [`ConcatenatedTrap`] trap-5 × 4 (cost 0, all-ones) while UMDA and
-//!    MIMIC stall near the all-zeros deceptive basin (cost ≈ 4) — only a
+//!    [`ConcatenatedTrap`] trap-5 `$\times$` 4 (cost 0, all-ones) while UMDA and
+//!    MIMIC stall near the all-zeros deceptive basin (cost `$\approx 4$`) — only a
 //!    model capturing the order-5 intra-block linkage can sample and
 //!    keep solved blocks.
 //!
@@ -199,9 +199,9 @@ fn all_five_models_reach_sphere_threshold() {
     );
 }
 
-/// The BOA-vs-univariate-models discriminating gate: BOA solves the deceptive trap-5 × 4
-/// (`dim = 20`) to cost 0 (all-ones) while UMDA and MIMIC stall at/near
-/// the all-zeros basin (cost ≈ 4 = `num_blocks`).
+/// The BOA-vs-univariate-models discriminating gate: BOA solves the deceptive trap-5 `$\times$` 4
+/// (`dim = 20`) to cost 0 (all-ones) while UMDA and MIMIC stall at/near the all-zeros basin (cost
+/// `$\approx 4$` = `num_blocks`).
 ///
 /// Configuration pinned by the calibration sweep recorded in ADR 0018:
 ///
@@ -213,7 +213,7 @@ fn all_five_models_reach_sphere_threshold() {
 ///   are selected; and `0.3` truncation enriches solved-block carriers
 ///   fast enough that the structure is learned before the deceptive
 ///   per-gene gradient collapses the population onto all-zeros. At
-///   `pop = 600` (any ratio) or `ratio = 0.5` (any pop ≤ 4000) BOA
+///   `pop = 600` (any ratio) or `ratio = 0.5` (any pop `$\leq 4000$`) BOA
 ///   solved 0–4 of 10 calibration seeds; at this config it solved 10/10.
 /// - UMDA/MIMIC run the *same* budget with a symmetric prior over the
 ///   binary box (`init_mean = 0.5`, `init_std = 0.5`, bounds `(0, 1)`);
@@ -226,7 +226,7 @@ fn boa_solves_trap_where_umda_and_mimic_stall() {
     const TRAP_POP: usize = 2000;
     const TRAP_RATIO: f32 = 0.3;
     const TRAP_GENS: usize = 60;
-    // trap-5 × 4 blocks, dim 20
+    // trap-5 `$\times$` 4 blocks, dim 20
     let trap = ConcatenatedTrap::new(4, 5).expect("num_blocks >= 1 && block_size >= 1");
 
     let mut boa: Vec<f32> = SEEDS
@@ -316,12 +316,12 @@ fn mimic_beats_umda_median_on_rosenbrock() {
     const SEEDS: [u64; 9] = [101, 202, 303, 404, 505, 606, 707, 808, 909];
     // Calibrated configuration (identical for both models). Rationale:
     //
-    // - De Jong domain ±2.048 rather than Rosenbrock's native ±30: the
+    // - De Jong domain `$\pm 2.048$` rather than Rosenbrock's native `$\pm 30$`: the
     //   narrower box keeps early generations out of the 1e8 plateau so
     //   the model-quality difference, not the initial spread, drives the
     //   gap.
     // - `init_mean = 0.5`, `init_std = 0.5`: starts the prior on the limb
-    //   of Rosenbrock's `x_{i+1} ≈ x_i²` valley, where the coupling is
+    //   of Rosenbrock's `$x_{i+1} \approx x_i^2$` valley, where the coupling is
     //   locally *linear*. Centered at the origin the parabola's tangent is
     //   flat, Pearson correlation vanishes, and a Gaussian chain has
     //   nothing to model — the comparison would measure noise.

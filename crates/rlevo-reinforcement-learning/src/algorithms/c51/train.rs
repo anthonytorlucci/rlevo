@@ -1,11 +1,10 @@
 //! End-to-end training loop for C51 (Categorical DQN).
 //!
-//! Provides a single entry-point, [`train`], that drives a [`C51Agent`]
-//! against any [`Environment`] for a fixed number of environment steps. The
-//! loop handles ε-greedy action selection, replay-buffer ingestion, periodic
-//! gradient updates, episode boundary resets, and optional `tracing` progress
-//! logging. The target network is maintained inside
-//! [`C51Agent::learn_step`], not here (ADR 0059).
+//! Provides a single entry-point, [`train`], that drives a [`C51Agent`] against any [`Environment`]
+//! for a fixed number of environment steps. The loop handles `$\epsilon$`-greedy action selection,
+//! replay-buffer ingestion, periodic gradient updates, episode boundary resets, and optional
+//! `tracing` progress logging. The target network is maintained inside [`C51Agent::learn_step`],
+//! not here (ADR 0059).
 //!
 //! The structure mirrors [`crate::algorithms::dqn::train`]; the only
 //! behavioural difference is the metrics type emitted per completed episode —
@@ -24,13 +23,12 @@ use crate::algorithms::c51::c51_model::C51Model;
 
 /// Drives C51 training for `total_steps` environment steps.
 ///
-/// The loop runs one environment step per iteration. After collecting each
-/// transition, it calls [`C51Agent::learn_step`] whenever
-/// [`C51Agent::should_train`] returns `true`, and decays ε via
-/// [`C51Agent::decay_exploration`]. On episode termination the loop records
-/// per-episode [`C51Metrics`] into the agent's rolling statistics window and
-/// calls [`Environment::reset`] to begin a new episode, except on the very
-/// last step (to avoid recording a phantom episode in recording environments).
+/// The loop runs one environment step per iteration. After collecting each transition, it calls
+/// [`C51Agent::learn_step`] whenever [`C51Agent::should_train`] returns `true`, and decays
+/// `$\epsilon$` via [`C51Agent::decay_exploration`]. On episode termination the loop records
+/// per-episode [`C51Metrics`] into the agent's rolling statistics window and calls
+/// [`Environment::reset`] to begin a new episode, except on the very last step (to avoid recording
+/// a phantom episode in recording environments).
 ///
 /// The target network is **not** this loop's business. It is updated inside
 /// [`C51Agent::learn_step`], on the cadence in `C51TrainingConfig::target_update`
@@ -50,7 +48,7 @@ use crate::algorithms::c51::c51_model::C51Model;
 ///
 /// - `agent` — mutable reference to the agent being trained.
 /// - `env` — mutable reference to the environment.
-/// - `rng` — random number generator used for ε-greedy exploration and
+/// - `rng` — random number generator used for `$\epsilon$`-greedy exploration and
 ///   uniform replay-buffer sampling.
 /// - `total_steps` — number of environment steps to execute.
 /// - `log_every` — emit a `tracing::info!` progress line every this many
@@ -99,13 +97,12 @@ where
         // `done` drives episode bookkeeping (metrics, `env.reset()`): the
         // episode is over either way.
         //
-        // `terminated` is the Bellman bootstrap mask and is true only for an
-        // *environmental* termination. On a truncation (time-limit cutoff) the
-        // MDP has not ended, so `next_obs` is a real continuation state and
-        // `γ · V(next_obs)` must survive in the target. Masking on `done` here
-        // would zero the bootstrap at every timeout and bias Q downward on any
-        // time-limited env (Pardo et al., "Time Limits in Reinforcement
-        // Learning", ICML 2018, Eq. 6 — partial-episode bootstrapping).
+        // `terminated` is the Bellman bootstrap mask and is true only for an *environmental*
+        // termination. On a truncation (time-limit cutoff) the MDP has not ended, so `next_obs` is
+        // a real continuation state and `$\gamma \cdot V(\text{next\_obs})$` must survive in the
+        // target. Masking on `done` here would zero the bootstrap at every timeout and bias Q
+        // downward on any time-limited env (Pardo et al., "Time Limits in Reinforcement Learning",
+        // ICML 2018, Eq. 6 — partial-episode bootstrapping).
         let done = next_snapshot.is_done();
         let terminated = next_snapshot.is_terminated();
         let next_obs = next_snapshot.observation().clone();

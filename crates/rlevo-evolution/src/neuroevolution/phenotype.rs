@@ -100,9 +100,9 @@ impl<B: Backend> InterpretedPhenotype<B> {
         let mut output_ids: Vec<NodeId> = filter_ids(genome, |k| matches!(k, NodeKind::Output));
         output_ids.sort_unstable();
 
-        // One O(n) pass to index nodes by id, and one O(e) pass to group enabled
-        // incoming edges by target — replacing the former per-node O(n) lookup +
-        // O(e) rescan (O(n²)+O(n·e)) with an O(n+e) build.
+        // One O(n) pass to index nodes by id, and one O(e) pass to group enabled incoming edges by
+        // target — replacing the former per-node O(n) lookup + `$O(e)$` rescan (`$O(n^2)+O(n e)$`)
+        // with an `$O(n+e)$` build.
         let nodes_by_id: HashMap<NodeId, &NodeGene> =
             genome.nodes.iter().map(|n| (n.id, n)).collect();
         let mut incoming_by_target: HashMap<NodeId, Vec<(NodeId, f32)>> = HashMap::new();
@@ -148,8 +148,8 @@ impl<B: Backend> Phenotype<B> for InterpretedPhenotype<B> {
         let mut values: HashMap<NodeId, Tensor<B, 2>> =
             HashMap::with_capacity(self.input_ids.len());
         if !self.input_ids.is_empty() {
-            // One split of the whole input into `[batch, 1]` columns, versus the
-            // former per-column full-tensor clone (O(I²·B) → O(I·B)).
+            // One split of the whole input into `[batch, 1]` columns, versus the former per-column
+            // full-tensor clone (`$O(I^2 B) \to O(I B)$`).
             let columns: Vec<Tensor<B, 2>> = input.chunk(self.input_ids.len(), 1);
             for (iid, column) in self.input_ids.iter().copied().zip(columns) {
                 values.insert(iid, column);
@@ -223,17 +223,15 @@ pub trait BatchPhenotypeEvaluator<B: Backend>: Send + Sync {
 
 /// Dense-padded [`BatchPhenotypeEvaluator`].
 ///
-/// Each call compiles the `P` genomes into padded `(P, N, N)` weight, `(P, N)`
-/// bias, and per-activation mask tensors over a node budget `N = max_nodes`, then
-/// runs a synchronous-update forward pass. Because v1 NEAT is feedforward, the
-/// pass is **exact**: after `d` synchronous updates every node at topological
-/// depth `d` has settled, so iterating the population's **deepest enabled path**
-/// (≤ `N − 1`) resolves every genome. The dense path uses that tight depth bound
-/// rather than the static `N − 1` worst case — NEAT topologies are typically
-/// sparse and shallow, and the per-step cost is a dense `N×N` matmul, so
-/// over-iterating dominates the runtime at scale. The whole pass is stock Burn
-/// (batched `matmul`, broadcast add, `mask_where`, the four elementwise
-/// activations); the absent-edge mask folds into the zero weight.
+/// Each call compiles the `P` genomes into padded `(P, N, N)` weight, `(P, N)` bias, and
+/// per-activation mask tensors over a node budget `N = max_nodes`, then runs a synchronous-update
+/// forward pass. Because v1 NEAT is feedforward, the pass is **exact**: after `d` synchronous
+/// updates every node at topological depth `d` has settled, so iterating the population's **deepest
+/// enabled path** (`$\leq$` `$N - 1$`) resolves every genome. The dense path uses that tight depth
+/// bound rather than the static `$N - 1$` worst case — NEAT topologies are typically sparse and
+/// shallow, and the per-step cost is a dense `$N \times N$` matmul, so over-iterating dominates the
+/// runtime at scale. The whole pass is stock Burn (batched `matmul`, broadcast add, `mask_where`,
+/// the four elementwise activations); the absent-edge mask folds into the zero weight.
 ///
 /// Memory is dominated by the `weights` tensor: `(256, 50) → 2.56 MB`,
 /// `(256, 200) → 41 MB` (f32). The [`max_nodes_cap`](Self::max_nodes_cap) guards
@@ -295,7 +293,7 @@ impl<B: Backend> BatchPhenotypeEvaluator<B> for DensePaddedEvaluator {
             "obs feature dim {obs_dim} must equal the population's input-node count {num_inputs}"
         );
 
-        // Seed input rows with the observation (others 0): obsᵀ stacked over the
+        // Seed input rows with the observation (others 0): `$\text{obs}^\top$` stacked over the
         // padding rows, broadcast across the population. Held fixed every step.
         let obs_t = obs.swap_dims(0, 1); // (num_inputs, batch)
         let seed_2d = if n > num_inputs {
@@ -360,13 +358,12 @@ struct PaddedPopulation<B: Backend> {
     num_inputs: usize,
     num_outputs: usize,
     n: usize,
-    /// Synchronous-update iterations needed to settle every genome: the maximum
-    /// enabled-subgraph longest path (in edges) across the population, floored at
-    /// `1` so bias-only nodes get their activation applied. This is the **tight,
-    /// exact** bound — `N − 1` is the safe static worst case, but NEAT topologies
-    /// are typically far shallower, and over-iterating is the dominant cost at
-    /// scale (a dense `N×N` matmul per step), so the depth bound is what makes
-    /// the dense path competitive on wide-but-shallow populations.
+    /// Synchronous-update iterations needed to settle every genome: the maximum enabled-subgraph
+    /// longest path (in edges) across the population, floored at `1` so bias-only nodes get their
+    /// activation applied. This is the **tight, exact** bound — `$N - 1$` is the safe static worst
+    /// case, but NEAT topologies are typically far shallower, and over-iterating is the dominant
+    /// cost at scale (a dense `$N \times N$` matmul per step), so the depth bound is what makes the
+    /// dense path competitive on wide-but-shallow populations.
     iterations: usize,
 }
 
@@ -379,8 +376,8 @@ impl<B: Backend> PaddedPopulation<B> {
         let num_inputs = count_kind(&genomes[0], NodeKind::Input);
         let num_outputs = count_kind(&genomes[0], NodeKind::Output);
         let n = genomes.iter().map(|g| g.nodes.len()).max().unwrap_or(0);
-        // Tight exact iteration bound: the deepest enabled path in the whole
-        // population (≤ N − 1), floored at 1 so a bias-only node still activates.
+        // Tight exact iteration bound: the deepest enabled path in the whole population
+        // (`$\leq N - 1$`), floored at 1 so a bias-only node still activates.
         let iterations = genomes
             .iter()
             .map(longest_path_edges)
@@ -583,8 +580,8 @@ mod tests {
     /// A hand-built feedforward genome reproduces a known truth table.
     ///
     /// Network: inputs 0, 1 → hidden 2 (Relu) → output 3 (Linear). With
-    /// `h = relu(1·in0 + 1·in1)` and `out = 2·h + 0.5`, the four binary input
-    /// rows give outputs `0.5, 2.5, 2.5, 4.5`.
+    /// `$h = \mathrm{relu}(1 \cdot \text{in0} + 1 \cdot \text{in1})$` and
+    /// `$\text{out} = 2h + 0.5$`, the four binary input rows give outputs `0.5, 2.5, 2.5, 4.5`.
     #[test]
     fn test_interpreted_phenotype_reproduces_truth_table() {
         let device = Default::default();

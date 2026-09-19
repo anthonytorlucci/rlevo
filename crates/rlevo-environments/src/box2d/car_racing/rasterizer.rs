@@ -1,21 +1,20 @@
-//! Software rasterizer for the 96×96×3 `CarRacing` observation.
+//! Software rasterizer for the `$96 \times 96 \times 3$` `CarRacing` observation.
 //!
 //! No external image crate dependency. Uses scan-line fill for convex polygons.
 
-// The 96×96×3 pixel array (27,648 bytes) exceeds clippy's 16 KiB stack-array
-// threshold, but every construction site immediately moves it into a `Box` or
-// `Arc`, and the array type is part of this module's public observation API
-// (`Arc<[u8; PIXEL_BYTES]>`). Switching to a heap-allocated slice to satisfy
-// the lint would change that public type for no runtime benefit.
+// The `$96 \times 96 \times 3$` pixel array (27,648 bytes) exceeds clippy's 16 KiB stack-array
+// threshold, but every construction site immediately moves it into a `Box` or `Arc`, and the array
+// type is part of this module's public observation API (`Arc<[u8; PIXEL_BYTES]>`). Switching to a
+// heap-allocated slice to satisfy the lint would change that public type for no runtime benefit.
 #![allow(clippy::large_stack_arrays)]
 
 /// Width and height of the rendered frame (pixels).
 pub const FRAME_SIZE: usize = 96;
 
-/// Total pixel buffer size (width × height × 3 RGB channels).
+/// Total pixel buffer size (`$\text{width} \times \text{height} \times 3$` RGB channels).
 pub const PIXEL_BYTES: usize = FRAME_SIZE * FRAME_SIZE * 3;
 
-/// Software rasterizer producing a 96×96 RGB pixel buffer.
+/// Software rasterizer producing a `$96 \times 96$` RGB pixel buffer.
 pub struct Rasterizer {
     buffer: Box<[u8; PIXEL_BYTES]>,
 }

@@ -29,14 +29,13 @@ use burn::tensor::{Tensor, TensorPrimitive};
 ///
 /// # Non-finite hardening
 ///
-/// The bootstrap term is **masked**, not scaled by `$(1 - \text{terminated})$`. The two
-/// agree exactly for finite inputs, but scaling propagates poison: IEEE-754
-/// gives `NaN · 0.0 == NaN` and `inf · 0.0 == NaN`, so a single non-finite
-/// entry in `next_q_max` would survive a terminal transition and contaminate
-/// the target — the one place the algorithm has a guaranteed-correct value
-/// (the reward alone). Selecting on the terminal mask forces the bootstrap to
-/// be exactly `0` wherever `terminated == 1.0`, whatever `next_q_max` holds
-/// there. This is defensive only; it does not alter any target computed from
+/// The bootstrap term is **masked**, not scaled by `$(1 - \text{terminated})$`. The two agree
+/// exactly for finite inputs, but scaling propagates poison: IEEE-754 gives
+/// `$\text{NaN} \cdot 0.0 = \text{NaN}$` and `$\infty \cdot 0.0 = \text{NaN}$`, so a single
+/// non-finite entry in `next_q_max` would survive a terminal transition and contaminate the target
+/// — the one place the algorithm has a guaranteed-correct value (the reward alone). Selecting on
+/// the terminal mask forces the bootstrap to be exactly `0` wherever `terminated == 1.0`, whatever
+/// `next_q_max` holds there. This is defensive only; it does not alter any target computed from
 /// finite inputs.
 ///
 /// See [`compute_target_quantiles`] for the rank-2 sibling used by
@@ -80,15 +79,13 @@ pub fn compute_target_q_values<B: Backend>(
 ///
 /// # Non-finite hardening
 ///
-/// The bootstrap is **masked**, not scaled by `$(1 - \text{terminated})$`. The
-/// two agree exactly for finite inputs, but scaling propagates poison:
-/// IEEE-754 gives `NaN · 0.0 == NaN` and `inf · 0.0 == NaN`,
-/// so one non-finite entry anywhere in `next_quantiles` — a target-network
-/// output, and therefore data, not configuration — would survive a terminal
-/// transition and contaminate a target whose correct value (the reward alone)
-/// is known with certainty. Selecting on the terminal mask forces the bootstrap
-/// to be exactly `0` wherever `terminated == 1.0`, whatever `next_quantiles`
-/// holds on that row.
+/// The bootstrap is **masked**, not scaled by `$(1 - \text{terminated})$`. The two agree exactly
+/// for finite inputs, but scaling propagates poison: IEEE-754 gives
+/// `$\text{NaN} \cdot 0.0 = \text{NaN}$` and `$\infty \cdot 0.0 = \text{NaN}$`, so one non-finite
+/// entry anywhere in `next_quantiles` — a target-network output, and therefore data, not
+/// configuration — would survive a terminal transition and contaminate a target whose correct value
+/// (the reward alone) is known with certainty. Selecting on the terminal mask forces the bootstrap
+/// to be exactly `0` wherever `terminated == 1.0`, whatever `next_quantiles` holds on that row.
 ///
 /// This is *not* a NaN scrubber. Masking is per-row: a non-finite quantile on a
 /// **non**-terminal row is left in place and must still be caught downstream by
@@ -828,9 +825,8 @@ mod tests {
             prev = now;
         }
 
-        // After 12 steps of tau = 0.3 the remaining gap is 0.7^12 ≈ 0.0138 of
-        // the original, so every parameter is close to — but not yet equal to —
-        // the active value.
+        // After 12 steps of tau = 0.3 the remaining gap is 0.7^12 `$\approx$` 0.0138 of the
+        // original, so every parameter is close to — but not yet equal to — the active value.
         for (i, (&got, &goal)) in prev.iter().zip(ACTIVE_FLAT.iter()).enumerate() {
             let initial_gap = (goal - TARGET_FLAT[i]).abs();
             assert!(
@@ -1038,7 +1034,7 @@ mod tests {
         // level.
         //
         // First, a single blend over a genuinely multi-rank net (rank-2 weight
-        // + rank-1 bias) must still produce the exact 0.75·target + 0.25·active
+        // + rank-1 bias) must still produce the exact `$0.75\,\text{target} + 0.25\,\text{active}$`
         // combination — the primitive round-trip is numerically a no-op.
         //
         // Second, and the point of this test, the returned target is fed
@@ -1051,9 +1047,9 @@ mod tests {
         // The fixtures use `Param::from_data` (already materialised), so no
         // lazy first-read re-materialisation can masquerade as divergence.
         const TAU: f32 = 0.25;
-        // First step: 0.75·target + 0.25·active, hand-computed per param, in
-        // visit order (weight row-major, then bias). Matches the tau = 0.25
-        // fractional-blend oracle above.
+        // First step: `$0.75\,\text{target} + 0.25\,\text{active}$`, hand-computed per param, in
+        // visit order (weight row-major, then bias). Matches the tau = 0.25 fractional-blend oracle
+        // above.
         const AFTER_ONE: [f32; 8] = [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, 0.875, 2.125];
 
         let (active, target) = fixture();

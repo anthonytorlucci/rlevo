@@ -286,7 +286,7 @@ fn td3_act_with_matches_deterministic_act() {
     let mut rng = StdRng::seed_from_u64(seed);
     for &x in &[-0.9_f32, -0.3, 0.0, 0.25, 0.8] {
         let obs = LinearObservation { x };
-        // training=false ⇒ deterministic mean + bound clip; rng is unused.
+        // training=false `$\Rightarrow$` deterministic mean + bound clip; rng is unused.
         let det = agent.act(&obs, false, &mut rng);
         let greedy = agent.act_with(&net, &obs);
         let a = det.as_slice()[0];
@@ -416,10 +416,9 @@ fn td3_pendulum_improves_over_random() {
     .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
-    // TD3 should comfortably clear a uniform-random torque policy after 500k
-    // steps (it reaches ≈ -150..-300 here). The wide 300-pt margin keeps the
-    // bar meaningful while absorbing cross-platform float drift; the tighter
-    // -150 acceptance target stays aspirational.
+    // TD3 should comfortably clear a uniform-random torque policy after 500k steps (it reaches
+    // `$\approx -150..-300$` here). The wide 300-pt margin keeps the bar meaningful while absorbing
+    // cross-platform float drift; the tighter -150 acceptance target stays aspirational.
     let baseline = random_pendulum(seed);
     assert_improves_over_random(avg, baseline, 300.0);
 }

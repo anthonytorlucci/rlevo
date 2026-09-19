@@ -5,25 +5,23 @@ use rlevo_core::reward::ScalarReward;
 
 use super::observation::LunarLanderObservation;
 
-/// Metadata key for the **absolute potential-based shaping potential** Φ(t).
+/// Metadata key for the **absolute potential-based shaping potential** `$\Phi(t)$`.
 ///
 /// # What the value *is*
 ///
-/// `snap.metadata().unwrap().components[METADATA_KEY_SHAPING]` is Φ(t) — the
-/// potential of the state observed at this step, as computed by
-/// `LunarLanderCore::shaping`:
+/// `snap.metadata().unwrap().components[METADATA_KEY_SHAPING]` is `$\Phi(t)$` — the potential of
+/// the state observed at this step, as computed by `LunarLanderCore::shaping`:
 ///
 /// ```math
 /// \Phi(\text{obs}) = -100 \cdot \text{dist\_to\_helipad} - 100 \cdot \text{speed} - 100 \cdot |\text{angle}|
 ///   + 10 \cdot \text{leg1\_contact} + 10 \cdot \text{leg2\_contact}
 /// ```
 ///
-/// It is **not** the shaping *reward*. In the potential-based reward-shaping
-/// (PBRS) framework of Ng, Harada & Russell (1999), *"Policy Invariance Under
-/// Reward Transformations"* (ICML 1999, pp. 278–287), Φ is a scalar field over
-/// states and the shaping reward is the *difference*
-/// `$F(s, a, s') = \gamma \cdot \Phi(s') - \Phi(s)$`. Φ is a potential; F is a reward. This key
-/// carries Φ.
+/// It is **not** the shaping *reward*. In the potential-based reward-shaping (PBRS) framework of
+/// Ng, Harada & Russell (1999), *"Policy Invariance Under Reward Transformations"* (ICML 1999, pp.
+/// 278–287), `$\Phi$` is a scalar field over states and the shaping reward is the *difference*
+/// `$F(s, a, s') = \gamma \cdot \Phi(s') - \Phi(s)$`. `$\Phi$` is a potential; `$F$` is a reward.
+/// This key carries `$\Phi$`.
 ///
 /// # Reconstructing the shaping reward
 ///
@@ -33,30 +31,28 @@ use super::observation::LunarLanderObservation;
 /// F(t) = \Phi(t) - \Phi(t-1)
 /// ```
 ///
-/// (implicit γ = 1 — the standard episodic/undiscounted instantiation; cf.
-/// Grześ 2017, where the γ factor "simply disappears" in the undiscounted
-/// case). Consumers reconstruct F by subtracting the previous step's value of
-/// this key from the current one; a single snapshot in isolation cannot give
-/// you F.
+/// (implicit `$\gamma = 1$` — the standard episodic/undiscounted instantiation; cf. Grześ 2017,
+/// where the `$\gamma$` factor "simply disappears" in the undiscounted case). Consumers reconstruct
+/// F by subtracting the previous step's value of this key from the current one; a single snapshot
+/// in isolation cannot give you F.
 ///
 /// # Caveat: terminal steps
 ///
-/// On a **terminated** step the reward is *replaced* wholesale by ±100
-/// (+100 soft landing, −100 crash / out-of-bounds), discarding that step's
-/// shaping delta and control cost — this mirrors Gymnasium's
-/// `$\text{reward} = \pm 100$` assignment. So on a terminal snapshot, Φ(t) contributed
-/// **nothing** to that step's reward, and the naive reconstruction
-/// `$\Phi(t) - \Phi(t-1)$` is wrong *precisely there*. Analysis code that decomposes
-/// episode returns must special-case the terminal step.
+/// On a **terminated** step the reward is *replaced* wholesale by `$\pm 100$` (+100 soft landing,
+/// `$-100$` crash / out-of-bounds), discarding that step's shaping delta and control cost — this
+/// mirrors Gymnasium's `$\text{reward} = \pm 100$` assignment. So on a terminal snapshot,
+/// `$\Phi(t)$` contributed **nothing** to that step's reward, and the naive reconstruction
+/// `$\Phi(t) - \Phi(t-1)$` is wrong *precisely there*. Analysis code that decomposes episode
+/// returns must special-case the terminal step.
 ///
 /// # Deliberate deviation from strict policy invariance
 ///
-/// Because `$\Phi(s_{\text{terminal}})$` ≠ 0 here (a crashed lander still has a large negative
-/// potential), this is not a strictly policy-invariant PBRS instantiation:
-/// Grześ (2017) shows episodic policy invariance requires `$\Phi(s_{\text{terminal}})$` = 0.
-/// This is a **deliberate deviation kept for Gymnasium reward parity**, not a
-/// bug — rlevo reproduces `gymnasium.envs.box2d.lunar_lander` returns exactly.
-/// Do not "fix" the reward function to restore invariance.
+/// Because `$\Phi(s_{\text{terminal}}) \neq 0$` here (a crashed lander still has a large negative
+/// potential), this is not a strictly policy-invariant PBRS instantiation: Grześ (2017) shows
+/// episodic policy invariance requires `$\Phi(s_{\text{terminal}})$` = 0. This is a **deliberate
+/// deviation kept for Gymnasium reward parity**, not a bug — rlevo reproduces
+/// `gymnasium.envs.box2d.lunar_lander` returns exactly. Do not "fix" the reward function to restore
+/// invariance.
 // The elided lifetime in a `const` is `'static` (const lifetime elision), so
 // this is exactly `&'static str` — the type `SnapshotMetadata::with` requires.
 // Written `&str` to match the sibling `METADATA_KEY_*` consts and to satisfy
@@ -74,10 +70,9 @@ pub const METADATA_KEY_SHAPING: &str = "shaping";
 /// `config.max_steps`.
 pub type LunarLanderSnapshot = SnapshotBase<1, LunarLanderObservation, ScalarReward>;
 
-/// Packages the shaping potential Φ under this environment's metadata-key
-/// contract.
+/// Packages the shaping potential `$\Phi$` under this environment's metadata-key contract.
 ///
-/// `shaping` is the **absolute potential** Φ(t), not the shaping reward — see
+/// `shaping` is the **absolute potential** `$\Phi(t)$`, not the shaping reward — see
 /// [`METADATA_KEY_SHAPING`] for the full contract.
 #[must_use]
 pub fn shaping_metadata(shaping: f32) -> SnapshotMetadata {

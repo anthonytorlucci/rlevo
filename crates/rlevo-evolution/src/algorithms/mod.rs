@@ -3,12 +3,12 @@
 //! # Classical families
 //!
 //! - [`ga`] / [`ga_binary`] — Genetic Algorithm (real- and binary-coded).
-//! - [`es_classical`] — (1+1), (1+λ), (μ,λ), (μ+λ) Evolution Strategies.
+//! - [`es_classical`] — (1+1), (1+`$\lambda$`), (`$\mu$`,`$\lambda$`), (`$\mu$`+`$\lambda$`) Evolution Strategies.
 //! - [`cma_es`] — Covariance Matrix Adaptation ES (CSA + evolution paths +
-//!   rank-1/rank-μ covariance updates).
+//!   rank-1/rank-`$\mu$` covariance updates).
 //! - [`cmsa_es`] — Covariance Matrix Self-Adaptation ES (path-free; per-individual
-//!   log-normal σ + rank-μ ML covariance blend).
-//! - [`de`] — Differential Evolution (rand/best/current-to-best × bin/exp).
+//!   log-normal `$\sigma$` + rank-`$\mu$` ML covariance blend).
+//! - [`de`] — Differential Evolution (rand/best/current-to-best `$\times$` bin/exp).
 //! - [`ep`] — Evolutionary Programming (Fogel-style).
 //! - [`gp_cgp`] — Cartesian Genetic Programming.
 //! - [`gep`] — Gene Expression Programming (linear head/tail genome decoded to

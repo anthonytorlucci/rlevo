@@ -1,11 +1,10 @@
 //! Synthetic pixel-over-grid navigation — the first real [`Observable`] consumer.
 //!
-//! A compact allocentric grid task whose *true latent* is a pair of cell
-//! indices (agent, goal) on a `5×5` grid, but whose *observation* is a rendered
-//! `20×20×3` RGB image. The agent must recover the latent `(agent, goal)` from
-//! pixels — the modality-changing POMDP shape (a small RAM-like state observed
-//! as an image) in which the observation rank `R(3)` differs from the state
-//! rank `SR(1)`.
+//! A compact allocentric grid task whose *true latent* is a pair of cell indices (agent, goal) on a
+//! `$5 \times 5$` grid, but whose *observation* is a rendered `$20 \times 20 \times 3$` RGB image.
+//! The agent must recover the latent `(agent, goal)` from pixels — the modality-changing POMDP
+//! shape (a small RAM-like state observed as an image) in which the observation rank `R(3)` differs
+//! from the state rank `SR(1)`.
 //!
 //! This environment is [`Environment<3, 1, 1>`] — observation rank `3`, state
 //! rank `1`, action rank `1`, so `R(3) != SR(1)`. The rank-3 pixel projection
@@ -28,17 +27,16 @@
 //!
 //! ## Why not fold into [`grids`](crate::grids)
 //!
-//! The `grids` family shares an *egocentric* `7×7×3` observation core with
-//! `R == SR` and 7-action turn/forward dynamics. This task is *allocentric*,
-//! 4-way Cartesian, and modality-changing — it reuses none of that core, so it
-//! lives in its own concept module.
+//! The `grids` family shares an *egocentric* `$7 \times 7 \times 3$` observation core with
+//! `R == SR` and 7-action turn/forward dynamics. This task is *allocentric*, 4-way Cartesian, and
+//! modality-changing — it reuses none of that core, so it lives in its own concept module.
 //!
 //! ## Dimensions (fixed for v1)
 //!
 //! | Const | Value | Meaning |
 //! |-------|-------|---------|
-//! | [`GRID_SIDE`] | `5` | grid is `5×5 = 25` cells |
-//! | [`CELL_PX`] | `4` | each cell renders as a `4×4` pixel block |
+//! | [`GRID_SIDE`] | `5` | grid is `$5 \times 5 = 25$` cells |
+//! | [`CELL_PX`] | `4` | each cell renders as a `$4 \times 4$` pixel block |
 //! | [`CHANNELS`] | `3` | RGB; image is `[20, 20, 3]` |
 //!
 //! RGB cell colors (distinct hues, recoverable per channel): background black
@@ -46,7 +44,7 @@
 //! Agent-on-goal renders white (the terminal frame). RGB rather than grayscale
 //! so a future Atari backend differs only in resolution, not channel count.
 //!
-//! ## Layout (`5×5` grid, fixed placement)
+//! ## Layout (`$5 \times 5$` grid, fixed placement)
 //!
 //! ```text
 //! @ . . . .   @ = agent (cell 0,  white)
@@ -85,7 +83,7 @@ use burn::tensor::{Tensor, backend::Backend};
 
 use crate::episode::EpisodeGuard;
 
-/// Grid side length in cells; the grid is [`GRID_SIDE`]`²` cells.
+/// Grid side length in cells; the grid is [`GRID_SIDE`]`$^2$` cells.
 pub const GRID_SIDE: usize = 5;
 /// Pixel side length of one rendered cell block.
 pub const CELL_PX: usize = 4;
@@ -94,7 +92,7 @@ pub const CHANNELS: usize = 3;
 
 /// Image side length in pixels (`GRID_SIDE * CELL_PX`).
 pub const IMG_SIDE: usize = GRID_SIDE * CELL_PX;
-/// Total number of cells in the grid (`GRID_SIDE²`).
+/// Total number of cells in the grid (`$\text{GRID\_SIDE}^2$`).
 pub const CELL_COUNT: usize = GRID_SIDE * GRID_SIDE;
 /// [`CELL_COUNT`] as a `u32`, the width cell indices are stored in.
 ///
@@ -139,7 +137,8 @@ fn success_reward(step: usize, max_steps: usize) -> f32 {
 // State
 // ---------------------------------------------------------------------------
 
-/// Compact rank-1 latent: agent and goal cell indices on the `GRID_SIDE × GRID_SIDE` grid.
+/// Compact rank-1 latent: agent and goal cell indices on the
+/// `$\text{GRID\_SIDE} \times \text{GRID\_SIDE}$` grid.
 ///
 /// Cell indices are row-major flattened into `0..CELL_COUNT` (row `c / GRID_SIDE`,
 /// column `c % GRID_SIDE`). This is the RAM analogue — small, fully known, and
@@ -237,7 +236,7 @@ impl PixelGridState {
         self.agent = u32::try_from(cell).expect("cell index fits in u32");
     }
 
-    /// Render this state to a `GRID_SIDE × GRID_SIDE` ASCII frame.
+    /// Render this state to a `$\text{GRID\_SIDE} \times \text{GRID\_SIDE}$` ASCII frame.
     ///
     /// Agent and goal are distinguished by **glyph** (`@` / `*`) as well as
     /// color in the pixel projection — never color alone — so the frame is
@@ -312,8 +311,8 @@ impl Observable<3> for PixelGridState {
     }
 }
 
-/// Paint a single cell's `CELL_PX × CELL_PX` block in a row-major `[H, W, C]`
-/// pixel buffer with the given RGB color.
+/// Paint a single cell's `$\text{CELL\_PX} \times \text{CELL\_PX}$` block in a row-major
+/// `[H, W, C]` pixel buffer with the given RGB color.
 ///
 /// Total in `cell`: an index outside `0..CELL_COUNT` paints nothing and the
 /// block is left as background. Callers should have upheld the range
@@ -416,8 +415,8 @@ impl HostRow<3> for PixelObservation {
         // type ever changes, THIS LINE fails to compile and the override must
         // be re-derived, not re-asserted.
         let _: &[u8] = &self.pixels;
-        // `u8 -> f32` (and a divide by a finite non-zero constant) is total:
-        // no element of this row can be NaN or ±Inf.
+        // `u8 -> f32` (and a divide by a finite non-zero constant) is total: no element of this row
+        // can be `NaN` or `$\pm\infty$`.
         true
     }
 }

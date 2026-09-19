@@ -21,7 +21,7 @@
 //! |---|---|---|
 //! | [`generational`] | none | offspring quality is trusted; GA / CMA-ES |
 //! | [`elitist`] | top-k | preserving known-good solutions matters |
-//! | [`mu_plus_lambda`] | best of μ+λ pool | ES / DE with strong elitism |
+//! | [`mu_plus_lambda`] | best of `$\mu$`+`$\lambda$` pool | ES / DE with strong elitism |
 //! | [`mu_comma_lambda`] | none (offspring only) | ES with deliberate age-based forgetting |
 
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
@@ -47,10 +47,9 @@ pub fn generational<B: Backend>(
 
 /// Elitist replacement: keeps the `k` best parents and the best remaining offspring.
 ///
-/// Selects the `k` highest-fitness members of the current generation
-/// (elites) and the `pop_size − k` highest-fitness offspring, then
-/// concatenates them to form the next generation of size `pop_size`.
-/// Both selections use [`truncation_indices_host`] and are therefore
+/// Selects the `k` highest-fitness members of the current generation (elites) and the
+/// `$\text{pop\_size} - k$` highest-fitness offspring, then concatenates them to form the next
+/// generation of size `pop_size`. Both selections use [`truncation_indices_host`] and are therefore
 /// deterministic.
 ///
 /// The returned fitness vector has the elites' fitnesses first,
@@ -60,8 +59,7 @@ pub fn generational<B: Backend>(
 /// # Panics
 ///
 /// Panics if `k > current_fitness.len()`, or if
-/// `pop_size − k > offspring_fitness.len()` (not enough offspring to
-/// backfill).
+/// `$\text{pop\_size} - k > \text{offspring\_fitness.len()}$` (not enough offspring to backfill).
 #[must_use]
 pub fn elitist<B: Backend>(
     current_pop: Tensor<B, 2>,
@@ -110,12 +108,12 @@ pub fn elitist<B: Backend>(
     (combined, combined_fitness)
 }
 
-/// (μ + λ) replacement: keeps the μ best individuals from the merged parent and offspring pool.
+/// (`$\mu$` + `$\lambda$`) replacement: keeps the `$\mu$` best individuals from the merged parent
+/// and offspring pool.
 ///
-/// Concatenates the μ parent rows with the λ offspring rows into a
-/// combined pool of size μ + λ, then retains the `mu` members with
-/// the highest fitness. Parents and offspring compete on equal footing,
-/// so a highly-fit parent can survive indefinitely.
+/// Concatenates the `$\mu$` parent rows with the `$\lambda$` offspring rows into a combined pool of
+/// size `$\mu$` + `$\lambda$`, then retains the `mu` members with the highest fitness. Parents and
+/// offspring compete on equal footing, so a highly-fit parent can survive indefinitely.
 ///
 /// The returned tensor has shape `(mu, genome_dim)` and the returned
 /// fitness vector has length `mu`, both ordered by selection rank
@@ -153,13 +151,12 @@ pub fn mu_plus_lambda<B: Backend>(
     (combined.select(0, indices), next_fitness)
 }
 
-/// (μ, λ) replacement: discards parents and keeps the μ best offspring.
+/// (`$\mu$`, `$\lambda$`) replacement: discards parents and keeps the `$\mu$` best offspring.
 ///
-/// Parents are not passed to this function; only the λ offspring
-/// compete for the μ survivor slots. This strategy deliberately
-/// discards parent solutions each generation, which can help the
-/// population escape local optima and tracks moving optima better than
-/// (μ + λ). Requires `lambda >= mu` (`offspring_fitness.len() >= mu`).
+/// Parents are not passed to this function; only the `$\lambda$` offspring compete for the `$\mu$`
+/// survivor slots. This strategy deliberately discards parent solutions each generation, which can
+/// help the population escape local optima and tracks moving optima better than (`$\mu$` +
+/// `$\lambda$`). Requires `lambda >= mu` (`offspring_fitness.len() >= mu`).
 ///
 /// The returned tensor has shape `(mu, genome_dim)` and the returned
 /// fitness vector has length `mu`, both ordered by selection rank

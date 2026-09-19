@@ -11,10 +11,10 @@
 //! ## The mission is observable
 //!
 //! The instruction is carried **in the observation**, not merely on the env: a
-//! [`GoToDoorObservation`] is a `7 × 7 × 4` egocentric view whose first three
-//! channels are the usual entity encoding (`type`, `color`, `state` — identical
-//! to [`GridObservation`](super::core::GridObservation)) and whose **fourth
-//! channel is the mission's color byte, broadcast to every cell**.
+//! [`GoToDoorObservation`] is a `$7 \times 7 \times 4$` egocentric view whose first three channels
+//! are the usual entity encoding (`type`, `color`, `state` — identical to
+//! [`GridObservation`](super::core::GridObservation)) and whose **fourth channel is the mission's
+//! color byte, broadcast to every cell**.
 //!
 //! The mission byte is deliberately the *same* encoding as the perceived door
 //! color in channel 1 ([`Color::to_u8`], an ordinal byte in `1..=6`). Sharing the
@@ -23,13 +23,13 @@
 //! to test. A one-hot mission channel compared against an ordinal perceived color
 //! would be an encoding mismatch on the two sides of that comparison.
 //!
-//! Because the color↔wall mapping is re-sampled every episode, a policy cannot
-//! shortcut the perception step ("mission is Red ⇒ walk north"); it must look at
-//! the doors. Because the mission rides in channel 3, a policy that ignores that
-//! channel is information-theoretically capped at 25% success — the four target
-//! hypotheses are otherwise indistinguishable.
+//! Because the color↔wall mapping is re-sampled every episode, a policy cannot shortcut the
+//! perception step ("mission is Red `$\Rightarrow$` walk north"); it must look at the doors.
+//! Because the mission rides in channel 3, a policy that ignores that channel is
+//! information-theoretically capped at 25% success — the four target hypotheses are otherwise
+//! indistinguishable.
 //!
-//! ## Layout (6 × 6 default)
+//! ## Layout (`$6 \times 6$` default)
 //!
 //! ```text
 //! # # # ? # #    ? = a door, one per wall, at the wall midpoint.
@@ -40,7 +40,7 @@
 //! # # # ? # #    A = agent, start (2, 2) facing East    # = wall
 //! ```
 //!
-//! | Observation | `7 × 7 × 4`: `[type, color, state, mission_color]` per cell     |
+//! | Observation | `$7 \times 7 \times 4$`: `[type, color, state, mission_color]` per cell     |
 //! |-------------|-----------------------------------------------------------------|
 //! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Done`                      |
 //! | Reward      | `success_reward(steps, max_steps)` on correct `Done`; else `0.0` |
@@ -182,7 +182,7 @@ impl Mission {
     }
 }
 
-/// `7 × 7 × 4` egocentric observation carrying the episode mission.
+/// `$7 \times 7 \times 4$` egocentric observation carrying the episode mission.
 ///
 /// Bespoke to [`GoToDoorEnv`]: the shared
 /// [`GridObservation`](super::core::GridObservation) has no room for an
@@ -252,8 +252,8 @@ pub struct GoToDoorObservation {
 }
 
 impl GoToDoorObservation {
-    /// Encode a visibility-masked `7 × 7` entity view, the agent's facing, and
-    /// the episode mission color into an observation.
+    /// Encode a visibility-masked `$7 \times 7$` entity view, the agent's facing, and the episode
+    /// mission color into an observation.
     ///
     /// The mission-carrying counterpart of
     /// [`GridObservation::from_masked_view`](super::core::GridObservation::from_masked_view),
@@ -306,8 +306,8 @@ impl GoToDoorObservation {
         }
     }
 
-    /// Encode a fully visible `7 × 7` entity view, the agent's facing, and the
-    /// episode mission color into an observation.
+    /// Encode a fully visible `$7 \times 7$` entity view, the agent's facing, and the episode
+    /// mission color into an observation.
     ///
     /// Equivalent to wrapping every cell in `Some` and calling
     /// [`from_masked_view`](Self::from_masked_view) — which is exactly what it
@@ -365,14 +365,14 @@ impl HostRow<3> for GoToDoorObservation {
         // array, so a change to the element type, the channel count (including
         // the mission channel), or the view extent all break it.
         let _: &[[[u8; GO_TO_DOOR_OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE] = &self.view;
-        // `u8 -> f32` is total: no element of this row can be NaN or ±Inf.
+        // `u8 -> f32` is total: no element of this row can be `NaN` or `$\pm\infty$`.
         // `agent_direction` is not written into the row at all.
         true
     }
 }
 
 impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
-    /// Reconstructs the `7 × 7 × 4` view from a tensor.
+    /// Reconstructs the `$7 \times 7 \times 4$` view from a tensor.
     ///
     /// The tensor carries only the view channels — including the mission
     /// channel — because the view is already rotated into the agent's frame
@@ -453,7 +453,7 @@ impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GoToDoorConfig {
-    /// Grid side length in cells (width = height = `size`); must be ≥ `MIN_SIZE` (5).
+    /// Grid side length in cells (width = height = `size`); must be `$\geq$` `MIN_SIZE` (5).
     pub size: usize,
     /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
@@ -993,8 +993,8 @@ mod tests {
         GoToDoorEnv::with_config(GoToDoorConfig::new(6, 100, seed), false).expect("valid config")
     }
 
-    /// Scripted route from the fixed start pose `(2, 2)` facing East to a pose
-    /// *facing* the door on the given wall of a 6 × 6 grid, ending in `Done`.
+    /// Scripted route from the fixed start pose `(2, 2)` facing East to a pose *facing* the door on
+    /// the given wall of a `$6 \times 6$` grid, ending in `Done`.
     fn script_for(wall: usize) -> &'static [GridAction] {
         use GridAction::{Done, Forward, TurnLeft, TurnRight};
         match wall {
@@ -1460,8 +1460,8 @@ mod tests {
 
     #[test]
     fn test_reset_samples_target_near_uniformly() {
-        // 200 resets, target wall counted. p = 1/4, n = 200 → mean 50, sd ≈ 6.1.
-        // The bounds below are ≈ ±4 sd; the seed is fixed, so this cannot flake.
+        // 200 resets, target wall counted. p = 1/4, n = 200 → mean 50, sd `$\approx 6.1$`. The
+        // bounds below are `$\approx \pm 4$` sd; the seed is fixed, so this cannot flake.
         let mut env = env_6x6(1234);
         let mut counts = [0usize; DOOR_COUNT];
         for _ in 0..200 {

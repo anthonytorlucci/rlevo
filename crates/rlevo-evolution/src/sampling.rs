@@ -22,15 +22,14 @@ pub(crate) fn standard_normal<R: Rng + ?Sized>(rng: &mut R) -> f32 {
     x as f32
 }
 
-/// Draws one `N(mean, std)` sample, falling back to `mean` on a degenerate σ.
+/// Draws one `N(mean, std)` sample, falling back to `mean` on a degenerate `$\sigma$`.
 ///
-/// Guards against [`Normal::new`] failure by returning `mean` — the degenerate,
-/// zero-perturbation draw — instead of panicking. In `rand_distr` 0.6,
-/// [`Normal::new`] fails only when `std` is **non-finite** (`NaN` or `±∞`); a
-/// negative-but-finite `std` is accepted (it mirrors the distribution but still
-/// yields finite samples) and `std = 0.0` is accepted (every draw is exactly
-/// `mean`). A `NaN` `mean` passes through unchanged and is *not* laundered here;
-/// it is neutralized downstream by the ADR-0034 fitness-hygiene chokepoint.
+/// Guards against [`Normal::new`] failure by returning `mean` — the degenerate, zero-perturbation
+/// draw — instead of panicking. In `rand_distr` 0.6, [`Normal::new`] fails only when `std` is
+/// **non-finite** (`NaN` or `$\pm\infty$`); a negative-but-finite `std` is accepted (it mirrors the
+/// distribution but still yields finite samples) and `std = 0.0` is accepted (every draw is exactly
+/// `mean`). A `NaN` `mean` passes through unchanged and is *not* laundered here; it is neutralized
+/// downstream by the ADR-0034 fitness-hygiene chokepoint.
 ///
 /// An `rng` draw is consumed only on the `Ok` path: constructing the [`Normal`]
 /// distribution does not touch the `rng`, so the fallback leaves the stream
@@ -107,7 +106,7 @@ mod tests {
 
     #[test]
     fn normal_or_mean_samples_finite_for_finite_std() {
-        // Valid positive σ, plus a negative-but-finite σ (accepted by
+        // Valid positive `$\sigma$`, plus a negative-but-finite `$\sigma$` (accepted by
         // `rand_distr`, mirrors the distribution): both must yield finite draws.
         let mut rng: StdRng = StdRng::seed_from_u64(13);
         for _ in 0..1_000 {

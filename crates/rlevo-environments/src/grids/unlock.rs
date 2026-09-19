@@ -6,7 +6,7 @@
 //! Success is reached when the door transitions to [`DoorState::Open`];
 //! timing out with the door still closed or locked returns `0.0`.
 //!
-//! ## Layout (5 × 5 default)
+//! ## Layout (`$5 \times 5$` default)
 //!
 //! ```text
 //! # D # # #    D = Door (yellow, locked) at (1, 0)
@@ -27,7 +27,7 @@
 //! oracle rather than a coordinate:
 //!
 //! 1. **The topology is wrong.** Farama's `MiniGrid-Unlock-v0` is a *two-room*
-//!    task (a `1 × 2` `RoomGrid` of `room_size = 6`) whose locked door sits on
+//!    task (a `$1 \times 2$` `RoomGrid` of `room_size = 6`) whose locked door sits on
 //!    the **interior wall between the rooms**. rlevo draws a single
 //!    perimeter-walled room and writes the door at `(1, 0)` — *into that
 //!    perimeter*, on the outer north wall, with nothing behind it.
@@ -41,7 +41,7 @@
 //! numbers. Fixing the topology moves `MIN_SIZE` and the test oracle, so it is
 //! tracked as its own change rather than patched in place.
 //!
-//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell    |
+//! | Observation | `$7 \times 7$` egocentric grid encoded as `[type, color, state]` per cell    |
 //! |-------------|----------------------------------------------------------------------|
 //! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Pickup`, `Toggle`               |
 //! | Reward      | `success_reward(steps, max_steps)` when door opens; `0.0` on timeout |
@@ -101,7 +101,7 @@ const DOOR_COLOR: Color = Color::Yellow;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnlockConfig {
-    /// Side length of the room; must be ≥ `MIN_SIZE` (4).
+    /// Side length of the room; must be `$\geq$` `MIN_SIZE` (4).
     pub size: usize,
     /// Maximum number of steps before the episode times out.
     pub max_steps: usize,

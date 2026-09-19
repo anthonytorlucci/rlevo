@@ -61,9 +61,9 @@ pub struct SwimmerConfig {
     pub segment_length: f32,
     /// Radius of each capsule segment. Default `0.05`.
     pub segment_radius: f32,
-    /// Mass of each segment in kg. Used to compute capsule density so that
-    /// the inertia tensor is non-zero. Default `0.947` (`MuJoCo` body density
-    /// 1000 kg/m³ × capsule volume).
+    /// Mass of each segment in kg. Used to compute capsule density so that the inertia tensor is
+    /// non-zero. Default `0.947` (`MuJoCo` body density `$1000\ \text{kg/m}^3 \times$` capsule
+    /// volume).
     pub segment_mass: f32,
 }
 
@@ -73,12 +73,12 @@ impl Default for SwimmerConfig {
         // reduced-coordinate multibody solver stays integrable:
         //
         // * `segment_mass = 0.947` uses MuJoCo's default *body* density
-        //   (1000 kg/m³) applied to the capsule volume π·r²·(2·half + (4/3)·r).
+        //   (`$1000\ \text{kg/m}^3$`) applied to the capsule volume `$\pi r^2 (2\,\text{half} + (4/3) r)$`.
         //   A figure of 0.0471 kg would cross body density with fluid density
         //   (`<option density>`); the XML uses body density 1000.
         //
         // * `gear = [5, 5]` is one thirtieth of Gymnasium's `[150, 150]`.
-        //   At full gear the angular acceleration (α ≈ τ/I ≈ 7 500 rad/s²)
+        //   At full gear the angular acceleration (`$\alpha \approx \tau/I \approx 7\,500\ \text{rad/s}^2$`)
         //   produces ~75 rad/s per substep at dt=0.01 — a rotation rate
         //   that violates the joint constraints faster than PGS can
         //   resolve them, and the multibody state diverges to NaN within
@@ -86,12 +86,12 @@ impl Default for SwimmerConfig {
         //   inside the solver's stable regime.
         //
         // * `angular_drag_coefficient = 0.2` adds a linear angular-drag
-        //   term `τ_drag = −k_ang · ω` per segment. MuJoCo's swimmer
+        //   term `$\tau_{\text{drag}} = -k_{\text{ang}} \omega$` per segment. MuJoCo's swimmer
         //   effectively caps segment spin via fluid viscosity; with only
         //   linear translational drag, sustained actuation spins the chain
         //   up unboundedly (no kinetic-energy sink about the joint axis)
         //   and the solver diverges even at reduced gear within ~50 steps.
-        //   The term is linear in ω (not quadratic) for explicit-Euler
+        //   The term is linear in `$\omega$` (not quadratic) for explicit-Euler
         //   stability; see `angular_drag_coefficient` field doc.
         //
         // The module-level "absolute reward values will NOT transfer"

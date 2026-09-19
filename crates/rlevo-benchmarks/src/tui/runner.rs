@@ -56,9 +56,9 @@ use crate::tui::state::{
     StatusLine,
 };
 
-/// Default render tick. 60 ms ≈ 16 fps — slow enough that the render
-/// thread spends most of its time blocked on the channel rather than
-/// redrawing, fast enough that the sparklines update fluidly.
+/// Default render tick. 60 ms `$\approx$` 16 fps — slow enough that the render thread spends most
+/// of its time blocked on the channel rather than redrawing, fast enough that the sparklines update
+/// fluidly.
 pub const DEFAULT_TICK_MS: u64 = 60;
 
 /// Configuration for [`TuiRunner`].

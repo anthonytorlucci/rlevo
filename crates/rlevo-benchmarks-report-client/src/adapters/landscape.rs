@@ -3,7 +3,7 @@
 //! Consumes a [`FamilyPayload::Landscape2D`] payload and renders the
 //! search domain as a bounded SVG viewport with:
 //!
-//! - the search rectangle (`bounds_x` × `bounds_y`);
+//! - the search rectangle (`bounds_x` `$\times$` `bounds_y`);
 //! - a trail polyline (most recent candidate positions, oldest first);
 //! - the current candidate as a filled circle (cyan + bold stroke);
 //! - the best-so-far as an open ring with a cross-hair (green) when
@@ -25,10 +25,10 @@ use crate::wire::{FamilyPayload, FrameRecord, Landscape2DPayload};
 
 /// SVG viewport size in user units (square canvas).
 const VB_SIZE: f32 = 320.0;
-/// Padding inside the viewBox on each edge; the affine map places the
-/// landscape bounds onto `[VB_PAD, VB_SIZE − VB_PAD]` along both axes.
+/// Padding inside the viewBox on each edge; the affine map places the landscape bounds onto
+/// `$[\text{VB\_PAD}, \text{VB\_SIZE} - \text{VB\_PAD}]$` along both axes.
 const VB_PAD: f32 = 16.0;
-/// Heatmap grid resolution (`HEATMAP_N × HEATMAP_N` cells).
+/// Heatmap grid resolution (`$\text{HEATMAP\_N} \times \text{HEATMAP\_N}$` cells).
 const HEATMAP_N: usize = 24;
 
 /// Renders one landscapes-family frame, dispatching on the payload variant.

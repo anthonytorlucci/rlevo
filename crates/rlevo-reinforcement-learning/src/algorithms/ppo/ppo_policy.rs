@@ -88,7 +88,7 @@ pub trait PpoPolicy<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     fn action_row_from_tensor(action: &Self::ActionTensor, row: usize) -> Vec<f32>;
 
     /// Rebuilds a batched action tensor from row-major f32 data of length
-    /// `n_rows · action_dim()`. Called at minibatch materialisation time.
+    /// `$\text{n\_rows} \cdot \text{action\_dim}()$`. Called at minibatch materialisation time.
     /// Must be the inverse of [`action_row_from_tensor`](Self::action_row_from_tensor).
     fn action_tensor_from_flat(
         flat: &[f32],
@@ -100,7 +100,7 @@ pub trait PpoPolicy<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     /// pre-squash `z` for Gaussian, the index for Categorical) into the
     /// representation the environment expects. Default: identity.
     ///
-    /// Gaussian heads override this to apply `scale · tanh(z)`.
+    /// Gaussian heads override this to apply `$\text{scale} \cdot \tanh(z)$`.
     fn raw_to_env_row(&self, raw_row: &[f32]) -> Vec<f32> {
         raw_row.to_vec()
     }

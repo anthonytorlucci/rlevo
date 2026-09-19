@@ -3,17 +3,17 @@
 //! Four canonical variants parameterized on a single [`EsConfig`]:
 //!
 //! - `(1+1)` — a single parent, a single offspring, 1/5th success-rule
-//!   σ adaptation.
-//! - `$(1+\lambda)$` — a single parent, λ offspring per generation; the best
+//!   `$\sigma$` adaptation.
+//! - `$(1+\lambda)$` — a single parent, `$\lambda$` offspring per generation; the best
 //!   offspring replaces the parent iff its fitness improves. The
 //!   underlying mutation/selection loop is also reused by Cartesian GP.
-//! - `$(\mu,\lambda)$` — μ parents, λ offspring; parents are discarded each
+//! - `$(\mu,\lambda)$` — `$\mu$` parents, `$\lambda$` offspring; parents are discarded each
 //!   generation.
-//! - `$(\mu+\lambda)$` — μ parents, λ offspring; survivors are the μ best of the
+//! - `$(\mu+\lambda)$` — `$\mu$` parents, `$\lambda$` offspring; survivors are the `$\mu$` best of the
 //!   combined pool.
 //!
-//! σ adaptation is by log-normal self-adaptation in the multi-parent
-//! variants; `(1+1)` uses Rechenberg's 1/5th success rule.
+//! `$\sigma$` adaptation is by log-normal self-adaptation in the multi-parent variants; `(1+1)`
+//! uses Rechenberg's 1/5th success rule.
 //!
 //! # References
 //!
@@ -38,13 +38,13 @@ use crate::strategy::{Strategy, StrategyMetrics};
 /// Which selection scheme the ES uses.
 #[derive(Debug, Clone, Copy)]
 pub enum EsKind {
-    /// `(1+1)` with 1/5-rule σ adaptation.
+    /// `(1+1)` with 1/5-rule `$\sigma$` adaptation.
     OnePlusOne,
-    /// `$(1+\lambda)$` with shared σ across offspring.
+    /// `$(1+\lambda)$` with shared `$\sigma$` across offspring.
     OnePlusLambda { lambda: usize },
-    /// `$(\mu,\lambda)$` with log-normal per-individual σ adaptation.
+    /// `$(\mu,\lambda)$` with log-normal per-individual `$\sigma$` adaptation.
     MuCommaLambda { mu: usize, lambda: usize },
-    /// `$(\mu+\lambda)$` with log-normal per-individual σ adaptation.
+    /// `$(\mu+\lambda)$` with log-normal per-individual `$\sigma$` adaptation.
     MuPlusLambda { mu: usize, lambda: usize },
 }
 
@@ -61,11 +61,9 @@ impl EsKind {
     }
 }
 
-/// Default σ floor for the self-adaptive step size (see
-/// [`EsConfig::sigma_min`]).
+/// Default `$\sigma$` floor for the self-adaptive step size (see [`EsConfig::sigma_min`]).
 const DEFAULT_SIGMA_MIN: f32 = 1e-8;
-/// Default σ ceiling for the self-adaptive step size (see
-/// [`EsConfig::sigma_max`]).
+/// Default `$\sigma$` ceiling for the self-adaptive step size (see [`EsConfig::sigma_max`]).
 const DEFAULT_SIGMA_MAX: f32 = 1e6;
 
 /// Static configuration for an [`EvolutionStrategy`] run.
@@ -77,24 +75,24 @@ pub struct EsConfig {
     pub genome_dim: usize,
     /// Search-space bounds; used for initialization and clamping.
     pub bounds: Bounds,
-    /// Initial σ (log-normal self-adaptation modifies it in state).
+    /// Initial `$\sigma$` (log-normal self-adaptation modifies it in state).
     pub initial_sigma: f32,
-    /// Lower clamp for the self-adaptive σ.
+    /// Lower clamp for the self-adaptive `$\sigma$`.
     ///
     /// Both the log-normal update `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$` (multi-parent
-    /// variants) and the Rechenberg 1/5-rule (`(1+1)`) are unbounded
-    /// multiplicative processes; without a floor σ can underflow toward `0`,
-    /// collapsing the mutation amplitude so the search freezes. Must be
-    /// strictly positive and `< sigma_max`. Default `DEFAULT_SIGMA_MIN`.
+    /// variants) and the Rechenberg 1/5-rule (`(1+1)`) are unbounded multiplicative processes;
+    /// without a floor `$\sigma$` can underflow toward `0`, collapsing the mutation amplitude so
+    /// the search freezes. Must be strictly positive and `< sigma_max`. Default
+    /// `DEFAULT_SIGMA_MIN`.
     pub sigma_min: f32,
-    /// Upper clamp for the self-adaptive σ.
+    /// Upper clamp for the self-adaptive `$\sigma$`.
     ///
-    /// Without a ceiling σ can overflow toward `$+\infty$` (genes then saturate to a
-    /// bound with no error). Default `DEFAULT_SIGMA_MAX` — far outside any
-    /// practical step scale on the `[-5.12, 5.12]` benchmark domain, so it
-    /// never binds in normal operation and only catches a runaway process.
+    /// Without a ceiling `$\sigma$` can overflow toward `$+\infty$` (genes then saturate to a bound
+    /// with no error). Default `DEFAULT_SIGMA_MAX` — far outside any practical step scale on the
+    /// `[-5.12, 5.12]` benchmark domain, so it never binds in normal operation and only catches a
+    /// runaway process.
     pub sigma_max: f32,
-    /// Learning-rate scale for log-normal σ update. Standard default is
+    /// Learning-rate scale for log-normal `$\sigma$` update. Standard default is
     /// `1.0 / sqrt(2 * sqrt(D))`.
     pub tau: f32,
 }
@@ -102,9 +100,9 @@ pub struct EsConfig {
 impl EsConfig {
     /// Default configuration for a given ES variant and dimensionality.
     ///
-    /// Sets `bounds = (-5.12, 5.12)` (the standard Rastrigin/sphere domain),
-    /// `initial_sigma = 1.0`, and τ via the standard formula
-    /// `$1 / \sqrt{2 \cdot \sqrt{D}}$` (Beyer & Schwefel 2002, eq. 12).
+    /// Sets `bounds = (-5.12, 5.12)` (the standard Rastrigin/sphere domain), `initial_sigma = 1.0`,
+    /// and `$\tau$` via the standard formula `$1 / \sqrt{2 \cdot \sqrt{D}}$` (Beyer & Schwefel
+    /// 2002, eq. 12).
     #[must_use]
     pub fn default_for(kind: EsKind, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]
@@ -163,15 +161,15 @@ impl Validate for EsConfig {
 /// Generation state for [`EvolutionStrategy`].
 #[derive(Debug, Clone)]
 pub struct EsState<B: Backend> {
-    /// Parent population. `(μ, D)` for μ-parent variants; `(1, D)` for
-    /// (1+1) and (1+λ).
+    /// Parent population. `$(\mu, D)$` for `$\mu$`-parent variants; `(1, D)` for (1+1) and
+    /// (1+`$\lambda$`).
     parents: Tensor<B, 2>,
-    /// Per-parent σ values.
+    /// Per-parent `$\sigma$` values.
     ///
-    /// Shape between generations is `(μ,)` for log-normal adaptation and
-    /// `(1,)` for `(1+1)`/`$(1+\lambda)$` with shared σ. Between an `ask` and the
-    /// matching `tell` the tensor is temporarily `(μ + λ,)`: parent σ
-    /// followed by per-offspring σ. See `ask` for the rationale.
+    /// Shape between generations is `$(\mu,)$` for log-normal adaptation and `(1,)` for
+    /// `(1+1)`/`$(1+\lambda)$` with shared `$\sigma$`. Between an `ask` and the matching `tell` the
+    /// tensor is temporarily `$(\mu + \lambda,)$`: parent `$\sigma$` followed by per-offspring
+    /// `$\sigma$`. See `ask` for the rationale.
     sigmas: Tensor<B, 1>,
     /// Parent fitnesses.
     parent_fitness: Vec<f32>,
@@ -229,13 +227,13 @@ impl<B: Backend> EsState<B> {
         })
     }
 
-    /// Parent population, shape `(μ, D)` (or `(1, D)` for `(1+1)`/`$(1+\lambda)$`).
+    /// Parent population, shape `$(\mu, D)$` (or `(1, D)` for `(1+1)`/`$(1+\lambda)$`).
     #[must_use]
     pub fn parents(&self) -> &Tensor<B, 2> {
         &self.parents
     }
 
-    /// Per-parent σ values (see the field docs for the transient `(μ + λ,)`
+    /// Per-parent `$\sigma$` values (see the field docs for the transient `$(\mu + \lambda,)$`
     /// shape held between `ask` and `tell`).
     #[must_use]
     pub fn sigmas(&self) -> &Tensor<B, 1> {
@@ -347,9 +345,9 @@ where
     type State = EsState<B>;
     type Genome = Tensor<B, 2>;
 
-    /// Samples the initial parent population uniformly from `params.bounds`
-    /// via a deterministic `seed_stream` (host-RNG convention) and
-    /// initializes all σ values to `params.initial_sigma`.
+    /// Samples the initial parent population uniformly from `params.bounds` via a deterministic
+    /// `seed_stream` (host-RNG convention) and initializes all `$\sigma$` values to
+    /// `params.initial_sigma`.
     fn init(
         &self,
         params: &EsConfig,
@@ -375,14 +373,13 @@ where
 
     /// Generates the offspring population for the current generation.
     ///
-    /// On the very first call (before any `tell`), returns the initial parents
-    /// unchanged so that they can be fitness-evaluated as the seed population.
-    /// On subsequent calls, duplicates parents by uniform random selection,
-    /// applies log-normal σ adaptation (multi-parent variants) or inherits the
-    /// shared σ (`(1+1)` / `$(1+\lambda)$`), then mutates via per-individual Gaussian
-    /// noise. All stochastic draws go through `seed_stream`
-    /// (host-RNG convention); offspring σ values are appended to
-    /// `state.sigmas` for consumption by `tell`.
+    /// On the very first call (before any `tell`), returns the initial parents unchanged so that
+    /// they can be fitness-evaluated as the seed population. On subsequent calls, duplicates
+    /// parents by uniform random selection, applies log-normal `$\sigma$` adaptation (multi-parent
+    /// variants) or inherits the shared `$\sigma$` (`(1+1)` / `$(1+\lambda)$`), then mutates via
+    /// per-individual Gaussian noise. All stochastic draws go through `seed_stream` (host-RNG
+    /// convention); offspring `$\sigma$` values are appended to `state.sigmas` for consumption by
+    /// `tell`.
     fn ask(
         &self,
         params: &EsConfig,
@@ -407,10 +404,9 @@ where
         let mut sigma_rng =
             seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Other);
 
-        // Build an offspring population of size λ by sampling a parent
-        // index per offspring and mutating. Uniform random parent
-        // selection — no fitness pressure applied at this stage in
-        // classical ES; survivor selection provides the pressure.
+        // Build an offspring population of size `$\lambda$` by sampling a parent index per
+        // offspring and mutating. Uniform random parent selection — no fitness pressure applied at
+        // this stage in classical ES; survivor selection provides the pressure.
         let mut parent_indices: Vec<i64> = Vec::with_capacity(lambda);
         for _ in 0..lambda {
             #[allow(clippy::cast_possible_wrap)]
@@ -423,8 +419,8 @@ where
         let duplicated_parents = state.parents.clone().select(0, idx_tensor.clone());
         let duplicated_sigmas = state.sigmas.clone().select(0, idx_tensor);
 
-        // Apply log-normal σ adaptation (multi-parent case) or keep σ
-        // shared (1+1 / 1+λ). Log-normal: σ' = σ * exp(τ · N(0,1)).
+        // Apply log-normal `$\sigma$` adaptation (multi-parent case) or keep `$\sigma$` shared (1+1
+        // / 1+`$\lambda$`). Log-normal: `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$`.
         let is_one_plus = matches!(
             params.kind,
             EsKind::OnePlusOne | EsKind::OnePlusLambda { .. }
@@ -432,22 +428,21 @@ where
         let offspring_sigmas = if is_one_plus {
             duplicated_sigmas
         } else {
-            // Host-sample the N(0,1) noise from the deterministic `sigma_rng`
-            // so the log-normal σ update is reproducible across schedules.
+            // Host-sample the N(0,1) noise from the deterministic `sigma_rng` so the log-normal
+            // `$\sigma$` update is reproducible across schedules.
             let mut noise_rows = Vec::with_capacity(lambda);
             for _ in 0..lambda {
                 noise_rows.push(crate::sampling::standard_normal(&mut sigma_rng));
             }
             let noise = Tensor::<B, 1>::from_data(TensorData::new(noise_rows, [lambda]), device);
-            // Clamp the log-normal random walk to `[sigma_min, sigma_max]` so σ
-            // can neither underflow to 0 (search freezes) nor overflow to +∞
-            // (genes saturate). Both bounds are construction-validated.
+            // Clamp the log-normal random walk to `[sigma_min, sigma_max]` so `$\sigma$` can
+            // neither underflow to 0 (search freezes) nor overflow to `$+\infty$` (genes saturate).
+            // Both bounds are construction-validated.
             (duplicated_sigmas * noise.mul_scalar(params.tau).exp())
                 .clamp(params.sigma_min, params.sigma_max)
         };
 
-        // Mutate parents by the per-offspring σ, drawing from the host
-        // `mutation_rng`.
+        // Mutate parents by the per-offspring `$\sigma$`, drawing from the host `mutation_rng`.
         let mutated = gaussian_mutation_per_row(
             duplicated_parents,
             offspring_sigmas.clone(),
@@ -460,30 +455,30 @@ where
         let mutated = mutated.clamp(lo, hi);
 
         let mut state = state.clone();
-        // Carry offspring σ to `tell` by appending them to `state.sigmas`.
-        // After this point sigmas has shape `(μ + λ,)`: the first μ entries
-        // are the unchanged parent σ, the last λ are the per-offspring σ.
-        // `tell` slices both halves to align survivor σ with survivor genomes
-        // (`(μ+λ)` selection draws from the union, `(μ,λ)` only from the λ
-        // offspring slice). Folding the offspring σ into the existing field
-        // avoids adding a transient pending-σ field to `EsState`.
+        // Carry offspring `$\sigma$` to `tell` by appending them to `state.sigmas`. After this
+        // point sigmas has shape `$(\mu + \lambda,)$`: the first `$\mu$` entries are the unchanged
+        // parent `$\sigma$`, the last `$\lambda$` are the per-offspring `$\sigma$`. `tell` slices
+        // both halves to align survivor `$\sigma$` with survivor genomes (`$(\mu+\lambda)$`
+        // selection draws from the union, `$(\mu,\lambda)$` only from the `$\lambda$` offspring
+        // slice). Folding the offspring `$\sigma$` into the existing field avoids adding a
+        // transient pending-`$\sigma$` field to `EsState`.
         let combined_sigmas = Tensor::cat(vec![state.sigmas.clone(), offspring_sigmas], 0);
         state.sigmas = combined_sigmas;
         (mutated, state)
     }
 
-    /// Applies variant-specific selection and σ adaptation, then returns the
-    /// updated state and a per-generation metrics snapshot.
+    /// Applies variant-specific selection and `$\sigma$` adaptation, then returns the updated state
+    /// and a per-generation metrics snapshot.
     ///
     /// Variant behaviour:
-    /// - `(1+1)`: greedy replacement; σ updated by Rechenberg's 1/5th
+    /// - `(1+1)`: greedy replacement; `$\sigma$` updated by Rechenberg's 1/5th
     ///   success rule every `$10 \cdot D$` steps.
     /// - `$(1+\lambda)$`: best offspring replaces the parent only if it strictly
-    ///   improves fitness; σ is carried over unchanged.
-    /// - `$(\mu,\lambda)$`: selects the μ best offspring; parent pool discarded.
-    ///   Survivor σ values are gathered by the same truncation indices.
-    /// - `$(\mu+\lambda)$`: selects the μ best of the combined parent + offspring
-    ///   pool. Survivor σ values are drawn from the concatenated σ vector
+    ///   improves fitness; `$\sigma$` is carried over unchanged.
+    /// - `$(\mu,\lambda)$`: selects the `$\mu$` best offspring; parent pool discarded.
+    ///   Survivor `$\sigma$` values are gathered by the same truncation indices.
+    /// - `$(\mu+\lambda)$`: selects the `$\mu$` best of the combined parent + offspring
+    ///   pool. Survivor `$\sigma$` values are drawn from the concatenated `$\sigma$` vector
     ///   by the same indices.
     ///
     /// The first `tell` after `init` bootstraps `parent_fitness` from the
@@ -515,7 +510,7 @@ where
             );
             state.best_fitness = m.best_fitness_ever();
             state.parents = offspring;
-            // Restore parent-count σ vector.
+            // Restore parent-count `$\sigma$` vector.
             let mu = Self::mu(params.kind);
             let device = state.parents.device();
             state.sigmas = Tensor::<B, 1>::from_data(
@@ -527,8 +522,8 @@ where
 
         let device = offspring.device();
         let mu = Self::mu(params.kind);
-        // state.sigmas currently holds parent σ concatenated with
-        // offspring σ, per `ask`'s scratchpad trick.
+        // state.sigmas currently holds parent `$\sigma$` concatenated with offspring `$\sigma$`,
+        // per `ask`'s scratchpad trick.
         let lambda = params.kind.population_size();
         #[allow(clippy::single_range_in_vec_init)]
         let parent_sigmas = state.sigmas.clone().slice([0..mu]);
@@ -547,7 +542,7 @@ where
                     state.parents.clone_from(&offspring);
                     state.parent_fitness = vec![offspring_fit];
                 }
-                // Rechenberg 1/5-rule every 10 · D generations.
+                // Rechenberg 1/5-rule every `$10 \cdot D$` generations.
                 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
                 let window = 10_u32.saturating_mul(params.genome_dim as u32).max(1);
                 if state.window_len >= window {
@@ -559,9 +554,9 @@ where
                         .into_data()
                         .into_vec::<f32>()
                         .expect("sigma tensor must be readable as f32")[0];
-                    // The 1/5-rule is also an unbounded multiplicative process;
-                    // clamp to the same construction-validated window so σ can
-                    // neither underflow to 0 nor overflow to +∞ over a long run.
+                    // The 1/5-rule is also an unbounded multiplicative process; clamp to the same
+                    // construction-validated window so `$\sigma$` can neither underflow to 0 nor
+                    // overflow to `$+\infty$` over a long run.
                     let new_sigma = if rate > 0.2 {
                         current_sigma * 1.22
                     } else if rate < 0.2 {
@@ -593,7 +588,7 @@ where
             EsKind::MuCommaLambda { mu, .. } => {
                 let (survivors, survivor_f) =
                     mu_comma_lambda::<B>(offspring.clone(), &fitness_host, mu, &device);
-                // Gather survivor σs matching the same indices.
+                // Gather survivor `$\sigma$`s matching the same indices.
                 let survivor_idx =
                     crate::ops::selection::truncation_indices_host(&fitness_host, mu);
                 let survivor_sigmas = offspring_sigmas.select(
@@ -616,7 +611,7 @@ where
                     mu,
                     &device,
                 );
-                // Survivor σ via truncation_indices_host on the combined fitness.
+                // Survivor `$\sigma$` via truncation_indices_host on the combined fitness.
                 let combined_f: Vec<f32> = state
                     .parent_fitness
                     .iter()
@@ -715,7 +710,7 @@ mod tests {
             )
             .is_ok()
         );
-        // parent_fitness length 3 ≠ μ = 4.
+        // parent_fitness length 3 `$\neq$` `$\mu$` = 4.
         assert!(EsState::try_new(parents, sigmas, vec![1.0; 3], None, 1.0, 1, 0, 0).is_err());
     }
 
@@ -732,8 +727,8 @@ mod tests {
     }
 
     /// `genome_dim == 0` makes `$\tau = 1/\sqrt{2 \cdot \sqrt{0}} = +\infty$`; the config guard
-    /// must reject it at construction (ADR 0026) so the non-finite τ never
-    /// reaches the first `ask`.
+    /// must reject it at construction (ADR 0026) so the non-finite `$\tau$` never reaches the first
+    /// `ask`.
     #[test]
     fn rejects_zero_genome_dim() {
         let cfg = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 0);
@@ -749,8 +744,8 @@ mod tests {
         );
     }
 
-    /// An inverted σ window (`sigma_min >= sigma_max`) is rejected so the clamp
-    /// bounds are always a valid interval (`es_classical` §1.1).
+    /// An inverted `$\sigma$` window (`sigma_min >= sigma_max`) is rejected so the clamp bounds are
+    /// always a valid interval (`es_classical` §1.1).
     #[test]
     fn rejects_inverted_sigma_window() {
         let mut cfg = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 10);
@@ -763,11 +758,10 @@ mod tests {
         );
     }
 
-    /// The log-normal σ of a multi-parent variant stays inside
-    /// `[sigma_min, sigma_max]` across many generations even under an aggressive
-    /// `tau` that would otherwise drive the walk to `0` or `$+\infty$`
-    /// (`es_classical` §1.1). Drives the strategy directly so the transient
-    /// `(μ + λ,)` σ vector produced by `ask` is inspected.
+    /// The log-normal `$\sigma$` of a multi-parent variant stays inside `[sigma_min, sigma_max]`
+    /// across many generations even under an aggressive `tau` that would otherwise drive the walk
+    /// to `0` or `$+\infty$` (`es_classical` §1.1). Drives the strategy directly so the transient
+    /// `$(\mu + \lambda,)$` `$\sigma$` vector produced by `ask` is inspected.
     #[test]
     fn sigma_stays_within_bounds_across_updates() {
         use rand::SeedableRng;

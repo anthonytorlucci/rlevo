@@ -439,9 +439,9 @@ where
     /// attempt count, not an applied count.
     ///
     /// Subtract [`skipped_critic_1_updates`](Self::skipped_critic_1_updates) or
-    /// [`skipped_critic_2_updates`](Self::skipped_critic_2_updates) to recover
-    /// how many of those attempts actually reached that critic's optimizer:
-    /// `applied = attempts − skipped`.
+    /// [`skipped_critic_2_updates`](Self::skipped_critic_2_updates) to recover how many of those
+    /// attempts actually reached that critic's optimizer:
+    /// `$\text{applied} = \text{attempts} - \text{skipped}$`.
     ///
     /// [`TargetUpdate::fires_at`]: crate::target::TargetUpdate::fires_at
     pub fn critic_updates(&self) -> usize {
@@ -451,11 +451,10 @@ where
     /// Number of critic-1 gradient updates skipped because the critic-1 loss
     /// was non-finite (ADR 0056, ADR 0072).
     ///
-    /// Each skip is one entered learn step whose `backward()` and optimizer
-    /// step were both suppressed so a `NaN`/`±Inf` loss could not be folded
-    /// into critic-1's weights. [`critic_updates`](Self::critic_updates) counts
-    /// **attempts** and advances anyway, so
-    /// `applied = critic_updates() − skipped_critic_1_updates()`.
+    /// Each skip is one entered learn step whose `backward()` and optimizer step were both
+    /// suppressed so a `NaN`/`$\pm\infty$` loss could not be folded into critic-1's weights.
+    /// [`critic_updates`](Self::critic_updates) counts **attempts** and advances anyway, so
+    /// `$\text{applied} = \text{critic\_updates}() - \text{skipped\_critic\_1\_updates}()$`.
     ///
     /// # Not the same event as a *drop*
     ///
@@ -548,11 +547,10 @@ where
     ///
     /// # Behavior on a non-finite observation
     ///
-    /// The observation row is checked for finiteness before it reaches the
-    /// actor. A `NaN` / `±Inf` row is **counted and warned about, and the
-    /// action is returned unchanged** — nothing is substituted, no fallback is
-    /// returned, and the clamping is not altered (ADR 0067 Decision 4). Read
-    /// the count with
+    /// The observation row is checked for finiteness before it reaches the actor. A `NaN` /
+    /// `$\pm\infty$` row is **counted and warned about, and the action is returned unchanged** —
+    /// nothing is substituted, no fallback is returned, and the clamping is not altered (ADR 0067
+    /// Decision 4). Read the count with
     /// [`degenerate_action_selections`](Self::degenerate_action_selections).
     ///
     /// The warm-up branch is deliberately outside the check: it never reads
@@ -615,13 +613,12 @@ where
             return A::from_slice(&sample);
         }
 
-        // `&self` (agents must stay `Sync` — the evolution layer evaluates them
-        // in parallel), so the staging buffer cannot be a field and must not be
-        // a shared `RefCell` / `Mutex`. Cost of the deliberate alternative: one
-        // `Vec<f32>` allocation per call, and only for f32 feature-vector
-        // observations (≤24 elements in this workspace). The four integer-backed
-        // observation types override `row_is_finite` without touching `scratch`,
-        // so this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
+        // `&self` (agents must stay `Sync` — the evolution layer evaluates them in parallel), so
+        // the staging buffer cannot be a field and must not be a shared `RefCell` / `Mutex`. Cost
+        // of the deliberate alternative: one `Vec<f32>` allocation per call, and only for f32
+        // feature-vector observations (`$\leq 24$` elements in this workspace). The four
+        // integer-backed observation types override `row_is_finite` without touching `scratch`, so
+        // this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
@@ -714,15 +711,12 @@ where
     ///
     /// # Behavior
     ///
-    /// A non-finite `reward` (`NaN` or `±Inf`) is **discarded, not stored**:
-    /// the transition never enters the replay buffer and the call is otherwise
-    /// a no-op. Storing it would let every minibatch that later resampled it
-    /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
-    /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
-    /// 10th, 100th, … drop; use
-    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
-    /// programmatically.
+    /// A non-finite `reward` (`NaN` or `$\pm\infty$`) is **discarded, not stored**: the transition
+    /// never enters the replay buffer and the call is otherwise a no-op. Storing it would let every
+    /// minibatch that later resampled it produce a non-finite loss, which `FiniteLossGuard` then
+    /// skips — silently costing gradient updates for as long as the poisoned transition stayed
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st, 10th, 100th, … drop; use
+    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss programmatically.
     ///
     /// A non-finite **observation** — on either `obs` or `next_obs` — is
     /// discarded the same way, with its own counter
@@ -780,8 +774,8 @@ where
         self.reward_guard.dropped()
     }
 
-    /// Number of transitions [`remember`](Self::remember) discarded because
-    /// `obs` or `next_obs` carried a non-finite value (`NaN` / `±Inf`).
+    /// Number of transitions [`remember`](Self::remember) discarded because `obs` or `next_obs`
+    /// carried a non-finite value (`NaN` / `$\pm\infty$`).
     ///
     /// A non-zero count means those environment steps **never entered the
     /// replay buffer** and can never be sampled. The usual source is the
@@ -829,7 +823,7 @@ where
     /// place the guard on opposite sides of their random-action branch.
     ///
     /// - **Discrete** (`dqn`, `c51`, `qrdqn`) — the guard sits *inside* the
-    ///   ε-explore branch, and the greedy branch delegates to `act_greedy`,
+    ///   `$\epsilon$`-explore branch, and the greedy branch delegates to `act_greedy`,
     ///   which guards itself. So **every** `act` call is counted, including the
     ///   whole early period where `epsilon_start = 1.0` means every action is
     ///   random and `obs` is read *only* to run this check.
@@ -1216,10 +1210,9 @@ mod tests {
 
     #[test]
     fn test_td3agent_td3_target_is_min_of_twin_critics() {
-        // `next_q1 = [2.0, 1.0, 5.0]` and `next_q2 = [3.0, 0.5, 4.0]` →
-        // element-wise min is `[2.0, 0.5, 4.0]`. With γ = 0.9, non-terminal
-        // rewards `[0.1, 0.2, 0.3]` and terminated `[0, 0, 1]`, the target is
-        // `[0.1 + 0.9*2.0, 0.2 + 0.9*0.5, 0.3 + 0.9*4.0*0]`
+        // `next_q1 = [2.0, 1.0, 5.0]` and `next_q2 = [3.0, 0.5, 4.0]` → element-wise min is
+        // `[2.0, 0.5, 4.0]`. With `$\gamma$` = 0.9, non-terminal rewards `[0.1, 0.2, 0.3]` and
+        // terminated `[0, 0, 1]`, the target is `[0.1 + 0.9*2.0, 0.2 + 0.9*0.5, 0.3 + 0.9*4.0*0]`
         // `= [1.9, 0.65, 0.3]`.
         let device = Default::default();
         let rewards = Tensor::<TestBackend, 1>::from_data(

@@ -7,13 +7,13 @@
 //! - `$\text{step} = u / |v|^{1/\beta}$`,
 //! - `$x'_i = x_i + \alpha \cdot \text{step}$`,
 //!
-//! where `$\sigma_u = \left(\frac{\Gamma(1+\beta) \sin(\pi\beta/2)}{\Gamma((1+\beta)/2) \cdot \beta \cdot 2^{(\beta-1)/2}}\right)^{1/\beta}$`
-//! (Mantegna's algorithm, β ≈ 1.5).
+//! where
+//! `$\sigma_u = \left(\frac{\Gamma(1+\beta) \sin(\pi\beta/2)}{\Gamma((1+\beta)/2) \cdot \beta \cdot 2^{(\beta-1)/2}}\right)^{1/\beta}$`
+//! (Mantegna's algorithm, `$\beta$` `$\approx$` 1.5).
 //!
-//! `tell` greedy-accepts each new egg against its own slot, then
-//! abandons the `$p_a \cdot N$` worst nests and reinitializes them from the
-//! search bounds. Abandoned slots carry sentinel `+∞` fitness so the
-//! next generation's Lévy proposal always lands.
+//! `tell` greedy-accepts each new egg against its own slot, then abandons the `$p_a \cdot N$` worst
+//! nests and reinitializes them from the search bounds. Abandoned slots carry sentinel `$+\infty$`
+//! fitness so the next generation's Lévy proposal always lands.
 //!
 //! # Numerical parity caveat
 //!
@@ -83,7 +83,7 @@ impl Validate for CuckooConfig {
         config::at_least(C, "pop_size", self.pop_size, 1)?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::positive(C, "alpha", f64::from(self.alpha))?;
-        // β ∈ (0, 2), open on both ends.
+        // `$\beta$` `$\in$` (0, 2), open on both ends.
         config::positive(C, "beta", f64::from(self.beta))?;
         config::ordered(C, "beta", f64::from(self.beta), 2.0)?;
         config::in_range(C, "p_a", 0.0, 1.0, f64::from(self.p_a))?;
@@ -96,7 +96,7 @@ impl Validate for CuckooConfig {
 pub struct CuckooState<B: Backend> {
     /// Current nests, shape `(pop_size, D)`.
     nests: Tensor<B, 2>,
-    /// Host-side fitness cache; `+∞` for abandoned slots.
+    /// Host-side fitness cache; `$+\infty$` for abandoned slots.
     fitness: Vec<f32>,
     /// Best-so-far genome.
     best_genome: Option<Tensor<B, 2>>,
@@ -191,7 +191,8 @@ impl<B: Backend> CuckooSearch<B> {
 
     /// Mantegna's `$\sigma_u$` for the `$u \sim N(0, \sigma_u^2)$` draw.
     fn mantegna_sigma_u(beta: f32) -> f32 {
-        // Γ(1 + β) · sin(π·β/2)  /  ( Γ((1+β)/2) · β · 2^((β-1)/2) ) ) ^ (1/β)
+        // `$\Gamma(1+\beta)\sin(\pi\beta/2) / (\Gamma((1+\beta)/2)\,\beta\,2^{((\beta-$`1)/2) ) ) ^
+        // (1/`$\beta$`)
         let num = gamma(1.0 + beta) * ((PI * beta) / 2.0).sin();
         let den = gamma(f32::midpoint(1.0, beta)) * beta * 2f32.powf((beta - 1.0) / 2.0);
         (num / den).powf(1.0 / beta)
@@ -206,8 +207,8 @@ impl<B: Backend> CuckooSearch<B> {
 /// `$\beta \in (0, 2)$`.
 #[allow(clippy::many_single_char_names)]
 fn gamma(z: f32) -> f32 {
-    // 5-term Lanczos coefficients (g = 7). Enough for `z ∈ [0.5, 5]`
-    // which covers the Lévy-flight parameter range.
+    // 5-term Lanczos coefficients (g = 7). Enough for `$z \in [0.5, 5]$` which covers the
+    // Lévy-flight parameter range.
     let g = 7.0_f32;
     let p: [f32; 9] = [
         0.999_999_999_999_809_93,
@@ -236,11 +237,10 @@ fn gamma(z: f32) -> f32 {
 
 /// One Mantegna Lévy step component `$u / |w|^{1/\beta}$`.
 ///
-/// Guards the measure-zero pathological draw: a Normal draw `w == 0` (or
-/// any `w` whose `$|w|^{1/\beta}$` rounds to `0` or a non-finite value) makes the
-/// denominator degenerate. Un-guarded, `0/0` is `NaN` and `x/0` is `±inf` —
-/// both survive the downstream bounds clamp and would poison a nest slot
-/// forever. A non-finite or zero denominator folds the step to `0.0`
+/// Guards the measure-zero pathological draw: a Normal draw `w == 0` (or any `w` whose
+/// `$|w|^{1/\beta}$` rounds to `0` or a non-finite value) makes the denominator degenerate.
+/// Un-guarded, `0/0` is `NaN` and `x/0` is `$\pm\infty$` — both survive the downstream bounds clamp
+/// and would poison a nest slot forever. A non-finite or zero denominator folds the step to `0.0`
 /// (a no-op) so the next draw can move the nest.
 ///
 /// This is the pure host-side core the `ask` Lévy loop is built on; keeping
@@ -340,8 +340,8 @@ where
         for v in &mut step {
             let u: f32 = normal_u.sample(&mut stream);
             let w: f32 = crate::sampling::standard_normal(&mut stream);
-            // `levy_step` guards the degenerate `w == 0` denominator (±∞/NaN
-            // survive the bounds clamp and would poison the slot forever).
+            // `levy_step` guards the degenerate `w == 0` denominator (`$\pm\infty$`/NaN survive the
+            // bounds clamp and would poison the slot forever).
             *v = levy_step(u, w, params.beta);
         }
         let step_tensor = Tensor::<B, 2>::from_data(TensorData::new(step, [pop, d]), device);
@@ -363,10 +363,10 @@ where
     /// On subsequent calls:
     ///
     /// 1. **Greedy accept** — egg `i` replaces nest `i` iff
-    ///    `fitness[i] ≤ state.fitness[i]`.
+    ///    `$\text{fitness}[i] \leq \text{state.fitness}[i]$`.
     /// 2. **Abandonment** — the `$\lfloor p_a \cdot \text{pop\_size} \rfloor$` worst nests are
     ///    re-initialized from `bounds` via [`seed_stream`]; abandoned
-    ///    slots carry sentinel `+∞` fitness so the next generation's Lévy
+    ///    slots carry sentinel `$+\infty$` fitness so the next generation's Lévy
     ///    proposal always lands on them.
     // Mirrors the same allow on `ArtificialBeeColony::tell`: the body is a
     // straight-line accept → abandon → best-update pipeline, and splitting it
@@ -380,19 +380,16 @@ where
         mut state: CuckooState<B>,
         rng: &mut dyn Rng,
     ) -> (CuckooState<B>, StrategyMetrics) {
-        // Sanitise on the host pull, per the maximise convention (`rules.md`
-        // §3, ADR 0034): `NaN → −∞` (worst), `+∞ → f32::MAX`. This is the
-        // per-site correctness floor for callers that bypass
-        // `EvolutionaryHarness::step` — `Strategy` is public and re-exported,
-        // so a hand-rolled `ask`/`tell` driver reaches this line with raw
-        // values (ADR 0034 decision 3). One sanitise here covers
-        // both the bootstrap seed of `state.fitness` and the accept-store
-        // below; a raw `NaN` latched into a nest's cache loses every later
-        // `fitness_host[i] >= state.fitness[i]` comparison, and `p_a = 0` is a
-        // valid config that disables the abandonment eviction which would
-        // otherwise clear it. `sanitize_fitness` is idempotent, so on the
-        // harness path (which pre-sanitises) this is a provable no-op — do not
-        // delete it as redundant.
+        // Sanitise on the host pull, per the maximise convention (`rules.md` §3, ADR 0034):
+        // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. This is the per-site
+        // correctness floor for callers that bypass `EvolutionaryHarness::step` — `Strategy` is
+        // public and re-exported, so a hand-rolled `ask`/`tell` driver reaches this line with raw
+        // values (ADR 0034 decision 3). One sanitise here covers both the bootstrap seed of
+        // `state.fitness` and the accept-store below; a raw `NaN` latched into a nest's cache loses
+        // every later `fitness_host[i] >= state.fitness[i]` comparison, and `p_a = 0` is a valid
+        // config that disables the abandonment eviction which would otherwise clear it.
+        // `sanitize_fitness` is idempotent, so on the harness path (which pre-sanitises) this is a
+        // provable no-op — do not delete it as redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -443,9 +440,8 @@ where
         state.nests = stacked.select(0, idx);
         state.fitness = new_fitness;
 
-        // Abandon worst `p_a · pop` nests — reinit with uniform sample;
-        // mark fitness −∞ (worst under maximise) so next ask's Lévy
-        // proposal always lands.
+        // Abandon worst `$p_a \cdot \text{pop}$` nests — reinit with uniform sample; mark fitness
+        // `$-\infty$` (worst under maximise) so next ask's Lévy proposal always lands.
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
@@ -454,8 +450,8 @@ where
         let n_abandon = (params.p_a * pop as f32) as usize;
         if n_abandon > 0 {
             let mut rank: Vec<usize> = (0..pop).collect();
-            // Ascending: lowest fitness (worst under maximise) first. Sanitize
-            // NaN → −inf so a NaN-fitness nest is treated as worst (abandoned).
+            // Ascending: lowest fitness (worst under maximise) first. Sanitize NaN → `$-\infty$` so
+            // a NaN-fitness nest is treated as worst (abandoned).
             let sane: Vec<f32> = state
                 .fitness
                 .iter()
@@ -568,7 +564,7 @@ mod tests {
 
     #[test]
     fn gamma_matches_known_values() {
-        // Γ(1) = 1, Γ(2) = 1, Γ(5) = 24, Γ(0.5) = √π.
+        // `$\Gamma(1) = 1$`, `$\Gamma(2) = 1$`, `$\Gamma(5) = 24$`, `$\Gamma(0.5) = \sqrt{\pi}$`.
         approx::assert_relative_eq!(gamma(1.0), 1.0, epsilon = 1e-4);
         approx::assert_relative_eq!(gamma(2.0), 1.0, epsilon = 1e-4);
         approx::assert_relative_eq!(gamma(5.0), 24.0, epsilon = 1e-3);
@@ -583,14 +579,12 @@ mod tests {
 
     #[test]
     fn cuckoo_reduces_on_sphere_d10() {
-        // Pure-Lévy CS has no gradient-biased update — it's a biased
-        // random walk with abandonment. The Lévy flights are the
-        // interesting part; otherwise CS is a thin wrapper around
-        // random walk + abandonment, so convergence to machine
-        // precision is not expected within reasonable budgets on
-        // Sphere-D10. Threshold 20.0 in 800 generations is still a ~4×
-        // reduction from the uniform-random baseline (≈ 87) — it
-        // verifies the Lévy machinery composes correctly.
+        // Pure-Lévy CS has no gradient-biased update — it's a biased random walk with abandonment.
+        // The Lévy flights are the interesting part; otherwise CS is a thin wrapper around random
+        // walk + abandonment, so convergence to machine precision is not expected within reasonable
+        // budgets on Sphere-D10. Threshold 20.0 in 800 generations is still a ~`$4\times$`
+        // reduction from the uniform-random baseline (`$\approx$` 87) — it verifies the Lévy
+        // machinery composes correctly.
         let device = Default::default();
         let strategy = CuckooSearch::<TestBackend>::new();
         let mut params = CuckooConfig::default_for(30, 10);
@@ -609,11 +603,11 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)] // exact by design: 0.0 fold + byte-identical pass-through
     fn levy_step_folds_pathological_denominator_to_zero() {
-        // Deterministic reproducer for the Lévy-step denominator hitting 0/NaN:
-        // the step component `u / |w|^(1/β)`. A zero Normal draw `w` makes the
-        // denominator zero; un-guarded, `0/0` is `NaN` and `x/0` is `±inf`.
-        // Both survive the bounds clamp and permanently poison a nest slot,
-        // so `levy_step` folds any non-finite/zero-denominator case to `0.0`.
+        // Deterministic reproducer for the Lévy-step denominator hitting 0/NaN: the step component
+        // `$u/\lvert w\rvert^{1/\beta}$`. A zero Normal draw `w` makes the denominator zero;
+        // un-guarded, `0/0` is `NaN` and `x/0` is `$\pm\infty$`. Both survive the bounds clamp and
+        // permanently poison a nest slot, so `levy_step` folds any non-finite/zero-denominator case
+        // to `0.0`.
         //
         // Each pathological assertion below FAILS against the pre-fix loop
         // body (which computed `u / denom` unconditionally), shown by the
@@ -625,7 +619,7 @@ mod tests {
         assert!(unguarded_nan.is_nan());
         assert_eq!(levy_step(0.0, 0.0, beta), 0.0);
 
-        // w == 0, u != 0 → un-guarded `x/0 = ±inf`.
+        // w == 0, u != 0 → un-guarded `$x/0 = \pm\infty$`.
         let unguarded_inf: f32 = 1.0_f32 / 0.0_f32.abs().powf(1.0 / beta);
         assert!(!unguarded_inf.is_finite());
         assert_eq!(levy_step(1.0, 0.0, beta), 0.0);
@@ -663,9 +657,9 @@ mod tests {
         }
     }
 
-    // Gap (a): the Lévy index β must lie in the open interval (0, 2). Rejection
-    // is broadened beyond the existing β = 2.0 case: β = 0.0 (fails `positive`),
-    // β = 3.0 (fails `ordered` against 2.0), and β = NaN (fails `positive`, since
+    // Gap (a): the Lévy index `$\beta$` must lie in the open interval (0, 2). Rejection is
+    // broadened beyond the existing `$\beta$` = 2.0 case: `$\beta$` = 0.0 (fails `positive`),
+    // `$\beta$` = 3.0 (fails `ordered` against 2.0), and `$\beta$` = NaN (fails `positive`, since
     // `NaN > 0` is false) all report the `beta` field.
     #[test]
     fn rejects_invalid_beta_values() {
@@ -680,8 +674,8 @@ mod tests {
         }
     }
 
-    // Gap (b): an inverted range is unrepresentable — `Bounds::new` panics before
-    // a `CuckooConfig` can carry `(5, −5)`, so the config can never hold it.
+    // Gap (b): an inverted range is unrepresentable — `Bounds::new` panics before a `CuckooConfig`
+    // can carry `$(5, -5)$`, so the config can never hold it.
     #[test]
     #[should_panic(expected = "invalid range")]
     fn inverted_bounds_are_unrepresentable() {
@@ -691,9 +685,9 @@ mod tests {
         };
     }
 
-    // Gap (c): abandonment marks exactly `⌊p_a · pop⌋` nests as abandoned
-    // (sentinel `−∞`). With `pop = 8`, `p_a = 0.25` ⇒ 2 nests; the two worst
-    // (lowest canonical fitness, indices 6 and 7) are the ones abandoned.
+    // Gap (c): abandonment marks exactly `$\lfloor p_a \cdot \text{pop} \rfloor$` nests as
+    // abandoned (sentinel `$-\infty$`). With `pop = 8`, `p_a = 0.25` `$\Rightarrow$` 2 nests; the
+    // two worst (lowest canonical fitness, indices 6 and 7) are the ones abandoned.
     #[test]
     fn abandonment_marks_floor_pa_pop_nests() {
         let device = Default::default();
@@ -850,13 +844,12 @@ mod tests {
             "raw NaN latched into the nest-0 fitness cache: {:?}",
             state.fitness()
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
-        // clears `is_nan` yet would rank nest 0 *above* the finite -1/-2/-3
-        // scores and make the NaN-scoring nest the reported population best —
-        // the leader poisoning this regression exists to catch.
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would rank nest 0 *above* the finite -1/-2/-3 scores and make
+        // the NaN-scoring nest the reported population best — the leader poisoning this regression
+        // exists to catch.
         assert!(
             state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
             "sanitized NaN must land as -inf in the nest-0 fitness cache: {:?}",

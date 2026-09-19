@@ -79,20 +79,20 @@ const CAR_H: f32 = 4.0 / 30.0;
 
 /// `CarRacing` reinforcement learning environment.
 ///
-/// A top-down 2D car racing environment. The agent receives a 96×96 RGB
-/// pixel observation and outputs steering, gas, and brake controls.
+/// A top-down 2D car racing environment. The agent receives a `$96 \times 96$` RGB pixel
+/// observation and outputs steering, gas, and brake controls.
 ///
 /// # Episode lifecycle
 ///
 /// - `reset()` generates a new procedural track.
 /// - `step(action)` applies car controls and advances physics.
-/// - `Terminated` when the car visits ≥ 95% of track tiles.
+/// - `Terminated` when the car visits `$\geq 95\%$` of track tiles.
 /// - `Truncated` after `config.max_steps` steps.
 /// - Either ending closes the episode: a further [`step`](Environment::step)
 ///   returns [`EnvironmentError::StepAfterEpisodeEnd`] until [`reset`](Environment::reset)
 ///   is called — see the [`EpisodeGuard`] field.
 ///
-/// # Observation (96×96×3)
+/// # Observation (`$96 \times 96 \times 3$`)
 ///
 /// Pixel rendering of the track from a top-down view centred on the car.
 ///
@@ -247,13 +247,13 @@ impl CarRacing {
         };
 
         let total = self.state.total_tiles;
-        // Max plausible per-step tile advance given the physics speed ceiling:
-        // an eighth of the loop, clamped to a sane [3, 16] band. The final
-        // `.min((total-1)/2)` enforces `bound < total/2`, on which the
-        // forward/backward disambiguation relies: a backward move has
-        // `$\text{forward\_gap} \approx \text{total}$`, so it must never fall inside `1..=bound`.
-        // Without this cap a tiny loop (e.g. total=5 ⇒ bound=3 > 2.5) would let
-        // a reverse step be scored as forward progress.
+        // Max plausible per-step tile advance given the physics speed ceiling: an eighth of the
+        // loop, clamped to a sane [3, 16] band. The final `.min((total-1)/2)` enforces
+        // `bound < total/2`, on which the forward/backward disambiguation relies: a backward move
+        // has `$\text{forward\_gap} \approx \text{total}$`, so it must never fall inside
+        // `1..=bound`. Without this cap a tiny loop (e.g.
+        // `$\text{total}=5 \Rightarrow \text{bound}=3 > 2.5$`) would let a reverse step be scored
+        // as forward progress.
         let bound = (total / 8).clamp(3, 16).min(total.saturating_sub(1) / 2);
         let prev = self.state.current_tile;
 
@@ -279,7 +279,7 @@ impl CarRacing {
         tile_reward
     }
 
-    /// Rasterize the 96×96×3 pixel observation for `state` from the live world.
+    /// Rasterize the `$96 \times 96 \times 3$` pixel observation for `state` from the live world.
     ///
     /// This is the emission model driving the env-side [`Sensor`]: it reads the
     /// car pose from `state` and the world it indexes into, draws the track
@@ -376,9 +376,9 @@ impl Sensor<3, 1, 3> for CarRacing {
     type State = CarRacingState;
     type Observation = CarRacingObservation;
 
-    /// Emit the 96×96×3 pixel frame for `next_state` by rasterizing the live
-    /// world. The action does not affect the rendered frame; it is accepted to
-    /// satisfy the [`Sensor`] contract.
+    /// Emit the `$96 \times 96 \times 3$` pixel frame for `next_state` by rasterizing the live
+    /// world. The action does not affect the rendered frame; it is accepted to satisfy the
+    /// [`Sensor`] contract.
     fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
         self.render_frame(next_state)
     }
@@ -623,9 +623,9 @@ mod tests {
 
     // ── post-terminal step guard (ADR 0044) ──────────────────────────────────
 
-    /// Step budget for the guard tests. Each step rasterizes a 96×96×3 frame, so
-    /// the budget is kept tiny; truncation is a pure step-counter fact and does
-    /// not depend on how far the car actually gets.
+    /// Step budget for the guard tests. Each step rasterizes a `$96 \times 96 \times 3$` frame, so
+    /// the budget is kept tiny; truncation is a pure step-counter fact and does not depend on how
+    /// far the car actually gets.
     const GUARD_MAX_STEPS: usize = 3;
 
     /// A legal no-op action: `steer = 0`, `gas = 0`, `brake = 0` all sit inside
@@ -704,12 +704,12 @@ mod tests {
     }
 
     #[test]
-    /// Regression for what the guard removes: past `max_steps` the truncation
-    /// predicate keeps holding, so an unguarded post-terminal step would advance
-    /// the physics world and the step counter past the budget the caller asked
-    /// for while re-emitting `Truncated`. A rejected step must mutate nothing —
-    /// the step counter, the tile bookkeeping, the guard, and the rendered frame
-    /// (all 96×96×3 bytes of it) must be exactly as the terminal step left them.
+    /// Regression for what the guard removes: past `max_steps` the truncation predicate keeps
+    /// holding, so an unguarded post-terminal step would advance the physics world and the step
+    /// counter past the budget the caller asked for while re-emitting `Truncated`. A rejected step
+    /// must mutate nothing — the step counter, the tile bookkeeping, the guard, and the rendered
+    /// frame (all `$96 \times 96 \times 3$` bytes of it) must be exactly as the terminal step left
+    /// them.
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = truncating_env();
         let terminal = drive_to_truncation(&mut env);
@@ -822,8 +822,8 @@ mod tests {
         let reward: f32 = (*snap.reward()).into();
         let newly = env.state_for_test().tiles_visited() - before;
 
-        // Reward decomposes exactly as: newly-marked tiles × per-tile reward
-        // (lap_reward / total_tiles) plus the constant frame penalty.
+        // Reward decomposes exactly as: newly-marked tiles `$\times$` per-tile reward (lap_reward /
+        // total_tiles) plus the constant frame penalty.
         let config = CarRacingConfig::default();
         let per_tile = config.lap_reward / total as f32;
         let expected = newly as f32 * per_tile + config.frame_penalty;

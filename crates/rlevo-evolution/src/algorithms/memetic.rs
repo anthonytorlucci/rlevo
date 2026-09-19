@@ -102,17 +102,14 @@ impl Default for WritebackPolicy {
 ///
 /// # Cost and tuning
 ///
-/// Coverage is the dominant cost knob: each refined row spends up to
-/// `Params::max_iters` fitness evaluations, so [`Full`](Self::Full) costs
-/// `pop_size`× a [`TopK { k: 1 }`](Self::TopK) generation. When the budget that
-/// matters is
-/// *evaluations to reach a target* (not wall-clock or final-gen fitness), wide
-/// coverage with a heavy searcher can lose to bare evolution: it spends its
-/// eval budget polishing individuals that selection would have discarded
-/// anyway. **Tune against evals-to-target**, not against a fixed generation
-/// count — a fixed-gens comparison hides the refinement evals and flatters wide
-/// coverage. The default, [`TopK { k: 1 }`](Self::TopK), refines only the
-/// single best individual and is the cheapest sane starting point.
+/// Coverage is the dominant cost knob: each refined row spends up to `Params::max_iters` fitness
+/// evaluations, so [`Full`](Self::Full) costs `pop_size` `$\times$` a [`TopK { k: 1 }`](Self::TopK)
+/// generation. When the budget that matters is *evaluations to reach a target* (not wall-clock or
+/// final-gen fitness), wide coverage with a heavy searcher can lose to bare evolution: it spends
+/// its eval budget polishing individuals that selection would have discarded anyway. **Tune against
+/// evals-to-target**, not against a fixed generation count — a fixed-gens comparison hides the
+/// refinement evals and flatters wide coverage. The default, [`TopK { k: 1 }`](Self::TopK), refines
+/// only the single best individual and is the cheapest sane starting point.
 ///
 /// One caveat cuts the other way: on a *separable* landscape with basin-width
 /// search steps, axis-aligned hill climbing is nearly a direct solver, so wide
@@ -635,10 +632,9 @@ fn coverage_indices(policy: &CoveragePolicy, fitness: &[f32], pop_size: usize) -
         CoveragePolicy::TopK { k } => {
             let k: usize = k.min(pop_size);
             let mut ranked: Vec<usize> = (0..pop_size).collect();
-            // Sanitize NaN → −inf (worst) so a NaN-fitness member can never be
-            // covered as a top-k member. Stable sort by (fitness desc, index):
-            // `sort_by` is stable so equal fitnesses keep ascending-index order,
-            // making ties break by lower index.
+            // Sanitize NaN → `$-\infty$` (worst) so a NaN-fitness member can never be covered as a
+            // top-k member. Stable sort by (fitness desc, index): `sort_by` is stable so equal
+            // fitnesses keep ascending-index order, making ties break by lower index.
             let sane: Vec<f32> = fitness
                 .iter()
                 .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -847,8 +843,8 @@ mod tests {
 
     #[test]
     fn coverage_indices_never_covers_nan_fitness() {
-        // NaN sanitises to −inf (worst), so a NaN-fitness member must never be
-        // selected as a top-k covered member ahead of a finite one.
+        // NaN sanitises to `$-\infty$` (worst), so a NaN-fitness member must never be selected as a
+        // top-k covered member ahead of a finite one.
         let fitness = [3.0f32, f32::NAN, 5.0, 1.0];
         let top3 = coverage_indices(&CoveragePolicy::TopK { k: 3 }, &fitness, 4);
         // Best-first among finite fitnesses: 5.0 (idx 2), 3.0 (idx 0), 1.0 (idx 3);
@@ -926,11 +922,11 @@ mod tests {
         row.iter().map(|v| v * v).sum::<f32>()
     }
 
-    /// The Minimize path must *lower* cost. Under `Full`/`Lamarckian` coverage
-    /// the local searcher runs in canonical maximise space, so for every covered
-    /// row the refined natural cost must not increase, the canonical fitness
-    /// handed to the inner `tell` must not decrease, and that fitness must equal
-    /// `−cost` of the written-back row. At least one row must strictly improve.
+    /// The Minimize path must *lower* cost. Under `Full`/`Lamarckian` coverage the local searcher
+    /// runs in canonical maximise space, so for every covered row the refined natural cost must not
+    /// increase, the canonical fitness handed to the inner `tell` must not decrease, and that
+    /// fitness must equal `$-\text{cost}$` of the written-back row. At least one row must strictly
+    /// improve.
     #[test]
     #[allow(clippy::float_cmp)]
     fn minimize_sense_refinement_reduces_cost() {
@@ -959,8 +955,8 @@ mod tests {
             .into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
 
-        // Seed fitness in canonical (maximise) space: for a Minimize objective
-        // the harness hands the strategy `−cost`, so mirror that here.
+        // Seed fitness in canonical (maximise) space: for a Minimize objective the harness hands
+        // the strategy `$-\text{cost}$`, so mirror that here.
         let canonical: Vec<f32> = (0..pop)
             .map(|i| {
                 let s = i * dim;
@@ -994,7 +990,7 @@ mod tests {
                 recv_fit[i] >= canonical[i] - 1e-6,
                 "row {i}: canonical fitness must not drop"
             );
-            // And it equals `−cost` of the written-back row.
+            // And it equals `$-\text{cost}$` of the written-back row.
             approx::assert_relative_eq!(recv_fit[i], -recv_cost, epsilon = 1e-5);
             if recv_cost < ask_cost - 1e-6 {
                 any_improved = true;
@@ -1056,11 +1052,10 @@ mod tests {
         let recv_pop = next.inner.received_pop.clone().unwrap();
         assert_eq!(recv_pop, ask_bytes, "Baldwinian must not alter the genome");
 
-        // Covered rows (TopK{2} = the two fittest, highest-canonical rows) have
-        // refined fitness >= original (canonical maximise); all others
-        // unchanged. Covered = indices 0,1 here (canonical −sphere fitness
-        // decreases with row index for this population, so the lowest indices
-        // are the fittest).
+        // Covered rows (TopK{2} = the two fittest, highest-canonical rows) have refined fitness >=
+        // original (canonical maximise); all others unchanged. Covered = indices 0,1 here
+        // (canonical `$-$`sphere fitness decreases with row index for this population, so the
+        // lowest indices are the fittest).
         let recv_fit = next.inner.received_fit.clone().unwrap();
         for i in 0..pop {
             if i < 2 {

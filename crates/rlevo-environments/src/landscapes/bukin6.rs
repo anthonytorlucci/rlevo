@@ -1,39 +1,34 @@
 //! Bukin function No.06 — a non-smooth 2-D benchmark with a knife-edge ridge.
 //!
-//! `$f(x_1, x_2) = 100 \sqrt{|x_2 - 0.01 \cdot x_1^2|} + 0.01 \cdot |x_1 + 10|$`, global minimum `f* = 0`
-//! at `(−10, 1)`. The minimum lies on a parabolic ridge `$x_2 = 0.01 \cdot x_1^2$` of
-//! effectively zero width — the transverse gradient diverges to `$+\infty$` as the
-//! ridge is approached — which is what makes standard gradient and DE methods
-//! fail.
+//! `$f(x_1, x_2) = 100 \sqrt{|x_2 - 0.01 \cdot x_1^2|} + 0.01 \cdot |x_1 + 10|$`, global minimum
+//! `f* = 0` at `$(-10, 1)$`. The minimum lies on a parabolic ridge `$x_2 = 0.01 \cdot x_1^2$` of
+//! effectively zero width — the transverse gradient diverges to `$+\infty$` as the ridge is
+//! approached — which is what makes standard gradient and DE methods fail.
 //!
 //! # Domain
 //!
 //! The true domain is asymmetric: `$x_1 \in [-15, -5]$`, `$x_2 \in [-3, 3]$`.
-//! [`bounds`](Bukin6::bounds) returns a single `(lo, hi)` pair applied
-//! per-coordinate (the consuming renderer and search harnesses use one box for
-//! every axis), so it returns the *square bounding box* `(-15.0, 3.0)` of that
-//! asymmetric domain. This is the smallest square that still contains the full
-//! domain, the parabolic ridge, and the optimum `(−10, 1)` — a per-axis `x₁`
-//! range like `(-15, -5)` would exclude both the ridge (`$x_2 = 0.01 \cdot x_1^2 \approx 0 \ldots 2.25$`)
-//! and the optimum. The evaluator never clamps.
+//! [`bounds`](Bukin6::bounds) returns a single `(lo, hi)` pair applied per-coordinate (the
+//! consuming renderer and search harnesses use one box for every axis), so it returns the *square
+//! bounding box* `(-15.0, 3.0)` of that asymmetric domain. This is the smallest square that still
+//! contains the full domain, the parabolic ridge, and the optimum `$(-10, 1)$` — a per-axis `$x_1$`
+//! range like `(-15, -5)` would exclude both the ridge
+//! (`$x_2 = 0.01 \cdot x_1^2 \approx 0 \ldots 2.25$`) and the optimum. The evaluator never clamps.
 //!
-//! The hull also admits points outside the published rectangle (e.g. `x₁ = +2`).
-//! That is harmless: `f` is a sum of two non-negative terms, so `$f \geq 0$` on all
-//! of `$\mathbb{R}^2$` and `f* = 0` is the global infimum — no widening of the box can admit
-//! a point better than `f*`. Both obligations are pinned by unit tests
-//! (`bounds_box_contains_optimum_on_both_axes` /
+//! The hull also admits points outside the published rectangle (e.g. `$x_1 = +2$`). That is
+//! harmless: `f` is a sum of two non-negative terms, so `$f \geq 0$` on all of `$\mathbb{R}^2$` and
+//! `f* = 0` is the global infimum — no widening of the box can admit a point better than `f*`. Both
+//! obligations are pinned by unit tests (`bounds_box_contains_optimum_on_both_axes` /
 //! `bounds_box_contains_full_asymmetric_domain` for reachability, and
-//! `no_point_in_bounds_beats_global_minimum` for the absence of a spurious
-//! optimum).
+//! `no_point_in_bounds_beats_global_minimum` for the absence of a spurious optimum).
 //!
 //! # References
 //!
-//! Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions
-//! Repository*, Dalhousie University — function #52: the source of the
-//! asymmetric domain `$x_1 \in [-15, -5]$`, `$x_2 \in [-3, 3]$` and of the global minimum
-//! `f* = 0` at `(−10, 1)`. Corroborated by Surjanovic, S. & Bingham, D.,
-//! *Virtual Library of Simulation Experiments: Test Functions and Datasets*,
-//! Simon Fraser University.
+//! Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions Repository*,
+//! Dalhousie University — function #52: the source of the asymmetric domain `$x_1 \in [-15, -5]$`,
+//! `$x_2 \in [-3, 3]$` and of the global minimum `$f^* = 0$` at `$(-10, 1)$`. Corroborated by
+//! Surjanovic, S. & Bingham, D., *Virtual Library of Simulation Experiments: Test Functions and
+//! Datasets*, Simon Fraser University.
 
 // non-differentiable on the parabolic ridge x2 = 0.01*x1^2 and at x1 = -10
 
@@ -51,15 +46,14 @@ impl Bukin6 {
     /// Evaluate the Bukin No.06 function at `(x1, x2)`.
     #[must_use]
     pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        // `(x2 − 0.01·x1²).abs()` is ≥ 0 by construction, so the sqrt is safe;
-        // the derivative is undefined on the ridge where the argument is zero.
+        // `(x2 - 0.01 * x1.powi(2)).abs()` is `$\geq 0$` by construction, so the sqrt is safe; the
+        // derivative is undefined on the ridge where the argument is zero.
         100.0 * (x2 - 0.01 * x1 * x1).abs().sqrt() + 0.01 * (x1 + 10.0).abs()
     }
 
-    /// Square bounding box `(-15.0, 3.0)` of the asymmetric domain, applied
-    /// per-coordinate. Contains the full domain, the parabolic ridge, and the
-    /// optimum `(−10, 1)`. See the type-level docs for the true asymmetric
-    /// domain.
+    /// Square bounding box `(-15.0, 3.0)` of the asymmetric domain, applied per-coordinate.
+    /// Contains the full domain, the parabolic ridge, and the optimum `$(-10, 1)$`. See the
+    /// type-level docs for the true asymmetric domain.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-15.0, 3.0)
@@ -124,7 +118,8 @@ mod tests {
 
     #[test]
     fn on_parabolic_ridge_partial_zero() {
-        // On the ridge x2 = 0.01·x1² the sqrt term vanishes; only 0.01·|x1+10| remains.
+        // On the ridge `$x_2 = 0.01 \cdot x_1^2$` the sqrt term vanishes; only
+        // `$0.01 \cdot \lvert x_1 + 10 \rvert$` remains.
         let x1 = -8.0_f64;
         let x2 = 0.01 * x1 * x1; // 0.64
         let expected = 0.01 * (x1 + 10.0).abs(); // 0.02
@@ -149,7 +144,7 @@ mod tests {
 
     #[test]
     fn bounds_box_contains_full_asymmetric_domain() {
-        // The square box must cover x1 ∈ [-15, -5] and x2 ∈ [-3, 3].
+        // The square box must cover `$x_1 \in [-15, -5]$` and `$x_2 \in [-3, 3]$`.
         let (lo, hi) = Bukin6::new().bounds();
         assert!(lo <= -15.0 && hi >= -5.0, "x1 domain not covered");
         assert!(lo <= -3.0 && hi >= 3.0, "x2 domain not covered");
@@ -157,12 +152,13 @@ mod tests {
 
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {
-        // O2 — no spurious optimum. f = 100·√|x₂ − 0.01·x₁²| + 0.01·|x₁ + 10| is a
-        // sum of two non-negative terms, so f ≥ 0 identically on ℝ² and f* = 0 at
-        // (−10, 1). The square hull deliberately admits points outside the published
-        // rectangle x₁ ∈ [-15, -5], x₂ ∈ [-3, 3] (e.g. x₁ = +2, which the sweep below
-        // visits) — this test is precisely the check that those extra points are
-        // harmless: none of them can beat f*.
+        // O2 — no spurious optimum.
+        // `$f = 100\sqrt{\lvert x_2 - 0.01 x_1^2 \rvert} + 0.01\lvert x_1 + 10 \rvert$` is a sum of
+        // two non-negative terms, so `$f \geq 0$` identically on `$\mathbb{R}^2$` and `$f^* = 0$`
+        // at `$(-10, 1)$`. The square hull deliberately admits points outside the published
+        // rectangle `$x_1 \in [-15, -5]$`, `$x_2 \in [-3, 3]$` (e.g. `$x_1 = +2$`, which the sweep
+        // below visits) — this test is precisely the check that those extra points are harmless:
+        // none of them can beat f*.
         const STEPS: i32 = 300;
         let b = Bukin6::new();
         let (lo, hi) = b.bounds();

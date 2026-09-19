@@ -1,10 +1,9 @@
 //! Observation type for the `BipedalWalker` environment.
 //!
-//! [`BipedalWalkerObservation`] is a 24-element `f32` vector produced after
-//! every `reset()` and `step()`. The first 14 elements capture hull and joint
-//! kinematics; elements `[14..24]` contain 10 lidar range readings swept from
-//! −90° to +90° relative to the hull, normalised to `[0, 1]` by
-//! `lidar_range`.
+//! [`BipedalWalkerObservation`] is a 24-element `f32` vector produced after every `reset()` and
+//! `step()`. The first 14 elements capture hull and joint kinematics; elements `[14..24]` contain
+//! 10 lidar range readings swept from `$-90^\circ$` to `$+90^\circ$` relative to the hull,
+//! normalised to `[0, 1]` by `lidar_range`.
 
 use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};

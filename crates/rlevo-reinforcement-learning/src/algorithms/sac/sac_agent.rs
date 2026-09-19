@@ -118,7 +118,7 @@ pub struct SacMetrics {
     pub critic_loss: f32,
     /// Most recent actor loss (`0.0` until the first policy update fires).
     pub actor_loss: f32,
-    /// Most recent α value (`$= \exp(\log \alpha)$`).
+    /// Most recent `$\alpha$` value (`$= \exp(\log \alpha)$`).
     pub alpha: f32,
     /// Most recent mean `$-\log \pi(a|s)$` across the actor batch — proxy for
     /// policy entropy.
@@ -149,7 +149,7 @@ pub struct LearnOutcome {
     /// Actor loss, or `None` on critic-only iterations (delayed-update
     /// skips).
     pub actor_loss: Option<f32>,
-    /// Current α (after an auto-tuning step on actor-update iterations).
+    /// Current `$\alpha$` (after an auto-tuning step on actor-update iterations).
     pub alpha: f32,
     /// Batch-mean `$-\log \pi(a|s)$` on the most recent actor update, or `None`
     /// on critic-only iterations.
@@ -446,12 +446,12 @@ where
 
     /// Number of critic updates **attempted** so far.
     ///
-    /// Advances unconditionally, including on a step whose loss was non-finite
-    /// and therefore skipped (ADR 0059 §Decision 4) — it is the cadence counter
-    /// that drives the actor / α schedule, so it must not stall on a skip.
-    /// [`skipped_updates`](Self::skipped_updates) and its per-site siblings
-    /// count the subset that never reached an optimizer, so
-    /// `applied = critic_updates() - skipped_*` for the corresponding site.
+    /// Advances unconditionally, including on a step whose loss was non-finite and therefore
+    /// skipped (ADR 0059 §Decision 4) — it is the cadence counter that drives the actor /
+    /// `$\alpha$` schedule, so it must not stall on a skip.
+    /// [`skipped_updates`](Self::skipped_updates) and its per-site siblings count the subset that
+    /// never reached an optimizer, so `applied = critic_updates() - skipped_*` for the
+    /// corresponding site.
     pub fn critic_updates(&self) -> usize {
         self.critic_updates
     }
@@ -509,15 +509,14 @@ where
     /// to learn about a new guard. Saturating throughout, so the sum cannot wrap
     /// even in the physically-unreachable case of three near-`u64::MAX` terms.
     ///
-    /// # Does NOT include α-update skips
+    /// # Does NOT include `$\alpha$`-update skips
     ///
-    /// The temperature (α) update carries its own, separate non-finite guard on
-    /// [`LogAlpha`] (ADR 0056 §5), which was deliberately kept
-    /// distinct from the shared `FiniteLossGuard` — it guards a closed-form Adam
-    /// step driven by the batch-mean log-prob, not a `backward()` over a loss
-    /// tensor. Its skips are **not** summed here. This accessor is therefore
-    /// "all non-finite *gradient* skips", not "all non-finite events in the
-    /// agent"; do not read a `0` here as proof that nothing was skipped.
+    /// The temperature (`$\alpha$`) update carries its own, separate non-finite guard on
+    /// [`LogAlpha`] (ADR 0056 §5), which was deliberately kept distinct from the shared
+    /// `FiniteLossGuard` — it guards a closed-form Adam step driven by the batch-mean log-prob, not
+    /// a `backward()` over a loss tensor. Its skips are **not** summed here. This accessor is
+    /// therefore "all non-finite *gradient* skips", not "all non-finite events in the agent"; do
+    /// not read a `0` here as proof that nothing was skipped.
     ///
     /// # Relationship to [`critic_updates`](Self::critic_updates)
     ///
@@ -553,7 +552,7 @@ where
             .saturating_add(self.skipped_actor_updates())
     }
 
-    /// Most recent α value (exposed for metrics / tests).
+    /// Most recent `$\alpha$` value (exposed for metrics / tests).
     pub fn last_alpha(&self) -> f32 {
         self.last_alpha
     }
@@ -582,11 +581,10 @@ where
     ///
     /// # Behavior on a non-finite observation
     ///
-    /// The observation row is checked for finiteness before it reaches the
-    /// actor. A `NaN` / `±Inf` row is **counted and warned about, and the
-    /// action is returned unchanged** — nothing is substituted, no fallback is
-    /// returned, and the clamping is not altered (ADR 0067 §Decision 4). Read
-    /// the count with
+    /// The observation row is checked for finiteness before it reaches the actor. A `NaN` /
+    /// `$\pm\infty$` row is **counted and warned about, and the action is returned unchanged** —
+    /// nothing is substituted, no fallback is returned, and the clamping is not altered (ADR 0067
+    /// §Decision 4). Read the count with
     /// [`degenerate_action_selections`](Self::degenerate_action_selections).
     ///
     /// The warm-up branch is deliberately outside the check: it never reads
@@ -650,13 +648,12 @@ where
             return A::from_slice(&sample);
         }
 
-        // `&self` (agents must stay `Sync` — the evolution layer evaluates them
-        // in parallel), so the staging buffer cannot be a field and must not be
-        // a shared `RefCell` / `Mutex`. Cost of the deliberate alternative: one
-        // `Vec<f32>` allocation per call, and only for f32 feature-vector
-        // observations (≤24 elements in this workspace). The four integer-backed
-        // observation types override `row_is_finite` without touching `scratch`,
-        // so this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
+        // `&self` (agents must stay `Sync` — the evolution layer evaluates them in parallel), so
+        // the staging buffer cannot be a field and must not be a shared `RefCell` / `Mutex`. Cost
+        // of the deliberate alternative: one `Vec<f32>` allocation per call, and only for f32
+        // feature-vector observations (`$\leq 24$` elements in this workspace). The four
+        // integer-backed observation types override `row_is_finite` without touching `scratch`, so
+        // this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
@@ -671,8 +668,8 @@ where
         let eps: Tensor<B::InnerBackend, BAR> = if training {
             sample_noise::<B::InnerBackend, BAR>(1, action_dim, &self.device, rng)
         } else {
-            // ε = 0 ⇒ z = μ, which matches `deterministic_action` for a
-            // squashed-Gaussian policy (both evaluate to `scale·tanh(μ)`).
+            // `$\epsilon$` = 0 `$\Rightarrow$` z = `$\mu$`, which matches `deterministic_action`
+            // for a squashed-Gaussian policy (both evaluate to `$\text{scale} \cdot \tanh(\mu)$`).
             Tensor::from_data(
                 TensorData::new(vec![0.0_f32; action_dim], vec![1, action_dim]),
                 &self.device,
@@ -709,15 +706,12 @@ where
     ///
     /// # Behavior
     ///
-    /// A non-finite `reward` (`NaN` or `±Inf`) is **discarded, not stored**:
-    /// the transition never enters the replay buffer and the call is otherwise
-    /// a no-op. Storing it would let every minibatch that later resampled it
-    /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
-    /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
-    /// 10th, 100th, … drop; use
-    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
-    /// programmatically.
+    /// A non-finite `reward` (`NaN` or `$\pm\infty$`) is **discarded, not stored**: the transition
+    /// never enters the replay buffer and the call is otherwise a no-op. Storing it would let every
+    /// minibatch that later resampled it produce a non-finite loss, which `FiniteLossGuard` then
+    /// skips — silently costing gradient updates for as long as the poisoned transition stayed
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st, 10th, 100th, … drop; use
+    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss programmatically.
     ///
     /// A non-finite **observation** — on either `obs` or `next_obs` — is
     /// discarded the same way, with its own counter
@@ -775,8 +769,8 @@ where
         self.reward_guard.dropped()
     }
 
-    /// Number of transitions [`remember`](Self::remember) discarded because
-    /// `obs` or `next_obs` carried a non-finite value (`NaN` / `±Inf`).
+    /// Number of transitions [`remember`](Self::remember) discarded because `obs` or `next_obs`
+    /// carried a non-finite value (`NaN` / `$\pm\infty$`).
     ///
     /// A non-zero count means those environment steps **never entered the
     /// replay buffer** and can never be sampled. The usual source is the
@@ -824,7 +818,7 @@ where
     /// place the guard on opposite sides of their random-action branch.
     ///
     /// - **Discrete** (`dqn`, `c51`, `qrdqn`) — the guard sits *inside* the
-    ///   ε-explore branch, and the greedy branch delegates to `act_greedy`,
+    ///   `$\epsilon$`-explore branch, and the greedy branch delegates to `act_greedy`,
     ///   which guards itself. So **every** `act` call is counted, including the
     ///   whole early period where `epsilon_start = 1.0` means every action is
     ///   random and `obs` is read *only* to run this check.
@@ -906,7 +900,7 @@ where
     /// 3. Runs an independent backward + optimizer step for each critic.
     /// 4. Every `policy_frequency`-th critic step, runs an actor update
     ///    (`$L_\pi = \alpha \cdot \text{logp} - \min(Q_1(s,a), Q_2(s,a))$`) and — when `autotune` is
-    ///    enabled — an α-update (`$L_\alpha = -(\log \alpha \cdot (\text{logp} + \bar{H}))$`).
+    ///    enabled — an `$\alpha$`-update (`$L_\alpha = -(\log \alpha \cdot (\text{logp} + \bar{H}))$`).
     /// 5. Every [`target_update.every()`](crate::target::TargetUpdate::every)-th
     ///    critic step, Polyak-averages both critic targets by
     ///    [`target_update.tau()`](crate::target::TargetUpdate::tau).
@@ -1061,15 +1055,13 @@ where
         let loss_1 = loss_1_tensor.clone().inner().into_scalar().elem::<f32>();
         let loss_2 = loss_2_tensor.clone().inner().into_scalar().elem::<f32>();
 
-        // ADR 0056: the two critics run in DISJOINT backward+step windows
-        // (independent graphs), so each site gets its own guard — a non-finite
-        // loss in one critic skips only that critic's `backward()` + optimizer
-        // step, while the other still updates. `loss_1`/`loss_2` are already
-        // host-resident (read via `.inner()` above), so the check costs no extra
-        // sync. A skipped critic's value is excluded from the reported metric:
-        // `last_qf{1,2}_loss` carries its last *applied* value forward rather
-        // than folding in a NaN. `critic_updates` (the actor/α cadence counter)
-        // still advances unconditionally, per ADR 0056 §3.
+        // ADR 0056: the two critics run in DISJOINT backward+step windows (independent graphs), so
+        // each site gets its own guard — a non-finite loss in one critic skips only that critic's
+        // `backward()` + optimizer step, while the other still updates. `loss_1`/`loss_2` are
+        // already host-resident (read via `.inner()` above), so the check costs no extra sync. A
+        // skipped critic's value is excluded from the reported metric: `last_qf{1,2}_loss` carries
+        // its last *applied* value forward rather than folding in a NaN. `critic_updates` (the
+        // actor/`$\alpha$` cadence counter) still advances unconditionally, per ADR 0056 §3.
         if self.critic_1_guard.check(loss_1) {
             let grads_1 = loss_1_tensor.backward();
             let grads_1_params = GradientsParams::from_grads(grads_1, self.critic_1.get());
@@ -1094,7 +1086,7 @@ where
 
         self.critic_updates += 1;
 
-        // --- Actor + α update (every policy_frequency-th critic step) ---
+        // --- Actor + `$\alpha$` update (every policy_frequency-th critic step) ---
         let mut actor_loss_opt: Option<f32> = None;
         let mut entropy_opt: Option<f32> = None;
         if self
@@ -1123,8 +1115,8 @@ where
                 .into_scalar()
                 .elem::<f32>();
 
-            // Capture batch-mean log-prob for the α Adam update and the
-            // entropy metric before consuming the actor graph in backward.
+            // Capture batch-mean log-prob for the `$\alpha$` Adam update and the entropy metric
+            // before consuming the actor graph in backward.
             let log_prob_mean = log_prob.clone().mean().inner().into_scalar().elem::<f32>();
             let entropy_value = -log_prob_mean;
 
@@ -1149,11 +1141,10 @@ where
                 entropy_opt = Some(entropy_value);
             }
 
-            // α update (optional). Closed-form scalar Adam with its own
-            // non-finite guard (`LogAlpha::adam_step`), independent of the
-            // actor-loss guard above: it is driven by `log_prob_mean`, not the
-            // actor loss, and keeps the α cadence honest even if the actor step
-            // was skipped this iteration.
+            // `$\alpha$` update (optional). Closed-form scalar Adam with its own non-finite guard
+            // (`LogAlpha::adam_step`), independent of the actor-loss guard above: it is driven by
+            // `log_prob_mean`, not the actor loss, and keeps the `$\alpha$` cadence honest even if
+            // the actor step was skipped this iteration.
             if self.config.autotune {
                 self.log_alpha.adam_step(
                     log_prob_mean,
@@ -1164,12 +1155,11 @@ where
             self.last_alpha = self.log_alpha.alpha();
         }
 
-        // --- Target Polyak updates ---
-        // `fires_at` takes the *post-increment* `critic_updates` counter and
-        // yields the τ to apply, or `None` (ADR 0058). It reproduces the former
-        // `critic_updates.is_multiple_of(target_update_frequency)` gate exactly,
-        // and hands back an `f64` — the type `soft_update` already took, so the
-        // old `f64::from(self.config.tau)` widening is gone.
+        // --- Target Polyak updates --- `fires_at` takes the *post-increment* `critic_updates`
+        // counter and yields the `$\tau$` to apply, or `None` (ADR 0058). It reproduces the former
+        // `critic_updates.is_multiple_of(target_update_frequency)` gate exactly, and hands back an
+        // `f64` — the type `soft_update` already took, so the old `f64::from(self.config.tau)`
+        // widening is gone.
         if let Some(tau) = self.config.target_update.fires_at(self.critic_updates) {
             // Clone rather than move out: `soft_update` consumes `target` by
             // value, so on `Err` the `?` returns before the reassignment and
@@ -1324,7 +1314,7 @@ mod tests {
             .mean()
             .into_scalar()
             .elem::<f32>();
-        // Δ = α · (0.5 − (−0.5)) = 0.3.
+        // `$\Delta = \alpha(0.5 - (-0.5)) = 0.3$`.
         assert!((high_loss - low_loss - 0.3).abs() < 1e-5);
         assert!(high_loss > low_loss);
     }
@@ -1830,8 +1820,8 @@ mod tests {
         agent
     }
 
-    /// SAC's shipped cadence is `polyak(0.005, 1)`: both critic targets move on
-    /// **every** critic update, by exactly τ of the gap.
+    /// SAC's shipped cadence is `polyak(0.005, 1)`: both critic targets move on **every** critic
+    /// update, by exactly `$\tau$` of the gap.
     ///
     /// The pre-ADR-0058 gate was `critic_updates.is_multiple_of(1)`, a no-op
     /// that no test varied — so "every step" was assumed, never observed.

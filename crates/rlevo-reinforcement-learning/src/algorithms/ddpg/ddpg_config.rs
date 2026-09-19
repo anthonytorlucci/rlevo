@@ -34,10 +34,10 @@ pub struct DdpgTrainingConfig {
     pub actor_lr: f64,
     /// Learning rate for the critic's Adam optimizer.
     pub critic_lr: f64,
-    /// Discount factor γ applied to the bootstrap target.
+    /// Discount factor `$\gamma$` applied to the bootstrap target.
     pub gamma: f32,
-    /// Standard deviation σ of the Gaussian exploration noise added to the
-    /// actor's output (before clipping to `[low, high]`).
+    /// Standard deviation `$\sigma$` of the Gaussian exploration noise added to the actor's output
+    /// (before clipping to `[low, high]`).
     pub exploration_noise: f32,
     /// Critic-update cadence at which the **actor** update runs — TD3's delay
     /// `d` (Fujimoto et al. 2018 §5.2), which DDPG inherits here.
@@ -48,8 +48,8 @@ pub struct DdpgTrainingConfig {
     /// [`target_update`](Self::target_update), so the two are independently
     /// settable.
     pub policy_frequency: usize,
-    /// Update rule for the target actor and target critic: the Polyak
-    /// coefficient τ and the cadence at which it fires.
+    /// Update rule for the target actor and target critic: the Polyak coefficient `$\tau$` and the
+    /// cadence at which it fires.
     ///
     /// The cadence counts **gradient (critic) updates**, not environment steps
     /// (ADR 0059) — unlike [`learning_starts`](Self::learning_starts), which is
@@ -59,8 +59,8 @@ pub struct DdpgTrainingConfig {
     pub target_update: TargetUpdate,
     /// Optional gradient clipping applied to both actor and critic grads.
     pub clip_grad: Option<GradientClippingConfig>,
-    /// Base Adam configuration; cloned for each optimizer so actor and critic
-    /// share β-params but keep independent moment estimates.
+    /// Base Adam configuration; cloned for each optimizer so actor and critic share
+    /// `$\beta$`-params but keep independent moment estimates.
     pub optimizer: AdamConfig,
 }
 
@@ -114,10 +114,10 @@ impl Validate for DdpgTrainingConfig {
             f64::from(self.exploration_noise),
         )?;
         config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
-        // `target_update` carries no check here: `TargetUpdate` is valid by
-        // construction (τ ∈ (0, 1], cadence ≥ 1), so the newtype *removes* the
-        // paired `config::in_range(C, "tau", ...)` line rather than duplicating
-        // it — ADR 0027 §3, ADR 0058 §Consequences.
+        // `target_update` carries no check here: `TargetUpdate` is valid by construction (`$\tau$`
+        // `$\in$` (0, 1], cadence `$\geq$` 1), so the newtype *removes* the paired
+        // `config::in_range(C, "tau", ...)` line rather than duplicating it — ADR 0027 §3, ADR 0058
+        // §Consequences.
         Ok(())
     }
 }
@@ -193,7 +193,7 @@ impl DdpgTrainingConfigBuilder {
         self
     }
 
-    /// Sets the discount factor γ.
+    /// Sets the discount factor `$\gamma$`.
     #[must_use]
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
@@ -216,7 +216,7 @@ impl DdpgTrainingConfigBuilder {
         self
     }
 
-    /// Sets both target networks' update rule: the Polyak coefficient τ and the
+    /// Sets both target networks' update rule: the Polyak coefficient `$\tau$` and the
     /// critic-update cadence at which it fires.
     ///
     /// ```rust
@@ -321,10 +321,9 @@ mod tests {
     /// block, so the target cadence was `policy_frequency` by aliasing. The
     /// default `every` must equal the default `policy_frequency`, or the
     /// decoupling silently rescaled every default DDPG run.
-    // Bit-exactness *is* the property under test here: τ is a source literal
-    // stored verbatim and read back through a widening that is exact for every
-    // `f32`, never the result of arithmetic. A tolerance would let a genuine
-    // default drift pass.
+    // Bit-exactness *is* the property under test here: `$\tau$` is a source literal stored verbatim
+    // and read back through a widening that is exact for every `f32`, never the result of
+    // arithmetic. A tolerance would let a genuine default drift pass.
     #[allow(clippy::float_cmp)]
     #[test]
     fn test_ddpg_config_default_target_update_is_bit_identical_to_the_pre_migration_alias() {
@@ -426,8 +425,8 @@ mod tests {
     fn test_ddpg_config_nan_tau_cannot_be_constructed_for_struct_update_syntax() {
         assert!(TargetUpdate::try_polyak(f32::NAN, 1).is_err());
         assert!(TargetUpdate::try_polyak(f32::INFINITY, 1).is_err());
-        // Every τ a struct-update config can carry came through `PolyakTau`, so
-        // the result is necessarily valid.
+        // Every `$\tau$` a struct-update config can carry came through `PolyakTau`, so the result
+        // is necessarily valid.
         let config = DdpgTrainingConfig {
             target_update: TargetUpdate::polyak(0.005, 2),
             ..Default::default()

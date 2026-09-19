@@ -184,7 +184,7 @@ pub enum Integrator {
 /// ```
 #[derive(Debug, Clone)]
 pub struct CartPoleConfig {
-    /// Gravitational acceleration (m/s²). Default: `9.8`.
+    /// Gravitational acceleration (`$\text{m/s}^2$`). Default: `9.8`.
     pub gravity: f32,
     /// Mass of the cart (kg). Default: `1.0`.
     pub masscart: f32,
@@ -264,7 +264,7 @@ impl CartPoleConfig {
 }
 
 impl CartPoleConfigBuilder {
-    /// Sets gravitational acceleration (m/s²).
+    /// Sets gravitational acceleration (`$\text{m/s}^2$`).
     #[must_use]
     pub fn gravity(mut self, v: f32) -> Self {
         self.inner.gravity = v;
@@ -988,10 +988,10 @@ mod tests {
         CartPole::with_config(CartPoleConfig::default()).expect("valid config")
     }
 
-    /// Resets `env` and pushes `Right` until the pole tips past the 12° angle
-    /// threshold, returning the terminal snapshot. Pushing one direction from a
-    /// near-upright start topples the pole in a few dozen steps, so this reaches
-    /// a *real* termination rather than a hand-written terminal state.
+    /// Resets `env` and pushes `Right` until the pole tips past the `$12^\circ$` angle threshold,
+    /// returning the terminal snapshot. Pushing one direction from a near-upright start topples the
+    /// pole in a few dozen steps, so this reaches a *real* termination rather than a hand-written
+    /// terminal state.
     fn drive_to_pole_fall(
         env: &mut CartPole,
     ) -> SnapshotBase<1, CartPoleObservation, ScalarReward> {

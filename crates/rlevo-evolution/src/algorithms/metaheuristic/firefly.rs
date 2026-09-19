@@ -70,7 +70,7 @@ impl FireflyConfig {
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         let (lo, hi): (f32, f32) = (-5.12, 5.12);
         let length: f32 = hi - lo;
-        // γ ≈ 1/L², Yang's canonical regime scaled to the domain extent.
+        // `$\gamma \approx 1/L^2$`, Yang's canonical regime scaled to the domain extent.
         let gamma: f32 = 1.0 / (length * length);
         Self {
             pop_size,
@@ -230,10 +230,9 @@ impl<B: Backend> FireflyAlgorithm<B> {
         let shape = positions.dims();
         let d = shape[1];
 
-        // Pairwise squared distances via (x·x^T + ||x||² - 2x·x^T).
-        // Cheaper memory than the (N, N, D) difference tensor, but we
-        // still need the (N, N, D) tensor for the displacement `x_j -
-        // x_i`. Cap enforced at module level.
+        // Pairwise squared distances via `$(x x^\top + \lVert x\rVert^2 - 2 x x^\top)$`. Cheaper
+        // memory than the (N, N, D) difference tensor, but we still need the (N, N, D) tensor for
+        // the displacement `x_j - x_i`. Cap enforced at module level.
         let xi = positions.clone().unsqueeze_dim::<3>(1); // (N, 1, D)
         let xj = positions.clone().unsqueeze_dim::<3>(0); // (1, N, D)
         let diff = xj.expand([pop, pop, d]) - xi.expand([pop, pop, d]); // (N, N, D)
@@ -252,16 +251,15 @@ impl<B: Backend> FireflyAlgorithm<B> {
         let bright_mask =
             Tensor::<B, 2, Int>::from_data(TensorData::new(bright, [pop, pop]), device)
                 .equal_elem(1);
-        // Zero-out non-bright pairs in β then multiply diff.
+        // Zero-out non-bright pairs in `$\beta$` then multiply diff.
         let zero = Tensor::<B, 2>::zeros([pop, pop], device);
         let beta_m = beta.mask_where(bright_mask.bool_not(), zero);
         let weight = beta_m.unsqueeze_dim::<3>(2).expand([pop, pop, d]); // (N, N, D)
         let weighted = diff.mul(weight); // (N, N, D)
         let attr_sum = weighted.sum_dim(1).squeeze_dim::<2>(1); // (N, D)
 
-        // Noise: α · (U[0,1] - 0.5). Host-sample from the supplied seed so
-        // the draw is reproducible across thread schedules rather than
-        // racing the process-wide Flex RNG.
+        // Noise: `$\alpha \cdot (U[0,1] - 0.5)$`. Host-sample from the supplied seed so the draw is
+        // reproducible across thread schedules rather than racing the process-wide Flex RNG.
         let mut noise_rng = rand::rngs::StdRng::seed_from_u64(noise_seed);
         let mut noise_rows = Vec::with_capacity(pop * d);
         for _ in 0..pop * d {
@@ -391,14 +389,13 @@ where
         mut state: FireflyState<B>,
         _rng: &mut dyn Rng,
     ) -> (FireflyState<B>, StrategyMetrics) {
-        // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
-        // per-site correctness floor for a caller driving `ask`/`tell`
-        // directly instead of `EvolutionaryHarness::step`, which already
-        // sanitizes (the ADR 0034 decision-3 bypass hole): otherwise a raw
-        // NaN lands in the public `state.fitness` cache and silently
-        // disables the `fitness[j] > fitness[i]` brightness ordering in the
-        // next `ask`. `sanitize_fitness` is idempotent, so on the harness
-        // path this is a provable no-op — not redundant, load-bearing.
+        // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
+        // correctness floor for a caller driving `ask`/`tell` directly instead of
+        // `EvolutionaryHarness::step`, which already sanitizes (the ADR 0034 decision-3 bypass
+        // hole): otherwise a raw NaN lands in the public `state.fitness` cache and silently
+        // disables the `fitness[j] > fitness[i]` brightness ordering in the next `ask`.
+        // `sanitize_fitness` is idempotent, so on the harness path this is a provable no-op — not
+        // redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -492,9 +489,8 @@ mod tests {
 
     #[test]
     fn firefly_converges_on_sphere_d10() {
-        // Firefly's attraction sum is O(N²D); we use 24 fireflies to
-        // keep the test fast while still exercising the pairwise
-        // kernel path.
+        // Firefly's attraction sum is `$O(N^2 D)$`; we use 24 fireflies to keep the test fast while
+        // still exercising the pairwise kernel path.
         let device = Default::default();
         let strategy = FireflyAlgorithm::<TestBackend>::new();
         let params = FireflyConfig::default_for(24, 10);
@@ -529,9 +525,9 @@ mod tests {
         }
     }
 
-    // Gap (a): the validator rejects a zero swarm and negative kernel scalars.
-    // `gamma` is `positive` (0 and negatives rejected — 0 is the existing case);
-    // `beta0` and `alpha` are `[0, ∞)` (0 allowed, negatives rejected).
+    // Gap (a): the validator rejects a zero swarm and negative kernel scalars. `gamma` is
+    // `positive` (0 and negatives rejected — 0 is the existing case); `beta0` and `alpha` are
+    // `$[0, \infty)$` (0 allowed, negatives rejected).
     #[test]
     fn rejects_invalid_configs() {
         let mut cfg = FireflyConfig::default_for(0, 10);
@@ -550,8 +546,8 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "alpha");
     }
 
-    // Gap (a) cont.: an inverted range is unrepresentable — `Bounds::new` panics
-    // before a `FireflyConfig` can carry `(5, −5)`.
+    // Gap (a) cont.: an inverted range is unrepresentable — `Bounds::new` panics before a
+    // `FireflyConfig` can carry `$(5, -5)$`.
     #[test]
     #[should_panic(expected = "invalid range")]
     fn inverted_bounds_are_unrepresentable() {
@@ -604,7 +600,7 @@ mod tests {
             .into_data()
             .into_vec::<f32>()
             .expect("delta readable as f32");
-        // Firefly 0 moves +1·(x_1 − x_0) = (+1, 0) toward the brighter one.
+        // Firefly 0 moves `$+1 \cdot (x_1 - x_0) = (+1, 0)$` toward the brighter one.
         approx::assert_relative_eq!(d[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(d[1], 0.0, epsilon = 1e-6);
         // Brightest firefly has no brighter neighbour → no attraction.
@@ -638,15 +634,14 @@ mod tests {
             .into_data()
             .into_vec::<f32>()
             .expect("delta readable as f32");
-        // Firefly 0 moves +1·(x_1 − x_0) = +1 toward the brighter one.
+        // Firefly 0 moves `$+1 \cdot (x_1 - x_0) = +1$` toward the brighter one.
         approx::assert_relative_eq!(d[0], 1.0, epsilon = 1e-6);
         // Brightest firefly has no brighter neighbour → no attraction.
         approx::assert_relative_eq!(d[1], 0.0, epsilon = 1e-6);
     }
 
-    // Gap (c): `argmax_host` edge cases. Empty slice panics; an all-`NaN` slice
-    // (nothing exceeds the `−∞` seed) falls back to index 0; a single element is
-    // trivially the max.
+    // Gap (c): `argmax_host` edge cases. Empty slice panics; an all-`NaN` slice (nothing exceeds
+    // the `$-\infty$` seed) falls back to index 0; a single element is trivially the max.
     #[test]
     #[should_panic(expected = "must be non-empty")]
     fn argmax_host_empty_panics() {
@@ -781,13 +776,12 @@ mod tests {
             "raw NaN reached the public fitness cache: {:?}",
             state.fitness()
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
-        // clears `is_nan` yet would rank firefly 0 *above* every finite
-        // -1/-2/… row and make the NaN-scoring firefly the brightest — the
-        // leader poisoning this regression exists to catch.
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would rank firefly 0 *above* every finite -1/-2/… row and make
+        // the NaN-scoring firefly the brightest — the leader poisoning this regression exists to
+        // catch.
         assert!(
             state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
             "sanitized NaN must land as -inf in the firefly-0 fitness cache: {:?}",

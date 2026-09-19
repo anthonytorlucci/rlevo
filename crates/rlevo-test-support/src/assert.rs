@@ -36,9 +36,9 @@ pub fn assert_improves_over_random(trained: f32, random: f32, margin: f32) {
 
 /// Asserts a moving-average reward is finite and reaches `threshold` (`>=`).
 ///
-/// The `>=` counterpart to [`assert_improves_over_random`], used by the discrete
-/// "reaches N" convergence checks (e.g. `CartPole` avg ≥ 100) where the target is
-/// an absolute floor rather than a margin over a random baseline.
+/// The `>=` counterpart to [`assert_improves_over_random`], used by the discrete "reaches N"
+/// convergence checks (e.g. `CartPole` avg `$\geq 100$`) where the target is an absolute floor
+/// rather than a margin over a random baseline.
 ///
 /// # Panics
 ///

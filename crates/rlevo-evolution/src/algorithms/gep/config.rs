@@ -52,14 +52,12 @@ impl GepConfig {
     /// complete tree. `max_arity` is the function set's largest
     /// arity ([`FunctionSet::max_arity`](crate::function_set::FunctionSet::max_arity)).
     ///
-    /// The IS/RIS transposition rates default to Ferreira's (2001) canonical
-    /// `0.1`; the crossover rates (`0.3`/`0.3`) are rlevo's own choice, not
-    /// Ferreira's commonly cited `0.2`/`0.5`. Assign a validated
-    /// [`Probability`] to the public fields afterwards to override.
-    /// The point-mutation rate defaults to `2 / genome_len` (≈ two genes per
-    /// chromosome). Because the rates are [`Probability`], a `NaN`/`Inf`/
-    /// out-of-`[0, 1]` rate is unrepresentable — the silent operator
-    /// degeneracy of a bare `f32` rate cannot occur.
+    /// The IS/RIS transposition rates default to Ferreira's (2001) canonical `0.1`; the crossover
+    /// rates (`0.3`/`0.3`) are rlevo's own choice, not Ferreira's commonly cited `0.2`/`0.5`.
+    /// Assign a validated [`Probability`] to the public fields afterwards to override. The
+    /// point-mutation rate defaults to `2 / genome_len` (`$\approx$` two genes per chromosome).
+    /// Because the rates are [`Probability`], a `NaN`/`Inf`/ out-of-`[0, 1]` rate is
+    /// unrepresentable — the silent operator degeneracy of a bare `f32` rate cannot occur.
     ///
     /// # Errors
     ///
@@ -177,8 +175,8 @@ mod tests {
         assert_eq!(err.field, "pop_size");
     }
 
-    /// A unary function set (`max_arity == 1`) collapses the Ferreira tail to a
-    /// single locus, `t = h·(1−1)+1 = 1`, for every head size.
+    /// A unary function set (`max_arity == 1`) collapses the Ferreira tail to a single locus,
+    /// `$t = h(1-1)+1 = 1$`, for every head size.
     #[test]
     fn unary_max_arity_derives_unit_tail() {
         for head in [1usize, 2, 5, 7, 20] {

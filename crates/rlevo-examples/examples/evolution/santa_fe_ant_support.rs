@@ -83,15 +83,13 @@ pub const MAX_STEPS: usize = DEFAULT_MAX_STEPS;
 /// Individuals per generation for the population-based strategies.
 pub const POP: usize = 32;
 
-/// Generation budget for the **deterministic** example (one rollout per eval).
-/// Illustrative, not exhaustive — total evals ≈ `POP * DET_GENERATIONS`, an order
-/// of magnitude below the ~20,696-evaluation GP baseline (Christensen & Oppacher
-/// 2007). Scale up to clear the full trail.
+/// Generation budget for the **deterministic** example (one rollout per eval). Illustrative, not
+/// exhaustive — total evals `$\approx$` `POP * DET_GENERATIONS`, an order of magnitude below the
+/// ~20,696-evaluation GP baseline (Christensen & Oppacher 2007). Scale up to clear the full trail.
 pub const DET_GENERATIONS: usize = 40;
 
-/// Generation budget for the **stochastic** example. Lower than `DET_GENERATIONS`
-/// because each fitness evaluation runs [`STOCHASTIC_SEEDS`] rollouts, so a
-/// generation costs ~16× more.
+/// Generation budget for the **stochastic** example. Lower than `DET_GENERATIONS` because each
+/// fitness evaluation runs [`STOCHASTIC_SEEDS`] rollouts, so a generation costs ~`$16\times$` more.
 pub const STO_GENERATIONS: usize = 12;
 
 /// Initial-sample / clamp bounds for genome weights. Narrower than the GA default
@@ -145,10 +143,10 @@ impl<B: Backend> AntPolicy<B> for GruAntPolicy<B> {
     }
 }
 
-/// Elman policy: a minimal hand-rolled recurrent cell. With the standard notation
-/// `W_x` = [`input`], `W_h` = [`recurrent`], `W_o` = [`output`], one step is
-/// `h' = tanh(W_x·x + W_h·h)`, `logits = W_o·h'`. The smallest genome, used as the
-/// size-comparison arm and the fairest baseline comparison.
+/// Elman policy: a minimal hand-rolled recurrent cell. With the standard notation `W_x` =
+/// [`input`], `W_h` = [`recurrent`], `W_o` = [`output`], one step is `$h' = \tanh(W_x x + W_h h)$`,
+/// `$\text{logits} = W_o h'$`. The smallest genome, used as the size-comparison arm and the fairest
+/// baseline comparison.
 ///
 /// [`input`]: ElmanAntPolicy::input
 /// [`recurrent`]: ElmanAntPolicy::recurrent
@@ -356,7 +354,7 @@ where
 // Strategy runner + reporting.
 // ---------------------------------------------------------------------------
 
-/// One strategy×architecture result.
+/// One strategy`$\times$`architecture result.
 #[derive(Clone, Debug)]
 pub struct RunSummary {
     pub label: String,

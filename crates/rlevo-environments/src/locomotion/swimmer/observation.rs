@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 
 /// 8-dim observation. Layout matches Gymnasium's `qpos[2:5]` + `qvel`:
 /// `[body_angle, joint1_angle, joint2_angle, vx_com, vy_com,
-///   ω_body, joint1_dot, joint2_dot]`.
+///   omega_body, joint1_dot, joint2_dot]`.
 ///
 /// * `body_angle` — absolute z-rotation of segment0 (wrapped to `$(-\pi, \pi]$`).
 /// * `joint{1,2}_angle` — **relative** angle between adjacent segments
-///   (child − parent in world-z), wrapped.
-/// * `vx_com, vy_com, ω_body` — segment0's linear/angular velocity.
+///   (`$\text{child} - \text{parent}$` in world-z), wrapped.
+/// * `vx_com, vy_com, omega_body` — segment0's linear/angular velocity.
 /// * `joint{k}_dot` — relative angular rate `$\omega_{\text{child}} - \omega_{\text{parent}}$`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SwimmerObservation(pub [f32; 8]);

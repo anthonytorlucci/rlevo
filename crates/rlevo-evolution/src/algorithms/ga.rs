@@ -51,8 +51,8 @@ pub enum GaSelection {
 /// Crossover algorithm choice.
 #[derive(Debug, Clone, Copy)]
 pub enum GaCrossover {
-    /// BLX-α real-valued crossover. `alpha` is a non-negative expansion
-    /// factor (finite, `>= 0`), valid by construction.
+    /// BLX-`$\alpha$` real-valued crossover. `alpha` is a non-negative expansion factor (finite,
+    /// `>= 0`), valid by construction.
     BlxAlpha { alpha: NonNegativeRate },
     /// Uniform swap crossover with per-gene probability `p` (valid by
     /// construction, `[0, 1]`).
@@ -77,8 +77,8 @@ pub struct GaConfig {
     pub genome_dim: usize,
     /// Lower / upper bound on initial samples and clamping.
     pub bounds: Bounds,
-    /// σ for isotropic Gaussian mutation. A non-negative step size (finite,
-    /// `>= 0`), valid by construction.
+    /// `$\sigma$` for isotropic Gaussian mutation. A non-negative step size (finite, `>= 0`), valid
+    /// by construction.
     pub mutation_sigma: NonNegativeRate,
     /// Selection operator.
     pub selection: GaSelection,
@@ -266,7 +266,7 @@ where
     ///
     /// - `SeedPurpose::Selection` — two independent tournament draws
     ///   (parents A and parents B);
-    /// - `SeedPurpose::Crossover` — BLX-α or uniform crossover;
+    /// - `SeedPurpose::Crossover` — BLX-`$\alpha$` or uniform crossover;
     /// - `SeedPurpose::Mutation` — isotropic Gaussian perturbation.
     ///
     /// After mutation, offspring are clamped to `params.bounds`.
@@ -435,9 +435,9 @@ fn update_best<B: Backend>(state: &mut GaState<B>, pop: &Tensor<B, 2>, fitness: 
     if fitness.is_empty() {
         return;
     }
-    // Sanitize (NaN → −∞) then order with `total_cmp`: the §3 correctness floor
-    // for a direct (non-harness) caller. `best_fitness` seeds at `−∞`, so a
-    // legitimately sanitized `−∞` fitness is treated as the worst, not skipped.
+    // Sanitize (NaN → `$-\infty$`) then order with `total_cmp`: the §3 correctness floor for a
+    // direct (non-harness) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
+    // `$-\infty$` fitness is treated as the worst, not skipped.
     let sane: Vec<f32> = fitness
         .iter()
         .map(|&f| crate::fitness::sanitize_fitness(f))

@@ -1,10 +1,9 @@
 //! Scripted rollout of [`DoorKeyEnv`] with an ASCII trace per step.
 //!
-//! This example walks through a canonical 8-action optimal solution for a 5×5
-//! `DoorKey` layout and prints the ASCII render of the grid before and after
-//! each step. It is meant as a tutorial for readers learning the grid env state
-//! machine — the printed trace makes it obvious which action triggered which
-//! state change.
+//! This example walks through a canonical 8-action optimal solution for a `$5 \times 5$` `DoorKey`
+//! layout and prints the ASCII render of the grid before and after each step. It is meant as a
+//! tutorial for readers learning the grid env state machine — the printed trace makes it obvious
+//! which action triggered which state change.
 //!
 //! ## Why the seed is pinned
 //!
@@ -52,7 +51,7 @@ use rlevo_environments::grids::{DoorKeyConfig, DoorKeyEnv};
 /// the per-action comments below.
 const SEED: u64 = 99;
 
-/// Canonical 8-action solution for the 5×5 `DoorKey` board at [`SEED`].
+/// Canonical 8-action solution for the `$5 \times 5$` `DoorKey` board at [`SEED`].
 const SCRIPT: [GridAction; 8] = [
     GridAction::Pickup,    // grab yellow key at (1, 1)
     GridAction::TurnRight, // face east toward the locked door

@@ -310,10 +310,10 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         Cadence::PerUpdate,
         "Entropy temperature α",
     ),
-    // Reserved: the SAC α update is a closed-form scalar Adam step with no
-    // exposed loss scalar, so no producer emits `alpha_loss` yet. The panel
-    // simply does not appear until one does (absent metrics are skipped, not
-    // rendered empty). Kept here so the v6 metric set stays complete.
+    // Reserved: the SAC `$\alpha$` update is a closed-form scalar Adam step with no exposed loss
+    // scalar, so no producer emits `alpha_loss` yet. The panel simply does not appear until one
+    // does (absent metrics are skipped, not rendered empty). Kept here so the v6 metric set stays
+    // complete.
     d(
         "alpha_loss",
         MetricKind::Rl,

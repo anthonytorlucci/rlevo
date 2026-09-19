@@ -360,7 +360,7 @@ pub fn in_range(
 /// Rejects a `(low, high)` pair that is not strictly ordered (`low < high`).
 ///
 /// Both endpoints are config *values* here — not bounds — so both must be
-/// finite. `ordered(C, f, -∞, ∞)` is rejected, unlike [`in_range`]'s `lo`/`hi`.
+/// finite. `$\text{ordered}(C, f, -\infty, \infty)$` is rejected, unlike [`in_range`]'s `lo`/`hi`.
 ///
 /// # Errors
 ///
@@ -464,7 +464,7 @@ pub fn distinct(
 /// permits a degenerate single point so that clamping to a constant stays
 /// expressible. This helper is how a config re-asserts the strictness it lost
 /// when the field became a [`Bounds`] — e.g. a `log_std: Bounds` whose zero
-/// width would silently collapse σ to a constant (ADR 0054 §3).
+/// width would silently collapse `$\sigma$` to a constant (ADR 0054 §3).
 ///
 /// Reach for it only where zero width is genuinely a misconfiguration. A field
 /// for which `lo == hi` is meaningful keeps the plain [`Bounds`] invariant and

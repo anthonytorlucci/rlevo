@@ -1,10 +1,9 @@
 //! Navigate across sampled obstacle rivers, one opening each, to reach the goal.
 //!
-//! Ports Farama Minigrid's [`CrossingEnv`] (`MiniGrid-LavaCrossingS9N1-v0` and
-//! its `SimpleCrossing` siblings). The room is an `N×N` grid with border walls.
-//! Every episode samples **two** *rivers* — full interior lines of [`Lava`] or
-//! [`Wall`] — from the even interior rows and columns, then punches exactly one
-//! opening per river.
+//! Ports Farama Minigrid's [`CrossingEnv`] (`MiniGrid-LavaCrossingS9N1-v0` and its `SimpleCrossing`
+//! siblings). The room is an `$N \times N$` grid with border walls. Every episode samples **two**
+//! *rivers* — full interior lines of [`Lava`] or [`Wall`] — from the even interior rows and
+//! columns, then punches exactly one opening per river.
 //!
 //! ## Openings come from a monotone walk, not from independent draws
 //!
@@ -225,7 +224,7 @@ pub struct CrossingConfig {
     /// Side length of the square grid in cells, including border walls.
     ///
     /// Must be at least `7`. The interior playable area is
-    /// `(size - 2) × (size - 2)`.
+    /// `$(\text{size} - 2) \times (\text{size} - 2)$`.
     ///
     /// Unlike upstream Minigrid, which asserts an odd `width`/`height`, this
     /// crate accepts any `size >= 7`; the layout sampler is total over even
@@ -1591,15 +1590,13 @@ mod tests {
     ///
     /// # The honest half: `CrossingKind::Lava` occludes nothing at all
     ///
-    /// Lava is *transparent* (canonical `WorldObj.see_behind` is overridden only
-    /// by `Wall` and shut `Door`), and the room is a plain rectangle, so on a
-    /// `Lava` board the only opaque cells are the border ring — which has
-    /// nothing behind it. Measured over sizes 7/9/11 × six seeds × every
-    /// passable cell × all four facings: **not one in-grid cell is ever masked
-    /// on a `Lava` board**. That is the default kind, so the default
-    /// `CrossingEnv` is occluded in name only, and the second half of this test
-    /// pins that finding at the same seed, board and pose as the first: swap
-    /// `Wall` for `Lava` and the goal comes back into view.
+    /// Lava is *transparent* (canonical `WorldObj.see_behind` is overridden only by `Wall` and shut
+    /// `Door`), and the room is a plain rectangle, so on a `Lava` board the only opaque cells are
+    /// the border ring — which has nothing behind it. Measured over sizes 7/9/11 `$\times$` six
+    /// seeds `$\times$` every passable cell `$\times$` all four facings: **not one in-grid cell is
+    /// ever masked on a `Lava` board**. That is the default kind, so the default `CrossingEnv` is
+    /// occluded in name only, and the second half of this test pins that finding at the same seed,
+    /// board and pose as the first: swap `Wall` for `Lava` and the goal comes back into view.
     #[test]
     fn test_crossing_occlusion_hides_the_goal_beyond_a_wall_river() {
         // Seed 3 at size 9 draws two horizontal rivers, at rows 4 and 6, with
