@@ -44,6 +44,13 @@ affected trial; and a `Metric::Counter` keyed `return/non_finite_steps`
 (`RETURN_NON_FINITE_STEPS`) is absorbed into the `TrialReport`
 **unconditionally, including as `0`**.
 
+**Update (2026-09-19):** **partially superseded by ADR [0079](0079-harness-metrics-are-a-privileged-absorption-path.md)**, which this ADR's own Decision 6 asked for by name ("Inverting this assertion so the harness wins would be a change to `absorb_metrics`' contract and needs its own ADR, not a test edit."). Two clauses no longer hold:
+
+- **Decision 4's second bullet** (the `return/`-prefix one — ADR 0079's Status calls it the *third*, which is a miscount: the three bullets are emitted-unconditionally, `return/`-prefixed, and not-emitted-by-`core_metrics`, and the superseded clause sits in the second) — "It does not make the counter unclobberable … a deliberate override is not the hazard being defended against". `absorb_metrics` is now the **checked** path: an agent emitting the exact key `return/non_finite_steps` is re-homed to `agent/return/non_finite_steps`, the harness's own count survives, and the displacement is recorded in `TrialReport::displaced_metrics` and warned about once. The `return/` prefix still does the accidental-collision work this ADR gave it; it is no longer the *only* thing standing between an agent and the counter.
+- **Decision 6's fourth test**, `agent_metrics_are_absorbed_after_the_harness_counter`, was inverted and renamed to `an_agent_cannot_overwrite_the_harness_non_finite_count`. It now pins the opposite outcome, and its doc comment cites ADR 0079 as the ADR this one required. The other five tests are unchanged, and 0079 added parallel coverage for `GenerationTrial`, which had none.
+
+The **out-of-scope observation** in Consequences — `Metric::Counter`'s "may accumulate across trials" doc against `absorb_metrics`' overwrite — is also resolved by 0079, in favour of **overwrite**: the doc was corrected and accumulation rejected on four grounds. **Reopen trigger 4** is therefore closed rather than fired, since it was conditioned on resolution in favour of accumulation. Everything else in this ADR stays **active and unchanged** — the counting, the unconditional-including-zero emission, the one-warn-per-affected-trial schedule, the raw accumulation, the no-runtime-check closure in `rlevo-core`, the declined registry row, and the scoping of ADR 0034's `debug_assert!` permission.
+
 ## Context
 
 ### 1. The assert made the harness's artefact a function of the build profile
