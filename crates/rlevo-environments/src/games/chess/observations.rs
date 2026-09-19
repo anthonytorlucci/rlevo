@@ -61,7 +61,7 @@
 //! The representation allows for:
 //! - O(1) position queries and updates
 //! - Efficient move generation and validation
-//! - Natural tensor conversion for neural networks (8×8×119 layout)
+//! - Natural tensor conversion for neural networks (`$8 \times 8 \times 119$` layout)
 //!
 //! # When to Use This Module
 //!
@@ -133,7 +133,7 @@ const HISTORY_SIZE: usize = 8;
 const PIECE_TYPES: usize = 6;
 
 /// Total number of planes in the observation tensor.
-/// - 112 planes: 8 time steps × (6 own pieces + 6 opponent pieces + 2 repetition)
+/// - 112 planes: 8 time steps `$\times$` (6 own pieces + 6 opponent pieces + 2 repetition)
 /// - 7 planes: castling rights (4) + side to move (1) + move count (1) + no-progress (1)
 const TOTAL_PLANES: usize = 119;
 

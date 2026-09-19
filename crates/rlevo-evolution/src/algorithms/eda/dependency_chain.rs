@@ -1,13 +1,12 @@
 //! Continuous-Gaussian dependency-chain model (MIMIC-style EDA) for continuous
 //! search spaces.
 //!
-//! Unlike [`super::univariate_gaussian`], this model captures *pairwise*
-//! dependencies. [`fit`] estimates per-dimension Gaussians **and** builds a
-//! dimension ordering (chain `c₀ → c₁ → … → c_{D-1}`) that maximises captured
-//! mutual information, then represents the joint as a first-order chain: each
-//! dimension is conditionally Gaussian given its predecessor. [`sample`] walks
-//! the chain, drawing each gene from the conditional Gaussian of its parent's
-//! sampled value.
+//! Unlike [`super::univariate_gaussian`], this model captures *pairwise* dependencies. [`fit`]
+//! estimates per-dimension Gaussians **and** builds a dimension ordering (chain
+//! `$c_0 \to c_1 \to \ldots \to c_{D-1}$`) that maximises captured mutual information, then
+//! represents the joint as a first-order chain: each dimension is conditionally Gaussian given its
+//! predecessor. [`sample`] walks the chain, drawing each gene from the conditional Gaussian of its
+//! parent's sampled value.
 //!
 //! The chain is built greedily à la MIMIC (De Bonet et al., 1997): the root
 //! is the dimension with the smallest marginal standard deviation (lowest
@@ -138,7 +137,7 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
     ///    for the estimator regularisation rationale) and clamps surviving
     ///    correlations to `$[-0.9999, 0.9999]$`.
     /// 4. Converts to mutual information `$\text{MI} = -0.5 \cdot \ln(1 - r^{2})$`.
-    /// 5. Builds the chain greedily: root = minimum-σ dimension, each
+    /// 5. Builds the chain greedily: root = minimum-`$\sigma$` dimension, each
     ///    subsequent link = unvisited dimension with the highest MI to the
     ///    last chosen one.
     ///
@@ -181,12 +180,11 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
 
         let [k, d] = population.dims();
         if k < 2 {
-            // Correlation is unidentifiable from fewer than two rows: `kf` would
-            // be `0`/`1`, driving `/= kf` to `NaN`/degenerate stats that then
-            // poison `std`/`link_corr` and later panic in `sample`. Return the
-            // prior-shaped state (independent dimensions) to keep the run alive.
-            // `EdaStrategy::tell` clamps `k ≥ 2`, but `fit` is a public trait
-            // method reachable directly with a `0×D`/`1×D` population.
+            // Correlation is unidentifiable from fewer than two rows: `kf` would be `0`/`1`,
+            // driving `/= kf` to `NaN`/degenerate stats that then poison `std`/`link_corr` and
+            // later panic in `sample`. Return the prior-shaped state (independent dimensions) to
+            // keep the run alive. `EdaStrategy::tell` clamps `$k \geq 2$`, but `fit` is a public
+            // trait method reachable directly with a `$0 \times D$`/`$1 \times D$` population.
             return DependencyChainState {
                 chain: (0..d).collect(),
                 mean: vec![params.init_mean; d],
@@ -231,8 +229,8 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
             .map(|&v| v.max(params.min_variance).sqrt())
             .collect();
 
-        // Pairwise covariances → Pearson correlations.
-        // cov[a][b] = Σ (x_a - μ_a)(x_b - μ_b) / k.
+        // Pairwise covariances → Pearson correlations. cov[a][b] = `$\sum$` (x_a - `$\mu_a$`)(x_b -
+        // `$\mu_b$`) / k.
         let mut cov = vec![0.0_f32; d * d];
         for i in 0..k {
             for a in 0..d {
@@ -247,18 +245,18 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
             *c /= kf;
         }
 
-        // r[a][b] = cov / (raw_σ_a · raw_σ_b); guarded and clamped.
+        // `$r[a][b] = \text{cov}/(\text{raw\_}\sigma_a \cdot \text{raw\_}\sigma_b)$`; guarded and
+        // clamped.
         //
-        // Sample correlations from k rows are noisy with std ≈ 1/√k under
-        // independence; conditioning the chain on spurious correlations
-        // injects that noise into every conditional mean — a penalty a
-        // univariate model never pays. Estimates below the ~2σ significance
-        // threshold are therefore zeroed, so the chain degenerates to
+        // Sample correlations from k rows are noisy with std `$\approx 1/\sqrt{k}$` under
+        // independence; conditioning the chain on spurious correlations injects that noise into
+        // every conditional mean — a penalty a univariate model never pays. Estimates below the
+        // ~2`$\sigma$` significance threshold are therefore zeroed, so the chain degenerates to
         // independent sampling exactly where no dependency is detectable.
         let significance = 2.0 / kf.sqrt();
         let mut corr = vec![0.0_f32; d * d];
-        // Mutual information MI[a][b] = -0.5 ln(1 - r²); computed explicitly
-        // for fidelity though it is monotone in r².
+        // Mutual information `$MI[a][b] = -0.5\ln(1 - r^2)$`; computed explicitly for fidelity
+        // though it is monotone in `$r^2$`.
         let mut mi = vec![0.0_f32; d * d];
         for a in 0..d {
             for b in 0..d {
@@ -277,14 +275,12 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
             }
         }
 
-        // NOTE: the sentinels in this structure-learning routine are about
-        // marginal entropy (σ) and mutual information, NOT objective fitness.
-        // They are independent of the crate's maximise convention — do not
-        // "fix" them to match it.
+        // NOTE: the sentinels in this structure-learning routine are about marginal entropy
+        // (`$\sigma$`) and mutual information, NOT objective fitness. They are independent of the
+        // crate's maximise convention — do not "fix" them to match it.
         //
-        // Root: smallest floored std (Gaussian entropy is monotone in σ, so the
-        // lowest-σ dimension has the smallest marginal entropy); tie → lowest
-        // index.
+        // Root: smallest floored std (Gaussian entropy is monotone in `$\sigma$`, so the
+        // lowest-`$\sigma$` dimension has the smallest marginal entropy); tie → lowest index.
         let mut root = 0_usize;
         let mut root_std = f32::INFINITY;
         for (j, &sj) in std.iter().enumerate() {
@@ -382,14 +378,13 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
                 let sigma_c = state.std[cur];
                 let sigma_p = state.std[parent]; // > 0 by floor.
                 let cond_mean = mu_c + r * (sigma_c / sigma_p) * (rows[base + parent] - mu_p);
-                // 1 - r² ≥ 1 - 0.9999² > 0.
+                // `$1 - r^2 \geq 1 - 0.9999^2 > 0$`.
                 let cond_std = (sigma_c * sigma_c * (1.0 - r * r)).sqrt();
-                // `Normal::new` rejects a non-finite std but accepts any mean, so
-                // an overflowed `cond_mean` (large parent value × near-1 `r`)
-                // would silently emit `NaN` samples and poison the next
-                // generation. If either parameter is non-finite, fall back to the
-                // marginal Gaussian of `cur` — the distribution the link
-                // degenerates to at `r = 0`.
+                // `Normal::new` rejects a non-finite std but accepts any mean, so an overflowed
+                // `cond_mean` (large parent value `$\times$` near-1 `r`) would silently emit `NaN`
+                // samples and poison the next generation. If either parameter is non-finite, fall
+                // back to the marginal Gaussian of `cur` — the distribution the link degenerates to
+                // at `r = 0`.
                 rows[base + cur] =
                     if cond_mean.is_finite() && cond_std.is_finite() && cond_std > 0.0 {
                         Normal::new(cond_mean, cond_std)
@@ -612,12 +607,11 @@ mod tests {
 
     #[test]
     fn sample_with_degenerate_link_stays_finite() {
-        // A pathological state whose conditional link overflows (σ_c/σ_p → inf):
-        // `sample`'s finiteness check on `cond_mean`/`cond_std` detects the
-        // non-finite conditional Gaussian parameters and falls back to the
-        // marginal Gaussian of `cur` (`mu_c`, `sigma_c`) — the distribution
-        // the link degenerates to at `r = 0` — instead of emitting NaN/inf
-        // into the population.
+        // A pathological state whose conditional link overflows (`$\sigma_c$`/`$\sigma_p$` → inf):
+        // `sample`'s finiteness check on `cond_mean`/`cond_std` detects the non-finite conditional
+        // Gaussian parameters and falls back to the marginal Gaussian of `cur` (`mu_c`, `sigma_c`)
+        // — the distribution the link degenerates to at `r = 0` — instead of emitting NaN/inf into
+        // the population.
         let device = Default::default();
         let state = DependencyChainState {
             chain: vec![0, 1],
@@ -672,7 +666,7 @@ mod tests {
 
     #[test]
     fn sample_is_deterministic_for_seed_and_state() {
-        // §7.1: same seed + same fitted state ⇒ byte-identical sample tensor.
+        // §7.1: same seed + same fitted state `$\Rightarrow$` byte-identical sample tensor.
         let p = DependencyChainParams::default_for(3);
         let rows = vec![
             -2.0, 1.0, 0.5, //

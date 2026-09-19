@@ -98,11 +98,10 @@ fn cmsa_es_converges_on_sphere_d10() {
 
 #[test]
 fn cma_es_converges_on_rastrigin_d10() {
-    // Restart-free CMA-ES on the highly multimodal Rastrigin: a larger
-    // population (Hansen 2016 §A multimodal guidance) plus a wider initial σ
-    // buys basin-finding. The seed is fixed so the test is deterministic; with
-    // these settings the run reaches the global optimum (0) well inside the
-    // 2000-generation budget.
+    // Restart-free CMA-ES on the highly multimodal Rastrigin: a larger population (Hansen 2016 §A
+    // multimodal guidance) plus a wider initial `$\sigma$` buys basin-finding. The seed is fixed so
+    // the test is deterministic; with these settings the run reaches the global optimum (0) well
+    // inside the 2000-generation budget.
     let mut params = CmaEsConfig::with_pop_size(200, 10);
     params.initial_sigma = 2.0;
     let traj = run(

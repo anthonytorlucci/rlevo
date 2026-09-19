@@ -1,4 +1,4 @@
-//! Benchmark: sample-average ε-greedy agent on the ten-armed bandit.
+//! Benchmark: sample-average `$\epsilon$`-greedy agent on the ten-armed bandit.
 //!
 //! Demonstrates the harness path (`Suite` → `Evaluator::run_suite` →
 //! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-environments`,
@@ -22,7 +22,7 @@ use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_environments::bench::suites::ten_armed_bandit_suite;
 use rlevo_environments::classic::{TenArmedBanditAction, TenArmedBanditObservation};
 
-/// ε-greedy agent over a fixed Q prior.
+/// `$\epsilon$`-greedy agent over a fixed Q prior.
 ///
 /// Online learning from rewards would require a feedback channel that the
 /// `BenchableAgent` trait intentionally omits (the harness benchmarks frozen

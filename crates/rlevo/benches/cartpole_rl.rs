@@ -315,11 +315,11 @@ fn print_quality_comparison(
     let (rand_ret, rand_solve) =
         evaluate(|_| CartPoleAction::from_index(rng.random_range(0..ACTIONS)));
 
-    // Evaluation uses each agent's greedy policy: `act` is ε-greedy and floors
-    // at `epsilon_end`, so it injects exploration noise that destabilises the
-    // pole and caps the solve rate even for a well-trained policy. The
-    // value-based agents run inference on a once-snapshotted inner (non-autodiff)
-    // network — far cheaper than rebuilding an autodiff graph every step.
+    // Evaluation uses each agent's greedy policy: `act` is `$\epsilon$`-greedy and floors at
+    // `epsilon_end`, so it injects exploration noise that destabilises the pole and caps the solve
+    // rate even for a well-trained policy. The value-based agents run inference on a
+    // once-snapshotted inner (non-autodiff) network — far cheaper than rebuilding an autodiff graph
+    // every step.
     let dqn_infer = dqn.inference_net();
     let (dqn_ret, dqn_solve) = evaluate(|obs| dqn.act_greedy_with(&dqn_infer, obs));
 

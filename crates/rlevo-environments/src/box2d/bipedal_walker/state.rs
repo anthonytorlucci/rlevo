@@ -25,7 +25,7 @@ use super::observation::BipedalWalkerObservation;
 /// demand by the env-side [`Sensor`](rlevo_core::environment::Sensor) reading
 /// the world (raycasting against the live physics geometry) — it is a
 /// world-projection, not stored state, and is not part of this violation. The
-/// most recent observation is retained in [`last_obs`](Self::last_obs) purely so
+/// most recent observation is retained in `last_obs` purely so
 /// [`is_valid()`](State::is_valid) can detect physics divergence (a non-finite
 /// pose/velocity/lidar ray) without re-querying the world — the same role it
 /// plays on the locomotion states.
@@ -166,7 +166,7 @@ impl State<1> for BipedalWalkerState {
     /// All five [`RigidBodyHandle`]s and all four [`ImpulseJointHandle`]s must
     /// differ from their `::invalid()` sentinels (they are `::invalid()`
     /// placeholders during the incremental world build); a `false` here signals a
-    /// partially-assembled state. The final [`last_obs`](Self::last_obs)`.is_finite()`
+    /// partially-assembled state. The final `last_obs.is_finite()`
     /// clause additionally catches physics divergence — an exploded pose,
     /// velocity, or lidar ray turning `NaN`/`inf` — mirroring the locomotion
     /// states. Either failure means the environment should be reset.

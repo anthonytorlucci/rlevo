@@ -55,12 +55,11 @@ const MAX_SPIRAL_EXP: f32 = 80.0; // exp(80) ≈ 5.5e34, well under f32::MAX
 
 /// Per-element spiral bubble-net factor `$\exp(bl)\cos(2\pi l)$`.
 ///
-/// The exponent `$bl$` is clamped to `±`[`MAX_SPIRAL_EXP`] before
-/// exponentiation. Without the clamp an out-of-range `b` drives
-/// `$\exp(bl)$` past f32's overflow threshold to `inf`; where `$\cos(2\pi l)$`
-/// is zero the product is `inf · 0 = NaN` (and elsewhere it is `±inf`) —
-/// non-finite values that the downstream bounds clamp does not sanitize.
-/// Clamping the exponent keeps the factor finite for every `l`.
+/// The exponent `$bl$` is clamped to `$\pm$`[`MAX_SPIRAL_EXP`] before exponentiation. Without the
+/// clamp an out-of-range `b` drives `$\exp(bl)$` past f32's overflow threshold to `inf`; where
+/// `$\cos(2\pi l)$` is zero the product is `$\infty \cdot 0 = \text{NaN}$` (and elsewhere it is
+/// `$\pm\infty$`) — non-finite values that the downstream bounds clamp does not sanitize. Clamping
+/// the exponent keeps the factor finite for every `l`.
 ///
 /// This is the pure host-side core the `ask` spiral branch is built on;
 /// keeping it out of the tensor pipeline makes the overflow guard directly
@@ -78,7 +77,7 @@ pub struct WoaConfig {
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: Bounds,
-    /// Budget pacing `a = 2·(1 − t/max_generations)`.
+    /// Budget pacing `$a = 2(1 - t/\text{max\_generations})$`.
     pub max_generations: usize,
     /// Spiral shape constant (Mirjalili's canonical `b = 1`).
     pub b: f32,
@@ -347,18 +346,19 @@ where
             .clone()
             .expand([pop_size, genome_dim]);
 
-        // Encircle toward X_best:  X_best − A · |C · X_best − X|
+        // Encircle toward X_best:  `$X_{best} - A \cdot \lvert C X_{best} - X\rvert$`
         let enc_best = x_best.clone()
             - a_row
                 .clone()
                 .mul((c_row.clone().mul(x_best.clone()) - state.positions.clone()).abs());
-        // Search toward X_rand:    X_rand − A · |C · X_rand − X|
+        // Search toward X_rand:    `$X_{rand} - A \cdot \lvert C X_{rand} - X\rvert$`
         let enc_rand =
             x_rand.clone() - a_row.mul((c_row.mul(x_rand) - state.positions.clone()).abs());
-        // Spiral toward X_best:    |X_best − X| · exp(b·l) · cos(2π·l) + X_best.
-        // The per-element factor `exp(b·l)·cos(2π·l)` is computed host-side by
-        // `spiral_factor`, which clamps the exponent so an out-of-range `b`
-        // can never produce `inf · 0 = NaN` in the spiral update.
+        // Spiral toward X_best:
+        // `$\lvert X_{best} - X\rvert \cdot \exp(bl) \cdot \cos(2\pi l) + X_{best}$`. The
+        // per-element factor `$\exp(b l)\cos(2\pi l)$` is computed host-side by `spiral_factor`,
+        // which clamps the exponent so an out-of-range `b` can never produce
+        // `$\infty \cdot 0 = \text{NaN}$` in the spiral update.
         let dist = (x_best.clone() - state.positions.clone()).abs();
         let factor_host: Vec<f32> = l_scalar
             .iter()
@@ -404,13 +404,12 @@ where
         mut state: WoaState<B>,
         _rng: &mut dyn Rng,
     ) -> (WoaState<B>, StrategyMetrics) {
-        // Sanitize at the pull (NaN → −inf, +inf → f32::MAX). This is the
-        // per-site correctness floor for a caller driving `ask`/`tell`
-        // directly instead of `EvolutionaryHarness::step`, which already
-        // sanitizes (the ADR 0034 decision-3 bypass hole): otherwise a raw
-        // NaN lands in the public `state.fitness` cache. `sanitize_fitness`
-        // is idempotent, so on the harness path this is a provable no-op —
-        // not redundant, load-bearing.
+        // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
+        // correctness floor for a caller driving `ask`/`tell` directly instead of
+        // `EvolutionaryHarness::step`, which already sanitizes (the ADR 0034 decision-3 bypass
+        // hole): otherwise a raw NaN lands in the public `state.fitness` cache. `sanitize_fitness`
+        // is idempotent, so on the harness path this is a provable no-op — not redundant,
+        // load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -527,19 +526,17 @@ mod tests {
 
     #[test]
     fn spiral_factor_stays_finite_under_overflow() {
-        // Deterministic reproducer for the spiral-exponent overflow producing
-        // inf/NaN: the spiral factor
-        // `exp(b·l)·cos(2π·l)`. A large `b` drives `exp(b·l)` past f32's
-        // overflow threshold (≈ e^88.7). At `l = 0.75`, `cos(2π·0.75)` is
-        // (numerically) zero, so the *un-clamped* product is `inf · 0 = NaN`;
-        // at other overflow points it is `±inf`. Either way the value is
-        // non-finite and survives the downstream bounds clamp, poisoning the
-        // genome. `spiral_factor` clamps the exponent and stays finite.
+        // Deterministic reproducer for the spiral-exponent overflow producing inf/NaN: the spiral
+        // factor `$\exp(b l)\cos(2\pi l)$`. A large `b` drives `$\exp(b l)$` past f32's overflow
+        // threshold (`$\approx$` e^88.7). At `l = 0.75`, `$\cos(2\pi \cdot 0.75)$` is (numerically)
+        // zero, so the *un-clamped* product is `$\infty \cdot 0 = \text{NaN}$`; at other overflow
+        // points it is `$\pm\infty$`. Either way the value is non-finite and survives the
+        // downstream bounds clamp, poisoning the genome. `spiral_factor` clamps the exponent and
+        // stays finite.
         //
-        // Each `(l, b)` pair below has `b·l > 88.7`, so the un-clamped
-        // reference is non-finite — the assertion on `spiral_factor` would
-        // FAIL against the pre-fix (un-clamped) computation, which is exactly
-        // the `unguarded` expression checked to be non-finite here.
+        // Each `(l, b)` pair below has `$b l > 88.7$`, so the un-clamped reference is non-finite —
+        // the assertion on `spiral_factor` would FAIL against the pre-fix (un-clamped) computation,
+        // which is exactly the `unguarded` expression checked to be non-finite here.
         for &(l, b) in &[
             (0.75_f32, 200.0_f32),
             (0.5, 200.0),
@@ -562,8 +559,8 @@ mod tests {
 
     #[test]
     fn spiral_factor_matches_unguarded_when_in_range() {
-        // Below the overflow threshold the clamp is a no-op: the guarded
-        // factor must equal the plain `exp(b·l)·cos(2π·l)` computation.
+        // Below the overflow threshold the clamp is a no-op: the guarded factor must equal the
+        // plain `$\exp(b l)\cos(2\pi l)$` computation.
         for &(l, b) in &[(0.3_f32, 1.0_f32), (-0.7, 2.0), (0.25, 10.0)] {
             let expected: f32 = (b * l).exp() * (2.0 * PI * l).cos();
             let got: f32 = spiral_factor(l, b);
@@ -658,13 +655,12 @@ mod tests {
             "raw NaN reached the public fitness cache: {:?}",
             state.fitness()
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
-        // clears `is_nan` yet would rank whale 0 *above* every finite -1/-2/…
-        // row and make the NaN-scoring whale the prey the pack encircles — the
-        // leader poisoning this regression exists to catch.
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would rank whale 0 *above* every finite -1/-2/… row and make
+        // the NaN-scoring whale the prey the pack encircles — the leader poisoning this regression
+        // exists to catch.
         assert!(
             state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
             "sanitized NaN must land as -inf in the whale-0 fitness cache: {:?}",

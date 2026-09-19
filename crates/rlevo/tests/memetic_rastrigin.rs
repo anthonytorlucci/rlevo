@@ -400,7 +400,7 @@ fn memetic_beats_bare_de_on_rastrigin_evals_to_target() {
         "memetic must use strictly fewer evals: memetic={memetic_evals} bare={bare_evals}"
     );
 
-    // (c) pinned margin: ≥30% fewer evals, integer math (no float comparison).
+    // (c) pinned margin: `$\geq 30\%$` fewer evals, integer math (no float comparison).
     //     2_900*10 = 29_000 <= 11_130*7 = 77_910 on the pinned data.
     assert!(
         memetic_evals * 10 <= bare_evals * 7,

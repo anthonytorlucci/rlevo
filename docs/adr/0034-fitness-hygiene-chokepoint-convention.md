@@ -14,7 +14,7 @@ tags: [adr, decision, fitness, nan, inf, sanitization, canonical, chokepoint, rl
 (metaheuristics), #132 (EA-root), #133 (neuroevolution), and #134 (coevolution),
 and generalizes the per-model fixes already shipped for #129 (EDA, PR #214) and
 #130 (GEP). **Extends ADR [0023](0023-objective-sense-and-maximize-convention.md)** — it
-preserves the `NaN → −∞` rule verbatim and adds an `+∞` rule; ADR 0023 stays
+preserves the $\text{NaN} \to -\infty$ rule verbatim and adds an $+\infty$ rule; ADR 0023 stays
 `active`.
 
 **Chosen shape:** one fitness-hygiene primitive in `rlevo-evolution`, applied at
@@ -36,7 +36,7 @@ classes** wearing one label:
    subsection): a `NaN`-fitness member becomes an immortal champion. This
    class *is* addressable at a chokepoint.
 2. **Canonical-ordering-direction bugs** — e.g. an onlooker tournament using `<` in
-   maximise space, or an argmax initialized from `fitness[0]` instead of `−∞`. A
+   maximise space, or an argmax initialized from `fitness[0]` instead of $-\infty$. A
    perfectly sanitized tensor still selects the wrong individual. **Not**
    chokepoint-fixable.
 3. **Parameter-numerics / config guards** — e.g. an unfloored $\sigma$, `genome_dim == 0` $\Rightarrow$ `tau = inf`, a dataset silently zero-padded into `NaN` fitness. These are
@@ -61,14 +61,14 @@ coupled-fitness path — each its own analogous funnel.
 1. **One primitive, extended Inf policy.** In `rlevo-evolution/src/fitness.rs`,
    `sanitize_fitness(f: f32) -> f32` applies the single canonical rule:
    - `NaN → f32::NEG_INFINITY` (worst under maximise — preserved from ADR 0023),
-   - `+∞ → f32::MAX` (ranks top but **finite**, so it cannot blow a `mean`,
-     `variance`, or reward to `+∞`),
-   - `−∞` and finite values pass through (`−∞` is the worst-sentinel *and* the
+   - $+\infty \to \text{f32::MAX}$ (ranks top but **finite**, so it cannot blow a `mean`,
+     `variance`, or reward to $+\infty$),
+   - $-\infty$ and finite values pass through ($-\infty$ is the worst-sentinel *and* the
      uninitialized `best_fitness_ever` seed, and must stay non-finite so
      mean-over-finite logic can detect it).
 
    Add a device-op sibling `sanitize_fitness_tensor<B>(Tensor<B,1>) ->
-   Tensor<B,1>` — `is_nan` → `mask_fill(−∞)` → `clamp_max(f32::MAX)` — so the
+   Tensor<B,1>` — `is_nan` → $\text{mask\_fill}(-\infty)$ → `clamp_max(f32::MAX)` — so the
    tensor-holding chokepoints sanitize on the hot path with no host round-trip.
    Both stay `pub(crate)`: every caller is in `rlevo-evolution`. (Reuse note per
    the "check Burn built-ins" rule: the `is_nan` + `mask_fill` + clamp idiom is
@@ -77,12 +77,12 @@ coupled-fitness path — each its own analogous funnel.
 2. **Apply at the four driver chokepoints:**
    - `EvolutionaryHarness::step` — `sanitize_fitness_tensor` on the **canonical**
      tensor (after the `sense` negation). Sanitizing the *natural* tensor before
-     `neg()` would flip a `NaN` cost to `+∞` = canonical *best* under `Minimize`;
+     `neg()` would flip a `NaN` cost to $+\infty$ = canonical *best* under `Minimize`;
      "NaN = worst" is only well-defined in maximise space. This one insert covers
      **every** `Strategy<B>` impl — all metaheuristics (#131), all EA-root
      algorithms (#132), EDA, and `WeightOnly`.
    - `NeatStrategy::tell` → before `state.fitness` / `speciate`.
-   - `ArchNasStrategy::tell` → before `update_best` (and init best from `−∞`).
+   - `ArchNasStrategy::tell` → before `update_best` (and init best from $-\infty$).
    - Coevolution coupled-fitness → `CoEAState` write sites + the `min(best_a,
      best_b)` metric.
 
@@ -96,12 +96,12 @@ coupled-fitness path — each its own analogous funnel.
 
 4. **Metrics: mean over finite members.** `StrategyMetrics::from_host_fitness`
    averages the finite members only and reports a `broken_count` of the non-finite
-   (`−∞`) ones, so a single broken individual flags the population without
-   blanking the mean to `−∞`; a `+∞ → f32::MAX` member is finite and is included.
+   ($-\infty$) ones, so a single broken individual flags the population without
+   blanking the mean to $-\infty$; a $+\infty \to \text{f32::MAX}$ member is finite and is included.
 
 5. **Contract amendments.** `BatchFitnessFn::evaluate_batch` documents that its
    output may be non-finite and the harness sanitizes; `Strategy::tell` documents
-   the harness-scoped finite-or-`−∞` guarantee *and* the bypass caveat;
+   the harness-scoped finite-or-$-\infty$ guarantee *and* the bypass caveat;
    `CoupledFitness::evaluate_coupled` and the NEAT/NAS `tell` docs state their own
    sanitization boundary (they are their own drivers, with no harness above them).
 
@@ -118,7 +118,7 @@ through this primitive.
   individual reviews proposed collapse to a shared primitive plus four chokepoints.
 - **New families are safe by default.** Any future `Strategy<B>` inherits the
   hygiene guarantee from the harness with no per-algorithm code.
-- **Honest metrics.** `+∞` can no longer masquerade as an infinite mean, and a
+- **Honest metrics.** $+\infty$ can no longer masquerade as an infinite mean, and a
   broken member is surfaced (`broken_count`) instead of silently blanking the mean.
 
 ### Neutral
@@ -131,7 +131,7 @@ through this primitive.
   `docs/rules.md`'s Optimisation direction subsection. This is stated in the
   `Strategy::tell` docs. If the hole recurs in practice, the sanctioned
   escalation is a `CanonicalFitness<B>` newtype (below).
-- **`−∞` still yields a `−∞` mean when the whole population is broken.** Accepted:
+- **$-\infty$ still yields a $-\infty$ mean when the whole population is broken.** Accepted:
   degenerate but well-defined, and flagged by `broken_count == population_size`.
 
 ## Alternatives considered
@@ -147,7 +147,7 @@ through this primitive.
   Retained only as the correctness floor (this ADR's own Decision 3, backed by
   `docs/rules.md`'s Optimisation direction subsection), not the main mechanism.
 - **Move the primitive to `rlevo-core`.** Rejected: `rlevo-core` is a contract crate
-  (no implementation logic beyond `util`), and `NaN → −∞ = worst` is the *engine's*
+  (no implementation logic beyond `util`), and $\text{NaN} \to -\infty = \text{worst}$ is the *engine's*
   canonical-space convention, not an abstract objective primitive. All four
   chokepoints are in `rlevo-evolution`. Promote only when a second crate needs it.
 - **`assert!(fitness.is_finite())` (proposed in the metaheuristic review).**
@@ -155,8 +155,8 @@ through this primitive.
   user-supplied runtime data, and a landscape returning `0/0` *is* runtime
   data. Sanitize to a sentinel instead; a `debug_assert!` tripwire is
   acceptable, a hard `assert!` is not.
-- **Map all non-finite → −∞ (drop the `+∞ → f32::MAX` distinction).** Rejected: in a
-  maximise objective `+∞` means *optimal*; mapping it to *worst* would silently
+- **Map all non-finite $\to -\infty$ (drop the $+\infty \to \text{f32::MAX}$ distinction).** Rejected: in a
+  maximise objective $+\infty$ means *optimal*; mapping it to *worst* would silently
   delete the best individual (e.g. runaway-weight architectures that legitimately
   peg the objective).
 

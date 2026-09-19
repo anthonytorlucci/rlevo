@@ -224,11 +224,10 @@ where
         // objective's natural sense (ADR 0023) and would give the wrong `min`
         // for a `Minimize` objective.
         //
-        // Fitness hygiene (ADR 0034): `binding_fitness` is a `min` of the
-        // per-population canonical bests, each sourced from the `tell` metrics
-        // over fitness the coupled-fitness chokepoint canonicalised *and*
-        // sanitized (competitive/cooperative `step`), so it is finite-or-`−∞`,
-        // never `NaN`.
+        // Fitness hygiene (ADR 0034): `binding_fitness` is a `min` of the per-population canonical
+        // bests, each sourced from the `tell` metrics over fitness the coupled-fitness chokepoint
+        // canonicalised *and* sanitized (competitive/cooperative `step`), so it is
+        // finite-or-`$-\infty$`, never `NaN`.
         let reward = f64::from(metrics.binding_fitness);
 
         tracing::info!(
@@ -306,10 +305,10 @@ mod tests {
         }
     }
 
-    /// A `NaN` fitness from a [`CoupledFitness`] impl cannot make the harness
-    /// reward `NaN`: the coupled-fitness chokepoint sanitizes before `best_a`/
-    /// `best_b` are computed, so `min(best_a, best_b)` is finite-or-`−∞`.
-    /// Pins this guarantee per ADR 0034's chokepoint convention.
+    /// A `NaN` fitness from a [`CoupledFitness`] impl cannot make the harness reward `NaN`: the
+    /// coupled-fitness chokepoint sanitizes before `best_a`/ `best_b` are computed, so
+    /// `min(best_a, best_b)` is finite-or-`$-\infty$`. Pins this guarantee per ADR 0034's
+    /// chokepoint convention.
     #[test]
     fn harness_reward_is_never_nan_with_nan_fitness() {
         let device = Default::default();
@@ -340,8 +339,8 @@ mod tests {
         approx::assert_relative_eq!(step.reward, expected, epsilon = 1e-6);
     }
 
-    /// Row-wise cost `i + 1` declaring [`ObjectiveSense::Minimize`]: row 0 is
-    /// best (cost `1.0`), canonicalising to `−1.0` (the maximum).
+    /// Row-wise cost `i + 1` declaring [`ObjectiveSense::Minimize`]: row 0 is best (cost `1.0`),
+    /// canonicalising to `$-1.0$` (the maximum).
     struct RowCostMin;
 
     impl CoupledFitness<TB> for RowCostMin {
@@ -362,11 +361,10 @@ mod tests {
         }
     }
 
-    /// For a `Minimize` objective the harness reward is the CANONICAL
-    /// `binding_fitness` (`min` of the canonical bests), not the natural cost.
-    /// Row 0's natural cost `1.0` canonicalises to `−1.0`, so the binding value
-    /// — and the reward — is `−1.0`, while the natural `best_fitness_a` reads
-    /// `1.0`.
+    /// For a `Minimize` objective the harness reward is the CANONICAL `binding_fitness` (`min` of
+    /// the canonical bests), not the natural cost. Row 0's natural cost `1.0` canonicalises to
+    /// `$-1.0$`, so the binding value — and the reward — is `$-1.0$`, while the natural
+    /// `best_fitness_a` reads `1.0`.
     #[test]
     fn minimize_harness_reward_is_canonical_binding() {
         let device = Default::default();
@@ -385,7 +383,7 @@ mod tests {
         let step = harness.step(());
 
         assert!(step.reward.is_finite(), "reward must be finite");
-        // Canonical binding = min(−1, −1) = −1.
+        // Canonical binding = `$\min(-1, -1) = -1$`.
         approx::assert_relative_eq!(step.reward, -1.0, epsilon = 1e-6);
         let m = harness.latest_metrics().expect("metrics after a step");
         approx::assert_relative_eq!(m.binding_fitness, -1.0, epsilon = 1e-6);

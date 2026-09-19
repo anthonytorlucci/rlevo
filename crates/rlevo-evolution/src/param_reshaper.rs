@@ -350,9 +350,9 @@ mod tests {
         let _ = reshaper.unflatten(wrong);
     }
 
-    /// AC #2: `unflatten(flatten(m)) ≈ m`. We compare via re-flatten, which is
-    /// element-wise injective over the deterministic leaf order, so equality of
-    /// the flat vectors is equivalent to equality of the modules' float leaves.
+    /// AC #2: `$\text{unflatten}(\text{flatten}(m)) \approx m$`. We compare via re-flatten, which
+    /// is element-wise injective over the deterministic leaf order, so equality of the flat vectors
+    /// is equivalent to equality of the modules' float leaves.
     #[test]
     fn test_module_reshaper_round_trip_mlp() {
         let device = Default::default();

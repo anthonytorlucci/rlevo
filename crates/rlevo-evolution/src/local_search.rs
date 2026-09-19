@@ -241,14 +241,12 @@ impl<'a> BudgetedEval<'a> {
     /// Returns `Some(fitness)` while budget remains, or `None` once the budget
     /// is exhausted (in which case no underlying evaluation is performed).
     ///
-    /// A `NaN` fitness is sanitized to [`f32::NEG_INFINITY`] via [`sanitize_fitness`]
-    /// before it leaves this method. Because every searcher routes *all*
-    /// evaluations — including the mandatory seeding eval of the input genome
-    /// (contract item 3) — through `BudgetedEval`, this is the single chokepoint
-    /// that keeps `NaN` out of the best-so-far trackers on the probe path; the
-    /// `refine_with_known_fitness` overrides apply the same helper to the
-    /// `known_fitness` hint. If *every* probe is `NaN` the searcher honestly
-    /// returns `−inf` rather than `NaN`.
+    /// A `NaN` fitness is sanitized to [`f32::NEG_INFINITY`] via [`sanitize_fitness`] before it
+    /// leaves this method. Because every searcher routes *all* evaluations — including the
+    /// mandatory seeding eval of the input genome (contract item 3) — through `BudgetedEval`, this
+    /// is the single chokepoint that keeps `NaN` out of the best-so-far trackers on the probe path;
+    /// the `refine_with_known_fitness` overrides apply the same helper to the `known_fitness` hint.
+    /// If *every* probe is `NaN` the searcher honestly returns `$-\infty$` rather than `NaN`.
     pub(crate) fn eval(&mut self, genome: &Vec<f32>) -> Option<f32> {
         if self.remaining == 0 {
             return None;
@@ -316,8 +314,8 @@ mod tests {
     fn budgeted_eval_sanitizes_nan_to_neg_infinity() {
         let mut f = NanAtOrigin;
         let mut budget = BudgetedEval::new(&mut f, 2);
-        // A NaN probe is mapped to −inf (the worst value under the maximise
-        // convention), so it can never seed or displace a finite best-so-far.
+        // A NaN probe is mapped to `$-\infty$` (the worst value under the maximise convention), so
+        // it can never seed or displace a finite best-so-far.
         assert_eq!(budget.eval(&vec![0.0, 0.0]), Some(f32::NEG_INFINITY));
         // A finite probe is passed through unchanged.
         assert_eq!(budget.eval(&vec![3.0, 4.0]), Some(25.0));

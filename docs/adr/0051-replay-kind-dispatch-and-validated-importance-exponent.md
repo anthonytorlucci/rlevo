@@ -100,7 +100,7 @@ the type instead, so no implementation re-checks it.
 
 ADR 0050's own Decision 11 closes:
 
-> The accepted cost is that a caller can pass a nonsense β; `Validate` on the
+> The accepted cost is that a caller can pass a nonsense $\beta$; `Validate` on the
 > config and the three in-crate call sites are the mitigation.
 
 **That was wrong on the merits, not merely premature.** It is withdrawn.
@@ -153,7 +153,7 @@ That ordering is the point: the newtype is the backstop, not the only guard.
 
 ADR 0050's own Decision 13 writes:
 
-> `categorical_cross_entropy` (`c51/loss.rs:26-30`) returns `−Σ target·log pred`.
+> `categorical_cross_entropy` (`c51/loss.rs:26-30`) returns $-\sum \text{target}\cdot\log \text{pred}$.
 
 The function has since been renamed **`categorical_cross_entropy_per_sample`**
 (`c51/loss.rs:37`) by ADR 0050's own implementation step 2, which changed C51's

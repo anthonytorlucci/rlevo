@@ -88,7 +88,7 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
-    /// Certified global-minimum value (Dixon & Szego 1978; Al-Roomi #23 gives −1.03163).
+    /// Certified global-minimum value (Dixon & Szego 1978; Al-Roomi #23 gives `$-1.03163$`).
     const F_OPT: f64 = -1.031_628_453_489_877;
 
     /// Both certified global minimizers `$(\pm 0.08984\ldots, \mp 0.71266\ldots)$` (Al-Roomi #23).
@@ -162,9 +162,9 @@ mod tests {
 
     /// O2 (no spurious optimum) — no point of the reduced box scores below `$f^*$`.
     ///
-    /// A deterministic 401×401 sweep of `bounds()²`. `eps` guards float error only:
-    /// the surface has O(1) scale near the minimum, so `1e-9` is far below any real
-    /// dip yet far above the ~1e-16 rounding of the polynomial.
+    /// A deterministic `$401 \times 401$` sweep of `$\text{bounds}()^2$`. `eps` guards float error
+    /// only: the surface has O(1) scale near the minimum, so `1e-9` is far below any real dip yet
+    /// far above the ~1e-16 rounding of the polynomial.
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {
         const STEPS: u16 = 400;

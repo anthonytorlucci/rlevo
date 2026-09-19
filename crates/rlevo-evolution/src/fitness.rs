@@ -335,15 +335,14 @@ pub(crate) fn sanitize_fitness(f: f32) -> f32 {
 /// clamp is often assumed to prevent — a pattern that recurred at more than one
 /// call site before it was generalized here rather than patched locally again.
 ///
-/// The clamp and the accumulator width answer two different questions. The clamp
-/// bounds one *value*, so it can be compared, stored, and summed **at all**; only
-/// the accumulator width bounds a *reduction*. No finite sentinel could do the
-/// latter — a sentinel `S` protects a sum over `N` terms only while `N·S <
-/// f32::MAX`, which already fails at `N = 2` for `f32::MAX`. `f64` does deliver
-/// it: `f64::MAX / f64::from(f32::MAX)` `$\approx$` `5.3e269`, so an `f64` accumulator
-/// absorbs any population of `f32::MAX` terms that can physically exist. It also
-/// removes the ~1 ULP-per-addition drift an `f32` sum accrues over a large
-/// population. (ADR 0069, extending ADR 0034.)
+/// The clamp and the accumulator width answer two different questions. The clamp bounds one
+/// *value*, so it can be compared, stored, and summed **at all**; only the accumulator width bounds
+/// a *reduction*. No finite sentinel could do the latter — a sentinel `S` protects a sum over `N`
+/// terms only while `$N \cdot S <$` `$\text{f32::MAX}$`, which already fails at `N = 2` for
+/// `f32::MAX`. `f64` does deliver it: `f64::MAX / f64::from(f32::MAX)` `$\approx$` `5.3e269`, so an
+/// `f64` accumulator absorbs any population of `f32::MAX` terms that can physically exist. It also
+/// removes the ~1 ULP-per-addition drift an `f32` sum accrues over a large population. (ADR 0069,
+/// extending ADR 0034.)
 ///
 /// # Contract
 ///
@@ -512,7 +511,7 @@ mod tests {
     /// finite values pass through unchanged.
     #[test]
     fn sanitize_fitness_scalar_applies_canonical_rule() {
-        // `−∞` sentinel: assert via `is_infinite`/sign, not float `==` (rules §5/§8).
+        // `$-\infty$` sentinel: assert via `is_infinite`/sign, not float `==` (rules §5/§8).
         let nan_out: f32 = sanitize_fitness(f32::NAN);
         assert!(
             nan_out.is_infinite() && nan_out.is_sign_negative(),

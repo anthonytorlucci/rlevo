@@ -105,12 +105,12 @@ setting changes the contract rather than just the syntax:
   explicitly, and `EvolutionaryHarness::step` is the sole chokepoint that
   negates a `Minimize` objective into the engine's maximise space before `tell`
   and maps metrics back to the declared sense for reporting. That same
-  chokepoint also **sanitises** the tensor (ADR 0034): `NaN → −∞` (so a broken
+  chokepoint also **sanitises** the tensor (ADR 0034): $\text{NaN} \to -\infty$ (so a broken
   individual can never masquerade as the champion — Rust's `f32::NAN` is
-  positive and would otherwise rank as the maximum) and `+∞ → f32::MAX` (a
+  positive and would otherwise rank as the maximum) and $+\infty \to \text{f32::MAX}$ (a
   genuinely optimal individual still ranks top, but stays finite). The fitness
-  a harness-driven `tell` receives is therefore always finite or `−∞` — never a
-  `NaN` or `+∞`. Drive a strategy directly, bypassing the harness, and you lose
+  a harness-driven `tell` receives is therefore always finite or $-\infty$ — never a
+  `NaN` or $+\infty$. Drive a strategy directly, bypassing the harness, and you lose
   that guarantee — sanitise at your own comparison sites with `sanitize_fitness`
   / `sanitize_fitness_tensor` (`rlevo-evolution::fitness`).
 - **Randomness is a host stream, not a threaded key.** evosax splits and threads
@@ -286,10 +286,5 @@ harness call).
 > tournament size up exploits harder; dropping elitism (favouring
 > `GaReplacement::Generational`) trades monotonic improvement for more
 > exploration. The GA operators used in the code above — tournament selection,
-> BLX-α crossover, elitist replacement — are the same operators, with the same
+> BLX-$\alpha$ crossover, elitist replacement — are the same operators, with the same
 > convergence behaviour, that back every real-coded strategy in `rlevo::evo`.
-
----
-
-*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
-*Co-Authored-By: Anthropic Claude Opus 4.8*

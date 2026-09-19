@@ -345,8 +345,8 @@ impl<B: Backend> NeatStrategy<B> {
         let mut rep_rng = seed_stream(rng.next_u64(), generation, SeedPurpose::Representative);
 
         state.population = population;
-        // Driver chokepoint (ADR 0034): sanitize before store/speciate. NEAT has
-        // no harness above it, so this is the boundary that neutralizes NaN/±∞.
+        // Driver chokepoint (ADR 0034): sanitize before store/speciate. NEAT has no harness above
+        // it, so this is the boundary that neutralizes NaN/`$\pm\infty$`.
         state.fitness = fitness
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -364,7 +364,7 @@ impl<B: Backend> NeatStrategy<B> {
             &mut rep_rng,
         );
 
-        // Sanitize NaN → −inf (worst) so a NaN fitness can never become best.
+        // Sanitize NaN → `$-\infty$` (worst) so a NaN fitness can never become best.
         if let Some((idx, best)) = state
             .fitness
             .iter()
@@ -530,7 +530,7 @@ fn produce_offspring(
     }
     let sp = &ctx.species[species_idx];
     let mut members = sp.members.clone();
-    // Sanitize NaN → −inf (worst) so it can never rank as best; descending.
+    // Sanitize NaN → `$-\infty$` (worst) so it can never rank as best; descending.
     let sane: Vec<f32> = ctx
         .fitness
         .iter()
@@ -824,8 +824,8 @@ fn crossover(
     params: &NeatParams,
     rng: &mut StdRng,
 ) -> TopologyGenome {
-    // Relative tolerance so "equal fitness" holds across magnitudes (XOR's
-    // 0..4 as well as a deferred consumer's large `−cost` scores).
+    // Relative tolerance so "equal fitness" holds across magnitudes (XOR's 0..4 as well as a
+    // deferred consumer's large `$-\text{cost}$` scores).
     let equal = (f1 - f2).abs() <= f32::EPSILON * f1.abs().max(f2.abs()).max(1.0);
     let p1_fitter = f1 > f2;
 
@@ -1279,14 +1279,14 @@ mod tests {
 
         let (population, next) = strat.ask(&params, &state, &mut rng);
         let n = population.len();
-        // Member 0 is NaN (must NOT champion), member 1 is +∞ (top but finite),
-        // the rest are a plain finite value.
+        // Member 0 is NaN (must NOT champion), member 1 is `$+\infty$` (top but finite), the rest
+        // are a plain finite value.
         let mut fitness: Vec<f32> = vec![1.0_f32; n];
         fitness[0] = f32::NAN;
         fitness[1] = f32::INFINITY;
         let state = strat.tell(&params, population, fitness, next, &mut rng);
 
-        // Stored fitness is sanitized: none is NaN; NaN → −∞, +∞ → f32::MAX.
+        // Stored fitness is sanitized: none is NaN; NaN → `$-\infty$`, `$+\infty$` → f32::MAX.
         assert!(
             state.fitness.iter().all(|f| !f.is_nan()),
             "no stored fitness is NaN after the tell chokepoint"
@@ -1297,8 +1297,8 @@ mod tests {
         );
         approx::assert_relative_eq!(state.fitness[1], f32::MAX);
 
-        // The champion is the sanitized +∞ = f32::MAX: ranks top but is finite,
-        // and is never the NaN member.
+        // The champion is the sanitized `$+\infty$` = f32::MAX: ranks top but is finite, and is
+        // never the NaN member.
         let (_, best) = strat.best(&state).expect("best exists after tell");
         assert!(
             best.is_finite(),

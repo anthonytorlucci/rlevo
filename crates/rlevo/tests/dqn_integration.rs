@@ -94,18 +94,16 @@ type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>
 /// [`flex_guard`] lock for the duration of the test (see that function for the
 /// process-global Flex RNG / rayon-pinning rationale).
 ///
-/// The hyperparameters (ε-greedy schedule, target update, γ, learning rate,
-/// buffer capacity) are tuned for the 4-observation / 2-action `CartPole` task
-/// and intentionally conservative so training converges well within 30 000
-/// steps.
+/// The hyperparameters (`$\epsilon$`-greedy schedule, target update, `$\gamma$`, learning rate,
+/// buffer capacity) are tuned for the 4-observation / 2-action `CartPole` task and intentionally
+/// conservative so training converges well within 30 000 steps.
 ///
-/// The target rule is `polyak(0.005, 1)` — a soft update on every gradient
-/// step. This is the behaviour this test has always exercised: it used to be
-/// spelled `.tau(0.005).target_update_frequency(500)`, in which the `500` was
-/// **inert** (the hard path self-gated to a no-op whenever τ > 0). Transcribing
-/// the `500` as a cadence would be a 500× slowdown of the soft update, not a
-/// faithful translation — the convergence budget below is calibrated against
-/// the per-gradient-step schedule that actually ran.
+/// The target rule is `polyak(0.005, 1)` — a soft update on every gradient step. This is the
+/// behaviour this test has always exercised: it used to be spelled
+/// `.tau(0.005).target_update_frequency(500)`, in which the `500` was **inert** (the hard path
+/// self-gated to a no-op whenever `$\tau > 0$`). Transcribing the `500` as a cadence would be a
+/// `$500\times$` slowdown of the soft update, not a faithful translation — the convergence budget
+/// below is calibrated against the per-gradient-step schedule that actually ran.
 fn fresh_agent(seed: u64) -> Agent {
     let device = seeded_device::<Be>(seed);
     let config = DqnTrainingConfigBuilder::new()
@@ -208,15 +206,14 @@ const HARD_EVERY: usize = 5;
 const HARD_TRAIN_FREQUENCY: usize = 4;
 /// Environment steps before the first attempted gradient update.
 ///
-/// `68`, not a round `64`, and the offset is load-bearing: the first attempted
-/// update lands at env step 68 = 17·4, so gradient update `u` happens at env
-/// step `4·(u + 16)`. Because `16 % HARD_EVERY != 0`, the gradient-update gate
-/// `u % 5 == 0` and an env-step gate `4·(u+16) % 5 == 0` fire on **disjoint**
-/// updates. That makes this test a discriminator for ADR 0059's unit, not just
-/// for `hard(n)` firing at all — a gate wrongly reading the env-step counter
-/// copies at env steps 80/100/120/140, none of which is a leg boundary below.
-/// A `learning_starts` of `64` would have made the two gates coincide exactly
-/// and the unit error invisible here.
+/// `68`, not a round `64`, and the offset is load-bearing: the first attempted update lands at env
+/// step `$68 = 17 \cdot 4$`, so gradient update `u` happens at env step `$4(u + 16)$`. Because
+/// `16 % HARD_EVERY != 0`, the gradient-update gate `u % 5 == 0` and an env-step gate
+/// `$4(u+16) \bmod 5 = 0$` fire on **disjoint** updates. That makes this test a discriminator for
+/// ADR 0059's unit, not just for `hard(n)` firing at all — a gate wrongly reading the env-step
+/// counter copies at env steps 80/100/120/140, none of which is a leg boundary below. A
+/// `learning_starts` of `64` would have made the two gates coincide exactly and the unit error
+/// invisible here.
 const HARD_LEARNING_STARTS: usize = 68;
 
 /// Cumulative env-step marks for the run's three legs.
@@ -284,11 +281,11 @@ fn hard_max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
 /// gradient updates — so it stays un-`#[ignore]`d and runs in the PR gate,
 /// unlike the convergence and reproducibility runs above. It asserts a
 /// *mechanism*, not learning progress, so it needs no convergence budget.
-// Bit-exactness *is* the property under test: at τ = 1.0 `polyak_update`
-// assigns the active parameter verbatim, so a fired hard copy leaves a
-// max |Δw| of exactly zero and an unfired one leaves the previous snapshot
-// byte-identical. A tolerance would let a τ < 1 soft update — the mechanism
-// this test exists to distinguish `hard(n)` from — pass as a "copy".
+// Bit-exactness *is* the property under test: at `$\tau = 1.0$` `polyak_update` assigns the active
+// parameter verbatim, so a fired hard copy leaves a max `$\lvert\Delta w\rvert$` of exactly zero
+// and an unfired one leaves the previous snapshot byte-identical. A tolerance would let a
+// `$\tau < 1$` soft update — the mechanism this test exists to distinguish `hard(n)` from — pass as
+// a "copy".
 #[allow(clippy::float_cmp)]
 // Three legs of one run, kept in one function because each leg consumes the
 // agent, env and RNG state the previous leg left behind; splitting them would
@@ -351,8 +348,8 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
     );
     assert_all_finite("reward", &rewards);
 
-    // The target really hard-copied: it left its initialisation, and it now
-    // equals the policy bit-for-bit. τ = 0.005 would leave it lagged instead.
+    // The target really hard-copied: it left its initialisation, and it now equals the policy
+    // bit-for-bit. `$\tau = 0.005$` would leave it lagged instead.
     let copied = hard_net_weights(agent.target_net());
     let moved = hard_max_abs_diff(&copied, &initial_target);
     assert!(

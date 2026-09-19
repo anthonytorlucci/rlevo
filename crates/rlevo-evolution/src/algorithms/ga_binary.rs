@@ -11,7 +11,7 @@
 //! 4. Mutate via [`crate::ops::mutation::bit_flip_mutation`]
 //!    (per-gene flip with probability `mutation_rate`).
 //! 5. Replace via fixed elitist policy: the `elitism_k` best parents
-//!    survive; the remaining `pop_size − elitism_k` slots are filled by
+//!    survive; the remaining `$\text{pop\_size} - \text{elitism\_k}$` slots are filled by
 //!    the best offspring.
 //!
 //! Unlike [`crate::algorithms::ga::GeneticAlgorithm`], there is no
@@ -76,10 +76,10 @@ impl BinaryGaConfig {
     ///
     /// # Panics
     ///
-    /// Panics when `genome_dim == 0`: the `1 / D` mutation rate becomes
-    /// non-finite (`1.0 / 0.0 == +∞`), which [`Probability::new`] rejects as
-    /// outside `[0, 1]`. This is the sanctioned builder-time panic on an
-    /// unusable config (ADR 0026); pass a non-zero `genome_dim`.
+    /// Panics when `genome_dim == 0`: the `1 / D` mutation rate becomes non-finite
+    /// (`$1.0/0.0 = +\infty$`), which [`Probability::new`] rejects as outside `[0, 1]`. This is the
+    /// sanctioned builder-time panic on an unusable config (ADR 0026); pass a non-zero
+    /// `genome_dim`.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -315,10 +315,10 @@ where
     /// population's fitness and increments the generation counter; no
     /// replacement is performed.
     ///
-    /// On subsequent calls the method performs elitist replacement: the
-    /// `elitism_k` highest-fitness parents survive directly, and the remaining
-    /// `pop_size − elitism_k` slots are filled with the best offspring.
-    /// Both selections use [`crate::ops::selection::truncation_indices_host`].
+    /// On subsequent calls the method performs elitist replacement: the `elitism_k` highest-fitness
+    /// parents survive directly, and the remaining `$\text{pop\_size} - \text{elitism\_k}$` slots
+    /// are filled with the best offspring. Both selections use
+    /// [`crate::ops::selection::truncation_indices_host`].
     ///
     /// `fitness` must have shape `(pop_size,)` in the canonical maximise
     /// convention — higher is better. The harness canonicalises a `Minimize`
@@ -364,7 +364,7 @@ where
             return (state, m);
         }
 
-        // Elitist replacement on (pop, fitness) × (offspring, fitness).
+        // Elitist replacement on (pop, fitness) `$\times$` (offspring, fitness).
         let pop_size = params.pop_size;
         let k = params.elitism_k.min(pop_size);
 
@@ -418,9 +418,9 @@ fn update_best<B: Backend>(state: &mut BinaryGaState<B>, pop: &Tensor<B, 2, Int>
     if fitness.is_empty() {
         return;
     }
-    // Sanitize (NaN → −∞) then order with `total_cmp`: the §3 correctness floor
-    // for a direct (non-harness) caller. `best_fitness` seeds at `−∞`, so a
-    // legitimately sanitized `−∞` fitness is treated as the worst, not skipped.
+    // Sanitize (NaN → `$-\infty$`) then order with `total_cmp`: the §3 correctness floor for a
+    // direct (non-harness) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
+    // `$-\infty$` fitness is treated as the worst, not skipped.
     let sane: Vec<f32> = fitness
         .iter()
         .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -587,10 +587,10 @@ mod tests {
         );
     }
 
-    /// Elitism boundary `elitism_k == pop_size - 1`: all but one slot are the
-    /// top parents, leaving exactly one offspring slot. The `pop_size − 1`
-    /// fittest parents survive (in descending-fitness order) followed by the
-    /// single best offspring, and the champion tracks the best offspring.
+    /// Elitism boundary `elitism_k == pop_size - 1`: all but one slot are the top parents, leaving
+    /// exactly one offspring slot. The `$\text{pop\_size} - 1$` fittest parents survive (in
+    /// descending-fitness order) followed by the single best offspring, and the champion tracks the
+    /// best offspring.
     #[test]
     fn elitism_k_equals_pop_minus_one_keeps_top_parents_and_one_offspring() {
         use rand::SeedableRng;

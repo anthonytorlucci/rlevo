@@ -1,16 +1,15 @@
 //! Quantile Huber loss for QR-DQN (Dabney et al. 2018, Eq. 10).
 //!
-//! The asymmetric κ-Huber loss weighted by `$|\tau - \mathbb{1}\{u < 0\}|$` is the
-//! distributional counterpart of the Huber TD loss used by DQN. Given the
-//! network's predicted quantile values for the taken action together with
-//! the target quantile values (produced by the Bellman backup on the
-//! bootstrap action's quantile vector), this returns the **per-sample** loss
-//! aggregated as: mean over the target axis, sum over the predicted axis.
-//! The batch axis is left unreduced — reduction is the caller's job.
+//! The asymmetric `$\kappa$`-Huber loss weighted by `$|\tau - \mathbb{1}\{u < 0\}|$` is the
+//! distributional counterpart of the Huber TD loss used by DQN. Given the network's predicted
+//! quantile values for the taken action together with the target quantile values (produced by the
+//! Bellman backup on the bootstrap action's quantile vector), this returns the **per-sample** loss
+//! aggregated as: mean over the target axis, sum over the predicted axis. The batch axis is left
+//! unreduced — reduction is the caller's job.
 //!
-//! Leaving the batch axis unreduced is what lets a caller multiply by a
-//! per-sample importance-sampling weight *before* reducing (ADR 0050 §14);
-//! at `w ≡ 1` the caller's `.mean()` is bit-identical to reducing here.
+//! Leaving the batch axis unreduced is what lets a caller multiply by a per-sample
+//! importance-sampling weight *before* reducing (ADR 0050 §14); at `$w \equiv 1$` the caller's
+//! `.mean()` is bit-identical to reducing here.
 //!
 //! Kept separate from the agent struct so the math can be reused from
 //! benchmarks and unit-tested independently.
@@ -35,12 +34,11 @@ pub fn huber<B: Backend, const D: usize>(u: Tensor<B, D>, kappa: f32) -> Tensor<
 
 /// Number of predicted-quantile rows processed per loop iteration.
 ///
-/// The full pairwise tensor is `(B, N_pred, N_target)`. At N=200, B=128 that
-/// is ~20 MB of f32 — too large for L2/L3 cache, causing repeated cache misses
-/// across the ~10 element-wise passes over the data. Chunking keeps the working
-/// set at `B × CHUNK × N_target × 4` bytes: with CHUNK=32 and the largest
-/// benchmark config (B=128, N=200) that is 3.2 MB, which fits comfortably in
-/// Apple-Silicon L2. The math is identical; only peak allocation changes.
+/// The full pairwise tensor is `(B, N_pred, N_target)`. At N=200, B=128 that is ~20 MB of f32 — too
+/// large for L2/L3 cache, causing repeated cache misses across the ~10 element-wise passes over the
+/// data. Chunking keeps the working set at `$B \times \text{CHUNK} \times N_{target} \times 4$`
+/// bytes: with CHUNK=32 and the largest benchmark config (B=128, N=200) that is 3.2 MB, which fits
+/// comfortably in Apple-Silicon L2. The math is identical; only peak allocation changes.
 const QUANTILE_CHUNK_SIZE: usize = 32;
 
 /// Per-sample quantile Huber loss between `pred_quantiles` and
@@ -84,9 +82,9 @@ pub fn quantile_huber_loss_per_sample<B: Backend>(
 ) -> Tensor<B, 1> {
     let [batch, n_pred] = pred_quantiles.dims();
 
-    // Accumulate `Σ_i mean_j ρ(u_ij)` for each sample, one chunk of pred
-    // quantiles at a time. Each chunk materialises (B, chunk, N_target) rather
-    // than the full (B, N_pred, N_target) block.
+    // Accumulate `$\sum_i \mathrm{mean}_j\, \rho(u_{ij})$` for each sample, one chunk of pred
+    // quantiles at a time. Each chunk materialises (B, chunk, N_target) rather than the full (B,
+    // N_pred, N_target) block.
     let mut per_sample_acc: Option<Tensor<B, 1>> = None;
     let mut chunk_start = 0;
 
@@ -104,7 +102,8 @@ pub fn quantile_huber_loss_per_sample<B: Backend>(
         let target_3d: Tensor<B, 3> = target_quantiles.clone().unsqueeze_dim::<3>(1); // (B, 1, N_target)
         let u = target_3d - pred_3d; // (B, chunk, N_target)
 
-        // `|τ_i − 𝟙{u_ij < 0}|` — Bool → float detaches from autodiff graph.
+        // `$\lvert \tau_i - \mathbb{1}\{u_{ij} < 0\}\rvert$` — Bool → float detaches from autodiff
+        // graph.
         let taus_3d: Tensor<B, 3> = taus_chunk
             .unsqueeze_dim::<2>(0) // (1, chunk)
             .unsqueeze_dim::<3>(2); // (1, chunk, 1)
@@ -210,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_quantile_loss_huber_quadratic_below_kappa() {
-        // |u| < kappa ⇒ 0.5 u²
+        // `$\lvert u\rvert < \kappa \Rightarrow 0.5u^2$`
         let u = tensor_2d(vec![0.2_f32, -0.5, 0.75, -0.9], 2, 2);
         let h = huber::<TestBackend, 2>(u, 1.0);
         let v: Vec<f32> = h
@@ -226,7 +225,8 @@ mod tests {
 
     #[test]
     fn test_quantile_loss_huber_linear_above_kappa() {
-        // |u| > kappa ⇒ kappa*(|u| − 0.5*kappa) with kappa=1.0 ⇒ |u| − 0.5
+        // `$\lvert u\rvert > \kappa \Rightarrow \kappa(\lvert u\rvert - 0.5\kappa)$` with
+        // `$\kappa=1.0 \Rightarrow \lvert u\rvert - 0.5$`
         let u = tensor_2d(vec![2.0_f32, -3.0, 5.0, -1.5], 2, 2);
         let h = huber::<TestBackend, 2>(u, 1.0);
         let v: Vec<f32> = h
@@ -243,10 +243,10 @@ mod tests {
     #[test]
     fn test_quantile_loss_zero_on_constant_distribution() {
         // If every predicted and target quantile equals the same constant,
-        // `u_ij = target_j − pred_i = 0` for all (i, j), so the loss is 0.
-        // Note: pred == target alone is NOT sufficient — off-diagonal terms
-        // `u_ij = target_j − pred_i` remain non-zero whenever the quantile
-        // values differ across `i`.
+        // `$u_{ij} = \text{target}_j - \text{pred}_i = 0$` for all (i, j), so the loss is 0. Note:
+        // pred == target alone is NOT sufficient — off-diagonal terms
+        // `$u_{ij} = \text{target}_j - \text{pred}_i$` remain non-zero whenever the quantile values
+        // differ across `i`.
         let pred = tensor_2d(vec![1.0_f32; 6], 2, 3);
         let target = pred.clone();
         let taus = tensor_1d(vec![1.0 / 6.0, 0.5, 5.0 / 6.0]);
@@ -267,10 +267,11 @@ mod tests {
 
     #[test]
     fn test_quantile_loss_symmetric_at_median_tau_matches_mean_huber() {
-        // With N=1 and τ=0.5, |τ − 𝟙{u<0}| is always 0.5, so the quantile
-        // Huber loss reduces to 0.5 · L_κ(u) / κ. Verify against a
-        // hand-computed scalar reference: pred=1.0, target=0.5 ⇒ u=−0.5,
-        // L_1(−0.5)=0.125, weight=0.5 ⇒ loss = 0.5·0.125/1.0 = 0.0625.
+        // With N=1 and `$\tau=0.5$`, `$\lvert \tau - \mathbb{1}\{u<0\}\rvert$` is always 0.5, so
+        // the quantile Huber loss reduces to 0.5 `$\cdot$` `$L_\kappa$`(u) / `$\kappa$`. Verify
+        // against a hand-computed scalar reference: pred=1.0, target=0.5 `$\Rightarrow u = -0.5$`,
+        // `$L_1(-0.5) = 0.125$`, weight
+        // `$= 0.5 \Rightarrow \text{loss} = 0.5 \cdot 0.125/1.0 = 0.0625$`.
         let pred = tensor_2d(vec![1.0_f32], 1, 1);
         let target = tensor_2d(vec![0.5_f32], 1, 1);
         let taus = tensor_1d(vec![0.5_f32]);

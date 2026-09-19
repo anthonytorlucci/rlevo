@@ -1,10 +1,10 @@
 //! Deb's function No.01 — `10^n` degenerate global minima of equal value.
 //!
-//! `$f(x) = -\left(\frac{1}{n}\right) \cdot \sum \sin^6(5\pi \cdot x_i)$`, global minimum `f* = −1` attained whenever
-//! every `$x_i \in \{-0.9, -0.7, \ldots, -0.1, 0.1, \ldots, 0.9\}$` — ten optima per dimension,
-//! `10^n` in total. The function is separable and differentiable; it tests
-//! whether convergence metrics and population-diversity handling cope with
-//! non-unique solutions.
+//! `$f(x) = -\left(\frac{1}{n}\right) \cdot \sum \sin^6(5\pi \cdot x_i)$`, global minimum
+//! `$f^* = -1$` attained whenever every `$x_i \in \{-0.9, -0.7, \ldots, -0.1, 0.1, \ldots, 0.9\}$`
+//! — ten optima per dimension, `10^n` in total. The function is separable and differentiable; it
+//! tests whether convergence metrics and population-diversity handling cope with non-unique
+//! solutions.
 //!
 //! Evaluated over `[-1, 1]^n`. (The CEC 2013 `[0, 1]` "Equal Maxima" variant is a
 //! different function with `5^n` optima.) Because the optima count explodes,
@@ -106,14 +106,14 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        // x_i = 0.1 ⇒ sin(π/2)⁶ = 1 in every dimension ⇒ f = −1.
+        // `$x_i = 0.1 \Rightarrow \sin(\pi/2)^6 = 1$` in every dimension `$\Rightarrow f = -1$`.
         let d = Deb1::new(3).expect("dim >= 1");
         assert_relative_eq!(d.evaluate(&[0.1; 3]), -1.0, epsilon = 1e-10);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        // f ∈ [−1, 0]; a non-optimal point exceeds the minimum −1.
+        // `$f \in [-1, 0]$`; a non-optimal point exceeds the minimum `$-1$`.
         let d = Deb1::new(1).expect("dim >= 1");
         assert!(
             d.evaluate(&[0.15]) > -1.0,

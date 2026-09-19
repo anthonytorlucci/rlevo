@@ -9,6 +9,7 @@ readme.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
+publish = false
 
 [dependencies]
 # `tracel_xtask::group!` / `endgroup!` expand to `log::` calls at the call site,

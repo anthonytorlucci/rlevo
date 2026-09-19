@@ -1,11 +1,10 @@
 //! End-to-end integration tests for the SAC agent.
 //!
 //! Default-run tests exercise SAC on the shared synthetic 1-D continuous env
-//! ([`rlevo_test_support::env::LinearEnv`]) plus learn-step smokes that assert
-//! α actually moves (and stays pinned) under auto-tuning, and a bit-equal
-//! reproducibility check. The Pendulum smoke and the convergence run are gated
-//! behind `#[ignore]` to stay inside the project's default-run
-//! integration-test budget.
+//! ([`rlevo_test_support::env::LinearEnv`]) plus learn-step smokes that assert `$\alpha$` actually
+//! moves (and stays pinned) under auto-tuning, and a bit-equal reproducibility check. The Pendulum
+//! smoke and the convergence run are gated behind `#[ignore]` to stay inside the project's
+//! default-run integration-test budget.
 //!
 //! The shared fixture, the `Flex` determinism preamble ([`flex_guard`] /
 //! [`seeded_device`]), and the acceptance assertions live in the
@@ -41,10 +40,9 @@ use rlevo_test_support::env::{LinearAction, LinearEnv, LinearObservation};
 use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
-// ---------------------------------------------------------------------------
-// Stochastic actor: μ + log_std heads, squashed-Gaussian reparameterization.
-// Implements SAC's policy trait and so stays test-local.
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------- Stochastic actor:
+// `$\mu$` + log_std heads, squashed-Gaussian reparameterization. Implements SAC's policy trait and
+// so stays test-local. ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
 struct StochasticActor<B: Backend> {
@@ -310,11 +308,10 @@ rl_learning_test! {
     random = random_linear,
 }
 
-/// With `autotune=true` and a target entropy of `-|A| = -1`, 200 learn
-/// steps on a primed buffer should visibly move α off its initial value
-/// of `1.0`. The direction can go either way depending on the policy's
-/// entropy, so we only check that |Δα| is large enough to rule out the
-/// no-op case.
+/// With `autotune=true` and a target entropy of `-|A| = -1`, 200 learn steps on a primed buffer
+/// should visibly move `$\alpha$` off its initial value of `1.0`. The direction can go either way
+/// depending on the policy's entropy, so we only check that `$\lvert\Delta\alpha\rvert$` is large
+/// enough to rule out the no-op case.
 #[test]
 fn sac_alpha_moves_under_autotune() {
     let _guard = flex_guard();
@@ -358,8 +355,7 @@ fn sac_alpha_moves_under_autotune() {
     );
 }
 
-/// When `autotune=false`, α stays pinned at `initial_alpha` across many
-/// learn steps.
+/// When `autotune=false`, `$\alpha$` stays pinned at `initial_alpha` across many learn steps.
 #[test]
 fn sac_alpha_frozen_when_autotune_disabled() {
     let _guard = flex_guard();
@@ -447,16 +443,14 @@ fn sac_pendulum_improves_over_random() {
     .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
-    // Reduced from the former 500k-step / 256-wide macro run (~9 min even at
-    // 50k) to a 30k-step / 64-wide budget that finishes in ~2 min: SAC runs a
-    // full update (two critics + policy + α) every env step, so per-step grad
-    // cost — not step count — dominates wall-clock, and trimming both width and
-    // batch is the real lever. At this budget SAC deterministically reaches
-    // ≈ -940, comfortably above a uniform-random torque policy but short of the
-    // aspirational -800 convergence bar. So this stays a "beats random" check
-    // (mirroring the DDPG Pendulum learning test); the 100-pt margin absorbs
-    // cross-platform float drift. Determinism (seeded backend + 1-thread rayon)
-    // keeps it reproducible.
+    // Reduced from the former 500k-step / 256-wide macro run (~9 min even at 50k) to a 30k-step /
+    // 64-wide budget that finishes in ~2 min: SAC runs a full update (two critics + policy +
+    // `$\alpha$`) every env step, so per-step grad cost — not step count — dominates wall-clock,
+    // and trimming both width and batch is the real lever. At this budget SAC deterministically
+    // reaches `$\approx -940$`, comfortably above a uniform-random torque policy but short of the
+    // aspirational -800 convergence bar. So this stays a "beats random" check (mirroring the DDPG
+    // Pendulum learning test); the 100-pt margin absorbs cross-platform float drift. Determinism
+    // (seeded backend + 1-thread rayon) keeps it reproducible.
     let baseline = random_pendulum(seed);
     assert_improves_over_random(avg, baseline, 100.0);
 }

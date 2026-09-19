@@ -170,9 +170,8 @@ fn manifest_view(m: &RunManifest) -> impl IntoView {
 /// Formats an `f64` for human-readable display, omitting the `.0` suffix on
 /// exact integers (e.g. `500` rather than `500.0`).
 ///
-/// Non-finite values (`NaN`, `±∞`) pass through `format!("{v}")` unchanged and
-/// are not treated specially; callers are responsible for validating inputs
-/// before display.
+/// Non-finite values (`NaN`, `$\pm\infty$`) pass through `format!("{v}")` unchanged and are not
+/// treated specially; callers are responsible for validating inputs before display.
 fn format_f64(v: f64) -> String {
     if v.fract() == 0.0 {
         format!("{v:.0}")

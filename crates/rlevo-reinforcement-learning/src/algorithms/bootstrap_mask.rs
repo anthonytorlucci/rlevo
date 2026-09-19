@@ -482,7 +482,7 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for TinyCritic<B> {
     }
 }
 
-/// Squashed-Gaussian actor for SAC. Fixed unit log-σ keeps it to one layer.
+/// Squashed-Gaussian actor for SAC. Fixed unit log-`$\sigma$` keeps it to one layer.
 #[derive(Module, Debug)]
 pub(crate) struct TinySacActor<B: Backend> {
     mean: Linear<B>,

@@ -1,9 +1,8 @@
 //! Micro benchmarks for the SAC agent.
 //!
-//! Measures actor-sampling latency and full `learn_step` wall-clock (twin
-//! critic update + actor + α step + Polyak) on a primed replay buffer.
-//! Mirrors `td3_bench`'s pattern so the two algorithms can be compared
-//! side-by-side.
+//! Measures actor-sampling latency and full `learn_step` wall-clock (twin critic update + actor +
+//! `$\alpha$` step + Polyak) on a primed replay buffer. Mirrors `td3_bench`'s pattern so the two
+//! algorithms can be compared side-by-side.
 
 use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module};

@@ -1,9 +1,9 @@
 //! Baseline micro-benchmarks for hot-path operators on the flex
 //! backend.
 //!
-//! The numbers these benches produce are the reference point for the
-//! custom `CubeCL` kernel work scoped in `ops/kernels/mod.rs`. Kernels
-//! should strictly beat the pure-tensor baseline at `pop_size ≥ 256`.
+//! The numbers these benches produce are the reference point for the custom `CubeCL` kernel work
+//! scoped in `ops/kernels/mod.rs`. Kernels should strictly beat the pure-tensor baseline at
+//! `$\text{pop\_size} \geq 256$`.
 //!
 //! Run with `cargo bench -p rlevo-evolution`. Pass
 //! `--save-baseline pre-kernel` before landing kernels and

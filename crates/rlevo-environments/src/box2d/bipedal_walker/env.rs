@@ -12,10 +12,9 @@
 //!
 //! ## Reward shaping
 //!
-//! Each step the reward is `vel_x − 0.3 × Σᵢ aᵢ²`, where `vel_x` is the
-//! hull's horizontal velocity and `aᵢ` are the four action components.
-//! If the hull contacts the ground an additional −100 penalty is subtracted
-//! from that step's reward and the episode is terminated.
+//! Each step the reward is `$\text{vel\_x} - 0.3 \times \sum_i a_i^2$`, where `vel_x` is the hull's
+//! horizontal velocity and `$a_i$` are the four action components. If the hull contacts the ground an
+//! additional `$-100$` penalty is subtracted from that step's reward and the episode is terminated.
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -62,14 +61,14 @@ const GROUND_Y: f32 = -1.0;
 ///
 /// - `reset()` rebuilds the rapier world with fresh terrain.
 /// - `step(action)` applies 4 motor targets, advances physics, computes reward.
-/// - Terminates when the hull contacts the ground or cumulative reward < −100.
+/// - Terminates when the hull contacts the ground or cumulative reward < `$-100$`.
 /// - Truncated after `config.max_steps` steps (default: 1600).
 ///
 /// # Observation (24 dims)
 ///
 /// See [`BipedalWalkerObservation`] for the full field mapping.
 ///
-/// # Action (4 dims, must be in `[−1, 1]`)
+/// # Action (4 dims, must be in `$[-1, 1]$`)
 ///
 /// `[hip1, knee1, hip2, knee2]` motor velocity targets. Components outside
 /// the valid range or containing non-finite values cause `step()` to return
@@ -86,14 +85,13 @@ pub struct BipedalWalker {
     terrain: Box<dyn TerrainGenerator>,
     rng: StdRng,
     steps: usize,
-    /// Running sum of rewards (for the < −100 termination check).
+    /// Running sum of rewards (for the < `$-100$` termination check).
     total_reward: f32,
-    /// Rejects a `step()` taken after the walker fell (or the episode was
-    /// truncated). Neither termination condition is a latch the physics
-    /// enforces: the fallen hull stays in contact with the ground, so an
-    /// unguarded post-terminal step keeps re-applying the −100 fall penalty and
-    /// keeps driving `total_reward` further down, while the world, the step
-    /// counter and the motors advance past the episode the agent actually ran.
+    /// Rejects a `step()` taken after the walker fell (or the episode was truncated). Neither
+    /// termination condition is a latch the physics enforces: the fallen hull stays in contact with
+    /// the ground, so an unguarded post-terminal step keeps re-applying the `$-100$` fall penalty
+    /// and keeps driving `total_reward` further down, while the world, the step counter and the
+    /// motors advance past the episode the agent actually ran.
     guard: EpisodeGuard,
 }
 
@@ -475,12 +473,12 @@ impl BipedalWalker {
     /// ```
     ///
     /// where `vel_x` is the hull's horizontal velocity (world units per second)
-    /// and `aᵢ` are the four action components. The quadratic control penalty
+    /// and `$a_i$` are the four action components. The quadratic control penalty
     /// discourages wasteful motor effort; the velocity term rewards forward
     /// progress.
     ///
-    /// If the hull contacts the ground the caller in `step()` subtracts an
-    /// additional −100 from the value returned here.
+    /// If the hull contacts the ground the caller in `step()` subtracts an additional `$-100$` from
+    /// the value returned here.
     fn compute_reward(action: &BipedalWalkerAction, vel_x: f32) -> f32 {
         let ctrl_cost = 0.3 * action.0.iter().map(|a| a * a).sum::<f32>();
         vel_x - ctrl_cost
@@ -1099,14 +1097,13 @@ mod tests {
 
     // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
-    /// Upper bound on the steps the zero-action walker may take before the test
-    /// calls it a regression. Measured on the default flat-terrain config: the
-    /// unactuated walker's hull hits the ground on step 154 (`Terminated`, via
-    /// hull contact — `total_reward` is only ≈ −9.9 there, so it is the fall,
-    /// not the `< −100` rule, that ends it, and 1600-step truncation never comes
-    /// into play). The slack is generous so a legitimate physics tweak does not
-    /// turn the test flaky, but bounded so a broken termination check fails
-    /// loudly instead of hanging.
+    /// Upper bound on the steps the zero-action walker may take before the test calls it a
+    /// regression. Measured on the default flat-terrain config: the unactuated walker's hull hits
+    /// the ground on step 154 (`Terminated`, via hull contact — `total_reward` is only
+    /// `$\approx -9.9$` there, so it is the fall, not the `$< -100$` rule, that ends it, and
+    /// 1600-step truncation never comes into play). The slack is generous so a legitimate physics
+    /// tweak does not turn the test flaky, but bounded so a broken termination check fails loudly
+    /// instead of hanging.
     const FALL_STEP_CAP: usize = 800;
 
     /// Drives a fresh episode to a real terminal by doing nothing: an
@@ -1141,10 +1138,10 @@ mod tests {
     }
 
     #[test]
-    /// A rejected post-terminal step must mutate nothing observable. The fallen
-    /// hull stays in contact with the ground, so before the guard a further step
-    /// advanced the physics world and the step counter and kept accumulating
-    /// into `total_reward` — the very quantity the `< −100` termination reads.
+    /// A rejected post-terminal step must mutate nothing observable. The fallen hull stays in
+    /// contact with the ground, so before the guard a further step advanced the physics world and
+    /// the step counter and kept accumulating into `total_reward` — the very quantity the
+    /// `$< -100$` termination reads.
     fn test_bipedal_walker_post_terminal_step_does_not_mutate_state() {
         let mut env = make_env();
         let terminal = drive_to_fall(&mut env);

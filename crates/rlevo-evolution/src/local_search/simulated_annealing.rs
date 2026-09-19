@@ -646,7 +646,7 @@ mod tests {
             &mut rng_b,
         );
 
-        // Same seed ⇒ bit-identical genome AND fitness: all stochasticity flows
+        // Same seed `$\Rightarrow$` bit-identical genome AND fitness: all stochasticity flows
         // through the passed rng.
         assert_eq!(g_a, g_b);
         assert_eq!(f_a, f_b);
@@ -660,7 +660,7 @@ mod tests {
             &mut fitness_c,
             &mut rng_c,
         );
-        // Different seed ⇒ (almost surely) a different trajectory and output.
+        // Different seed `$\Rightarrow$` (almost surely) a different trajectory and output.
         assert_ne!(g_a, g_c);
     }
 
@@ -710,15 +710,13 @@ mod tests {
 
     #[test]
     fn uphill_moves_accepted_at_high_temperature() {
-        // With a huge initial temperature, exp(Δf / T) ≈ 1, so the walker
-        // should accept worsening moves. We detect acceptance indirectly: the
-        // returned best is the tracked maximum, but if NO worsening move were
-        // ever accepted the walker would behave like a pure ascent and the
-        // recorded evaluation sequence would be (weakly) monotone after the
-        // first improvement. Instead we assert the walker visits a fitness
-        // strictly worse than the running maximum more than once — only possible
-        // if an earlier worsening move was accepted, moving the walker downhill
-        // so its next proposal is centred on a worse point.
+        // With a huge initial temperature, exp(`$\Delta$`f / T) `$\approx$` 1, so the walker should
+        // accept worsening moves. We detect acceptance indirectly: the returned best is the tracked
+        // maximum, but if NO worsening move were ever accepted the walker would behave like a pure
+        // ascent and the recorded evaluation sequence would be (weakly) monotone after the first
+        // improvement. Instead we assert the walker visits a fitness strictly worse than the
+        // running maximum more than once — only possible if an earlier worsening move was accepted,
+        // moving the walker downhill so its next proposal is centred on a worse point.
         let searcher = SimulatedAnnealing;
         let mut params = SimulatedAnnealingParams::default_for(BOUNDS);
         params.max_iters = 200;

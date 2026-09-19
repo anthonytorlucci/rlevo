@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// 2-dimensional continuous action for [`super::LunarLanderContinuous`] (D1).
 ///
 /// Components (both in `[-1, 1]`):
-/// * `[0]` main engine throttle: `−1..0` = off, `0..1` = firing
+/// * `[0]` main engine throttle: `$-1..0$` = off, `0..1` = firing
 /// * `[1]` lateral engine: negative = left, positive = right
 ///
 /// Design decision D5: `step()` returns `Err(InvalidAction)` if any component
@@ -67,11 +67,10 @@ impl ContinuousAction<1> for LunarLanderContinuousAction {
 /// [`is_valid`](Action::is_valid) rejects any component with
 /// `abs() > BOUND` where `BOUND == 1.0`. Spec and in-repo dynamics agree.
 ///
-/// The main engine's `−1..0` dead band is a property of how the environment
-/// *interprets* component 0, not of the action space: `-1` is a legal
-/// (engine-off) command, so the lower bound is `-1`, not `0`. This is why the
-/// space is symmetric despite one component behaving one-sidedly — unlike
-/// `CarRacing`, whose gas and brake are genuinely floored at `0`.
+/// The main engine's `$-1..0$` dead band is a property of how the environment *interprets*
+/// component 0, not of the action space: `-1` is a legal (engine-off) command, so the lower bound
+/// is `-1`, not `0`. This is why the space is symmetric despite one component behaving one-sidedly
+/// — unlike `CarRacing`, whose gas and brake are genuinely floored at `0`.
 impl BoundedAction<1> for LunarLanderContinuousAction {
     fn low() -> &'static [f32] {
         &[-1.0, -1.0]

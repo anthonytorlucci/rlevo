@@ -35,7 +35,7 @@ direction:
   and every metaheuristic compared with `<` and sorted ascending; `NaN`
   sanitised to `+inf`.
 - **NEAT was an explicit exception** ("opposite the crate-wide minimize
-  convention … a cost task supplies `−cost`").
+  convention … a cost task supplies $-\text{cost}$").
 - **Three bridges hand-negated in user-visible code:** `EvolutionaryHarness::step`
   (`reward = -best_fitness_ever`), `rlevo-hybrid::rollout_fitness`
   (`fitness = -total/episodes`), and the `FitnessEvaluable`/`Landscape` docs that

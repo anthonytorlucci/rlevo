@@ -166,7 +166,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
         let gathered = log_probs.clone().gather(1, action_2d.clone());
         let log_prob = gathered.squeeze_dim::<1>(1);
 
-        // Entropy = -Σ p · log p per row.
+        // Entropy = -`$\sum$` p `$\cdot$` log p per row.
         let probs = log_probs.clone().exp();
         let entropy = (probs * log_probs).sum_dim(1).squeeze_dim::<1>(1).neg();
 

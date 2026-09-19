@@ -276,14 +276,13 @@ pub fn speciate(
 
     // 4. Update best/stagnation and size-adjusted fitness (maximization).
     //
-    // Sanitize NaN → −inf / +∞ → f32::MAX (ADR 0034) before *every* reduction: a
-    // raw NaN member would otherwise poison `adjusted_fitness_sum` (a NaN sum),
-    // corrupting offspring apportionment for *all* species for the rest of the
-    // run. `speciate` is `pub` and directly callable/tested, so it guards here
-    // itself (correctness floor, rules.md §3) rather than trusting the caller;
-    // `NeatStrategy::tell` also sanitizes, which makes this idempotent on the
-    // harness-analogue path. `remove_stagnant` already sanitizes — this keeps
-    // the module consistent.
+    // Sanitize NaN → `$-\infty$` / `$+\infty$` → f32::MAX (ADR 0034) before *every* reduction: a
+    // raw NaN member would otherwise poison `adjusted_fitness_sum` (a NaN sum), corrupting
+    // offspring apportionment for *all* species for the rest of the run. `speciate` is `pub` and
+    // directly callable/tested, so it guards here itself (correctness floor, rules.md §3) rather
+    // than trusting the caller; `NeatStrategy::tell` also sanitizes, which makes this idempotent on
+    // the harness-analogue path. `remove_stagnant` already sanitizes — this keeps the module
+    // consistent.
     for s in species.iter_mut() {
         let species_best = s
             .members
@@ -294,24 +293,22 @@ pub fn speciate(
             s.best_fitness = species_best;
             s.last_improved_generation = generation;
         }
-        // `adjusted_fitness_sum = Σ raw/|species| = mean raw fitness`. The
-        // reduction runs through `sanitized_mean`, which sanitizes each member,
-        // accumulates in `f64`, and narrows once after the division (ADR 0069
-        // §Decision 1).
+        // `$\text{adjusted\_fitness\_sum} = \sum \text{raw}/\lvert\text{species}\rvert = \text{mean raw fitness}$`.
+        // The reduction runs through `sanitized_mean`, which sanitizes each member, accumulates in
+        // `f64`, and narrows once after the division (ADR 0069 §Decision 1).
         //
-        // The accumulator width — not the ADR 0034 clamp — is what keeps the mean
-        // finite: a sanitized `+∞` arrives as the *finite* `f32::MAX` and so joins
-        // the sum, and *two* such members saturate an `f32` accumulator
-        // (`f32::MAX + f32::MAX == f32::INFINITY`), handing `allocate_offspring`
-        // an infinite `total` that erases fitness-proportional apportionment for
-        // the whole population. The rationale lives on the primitive; only the
+        // The accumulator width — not the ADR 0034 clamp — is what keeps the mean finite: a
+        // sanitized `$+\infty$` arrives as the *finite* `f32::MAX` and so joins the sum, and *two*
+        // such members saturate an `f32` accumulator (`f32::MAX + f32::MAX == f32::INFINITY`),
+        // handing `allocate_offspring` an infinite `total` that erases fitness-proportional
+        // apportionment for the whole population. The rationale lives on the primitive; only the
         // site-specific consequences are noted here.
         //
-        // Site-specific: a broken (sanitized-to-`−∞`) member still drives this
-        // species' mean to `−∞`, which the downstream `.max(0.0)` in
-        // `allocate_offspring` floors to a zero share, preserving the non-negative
-        // fitness-sharing precondition. `sanitized_mean`'s empty-input case
-        // (`−∞`) is unreachable here — step 3 above dropped every empty species.
+        // Site-specific: a broken (sanitized-to-`$-\infty$`) member still drives this species' mean
+        // to `$-\infty$`, which the downstream `.max(0.0)` in `allocate_offspring` floors to a zero
+        // share, preserving the non-negative fitness-sharing precondition. `sanitized_mean`'s
+        // empty-input case (`$-\infty$`) is unreachable here — step 3 above dropped every empty
+        // species.
         s.adjusted_fitness_sum =
             crate::fitness::sanitized_mean(s.members.iter().map(|&i| fitness[i]));
     }
@@ -330,8 +327,8 @@ pub fn remove_stagnant(species: &mut Vec<Species>, generation: u64, stagnation_l
     if species.len() <= 1 {
         return;
     }
-    // Rank by best fitness (descending) to find the protected set. Sanitize
-    // NaN → −inf (worst) so a NaN-fitness species can never be protected.
+    // Rank by best fitness (descending) to find the protected set. Sanitize NaN → `$-\infty$`
+    // (worst) so a NaN-fitness species can never be protected.
     let mut order: Vec<usize> = (0..species.len()).collect();
     let sane: Vec<f32> = species
         .iter()
@@ -377,43 +374,41 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
     if n == 0 {
         return Vec::new();
     }
-    // `total` is accumulated in `f64` by `sanitized_sum` and **kept** there (ADR
-    // 0069 §Decision 1/2): it legitimately exceeds `f32` range, being a sum across
-    // species of values each bounded by `f32::MAX` (ADR 0034 clamps a raw `+∞` to
-    // that finite value, so it joins the sum rather than being excluded). Two such
-    // species overflow an `f32` accumulator to `+∞` even though every term is
-    // finite — a second, independent overflow site distinct from `speciate`'s
-    // per-species mean above, and one that fires even when `speciate` gave every
+    // `total` is accumulated in `f64` by `sanitized_sum` and **kept** there (ADR 0069 §Decision
+    // 1/2): it legitimately exceeds `f32` range, being a sum across species of values each bounded
+    // by `f32::MAX` (ADR 0034 clamps a raw `$+\infty$` to that finite value, so it joins the sum
+    // rather than being excluded). Two such species overflow an `f32` accumulator to `$+\infty$`
+    // even though every term is finite — a second, independent overflow site distinct from
+    // `speciate`'s per-species mean above, and one that fires even when `speciate` gave every
     // species an individually finite mean.
     //
-    // What an infinite `total` costs: it slips past the `total <= 0.0` guard
-    // below, every share then evaluates to `x / ∞ == 0.0`, every `base` floors to
-    // `0`, and all `pop_size` seats fall through to the round-robin leftover pass
-    // — a uniform `[10, 10, 10]` split where the fitness-proportional answer was
-    // `[15, 15, 0]`. Narrowing `total` back to `f32` after a correct `f64`
-    // accumulation reproduces that collapse by exactly that route, because the
-    // narrowing itself overflows: `[f32::MAX, f32::MAX, 1.0]` sums to `≈ 6.8e38`,
-    // and `6.8e38_f64 as f32` is `+∞`. So `total` stays wide.
+    // What an infinite `total` costs: it slips past the `total <= 0.0` guard below, every share
+    // then evaluates to `$x/\infty = 0.0$`, every `base` floors to `0`, and all `pop_size` seats
+    // fall through to the round-robin leftover pass — a uniform `[10, 10, 10]` split where the
+    // fitness-proportional answer was `[15, 15, 0]`. Narrowing `total` back to `f32` after a
+    // correct `f64` accumulation reproduces that collapse by exactly that route, because the
+    // narrowing itself overflows: `[f32::MAX, f32::MAX, 1.0]` sums to
+    // `$\approx 6.8 \times 10^{38}$`, and `6.8e38_f64 as f32` is `$+\infty$`. So `total` stays
+    // wide.
     //
-    // No `NaN` arises on either path: the share's numerator is computed in `f64`,
-    // where `pop_size × f32::MAX` stays finite for any population that can
-    // physically exist (`f64::MAX / f32::MAX ≈ 5.3e269`), so a saturated species
-    // divides `finite / ∞ == 0.0`. (`∞ / ∞ == NaN` — which sorts *first*
-    // under the `total_cmp` tiebreak below, since `NaN` is positive in Rust — was
-    // the failure mode of the fully-`f32` arithmetic this replaced, where the
+    // No `NaN` arises on either path: the share's numerator is computed in `f64`, where
+    // `$\text{pop\_size} \times \text{f32::MAX}$` stays finite for any population that can
+    // physically exist (`$\text{f64::MAX}/\text{f32::MAX} \approx 5.3 \times 10^{269}$`), so a
+    // saturated species divides `$\text{finite}/\infty = 0.0$`. (`$\infty/\infty = \text{NaN}$` —
+    // which sorts *first* under the `total_cmp` tiebreak below, since `NaN` is positive in Rust —
+    // was the failure mode of the fully-`f32` arithmetic this replaced, where the
     // `pop_size as f32 * f32::MAX` numerator overflowed on its own.)
     //
-    // `share_term` is the single spelling of a species' contribution: floored at
-    // zero (fitness sharing requires a non-negative share) and sanitized. `total`
-    // and every numerator below must use *the same* value, because the
-    // apportionment's `Σ share == pop_size` identity is exactly "each numerator is
-    // one of `total`'s terms". `sanitized_sum` sanitizes what it accumulates, so
-    // an unsanitized numerator would break that identity: a `+∞` term would divide
-    // a *finite* (clamped) total to an infinite share, whose `as usize` cast
+    // `share_term` is the single spelling of a species' contribution: floored at zero (fitness
+    // sharing requires a non-negative share) and sanitized. `total` and every numerator below must
+    // use *the same* value, because the apportionment's `$\sum \text{share} = \text{pop\_size}$`
+    // identity is exactly "each numerator is one of `total`'s terms". `sanitized_sum` sanitizes
+    // what it accumulates, so an unsanitized numerator would break that identity: a `$+\infty$`
+    // term would divide a *finite* (clamped) total to an infinite share, whose `as usize` cast
     // saturates to `usize::MAX` and sends the overshoot-reclaim loop below on
-    // `usize::MAX − pop_size` iterations. `speciate` cannot produce a `+∞`
-    // `adjusted_fitness_sum`, so this is a floor, not a live path — but the field
-    // is `pub(crate)` and writable by any future in-crate operator.
+    // `$\text{usize::MAX} - \text{pop\_size}$` iterations. `speciate` cannot produce a `$+\infty$`
+    // `adjusted_fitness_sum`, so this is a floor, not a live path — but the field is `pub(crate)`
+    // and writable by any future in-crate operator.
     let share_term =
         |s: &Species| crate::fitness::sanitize_fitness(s.adjusted_fitness_sum.max(0.0));
     let total: f64 = crate::fitness::sanitized_sum(species.iter().map(share_term));
@@ -437,11 +432,11 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
     let mut fracs: Vec<(usize, f64)> = Vec::with_capacity(n);
     let mut assigned = 0usize;
     for (i, s) in species.iter().enumerate() {
-        // Cast: `pop_size` is exact in `f64` at any realistic population size. The
-        // share is computed in `f64` because the numerator reaches
-        // `pop_size × f32::MAX`; the quotient is bounded above by `pop_size`
-        // (this species' `share_term` is one of `total`'s terms), so the
-        // `base as usize` cast below stays sound.
+        // Cast: `pop_size` is exact in `f64` at any realistic population size. The share is
+        // computed in `f64` because the numerator reaches
+        // `$\text{pop\_size} \times \text{f32::MAX}$`; the quotient is bounded above by `pop_size`
+        // (this species' `share_term` is one of `total`'s terms), so the `base as usize` cast below
+        // stays sound.
         #[allow(clippy::cast_precision_loss)]
         let share = pop_size as f64 * f64::from(share_term(s)) / total;
         let base = share.floor();
@@ -453,8 +448,8 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
         fracs.push((i, share - base));
     }
 
-    // Primary key: fractional remainder (finite by construction). Secondary
-    // tiebreak by best fitness, sanitizing NaN → −inf (worst).
+    // Primary key: fractional remainder (finite by construction). Secondary tiebreak by best
+    // fitness, sanitizing NaN → `$-\infty$` (worst).
     fracs.sort_by(|a, b| {
         b.1.total_cmp(&a.1).then_with(|| {
             let (fa, fb) = (
@@ -559,7 +554,7 @@ mod tests {
         // > max_a → excess (1). innov 0 matches.
         let a = genome_with(vec![conn(0, 0.0), conn(1, 0.0), conn(2, 0.0)]);
         let b = genome_with(vec![conn(0, 0.0), conn(3, 0.0)]);
-        // c1·E/N + c2·D/N + c3·W̄ = 1·1/1 + 1·2/1 + 0 = 3.
+        // `$c_1 E/N + c_2 D/N + c_3 \bar{W} = 1\cdot 1/1 + 1\cdot 2/1 + 0 = 3$`.
         approx::assert_relative_eq!(
             compatibility_distance(&a, &b, 1.0, 1.0, 0.4),
             3.0,
@@ -580,26 +575,27 @@ mod tests {
 
     #[test]
     fn test_compatibility_distance_empty_genome_branch() {
-        // Early-return branch (one genome has no connections): every gene of the
-        // other is excess. `excess = max(len_a, len_b)`, `N = 1` when `excess <
-        // 20` else `excess`, and δ = c1·excess/N. With 25 genes (≥ 20) N = excess,
-        // so δ = c1·excess/excess = c1 exactly.
+        // Early-return branch (one genome has no connections): every gene of the other is excess.
+        // `excess = max(len_a, len_b)`, `N = 1` when `$\text{excess} <$` `$20$` else `excess`, and
+        // `$\delta = c_1 \cdot \text{excess}/N$`. With 25 genes (`$\geq 20$`)
+        // `$N = \text{excess}$`, so `$\delta = c_1 \cdot \text{excess}/\text{excess} = c_1$`
+        // exactly.
         let full = genome_with((0..25).map(|k| conn(k, 0.0)).collect());
         let empty = genome_with(vec![]);
 
-        // empty-vs-full: excess = 25, N = 25 → δ = c1 = 1.0.
+        // empty-vs-full: excess = 25, N = 25 → `$\delta$` = c1 = 1.0.
         approx::assert_relative_eq!(
             compatibility_distance(&empty, &full, 1.0, 1.0, 0.4),
             1.0,
             epsilon = 1e-6
         );
-        // full-vs-empty: symmetric — same δ = 1.0.
+        // full-vs-empty: symmetric — same `$\delta$` = 1.0.
         approx::assert_relative_eq!(
             compatibility_distance(&full, &empty, 1.0, 1.0, 0.4),
             1.0,
             epsilon = 1e-6
         );
-        // empty-vs-empty: excess = 0, N = 1 → δ = c1·0/1 = 0.0.
+        // empty-vs-empty: excess = 0, N = 1 `$\to \delta = c_1 \cdot 0/1 = 0.0$`.
         approx::assert_relative_eq!(
             compatibility_distance(&empty, &empty, 1.0, 1.0, 0.4),
             0.0,
@@ -800,8 +796,8 @@ mod tests {
             genome_with(vec![conn(0, 0.01)]),
             genome_with(vec![conn(0, 0.02)]),
         ];
-        // Member 0 NaN (must NOT become best / poison the sum), member 1 +∞
-        // (ranks top but finite), member 2 a plain 2.0.
+        // Member 0 NaN (must NOT become best / poison the sum), member 1 `$+\infty$` (ranks top but
+        // finite), member 2 a plain 2.0.
         let fitness = vec![f32::NAN, f32::INFINITY, 2.0];
         let mut species: Vec<Species> = Vec::new();
         let mut next_id = SpeciesId::new(0);
@@ -820,15 +816,15 @@ mod tests {
         assert_eq!(species.len(), 1, "near-clones form a single species");
 
         let s = &species[0];
-        // best_fitness is the sanitized +∞ = f32::MAX — finite, never NaN.
+        // best_fitness is the sanitized `$+\infty$` = f32::MAX — finite, never NaN.
         assert!(
             !s.best_fitness.is_nan(),
             "a NaN member never becomes a species best"
         );
         approx::assert_relative_eq!(s.best_fitness, f32::MAX);
-        // The size-adjusted mean is not NaN: sanitizing the NaN to −∞ makes the
-        // mean −∞ (not NaN), which the downstream `.max(0.0)` floors — the key
-        // regression is that it can no longer poison apportionment to NaN.
+        // The size-adjusted mean is not NaN: sanitizing the NaN to `$-\infty$` makes the mean
+        // `$-\infty$` (not NaN), which the downstream `.max(0.0)` floors — the key regression is
+        // that it can no longer poison apportionment to NaN.
         assert!(
             !s.adjusted_fitness_sum.is_nan(),
             "a NaN member never poisons adjusted_fitness_sum"
@@ -880,7 +876,7 @@ mod tests {
     /// second one.
     #[test]
     fn test_speciate_two_inf_members_do_not_overflow_adjusted_sum() {
-        // All-`+∞` species: the mean of `n` copies of `f32::MAX` is `f32::MAX`.
+        // All-`$+\infty$` species: the mean of `n` copies of `f32::MAX` is `f32::MAX`.
         let species = speciate_weights(&[0.0, 0.01], &[f32::INFINITY, f32::INFINITY]);
         assert_eq!(species.len(), 1, "near-clones form a single species");
         assert!(
@@ -933,7 +929,7 @@ mod tests {
             "healthy apportionment is fitness-proportional (largest remainder)"
         );
 
-        // Same population, but the top species' two members both score `+∞`.
+        // Same population, but the top species' two members both score `$+\infty$`.
         let species = speciate_weights(
             &weights,
             &[f32::INFINITY, f32::INFINITY, 10.0, 10.0, 1.0, 1.0],
@@ -979,14 +975,13 @@ mod tests {
     /// the **same** `share_term`, so `$\Sigma\,\text{share} = \text{pop\_size}$` stays an identity.
     ///
     /// `speciate` cannot write a `$+\infty$` `adjusted_fitness_sum` (that is what
-    /// [`test_speciate_two_inf_members_do_not_overflow_adjusted_sum`] pins), but
-    /// the field is `pub(crate)` and any in-crate operator can. `sanitized_sum`
-    /// clamps such a term to `f32::MAX` inside `total`; a numerator that skipped
-    /// the clamp would divide `$\infty$` by a *finite* total, and `∞.floor() as usize`
-    /// saturates to `usize::MAX` — so the overshoot-reclaim loop would run
-    /// `usize::MAX − pop_size` times. Note the failure mode this test guards is a
-    /// **divergence**, not a wrong answer: if it ever regresses it will hang here
-    /// rather than fail.
+    /// [`test_speciate_two_inf_members_do_not_overflow_adjusted_sum`] pins), but the field is
+    /// `pub(crate)` and any in-crate operator can. `sanitized_sum` clamps such a term to `f32::MAX`
+    /// inside `total`; a numerator that skipped the clamp would divide `$\infty$` by a *finite*
+    /// total, and `$\infty\text{.floor() as usize}$` saturates to `usize::MAX` — so the
+    /// overshoot-reclaim loop would run `$\text{usize::MAX} - \text{pop\_size}$` times. Note the
+    /// failure mode this test guards is a **divergence**, not a wrong answer: if it ever regresses
+    /// it will hang here rather than fail.
     ///
     /// The expected apportionment is the one a `f32::MAX` term would get, which is
     /// what the clamp means.
@@ -1091,9 +1086,9 @@ mod tests {
         // 64 cases is the ADR 0036 §5 "cheap structural" tier.
         #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
 
-        /// **ADR 0069 §Decision 5, property 1.** Offspring apportionment is
-        /// invariant to a positive rescale of the whole fitness vector:
-        /// `allocate_offspring(speciate(c·f)) == allocate_offspring(speciate(f))`.
+        /// **ADR 0069 §Decision 5, property 1.** Offspring apportionment is invariant to a positive
+        /// rescale of the whole fitness vector:
+        /// `$\text{allocate\_offspring}(\text{speciate}(c \cdot f)) = \text{allocate\_offspring}(\text{speciate}(f))$`.
         ///
         /// This is the *behavioural* net §Decision 5 chooses over a source-text
         /// guard. It keys on the answer, not on the spelling: it fails if
@@ -1143,10 +1138,10 @@ mod tests {
             headroom in 0u32..=120,
             seed in any::<u64>(),
         ) {
-            // Cluster `k`'s genomes carry connection weights near `10·k`. With
-            // `c3 = 1` and `compat_threshold = 1`, the compatibility distance is
-            // the absolute weight difference: members of a cluster (≤ 0.02 apart)
-            // group, distinct clusters (≥ 9.98 apart) split.
+            // Cluster `k`'s genomes carry connection weights near `$10k$`. With `c3 = 1` and
+            // `compat_threshold = 1`, the compatibility distance is the absolute weight difference:
+            // members of a cluster (`$\leq$` 0.02 apart) group, distinct clusters (`$\geq$` 9.98
+            // apart) split.
             let mut weights: Vec<f32> = Vec::new();
             let mut fitness: Vec<f32> = Vec::new();
             for (k, &(level, size)) in clusters.iter().enumerate() {

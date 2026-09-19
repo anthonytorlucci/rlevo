@@ -16,23 +16,23 @@
 //! `MuJoCo`'s native fluid model.
 //!
 //! * Segment shape: capsule along body-x, length `0.1`, radius `0.05`, mass
-//!   `≈0.0471` (density ≈60 kg/m³ derived from capsule volume). The capsule
+//!   `$\approx 0.0471$` (density `$\approx 60\ \text{kg/m}^3$` derived from capsule volume). The capsule
 //!   stands in for Gymnasium's cylinder — drag depends on COM velocity only,
 //!   not collider geometry.
 //! * Planar constraint: every segment has `enabled_translations(true, true, false)`
 //!   and `enabled_rotations(false, false, true)`, so motion is confined to the
 //!   xy-plane and rotations to about-z.
 //! * Front ↔ Middle: revolute-z impulse joint, anchor `(+0.05, 0, 0)` on
-//!   segment0's back, anchor `(−0.05, 0, 0)` on segment1's front.
+//!   segment0's back, anchor `$(-0.05, 0, 0)$` on segment1's front.
 //! * Middle ↔ Tail:  revolute-z impulse joint, anchor `(+0.05, 0, 0)` on
-//!   segment1's back, anchor `(−0.05, 0, 0)` on segment2's front.
+//!   segment1's back, anchor `$(-0.05, 0, 0)$` on segment2's front.
 //! * Action: `Box(-1, 1, (2,))` — joint torque targets; applied as
 //!   `$\text{action} \cdot \text{gear}$` with `gear = [150, 150]` (Gymnasium XML).
 //! * Observation (8-dim):
 //!   `[body_angle, joint1_angle, joint2_angle, vx_com, vy_com,
-//!     ω_body, joint1_dot, joint2_dot]` — matches `qpos[2:5]` + `qvel` from
+//!     omega_body, joint1_dot, joint2_dot]` — matches `qpos[2:5]` + `qvel` from
 //!   Gymnasium.
-//! * Reward: `forward − ctrl` with `$\text{forward} = 1.0 \cdot \text{vx\_com}$` and
+//! * Reward: `$\text{forward} - \text{ctrl}$` with `$\text{forward} = 1.0 \cdot \text{vx\_com}$` and
 //!   `$\text{ctrl} = 1e{-4} \cdot \|\text{action}\|^2$`.
 //! * Termination: never (`TerminationMode::Never` implicitly; swimmer has no
 //!   healthy gate).
@@ -60,17 +60,17 @@
 //!   problem for the PGS impulse solver; multibody's Featherstone-style
 //!   reduced-coordinate integration keeps the chain conservative.
 //! * **`gear = [5, 5]`** instead of Gymnasium's `[150, 150]`. At full gear
-//!   the joint angular acceleration (τ/I ≈ 7 500 rad/s²) violates the joint
+//!   the joint angular acceleration (`$\tau/I \approx 7\,500\ \text{rad/s}^2$`) violates the joint
 //!   constraint faster than the solver can resolve it.
 //! * **Smaller substep:** `dt = 0.005`, `frame_skip = 8` → env dt 0.04 still
 //!   matches Gymnasium; the integration step is halved to keep per-step
-//!   Δω tractable.
-//! * **`segment_mass = 0.947 kg`** from `MuJoCo`'s body density (1000 kg/m³)
+//!   `$\Delta\omega$` tractable.
+//! * **`segment_mass = 0.947 kg`** from `MuJoCo`'s body density (`$1000\ \text{kg/m}^3$`)
 //!   applied to the capsule volume; using 0.0471 kg (as Gymnasium-derived
 //!   calculations sometimes produce by crossing body density with `MuJoCo`'s
 //!   fluid `<option density>`) gives negligible inertia.
 //! * **Linear angular drag** `$\tau = -k_{\text{ang}} \cdot \omega$`, not quadratic. Explicit
-//!   Euler on quadratic drag overshoots past zero at high |ω| and
+//!   Euler on quadratic drag overshoots past zero at high `$\lvert\omega\rvert$` and
 //!   diverges within a substep; linear drag is unconditionally stable.
 //! * **Capsules, not cylinders** (`capsule_x`, not `cylinder`). The drag
 //!   model depends on COM velocity only, not collider geometry.

@@ -30,7 +30,7 @@
 //! and they are a pair — neither is safe without the other:
 //!
 //! 1. A `NaN` reward stays observable. Every clamp goes through
-//!    [`clamp_preserving_nan`] rather than [`Tensor::clamp`], because `clamp`'s
+//!    `clamp_preserving_nan` rather than [`Tensor::clamp`], because `clamp`'s
 //!    `NaN` behaviour differs between the host and GPU backends: Flex
 //!    propagates, wgpu/Metal rescues to the lower bound. Under the plain clamp
 //!    a `NaN` reward yielded an all-`NaN` row on Flex but a *well-formed* row
@@ -47,8 +47,6 @@
 //! the caller's `FiniteLossGuard` to skip the step — and an index that is
 //! in range on every backend. Assert on **finiteness** of the projected row,
 //! never on its sum: the pre-fix Metal row summed to exactly `1.0`.
-//!
-//! [`clamp_preserving_nan`]: crate::algorithms::shared::clamp_preserving_nan
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, Tensor};
@@ -73,13 +71,11 @@ use crate::algorithms::shared::clamp_preserving_nan;
 /// - `num_atoms`: number of atoms `$N$`.
 ///
 /// # Returns
-/// The uniform atom spacing. A support needs **at least two** atoms for a
-/// spacing to be defined; for `num_atoms < 2` this returns [`f32::NAN`] rather
-/// than panicking or dividing by zero, so the degeneracy propagates visibly
-/// instead of silently producing `±inf` coordinates. Callers that require a
-/// well-formed support validate `num_atoms >= 2` up front
-/// (`C51TrainingConfig::validate`, and the assertion in
-/// [`project_distribution`]).
+/// The uniform atom spacing. A support needs **at least two** atoms for a spacing to be defined;
+/// for `num_atoms < 2` this returns [`f32::NAN`] rather than panicking or dividing by zero, so the
+/// degeneracy propagates visibly instead of silently producing `$\pm\infty$` coordinates. Callers
+/// that require a well-formed support validate `num_atoms >= 2` up front
+/// (`C51TrainingConfig::validate`, and the assertion in [`project_distribution`]).
 ///
 /// # Examples
 /// ```
@@ -104,7 +100,7 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///
 /// # Parameters
 /// - `next_probs`: target-network probability mass for the bootstrap action,
-///   shape `(batch_size, num_atoms)`. Must sum to ≈1 along the atom axis.
+///   shape `(batch_size, num_atoms)`. Must sum to `$\approx$`1 along the atom axis.
 /// - `rewards`: per-sample reward `r`, shape `(batch,)`.
 /// - `terminated`: per-sample terminal mask in `{0.0, 1.0}`, shape `(batch_size,)`.
 /// - `support`: atom values `$z_0 \cdots z_{N-1}$`, shape `(num_atoms,)`, assumed
@@ -115,10 +111,10 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   `delta_z` computation without an extra GPU round-trip.
 ///
 /// # Returns
-/// A `(batch_size, num_atoms)` tensor of projected probabilities. Rows sum to ≈1 for
-/// finite inputs. A row whose reward was `NaN` is **non-finite** on every
-/// backend — see the module docs; do not postcondition on the row sum, which is
-/// exactly what the old, incorrect GPU path satisfied while being wrong.
+/// A `(batch_size, num_atoms)` tensor of projected probabilities. Rows sum to `$\approx$`1 for
+/// finite inputs. A row whose reward was `NaN` is **non-finite** on every backend — see the module
+/// docs; do not postcondition on the row sum, which is exactly what the old, incorrect GPU path
+/// satisfied while being wrong.
 ///
 /// # Panics
 /// - If `num_atoms < 2`. A categorical support needs at least two atoms for the
@@ -131,7 +127,7 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   **every** element of **every** batch, for the whole run.
 ///
 ///   The assertion is a config-degeneracy backstop, not a memory-safety guard.
-///   The operator is `NaN`-safe by construction — [`clamp_preserving_nan`]
+///   The operator is `NaN`-safe by construction — `clamp_preserving_nan`
 ///   keeps the `NaN` observable and the clamp on the derived `Int` indices
 ///   keeps the scatter in range on both backends — so a degenerate support
 ///   could no longer corrupt anything; it would merely emit an all-`NaN` target
@@ -143,8 +139,6 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   *configuration* constant rather than per-batch data, so the right response
 ///   is to reject it at the call site with a message naming the offending
 ///   bounds, not to let it propagate.
-///
-/// [`clamp_preserving_nan`]: crate::algorithms::shared::clamp_preserving_nan
 #[allow(clippy::too_many_arguments)]
 // Structural size of the distributional support (atom / quantile count). The
 // configs cap these in the low hundreds, so the value is exact in f32 and
@@ -190,11 +184,10 @@ pub fn project_distribution<B: Backend>(
     // Bellman shift: `$Tz = \max \left ( v_\min , \min (r + \gamma \cdot (1 - \text{terminated}) \cdot z, v_\max \right )$`.
     let keep = terminated_bn.neg().add_scalar(1.0); // 1 − terminated
     let tz = rewards_bn + keep * support_bn * gamma;
-    // `clamp_preserving_nan`, not `clamp`: on wgpu/Metal the plain clamp
-    // rescues a NaN reward to `v_min`, producing a projected row that sums to
-    // exactly 1.0 and asserts certainty of the worst return, with no NaN left
-    // for any downstream guard to catch. ±inf is untouched by the
-    // wrapper and still pins to v_min/v_max, which is the intended semantics.
+    // `clamp_preserving_nan`, not `clamp`: on wgpu/Metal the plain clamp rescues a NaN reward to
+    // `v_min`, producing a projected row that sums to exactly 1.0 and asserts certainty of the
+    // worst return, with no NaN left for any downstream guard to catch. `$\pm$`inf is untouched by
+    // the wrapper and still pins to v_min/v_max, which is the intended semantics.
     let tz = clamp_preserving_nan(tz, v_min, v_max);
 
     // Continuous atom coordinate `$b \in [0, N-1]$`, and its floor/ceil as Int.
@@ -231,11 +224,10 @@ pub fn project_distribution<B: Backend>(
     // somewhere outside the target tensor) and nothing panicked, while Flex
     // returned `[NaN, 0, …]`. Land the two changes together or neither.
     //
-    // The index clamp is a no-op on the finite path. Once `$b \in [0, N-1]$`, both
-    // `0` and `N-1` are exactly representable in f32 for N ≤ 2^24 (the configs
-    // cap N in the low hundreds), so `floor`/`ceil` land inside [0, N-1] and
-    // the clamp is the identity — in particular at `b == N-1`, where the
-    // `u_f - b == 0` exactness the paragraph above protects must survive.
+    // The index clamp is a no-op on the finite path. Once `$b \in [0, N-1]$`, both `0` and `N-1`
+    // are exactly representable in f32 for N `$\leq$` 2^24 (the configs cap N in the low hundreds),
+    // so `floor`/`ceil` land inside [0, N-1] and the clamp is the identity — in particular at
+    // `b == N-1`, where the `u_f - b == 0` exactness the paragraph above protects must survive.
     let b = (tz.sub_scalar(v_min)).div_scalar(delta_z);
     let b = clamp_preserving_nan(b, 0.0, num_atoms as f32 - 1.0);
     let max_index = num_atoms as i64 - 1;
@@ -314,7 +306,7 @@ mod tests {
     #[test]
     fn test_projection_terminal_reward_half_splits_between_atoms_one_and_two() {
         // Hand-computed Bellemare-style reference on a 3-atom support:
-        //   support = [-1, 0, 1], reward = 0.5, terminated = 1 → Tz ≡ 0.5 ∀ z_i
+        //   support = [-1, 0, 1], reward = 0.5, terminated = 1 → `$Tz \equiv 0.5\ \forall z_i$`
         //   b = 1.5 → mass evenly split between atoms 1 and 2, independent of
         //   next_probs.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
@@ -345,8 +337,8 @@ mod tests {
 
     #[test]
     fn test_projection_clamps_above_support() {
-        // reward ≫ v_max ⇒ Tz clamps at v_max for every atom ⇒ all mass at
-        // the top atom.
+        // reward ≫ v_max `$\Rightarrow$` Tz clamps at v_max for every atom `$\Rightarrow$` all mass
+        // at the top atom.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let next_probs =
             Tensor::<B, 2>::from_data(TensorData::new(vec![1.0_f32 / 3.0; 3], vec![1, 3]), &device);
@@ -368,8 +360,8 @@ mod tests {
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
     fn test_projection_preserves_total_mass() {
-        // Arbitrary batch, random-ish probabilities normalised to 1: rows of
-        // the projection should still sum to ≈1.
+        // Arbitrary batch, random-ish probabilities normalised to 1: rows of the projection should
+        // still sum to `$\approx$`1.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let batch = 4;
         let n = 5;
@@ -404,9 +396,8 @@ mod tests {
 
     /// Drives one clamped-to-`v_max` projection and returns the projected row.
     ///
-    /// A reward far above `v_max` with `terminated = 1` forces `Tz ≡ v_max` for
-    /// every atom, which is exactly the `b == N-1` boundary where the f32
-    /// rounding defect bites.
+    /// A reward far above `v_max` with `terminated = 1` forces `$Tz \equiv v_{max}$` for every
+    /// atom, which is exactly the `b == N-1` boundary where the f32 rounding defect bites.
     // Test fixture data: the loop counter and element count are bounded by small
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
@@ -602,11 +593,10 @@ mod tests {
 
     #[test]
     fn test_projection_positive_infinite_reward_saturates_the_top_atom() {
-        // Pins the `is_nan`-not-`is_finite` decision in `clamp_preserving_nan`.
-        // `clamp` handles ±inf correctly and IDENTICALLY on both backends, and
-        // an infinite reward genuinely means "a return of at least v_max" — so
-        // it must still clamp onto the top atom rather than being masked to
-        // NaN. Masking on `is_finite` would regress this to an all-NaN row.
+        // Pins the `is_nan`-not-`is_finite` decision in `clamp_preserving_nan`. `clamp` handles
+        // `$\pm$`inf correctly and IDENTICALLY on both backends, and an infinite reward genuinely
+        // means "a return of at least v_max" — so it must still clamp onto the top atom rather than
+        // being masked to NaN. Masking on `is_finite` would regress this to an all-NaN row.
         let n = 8;
         let v = project_rows_for_rewards(-10.0, 10.0, n, &[f32::INFINITY]);
 
@@ -668,15 +658,15 @@ mod tests {
     #[test]
     #[should_panic(expected = "C51 support must satisfy v_max > v_min")]
     fn test_projection_rejects_degenerate_support_v_min_equals_v_max() {
-        // Δz = 0 ⇒ b = NaN ⇒ every index collapses to 0 and the whole
-        // distribution silently lands on atom 0. Must panic instead.
+        // `$\Delta z = 0 \Rightarrow b = \text{NaN} \Rightarrow$` every index collapses to 0 and
+        // the whole distribution silently lands on atom 0. Must panic instead.
         let _ = project_on_support(5.0, 5.0, 51);
     }
 
     #[test]
     #[should_panic(expected = "C51 support must satisfy v_max > v_min")]
     fn test_projection_rejects_inverted_support_v_min_greater_than_v_max() {
-        // Δz < 0 ⇒ the atom coordinate runs backwards; the support is not a
+        // `$\Delta$`z < 0 `$\Rightarrow$` the atom coordinate runs backwards; the support is not a
         // valid ordered categorical support at all.
         let _ = project_on_support(1.0, -1.0, 51);
     }

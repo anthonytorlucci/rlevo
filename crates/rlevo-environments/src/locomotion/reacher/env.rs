@@ -31,9 +31,9 @@ use super::config::ReacherConfig;
 use super::observation::ReacherObservation;
 use super::state::ReacherState;
 
-/// Reward-component key: `$-\|\text{finger} - \text{target}\|$` (≤ 0).
+/// Reward-component key: `$-\|\text{finger} - \text{target}\|$` (`$\leq 0$`).
 pub const METADATA_KEY_REWARD_DISTANCE: &str = "reward_distance";
-/// Reward-component key: `$-0.1 \cdot \|\text{action}\|^2$` (≤ 0).
+/// Reward-component key: `$-0.1 \cdot \|\text{action}\|^2$` (`$\leq 0$`).
 pub const METADATA_KEY_REWARD_CONTROL: &str = "reward_control";
 
 /// Reacher — a 2-link planar arm whose fingertip must reach a randomly
@@ -150,7 +150,7 @@ impl Reacher<Rapier3DBackend> {
             world.add_body(RigidBodyBuilder::fixed().translation(Vector::new(0.0, 0.0, 0.0)));
 
         // link1 position: body origin sits at the capsule midpoint, i.e.
-        // shoulder + link1_rotation · (half1, 0, 0) in world frame.
+        // `$\text{shoulder} + \text{link1\_rotation} \cdot (\text{half1}, 0, 0)$` in world frame.
         let c1 = theta1_init.cos();
         let s1 = theta1_init.sin();
         let link1_pos = Vector::new(half1 * c1, half1 * s1, 0.0);
@@ -177,8 +177,9 @@ impl Reacher<Rapier3DBackend> {
             .build();
         let shoulder = world.add_impulse_joint(root, link1, shoulder_joint);
 
-        // link2: absolute orientation is θ1 + θ2 (θ2 is the relative elbow
-        // angle). Elbow world position = link1_body + link1_rot·(half1, 0, 0).
+        // link2: absolute orientation is `$\theta_1 + \theta_2$` (`$\theta_2$` is the relative
+        // elbow angle). Elbow world position
+        // `$= \text{link1\_body} + \text{link1\_rot} \cdot (\text{half1}, 0, 0)$`.
         let theta2_abs = theta1_init + theta2_init;
         let c12 = theta2_abs.cos();
         let s12 = theta2_abs.sin();
@@ -233,8 +234,9 @@ impl Reacher<Rapier3DBackend> {
         let v1 = Rapier3DBackend::get_vel(&self.world, self.state.link1);
         let v2 = Rapier3DBackend::get_vel(&self.world, self.state.link2);
 
-        // Pure rotation about world-z ⇒ quaternion = (cos(θ/2), 0, 0, sin(θ/2))
-        // in [w, x, y, z] order. θ = 2·atan2(qz, qw).
+        // Pure rotation about world-z `$\Rightarrow$` quaternion
+        // `$= (\cos(\theta/2), 0, 0, \sin(\theta/2))$` in [w, x, y, z] order.
+        // `$\theta = 2\,\mathrm{atan2}(q_z, q_w)$`.
         let [w1, _, _, z1] = p1.orientation;
         let [w2, _, _, z2] = p2.orientation;
         let theta1 = wrap_to_pi(2.0 * z1.atan2(w1));
@@ -307,13 +309,12 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
 
     /// Reset the environment to a freshly sampled initial state.
     ///
-    /// Reset noise and the target position are drawn from the environment's
-    /// persistent RNG. The stream **advances** across resets, so successive
-    /// episodes see independent initial states and targets. For deterministic
-    /// replay of a specific initial state, use [`Reacher::reset_with_seed`].
-    /// The returned snapshot has reward `0.0` and `EpisodeStatus::Running`;
-    /// both reward-component metadata keys are set to `0.0` to satisfy the
-    /// invariant that Σ components = total reward.
+    /// Reset noise and the target position are drawn from the environment's persistent RNG. The
+    /// stream **advances** across resets, so successive episodes see independent initial states and
+    /// targets. For deterministic replay of a specific initial state, use
+    /// [`Reacher::reset_with_seed`]. The returned snapshot has reward `0.0` and
+    /// `EpisodeStatus::Running`; both reward-component metadata keys are set to `0.0` to satisfy
+    /// the invariant that `$\sum$` components = total reward.
     ///
     /// The step counter and the episode guard are cleared, so a truncated
     /// environment becomes steppable again.
@@ -335,8 +336,8 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
 
         let obs = self.observe_reset(&self.state);
         self.state.last_obs = obs;
-        // Zero-reward initial snapshot; emit both reward components at 0.0 so
-        // the Σ-components = reward invariant holds at step 0 (no action taken).
+        // Zero-reward initial snapshot; emit both reward components at 0.0 so the
+        // `$\sum$`-components = reward invariant holds at step 0 (no action taken).
         let meta = SnapshotMetadata::new()
             .with(METADATA_KEY_REWARD_DISTANCE, 0.0)
             .with(METADATA_KEY_REWARD_CONTROL, 0.0)
@@ -360,7 +361,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
     ///   the action itself, so a post-terminal call is diagnosed as the
     ///   call-sequence bug it is even when the replayed action is malformed.
     /// - [`EnvironmentError::InvalidAction`] if either action element is
-    ///   non-finite (`NaN` or ±∞).
+    ///   non-finite (`NaN` or `$\pm\infty$`).
     fn step(&mut self, action: ReacherAction) -> Result<Self::SnapshotType, EnvironmentError> {
         // Guard first — ahead of the action check, the torque application and
         // the physics substeps. Whether the episode is over is a call-sequence
@@ -381,23 +382,22 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         // are `Copy` and `torques` is precomputed, so the closure borrows only
         // the world — not `self`.
         //
-        // Drive the two revolute (impulse) joints through the backend seam
-        // instead of hand-rolling body torques. For an `Impulse` joint,
-        // `apply_joint_torque(j, τ)` applies `+τ·â` to body2 and `−τ·â` to body1
-        // about the joint's world hinge axis â (here `+Z`, since both joints are
-        // built with a `+Z` axis and every dynamic link rotates only about `Z`,
-        // so `â` stays `+Z`). This reproduces the previous manual torques
-        // *exactly* by construction:
-        //   * Shoulder (root→link1): body1 = root is FIXED, so its `−τ[0]`
-        //     reaction is inert; link1 receives `+τ[0]`.
-        //   * Elbow (link1→link2): link1 receives the `−τ[1]` reaction and link2
-        //     receives `+τ[1]`.
-        // Net per body: link1 = τ[0] − τ[1], link2 = τ[1] — identical to the old
-        // `add_torque` code, modulo floating-point summation order (link1's two
-        // reaction adds vs one fused subtraction). Positive action ⇒ `+Z` torque
-        // ⇒ counterclockwise, unchanged. The env owns and constructed both
-        // joints as `+Z` revolute impulse joints, so a non-revolute/stale-handle
-        // error would be a programming error (docs/rules.md §4) — hence `expect`.
+        // Drive the two revolute (impulse) joints through the backend seam instead of hand-rolling
+        // body torques. For an `Impulse` joint, `$\text{apply\_joint\_torque}(j, \tau)$` applies
+        // `$+\tau\hat{a}$` to body2 and `$-\tau\hat{a}$` to body1 about the joint's world hinge
+        // axis `$\hat{a}$` (here `+Z`, since both joints are built with a `+Z` axis and every
+        // dynamic link rotates only about `Z`, so `$\hat{a}$` stays `+Z`). This reproduces the
+        // previous manual torques *exactly* by construction:
+        //   * Shoulder (root→link1): body1 = root is FIXED, so its `$-\tau[0]$`
+        //     reaction is inert; link1 receives `$+\tau[0]$`.
+        //   * Elbow (link1→link2): link1 receives the `$-\tau[1]$` reaction and link2
+        //     receives `$+\tau[1]$`.
+        // Net per body: `$\text{link1} = \tau[0] - \tau[1]$`, `$\text{link2} = \tau[1]$` —
+        // identical to the old `add_torque` code, modulo floating-point summation order (link1's
+        // two reaction adds vs one fused subtraction). Positive action `$\Rightarrow$` `+Z` torque
+        // `$\Rightarrow$` counterclockwise, unchanged. The env owns and constructed both joints as
+        // `+Z` revolute impulse joints, so a non-revolute/stale-handle error would be a programming
+        // error (docs/rules.md §4) — hence `expect`.
         let torques = self.control_torques(action);
         let shoulder: Rapier3DJointHandle = self.state.shoulder.into();
         let elbow: Rapier3DJointHandle = self.state.elbow.into();
@@ -427,7 +427,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
             EpisodeStatus::Running
         };
 
-        // Fingertip world-xy = (finger − target) + target.
+        // Fingertip world-xy `$= (\text{finger} - \text{target}) + \text{target}$`.
         let [tx, ty] = self.state.target_xy;
         let fx = dx + tx;
         let fy = dy + ty;
@@ -791,7 +791,7 @@ mod tests {
             assert!(obs.is_finite(), "seed {seed} produced non-finite obs");
             let theta1 = obs.theta1_sin().atan2(obs.theta1_cos());
             let theta2 = obs.theta2_sin().atan2(obs.theta2_cos());
-            // Reset noise is ±0.1; allow small float slack.
+            // Reset noise is `$\pm 0.1$`; allow small float slack.
             assert!(
                 theta1.abs() <= 0.1 + 1e-5,
                 "seed {seed}: |θ1|={} > 0.1",
@@ -849,7 +849,7 @@ mod tests {
         env.reset().unwrap();
         let snap = env.step(ReacherAction::new(0.2, -0.1)).unwrap();
         let obs = snap.observation().0;
-        // cos² + sin² ≈ 1 for each joint
+        // `$\cos^2 + \sin^2 \approx 1$` for each joint
         assert!((obs[0].powi(2) + obs[2].powi(2) - 1.0).abs() < 1e-4);
         assert!((obs[1].powi(2) + obs[3].powi(2) - 1.0).abs() < 1e-4);
         // target_x/y == state cache
@@ -948,20 +948,19 @@ mod tests {
         // the old constants were implicitly tuned around the accumulation
         // bug.
         //
-        // We assert the invariant *directly* rather than through emergent
-        // dynamics. The reacher is a chaotic, numerically stiff double pendulum:
-        // its shoulder velocity θ̇₁ diverges across CPU architectures (aarch64
-        // vs x86_64 libm/SIMD rounding), so any absolute bound on θ̇₁ is
-        // platform-dependent and was observed to hold locally yet blow past a
-        // 1 000 rad s⁻¹ cap on x86_64 CI (peak 175 local vs 2 659 CI). Instead
-        // we read the actuated link's residual `user_torque` accumulator after
-        // the rollout: the applied torque (`gear × action`) and its running sum
-        // are plain IEEE-754 adds, so this probe is bit-identical everywhere.
+        // We assert the invariant *directly* rather than through emergent dynamics. The reacher is
+        // a chaotic, numerically stiff double pendulum: its shoulder velocity `$\dot{\theta}_1$`
+        // diverges across CPU architectures (aarch64 vs x86_64 libm/SIMD rounding), so any absolute
+        // bound on `$\dot{\theta}_1$` is platform-dependent and was observed to hold locally yet
+        // blow past a 1 000 `$\text{rad s}^{-1}$` cap on x86_64 CI (peak 175 local vs 2 659 CI).
+        // Instead we read the actuated link's residual `user_torque` accumulator after the rollout:
+        // the applied torque (`$\text{gear} \times \text{action}$`) and its running sum are plain
+        // IEEE-754 adds, so this probe is bit-identical everywhere.
         //
         //   * With the fix, `step_once` calls `reset_external_forces` after the
         //     final substep, so the accumulator is ~0 (`< 1e-3`).
         //   * With the pre-fix bug the accumulator is never cleared and grows to
-        //     `steps × frame_skip × τ` — here 3 × 2 × 100 = 600 N·m — failing the
+        //     `$\text{steps} \times \text{frame\_skip} \times \tau$` — here `$3 \times 2 \times 100 = 600\ \text{N}\cdot\text{m}$` — failing the
         //     bound. (Confirmed: reverting `reset_external_forces` leaves a
         //     residual of ~600.)
         //
@@ -978,7 +977,8 @@ mod tests {
         .expect("valid config");
         env.reset().unwrap();
 
-        // Clipped action 0.5 × gear 200 ⇒ 100 N·m shoulder torque per substep.
+        // Clipped action `$0.5 \times$` gear 200 `$\Rightarrow 100\ \text{N}\cdot\text{m}$`
+        // shoulder torque per substep.
         let mut moved = false;
         for i in 0..STEPS {
             let snap = env.step(ReacherAction::new(0.5, 0.0)).unwrap();
@@ -989,9 +989,9 @@ mod tests {
             moved |= snap.observation().theta1_dot().abs() > 0.0;
         }
 
-        // link1 (shoulder) carries the actuated torque τ[0] − τ[1] = 100 N·m;
-        // its residual accumulator must be zeroed after `step`. `user_torque`
-        // returns a glam `Vec3`, so magnitude is `.length()`.
+        // link1 (shoulder) carries the actuated torque
+        // `$\tau[0] - \tau[1] = 100\ \text{N}\cdot\text{m}$`; its residual accumulator must be
+        // zeroed after `step`. `user_torque` returns a glam `Vec3`, so magnitude is `.length()`.
         let residual: f32 = env
             .world
             .bodies()

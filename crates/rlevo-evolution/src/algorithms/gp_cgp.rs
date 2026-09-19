@@ -1,9 +1,8 @@
 //! Cartesian Genetic Programming.
 //!
-//! CGP encodes a directed acyclic computation graph on a fixed
-//! `rows × cols` grid. Each node stores `(function_id, input_0, input_1)`,
-//! plus the final output gene picks which node produces the output.
-//! The genotype is a fixed-length integer vector, so populations are
+//! CGP encodes a directed acyclic computation graph on a fixed `$\text{rows} \times \text{cols}$`
+//! grid. Each node stores `(function_id, input_0, input_1)`, plus the final output gene picks which
+//! node produces the output. The genotype is a fixed-length integer vector, so populations are
 //! `Tensor<B, 2, Int>` and fit the tensor abstraction cleanly.
 //!
 //! # Evolutionary engine
@@ -67,7 +66,7 @@ pub const NUM_FUNCTIONS: usize = FUNCTION_ARITIES.len();
 /// Static configuration for a [`CartesianGeneticProgramming`] run.
 #[derive(Debug, Clone)]
 pub struct CgpConfig {
-    /// Number of offspring per generation (λ in `$(1 + \lambda)$`).
+    /// Number of offspring per generation (`$\lambda$` in `$(1 + \lambda)$`).
     pub lambda: usize,
     /// Number of inputs (independent variables) the program sees.
     pub n_inputs: usize,
@@ -111,7 +110,7 @@ impl CgpConfig {
     /// whose value is taken as the program output).
     pub const OUTPUT_GENES: usize = 1;
 
-    /// Total genome length (nodes × 3 + outputs).
+    /// Total genome length (nodes `$\times$` 3 + outputs).
     #[must_use]
     pub fn genome_len(&self) -> usize {
         self.rows * self.cols * Self::GENES_PER_NODE + Self::OUTPUT_GENES
@@ -217,7 +216,7 @@ fn sample_input_pair(col: usize, params: &CgpConfig, rng: &mut dyn Rng) -> (i64,
     let node_indices_start = params.n_inputs + min_col * params.rows;
     let node_indices_end = params.n_inputs + col * params.rows;
     let max = node_indices_end.max(params.n_inputs);
-    // Allowed inputs: 0..n_inputs (graph inputs) ∪ previous nodes.
+    // Allowed inputs: 0..n_inputs (graph inputs) `$\cup$` previous nodes.
     let input_count = params.n_inputs
         + (max - params.n_inputs)
             .saturating_sub(node_indices_start.saturating_sub(params.n_inputs));
@@ -307,8 +306,8 @@ pub fn evaluate_cgp(genome: &[i64], params: &CgpConfig, inputs: &[Vec<f32>]) -> 
 /// CGP engine can run any function set. [`evaluate_cgp`] calls this with the
 /// default [`ArithmeticFunctionSet`].
 ///
-/// `fs` is taken as a concrete monomorphized `&F` (never `&dyn FunctionSet`)
-/// so the `apply` dispatch inlines in the per-node × per-sample inner loop.
+/// `fs` is taken as a concrete monomorphized `&F` (never `&dyn FunctionSet`) so the `apply`
+/// dispatch inlines in the per-node `$\times$` per-sample inner loop.
 ///
 /// Each node supplies up to two argument slots (`input_0`, `input_1`). The
 /// opcode's [`arity`](FunctionSet::arity) selects how many of them reach
@@ -491,11 +490,10 @@ where
             return (state, m);
         }
 
-        // (1+λ): parent survives only if NO offspring strictly beats it;
-        // canonical CGP uses `>=` (under the maximise convention) to break
-        // ties in favor of offspring (neutral mutations accumulate).
-        // Sanitize NaN → −inf (worst) so a NaN offspring can never be picked as
-        // best; the raw `best_off_fit >= parent` check below then rejects it.
+        // (1+`$\lambda$`): parent survives only if NO offspring strictly beats it; canonical CGP
+        // uses `>=` (under the maximise convention) to break ties in favor of offspring (neutral
+        // mutations accumulate). Sanitize NaN → `$-\infty$` (worst) so a NaN offspring can never be
+        // picked as best; the raw `best_off_fit >= parent` check below then rejects it.
         let best_off_idx = fitness_host
             .iter()
             .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -506,8 +504,8 @@ where
         let parent_fit = state
             .parent_fitness
             .expect("parent_fitness is Some after the bootstrap tell");
-        // `total_cmp` (not `>=`) so the comparison is well-defined even at the
-        // `−∞` worst-sentinel; ties still favour the offspring (neutral drift).
+        // `total_cmp` (not `>=`) so the comparison is well-defined even at the `$-\infty$`
+        // worst-sentinel; ties still favour the offspring (neutral drift).
         if best_off_fit.total_cmp(&parent_fit) != std::cmp::Ordering::Less {
             let device = offspring.device();
             #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
@@ -541,9 +539,9 @@ fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fit
     if fitness.is_empty() {
         return;
     }
-    // Sanitize (NaN → −∞) then order with `total_cmp`: the §3 correctness floor
-    // for a direct (non-harness) caller. `best_fitness` seeds at `−∞`, so a
-    // legitimately sanitized `−∞` fitness is treated as the worst, not skipped.
+    // Sanitize (NaN → `$-\infty$`) then order with `total_cmp`: the §3 correctness floor for a
+    // direct (non-harness) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
+    // `$-\infty$` fitness is treated as the worst, not skipped.
     let sane: Vec<f32> = fitness
         .iter()
         .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -650,9 +648,9 @@ mod tests {
     }
 
     /// Regression for the `is_finite()` bootstrap sentinel vs the sanitize-to-`$-\infty$`
-    /// convention (ADR 0034). A canonical `$-\infty$` parent fitness (a `Minimize`
-    /// `$+\infty$` cost canonicalizes to `$-\infty$`) must not re-trigger the bootstrap
-    /// branch: the `$(1+\lambda)$` loop has to keep emitting λ offspring.
+    /// convention (ADR 0034). A canonical `$-\infty$` parent fitness (a `Minimize` `$+\infty$` cost
+    /// canonicalizes to `$-\infty$`) must not re-trigger the bootstrap branch: the `$(1+\lambda)$`
+    /// loop has to keep emitting `$\lambda$` offspring.
     #[test]
     fn neg_inf_parent_fitness_does_not_collapse_lambda_loop() {
         use rand::SeedableRng;
@@ -668,9 +666,9 @@ mod tests {
         let (boot, next) = strategy.ask(&params, &state, &mut rng, &device);
         assert_eq!(boot.dims()[0], 1, "bootstrap ask returns the single parent");
 
-        // Bootstrap tell with a canonical −∞ fitness. Under the old
-        // `is_finite()` sentinel this left `parent_fitness` non-finite and the
-        // next `ask` collapsed back to a single genome.
+        // Bootstrap tell with a canonical `$-\infty$` fitness. Under the old `is_finite()` sentinel
+        // this left `parent_fitness` non-finite and the next `ask` collapsed back to a single
+        // genome.
         let neg_inf = Tensor::<TestBackend, 1>::from_data(
             TensorData::new(vec![f32::NEG_INFINITY], [1]),
             &device,
@@ -682,7 +680,7 @@ mod tests {
             "bootstrap must store the sanitized −∞ parent fitness, not re-arm the sentinel"
         );
 
-        // Next ask must produce a full λ offspring population.
+        // Next ask must produce a full `$\lambda$` offspring population.
         let (offspring, _) = strategy.ask(&params, &state1, &mut rng, &device);
         assert_eq!(
             offspring.dims()[0],
@@ -706,14 +704,14 @@ mod tests {
             generation: 0,
         };
 
-        // An all-`−∞` generation must not promote any champion.
+        // An all-`$-\infty$` generation must not promote any champion.
         update_best(&mut state, &parent, &[f32::NEG_INFINITY; 3]);
         assert!(
             state.best_genome.is_none(),
             "an all −∞ generation must not promote a champion"
         );
 
-        // A finite winner (index 1) is recorded despite the `−∞` neighbours.
+        // A finite winner (index 1) is recorded despite the `$-\infty$` neighbours.
         update_best(
             &mut state,
             &parent,
@@ -849,7 +847,7 @@ mod tests {
         );
     }
 
-    /// Symbolic regression on `$x^2 + 1$` over 20 evenly spaced x ∈ [−1, 1].
+    /// Symbolic regression on `$x^2 + 1$` over 20 evenly spaced `$x \in [-1, 1]$`.
     struct SymRegression {
         params: CgpConfig,
         xs: Vec<f32>,

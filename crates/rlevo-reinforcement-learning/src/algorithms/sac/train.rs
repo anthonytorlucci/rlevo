@@ -1,11 +1,10 @@
 //! End-to-end training loop for SAC.
 //!
-//! [`train`] drives the same collect-learn cycle as TD3: reset the
-//! environment, act via [`SacAgent::act`] (uniform random during warm-up,
-//! stochastic-policy sample afterwards), push each transition into the
-//! replay buffer, and invoke [`SacAgent::learn_step`] once warm-up is
-//! complete. All SAC-specific behaviour (entropy-augmented target, α auto-
-//! tuning, twin critic updates) is contained inside `learn_step`.
+//! [`train`] drives the same collect-learn cycle as TD3: reset the environment, act via
+//! [`SacAgent::act`] (uniform random during warm-up, stochastic-policy sample afterwards), push
+//! each transition into the replay buffer, and invoke [`SacAgent::learn_step`] once warm-up is
+//! complete. All SAC-specific behaviour (entropy-augmented target, `$\alpha$` auto- tuning, twin
+//! critic updates) is contained inside `learn_step`.
 
 use burn::tensor::backend::AutodiffBackend;
 use rand::Rng;
@@ -105,13 +104,12 @@ where
         // `done` drives episode bookkeeping (metrics, `env.reset()`): the
         // episode is over either way.
         //
-        // `terminated` is the Bellman bootstrap mask and is true only for an
-        // *environmental* termination. On a truncation (time-limit cutoff) the
-        // MDP has not ended, so `next_obs` is a real continuation state and
-        // `γ · V(next_obs)` must survive in the target. Masking on `done` here
-        // would zero the bootstrap at every timeout and bias Q downward on any
-        // time-limited env (Pardo et al., "Time Limits in Reinforcement
-        // Learning", ICML 2018, Eq. 6 — partial-episode bootstrapping).
+        // `terminated` is the Bellman bootstrap mask and is true only for an *environmental*
+        // termination. On a truncation (time-limit cutoff) the MDP has not ended, so `next_obs` is
+        // a real continuation state and `$\gamma \cdot V(\text{next\_obs})$` must survive in the
+        // target. Masking on `done` here would zero the bootstrap at every timeout and bias Q
+        // downward on any time-limited env (Pardo et al., "Time Limits in Reinforcement Learning",
+        // ICML 2018, Eq. 6 — partial-episode bootstrapping).
         let done = next_snapshot.is_done();
         let terminated = next_snapshot.is_terminated();
         let next_obs = next_snapshot.observation().clone();
@@ -179,12 +177,11 @@ where
                 q_values = last_q_mean,
                 alpha = agent.last_alpha(),
                 entropy = agent.last_entropy(),
-                // Aggregate over all three loss guards (critic-1, critic-2,
-                // actor) — read from the agent, never threaded through a stats
-                // struct, so a future fourth guard site is picked up here for
-                // free (ADR 0072 §3). Excludes α-update skips: those go
-                // through a separate closed-form scalar Adam guard
-                // (`LogAlpha::adam_step`) that isn't one of the three.
+                // Aggregate over all three loss guards (critic-1, critic-2, actor) — read from the
+                // agent, never threaded through a stats struct, so a future fourth guard site is
+                // picked up here for free (ADR 0072 §3). Excludes `$\alpha$`-update skips: those go
+                // through a separate closed-form scalar Adam guard (`LogAlpha::adam_step`) that
+                // isn't one of the three.
                 skipped_updates = agent.skipped_updates(),
                 "sac training progress"
             );

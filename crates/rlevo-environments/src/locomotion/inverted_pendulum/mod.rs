@@ -16,7 +16,7 @@
 //! * Pole: dynamic capsule attached to the cart by a revolute impulse joint
 //!   about the world-y axis. Gravity pulls it down; the agent's job is to
 //!   balance it upright by sliding the cart.
-//! * Action: `Box(-3, 3, (1,))` — force target; applied as `action · gear`
+//! * Action: `Box(-3, 3, (1,))` — force target; applied as `$\text{action} \cdot \text{gear}$`
 //!   with `gear = [100]` (Gymnasium XML) directly to the cart.
 //! * Observation: `[cart_x, pole_angle, cart_vx, pole_angvel_y]` (4-dim).
 //! * Reward: `+1.0` per step while the pole is healthy; `0.0` otherwise.

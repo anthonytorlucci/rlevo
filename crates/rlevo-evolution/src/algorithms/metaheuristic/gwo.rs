@@ -91,7 +91,7 @@ pub struct GwoState<B: Backend> {
     pack: Tensor<B, 2>,
     /// Host-side fitness cache.
     fitness: Vec<f32>,
-    /// Best-so-far genome, shape `(1, D)` — corresponds to α.
+    /// Best-so-far genome, shape `(1, D)` — corresponds to `$\alpha$`.
     best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness.
     best_fitness: f32,
@@ -137,7 +137,7 @@ impl<B: Backend> GwoState<B> {
         &self.fitness
     }
 
-    /// Best-so-far genome (α), or `None` before the first `tell`.
+    /// Best-so-far genome (`$\alpha$`), or `None` before the first `tell`.
     #[must_use]
     pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
         self.best_genome.as_ref()
@@ -284,9 +284,9 @@ where
         let a = 2.0 * (1.0 - (t / max_t).min(1.0));
 
         let mut update = Tensor::<B, 2>::zeros([pop_size, genome_dim], device);
-        // Host-sample r1, r2 ∈ U[0,1) per leader from deterministic
-        // `seed_stream`s (distinct purposes) so the draws stay reproducible
-        // across thread schedules, rather than racing the global Flex RNG.
+        // Host-sample r1, r2 `$\in$` U[0,1) per leader from deterministic `seed_stream`s (distinct
+        // purposes) so the draws stay reproducible across thread schedules, rather than racing the
+        // global Flex RNG.
         #[allow(clippy::cast_sign_loss)]
         for k in 0..3 {
             let gen_k = state.generation as u64 * 3 + k as u64;
@@ -374,8 +374,8 @@ where
         (state, m)
     }
 
-    /// Returns the α (best-so-far) genome and its fitness, or `None` before
-    /// the first [`tell`](Strategy::tell) call.
+    /// Returns the `$\alpha$` (best-so-far) genome and its fitness, or `None` before the first
+    /// [`tell`](Strategy::tell) call.
     fn best(&self, state: &GwoState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome
@@ -384,15 +384,14 @@ where
     }
 }
 
-/// Indices of the three largest values in `xs` — the α, β, δ leaders.
+/// Indices of the three largest values in `xs` — the `$\alpha$`, `$\beta$`, `$\delta$` leaders.
 ///
-/// Values are sanitised per the maximise convention (`rules.md` §3,
-/// ADR 0034) before comparison: `NaN → −∞` (worst), `+∞ → f32::MAX`. The
-/// harness chokepoint already pre-sanitises the fitness a [`Strategy`]
-/// receives, but a direct (non-harness) caller — a unit test or a custom
-/// driver — can seed `state.fitness` with a raw `NaN`; sanitising here keeps a
-/// non-finite value from becoming a permanent leader (a `NaN` in `xs[2]` would
-/// otherwise never lose the `v > vals[2]` comparison and be pinned as δ).
+/// Values are sanitised per the maximise convention (`rules.md` §3, ADR 0034) before comparison:
+/// `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. The harness chokepoint
+/// already pre-sanitises the fitness a [`Strategy`] receives, but a direct (non-harness) caller — a
+/// unit test or a custom driver — can seed `state.fitness` with a raw `NaN`; sanitising here keeps
+/// a non-finite value from becoming a permanent leader (a `NaN` in `xs[2]` would otherwise never
+/// lose the `v > vals[2]` comparison and be pinned as `$\delta$`).
 ///
 /// # Panics
 ///
@@ -507,10 +506,10 @@ mod tests {
         assert_eq!(top, [5, 2, 0]);
     }
 
-    // Regression for the direct-caller (non-harness) bypass path: a raw NaN in
-    // `state.fitness` must sanitise to −∞ (worst) and never be pinned as a
-    // leader. Before the sanitise fix a NaN in `xs[2]` was never displaced by
-    // `v > vals[2]` (NaN loses every comparison), silently freezing it as δ.
+    // Regression for the direct-caller (non-harness) bypass path: a raw NaN in `state.fitness` must
+    // sanitise to `$-\infty$` (worst) and never be pinned as a leader. Before the sanitise fix a
+    // NaN in `xs[2]` was never displaced by `v > vals[2]` (NaN loses every comparison), silently
+    // freezing it as `$\delta$`.
     #[test]
     fn argtop3_max_nan_never_becomes_a_leader() {
         // NaN sits at index 2 — exactly the slot that survived unsanitised.
@@ -529,8 +528,8 @@ mod tests {
         );
     }
 
-    // The strictly-highest-fitness row must be picked as α (index 0 of the
-    // returned triple), proving the comparison direction matches maximise.
+    // The strictly-highest-fitness row must be picked as `$\alpha$` (index 0 of the returned
+    // triple), proving the comparison direction matches maximise.
     #[test]
     fn argtop3_max_alpha_is_the_strict_maximum() {
         let xs = [1.0_f32, 7.0, 3.0, 42.0, 2.0, 5.0];
@@ -543,11 +542,10 @@ mod tests {
 
     #[test]
     fn gwo_converges_on_sphere_d10() {
-        // GWO is a "legacy comparator" per the module-level candor note;
-        // it converges strongly on Sphere but does not reach machine
-        // precision as quickly as DE/Rand1/bin. Budget 600 gens keeps
-        // the test within the acceptance bar (rank-1 acceptable within
-        // 2× of the classical baselines).
+        // GWO is a "legacy comparator" per the module-level candor note; it converges strongly on
+        // Sphere but does not reach machine precision as quickly as DE/Rand1/bin. Budget 600 gens
+        // keeps the test within the acceptance bar (rank-1 acceptable within `$2\times$` of the
+        // classical baselines).
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
         let params = GwoConfig::default_for(32, 10);
@@ -587,7 +585,8 @@ mod tests {
 
     #[test]
     fn minimal_pack_of_three_runs() {
-        // pop_size = 3 is the α/β/δ minimum — every wolf is also a leader.
+        // pop_size = 3 is the `$\alpha$`/`$\beta$`/`$\delta$` minimum — every wolf is also a
+        // leader.
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
         let params = GwoConfig::default_for(3, 3);
@@ -691,13 +690,11 @@ mod tests {
             "tell stored a raw NaN in the fitness cache: {:?}",
             state.fitness()
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
-        // clears `is_nan` yet would tie wolf 0 with the finite 0.0 rows and let
-        // it be elected alpha — the leader poisoning this regression exists to
-        // catch.
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would tie wolf 0 with the finite 0.0 rows and let it be
+        // elected alpha — the leader poisoning this regression exists to catch.
         assert!(
             state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
             "sanitized NaN must land as -inf in the wolf-0 fitness cache: {:?}",

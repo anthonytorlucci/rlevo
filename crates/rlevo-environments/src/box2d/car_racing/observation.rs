@@ -1,4 +1,4 @@
-//! Observation type for `CarRacing`: a 96×96×3 RGB pixel buffer.
+//! Observation type for `CarRacing`: a `$96 \times 96 \times 3$` RGB pixel buffer.
 //!
 //! [`CarRacingObservation`] wraps the raw pixel output of the software
 //! rasterizer. The buffer is stored row-major (top to bottom), with three `u8`
@@ -11,11 +11,10 @@
 //! step is needed or expected. Consumers that feed a Burn `conv2d` must permute
 //! the frame from HWC to CHW first.
 
-// The 96×96×3 pixel array (27,648 bytes) exceeds clippy's 16 KiB stack-array
-// threshold, but every construction site immediately moves it into a `Box` or
-// `Arc`, and the array type is part of this module's public observation API
-// (`Arc<[u8; PIXEL_BYTES]>`). Switching to a heap-allocated slice to satisfy
-// the lint would change that public type for no runtime benefit.
+// The `$96 \times 96 \times 3$` pixel array (27,648 bytes) exceeds clippy's 16 KiB stack-array
+// threshold, but every construction site immediately moves it into a `Box` or `Arc`, and the array
+// type is part of this module's public observation API (`Arc<[u8; PIXEL_BYTES]>`). Switching to a
+// heap-allocated slice to satisfy the lint would change that public type for no runtime benefit.
 #![allow(clippy::large_stack_arrays)]
 
 use std::sync::Arc;
@@ -26,7 +25,7 @@ use burn::tensor::{Tensor, backend::Backend};
 
 use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 
-/// 96×96×3 pixel observation for `CarRacing`.
+/// `$96 \times 96 \times 3$` pixel observation for `CarRacing`.
 ///
 /// Pixel values are stored as `u8` in `[0, 255]`, row-major, RGB.
 ///
@@ -46,8 +45,8 @@ use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 /// (synthetic pixel over grid).
 #[derive(Clone)]
 pub struct CarRacingObservation {
-    /// Raw pixel buffer: 96 × 96 × 3 = 27 648 bytes, shared via `Arc` so clones
-    /// are cheap refcount bumps.
+    /// Raw pixel buffer: `$96 \times 96 \times 3$` = 27 648 bytes, shared via `Arc` so clones are
+    /// cheap refcount bumps.
     pub pixels: Arc<[u8; PIXEL_BYTES]>,
 }
 
@@ -96,9 +95,8 @@ impl Default for CarRacingObservation {
     }
 }
 
-/// Hand-written `Serialize` — retained because serde has no derive for arrays
-/// longer than 32 elements, and `pixels` holds `PIXEL_BYTES` (96 × 96 × 3 =
-/// 27,648) of them.
+/// Hand-written `Serialize` — retained because serde has no derive for arrays longer than 32
+/// elements, and `pixels` holds `PIXEL_BYTES` (`$96 \times 96 \times 3$` = 27,648) of them.
 ///
 /// This is not a leftover of a trait bound: `Observation<R>` no longer requires
 /// serde (ADR 0064). The impl stays because [`CarRacingObservation`] is part of
@@ -115,9 +113,9 @@ impl serde::Serialize for CarRacingObservation {
     }
 }
 
-/// Hand-written [`Visitor`](serde::de::Visitor)-based `Deserialize` — the mirror
-/// of the `Serialize` impl above, and retained for the same reason: serde has no
-/// derive for a `PIXEL_BYTES`-long array (96 × 96 × 3 = 27,648 > 32).
+/// Hand-written [`Visitor`](serde::de::Visitor)-based `Deserialize` — the mirror of the `Serialize`
+/// impl above, and retained for the same reason: serde has no derive for a `PIXEL_BYTES`-long array
+/// (`$96 \times 96 \times 3$` = `$27{,}648 > 32$`).
 ///
 /// It exists because of that array-length limit, **not** because of any trait
 /// bound — `Observation<R>` no longer requires serde (ADR 0064). Do not try to
@@ -178,8 +176,8 @@ impl HostRow<3> for CarRacingObservation {
         // type ever changes, THIS LINE fails to compile and the override must
         // be re-derived, not re-asserted.
         let _: &[u8; PIXEL_BYTES] = &self.pixels;
-        // `u8 -> f32` (and a divide by a finite non-zero constant) is total:
-        // no element of this row can be NaN or ±Inf.
+        // `u8 -> f32` (and a divide by a finite non-zero constant) is total: no element of this row
+        // can be `NaN` or `$\pm\infty$`.
         true
     }
 }

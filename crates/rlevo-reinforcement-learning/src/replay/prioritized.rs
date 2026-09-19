@@ -41,16 +41,16 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// | Paper | Here |
 /// |---|---|
 /// | §3.3 `$p_i = \lvert \delta_i \rvert + \epsilon$` | [`Priority::from_td_error`] / [`priority_from_td_error`](Self::priority_from_td_error) |
-/// | §3.3 ε "a small positive constant" — **no value given** | [`DEFAULT_PRIORITY_EPSILON`] = `1e-6`, **our** choice, justified there |
+/// | §3.3 `$\epsilon$` "a small positive constant" — **no value given** | [`DEFAULT_PRIORITY_EPSILON`] = `1e-6`, **our** choice, justified there |
 /// | Eq. 1 `$P(i) = p_i^\alpha / \sum_k p_k^\alpha$` | [`sampling_probability`](Self::sampling_probability), via a sum-tree |
-/// | Eq. 1 "α = 0 corresponding to the uniform case" | exact: `p^0 == 1` for every stored `p`, which is `> 0` by construction |
+/// | Eq. 1 "`$\alpha$` = 0 corresponding to the uniform case" | exact: `p^0 == 1` for every stored `p`, which is `> 0` by construction |
 /// | Appendix B.2.1 stratified draw | one draw per equal-mass segment — **not** i.i.d. |
 /// | Alg. 1 line 6 `$p_t = \max_{i<t} p_i$` | [`max_priority`](Self::max_priority), a running max tracked incrementally |
 /// | §3.4 `$w_i = (1/N \cdot 1/P(i))^\beta$` | [`sample`](Self::sample) — see *Importance weights* below |
 /// | Alg. 1 line 10 max-normalization | over the **sampled minibatch** |
 /// | Alg. 1 lines 11-12 priority writeback | [`update_priorities`](Self::update_priorities) |
 /// | Appendix B.2.1 sum-tree | O(log N) update and draw |
-/// | Table 3 proportional row `$\alpha = 0.6$`, `$\beta_0 = 0.4 \to 1$` | α defaults here; β and its schedule live on the agent config (ADR 0050 §11) |
+/// | Table 3 proportional row `$\alpha = 0.6$`, `$\beta_0 = 0.4 \to 1$` | `$\alpha$` defaults here; `$\beta$` and its schedule live on the agent config (ADR 0050 §11) |
 ///
 /// # Importance weights: which maximum, and why the `1/N` vanishes
 ///
@@ -65,11 +65,10 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// happened to be drawn alongside it), but it is **not Algorithm 1**, and it is
 /// not what ships here.
 ///
-/// Appendix B.2.1 warns that "this normalization interacts with annealing on β",
-/// so the two are not independent knobs. Accordingly the normalization is folded
-/// into the same expression as `$w_i$`, and there is **no way to obtain
-/// unnormalized weights** from this type. Because `w` is monotonically
-/// decreasing in `P`, the minibatch maximum is attained at the minimum sampled
+/// Appendix B.2.1 warns that "this normalization interacts with annealing on `$\beta$`", so the two
+/// are not independent knobs. Accordingly the normalization is folded into the same expression as
+/// `$w_i$`, and there is **no way to obtain unnormalized weights** from this type. Because `w` is
+/// monotonically decreasing in `P`, the minibatch maximum is attained at the minimum sampled
 /// probability, and the ratio collapses:
 ///
 /// ```math
@@ -79,12 +78,11 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// \left(\frac{m_{min}}{m_i}\right)^{\!\beta}
 /// ```
 ///
-/// where `$m = p^\alpha$` is the unnormalized mass. Both `N` and `p_total` cancel
-/// exactly. The shipped code evaluates the right-hand form, which is *the same
-/// number* as the left with strictly fewer rounding steps and no dependence on
-/// `N` — a simplification of the arithmetic, not of the algorithm. One
-/// consequence is worth pinning: the largest weight in every batch is exactly
-/// `1.0`, bit for bit, because `1.0f64.powf(β) == 1.0`.
+/// where `$m = p^\alpha$` is the unnormalized mass. Both `N` and `p_total` cancel exactly. The
+/// shipped code evaluates the right-hand form, which is *the same number* as the left with strictly
+/// fewer rounding steps and no dependence on `N` — a simplification of the arithmetic, not of the
+/// algorithm. One consequence is worth pinning: the largest weight in every batch is exactly `1.0`,
+/// bit for bit, because `$1.0\text{f64.powf}(\beta) = 1.0$`.
 ///
 /// **`$w_i$` scales the per-sample loss only.** It must never enter the target
 /// computation and must never alter `$\delta$` itself (ADR 0050 §10). This type cannot
@@ -96,8 +94,7 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// Priorities are [`Priority`] values: finite and strictly positive **by
 /// construction**. The pre-ADR-0050 `memory.rs` stored bare `f32` unvalidated,
 /// and a single `NaN` silently pinned its sampler on the oldest transition
-/// forever. See the [`priority`](super::priority) module docs for the full
-/// chain.
+/// forever. See the `priority` module docs for the full chain.
 ///
 /// # Reproducibility
 ///
@@ -143,8 +140,8 @@ pub struct PrioritizedReplay<T> {
     /// overwrites in place — a `VecDeque` with `pop_front` would shift every
     /// slot on eviction and force a full sum-tree rebuild per insert.
     items: Vec<T>,
-    /// Raw priorities `p_i`, parallel to `items`. Kept alongside the tree's
-    /// `$p_i^\alpha$` masses so `α` never has to be inverted to recover `p_i`.
+    /// Raw priorities `p_i`, parallel to `items`. Kept alongside the tree's `$p_i^\alpha$` masses
+    /// so `$\alpha$` never has to be inverted to recover `p_i`.
     priorities: Vec<Priority>,
     /// `$p_i^\alpha$` by slot, plus `p_total` and the inverse CDF.
     index: SumTree,
@@ -208,13 +205,13 @@ impl<T> PrioritizedReplay<T> {
         self.capacity
     }
 
-    /// Schaul Eq. 1's α.
+    /// Schaul Eq. 1's `$\alpha$`.
     #[must_use]
     pub const fn priority_exponent(&self) -> f32 {
         self.priority_exponent
     }
 
-    /// Schaul §3.3's ε.
+    /// Schaul §3.3's `$\epsilon$`.
     #[must_use]
     pub const fn priority_epsilon(&self) -> f32 {
         self.priority_epsilon
@@ -241,10 +238,11 @@ impl<T> PrioritizedReplay<T> {
         self.pushes
     }
 
-    /// Schaul §3.3's `$p_i = |\delta_i| + \epsilon$`, applying **this buffer's** configured ε.
+    /// Schaul §3.3's `$p_i = |\delta_i| + \epsilon$`, applying **this buffer's** configured
+    /// `$\epsilon$`.
     ///
-    /// Prefer this over [`Priority::from_td_error`] at agent call sites, so
-    /// there is one ε rather than two copies that can drift apart.
+    /// Prefer this over [`Priority::from_td_error`] at agent call sites, so there is one
+    /// `$\epsilon$` rather than two copies that can drift apart.
     ///
     /// # Errors
     ///
@@ -368,10 +366,9 @@ impl<T> PrioritizedReplay<T> {
     /// oracle adds them left to right, and `f64` accumulation over
     /// `f32`-precision inputs is what makes those two orders agree exactly.
     ///
-    /// At `$\alpha = 0$` this is `1.0` for every stored priority — `p` is strictly
-    /// positive by construction, so there is no `0^0` case — which is how
-    /// Eq. 1's "α = 0 corresponding to the uniform case" is recovered *exactly*,
-    /// not approximately.
+    /// At `$\alpha = 0$` this is `1.0` for every stored priority — `p` is strictly positive by
+    /// construction, so there is no `0^0` case — which is how Eq. 1's "`$\alpha$` = 0 corresponding
+    /// to the uniform case" is recovered *exactly*, not approximately.
     fn mass(&self, p: Priority) -> f64 {
         f64::from(p.get()).powf(f64::from(self.priority_exponent))
     }
@@ -492,7 +489,7 @@ impl<T> ReplayStrategy<T> for PrioritizedReplay<T> {
     /// i.i.d. categorical draws — see the [type documentation](Self) for the
     /// weight derivation and for which maximum the normalization uses.
     ///
-    /// # β
+    /// # `$\beta$`
     ///
     /// `beta` is the *already-evaluated* importance exponent for this step; the
     /// annealing schedule lives on the agent config (ADR 0050 §11). Its
@@ -791,8 +788,8 @@ mod tests {
         );
     }
 
-    /// Schaul Eq. 1: "α = 0 corresponding to the uniform case". This must be
-    /// **exact**, not approximate, across a spread of priority magnitudes.
+    /// Schaul Eq. 1: "`$\alpha$` = 0 corresponding to the uniform case". This must be **exact**,
+    /// not approximate, across a spread of priority magnitudes.
     #[test]
     fn test_alpha_zero_reduces_exactly_to_uniform() {
         let b = filled(5, 0.0, &[1e-6, 0.5, 7.0, 1234.0, 1e6]);
@@ -814,11 +811,10 @@ mod tests {
 
     // ---- Appendix B.2.1: stratified sampling -----------------------------
 
-    /// With `k` equal-priority transitions and `k` draws, each equal-mass
-    /// segment coincides with exactly one transition, so the batch is forced to
-    /// contain every transition exactly once — for **every** seed. An i.i.d.
-    /// categorical sampler produces that with probability `k!/k^k` (≈1.5% at
-    /// `k = 6`), so this test separates the two algorithms outright.
+    /// With `k` equal-priority transitions and `k` draws, each equal-mass segment coincides with
+    /// exactly one transition, so the batch is forced to contain every transition exactly once —
+    /// for **every** seed. An i.i.d. categorical sampler produces that with probability `k!/k^k`
+    /// (`$\approx$`1.5% at `k = 6`), so this test separates the two algorithms outright.
     #[test]
     fn test_sampling_is_stratified_not_iid() {
         let b = filled(6, 0.6, &[1.0; 6]);
@@ -977,8 +973,7 @@ mod tests {
         );
     }
 
-    /// Equal priorities carry no bias to correct, so every weight is 1
-    /// regardless of β.
+    /// Equal priorities carry no bias to correct, so every weight is 1 regardless of `$\beta$`.
     #[test]
     fn test_uniform_priorities_yield_unit_weights_for_any_beta() {
         let b = filled(4, 0.6, &[3.0; 4]);

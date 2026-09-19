@@ -552,10 +552,10 @@ mod tests {
         }
     }
 
-    /// Stratification, not i.i.d.: with `k` equal-mass slots and `k` draws every
-    /// segment boundary coincides with a slot boundary, so the draw is forced to
-    /// be `[0, 1, ..., k-1]` regardless of seed. An i.i.d. categorical sampler
-    /// reproduces that with probability `k!/k^k` — ≈1.5% at `k = 6`.
+    /// Stratification, not i.i.d.: with `k` equal-mass slots and `k` draws every segment boundary
+    /// coincides with a slot boundary, so the draw is forced to be `[0, 1, ..., k-1]` regardless of
+    /// seed. An i.i.d. categorical sampler reproduces that with probability `k!/k^k` —
+    /// `$\approx$`1.5% at `k = 6`.
     #[test]
     fn test_stratified_draw_puts_exactly_one_draw_per_segment() {
         let (tree, _) = build_pair(&[1.0; 6]);

@@ -95,12 +95,12 @@ the proof — the proof is the comment.
 
 ### 3. Two conforming shapes, neither an exception to the other
 
-**Square hull of an asymmetric domain.** Branin `(-5, 15)` (hull of $[-5,10] \times
-[0,15]$), Trefethen `(-6.5, 6.5)`, Bukin6 `(-15, 3)`. A hull **does** admit
-points outside the published rectangle — Bukin6's hull admits $x_1 = +2$, well
-outside its `[-15, -5]` — and that is exactly what **O2 certifies as harmless**:
-the extra area contains nothing better than `f*`, so it costs search effort, not
-correctness.
+**Square hull of an asymmetric domain.** Branin `(-5, 15)` (hull of
+$[-5,10] \times [0,15]$), Trefethen `(-6.5, 6.5)`, Bukin6 `(-15, 3)`. A hull
+**does** admit points outside the published rectangle — Bukin6's hull admits
+$x_1 = +2$, well outside its `[-15, -5]` — and that is exactly what **O2
+certifies as harmless**: the extra area contains nothing better than `f*`, so it
+costs search effort, not correctness.
 
 **Cited reduced range of an impractically large canonical domain.**
 RosenbrockFlat `(-30, 30)`, reduced from the canonical $[-2000, 2000]^n$
@@ -266,13 +266,13 @@ representable, at which point one rectangle type serves both (Open questions).
   $(x_1^2+x_2^2)/4$ term is coercive), so it is not the source of any box.
 - Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions
   Repository*, propagated via Gavana's `benchmark_functions` (2013) — source of
-  Trefethen's **asymmetric benchmark box** $x_1 \in [-6.5, 6.5]$, $x_2 \in [-4.5,
-  4.5]$, whose square hull `(-6.5, 6.5)` this ADR adopts. Al-Roomi's page lists
-  Mishra, S. (2006), *"Some New Test Functions for Global Optimization and
-  Performance of Repulsive Particle Swarm Method"*, MPRA Paper 2718, among its
-  references, but Mishra's paper does not itself discuss the Trefethen
-  function or these bounds — the box is attributed here to Al-Roomi/Gavana,
-  not to Mishra.
+  Trefethen's **asymmetric benchmark box** $x_1 \in [-6.5, 6.5]$,
+  $x_2 \in [-4.5, 4.5]$, whose square hull `(-6.5, 6.5)` this ADR adopts.
+  Al-Roomi's page lists Mishra, S. (2006), *"Some New Test Functions for Global
+  Optimization and Performance of Repulsive Particle Swarm Method"*, MPRA Paper
+  2718, among its references, but Mishra's paper does not itself discuss the
+  Trefethen function or these bounds — the box is attributed here to
+  Al-Roomi/Gavana, not to Mishra.
 - Monismith, D. (2010) — the canonical $[-2000, 2000]^n$ side constraints of the
   modified (flat) Rosenbrock; Chen, Y. (1997) — the reduced `[-30, 30]` range
   adopted here under this ADR's own Decision 3.

@@ -45,11 +45,9 @@
 //!
 //! # DE trial-vector construction
 //!
-//! Classical DE computes `v_i = x_{r1} + F · (x_{r2} − x_{r3})` plus
-//! a binomial-crossover mask per gene. In
-//! [`crate::algorithms::de`] this is composed from three `select`s,
-//! one subtract, one `mul_scalar`, one mask-build, and one
-//! `mask_where` — seven kernel launches per generation.
+//! Classical DE computes `$v_i = x_{r1} + F (x_{r2} - x_{r3})$` plus a binomial-crossover mask per
+//! gene. In [`crate::algorithms::de`] this is composed from three `select`s, one subtract, one
+//! `mul_scalar`, one mask-build, and one `mask_where` — seven kernel launches per generation.
 //!
 //! A fused kernel that takes the whole population plus pre-sampled
 //! indices and emits the trial vector in one pass:
@@ -65,8 +63,8 @@
 //! )
 //! ```
 //!
-//! Expected impact: DE's inner loop is dominated by these 7 launches;
-//! collapsing to 1 would likely double throughput at `pop_size ≥ 256`.
+//! Expected impact: DE's inner loop is dominated by these 7 launches; collapsing to 1 would likely
+//! double throughput at `$\text{pop\_size} \geq 256$`.
 //!
 //! # Fitness-proportionate (roulette) selection
 //!

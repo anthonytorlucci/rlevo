@@ -1,8 +1,8 @@
 //! FrozenLake-v1 environment.
 //!
-//! A grid-world where the agent walks across a frozen lake to reach a goal without falling
-//! into holes. Supports 4×4 and 8×8 preset maps as well as custom or procedurally generated
-//! layouts. Random maps are validated by BFS to ensure the goal is always reachable.
+//! A grid-world where the agent walks across a frozen lake to reach a goal without falling into
+//! holes. Supports `$4 \times 4$` and `$8 \times 8$` preset maps as well as custom or procedurally
+//! generated layouts. Random maps are validated by BFS to ensure the goal is always reachable.
 //!
 //! ## Tile types
 //!
@@ -15,7 +15,8 @@
 //!
 //! ## Observation space
 //!
-//! Integer state id `row × ncol + col` in `[0, nrow × ncol)`.
+//! Integer state id `$\text{row} \times \text{ncol} + \text{col}$` in
+//! `$[0, \text{nrow} \times \text{ncol})$`.
 //!
 //! ## Action space
 //!
@@ -23,9 +24,8 @@
 //!
 //! ## Slippery mode
 //!
-//! When enabled, the intended direction succeeds with probability `success_rate`
-//! (default 1/3); each perpendicular direction occurs with probability
-//! `(1 − success_rate) / 2`.
+//! When enabled, the intended direction succeeds with probability `success_rate` (default 1/3);
+//! each perpendicular direction occurs with probability `$(1 - \text{success\_rate})/2$`.
 
 use std::collections::VecDeque;
 
@@ -78,9 +78,9 @@ impl TryFrom<char> for Tile {
 /// Built-in preset map sizes for [`FrozenMapSpec::Preset`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrozenPreset {
-    /// The classic 4×4 map: `"SFFF" / "FHFH" / "FFFH" / "HFFG"`.
+    /// The classic `$4 \times 4$` map: `"SFFF" / "FHFH" / "FFFH" / "HFFG"`.
     Four4x4,
-    /// The classic 8×8 map with a longer path and more holes.
+    /// The classic `$8 \times 8$` map with a longer path and more holes.
     Eight8x8,
 }
 
@@ -151,8 +151,8 @@ impl Default for RewardSchedule {
 
 /// Configuration for the [`FrozenLake`] environment.
 ///
-/// Build with [`FrozenLakeConfig::builder`] for full control, or use
-/// [`FrozenLakeConfig::default`] for the standard random 8×8 slippery variant.
+/// Build with [`FrozenLakeConfig::builder`] for full control, or use [`FrozenLakeConfig::default`]
+/// for the standard random `$8 \times 8$` slippery variant.
 ///
 /// # Examples
 ///
@@ -234,7 +234,8 @@ impl FrozenLakeConfigBuilder {
 
     /// Sets the probability of moving in the intended direction when slippery mode is active.
     ///
-    /// The two perpendicular directions each receive probability `(1 − rate) / 2`. Default: `1/3`.
+    /// The two perpendicular directions each receive probability `$(1 - \text{rate})/2$`. Default:
+    /// `1/3`.
     #[must_use]
     pub fn success_rate(mut self, r: f32) -> Self {
         self.success_rate = Some(r);
@@ -451,12 +452,12 @@ impl State<1> for FrozenLakeState {
     }
 }
 
-/// Agent-visible observation: integer state id `row × ncol + col`.
+/// Agent-visible observation: integer state id `$\text{row} \times \text{ncol} + \text{col}$`.
 ///
-/// The shape constant is fixed at 64 (8×8 maximum), even for smaller maps.
+/// The shape constant is fixed at 64 (`$8 \times 8$` maximum), even for smaller maps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrozenLakeObservation {
-    /// Linear index: `row × ncol + col`.
+    /// Linear index: `$\text{row} \times \text{ncol} + \text{col}$`.
     pub state_id: u16,
 }
 
@@ -590,8 +591,8 @@ fn apply_action(row: u8, col: u8, action: FrozenLakeAction, nrow: u8, ncol: u8) 
 
 /// FrozenLake-v1 environment.
 ///
-/// Construction is infallible via `new()` (uses default random 8×8 map).
-/// For custom maps, use `with_config(config)` which may return a [`MapError`].
+/// Construction is infallible via `new()` (uses default random `$8 \times 8$` map). For custom
+/// maps, use `with_config(config)` which may return a [`MapError`].
 ///
 /// # Episode lifecycle
 ///
@@ -980,7 +981,7 @@ mod tests {
         let TabularLayout::Grid(grid) = snap.layout else {
             panic!("FrozenLake must project a grid layout");
         };
-        // The classic 4×4 preset.
+        // The classic `$4 \times 4$` preset.
         assert_eq!(grid.width, 4);
         assert_eq!(grid.height, 4);
         assert_eq!(grid.cells.len(), 16);
@@ -1078,14 +1079,14 @@ mod tests {
     }
 
     #[test]
-    /// Verifies the 4×4 preset map has exactly 16 cells.
+    /// Verifies the `$4 \times 4$` preset map has exactly 16 cells.
     fn four_by_four_has_16_states() {
         let env = four_env();
         assert_eq!(env.map.nrow * env.map.ncol, 16);
     }
 
     #[test]
-    /// Verifies the 4×4 preset has start at index 0 and goal at index 15.
+    /// Verifies the `$4 \times 4$` preset has start at index 0 and goal at index 15.
     fn default_start_is_0_goal_is_15() {
         let env = four_env();
         assert_eq!(env.map.start_pos, 0);
@@ -1093,7 +1094,7 @@ mod tests {
     }
 
     #[test]
-    /// Verifies the observation shape is fixed at 64 (8×8 max).
+    /// Verifies the observation shape is fixed at 64 (`$8 \times 8$` max).
     fn obs_shape() {
         assert_eq!(FrozenLakeObservation::shape(), [64]);
     }
@@ -1103,9 +1104,9 @@ mod tests {
     fn reached_goal_terminates() {
         let mut env = four_env();
         env.reset().unwrap();
-        // Navigate to (3,3) from (0,0) in the 4x4 map deterministically.
-        // Path: Down×3, Right×3 (avoiding holes at (1,1),(1,3),(2,3),(3,0)).
-        // A safe route in SFFF/FHFH/FFFH/HFFG:
+        // Navigate to (3,3) from (0,0) in the 4x4 map deterministically. Path:
+        // `$\text{Down}\times 3$`, `$\text{Right}\times 3$` (avoiding holes at
+        // (1,1),(1,3),(2,3),(3,0)). A safe route in SFFF/FHFH/FFFH/HFFG:
         // (0,0)→(1,0)→(2,0)→(2,1)→(2,2)→(3,2)→(3,3)
         let path = [
             FrozenLakeAction::Down,
@@ -1169,7 +1170,7 @@ mod tests {
     }
 
     #[test]
-    /// Verifies that 100 randomly generated 8×8 maps all contain a reachable goal.
+    /// Verifies that 100 randomly generated `$8 \times 8$` maps all contain a reachable goal.
     fn generate_random_map_is_solvable() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
@@ -1212,7 +1213,7 @@ mod tests {
             }
         }
         let p = right_count as f32 / n as f32;
-        // With success_rate = 1/3, expected p ≈ 1/3.
+        // With success_rate = 1/3, expected p `$\approx 1/3$`.
         let tol = 3.0 * ((1.0f32 / 3.0) * (2.0 / 3.0) / n as f32).sqrt();
         assert!((p - 1.0 / 3.0).abs() < tol, "slippery p={p}, expected ≈1/3");
     }
@@ -1288,18 +1289,15 @@ mod tests {
 
     // ── post-terminal step guard ─────────────────────────────────────────────
     //
-    // Before this guard, `FrozenLake` tracked no `done` state at all: on
-    // termination the agent is left standing *on* the Hole/Goal tile, and an
-    // unguarded `step()` would walk it back off onto a frozen neighbour,
-    // report `Running`, and keep paying out rewards — resurrecting a finished
-    // episode, including the possibility of re-triggering a fresh
-    // "fell in a hole" or "reached goal" transition on a later step.
-    // `EpisodeGuard` closes that hole — `step()` calls `guard.check()` first
-    // and short-circuits with `StepAfterEpisodeEnd` once terminated, then
-    // `guard.record(status)` from the emitted snapshot so the guard and the
-    // snapshot can never disagree (see `EpisodeGuard`, ADR 0044). All of
-    // these use the non-slippery 4×4 preset so the terminal tile is reached
-    // deterministically.
+    // Before this guard, `FrozenLake` tracked no `done` state at all: on termination the agent is
+    // left standing *on* the Hole/Goal tile, and an unguarded `step()` would walk it back off onto
+    // a frozen neighbour, report `Running`, and keep paying out rewards — resurrecting a finished
+    // episode, including the possibility of re-triggering a fresh "fell in a hole" or "reached
+    // goal" transition on a later step. `EpisodeGuard` closes that hole — `step()` calls
+    // `guard.check()` first and short-circuits with `StepAfterEpisodeEnd` once terminated, then
+    // `guard.record(status)` from the emitted snapshot so the guard and the snapshot can never
+    // disagree (see `EpisodeGuard`, ADR 0044). All of these use the non-slippery `$4 \times 4$`
+    // preset so the terminal tile is reached deterministically.
 
     #[test]
     /// Verifies a `step()` after falling into a hole is rejected, and that the

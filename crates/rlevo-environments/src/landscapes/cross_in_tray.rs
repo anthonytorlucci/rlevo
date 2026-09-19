@@ -18,7 +18,7 @@
 //! the box and none of it scores below `f*`, so both `bounds()` obligations hold
 //! (ADR 0045: O1 reachability, O2 no spurious optimum) — pinned by unit tests below.
 //!
-//! Over this window the inner exponential reaches ≈ `$e^{93}$`, but the outer
+//! Over this window the inner exponential reaches `$\approx e^{93}$`, but the outer
 //! `$0.0001 \cdot (\cdot)^{0.1}$` compresses it back — no `f64` overflow.
 
 // non-differentiable at zero crossings of sin(x1)*sin(x2) (the cross ridges)
@@ -89,11 +89,11 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
-    /// Certified global-minimum value (Mishra 2006; Al-Roomi #44 gives −2.0626).
+    /// Certified global-minimum value (Mishra 2006; Al-Roomi #44 gives `$-2.0626$`).
     const F_OPT: f64 = -2.062_611_870_822_739;
-    /// Per-axis magnitude of each of the four minimizers (Al-Roomi #44: ±1.3494).
+    /// Per-axis magnitude of each of the four minimizers (Al-Roomi #44: `$\pm 1.3494$`).
     const X_OPT: f64 = 1.349_406_608_602_084;
-    /// All four certified global minimizers — the sign combinations of `±X_OPT`.
+    /// All four certified global minimizers — the sign combinations of `$\pm$``X_OPT`.
     const OPTIMA: [(f64, f64); 4] = [
         (X_OPT, X_OPT),
         (X_OPT, -X_OPT),
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        // Every value is negative; the origin (f = −0.0001) exceeds the minimum.
+        // Every value is negative; the origin (`$f = -0.0001$`) exceeds the minimum.
         assert!(
             CrossInTray::new().evaluate(0.0, 0.0) > F_OPT,
             "value away from the four minima must exceed f*"
@@ -159,11 +159,11 @@ mod tests {
 
     /// O2 (no spurious optimum) — no point of the box scores below `f*`.
     ///
-    /// A deterministic 401×401 sweep of `bounds()²`. `eps` is looser here (`1e-6`,
-    /// i.e. ~5e-7 relative on the `≈2.06` scale) than for the polynomial landscapes:
-    /// the grid steps by `0.075`, which lands a sample almost exactly on a minimizer
-    /// (`$\pm 1.35$` vs `$\pm 1.34941$`), so the true margin at the tightest sample is small —
-    /// and the `$\exp(\approx 99) \to (\cdot)^{0.1}$` path is where any float noise would appear.
+    /// A deterministic `$401 \times 401$` sweep of `$\text{bounds}()^2$`. `eps` is looser here
+    /// (`1e-6`, i.e. ~5e-7 relative on the `$\approx 2.06$` scale) than for the polynomial
+    /// landscapes: the grid steps by `0.075`, which lands a sample almost exactly on a minimizer
+    /// (`$\pm 1.35$` vs `$\pm 1.34941$`), so the true margin at the tightest sample is small — and
+    /// the `$\exp(\approx 99) \to (\cdot)^{0.1}$` path is where any float noise would appear.
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {
         const STEPS: u16 = 400;
@@ -189,7 +189,8 @@ mod tests {
 
     #[test]
     fn no_overflow_at_domain_corner() {
-        // The inner exp reaches ≈ e^93 at the corner but stays finite after compression.
+        // The inner exp reaches `$\approx e^{93}$` at the corner but stays finite after
+        // compression.
         let v = CrossInTray::new().evaluate(15.0, 15.0);
         assert!(
             v.is_finite(),

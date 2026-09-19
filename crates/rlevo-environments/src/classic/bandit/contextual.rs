@@ -8,12 +8,11 @@
 //! is fixed for the lifetime of the environment; only the revealed context and
 //! the reward realisations advance with the persistent RNG.
 //!
-//! This is the simplest contextual-bandit testbed — a `C × K` table of
-//! Gaussian means — which exercises algorithms that must learn a separate
-//! policy per context (e.g. tabular contextual ε-greedy, contextual
-//! Thompson sampling). For continuous-feature contextual bandits (`LinUCB` et
-//! al.) a separate environment with a vector-valued context is appropriate;
-//! it is intentionally out of scope for this module.
+//! This is the simplest contextual-bandit testbed — a `$C \times K$` table of Gaussian means —
+//! which exercises algorithms that must learn a separate policy per context (e.g. tabular
+//! contextual `$\epsilon$`-greedy, contextual Thompson sampling). For continuous-feature contextual
+//! bandits (`LinUCB` et al.) a separate environment with a vector-valued context is appropriate; it
+//! is intentionally out of scope for this module.
 //!
 //! # Example
 //!
@@ -372,10 +371,9 @@ impl FromStr for ContextualBanditConfig {
 
 /// Tabular contextual bandit with `C` discrete contexts and `K` arms.
 ///
-/// On each step the environment draws the current context uniformly from
-/// `$\{0, \ldots, C-1\}$` and the agent selects an arm `$\{0, \ldots, K-1\}$`. Reward is
-/// sampled from `N(q*(context, arm), 1)` using a `C × K` table of means
-/// fixed at construction and reset by [`Environment::reset`].
+/// On each step the environment draws the current context uniformly from `$\{0, \ldots, C-1\}$` and
+/// the agent selects an arm `$\{0, \ldots, K-1\}$`. Reward is sampled from `N(q*(context, arm), 1)`
+/// using a `$C \times K$` table of means fixed at construction and reset by [`Environment::reset`].
 ///
 /// The snapshot returned by [`Environment::step`] carries the *next* context
 /// in its observation (the one the agent will act on in the following step),

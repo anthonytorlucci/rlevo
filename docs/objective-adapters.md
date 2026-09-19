@@ -257,9 +257,4 @@ still just calls `evaluate_batch` and reads `sense()`.
   `RolloutFitness` rely on: `flatten` walks a Burn `Module`'s float leaves in
   declaration order into one `Tensor<B, 1>` genome, and `unflatten` clones a
   template module and refills its leaves from a flat vector in the same
-  order, so `unflatten(flatten(m)) ≈ m`.
-
----
-
-*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
-*Co-Authored-By: Anthropic Claude Opus 4.8*
+  order, so $\text{unflatten}(\text{flatten}(m)) \approx m$.

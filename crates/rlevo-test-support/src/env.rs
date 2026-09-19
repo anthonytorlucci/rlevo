@@ -1,11 +1,11 @@
 //! Synthetic 1-D continuous tracking environment shared across the
 //! continuous-control algorithm tests (DDPG / TD3 / SAC).
 //!
-//! Each step emits an observation `x ∈ [-1, 1]`. The optimal action is `a = x`
-//! and the reward is `-(a - x)²`, peaking at `0`. Episodes last a fixed number
-//! of steps (typically 20). A uniform-random policy over `U(-1, 1)` averages
-//! `≈ -episode_len · 1/3 ≈ -6.67` per 20-step episode, so a learned policy that
-//! clears a lax `-1.0` threshold demonstrates real convergence.
+//! Each step emits an observation `$x \in [-1, 1]$`. The optimal action is `a = x` and the reward
+//! is `$-(a-x)^2$`, peaking at `0`. Episodes last a fixed number of steps (typically 20). A
+//! uniform-random policy over `U(-1, 1)` averages
+//! `$\approx -\text{episode\_len} \cdot 1/3 \approx -6.67$` per 20-step episode, so a learned
+//! policy that clears a lax `-1.0` threshold demonstrates real convergence.
 //!
 //! The fixture intentionally avoids any physics simulator so `cargo test` stays
 //! tractable: tiny networks and modest step budgets converge in seconds.

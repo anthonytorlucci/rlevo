@@ -109,7 +109,7 @@ mod tests {
         assert_eq!(combinations(67, 33), 14_226_520_737_620_288_370);
     }
 
-    /// The representability frontier: `C(67, 33)` fits, `C(68, 34)` (≈2.85e19)
+    /// The representability frontier: `C(67, 33)` fits, `C(68, 34)` (`$\approx$` 2.85e19)
     /// does not.
     #[test]
     fn test_checked_combinations_frontier() {
@@ -148,7 +148,7 @@ mod tests {
     /// that comparing `combinations` to `checked_combinations` cannot — the
     /// former delegates to the latter, making that comparison self-referential.
     ///
-    /// `n <= 60` keeps every entry representable (`C(60, 30)` ≈ 1.18e17), so
+    /// `n <= 60` keeps every entry representable (`C(60, 30)` `$\approx$` 1.18e17), so
     /// the oracle itself never overflows and every cell is a live assertion.
     #[test]
     fn test_checked_combinations_matches_pascals_triangle() {

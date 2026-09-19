@@ -76,7 +76,7 @@ use serde::{Deserialize, Serialize};
 /// [`Validate`](crate::config::Validate) impl must re-assert it with
 /// [`config::nondegenerate_bounds`].
 ///
-/// The real precedent is a `$\log \sigma$` range: zero width collapses σ to a constant,
+/// The real precedent is a `$\log \sigma$` range: zero width collapses `$\sigma$` to a constant,
 /// which trains and reports finite numbers while silently pinning the policy's
 /// scale. That is why both Gaussian policy-head configs in
 /// `rlevo-reinforcement-learning` carry the check (ADR 0054 §3).

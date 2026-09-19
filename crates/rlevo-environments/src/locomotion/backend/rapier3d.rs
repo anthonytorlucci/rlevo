@@ -315,22 +315,21 @@ impl LocomotionBackend for Rapier3DBackend {
     ///
     /// - **`Impulse` (maximal coordinates).** Both bodies are free; the hinge is
     ///   enforced by the solver. Apply **equal-and-opposite** world-axis torques:
-    ///   `+τ·â` to `body2`, `−τ·â` to `body1`. The pair injects zero *net*
+    ///   `$+\tau\hat{a}$` to `body2`, `$-\tau\hat{a}$` to `body1`. The pair injects zero *net*
     ///   external torque, so the generalized force lands on the hinge DOF alone.
     /// - **`Multibody` (reduced coordinates).** The hinge is baked into the
     ///   parameterization, so torque the **child only** (`body2` of the
-    ///   parent→child insertion): `+τ·â` on the child projects onto the hinge DOF
+    ///   parent→child insertion): `$+\tau\hat{a}$` on the child projects onto the hinge DOF
     ///   and the solver supplies the parent reaction. Also torquing the parent
     ///   (as the impulse path does) would inject spurious generalized force on
     ///   upstream DOFs — the existing swimmer/env.rs child-only convention.
     ///
-    /// `â` is the joint's free hinge axis in world space: `body1`'s world rotation
-    /// applied to `local_frame1.rotation · X` (the unit hinge axis in `body1`'s
-    /// local frame). `GenericJoint::local_axis1()` is deliberately **avoided** —
-    /// under rapier 0.32's glam backend `Pose * Vector` is `transform_point`, so
-    /// `local_axis1()` returns `axis + anchor` (non-unit, contaminated). A positive
-    /// `τ` drives `body2` positively about `+â`. The torque lives one substep (ADR 0037):
-    /// callers hold it across `frame_skip` by re-applying inside
+    /// `$\hat{a}$` is the joint's free hinge axis in world space: `body1`'s world rotation applied
+    /// to `$\text{local\_frame1.rotation} \cdot X$` (the unit hinge axis in `body1`'s local frame).
+    /// `GenericJoint::local_axis1()` is deliberately **avoided** — under rapier 0.32's glam backend
+    /// `Pose * Vector` is `transform_point`, so `local_axis1()` returns `axis + anchor` (non-unit,
+    /// contaminated). A positive `$\tau$` drives `body2` positively about `$+\hat{a}$`. The torque
+    /// lives one substep (ADR 0037): callers hold it across `frame_skip` by re-applying inside
     /// [`Rapier3DWorld::step_actuated`]. See ADR 0041.
     ///
     /// # Errors
@@ -373,7 +372,7 @@ impl LocomotionBackend for Rapier3DBackend {
                         .get(body1)
                         .ok_or(BackendError::InvalidJointHandle)?
                         .rotation();
-                    // â: world-frame hinge axis (unit) from body1's rotation.
+                    // `$\hat{a}$`: world-frame hinge axis (unit) from body1's rotation.
                     let axis = rot1 * local_axis;
                     (body1, body2, axis)
                 };
@@ -421,7 +420,7 @@ impl LocomotionBackend for Rapier3DBackend {
                     let local_axis = link.joint().data.local_frame1.rotation * Vector::X;
                     (parent, child, local_axis)
                 };
-                // â from the PARENT (body1) rotation, per the sign convention.
+                // `$\hat{a}$` from the PARENT (body1) rotation, per the sign convention.
                 let rot_parent = *world
                     .bodies
                     .get(parent)
@@ -441,21 +440,20 @@ impl LocomotionBackend for Rapier3DBackend {
     }
 
     fn contact_force(world: &Self::World, body: Self::BodyHandle) -> [f32; 6] {
-        // Instantaneous last-substep contact wrench (ADR 0041): aggregate the
-        // LAST solve's per-contact impulses over every manifold touching any
-        // collider of `body`, dividing each by the substep dt to get the average
-        // force over that substep — the analogue of MuJoCo's post-`mj_step`
-        // `cfrc_ext` read (instantaneous, frame-skip-independent). Torque is r × F
-        // about the body's OWN centre of mass (MuJoCo references the subtree CoM
-        // — identical for leaf bodies, different for internal ones). This sums
-        // contact-manifold forces only, not the full RNE external wrench.
+        // Instantaneous last-substep contact wrench (ADR 0041): aggregate the LAST solve's
+        // per-contact impulses over every manifold touching any collider of `body`, dividing each
+        // by the substep dt to get the average force over that substep — the analogue of MuJoCo's
+        // post-`mj_step` `cfrc_ext` read (instantaneous, frame-skip-independent). Torque is
+        // `$r \times F$` about the body's OWN centre of mass (MuJoCo references the subtree CoM —
+        // identical for leaf bodies, different for internal ones). This sums contact-manifold
+        // forces only, not the full RNE external wrench.
         //
-        // Sign: the returned wrench is the external contact force-torque acting
-        // ON the queried body (the analogue of MuJoCo cfrc_ext = "external force
-        // acting on the body"). A ball resting on the ground therefore reports a
-        // positive (upward) vertical force. By Newton's third law the force part
-        // of `contact_force(A)` ≈ −that of `contact_force(B)` for a contacting
-        // pair (torque parts differ: each is taken about its own body's CoM).
+        // Sign: the returned wrench is the external contact force-torque acting ON the queried body
+        // (the analogue of MuJoCo cfrc_ext = "external force acting on the body"). A ball resting
+        // on the ground therefore reports a positive (upward) vertical force. By Newton's third law
+        // the force part of `contact_force(A)` is `$\approx$` the negation of that of
+        // `contact_force(B)` for a contacting pair (torque parts differ: each is taken about its
+        // own body's CoM).
         //
         // Self-contacts cannot appear here: rapier 0.32 unconditionally clears
         // same-parent contact pairs (rapier3d-0.32.0 narrow_phase.rs:841,
@@ -472,22 +470,19 @@ impl LocomotionBackend for Rapier3DBackend {
             for pair in world.narrow_phase.contact_pairs_with(collider_handle) {
                 let flipped = pair.collider2 == collider_handle;
                 for manifold in &pair.manifolds {
-                    // Force ON the queried body. parry's manifold normal points
-                    // from collider1 toward collider2 (parry3d-0.26.1
-                    // query/contact_manifolds/contact_manifold.rs:449 — "points
-                    // from the first shape toward the second shape"). rapier's
-                    // solver drives the non-negative `contact.data.impulse`
-                    // (contact_pair.rs:34; written back at
-                    // solver/contact_constraint/contact_with_coulomb_friction.rs:491)
-                    // along `dir1 = -normal` on collider1's body and `+normal`
-                    // on collider2's body (dir1 = -normal at
-                    // contact_with_coulomb_friction.rs:83, applied to the two
-                    // bodies at contact_constraint_element.rs:282/285). So the
-                    // contact force exerted ON the queried body is
-                    // `-force_mag·normal` when it owns collider1 and
-                    // `+force_mag·normal` when it owns collider2. Swapping which
-                    // collider is collider1 flips BOTH `normal` and `flipped`,
-                    // so the attributed force is insertion-order invariant.
+                    // Force ON the queried body. parry's manifold normal points from collider1
+                    // toward collider2 (parry3d-0.26.1
+                    // query/contact_manifolds/contact_manifold.rs:449 — "points from the first
+                    // shape toward the second shape"). rapier's solver drives the non-negative
+                    // `contact.data.impulse` (contact_pair.rs:34; written back at
+                    // solver/contact_constraint/contact_with_coulomb_friction.rs:491) along
+                    // `dir1 = -normal` on collider1's body and `+normal` on collider2's body (dir1
+                    // = -normal at contact_with_coulomb_friction.rs:83, applied to the two bodies
+                    // at contact_constraint_element.rs:282/285). So the contact force exerted ON
+                    // the queried body is `$-\text{force\_mag} \cdot \text{normal}$` when it owns
+                    // collider1 and `$+\text{force\_mag} \cdot \text{normal}$` when it owns
+                    // collider2. Swapping which collider is collider1 flips BOTH `normal` and
+                    // `flipped`, so the attributed force is insertion-order invariant.
                     let n = if flipped {
                         manifold.data.normal
                     } else {
@@ -598,7 +593,8 @@ mod tests {
         let z0 = world.bodies.get(handle).unwrap().translation().z;
         world.step_with_frame_skip();
         let z1 = world.bodies.get(handle).unwrap().translation().z;
-        // 5 substeps at dt=1/60 under 9.81 gravity: Δz ≈ -0.5·g·(5·dt)² ≈ -0.034m.
+        // 5 substeps at dt=1/60 under 9.81 gravity:
+        // `$\Delta z \approx -0.5 g (5 dt)^2 \approx -0.034\,\text{m}$`.
         assert!(
             z1 < z0 - 0.03,
             "frame_skip=5 should drop body noticeably (Δ={})",
@@ -623,10 +619,10 @@ mod tests {
         assert!(s.contains("Rapier3DWorld"));
     }
 
-    /// A constant force re-applied before every substep must produce a
-    /// **stationary** per-step velocity increment. With the pre-ADR-0037 bug
-    /// (`user_force` never cleared) the accumulator grows linearly, so Δv grows
-    /// linearly too. Zero gravity + a single free body isolates F = m·a.
+    /// A constant force re-applied before every substep must produce a **stationary** per-step
+    /// velocity increment. With the pre-ADR-0037 bug (`user_force` never cleared) the accumulator
+    /// grows linearly, so `$\Delta v$` grows linearly too. Zero gravity + a single free body
+    /// isolates `$F = m a$`.
     #[test]
     fn constant_actuation_gives_stationary_delta_v() {
         let mut world = Rapier3DWorld::new(Vector::new(0.0, 0.0, 0.0), 1.0 / 60.0, 1);
@@ -650,7 +646,8 @@ mod tests {
             assert!(vx.is_finite(), "velocity must stay finite (vx={vx})");
         }
 
-        // Compare the first and last increments: constant force ⇒ constant Δv.
+        // Compare the first and last increments: constant force `$\Rightarrow$` constant
+        // `$\Delta v$`.
         let first = deltas[1]; // skip step 0 (solver warm-up)
         let last = *deltas.last().unwrap();
         assert!(first > 0.0, "force should accelerate the body (Δv={first})");
@@ -660,10 +657,10 @@ mod tests {
         );
     }
 
-    /// A one-shot force applied before a single `step_once` must not persist:
-    /// a following `step_once` with no force applied must leave velocity
-    /// essentially unchanged (Δv ≈ 0). With the pre-ADR-0037 bug the leftover
-    /// accumulator would keep accelerating the body.
+    /// A one-shot force applied before a single `step_once` must not persist: a following
+    /// `step_once` with no force applied must leave velocity essentially unchanged
+    /// (`$\Delta v \approx 0$`). With the pre-ADR-0037 bug the leftover accumulator would keep
+    /// accelerating the body.
     #[test]
     fn one_shot_force_does_not_persist() {
         let mut world = Rapier3DWorld::new(Vector::new(0.0, 0.0, 0.0), 1.0 / 60.0, 1);
@@ -725,8 +722,8 @@ mod tests {
         (world, handle, body1, body2)
     }
 
-    /// Sign pin (impulse): a positive torque about +â drives body2's angular
-    /// velocity about +Z positive. Fixed base isolates body2's response.
+    /// Sign pin (impulse): a positive torque about `$+\hat{a}$` drives body2's angular velocity
+    /// about +Z positive. Fixed base isolates body2's response.
     #[test]
     fn apply_joint_torque_impulse_positive_spins_body2_positive() {
         let (mut world, handle, _base, arm) = hinge_pair_impulse(true);
@@ -742,10 +739,10 @@ mod tests {
         );
     }
 
-    /// Equal-and-opposite (impulse): two identical free bodies, zero gravity.
-    /// The `$\pm \tau \cdot \hat{a}$` pair injects zero NET external torque, so with symmetric
-    /// inertia the bodies counter-rotate and their z-angular-velocities cancel —
-    /// i.e. the system's total angular momentum stays ≈ 0.
+    /// Equal-and-opposite (impulse): two identical free bodies, zero gravity. The
+    /// `$\pm \tau \cdot \hat{a}$` pair injects zero NET external torque, so with symmetric inertia
+    /// the bodies counter-rotate and their z-angular-velocities cancel — i.e. the system's total
+    /// angular momentum stays `$\approx 0$`.
     #[test]
     fn apply_joint_torque_impulse_is_equal_and_opposite() {
         let (mut world, handle, body1, body2) = hinge_pair_impulse(false);
@@ -758,7 +755,8 @@ mod tests {
         let w2 = world.bodies.get(body2).unwrap().angvel().z;
         assert!(w2 > 0.0, "body2 must spin positively (ω2z={w2})");
         assert!(w1 < 0.0, "body1 must counter-rotate (ω1z={w1})");
-        // Identical inertia ⇒ ω1z ≈ −ω2z ⇒ no net external torque on the system.
+        // Identical inertia `$\Rightarrow \omega_{1z} \approx -\omega_{2z} \Rightarrow$` no net
+        // external torque on the system.
         assert!(
             (w1 + w2).abs() < 0.01 * w2.abs(),
             "equal-and-opposite ⇒ ωz cancels (ω1z={w1}, ω2z={w2})"
@@ -819,10 +817,10 @@ mod tests {
         assert!(wp.abs() < 1e-6, "on-axis parent must not rotate (ωp={wp})");
     }
 
-    /// Multibody dispatch equals a manual child-only `add_torque` about the world
-    /// hinge axis. Here the parent only ever rotates about +Z, so `â` stays +Z
-    /// exactly and the two trajectories must coincide — pinning the multibody arm
-    /// to "child body only", not the impulse equal-and-opposite pair.
+    /// Multibody dispatch equals a manual child-only `add_torque` about the world hinge axis. Here
+    /// the parent only ever rotates about +Z, so `$\hat{a}$` stays +Z exactly and the two
+    /// trajectories must coincide — pinning the multibody arm to "child body only", not the impulse
+    /// equal-and-opposite pair.
     #[test]
     fn apply_joint_torque_multibody_matches_manual_child_torque() {
         let tau = 0.1f32;
@@ -911,17 +909,16 @@ mod tests {
         (world, ball)
     }
 
-    /// Magnitude + sign pin: a resting ball's vertical contact wrench balances its
-    /// weight (`|wrench[2]| ≈ m·g`, an order-of-magnitude larger than any
-    /// `1/frame_skip`-scaled value), with lateral force and all torque components
-    /// ≈ 0 for an on-axis contact.
+    /// Magnitude + sign pin: a resting ball's vertical contact wrench balances its weight
+    /// (`$\lvert \text{wrench}[2] \rvert \approx m g$`, an order-of-magnitude larger than any
+    /// `1/frame_skip`-scaled value), with lateral force and all torque components `$\approx 0$` for
+    /// an on-axis contact.
     ///
-    /// SIGN: the wrench is the external contact force acting ON the ball, so the
-    /// ground below pushes UP and `wrench[2]` is **positive** (≈ +m·g). This is
-    /// the physically correct convention (`MuJoCo` `cfrc_ext` = "external force
-    /// acting on the body"); it is verified insertion-order invariant and
-    /// Newton's-third-law antisymmetric by the companion tests below. A slight
-    /// `> m·g` magnitude is rapier's steady-state penetration bias.
+    /// SIGN: the wrench is the external contact force acting ON the ball, so the ground below
+    /// pushes UP and `wrench[2]` is **positive** (`$\approx +m g$`). This is the physically correct
+    /// convention (`MuJoCo` `cfrc_ext` = "external force acting on the body"); it is verified
+    /// insertion-order invariant and Newton's-third-law antisymmetric by the companion tests below.
+    /// A slight `$> m g$` magnitude is rapier's steady-state penetration bias.
     #[test]
     fn contact_force_resting_ball_balances_gravity() {
         let g = 9.81f32;
@@ -995,16 +992,15 @@ mod tests {
         );
     }
 
-    /// Newton's third law: for the single contact pair between two dynamic
-    /// bodies, the force part of `contact_force(A)` is the negation of
-    /// `contact_force(B)`. Two dynamic balls are pressed together by a sustained
-    /// equal-and-opposite external force (zero gravity, net external force zero
-    /// so the pair settles in place) until they reach a steady-state contact —
-    /// the horizontal analogue of the resting ball. The solver stores a single
-    /// per-contact impulse that acts oppositely on the two bodies
-    /// (`-force_mag·normal` on collider1, `+force_mag·normal` on collider2), so
-    /// the aggregated force vectors are exactly antisymmetric. (Torque parts are
-    /// taken about each body's own `CoM` and need not cancel.)
+    /// Newton's third law: for the single contact pair between two dynamic bodies, the force part
+    /// of `contact_force(A)` is the negation of `contact_force(B)`. Two dynamic balls are pressed
+    /// together by a sustained equal-and-opposite external force (zero gravity, net external force
+    /// zero so the pair settles in place) until they reach a steady-state contact — the horizontal
+    /// analogue of the resting ball. The solver stores a single per-contact impulse that acts
+    /// oppositely on the two bodies (`$-\text{force\_mag} \cdot \text{normal}$` on collider1,
+    /// `$+\text{force\_mag} \cdot \text{normal}$` on collider2), so the aggregated force vectors
+    /// are exactly antisymmetric. (Torque parts are taken about each body's own `CoM` and need not
+    /// cancel.)
     #[test]
     fn contact_force_newton_third_law_antisymmetric() {
         let radius = 0.25f32;
@@ -1039,7 +1035,7 @@ mod tests {
 
         let fa = Rapier3DBackend::contact_force(&world, a);
         let fb = Rapier3DBackend::contact_force(&world, b);
-        // Non-trivial contact, so antisymmetry is not a 0 ≈ −0 tautology.
+        // Non-trivial contact, so antisymmetry is not a `$0 \approx -0$` tautology.
         let mag = (fa[0] * fa[0] + fa[1] * fa[1] + fa[2] * fa[2]).sqrt();
         assert!(
             mag > 1.0,

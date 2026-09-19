@@ -114,7 +114,7 @@ pub struct Grid {
 }
 
 impl Grid {
-    /// Construct a `width × height` grid initialized with [`Entity::Empty`].
+    /// Construct a `$\text{width} \times \text{height}$` grid initialized with [`Entity::Empty`].
     ///
     /// # Panics
     ///
@@ -338,7 +338,7 @@ pub(crate) fn stamp_carried(
     view
 }
 
-/// Extract a [`VIEW_SIZE`]×[`VIEW_SIZE`] egocentric view of the grid.
+/// Extract a [`VIEW_SIZE`]`$\times$`[`VIEW_SIZE`] egocentric view of the grid.
 ///
 /// The agent sits at view coordinates `(row = VIEW_SIZE - 1, col = VIEW_SIZE / 2)`
 /// and looks toward row `0`. Cells outside the grid decode as
@@ -439,8 +439,8 @@ const fn rotate_view_offset(dir: Direction, right: i32, forward: i32) -> (i32, i
 ///
 /// # Returns
 ///
-/// A `VIEW_SIZE × VIEW_SIZE` array where a visible cell is `Some(entity)` and a
-/// masked cell is `None`.
+/// A `$\text{VIEW\_SIZE} \times \text{VIEW\_SIZE}$` array where a visible cell is `Some(entity)`
+/// and a masked cell is `None`.
 #[must_use]
 pub(crate) fn process_vis(
     view: [[Entity; VIEW_SIZE]; VIEW_SIZE],

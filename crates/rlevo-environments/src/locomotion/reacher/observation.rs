@@ -15,26 +15,26 @@ use serde::{Deserialize, Serialize};
 pub struct ReacherObservation(pub [f32; 10]);
 
 impl ReacherObservation {
-    /// Cosine of the shoulder (link 1) absolute angle θ₁. Index 0.
+    /// Cosine of the shoulder (link 1) absolute angle `$\theta_1$`. Index 0.
     #[must_use]
     pub const fn theta1_cos(&self) -> f32 {
         self.0[0]
     }
 
-    /// Cosine of the elbow (link 2) **relative** angle θ₂ = `$\theta_{\text{world2}}$` − θ₁,
-    /// wrapped to `$(-\pi, \pi]$`. Index 1.
+    /// Cosine of the elbow (link 2) **relative** angle
+    /// `$\theta_2 = \theta_{\text{world2}} - \theta_1$`, wrapped to `$(-\pi, \pi]$`. Index 1.
     #[must_use]
     pub const fn theta2_cos(&self) -> f32 {
         self.0[1]
     }
 
-    /// Sine of the shoulder angle θ₁. Index 2.
+    /// Sine of the shoulder angle `$\theta_1$`. Index 2.
     #[must_use]
     pub const fn theta1_sin(&self) -> f32 {
         self.0[2]
     }
 
-    /// Sine of the elbow relative angle θ₂. Index 3.
+    /// Sine of the elbow relative angle `$\theta_2$`. Index 3.
     #[must_use]
     pub const fn theta2_sin(&self) -> f32 {
         self.0[3]
@@ -48,14 +48,16 @@ impl ReacherObservation {
         [self.0[4], self.0[5]]
     }
 
-    /// Shoulder angular velocity θ̇₁ in rad s⁻¹ (world-z component). Index 6.
+    /// Shoulder angular velocity `$\dot{\theta}_1$` in `$\text{rad s}^{-1}$` (world-z component).
+    /// Index 6.
     #[must_use]
     pub const fn theta1_dot(&self) -> f32 {
         self.0[6]
     }
 
-    /// Elbow **relative** angular velocity θ̇₂ = `$\omega_{\text{link2}} - \omega_{\text{link1}}$` in
-    /// rad s⁻¹. Index 7.
+    /// Elbow **relative** angular velocity
+    /// `$\dot{\theta}_2 = \omega_{\text{link2}} - \omega_{\text{link1}}$` in `$\text{rad s}^{-1}$`.
+    /// Index 7.
     #[must_use]
     pub const fn theta2_dot(&self) -> f32 {
         self.0[7]
@@ -69,8 +71,8 @@ impl ReacherObservation {
         [self.0[8], self.0[9]]
     }
 
-    /// Returns `true` if every element of the observation vector is finite
-    /// (i.e. neither `NaN` nor ±∞).
+    /// Returns `true` if every element of the observation vector is finite (i.e. neither `NaN` nor
+    /// `$\pm\infty$`).
     #[must_use]
     pub fn is_finite(&self) -> bool {
         self.0.iter().all(|v| v.is_finite())

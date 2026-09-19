@@ -278,11 +278,10 @@ pub struct MountainCar {
     config: MountainCarConfig,
     rng: StdRng,
     steps: usize,
-    /// Rejects a `step()` taken after the car crested the hill. Without it the
-    /// physics keep integrating past the flag: the car rolls on, `steps` keeps
-    /// climbing, and every extra call emits another −1 on a *`Running`*
-    /// snapshot — inflating the episode's return past the true cost of solving
-    /// it and resurrecting a finished episode.
+    /// Rejects a `step()` taken after the car crested the hill. Without it the physics keep
+    /// integrating past the flag: the car rolls on, `steps` keeps climbing, and every extra call
+    /// emits another `$-1$` on a *`Running`* snapshot — inflating the episode's return past the
+    /// true cost of solving it and resurrecting a finished episode.
     guard: EpisodeGuard,
 }
 
@@ -917,10 +916,9 @@ mod tests {
     }
 
     #[test]
-    /// Verifies a rejected post-terminal step is a true no-op: the physics do not
-    /// advance, the step counter does not tick, and the guard stays closed. An
-    /// unguarded `step()` would silently keep integrating past the flag and add
-    /// another −1 to the return.
+    /// Verifies a rejected post-terminal step is a true no-op: the physics do not advance, the step
+    /// counter does not tick, and the guard stays closed. An unguarded `step()` would silently keep
+    /// integrating past the flag and add another `$-1$` to the return.
     fn test_mountain_car_post_terminal_step_does_not_mutate_state() {
         let mut env = default_env();
         let terminal = drive_to_goal(&mut env);

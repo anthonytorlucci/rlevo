@@ -29,26 +29,24 @@
 //! with the target entropy `$\bar{H} = -\text{dim}(A)$`, the default heuristic from that
 //! paper's Appendix D / Table 1.
 //!
-//! Note that the paper writes the dual in terms of **α**, not `$\log \alpha$`.
-//! Optimising `$\log \alpha$` unconstrained — as this module does — is an
-//! *implementation convention* shared by softlearning (the authors' own
-//! code), rlkit, `CleanRL` and Stable-Baselines3. Its only effect is to enforce
-//! `$\alpha \geq 0$` by construction; it carries no other guarantee from the paper.
+//! Note that the paper writes the dual in terms of **`$\alpha$`**, not `$\log \alpha$`. Optimising
+//! `$\log \alpha$` unconstrained — as this module does — is an *implementation convention* shared
+//! by softlearning (the authors' own code), rlkit, `CleanRL` and Stable-Baselines3. Its only effect
+//! is to enforce `$\alpha \geq 0$` by construction; it carries no other guarantee from the paper.
 //!
 //! # Deliberate deviations from every reference implementation
 //!
-//! This module applies two hardenings that appear in **no** reference SAC:
-//! softlearning, rlkit, `CleanRL` and SB3 all leave `$\log \alpha$` unbounded, and none
-//! of them guards the α optimiser against a non-finite gradient. Both are
-//! `rlevo` deviations, justified as defensive engineering rather than as
-//! standard practice. They fix **different** problems and are separable.
+//! This module applies two hardenings that appear in **no** reference SAC: softlearning, rlkit,
+//! `CleanRL` and SB3 all leave `$\log \alpha$` unbounded, and none of them guards the `$\alpha$`
+//! optimiser against a non-finite gradient. Both are `rlevo` deviations, justified as defensive
+//! engineering rather than as standard practice. They fix **different** problems and are separable.
 //!
 //! ## 1. Skipping the update on a non-finite gradient
 //!
 //! The gradient `$g = -(\log \pi.\text{mean}() + \bar{H})$` is host-side `f32`. A collapsed
-//! squashed-Gaussian policy legitimately produces `NaN`/`±Inf` `$\log \pi$` on
-//! out-of-distribution actions, and a diverging critic can feed the same
-//! through reparameterisation.
+//! squashed-Gaussian policy legitimately produces `NaN`/`$\pm\infty$` `$\log \pi$` on
+//! out-of-distribution actions, and a diverging critic can feed the same through
+//! reparameterisation.
 //!
 //! Because Adam's moments are exponential moving averages
 //! (`$m \leftarrow \beta_1 \cdot m + (1 - \beta_1) \cdot g$`), folding one non-finite `g` into `m`/`v` poisons
@@ -69,16 +67,15 @@
 //! enforced. Both moments are therefore computed into locals and committed
 //! only once known finite.
 //!
-//! Finite raw moments are in turn not sufficient either, so the check extends
-//! once more to the **bias-corrected** `m_hat`/`v_hat`. The divisor
-//! `bc₂ = 1 − β₂^t` is only ~10⁻³ at `t = 1`, so `v_hat = v/bc₂` overflows for
-//! `g` in roughly `$(1.8 \cdot 10^{19}, 5.8 \cdot 10^{20})$` at `t = 1` — a band that clears both
-//! checks above, since `v` itself is still finite there. The lower edge drifts
-//! upward as `bc₂` grows (`$2.6 \cdot 10^{19}$` at `t = 2`, `$3.7 \cdot 10^{19}$` at `t = 4`); the
-//! upper edge is fixed, being where `v` itself overflows. The effect is the same
-//! silent `0` step, but **bounded rather than permanent**: `bc₂ → 1` as `t`
-//! grows, so it self-limits. Measured on this arithmetic, the freeze would
-//! last from 0 steps at the bottom of the band to ~686 at the top.
+//! Finite raw moments are in turn not sufficient either, so the check extends once more to the
+//! **bias-corrected** `m_hat`/`v_hat`. The divisor `$\text{bc}_2 = 1 - \beta_2^t$` is only
+//! ~`$10^{-3}$` at `t = 1`, so `$\hat{v} = v/\text{bc}_2$` overflows for `g` in roughly
+//! `$(1.8 \cdot 10^{19}, 5.8 \cdot 10^{20})$` at `t = 1` — a band that clears both checks above,
+//! since `v` itself is still finite there. The lower edge drifts upward as `$\text{bc}_2$` grows
+//! (`$2.6 \cdot 10^{19}$` at `t = 2`, `$3.7 \cdot 10^{19}$` at `t = 4`); the upper edge is fixed,
+//! being where `v` itself overflows. The effect is the same silent `0` step, but **bounded rather
+//! than permanent**: `$\text{bc}_2 \to 1$` as `t` grows, so it self-limits. Measured on this
+//! arithmetic, the freeze would last from 0 steps at the bottom of the band to ~686 at the top.
 //!
 //! All three checks roll the step back completely. For the bias-corrected
 //! case that is a measured choice, not a stylistic one: committing the (valid,
@@ -107,8 +104,8 @@
 //! ## 2. Clamping `$\log \alpha$` as a backstop
 //!
 //! `$\log \alpha$` is confined to `[-88, 88]` so that `$\alpha = \exp(\log \alpha)$` is finite
-//! (`exp(88.7) ≈ f32::MAX`). SAC's legitimate α range is roughly `[0, 10]`,
-//! i.e. `$\log \alpha \leq 2.3$`, so the bound is provably non-binding in any healthy
+//! (`$\exp(88.7) \approx \text{f32::MAX}$`). SAC's legitimate `$\alpha$` range is roughly
+//! `[0, 10]`, i.e. `$\log \alpha \leq 2.3$`, so the bound is provably non-binding in any healthy
 //! run and no converging run's numbers change.
 //!
 //! This is **not** a fix for the poisoned-moment bug above: once `NaN` is in
@@ -119,10 +116,10 @@
 
 /// Stateful `$\log \alpha$` with its own scalar Adam first/second-moment estimates.
 ///
-/// The Adam hyperparameters are fixed at `CleanRL`'s defaults (β₁ = 0.9,
-/// β₂ = 0.999, ε = 1 × 10⁻⁸) and are not exposed as configuration. The
-/// learning rate is passed per-step via [`LogAlpha::adam_step`] so callers
-/// can derive it from [`SacTrainingConfig::alpha_lr`](super::sac_config::SacTrainingConfig).
+/// The Adam hyperparameters are fixed at `CleanRL`'s defaults (`$\beta_1 = 0.9$`,
+/// `$\beta_2 = 0.999$`, `$\epsilon = 1 \times 10^{-8}$`) and are not exposed as configuration. The
+/// learning rate is passed per-step via [`LogAlpha::adam_step`] so callers can derive it from
+/// [`SacTrainingConfig::alpha_lr`](super::sac_config::SacTrainingConfig).
 #[derive(Debug, Clone)]
 pub struct LogAlpha {
     // `log_alpha` is the name this quantity carries in the SAC literature and in
@@ -171,13 +168,13 @@ pub struct LogAlpha {
 const LOG_ALPHA_MIN: f32 = -88.0;
 
 /// Upper bound on `$\log \alpha$`, chosen so `$\exp(\log \alpha)$` stays finite in `f32`
-/// (`exp(88.7) ≈ f32::MAX`).
+/// (`$\exp(88.7) \approx \text{f32::MAX}$`).
 const LOG_ALPHA_MAX: f32 = 88.0;
 
 impl LogAlpha {
-    /// Constructs with `log α = init_log_alpha`. Pass
-    /// `initial_alpha.max(f32::MIN_POSITIVE).ln()` when you want to seed
-    /// from a target initial α.
+    /// Constructs with `$\log \alpha = \text{init\_log\_alpha}$`. Pass
+    /// `initial_alpha.max(f32::MIN_POSITIVE).ln()` when you want to seed from a target initial
+    /// `$\alpha$`.
     #[must_use]
     pub fn new(init_log_alpha: f32) -> Self {
         Self {
@@ -199,21 +196,20 @@ impl LogAlpha {
 
     /// Current `$\alpha = \exp(\log \alpha)$`.
     ///
-    /// `$\log \alpha$` is clamped to `[LOG_ALPHA_MIN, LOG_ALPHA_MAX]` before
-    /// exponentiating, so the returned α is always finite. See the
-    /// [module docs](self) for why the bound never binds in a healthy run.
+    /// `$\log \alpha$` is clamped to `[LOG_ALPHA_MIN, LOG_ALPHA_MAX]` before exponentiating, so the
+    /// returned `$\alpha$` is always finite. See the [module docs](self) for why the bound never
+    /// binds in a healthy run.
     #[must_use]
     pub fn alpha(&self) -> f32 {
         self.log_alpha.clamp(LOG_ALPHA_MIN, LOG_ALPHA_MAX).exp()
     }
 
     /// Applies one Adam step with closed-form gradient
-    /// `g = −(log_prob_mean + target_entropy)`.
+    /// `$g = -(\text{log\_prob\_mean} + \text{target\_entropy})$`.
     ///
-    /// This is the scalar Adam update with `CleanRL`'s default β₁/β₂/ε. The
+    /// This is the scalar Adam update with `CleanRL`'s default `$\beta_1/\beta_2/\epsilon$`. The
     /// learning rate is passed per-step so callers can reuse a
-    /// [`SacTrainingConfig`](super::sac_config::SacTrainingConfig)
-    /// schedule.
+    /// [`SacTrainingConfig`](super::sac_config::SacTrainingConfig) schedule.
     ///
     /// # Skipped updates
     ///
@@ -244,14 +240,14 @@ impl LogAlpha {
 
         let grad = -(log_prob_mean + target_entropy);
 
-        // Bail out *before* any state is mutated. `m` and `v` are EMAs, so a
-        // single non-finite `grad` folded in here would make every future
-        // `log α` NaN regardless of how healthy later gradients are.
+        // Bail out *before* any state is mutated. `m` and `v` are EMAs, so a single non-finite
+        // `grad` folded in here would make every future `$\log \alpha$` NaN regardless of how
+        // healthy later gradients are.
         //
-        // `lr` is checked here too: a non-finite `lr` leaves `m`/`v` clean but
-        // makes the committed `log α` `inf` (or `NaN`, when `grad == 0` turns
-        // the step into `inf · 0`), and `NaN` defeats the clamp below because
-        // `NaN.clamp(..)` propagates.
+        // `lr` is checked here too: a non-finite `lr` leaves `m`/`v` clean but makes the committed
+        // `$\log \alpha$` `inf` (or `NaN`, when `grad == 0` turns the step into
+        // `$\infty \cdot 0$`), and `NaN` defeats the clamp below because `NaN.clamp(..)`
+        // propagates.
         if !grad.is_finite() || !lr.is_finite() {
             if !self.nonfinite_grad_warned {
                 self.nonfinite_grad_warned = true;
@@ -282,14 +278,14 @@ impl LogAlpha {
             return;
         }
 
-        // A finite `grad` does not imply finite moments. `(1 - β₂) * grad *
-        // grad` is left-associative, so `((1 - β₂) * grad) * grad` overflows to
-        // `+inf` from around `|grad| ≳ 1e21` while `grad` itself is still a
-        // perfectly ordinary finite float. `v = +inf` is absorbing
-        // (`β₂·inf + finite = inf`), which makes `v_hat.sqrt() = inf` and every
-        // later step size exactly `0` — the controller freezes silently, with
-        // no NaN and no odd-looking `log α` to give it away. So compute both
-        // moments into locals and commit only once they are known finite.
+        // A finite `grad` does not imply finite moments. `$(1 - \beta_2) \cdot \text{grad} \cdot$`
+        // `$\text{grad}$` is left-associative, so `$((1 - \beta_2)\,\text{grad})\,\text{grad}$`
+        // overflows to `+inf` from around `|grad| ≳ 1e21` while `grad` itself is still a perfectly
+        // ordinary finite float. `v = +inf` is absorbing
+        // (`$\beta_2 \cdot \infty + \text{finite} = \infty$`), which makes `v_hat.sqrt() = inf` and
+        // every later step size exactly `0` — the controller freezes silently, with no NaN and no
+        // odd-looking `$\log \alpha$` to give it away. So compute both moments into locals and
+        // commit only once they are known finite.
         let m_next = BETA1 * self.m + (1.0 - BETA1) * grad;
         let v_next = BETA2 * self.v + (1.0 - BETA2) * grad * grad;
         if !m_next.is_finite() || !v_next.is_finite() {
@@ -320,10 +316,10 @@ impl LogAlpha {
         }
 
         // Finite raw moments still do not imply finite *bias-corrected* ones.
-        // `bc2 = 1 − β₂^t` is only ~1e-3 at `t = 1`, so dividing by it inflates
-        // `v_next` by ~1000×: `v_hat` overflows to `+inf` for `grad` in roughly
-        // `(1.8e19, 5.8e20)` — a band that clears both guards above, since
-        // `v_next` itself is still finite there.
+        // `$\text{bc2} = 1 - \beta_2^t$` is only ~1e-3 at `t = 1`, so dividing by it inflates
+        // `v_next` by ~`$1000\times$`: `v_hat` overflows to `+inf` for `grad` in roughly
+        // `(1.8e19, 5.8e20)` — a band that clears both guards above, since `v_next` itself is still
+        // finite there.
         //
         // The consequence is milder than the case above but the same shape:
         // `v_hat.sqrt() = inf` makes this step exactly `0`. It is bounded
@@ -331,14 +327,13 @@ impl LogAlpha {
         // committed `v` decays. Measured on this exact arithmetic, the freeze
         // lasts from 0 steps at the bottom of the band to ~686 at the top.
         //
-        // Roll the whole step back rather than committing the moments and
-        // skipping only the subtraction. That choice is empirical, not
-        // stylistic: the freeze is caused by the committed finite-but-huge `v`,
-        // NOT by the one skipped subtraction, so keeping the moment update
-        // reproduces the frozen-step counts above exactly (549 at `grad = 5e20`
-        // either way) and buys nothing. Discarding the poisoned gradient
-        // entirely drops it to 0, and it keeps all three guards consistent:
-        // a skipped step never leaves a trace in `t`, `m`, `v` or `log α`.
+        // Roll the whole step back rather than committing the moments and skipping only the
+        // subtraction. That choice is empirical, not stylistic: the freeze is caused by the
+        // committed finite-but-huge `v`, NOT by the one skipped subtraction, so keeping the moment
+        // update reproduces the frozen-step counts above exactly (549 at `grad = 5e20` either way)
+        // and buys nothing. Discarding the poisoned gradient entirely drops it to 0, and it keeps
+        // all three guards consistent: a skipped step never leaves a trace in `t`, `m`, `v` or
+        // `$\log \alpha$`.
         let t_next = self.t.saturating_add(1);
         let bc1 = 1.0 - BETA1.powi(t_next as i32);
         let bc2 = 1.0 - BETA2.powi(t_next as i32);
@@ -377,7 +372,7 @@ impl LogAlpha {
         self.v = v_next;
         self.log_alpha -= lr * m_hat / (v_hat.sqrt() + EPS);
 
-        // Backstop, independent of the guard above: keep `exp(log α)` finite.
+        // Backstop, independent of the guard above: keep `$\exp(\log \alpha)$` finite.
         self.log_alpha = self.log_alpha.clamp(LOG_ALPHA_MIN, LOG_ALPHA_MAX);
     }
 
@@ -511,8 +506,8 @@ mod tests {
         assert_state_unchanged(&la, &before, "NaN log_prob_mean");
     }
 
-    /// Both infinities take the same path: `grad` is `±inf`, and `v` would
-    /// become `inf` (and `m_hat/v_hat` `NaN`) if the step were applied.
+    /// Both infinities take the same path: `grad` is `$\pm\infty$`, and `v` would become `inf` (and
+    /// `m_hat/v_hat` `NaN`) if the step were applied.
     #[test]
     fn test_sac_infinite_log_prob_leaves_adam_state_untouched() {
         for (case, lp) in [("+inf", f32::INFINITY), ("-inf", f32::NEG_INFINITY)] {
@@ -539,7 +534,7 @@ mod tests {
 
         la.adam_step(f32::NAN, -2.0, 1e-1);
 
-        // `log π + H̄ = 1 > 0`, so grad is negative and `log α` must rise.
+        // `$\log \pi + \bar{H} = 1 > 0$`, so grad is negative and `$\log \alpha$` must rise.
         for _ in 0..8 {
             la.adam_step(3.0, -2.0, 1e-1);
         }
@@ -594,9 +589,9 @@ mod tests {
     // Overflow of the derived Adam moments from a finite gradient
     // -----------------------------------------------------------------
 
-    /// `grad` around `1e21` is finite, but `(1 - β₂) * grad * grad` overflows
-    /// to `+inf`. The guard on `grad` alone does not catch this, so the moments
-    /// must be checked after they are computed.
+    /// `grad` around `1e21` is finite, but `$(1 - \beta_2)\,\text{grad}\,\text{grad}$` overflows to
+    /// `+inf`. The guard on `grad` alone does not catch this, so the moments must be checked after
+    /// they are computed.
     #[test]
     fn test_sac_overflowing_but_finite_gradient_leaves_adam_state_untouched() {
         // grad = -(log_prob_mean + target_entropy), so this is grad = -1e21.
@@ -760,7 +755,7 @@ mod tests {
         let mut la = LogAlpha::new(0.0);
         let before = la.log_alpha();
 
-        // 1e19 < 1.845e19 lower edge: v_hat ≈ 1e38, still inside f32.
+        // 1e19 < 1.845e19 lower edge: v_hat `$\approx$` 1e38, still inside f32.
         la.adam_step(1e19, -2.0, 1e-3);
 
         assert_eq!(la.t, 1, "a representable gradient must be applied");
@@ -777,8 +772,8 @@ mod tests {
     // log_alpha clamp backstop
     // -----------------------------------------------------------------
 
-    /// `exp` overflows around `$\log \alpha \approx 88.7$`, so an absurd `$\log \alpha$` — reachable
-    /// only via a pathological gradient sequence — must still yield a finite α.
+    /// `exp` overflows around `$\log \alpha \approx 88.7$`, so an absurd `$\log \alpha$` —
+    /// reachable only via a pathological gradient sequence — must still yield a finite `$\alpha$`.
     #[test]
     fn test_sac_alpha_is_finite_for_absurd_log_alpha_magnitudes() {
         for init in [1e3_f32, 1e30, -1e3, -1e30, f32::MAX, f32::MIN] {
@@ -792,13 +787,12 @@ mod tests {
         }
     }
 
-    /// A non-finite `lr` must be handled by the input guard, not left to the
-    /// `±88` clamp.
+    /// A non-finite `lr` must be handled by the input guard, not left to the `$\pm 88$` clamp.
     ///
-    /// The clamp rescues `lr = inf` only when `grad != 0`: there the step is
-    /// `±inf` and clamping pins it to a bound. At `grad == 0` the step is
-    /// `inf * 0 = NaN`, and `NaN.clamp(..)` propagates `NaN` — so the clamp is
-    /// not a sufficient backstop and `lr` is checked up front instead.
+    /// The clamp rescues `lr = inf` only when `grad != 0`: there the step is `$\pm\infty$` and
+    /// clamping pins it to a bound. At `grad == 0` the step is `inf * 0 = NaN`, and `NaN.clamp(..)`
+    /// propagates `NaN` — so the clamp is not a sufficient backstop and `lr` is checked up front
+    /// instead.
     #[test]
     fn test_sac_non_finite_lr_is_rejected_rather_than_clamped() {
         for lr in [f32::INFINITY, f32::NEG_INFINITY, f32::NAN] {

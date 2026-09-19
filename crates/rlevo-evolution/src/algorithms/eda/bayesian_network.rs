@@ -234,8 +234,8 @@ fn bic_score(bits: &[u8], n: usize, d: usize, v: usize, parents: &[usize]) -> f6
         let total_f = f64::from(count_total);
         for &count_x in &[count_0, count_1] {
             if count_x == 0 {
-                // N(c, x) == 0 contributes exactly 0 (the p·ln p → 0 limit); no
-                // ln(0) path is ever reached.
+                // N(c, x) == 0 contributes exactly 0 (the `$p\ln p \to 0$` limit); no ln(0) path is
+                // ever reached.
                 continue;
             }
             let count_x_f = f64::from(count_x);
@@ -243,7 +243,7 @@ fn bic_score(bits: &[u8], n: usize, d: usize, v: usize, parents: &[usize]) -> f6
         }
     }
 
-    // Complexity penalty: ½·ln(n)·2^q over all 2^q configs.
+    // Complexity penalty: `$\tfrac{1}{2}\ln(n)\cdot 2^q$` over all `$2^q$` configs.
     #[allow(clippy::cast_precision_loss)]
     let nf = n as f64;
     #[allow(clippy::cast_precision_loss)]
@@ -390,23 +390,23 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
             .into_vec::<f32>()
             .expect("population tensor must be readable as f32");
         if n == 0 {
-            // Degenerate input: nothing to learn, return the prior-shaped
-            // state (params-shaped, since a 0×0 tensor carries no width).
+            // Degenerate input: nothing to learn, return the prior-shaped state (params-shaped,
+            // since a `$0 \times 0$` tensor carries no width).
             return prior_state(params.genome_dim, params.init_prob);
         }
         let bits: Vec<u8> = rows.iter().map(|&v| u8::from(v >= 0.5)).collect();
 
-        // Greedy structure learning with a D×D gain cache.
+        // Greedy structure learning with a `$D \times D$` gain cache.
         let mut parents: Vec<Vec<usize>> = vec![Vec::new(); d];
         let mut base_score: Vec<f64> = (0..d).map(|v| bic_score(&bits, n, d, v, &[])).collect();
 
-        // gain_cache[u * d + v] = score(v, parents[v] ∪ {u}) − base_score[v],
-        // an exact recomputation. Entries are recomputed for child v* after each
-        // accepted edge; eligibility (cycle / cap / already-present) is checked
-        // live at selection time, so the cache holds only the score gain.
-        // NOTE: this `NEG_INFINITY` is a structure-score (BDeu/likelihood)
-        // gain sentinel for greedy edge maximisation — NOT objective fitness.
-        // It is independent of the crate's maximise convention; do not flip it.
+        // gain_cache[u * d + v] =
+        // `$\text{score}(v, \text{parents}[v] \cup \{u\}) - \text{base\_score}[v]$`, an exact
+        // recomputation. Entries are recomputed for child v* after each accepted edge; eligibility
+        // (cycle / cap / already-present) is checked live at selection time, so the cache holds
+        // only the score gain. NOTE: this `NEG_INFINITY` is a structure-score (BDeu/likelihood)
+        // gain sentinel for greedy edge maximisation — NOT objective fitness. It is independent of
+        // the crate's maximise convention; do not flip it.
         let mut gain_cache = vec![f64::NEG_INFINITY; d * d];
         // Helper closure would need to borrow `bits`/`parents`/`base_score`
         // mutably and immutably; an inline recompute keeps borrows simple.
@@ -423,8 +423,8 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
         }
 
         loop {
-            // Select the eligible (u, v) with the maximal cached gain.
-            // Lexicographic (u, v) scan with strict '>' ⇒ first pair wins ties.
+            // Select the eligible (u, v) with the maximal cached gain. Lexicographic (u, v) scan
+            // with strict '>' `$\Rightarrow$` first pair wins ties.
             let mut best: Option<(f64, usize, usize)> = None;
             for u in 0..d {
                 for v in 0..d {
@@ -463,11 +463,10 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
             }
         }
 
-        // CPT estimation from the final structure: one counting pass per node.
-        // Floor the smoothing at 1 so every probability stays strictly inside
-        // `(0, 1)` (the field-doc guarantee): with `s ≥ 1`, `den = N(c) + 2s > 0`
-        // always, so the `0/0` case is unreachable and `count_1/count_total`
-        // cannot pin a cell to an absorbing `0.0`/`1.0`.
+        // CPT estimation from the final structure: one counting pass per node. Floor the smoothing
+        // at 1 so every probability stays strictly inside `(0, 1)` (the field-doc guarantee): with
+        // `$s \geq 1$`, `den = N(c) + 2s > 0` always, so the `0/0` case is unreachable and
+        // `count_1/count_total` cannot pin a cell to an absorbing `0.0`/`1.0`.
         let s = params.smoothing_count.max(1);
         let mut cpt: Vec<Vec<f32>> = Vec::with_capacity(d);
         // Laplace pseudo-count as f64; `s` is a tiny smoothing constant, far
@@ -488,13 +487,12 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
             for c in 0..num_configs {
                 let count_1 = counts[c * 2 + 1];
                 let count_total = counts[c * 2] + count_1;
-                // (N(c,1) + s) / (N(c) + 2s); f64::from(u32) is lossless. With
-                // `s ≥ 1` the denominator is always positive, so no `0/0` guard
-                // is needed.
+                // (N(c,1) + s) / (N(c) + 2s); f64::from(u32) is lossless. With `$s \geq 1$` the
+                // denominator is always positive, so no `0/0` guard is needed.
                 let num = f64::from(count_1) + s_f;
                 let den = f64::from(count_total) + 2.0 * s_f;
-                // Probability in (0, 1) for s ≥ 1; the f64→f32 narrowing of a
-                // value in [0, 1] cannot truncate meaningfully.
+                // Probability in (0, 1) for s `$\geq$` 1; the f64→f32 narrowing of a value in [0,
+                // 1] cannot truncate meaningfully.
                 #[allow(clippy::cast_possible_truncation)]
                 let prob = (num / den) as f32;
                 table.push(prob);
@@ -693,10 +691,10 @@ mod tests {
 
     #[test]
     fn recovers_pairwise_dependency() {
-        // d=3, n=20: gene0 balanced (10 zeros then 10 ones), gene1 = copy of
-        // gene0, gene2 alternating within each half (zero correlation to gene0).
-        // BIC: dependence gain ≈ n·ln2 ≈ 13.9 vs penalty increment ½·ln20 ≈ 1.5
-        // ⇒ exactly one edge between 0 and 1; gene2 isolated.
+        // d=3, n=20: gene0 balanced (10 zeros then 10 ones), gene1 = copy of gene0, gene2
+        // alternating within each half (zero correlation to gene0). BIC: dependence gain
+        // `$\approx n\ln 2 \approx 13.9$` vs penalty increment `$\tfrac{1}{2}\ln 20 \approx 1.5$`
+        // `$\Rightarrow$` exactly one edge between 0 and 1; gene2 isolated.
         let p = BayesianNetworkParams::default_for(3);
         let mut rows = Vec::with_capacity(20 * 3);
         for i in 0..20 {
@@ -721,7 +719,7 @@ mod tests {
         for ps in &state.parents {
             assert!(!ps.contains(&2), "gene2 must not be a parent: {ps:?}");
         }
-        // The child's 2-entry CPT is ≈ [<0.2, >0.8] after smoothing.
+        // The child's 2-entry CPT is `$\approx$` [<0.2, >0.8] after smoothing.
         let child = usize::from(edge_0_to_1);
         assert_eq!(state.cpt[child].len(), 2, "child CPT has 2 cells");
         assert!(
@@ -738,7 +736,7 @@ mod tests {
 
     #[test]
     fn recovers_two_parent_dependency() {
-        // gene2 = gene0 AND gene1 over the four balanced combos repeated 8×.
+        // gene2 = gene0 AND gene1 over the four balanced combos repeated `$8\times$`.
         let p = BayesianNetworkParams::default_for(3);
         let mut rows = Vec::with_capacity(32 * 3);
         for _ in 0..8 {
@@ -915,9 +913,9 @@ mod tests {
 
     #[test]
     fn smoothing_count_zero_keeps_cpt_interior() {
-        // s = 0 with a constant-1 column would give count_1/count_total = 1.0
-        // (an absorbing gene) without the floor. Flooring s at 1 keeps it in
-        // (0, 1). Single gene, all ones ⇒ one CPT cell.
+        // s = 0 with a constant-1 column would give count_1/count_total = 1.0 (an absorbing gene)
+        // without the floor. Flooring s at 1 keeps it in (0, 1). Single gene, all ones
+        // `$\Rightarrow$` one CPT cell.
         let mut p = BayesianNetworkParams::default_for(1);
         p.smoothing_count = 0;
         let state = refit(&p, vec![1.0, 1.0, 1.0, 1.0], 4, 1);
@@ -973,10 +971,10 @@ mod tests {
 
     #[test]
     fn single_individual_population_yields_prior_shape() {
-        // §7.2: n == 1. With one row the BIC complexity penalty ½·ln(1)·2^q is 0
-        // and every config's likelihood term is 0, so no edge yields positive
-        // gain: the learned structure is edgeless and prior-shaped (natural
-        // order, empty parent lists, single-cell CPTs).
+        // §7.2: n == 1. With one row the BIC complexity penalty `$\tfrac{1}{2}\ln(1)\cdot 2^q$` is
+        // 0 and every config's likelihood term is 0, so no edge yields positive gain: the learned
+        // structure is edgeless and prior-shaped (natural order, empty parent lists, single-cell
+        // CPTs).
         let p = BayesianNetworkParams::default_for(3);
         let state = refit(&p, vec![1.0, 0.0, 1.0], 1, 3);
         assert_eq!(state.order, vec![0, 1, 2], "order must be natural");

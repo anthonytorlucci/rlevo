@@ -55,10 +55,10 @@ tensor was assumed canonical.
    chokepoint** — the analogue of `EvolutionaryHarness::step` for the coupled
    path. It reads `sense()` once, then applies **canonicalise-then-sanitize** to
    each returned population vector: negate iff `Minimize`, **then**
-   `sanitize_fitness_tensor` (`NaN → −∞`, `+∞ → f32::MAX`). The ordering is
+   `sanitize_fitness_tensor` ($\text{NaN} \to -\infty$, $+\infty \to \text{f32::MAX}$). The ordering is
    load-bearing and identical to the golden reference: "NaN = worst" is only
    well-defined in maximise space, so sanitizing before `neg()` would flip a
-   `NaN` cost to `+∞` = canonical *best* under `Minimize`. The `CoEAState`
+   `NaN` cost to $+\infty$ = canonical *best* under `Minimize`. The `CoEAState`
    best/mean trackers stay canonical.
 
 3. **`CoEAMetrics` display fields are natural; `binding_fitness` is canonical.**

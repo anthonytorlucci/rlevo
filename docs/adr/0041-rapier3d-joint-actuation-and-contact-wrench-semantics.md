@@ -203,16 +203,18 @@ issue; this ADR records the convention — reacher/swimmer already cite ADR 0041
   $\text{wrench}[2] \approx +m \cdot g$. Root cause was a two-branch sign inversion in the `n`
   computation: parry's manifold normal points from `collider1` toward
   `collider2` (parry3d-0.26.1 `contact_manifolds/contact_manifold.rs:449`) and
-  the solver drives the non-negative `contact.data.impulse` along $\text{dir1} =
-  -\text{normal}$ on collider1's body / $+\text{normal}$ on collider2's body
+  the solver drives the non-negative `contact.data.impulse` along
+  $\text{dir1} = -\text{normal}$ on collider1's body / $+\text{normal}$ on
+  collider2's body
   (`solver/contact_constraint/contact_with_coulomb_friction.rs:83`,
-  `contact_constraint_element.rs:282`/`285`), so the force ON the queried body is
-  $-\text{force\_mag} \cdot \text{normal}$ when it owns `collider1` and $+\text{force\_mag} \cdot \text{normal}$ when it
-  owns `collider2` — both branches were previously reversed. The fix flips
-  `InvertedDoublePendulum`'s `obs[8]` sign, which is $\approx 0$ in normal operation
-  (jointed contacts disabled), and is `contact_cost`-neutral (that squares the
-  wrench). Pinned by a resting-ball sign test, a Newton's-third-law antisymmetry
-  test, and an insertion-order-robustness test.
+  `contact_constraint_element.rs:282`/`285`), so the force ON the queried body
+  is $-\text{force\_mag} \cdot \text{normal}$ when it owns `collider1` and
+  $+\text{force\_mag} \cdot \text{normal}$ when it owns `collider2` — both
+  branches were previously reversed. The fix flips `InvertedDoublePendulum`'s
+  `obs[8]` sign, which is $\approx 0$ in normal operation (jointed contacts
+  disabled), and is `contact_cost`-neutral (that squares the wrench). Pinned by
+  a resting-ball sign test, a Newton's-third-law antisymmetry test, and an
+  insertion-order-robustness test.
 - **Contact-force sign is insertion-order-INDEPENDENT — RESOLVED.** Swapping
   which collider is `collider1` flips **both** `manifold.data.normal` and the
   `flipped` flag, so the attributed force is unchanged. The earlier concern that

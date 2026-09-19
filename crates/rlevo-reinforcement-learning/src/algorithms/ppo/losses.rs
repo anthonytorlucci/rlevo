@@ -34,8 +34,8 @@ pub fn clipped_surrogate<B: Backend>(
 
 /// Clipped value-function loss.
 ///
-/// `$\text{v\_loss\_clipped} = \max((\text{clip}(v, v_{old} \pm \epsilon) - R)^2, (v - R)^2)$`, mean × 0.5.
-/// Follows `CleanRL`'s clipped-value variant (an ablation-selected detail in
+/// `$\text{v\_loss\_clipped} = \max((\text{clip}(v, v_{old} \pm \epsilon) - R)^2, (v - R)^2)$`,
+/// mean `$\times 0.5$`. Follows `CleanRL`'s clipped-value variant (an ablation-selected detail in
 /// Huang et al. §5).
 pub fn clipped_value_loss<B: Backend>(
     new_values: Tensor<B, 1>,
@@ -89,7 +89,8 @@ pub fn approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<
     kl.mean().into_scalar().elem::<f32>()
 }
 
-/// Schulman's "k1" approximate KL: `mean(old_log_probs − new_log_probs)`.
+/// Schulman's "k1" approximate KL:
+/// `$\mathrm{mean}(\text{old\_log\_probs} - \text{new\_log\_probs})$`.
 ///
 /// This is the *pre-update* / naive KL estimator `$\text{mean}(-\log r)$`, reported
 /// alongside the k3 estimator from [`approx_kl`]. Together they bracket the
@@ -109,13 +110,13 @@ pub fn old_approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Ten
 ///
 /// # `CleanRL` / SB3 convention (non-centered residual)
 ///
-/// The residual term is the raw mean-square `$\text{mean}((\text{returns} - \text{values})^2)$`, not the
-/// *centered* variance `$\text{Var}(\text{returns} - \text{values})$` of the scikit-learn R² formula.
-/// The two agree once the value net is unbiased (`$E[\text{returns} - \text{values}] \approx 0$`), but
-/// the non-centered form additionally penalises a constant value-net **bias**.
-/// So during early warm-up a value net that has the right shape but a constant
-/// offset reads `$ev < 0$` — this is expected, not a code bug. This matches `CleanRL`
-/// and Stable-Baselines3 so curves are comparable across implementations.
+/// The residual term is the raw mean-square `$\text{mean}((\text{returns} - \text{values})^2)$`,
+/// not the *centered* variance `$\text{Var}(\text{returns} - \text{values})$` of the scikit-learn
+/// `$R^2$` formula. The two agree once the value net is unbiased
+/// (`$E[\text{returns} - \text{values}] \approx 0$`), but the non-centered form additionally
+/// penalises a constant value-net **bias**. So during early warm-up a value net that has the right
+/// shape but a constant offset reads `$ev < 0$` — this is expected, not a code bug. This matches
+/// `CleanRL` and Stable-Baselines3 so curves are comparable across implementations.
 ///
 /// Returns `0.0` when `Var(returns) == 0` (a degenerate rollout) rather than
 /// dividing by zero — never emits `NaN`/`Inf`.
@@ -145,8 +146,8 @@ pub fn explained_variance(returns: &[f32], values: &[f32]) -> f32 {
         })
         .sum::<f32>()
         / n_f;
-    // Note: residual variance uses the raw mean-square (CleanRL convention),
-    // which is exact since E[returns − values] ≈ 0 for a fitted value net.
+    // Note: residual variance uses the raw mean-square (CleanRL convention), which is exact since
+    // `$E[\text{returns} - \text{values}]$` `$\approx$` 0 for a fitted value net.
     let ev = 1.0 - var_resid / var_ret;
     if ev.is_finite() { ev } else { 0.0 }
 }
@@ -205,14 +206,15 @@ mod tests {
     #[test]
     fn test_ppo_losses_clipped_obj_hand_rolled() {
         // ratio = [1.5, 0.5], advantages = [1.0, -1.0], clip = 0.2
-        // new_lp − old_lp = ln(ratio) ⇒ use old_lp=0, new_lp=ln(r).
+        // `$\text{new\_lp} - \text{old\_lp}$` `$= \ln(\text{ratio}) \Rightarrow$` use old_lp=0,
+        // new_lp=`$\ln(r)$`.
         let new_lp = t1(&[1.5_f32.ln(), 0.5_f32.ln()]);
         let old_lp = t1(&[0.0, 0.0]);
         let advs = t1(&[1.0, -1.0]);
         let loss = clipped_surrogate(new_lp, old_lp, advs, 0.2);
         let v = loss.into_scalar();
-        // surrogate1 = [1.5, -0.5], surrogate2 = [clamp(1.5,[.8,1.2])=1.2, clamp(0.5,[.8,1.2])=0.8]·[-1] = [-0.8]
-        // surrogate1 paired with surrogate2:
+        // surrogate1 = [1.5, -0.5], surrogate2 = [clamp(1.5,[.8,1.2])=1.2,
+        // clamp(0.5,[.8,1.2])`$=0.8]\cdot[-1] = [-0.8]$` surrogate1 paired with surrogate2:
         //   row 0: min(1.5, 1.2) = 1.2
         //   row 1: min(-0.5, -0.8) = -0.8
         // mean = (1.2 + (-0.8)) / 2 = 0.2
@@ -240,18 +242,16 @@ mod tests {
     fn test_ppo_losses_unclipped_value_loss_is_half_mse() {
         let v = t1(&[0.0, 2.0]);
         let r = t1(&[1.0, 0.0]);
-        // (v - r) = [-1, 2] → sq = [1, 4] → mean = 2.5 → × 0.5 = 1.25
+        // (v - r) = [-1, 2] → sq = [1, 4] → mean = 2.5 → `$\times 0.5 = 1.25$`
         let loss = unclipped_value_loss(v, r);
         assert!((loss.into_scalar() - 1.25).abs() < 1e-5);
     }
 
     #[test]
     fn test_ppo_losses_clipped_value_loss_limits_update() {
-        // old_v = [0], new_v = [10], returns = [0], clip = 0.5
-        // unclipped sq = 100
-        // clipped_v = old + clamp(new - old, ±0.5) = 0 + 0.5 = 0.5, sq = 0.25
-        // max(100, 0.25) = 100 → 0.5 * 100 = 50
-        // (clipping picks the LARGER of the two squared errors, per CleanRL)
+        // old_v = [0], new_v = [10], returns = [0], clip = 0.5 unclipped sq = 100 clipped_v = old +
+        // clamp(new - old, `$\pm$`0.5) = 0 + 0.5 = 0.5, sq = 0.25 max(100, 0.25) = 100 → 0.5 * 100
+        // = 50 (clipping picks the LARGER of the two squared errors, per CleanRL)
         let new_v = t1(&[10.0]);
         let old_v = t1(&[0.0]);
         let r = t1(&[0.0]);
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_ppo_losses_old_approx_kl_is_mean_neg_logratio() {
-        // old_lp = 0, new_lp = ln(r) ⇒ old_approx_kl = mean(−ln r)
+        // old_lp = 0, new_lp = ln(r) `$\Rightarrow$` old_approx_kl = `$\mathrm{mean}(-\ln r)$`
         let new_lp = t1(&[2.0_f32.ln(), 0.5_f32.ln()]);
         let old_lp = t1(&[0.0, 0.0]);
         let v = old_approx_kl(new_lp, old_lp);
@@ -302,10 +302,10 @@ mod tests {
 
     #[test]
     fn test_ppo_losses_explained_variance_penalises_constant_bias_cleanrl_convention() {
-        // Perfectly-shaped value net with a constant +1 offset. The scikit R²
-        // (centered) form would give 1.0; the CleanRL non-centered form we use
-        // penalises the bias. returns var = 2/3, residual mean-sq = 1.0 ⇒
-        // ev = 1 - 1.0/(2/3) = -0.5. This documents the intentional divergence.
+        // Perfectly-shaped value net with a constant +1 offset. The scikit `$R^2$` (centered) form
+        // would give 1.0; the CleanRL non-centered form we use penalises the bias. returns var =
+        // 2/3, residual mean-sq = 1.0 `$\Rightarrow$` ev = 1 - 1.0/(2/3) = -0.5. This documents the
+        // intentional divergence.
         let returns = [10.0, 11.0, 12.0];
         let values = [9.0, 10.0, 11.0];
         let ev = explained_variance(&returns, &values);

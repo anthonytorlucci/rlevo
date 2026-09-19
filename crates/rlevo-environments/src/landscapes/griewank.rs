@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        // sum_sq = 0, prod_cos = 1, so f(0) = 0 − 1 + 1 = 0 exactly.
+        // sum_sq = 0, prod_cos = 1, so `$f(0) = 0 - 1 + 1 = 0$` exactly.
         let g = Griewank::new(5).expect("dim >= 1");
         assert_relative_eq!(g.evaluate(&[0.0; 5]), 0.0, epsilon = 1e-12);
     }
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn known_value_at_ones() {
-        // f([1,1]) = 2/4000 − cos(1)·cos(1/√2) + 1.
+        // `$f([1,1]) = 2/4000 - \cos(1) \cdot \cos(1/\sqrt{2}) + 1$`.
         let g = Griewank::new(2).expect("dim >= 1");
         let expected = 2.0 / 4000.0 - (1.0_f64).cos() * (1.0_f64 / 2.0_f64.sqrt()).cos() + 1.0;
         assert_relative_eq!(g.evaluate(&[1.0, 1.0]), expected, epsilon = 1e-12);

@@ -1,10 +1,9 @@
 //! End-to-end training loop for PPO.
 //!
-//! Iterates: **collect rollout** (sequential `num_steps` env steps) →
-//! **finalise** (compute GAE) → **update** (`update_epochs × num_minibatches`
-//! gradient updates) → **record episode metrics**. The loop owns the
-//! env/agent/rng references and threads them through; it is *not* a trait
-//! impl so the entire sequence reads top-to-bottom in one function, matching
+//! Iterates: **collect rollout** (sequential `num_steps` env steps) → **finalise** (compute GAE) →
+//! **update** (`$\text{update\_epochs} \times \text{num\_minibatches}$` gradient updates) →
+//! **record episode metrics**. The loop owns the env/agent/rng references and threads them through;
+//! it is *not* a trait impl so the entire sequence reads top-to-bottom in one function, matching
 //! `CleanRL`'s pedagogical style.
 //!
 //! Two entry points:
@@ -321,14 +320,13 @@ fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
         old_approx_kl = stats.old_approx_kl,
         clip_frac = stats.clip_frac,
         explained_variance = stats.explained_variance,
-        // The ADR 0049 §4 metric channel, which no shipped loop emitted
-        // before this: earlier the only signal on a clamp crossing was a
-        // one-shot per-head warning log, not a per-iteration metric.
-        // `?` (Debug) rather than a `f32` field because both are
-        // `Option<f32>`: a categorical run renders `None`, which is the honest
-        // reading, where a `map_or(0.0, ..)` would print a `log σ` of zero
-        // (σ = 1) for a policy that has no σ at all. Both extrema are logged —
-        // a minimum alone cannot see a dim pinned at `log_std_max`.
+        // The ADR 0049 §4 metric channel, which no shipped loop emitted before this: earlier the
+        // only signal on a clamp crossing was a one-shot per-head warning log, not a per-iteration
+        // metric. `?` (Debug) rather than a `f32` field because both are `Option<f32>`: a
+        // categorical run renders `None`, which is the honest reading, where a `map_or(0.0, ..)`
+        // would print a `$\log \sigma$` of zero (`$\sigma = 1$`) for a policy that has no
+        // `$\sigma$` at all. Both extrema are logged — a minimum alone cannot see a dim pinned at
+        // `log_std_max`.
         min_log_std = ?stats.min_log_std,
         max_log_std = ?stats.max_log_std,
         episode_return_mean = ret_stats.mean,

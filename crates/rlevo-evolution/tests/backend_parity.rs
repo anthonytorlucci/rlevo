@@ -146,11 +146,10 @@ fn wgpu_matches_flex_on_sphere_d10() {
     let wgpu_ga = run_sphere_ga::<Wgpu>(SEED, GENS, wgpu_device.clone());
     let wgpu_pso = run_sphere_pso::<Wgpu>(SEED, GENS, wgpu_device);
 
-    // Both backends should compose the operators correctly and drive
-    // GA to a non-trivial optimum. "Non-trivial" here means well below
-    // the random-initialization baseline on Sphere-D10 (E[x·x] with
-    // x ~ U(-5.12, 5.12) is ~87), so any final value under 1.0
-    // proves the operator chain works on both backends.
+    // Both backends should compose the operators correctly and drive GA to a non-trivial optimum.
+    // "Non-trivial" here means well below the random-initialization baseline on Sphere-D10
+    // (`$E[x \cdot x]$` with x ~ U(-5.12, 5.12) is ~87), so any final value under 1.0 proves the
+    // operator chain works on both backends.
     assert!(
         flex_ga.is_finite() && wgpu_ga.is_finite(),
         "non-finite GA result: flex={flex_ga}, wgpu={wgpu_ga}",
@@ -164,12 +163,10 @@ fn wgpu_matches_flex_on_sphere_d10() {
         "wgpu GA did not converge on Sphere-D10: {wgpu_ga}",
     );
 
-    // Same functional assertion for PSO. This exercises the swarm
-    // operator chain (velocity clamp, tensor broadcast in the
-    // inertia update, gather-based personal-best tracking) on both
-    // backends. Threshold 1e-2 (tighter than GA's 1.0) is justified
-    // because PSO with the default inertia schedule converges faster
-    // than BLX-α GA on Sphere.
+    // Same functional assertion for PSO. This exercises the swarm operator chain (velocity clamp,
+    // tensor broadcast in the inertia update, gather-based personal-best tracking) on both
+    // backends. Threshold 1e-2 (tighter than GA's 1.0) is justified because PSO with the default
+    // inertia schedule converges faster than BLX-`$\alpha$` GA on Sphere.
     assert!(
         flex_pso.is_finite() && wgpu_pso.is_finite(),
         "non-finite PSO result: flex={flex_pso}, wgpu={wgpu_pso}",

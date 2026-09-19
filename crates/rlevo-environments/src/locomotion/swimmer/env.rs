@@ -29,10 +29,10 @@ use super::config::SwimmerConfig;
 use super::observation::SwimmerObservation;
 use super::state::SwimmerState;
 
-/// Reward-component key: `$\text{forward\_reward\_weight} \cdot \text{vx\_com}$` (≥ 0 when swimming
-/// forward, ≤ 0 when drifting backward).
+/// Reward-component key: `$\text{forward\_reward\_weight} \cdot \text{vx\_com}$` (`$\geq 0$` when
+/// swimming forward, `$\leq 0$` when drifting backward).
 pub const METADATA_KEY_FORWARD: &str = "forward";
-/// Reward-component key: `$-\text{ctrl\_cost\_weight} \cdot \|\text{action}\|^2$` (≤ 0).
+/// Reward-component key: `$-\text{ctrl\_cost\_weight} \cdot \|\text{action}\|^2$` (`$\leq 0$`).
 pub const METADATA_KEY_CTRL: &str = "ctrl";
 
 /// A 3-segment planar swimmer with viscous drag, generic over the physics
@@ -144,21 +144,21 @@ impl Swimmer<Rapier3DBackend> {
         let half_l = config.segment_length * 0.5;
         let r = config.segment_radius;
 
-        // Capsule volume: cylinder of length 2·half_l plus two hemispherical
-        // caps. Density drives the inertia tensor (using `additional_mass`
-        // instead would leave angular inertia zero → segments wouldn't rotate).
+        // Capsule volume: cylinder of length `$2 \cdot \text{half\_l}$` plus two hemispherical
+        // caps. Density drives the inertia tensor (using `additional_mass` instead would leave
+        // angular inertia zero → segments wouldn't rotate).
         let capsule_volume = std::f32::consts::PI * r.powi(2) * (2.0 * half_l + (4.0 / 3.0) * r);
         let density = config.segment_mass / capsule_volume.max(f32::EPSILON);
 
-        // Segment absolute angles: joint angles are relative (child − parent).
+        // Segment absolute angles: joint angles are relative (`$\text{child} - \text{parent}$`).
         let angle0 = theta_body;
         let angle1 = theta_body + joint1_init;
         let angle2 = theta_body + joint1_init + joint2_init;
 
-        // Chain centres: successive links are placed so anchor1 on the parent
-        // back (+half_l, 0) matches anchor2 on the child front (−half_l, 0).
-        //   p1 = p0 + half_l·dir(angle0) + half_l·dir(angle1)
-        //   p2 = p1 + half_l·dir(angle1) + half_l·dir(angle2)
+        // Chain centres: successive links are placed so anchor1 on the parent back
+        // `$(+\text{half\_l}, 0)$` matches anchor2 on the child front `$(-\text{half\_l}, 0)$`.
+        //   `$p_1 = p_0 + \text{half\_l} \cdot \mathrm{dir}(\text{angle0}) + \text{half\_l} \cdot \mathrm{dir}(\text{angle1})$`
+        //   `$p_2 = p_1 + \text{half\_l} \cdot \mathrm{dir}(\text{angle1}) + \text{half\_l} \cdot \mathrm{dir}(\text{angle2})$`
         let p1_x = p0_x + half_l * angle0.cos() + half_l * angle1.cos();
         let p1_y = p0_y + half_l * angle0.sin() + half_l * angle1.sin();
         let p2_x = p1_x + half_l * angle1.cos() + half_l * angle2.cos();
@@ -252,8 +252,9 @@ impl Swimmer<Rapier3DBackend> {
         let v1 = Rapier3DBackend::get_vel(&self.world, self.state.segment1);
         let v2 = Rapier3DBackend::get_vel(&self.world, self.state.segment2);
 
-        // Pure rotation about world-z ⇒ quaternion = (cos(θ/2), 0, 0, sin(θ/2))
-        // in [w, x, y, z] order. θ = 2·atan2(qz, qw).
+        // Pure rotation about world-z `$\Rightarrow$` quaternion
+        // `$= (\cos(\theta/2), 0, 0, \sin(\theta/2))$` in [w, x, y, z] order.
+        // `$\theta = 2\,\mathrm{atan2}(q_z, q_w)$`.
         let a0 = segment_z_angle(p0.orientation);
         let a1 = segment_z_angle(p1.orientation);
         let a2 = segment_z_angle(p2.orientation);
@@ -303,12 +304,11 @@ impl Swimmer<Rapier3DBackend> {
     ///   * viscous drag is recomputed each substep from the segments' **current**
     ///     velocity, so it tracks the chain as it accelerates within the step.
     ///
-    /// Under `MultibodyJointSet`, torquing a child body produces an
-    /// equal-and-opposite reaction on the parent through the joint (the
-    /// reduced-coordinate solver handles this), so only the child of each joint
-    /// is torqued: seg1 for joint1, seg2 for joint2. Double-torquing (also
-    /// applying −τ to the parent, as impulse-joint envs like Reacher do) would
-    /// inject spurious net torque on the free-floating chain.
+    /// Under `MultibodyJointSet`, torquing a child body produces an equal-and-opposite reaction on
+    /// the parent through the joint (the reduced-coordinate solver handles this), so only the child
+    /// of each joint is torqued: seg1 for joint1, seg2 for joint2. Double-torquing (also applying
+    /// `$-\tau$` to the parent, as impulse-joint envs like Reacher do) would inject spurious net
+    /// torque on the free-floating chain.
     fn step_physics(&mut self, torques: [f32; 2]) {
         let seg0 = self.state.segment0;
         let seg1 = self.state.segment1;
@@ -945,8 +945,8 @@ mod tests {
             let env = SwimmerRapier::with_config(cfg(seed)).expect("valid config");
             let obs = env.state.last_obs;
             assert!(obs.is_finite(), "seed {seed} produced non-finite obs");
-            // Reset noise is ±0.1; body_angle and joint angles are pulled
-            // directly from the sampled range.
+            // Reset noise is `$\pm 0.1$`; body_angle and joint angles are pulled directly from the
+            // sampled range.
             assert!(
                 obs.body_angle().abs() <= 0.1 + 1e-5,
                 "seed {seed}: |body_angle|={} > 0.1",
@@ -1039,8 +1039,9 @@ mod tests {
         // Linear velocities: also zero.
         assert!(obs.vx_com().abs() < 1e-5);
         assert!(obs.vy_com().abs() < 1e-5);
-        // Angular velocities: ω_body = segment0, joint1_dot = ω1 − ω0 = 0.5,
-        // joint2_dot = ω2 − ω1 = -0.3.
+        // Angular velocities: `$\omega_{\text{body}}$` = segment0,
+        // `$\text{joint1\_dot} = \omega_1 - \omega_0 = 0.5$`,
+        // `$\text{joint2\_dot} = \omega_2 - \omega_1 = -0.3$`.
         assert!((obs.omega_body() - 1.0).abs() < 1e-5);
         assert!((obs.joint1_dot() - 0.5).abs() < 1e-5);
         assert!((obs.joint2_dot() + 0.3).abs() < 1e-5);
@@ -1101,30 +1102,30 @@ mod tests {
         // `reset_forces`/`reset_torques` after integrating), paired with
         // re-tuned per-env force/torque constants.
         //
-        // We assert the invariant *directly* via the residual `user_torque`
-        // accumulator rather than through the chain's emergent angular velocity.
-        // The 3-segment swimmer is a driven multi-body chain integrated over
-        // many substeps; a hard bound on its emergent |ω| sits only ~1.24×
-        // above the measured value (40.4 vs a 50 cap) and depends on nonlinear
-        // trajectory details that diverge across CPU architectures (aarch64 vs
-        // x86_64 libm/SIMD rounding). The applied torque (`gear × action`) and
-        // its running sum are plain IEEE-754 adds, so the residual probe is
-        // bit-identical everywhere.
+        // We assert the invariant *directly* via the residual `user_torque` accumulator rather than
+        // through the chain's emergent angular velocity. The 3-segment swimmer is a driven
+        // multi-body chain integrated over many substeps; a hard bound on its emergent
+        // `$\lvert\omega\rvert$` sits only ~`$1.24\times$` above the measured value (40.4 vs a 50
+        // cap) and depends on nonlinear trajectory details that diverge across CPU architectures
+        // (aarch64 vs x86_64 libm/SIMD rounding). The applied torque
+        // (`$\text{gear} \times \text{action}$`) and its running sum are plain IEEE-754 adds, so
+        // the residual probe is bit-identical everywhere.
         //
         //   * With the fix, `step_once` calls `reset_external_forces` after the
         //     final substep, so every body's accumulator is exactly 0.
         //   * With the pre-fix bug the accumulator is never cleared and grows
-        //     unbounded as `steps × frame_skip × τ` is summed (net of the
+        //     unbounded as `$\text{steps} \times \text{frame\_skip} \times \tau$` is summed (net of the
         //     opposing angular drag torque) — failing the `< 1e-3` bound.
         //     (Confirmed: reverting `reset_external_forces` leaves segment1 with
-        //     a residual of ~86 N·m.)
+        //     a residual of ~`$86\ \text{N}\cdot\text{m}$`.)
         const STEPS: usize = 3;
         const RESIDUAL_TOL: f32 = 1e-3;
 
         let mut env = SwimmerRapier::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
 
-        // Clipped action ±1.0 × gear 5 ⇒ ±5 N·m joint torque per substep.
+        // Clipped action `$\pm 1.0 \times$` gear 5 `$\Rightarrow \pm 5\ \text{N}\cdot\text{m}$`
+        // joint torque per substep.
         let mut moved = false;
         for i in 0..STEPS {
             let snap = env.step(SwimmerAction::new(1.0, -1.0)).unwrap();

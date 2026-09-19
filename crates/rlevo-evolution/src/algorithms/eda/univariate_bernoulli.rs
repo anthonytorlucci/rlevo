@@ -149,11 +149,10 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
 
         let [k, d] = population.dims();
         if k == 0 {
-            // Empty selected population: the argmax/argmin below would leave
-            // `best_idx`/`worst_idx` at `0` and then index `rows[0 * d + j]` on
-            // an empty `rows`, panicking out of bounds. Return the previous
-            // probabilities unchanged. `EdaStrategy::tell` clamps `k ≥ 2`, but
-            // `fit` is a public trait method reachable directly.
+            // Empty selected population: the argmax/argmin below would leave `best_idx`/`worst_idx`
+            // at `0` and then index `rows[0 * d + j]` on an empty `rows`, panicking out of bounds.
+            // Return the previous probabilities unchanged. `EdaStrategy::tell` clamps `$k \geq 2$`,
+            // but `fit` is a public trait method reachable directly.
             return UnivariateBernoulliState {
                 prob: prev.prob.clone(),
             };
@@ -174,11 +173,10 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
         let mut best_f = f32::NEG_INFINITY;
         let mut worst_f = f32::INFINITY;
         for i in 0..k {
-            // Sanitize `NaN → −inf` at the seam, mirroring `compact_genetic` so
-            // the two binary EDAs stay symmetric. `tell` sanitizes upstream, but
-            // a direct `fit` caller passing a `NaN` fitness would otherwise have
-            // it sort as the largest value under `total_cmp` and be picked as the
-            // best individual.
+            // Sanitize `$\text{NaN} \to -\infty$` at the seam, mirroring `compact_genetic` so the
+            // two binary EDAs stay symmetric. `tell` sanitizes upstream, but a direct `fit` caller
+            // passing a `NaN` fitness would otherwise have it sort as the largest value under
+            // `total_cmp` and be picked as the best individual.
             let f = crate::fitness::sanitize_fitness(
                 fit_host.get(i).copied().unwrap_or(f32::NEG_INFINITY),
             );
@@ -441,10 +439,10 @@ mod tests {
     #[test]
     fn probabilities_stay_within_bounds_across_generations() {
         // §7.2: the PBIL update interpolates `prob*(1-lr) + lr*gene` with
-        // `gene ∈ {0, 1}` and `prob ∈ [min_prob, max_prob]`, so every generation
-        // keeps each probability inside the bounds. Drive many seeded
-        // fit/update generations over random binary populations and assert the
-        // invariant holds throughout.
+        // `$\text{gene} \in \{0, 1\}$` and
+        // `$\text{prob} \in [\text{min\_prob}, \text{max\_prob}]$`, so every generation keeps each
+        // probability inside the bounds. Drive many seeded fit/update generations over random
+        // binary populations and assert the invariant holds throughout.
         let device = Default::default();
         let p = UnivariateBernoulliParams::default_for(6);
         let (min_prob, max_prob) = (0.0_f32, 1.0_f32);

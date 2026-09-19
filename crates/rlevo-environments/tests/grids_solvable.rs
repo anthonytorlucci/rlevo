@@ -119,14 +119,13 @@ const ORACLE_SEEDS: u64 = 32;
 /// also sweeps two sizes, so this buys `2 * PLANNED_SEEDS` searches per test
 /// across six tests, which the harness runs on parallel threads.
 ///
-/// Measured on the authoring workstation (Apple silicon, `cargo test` debug
-/// profile, whole-binary wall clock): 0.26 s at one board per size, 3.1 s at 16,
-/// 6.5 s at 32 — linear, and paced by `door_key` and `unlock_pickup` (2.9 s
-/// each at 16), whose search must discover a key/`Drop` ordering rather than
-/// just a path. 16 buys 192 planned episodes per run (16 seeds × 2 sizes ×
-/// 6 tests) — enough to catch a generator that only misbehaves on some seeds,
-/// for a binary that still finishes in a few seconds. Raise it if a
-/// seed-specific generator bug ever slips through; the cost is predictable.
+/// Measured on the authoring workstation (Apple silicon, `cargo test` debug profile, whole-binary
+/// wall clock): 0.26 s at one board per size, 3.1 s at 16, 6.5 s at 32 — linear, and paced by
+/// `door_key` and `unlock_pickup` (2.9 s each at 16), whose search must discover a key/`Drop`
+/// ordering rather than just a path. 16 buys 192 planned episodes per run (16 seeds `$\times$` 2
+/// sizes `$\times$` 6 tests) — enough to catch a generator that only misbehaves on some seeds, for
+/// a binary that still finishes in a few seconds. Raise it if a seed-specific generator bug ever
+/// slips through; the cost is predictable.
 const PLANNED_SEEDS: u64 = 16;
 
 /// Every planned oracle runs at its env's `MIN_SIZE` floor and at one larger
@@ -449,8 +448,8 @@ fn target_wall(env: &GoToDoorEnv) -> usize {
     hits[0]
 }
 
-/// Walk from the fixed start pose `(2, 2)` facing East to a pose *facing* the
-/// door in the middle of `wall` on a 6 × 6 grid, ending in `Done`.
+/// Walk from the fixed start pose `(2, 2)` facing East to a pose *facing* the door in the middle of
+/// `wall` on a `$6 \times 6$` grid, ending in `Done`.
 fn go_to_door_script(wall: usize) -> &'static [GridAction] {
     use GridAction::{Done, Forward, TurnLeft, TurnRight};
     match wall {
@@ -501,9 +500,9 @@ fn go_to_door_is_solvable_for_every_seed() {
     );
 }
 
-/// Planned oracle: the four `mid ± 3` openings connect the start quadrant to the
-/// goal quadrant. Both sizes are odd, which `FourRoomsConfig::validate` requires
-/// (an even size has no single centre row/column for the interior cross).
+/// Planned oracle: the four `$\text{mid} \pm 3$` openings connect the start quadrant to the goal
+/// quadrant. Both sizes are odd, which `FourRoomsConfig::validate` requires (an even size has no
+/// single centre row/column for the interior cross).
 #[test]
 fn four_rooms_is_solvable() {
     for size in sizes::FOUR_ROOMS {

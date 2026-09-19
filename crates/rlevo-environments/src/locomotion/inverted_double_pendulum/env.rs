@@ -128,8 +128,8 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
         );
 
         // Reset-noise sampling:
-        //   qpos (cart_x, θ₁, θ₂) ~ U(-scale, scale)
-        //   qvel (cart_vx, θ̇₁, θ̇₂) ~ N(0, scale)
+        //   `$\text{qpos}(\text{cart\_x}, \theta_1, \theta_2) \sim U(-\text{scale}, \text{scale})$`
+        //   `$\text{qvel}(\text{cart\_vx}, \dot{\theta}_1, \dot{\theta}_2) \sim N(0, \text{scale})$`
         let n = config.reset_noise_scale;
         let init_cart_x: f32 = rng.random_range(-n..=n);
         let init_theta1: f32 = rng.random_range(-n..=n);
@@ -170,8 +170,8 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
             * (2.0 * pole_half + (4.0 / 3.0) * config.pole_radius);
         let pole_density = config.pole_mass / pole_volume.max(f32::EPSILON);
 
-        // Pole1 — revolute-y joint to cart top. Initial orientation applied via
-        // axis-angle (`Vector::new(0, θ, 0)`). Revolute DOF gated to y-only.
+        // Pole1 — revolute-y joint to cart top. Initial orientation applied via axis-angle
+        // (`$\text{Vector::new}(0, \theta, 0)$`). Revolute DOF gated to y-only.
         let cart_half_z = config.cart_half_extents[2];
         let pole1_center_z = cart_z + cart_half_z + pole_half;
         let pole1_builder = RigidBodyBuilder::dynamic()
@@ -186,9 +186,9 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
             pole1,
         );
 
-        // Pole2 — revolute-y joint to pole1's top. Initial orientation applied
-        // as absolute rotation (θ₁ + θ₂) so the unloaded chain forms a straight
-        // arm at θ_rel = θ₂ when both noise samples are zero.
+        // Pole2 — revolute-y joint to pole1's top. Initial orientation applied as absolute rotation
+        // `$(\theta_1 + \theta_2)$` so the unloaded chain forms a straight arm at
+        // `$\theta_{\text{rel}} = \theta_2$` when both noise samples are zero.
         let pole2_abs_angle = init_theta1 + init_theta2;
         let pole2_center_z = pole1_center_z + 2.0 * pole_half;
         let pole2_builder = RigidBodyBuilder::dynamic()
@@ -236,9 +236,9 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
         (world, state)
     }
 
-    /// Sample the current physics state and pack it into a 9-element
-    /// observation. θ₂ is the **relative** elbow angle (pole2 world angle
-    /// minus pole1 world angle), wrapped to `$(-\pi, \pi]$`.
+    /// Sample the current physics state and pack it into a 9-element observation. `$\theta_2$` is
+    /// the **relative** elbow angle (pole2 world angle minus pole1 world angle), wrapped to
+    /// `$(-\pi, \pi]$`.
     ///
     /// `obs[8]` packs `Rapier3DBackend::contact_force(pole2)[0]` — a Cartesian
     /// contact-manifold force on pole2 — where Gymnasium's `InvertedDoublePendulum-v5`
@@ -261,7 +261,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
 
         let theta1 = pole_y_angle(&pole1_pose);
         let theta2_abs = pole_y_angle(&pole2_pose);
-        // θ₂ is the **relative** elbow angle (pole2 − pole1).
+        // `$\theta_2$` is the **relative** elbow angle (`$\text{pole2} - \text{pole1}$`).
         let theta2 = wrap_to_pi(theta2_abs - theta1);
 
         let cfrc_ext = Rapier3DBackend::contact_force(&self.world, self.state.pole2);
@@ -505,18 +505,18 @@ fn pole_y_angle(pose: &Pose) -> f32 {
 
 /// Rotate a vector by a unit quaternion `[w, x, y, z]`.
 ///
-/// Uses the standard `v' = v + 2·u × (u × v + w·v)` identity where
-/// `u = (x, y, z)`. Avoids pulling glam / nalgebra into the env layer.
+/// Uses the standard `$v' = v + 2u \times (u \times v + w v)$` identity where `u = (x, y, z)`.
+/// Avoids pulling glam / nalgebra into the env layer.
 // Justified: single-letter names mirror the reference dynamics equations.
 #[allow(clippy::many_single_char_names)]
 fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
     let [w, x, y, z] = q;
     let [vx, vy, vz] = v;
-    // t = 2 · (u × v)
+    // `$t = 2(u \times v)$`
     let tx = 2.0 * (y * vz - z * vy);
     let ty = 2.0 * (z * vx - x * vz);
     let tz = 2.0 * (x * vy - y * vx);
-    // v' = v + w·t + u × t
+    // `$v' = v + w t + u \times t$`
     [
         vx + w * tx + (y * tz - z * ty),
         vy + w * ty + (z * tx - x * tz),
@@ -571,7 +571,7 @@ mod tests {
 
     #[test]
     fn rotate_by_quat_90deg_about_y() {
-        // q = (cos(π/4), 0, sin(π/4), 0) rotates +z → +x.
+        // `$q = (\cos(\pi/4), 0, \sin(\pi/4), 0)$` rotates +z → +x.
         let c = (std::f32::consts::FRAC_PI_4).cos();
         let s = (std::f32::consts::FRAC_PI_4).sin();
         let v = rotate_by_quat([c, 0.0, s, 0.0], [0.0, 0.0, 1.0]);
@@ -587,7 +587,7 @@ mod tests {
         let snap = env.reset().unwrap();
         assert!(!snap.is_done());
         let obs = snap.observation();
-        // With zero reset noise both poles start upright: sin≈0, cos≈1.
+        // With zero reset noise both poles start upright: `$\sin \approx 0$`, `$\cos \approx 1$`.
         assert!(obs.cart_position().abs() < 1e-5);
         assert!(obs.sin_theta1().abs() < 1e-5);
         assert!(obs.sin_theta2().abs() < 1e-5);
@@ -806,17 +806,15 @@ mod tests {
 
     #[test]
     fn constant_force_does_not_accumulate() {
-        // Regression test (ADR 0037): a constant action must produce a
-        // stationary per-step cart-velocity increment. Rapier's `user_force`
-        // does not auto-clear each step despite the vendored 0.32 doc comment
-        // claiming otherwise; an unguarded `add_force` therefore accumulated
-        // across steps, so Δvx grew ~linearly and silently corrupted the
-        // control dynamics — existing tests stayed green because they only
-        // checked qualitative movement, not whether the applied force stayed
-        // bounded. Fixed once in the shared `RapierWorld::step()` (calling
-        // `reset_forces`/`reset_torques` each step), with per-env force
-        // constants re-tuned since the old values were implicitly tuned
-        // around the accumulation bug.
+        // Regression test (ADR 0037): a constant action must produce a stationary per-step
+        // cart-velocity increment. Rapier's `user_force` does not auto-clear each step despite the
+        // vendored 0.32 doc comment claiming otherwise; an unguarded `add_force` therefore
+        // accumulated across steps, so `$\Delta v_x$` grew ~linearly and silently corrupted the
+        // control dynamics — existing tests stayed green because they only checked qualitative
+        // movement, not whether the applied force stayed bounded. Fixed once in the shared
+        // `RapierWorld::step()` (calling `reset_forces`/`reset_torques` each step), with per-env
+        // force constants re-tuned since the old values were implicitly tuned around the
+        // accumulation bug.
         let mut env = InvertedDoublePendulumRapier::with_config(InvertedDoublePendulumConfig {
             seed: 1,
             reset_noise_scale: 0.0,

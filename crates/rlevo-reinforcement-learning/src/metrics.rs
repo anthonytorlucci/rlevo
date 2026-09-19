@@ -387,11 +387,11 @@ impl<T: PerformanceRecord> AgentStats<T> {
     ///
     /// # Non-finite scores transit this average, by decision
     ///
-    /// A `NaN` or `$\pm\infty$` score is **not** filtered out. It propagates into the
-    /// mean and stays there until the sliding window rolls past the offending
-    /// episode, so this method can return `Some(NaN)` or `Some(±∞)` even though
-    /// [`Self::best_score`] does not — [`Self::record`] folds the best with
-    /// `f32::max`, which discards a `NaN` operand rather than latching it.
+    /// A `NaN` or `$\pm\infty$` score is **not** filtered out. It propagates into the mean and
+    /// stays there until the sliding window rolls past the offending episode, so this method can
+    /// return `Some(NaN)` or `$\text{Some}(\pm\infty)$` even though [`Self::best_score`] does not —
+    /// [`Self::record`] folds the best with `f32::max`, which discards a `NaN` operand rather than
+    /// latching it.
     ///
     /// That asymmetry is a recorded contract (ADR 0065 §Decision 4,
     /// re-affirmed by ADR 0070), **not an oversight, and it must not be
@@ -1088,8 +1088,8 @@ mod tests {
         stats.record(TestRecord::with_duration(f32::NEG_INFINITY, 3));
         stats.record(TestRecord::with_duration(2.0, 4));
 
-        // The raw fold discards `-∞` as the smaller operand, so raw and
-        // hardened agree on the value here -- only the count separates them.
+        // The raw fold discards `$-\infty$` as the smaller operand, so raw and hardened agree on
+        // the value here -- only the count separates them.
         assert_eq!(stats.best_score(), Some(2.0));
         assert_eq!(stats.finite_best_score(), Some(2.0));
         assert_eq!(stats.non_finite_episodes(), 1);

@@ -198,7 +198,7 @@ mod tests {
     use rlevo_environments::grids::core::DoorState;
     use rlevo_environments::grids::core::color::Color;
 
-    /// A 5×5 walled room with the agent at `(1, 1)` facing East.
+    /// A `$5 \times 5$` walled room with the agent at `(1, 1)` facing East.
     fn room() -> GridState {
         let mut grid = Grid::new(5, 5);
         grid.draw_walls();

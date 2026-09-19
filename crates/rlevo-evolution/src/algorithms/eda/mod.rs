@@ -13,7 +13,7 @@
 //! [`EdaStrategy`] driver is model-agnostic. Five reference models ship here:
 //!
 //! - [`UnivariateGaussian`] — UMDA, a per-dimension Gaussian (unweighted MLE,
-//!   `÷k` variance, `min_variance` floor; fitness is accepted but ignored).
+//!   `$\div k$` variance, `min_variance` floor; fitness is accepted but ignored).
 //! - [`UnivariateBernoulli`] — PBIL, a per-bit probability vector (no
 //!   classic probability-mutation step; fitness is used only to identify
 //!   the best/worst individual).
@@ -251,19 +251,16 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
 
     /// Consume the population's fitness and refit the model.
     ///
-    /// Pulls fitness to host, sanitizes `NaN` → `−inf` (worst under the
-    /// maximise convention) via the crate's `sanitize_fitness` helper,
-    /// updates the best-so-far tracker, truncation-selects the best `k` rows
-    /// (descending fitness order, with
-    /// `$k = \lceil \text{selection\_ratio} \cdot \text{pop\_size} \rceil$`
-    /// clamped to `[2, pop_size]`), and refits the model to them (passing
-    /// `prev = Some(model_state)`).
+    /// Pulls fitness to host, sanitizes `NaN` → `$-\infty$` (worst under the maximise convention)
+    /// via the crate's `sanitize_fitness` helper, updates the best-so-far tracker,
+    /// truncation-selects the best `k` rows (descending fitness order, with
+    /// `$k = \lceil \text{selection\_ratio} \cdot \text{pop\_size} \rceil$` clamped to
+    /// `[2, pop_size]`), and refits the model to them (passing `prev = Some(model_state)`).
     ///
-    /// The selected population is also sanitized before the refit as a coarse
-    /// backstop: non-finite genome values are mapped `NaN → 0.0` and `±inf`
-    /// clamped to `±f32::MAX`, so a single divergent gene cannot poison a
-    /// model's fitted statistics. Each model's `fit` keeps its own precise
-    /// finite-guards (which also protect direct trait callers that bypass this
+    /// The selected population is also sanitized before the refit as a coarse backstop: non-finite
+    /// genome values are mapped `NaN → 0.0` and `$\pm\infty$` clamped to `$\pm\text{f32::MAX}$`, so
+    /// a single divergent gene cannot poison a model's fitted statistics. Each model's `fit` keeps
+    /// its own precise finite-guards (which also protect direct trait callers that bypass this
     /// path).
     ///
     /// The `fitness` tensor is forwarded to [`ProbabilityModel::fit`]; models
@@ -328,12 +325,11 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         let idx_vec: Vec<i64> = order.iter().map(|&i| i as i64).collect();
         let idx = Tensor::<B, 1, Int>::from_data(TensorData::new(idx_vec, [k]), &device);
         let selected = population.clone().select(0, idx);
-        // Coarse defense-in-depth backstop: sanitize non-finite genome values
-        // before forwarding to `fit`. `tell` already sanitizes *fitness*, but a
-        // single non-finite *gene* (e.g. from a divergent DRL rollout) would
-        // otherwise poison a model's fitted statistics. Replace `NaN → 0.0` and
-        // clamp `±inf → ±f32::MAX`. The per-model `fit` guards remain the precise
-        // correctness layer (and protect direct trait callers this path cannot).
+        // Coarse defense-in-depth backstop: sanitize non-finite genome values before forwarding to
+        // `fit`. `tell` already sanitizes *fitness*, but a single non-finite *gene* (e.g. from a
+        // divergent DRL rollout) would otherwise poison a model's fitted statistics. Replace
+        // `NaN → 0.0` and clamp `$\pm\infty \to \pm\text{f32::MAX}$`. The per-model `fit` guards
+        // remain the precise correctness layer (and protect direct trait callers this path cannot).
         let nan_mask = selected.clone().is_nan();
         let selected = selected
             .mask_fill(nan_mask, 0.0_f32)
@@ -474,8 +470,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let p = params(4, 0.5, 1);
         let state = strategy.init(&p, &mut rng, &device);
-        // index 0 is NaN (→ −inf, worst under maximise); the finite best
-        // (9.0) is at index 1.
+        // index 0 is NaN (→ `$-\infty$`, worst under maximise); the finite best (9.0) is at index
+        // 1.
         let pop = make_pop(&[0.0, 1.0, 2.0, 3.0], 4, 1);
         let fitness = make_fitness(&[f32::NAN, 9.0, 2.0, 7.0]);
         let (state, m) = strategy.tell(&p, pop, fitness, state, &mut rng);
@@ -491,20 +487,18 @@ mod tests {
 
     #[test]
     fn nonfinite_genome_sanitized_before_fit_yields_finite_samples() {
-        // Each of the five EDA models was independently found susceptible to
-        // its own manifestation of the same gap: unvalidated `init_prob`/
-        // `smoothing_count` in `BayesianNetwork`, `k == 0` divisions yielding
-        // NaN probability vectors in `UnivariateBernoulli`/`DependencyChain`,
-        // unfloored non-finite MLE mean/variance here in `UnivariateGaussian`,
-        // and a non-finite `cond_mean` in `DependencyChain::sample`. This
-        // end-to-end test exercises the shared fix through `UnivariateGaussian`:
-        // `tell`'s sanitize-before-refit backstop (see `tell`'s doc comment)
-        // maps a NaN/±inf gene to a finite value before the model is fitted,
-        // and the model's own `fit` floors any residual non-finite mean/
-        // variance, so a population carrying NaN/±inf genes cannot poison the
-        // fitted state or leak a non-finite value into the next generation's
-        // `ask`-sampled population. The other four models' own finite-guards
-        // are covered by tests in their respective files.
+        // Each of the five EDA models was independently found susceptible to its own manifestation
+        // of the same gap: unvalidated `init_prob`/ `smoothing_count` in `BayesianNetwork`,
+        // `k == 0` divisions yielding NaN probability vectors in
+        // `UnivariateBernoulli`/`DependencyChain`, unfloored non-finite MLE mean/variance here in
+        // `UnivariateGaussian`, and a non-finite `cond_mean` in `DependencyChain::sample`. This
+        // end-to-end test exercises the shared fix through `UnivariateGaussian`: `tell`'s
+        // sanitize-before-refit backstop (see `tell`'s doc comment) maps a NaN/`$\pm$`inf gene to a
+        // finite value before the model is fitted, and the model's own `fit` floors any residual
+        // non-finite mean/ variance, so a population carrying NaN/`$\pm$`inf genes cannot poison
+        // the fitted state or leak a non-finite value into the next generation's `ask`-sampled
+        // population. The other four models' own finite-guards are covered by tests in their
+        // respective files.
         let device = Default::default();
         let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(1);

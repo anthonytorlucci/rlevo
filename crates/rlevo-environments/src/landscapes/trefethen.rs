@@ -4,11 +4,11 @@
 //! f(x_1,x_2) = e^{\sin(50 x_1)} + \sin(60 e^{x_2}) + \sin(70 \sin(x_1))
 //!            + \sin(\sin(80 x_2)) - \sin(10(x_1+x_2)) + \frac{x_1^2 + x_2^2}{4}
 //! ```
-//! Global minimum `f* ≈ −3.306_868_647_475_23` at `$(-0.024403, 0.210612)$`. The
-//! frequencies `$\{50, 60, 70, 80, 10\}$` share no ratio, so there is no periodic
-//! lattice of equivalent basins and no dominant spatial scale — dense grid
-//! search plus local refinement is needed. The stabilising `$(x_1^2+x_2^2)/4$` term is
-//! coercive, so it keeps the minimum interior and well-defined.
+//! Global minimum `$f^* \approx -3.306\_868\_647\_475\_23$` at `$(-0.024403, 0.210612)$`. The
+//! frequencies `$\{50, 60, 70, 80, 10\}$` share no ratio, so there is no periodic lattice of
+//! equivalent basins and no dominant spatial scale — dense grid search plus local refinement is
+//! needed. The stabilising `$(x_1^2+x_2^2)/4$` term is coercive, so it keeps the minimum interior
+//! and well-defined.
 //!
 //! # Domain
 //!
@@ -50,8 +50,8 @@ impl Trefethen {
     /// Evaluate Trefethen's function at `(x1, x2)`.
     ///
     /// The `$\sin(60 \cdot e^{x_2})$` term is finite across the recommended domain, but for
-    /// `$x_2 \gtrsim 710$` the inner `$e^{x_2}$` overflows to infinity and the result is
-    /// `NaN`; callers operating far outside the domain must clamp `x₂` themselves.
+    /// `$x_2 \gtrsim 710$` the inner `$e^{x_2}$` overflows to infinity and the result is `NaN`;
+    /// callers operating far outside the domain must clamp `$x_2$` themselves.
     #[must_use]
     pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
         (50.0 * x1).sin().exp()
@@ -68,24 +68,24 @@ impl Trefethen {
     /// the module-level docs for the provenance of that box.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
-        // Why widening x2 from ±4.5 to ±6.5 cannot admit a spurious optimum
+        // Why widening `$x_2$` from `$\pm 4.5$` to `$\pm 6.5$` cannot admit a spurious optimum
         // (i.e. any point with f < f*):
         //
         // Every oscillatory term is bounded below:
-        //     e^{sin(50·x₁)}   ≥ e^{-1}    ≈  0.3679
-        //     sin(60·e^{x₂})   ≥ −1
-        //     sin(70·sin(x₁))  ≥ −1
-        //     sin(sin(80·x₂))  ≥ −sin(1)   ≈ −0.8415
-        //     −sin(10·(x₁+x₂)) ≥ −1
-        // Summing: the oscillatory part ≥ e^{-1} − 1 − 1 − sin(1) − 1 ≈ −3.4736.
+        //     `$e^{\sin(50 x_1)} \geq e^{-1} \approx 0.3679$`
+        //     `$\sin(60 e^{x_2}) \geq -1$`
+        //     `$\sin(70\sin(x_1)) \geq -1$`
+        //     `$\sin(\sin(80 x_2)) \geq -\sin(1) \approx -0.8415$`
+        //     `$-\sin(10(x_1+x_2)) \geq -1$`
+        // Summing: the oscillatory part `$\geq e^{-1} - 1 - 1 - \sin(1) - 1 \approx -3.4736$`.
         //
-        // The stabiliser (x₁² + x₂²)/4 ≥ 0. So any point with
-        // f < f* = −3.306_868_647_475_23 must satisfy
-        //     (x₁² + x₂²)/4 < −3.30686… + 3.4736… ≈ 0.1667,
-        // i.e. it lies within radius ≈ 0.817 of the origin — comfortably inside
-        // both the old (±4.5) and the new (±6.5) box. Widening the box therefore
-        // cannot expose any point better than f*; it only restores reachability
-        // of the full x₁ domain, which ±4.5 was clipping.
+        // The stabiliser `$(x_1^2 + x_2^2)/4 \geq 0$`. So any point with
+        // `$f < f^* = -3.306\_868\_647\_475\_23$` must satisfy
+        //     `$(x_1^2 + x_2^2)/4 < -3.30686\ldots + 3.4736\ldots \approx 0.1667$`,
+        // i.e. it lies within radius `$\approx 0.817$` of the origin — comfortably inside both the
+        // old (`$\pm 4.5$`) and the new (`$\pm 6.5$`) box. Widening the box therefore cannot expose
+        // any point better than f*; it only restores reachability of the full `$x_1$` domain, which
+        // `$\pm 4.5$` was clipping.
         (-6.5, 6.5)
     }
 
@@ -161,8 +161,8 @@ mod tests {
 
     #[test]
     fn bounds_box_contains_full_asymmetric_domain() {
-        // The square hull must cover x1 ∈ [-6.5, 6.5] and x2 ∈ [-4.5, 4.5]
-        // (obligation O1 — the ±4.5 box used to clip the x1 domain).
+        // The square hull must cover `$x_1 \in [-6.5, 6.5]$` and `$x_2 \in [-4.5, 4.5]$`
+        // (obligation O1 — the `$\pm 4.5$` box used to clip the `$x_1$` domain).
         let (lo, hi) = Trefethen::new().bounds();
         assert!(lo <= -6.5 && hi >= 6.5, "x1 domain not covered");
         assert!(lo <= -4.5 && hi >= 4.5, "x2 domain not covered");
@@ -170,10 +170,10 @@ mod tests {
 
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {
-        // Obligation O2 — no spurious optimum: widening the box must not expose
-        // any point with f < f*. Trefethen oscillates at frequencies 50–80, so a
-        // 400×400 grid will NOT land near the true optimum — that is expected.
-        // This test asserts only that the lower bound f* is never breached.
+        // Obligation O2 — no spurious optimum: widening the box must not expose any point with f <
+        // f*. Trefethen oscillates at frequencies 50–80, so a `$400 \times 400$` grid will NOT land
+        // near the true optimum — that is expected. This test asserts only that the lower bound f*
+        // is never breached.
         const STEPS: usize = 400;
         let t = Trefethen::new();
         let (lo, hi) = t.bounds();

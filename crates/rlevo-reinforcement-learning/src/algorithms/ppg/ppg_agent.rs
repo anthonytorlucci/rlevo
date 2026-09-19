@@ -430,11 +430,10 @@ where
     /// Policy-phase **policy** updates skipped for a non-finite loss (ADR 0056,
     /// ADR 0072).
     ///
-    /// Counts the `ppg/policy_loss` site only, and counts **minibatches**: the
-    /// guard is consulted once per minibatch inside
-    /// [`policy_phase_update`](Self::policy_phase_update), so one phase can
-    /// contribute up to `update_epochs × num_minibatches` to this total. It is
-    /// a lifetime count over every policy phase the agent has run, never reset.
+    /// Counts the `ppg/policy_loss` site only, and counts **minibatches**: the guard is consulted
+    /// once per minibatch inside [`policy_phase_update`](Self::policy_phase_update), so one phase
+    /// can contribute up to `$\text{update\_epochs} \times \text{num\_minibatches}$` to this total.
+    /// It is a lifetime count over every policy phase the agent has run, never reset.
     ///
     /// # Relationship to the reported mean
     ///
@@ -526,17 +525,16 @@ where
     ///
     /// # What one unit means
     ///
-    /// One skipped **minibatch** at one site — not one skipped phase call.
-    /// Policy-phase sites accumulate over `update_epochs × num_minibatches` per
-    /// [`policy_phase_update`](Self::policy_phase_update); auxiliary-phase sites
-    /// over `e_aux ×` (auxiliary minibatches) per firing of
-    /// [`maybe_aux_phase`](Self::maybe_aux_phase), which is itself on a
-    /// `n_iteration` cadence. Because the four terms are measured against
-    /// different denominators, the aggregate is a **health signal**, not a rate:
-    /// read it as "this many optimizer steps were bought and not received", and
-    /// use the per-site accessors to attribute them.
+    /// One skipped **minibatch** at one site — not one skipped phase call. Policy-phase sites
+    /// accumulate over `$\text{update\_epochs} \times \text{num\_minibatches}$` per
+    /// [`policy_phase_update`](Self::policy_phase_update); auxiliary-phase sites over
+    /// `$e_{aux} \times$` (auxiliary minibatches) per firing of
+    /// [`maybe_aux_phase`](Self::maybe_aux_phase), which is itself on a `n_iteration` cadence.
+    /// Because the four terms are measured against different denominators, the aggregate is a
+    /// **health signal**, not a rate: read it as "this many optimizer steps were bought and not
+    /// received", and use the per-site accessors to attribute them.
     ///
-    /// # `applied = attempts − skipped`
+    /// # `$\text{applied} = \text{attempts} - \text{skipped}$`
     ///
     /// Every guard is consulted on an attempt that was already made — the
     /// forward pass and loss ran — so a skip is always a subset of an attempt
@@ -1002,8 +1000,8 @@ where
             return None;
         }
 
-        // Snapshot π_old once, against the current (post-policy-phase) policy.
-        // Stored flat row-major so minibatch slicing is a trivial copy.
+        // Snapshot `$\pi_{old}$` once, against the current (post-policy-phase) policy. Stored flat
+        // row-major so minibatch slicing is a trivial copy.
         let old_logits_flat = self.compute_old_logits_flat(total_steps);
         let num_actions = old_logits_flat.len() / total_steps;
         debug_assert_eq!(old_logits_flat.len(), total_steps * num_actions);
@@ -1059,7 +1057,7 @@ where
                     main_v_healthy += 1;
                 }
 
-                // Policy-net update: aux-value MSE + β · KL distillation.
+                // Policy-net update: aux-value MSE + `$\beta$` `$\cdot$` KL distillation.
                 let aux_v_pred = PpgAuxValueHead::aux_value(self.policy(), obs_t.clone());
                 let aux_v_loss = unclipped_value_loss(aux_v_pred, returns_t);
                 let new_logits = PpgAuxValueHead::logits(self.policy(), obs_t);
@@ -1067,10 +1065,10 @@ where
                 let aux_v_loss_val = aux_v_loss.clone().into_scalar().elem::<f32>();
                 let kl_val = kl.clone().into_scalar().elem::<f32>();
                 let total = aux_v_loss + kl.mul_scalar(cfg.beta_clone);
-                // ADR 0056: `total = aux_v_loss + β·kl` is never read
-                // host-side, so guard on the host-*derived* scalar built from
-                // its two already-read summands — no extra device→host sync.
-                // Both accumulators this site feeds are excluded on a skip.
+                // ADR 0056: `$\text{total} = \text{aux\_v\_loss} + \beta \cdot \text{kl}$` is never
+                // read host-side, so guard on the host-*derived* scalar built from its two
+                // already-read summands — no extra device→host sync. Both accumulators this site
+                // feeds are excluded on a skip.
                 let total_val = aux_v_loss_val + kl_val * cfg.beta_clone;
                 if self.aux_total_guard.check(total_val) {
                     let grads = total.backward();
@@ -1097,10 +1095,10 @@ where
             } else {
                 main_v_acc / main_v_healthy as f32
             },
-            // `aux_value_loss` and `policy_kl` intentionally share the
-            // `aux_total_healthy` denominator: both are fed by the single
-            // aux-total guard site (`aux_v_loss + β·kl`), so they are applied
-            // and skipped together — this is not a copy-pasted divisor.
+            // `aux_value_loss` and `policy_kl` intentionally share the `aux_total_healthy`
+            // denominator: both are fed by the single aux-total guard site
+            // (`$\text{aux\_v\_loss} + \beta\,\text{kl}$`), so they are applied and skipped
+            // together — this is not a copy-pasted divisor.
             aux_value_loss: if aux_total_healthy == 0 {
                 0.0
             } else {
@@ -1413,9 +1411,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(1);
         let stats = agent.policy_phase_update(&mut rng);
 
-        // `primed_ppg_agent`: num_steps = 4, num_minibatches = 1 → mb_size = 4,
-        // so 1 minibatch per epoch × update_epochs = 1 → 1 guarded attempt, all
-        // of it skipped.
+        // `primed_ppg_agent`: num_steps = 4, num_minibatches = 1 → mb_size = 4, so 1 minibatch per
+        // epoch `$\times$` update_epochs = 1 → 1 guarded attempt, all of it skipped.
         assert_eq!(
             agent.skipped_policy_updates(),
             1,
@@ -1472,9 +1469,9 @@ mod tests {
         agent.snapshot_into_aux_buffer();
         let value_before = value_weights(agent.value.get());
 
-        // Poison the policy: the aux-total site (aux_value + β·KL) runs through
-        // the policy, so its guard input goes NaN; the main-value site (value
-        // net) stays finite.
+        // Poison the policy: the aux-total site (`$\text{aux\_value} + \beta\,\text{KL}$`) runs
+        // through the policy, so its guard input goes NaN; the main-value site (value net) stays
+        // finite.
         let poisoned = agent.policy.get().clone().map(&mut NanInjector);
         agent.policy = Slot::new(poisoned);
 
@@ -1483,9 +1480,8 @@ mod tests {
             .maybe_aux_phase(&mut rng)
             .expect("n_iteration = 1 makes the aux phase ready after one snapshot");
 
-        // `primed_ppg_agent`: one 4-step slice in the aux buffer,
-        // aux_batch_size = 4 → 1 minibatch per epoch × e_aux = 1 → 1 guarded
-        // attempt at each aux site.
+        // `primed_ppg_agent`: one 4-step slice in the aux buffer, aux_batch_size = 4 → 1 minibatch
+        // per epoch `$\times$` e_aux = 1 → 1 guarded attempt at each aux site.
         assert_eq!(
             agent.skipped_aux_total_updates(),
             1,
@@ -1530,9 +1526,10 @@ mod tests {
     /// caller's control so a test can predict the exact number of guarded
     /// attempts a phase makes.
     ///
-    /// The rollout is still four steps (`collect_rollout`), so the policy phase
-    /// runs `update_epochs × (4 / num_minibatches ⌈chunks⌉)` minibatches and the
-    /// auxiliary phase `e_aux = 1 × ⌈steps / aux_batch_size⌉`. `target_kl` is
+    /// The rollout is still four steps (`collect_rollout`), so the policy phase runs
+    /// `$\text{update\_epochs} \times (4/\text{num\_minibatches}\ \lceil\text{chunks}\rceil)$`
+    /// minibatches and the auxiliary phase
+    /// `$e_{aux} = 1 \times \lceil \text{steps}/\text{aux\_batch\_size}\rceil$`. `target_kl` is
     /// pinned to `None` so no epoch can end early and change that arithmetic.
     fn shaped_ppg_agent(
         num_minibatches: usize,
@@ -1579,8 +1576,8 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn test_ppg_agent_counts_repeated_loss_skips() {
-        // 4 rollout steps / num_minibatches = 4 → mb_size = 1 → 4 minibatches
-        // per epoch; × update_epochs = 2 → 8 guarded policy attempts.
+        // 4 rollout steps / num_minibatches = 4 → mb_size = 1 → 4 minibatches per epoch; `$\times$`
+        // update_epochs = 2 → 8 guarded policy attempts.
         const EXPECTED_SKIPS: u64 = 8;
 
         let mut agent = shaped_ppg_agent(4, 2, 4);
@@ -1641,34 +1638,31 @@ mod tests {
     ///
     /// # Where each term comes from
     ///
-    /// `shaped_ppg_agent(2, 1, 1)`: every policy phase runs 4 rollout steps / 2
-    /// minibatches = `mb_size` 2 → 2 minibatches × 1 epoch = **2 guarded attempts
-    /// per site per policy phase**; every aux phase runs
-    /// `⌈total_steps / 1⌉ = total_steps` minibatches × `e_aux = 1`.
+    /// `shaped_ppg_agent(2, 1, 1)`: every policy phase runs 4 rollout steps / 2 minibatches =
+    /// `mb_size` 2 → 2 minibatches `$\times$` 1 epoch = **2 guarded attempts per site per policy
+    /// phase**; every aux phase runs `$\lceil \text{total\_steps}/1 \rceil = \text{total\_steps}$`
+    /// minibatches `$\times$` `e_aux = 1`.
     ///
-    /// The policy and value sites share those attempts, so their counts are
-    /// separated by *which net is diverged* and by *how many policy phases run*:
-    /// one phase with a `NaN` policy (policy = 2), then three phases with a `NaN`
-    /// value net (value = 3 × 2 = 6). Each of the latter re-collects its rollout
-    /// with a **healthy** value net first — a rollout collected through a `NaN`
-    /// critic would store `NaN` values, hence `NaN` advantages, and the policy
-    /// site would skip too, collapsing the two terms back together.
+    /// The policy and value sites share those attempts, so their counts are separated by *which net
+    /// is diverged* and by *how many policy phases run*: one phase with a `NaN` policy (policy =
+    /// 2), then three phases with a `NaN` value net (value = 3 `$\times$` 2 = 6). Each of the
+    /// latter re-collects its rollout with a **healthy** value net first — a rollout collected
+    /// through a `NaN` critic would store `NaN` values, hence `NaN` advantages, and the policy site
+    /// would skip too, collapsing the two terms back together.
     #[test]
     fn test_ppg_agent_skipped_updates_aggregates_unequal_per_site_counts() {
-        // Policy phase #1: 2 minibatches × 1 epoch = 2 guarded policy attempts,
-        // all NaN (policy poisoned).
+        // Policy phase #1: 2 minibatches `$\times$` 1 epoch = 2 guarded policy attempts, all NaN
+        // (policy poisoned).
         const POLICY_SKIPS: u64 = 2;
-        // Policy phases #2-#4: 3 phases × 2 minibatches = 6 guarded value
-        // attempts, all NaN (value poisoned, policy healthy). NONZERO on
-        // purpose — see the doc comment.
+        // Policy phases #2-#4: 3 phases `$\times$` 2 minibatches = 6 guarded value attempts, all
+        // NaN (value poisoned, policy healthy). NONZERO on purpose — see the doc comment.
         const VALUE_PHASES: usize = 3;
         const VALUE_SKIPS: u64 = 6;
-        // Aux phase #1: 1 slice × 4 steps, aux_batch_size 1 → 4 minibatches ×
+        // Aux phase #1: 1 slice `$\times$` 4 steps, aux_batch_size 1 → 4 minibatches `$\times$`
         // e_aux 1 = 4 guarded aux-total attempts, all NaN (policy poisoned).
         const AUX_TOTAL_SKIPS: u64 = 4;
-        // Aux phase #2: 2 slices × 4 steps = 8 steps, aux_batch_size 1 → 8
-        // minibatches × e_aux 1 = 8 guarded main-value attempts, all NaN
-        // (value poisoned).
+        // Aux phase #2: 2 slices `$\times$` 4 steps = 8 steps, aux_batch_size 1 → 8 minibatches
+        // `$\times$` e_aux 1 = 8 guarded main-value attempts, all NaN (value poisoned).
         const AUX_MAIN_SKIPS: u64 = 8;
 
         let mut agent = shaped_ppg_agent(2, 1, 1);
@@ -1852,23 +1846,20 @@ mod tests {
     /// [`test_ppg_agent_policy_phase_lr_trails_current_learning_rate_by_one_tick`]: the
     /// aligned rate must actually *move parameters*, not merely be positive.
     ///
-    /// Measures a host-side weight delta across the terminal auxiliary phase —
-    /// the phase the one-tick offset above turned into a bit-exact no-op. A
-    /// weight delta is `lr · step`, linear in the learning rate and here
-    /// ~1e-4 against weights of order 1e-1, so it clears `f32` resolution by
-    /// several orders of magnitude.
+    /// Measures a host-side weight delta across the terminal auxiliary phase — the phase the
+    /// one-tick offset above turned into a bit-exact no-op. A weight delta is
+    /// `$\text{lr} \cdot \text{step}$`, linear in the learning rate and here ~1e-4 against weights
+    /// of order 1e-1, so it clears `f32` resolution by several orders of magnitude.
     ///
     /// This exists because the equivalent end-to-end check in
-    /// `crates/rlevo/tests/ppg_integration.rs` used to assert
-    /// `AuxPhaseStats::policy_kl > 0.0`. That also catches the regression — at `lr == 0.0`
-    /// the parameters are bitwise unchanged and every minibatch's KL is an exact
-    /// zero — but it decides the question through an `f32` mean of
-    /// log-differences between near-identical logits, measured at ~3.4×
-    /// `f32::EPSILON` on a healthy run. A backend with a different reduction
-    /// order could round a *healthy* phase to zero. The integration test now
-    /// asserts on `AuxPhaseStats::learning_rate`, which is exact, and the
-    /// "a nonzero rate moves the policy" half lives here, where the observable
-    /// has margin to spare.
+    /// `crates/rlevo/tests/ppg_integration.rs` used to assert `AuxPhaseStats::policy_kl > 0.0`.
+    /// That also catches the regression — at `lr == 0.0` the parameters are bitwise unchanged and
+    /// every minibatch's KL is an exact zero — but it decides the question through an `f32` mean of
+    /// log-differences between near-identical logits, measured at ~`$3.4\times$` `f32::EPSILON` on
+    /// a healthy run. A backend with a different reduction order could round a *healthy* phase to
+    /// zero. The integration test now asserts on `AuxPhaseStats::learning_rate`, which is exact,
+    /// and the "a nonzero rate moves the policy" half lives here, where the observable has margin
+    /// to spare.
     #[test]
     // `current_learning_rate()` landing on *exactly* 0.0 at the terminal
     // iteration is the precondition that makes this the regression's failing

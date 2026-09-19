@@ -42,7 +42,7 @@ pub struct DqnTrainingConfig {
     /// Multiplicative factor applied to epsilon after each step or episode to reduce exploration over time.
     pub epsilon_decay: f64,
 
-    /// How the target network tracks the policy network: one cadence, one τ.
+    /// How the target network tracks the policy network: one cadence, one `$\tau$`.
     ///
     /// [`TargetUpdate`] is a single mechanism, not two (ADR 0058). Its cadence
     /// [`every`](TargetUpdate::every) decides *when* an update fires; its
@@ -129,11 +129,11 @@ pub struct DqnTrainingConfig {
     /// importance weights annealed over `beta_anneal_steps`. The priority signal
     /// is the absolute Huber TD error `$|\delta|$` (Schaul §3.3, direct).
     ///
-    /// Buffer capacity comes from [`replay_buffer_capacity`](Self::replay_buffer_capacity);
-    /// the remaining knobs (α, ε, β schedule) live on
-    /// [`PrioritizedReplaySettings`]. Rainbow's ablation puts prioritized replay
-    /// among the two most crucial of its seven components on the value-based
-    /// side, which is why it is offered here (ADR 0050 §Context).
+    /// Buffer capacity comes from [`replay_buffer_capacity`](Self::replay_buffer_capacity); the
+    /// remaining knobs (`$\alpha$`, `$\epsilon$`, `$\beta$` schedule) live on
+    /// [`PrioritizedReplaySettings`]. Rainbow's ablation puts prioritized replay among the two most
+    /// crucial of its seven components on the value-based side, which is why it is offered here
+    /// (ADR 0050 §Context).
     pub prioritized_replay: Option<PrioritizedReplaySettings>,
 }
 
@@ -147,13 +147,12 @@ impl Default for DqnTrainingConfig {
     /// `train_frequency = 4`, `double_q = false`, gradient clipping at norm
     /// 100.
     ///
-    /// The target rule is a τ = 0.005 Polyak step on **every** gradient update.
-    /// That is bit-for-bit the pre-[`TargetUpdate`] behaviour: the old
-    /// `tau = 0.005` soft update ran ungated inside every learn step, which in
-    /// gradient-update units is exactly `every = 1`. The old
-    /// `target_update_frequency = 10_000` is deliberately not carried over — it
-    /// was inert under `tau > 0` and, read as a cadence under the unified rule,
-    /// would collapse the Polyak schedule 10 000× (ADR 0059 §Consequences).
+    /// The target rule is a `$\tau$` = 0.005 Polyak step on **every** gradient update. That is
+    /// bit-for-bit the pre-[`TargetUpdate`] behaviour: the old `tau = 0.005` soft update ran
+    /// ungated inside every learn step, which in gradient-update units is exactly `every = 1`. The
+    /// old `target_update_frequency = 10_000` is deliberately not carried over — it was inert under
+    /// `tau > 0` and, read as a cadence under the unified rule, would collapse the Polyak schedule
+    /// `$10\,000\times$` (ADR 0059 §Consequences).
     fn default() -> Self {
         Self {
             batch_size: 32,
@@ -205,13 +204,12 @@ impl Validate for DqnTrainingConfig {
         if let Some(per) = &self.prioritized_replay {
             per.validate()?;
         }
-        // `target_update` carries no check here, deliberately: `TargetUpdate`
-        // is valid by construction (ADR 0027 §3 — a validated newtype *removes*
-        // its paired `config::` line). Its `PolyakTau` excludes τ = 0.0 and its
-        // `NonZeroUsize` cadence excludes 0, so the frozen-target combination
-        // the old cross-field check rejected is now unrepresentable rather than
-        // merely rejected — including through `..Default::default()` struct
-        // update, which `validate` never saw.
+        // `target_update` carries no check here, deliberately: `TargetUpdate` is valid by
+        // construction (ADR 0027 §3 — a validated newtype *removes* its paired `config::` line).
+        // Its `PolyakTau` excludes `$\tau$` = 0.0 and its `NonZeroUsize` cadence excludes 0, so the
+        // frozen-target combination the old cross-field check rejected is now unrepresentable
+        // rather than merely rejected — including through `..Default::default()` struct update,
+        // which `validate` never saw.
         Ok(())
     }
 }
@@ -297,7 +295,7 @@ impl DqnTrainingConfigBuilder {
         self
     }
 
-    /// Sets the target-network update rule — cadence and τ together.
+    /// Sets the target-network update rule — cadence and `$\tau$` together.
     ///
     /// One setter, because there is one mechanism (ADR 0058). The cadence is in
     /// **gradient updates**, unlike the env-step
@@ -385,8 +383,8 @@ impl DqnTrainingConfigBuilder {
 
     /// Enables prioritized experience replay with the given settings.
     ///
-    /// Pass [`PrioritizedReplaySettings::default`] for Schaul's proportional
-    /// defaults (α = 0.6, β 0.4 → 1.0). Leave unset for uniform replay.
+    /// Pass [`PrioritizedReplaySettings::default`] for Schaul's proportional defaults (`$\alpha$` =
+    /// 0.6, `$\beta$` 0.4 → 1.0). Leave unset for uniform replay.
     #[must_use]
     pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
         self.config.prioritized_replay = Some(settings);
@@ -520,8 +518,8 @@ mod tests {
     #[test]
     fn test_dqn_config_nan_tau_cannot_be_constructed_for_struct_update_syntax() {
         assert!(TargetUpdate::try_polyak(f32::NAN, 1).is_err());
-        // And a config built the struct-update way is necessarily valid,
-        // because the only τ it can carry came through `PolyakTau`.
+        // And a config built the struct-update way is necessarily valid, because the only `$\tau$`
+        // it can carry came through `PolyakTau`.
         let config = DqnTrainingConfig {
             target_update: TargetUpdate::polyak(0.005, 1),
             ..Default::default()

@@ -118,7 +118,8 @@ pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
 /// # Observation production has moved off `State`
 ///
 /// A `State` no longer produces its own observation. In the POMDP tuple
-/// ⟨S, A, T, R, Ω, O⟩ the emission model `O` is a property of the *environment*,
+/// `$\langle S, A, T, R, \Omega, O \rangle$` the emission model `O` is a property
+/// of the *environment*,
 /// not of a state value, so it lives on the env-side
 /// [`Sensor`](crate::environment::Sensor) trait with the canonical signature
 /// `O(a, s')`. `State` retains only what genuinely belongs to a point in state
@@ -317,7 +318,7 @@ pub trait HostRow<const R: usize> {
     fn write_host_row(&self, buf: &mut Vec<f32>);
 
     /// Returns `true` if every value this type writes into a row is finite —
-    /// i.e. the row contains no `NaN` and no `±Inf`.
+    /// i.e. the row contains no `NaN` and no `$\pm\infty$`.
     ///
     /// This is a statement about the **row**, not about the domain value: it
     /// asks whether the `f32` payload [`write_host_row`] produces is safe to
@@ -343,7 +344,7 @@ pub trait HostRow<const R: usize> {
     /// being non-finite (an integer-backed payload: `u8 -> f32` is total). Such
     /// an override returns `true` without materializing the row, which is both
     /// an assertion and a load-bearing performance decision — the default body
-    /// would convert 27 648 bytes to `f32` every env step for a 96×96×3 frame.
+    /// would convert 27 648 bytes to `f32` every env step for a `$96 \times 96 \times 3$` frame.
     ///
     /// An override **must** carry a compile-time witness for its structural
     /// claim — a concrete type ascription against the payload field, e.g.
@@ -363,13 +364,13 @@ pub trait HostRow<const R: usize> {
 }
 
 /// Branchless finiteness test over a staged `f32` row: `true` if no element is
-/// `NaN` or `±Inf`.
+/// `NaN` or `$\pm\infty$`.
 ///
 /// # Why this spelling, and why not `iter().all(f32::is_finite)`
 ///
 /// **Do not "simplify" this to `buf.iter().all(|v| v.is_finite())`.** That
 /// rewrite is the single most likely future regression here, and it is a real
-/// one: measured at ~9 GB/s against a ~62 GB/s memcpy on an M2 Pro — 8× the
+/// one: measured at ~9 GB/s against a ~62 GB/s memcpy on an M2 Pro — `$8\times$` the
 /// cost of the write it rides — because [`Iterator::all`] must short-circuit
 /// and therefore cannot lower to a horizontal SIMD reduction. It is also
 /// *data-dependent*: how long it runs depends on where the first non-finite
@@ -377,7 +378,7 @@ pub trait HostRow<const R: usize> {
 ///
 /// # Derivation
 ///
-/// 1. An IEEE-754 `binary32` value is non-finite (`NaN` or `±Inf`) **iff** its
+/// 1. An IEEE-754 `binary32` value is non-finite (`NaN` or `$\pm\infty$`) **iff** its
 ///    8-bit exponent field is all ones.
 /// 2. `v.to_bits() & 0x7F80_0000` masks each element down to exactly that
 ///    field, clearing the sign bit and the mantissa. Clearing the **sign** is
@@ -387,7 +388,7 @@ pub trait HostRow<const R: usize> {
 ///    `u32::max` reduction over every element equals `0x7F80_0000` **iff** at
 ///    least one element is non-finite.
 /// 4. `max` is associative and commutative and never short-circuits, so LLVM
-///    lowers the fold to a horizontal vector reduction, restoring ~1× fusion
+///    lowers the fold to a horizontal vector reduction, restoring ~`$1\times$` fusion
 ///    with the write that produced the buffer.
 ///
 /// An empty row has no non-finite element, and the fold's `0` identity yields
@@ -1233,7 +1234,7 @@ mod tests {
     /// The reference implementation the branchless reduction must agree with.
     ///
     /// This is deliberately the spelling ADR 0067 §Decision 1 forbids in
-    /// production (short-circuiting, ~8× the cost, data-dependent): here it is
+    /// production (short-circuiting, ~`$8\times$` the cost, data-dependent): here it is
     /// the *oracle*, and having it in the test file is what makes the
     /// production reduction checkable rather than merely asserted.
     fn oracle_is_finite(buf: &[f32]) -> bool {

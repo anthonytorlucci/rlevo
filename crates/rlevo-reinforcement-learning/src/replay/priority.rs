@@ -27,14 +27,13 @@
 //!
 //! # Why strictly positive, not merely non-negative
 //!
-//! Schaul et al. (2016) §3.3 define the proportional priority as
-//! `$p_i = |\delta_i| + \epsilon$`, where ε is "a small positive constant that prevents the
-//! edge-case of transitions not being revisited once their error is zero". With
-//! ε > 0 the priority is *never* zero, so `> 0` is the formulation's own
-//! invariant rather than an extra restriction. Admitting `0` would readmit the
-//! starvation edge case ε exists to prevent, and — at `$\alpha = 0$`, where every
-//! positive priority maps to `1.0` — would make a zero-priority transition the
-//! sole exception to "α = 0 is uniform".
+//! Schaul et al. (2016) §3.3 define the proportional priority as `$p_i = |\delta_i| + \epsilon$`,
+//! where `$\epsilon$` is "a small positive constant that prevents the edge-case of transitions not
+//! being revisited once their error is zero". With `$\epsilon$` > 0 the priority is *never* zero,
+//! so `> 0` is the formulation's own invariant rather than an extra restriction. Admitting `0`
+//! would readmit the starvation edge case `$\epsilon$` exists to prevent, and — at `$\alpha = 0$`,
+//! where every positive priority maps to `1.0` — would make a zero-priority transition the sole
+//! exception to "`$\alpha$` = 0 is uniform".
 //!
 //! # Examples
 //!
@@ -69,7 +68,7 @@ use serde::{Deserialize, Serialize};
 /// A `Priority` can never hold a `NaN`, an infinity, a zero, or a negative
 /// value. Every constructor enforces `p.is_finite() && p > 0.0`. As a result the
 /// silent "`selected_pos` pinned at 0" degeneracy described in the
-/// [module documentation](self) is unrepresentable wherever a `Priority` is
+/// module documentation is unrepresentable wherever a `Priority` is
 /// held.
 ///
 /// Construct with [`new`](Self::new) for literals (panics on an invalid value),
@@ -109,8 +108,8 @@ impl Priority {
     ///
     /// # Errors
     ///
-    /// Returns [`PriorityError`] when `p` is not finite (`NaN`, `±∞`) or not
-    /// strictly positive.
+    /// Returns [`PriorityError`] when `p` is not finite (`NaN`, `$\pm\infty$`) or not strictly
+    /// positive.
     pub fn try_new(p: f32) -> Result<Self, PriorityError> {
         if p.is_finite() && p > 0.0 {
             Ok(Self(p))
@@ -128,11 +127,10 @@ impl Priority {
     /// divergence a reported error rather than a silently degenerate buffer.
     ///
     /// `epsilon` is the buffer's configured
-    /// [`priority_epsilon`](super::PrioritizedReplayConfig::priority_epsilon);
-    /// prefer
+    /// [`priority_epsilon`](super::PrioritizedReplayConfig::priority_epsilon); prefer
     /// [`PrioritizedReplay::priority_from_td_error`](super::PrioritizedReplay::priority_from_td_error)
-    /// over calling this directly, so the buffer's own ε is applied rather than
-    /// a second copy that can drift.
+    /// over calling this directly, so the buffer's own `$\epsilon$` is applied rather than a second
+    /// copy that can drift.
     ///
     /// # Errors
     ///
@@ -208,9 +206,9 @@ mod tests {
         }
     }
 
-    /// The regression test for the defect named in the module docs: `NaN`,
-    /// `±∞`, `0`, and negatives must all be rejected *at construction*, so they
-    /// can never reach `powf` or the prefix scan.
+    /// The regression test for the defect named in the module docs: `NaN`, `$\pm\infty$`, `0`, and
+    /// negatives must all be rejected *at construction*, so they can never reach `powf` or the
+    /// prefix scan.
     #[test]
     fn test_priority_try_new_rejects_nan_infinite_zero_and_negative() {
         let rejected = [

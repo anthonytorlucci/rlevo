@@ -1,13 +1,12 @@
 //! Memetic-algorithm showcase: bare DE vs `MemeticWrapper<DE, HillClimbing>`
 //! on Rastrigin-D10, compared by **evaluations-to-target**.
 //!
-//! The other `*_showcase` examples give every strategy the same *generation*
-//! budget. That comparison would flatter a memetic strategy: local refinement
-//! spends extra fitness evaluations inside every generation (here `TopK{1}` ×
-//! `max_iters=20` adds up to 20 evals on top of DE's 30), so its
-//! per-generation `best` is bought with a bigger budget. The honest question
-//! is the one this example asks: *how many total fitness evaluations does each
-//! configuration need to first reach a shared target cost?*
+//! The other `*_showcase` examples give every strategy the same *generation* budget. That
+//! comparison would flatter a memetic strategy: local refinement spends extra fitness evaluations
+//! inside every generation (here `TopK{1}` `$\times$` `max_iters=20` adds up to 20 evals on top of
+//! DE's 30), so its per-generation `best` is bought with a bigger budget. The honest question is
+//! the one this example asks: *how many total fitness evaluations does each configuration need to
+//! first reach a shared target cost?*
 //!
 //! Evaluations are counted by a fitness wrapper that increments a shared
 //! counter per row of every `evaluate_batch`. Each `MemeticWrapper`
@@ -38,8 +37,8 @@
 //!   the eval counts — refinement overhead is paid either way, so a policy
 //!   that exploits the refined genomes poorly can even fall behind bare DE at
 //!   tight targets.
-//! - The **untuned-defaults** row (`TopK{3}` × `default_for` hill climbing:
-//!   `max_iters=100`, step ≈ 1.0) dominates everything on *this* landscape —
+//! - The **untuned-defaults** row (`TopK{3}` `$\times$` `default_for` hill climbing:
+//!   `max_iters=100`, step `$\approx 1.0$`) dominates everything on *this* landscape —
 //!   and that is the trap. Rastrigin is fully **separable** with local minima
 //!   on a unit grid, so axis-aligned hill climbing with basin-width steps is
 //!   almost a direct solver for it; the same configuration's advantage
@@ -258,10 +257,9 @@ CR=0.9) and one seed.\n\n{:-<120}",
         CoveragePolicy::TopK { k: 1 },
     );
 
-    // Untuned `default_for` hill climbing (max_iters=100, step ≈ 1.0,
-    // first-improvement) on three rows per generation — up to ~300 refinement
-    // evals/gen on top of DE's 30. Dominates here because Rastrigin is
-    // separable; see the module docs before copying it.
+    // Untuned `default_for` hill climbing (max_iters=100, step `$\approx 1.0$`, first-improvement)
+    // on three rows per generation — up to ~300 refinement evals/gen on top of DE's 30. Dominates
+    // here because Rastrigin is separable; see the module docs before copying it.
     let heavy: HillClimbingParams = HillClimbingParams::default_for(BOUNDS);
     run_memetic_row(
         "memetic k=3/untuned HC defaults (it=100)",

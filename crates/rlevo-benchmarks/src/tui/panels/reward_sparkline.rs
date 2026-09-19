@@ -1,13 +1,12 @@
 //! Reward sparkline panel.
 //!
-//! Reads the bounded reward ring from
-//! [`AppState`](crate::tui::state::AppState) and renders a horizontal
-//! sparkline using `ratatui::widgets::Sparkline`. The sparkline widget
-//! consumes `u64`, but episode returns are `f64` and can be negative
-//! (`MountainCar` emits -1 per step). The conversion in [`encode_returns`]
-//! shifts the visible window so the minimum sits at 0 and scales by a
-//! fixed integer factor so the sparkline's bar quantization still has
-//! useful resolution on small-magnitude data.
+//! Reads the bounded reward ring from [`AppState`] and renders a horizontal
+//! sparkline using `ratatui::widgets::Sparkline`. The sparkline widget consumes
+//! `u64`, but episode returns are `f64` and can be negative (`MountainCar`
+//! emits -1 per step). The conversion in [`encode_returns`] shifts the visible
+//! window so the minimum sits at 0 and scales by a fixed integer factor so the
+//! sparkline's bar quantization still has useful resolution on small-magnitude
+//! data.
 //!
 //! Storing raw `f64`s in [`AppState`] and converting at render time —
 //! rather than pre-encoding into `u64` at push time — lets the baseline
@@ -67,11 +66,11 @@ impl Widget for RewardSparkline<'_> {
 /// Behaviour:
 ///
 /// - Empty input → empty output.
-/// - All returns equal → uniform mid-range bars (every entry is
-///   [`REWARD_SCALE`] as `u64`), so the sparkline reads as a flat band
-///   rather than a phantom-empty plot.
+/// - All returns equal → uniform mid-range bars (every entry is `REWARD_SCALE`
+///   as `u64`), so the sparkline reads as a flat band rather than a
+///   phantom-empty plot.
 /// - Mixed returns → shifted so the smallest is `0` and scaled by
-///   [`REWARD_SCALE`]; NaN entries collapse to `0`.
+///   `REWARD_SCALE`; NaN entries collapse to `0`.
 #[must_use]
 #[allow(
     clippy::cast_possible_truncation,
@@ -114,8 +113,8 @@ pub fn encode_returns(ring: &VecDeque<f64>) -> Vec<u64> {
                 0u64
             } else {
                 let shifted = (v - min) * REWARD_SCALE;
-                // Clamp negatives to zero defensively; `shifted` is
-                // already non-negative when min ≤ v.
+                // Clamp negatives to zero defensively; `shifted` is already non-negative when
+                // `$\text{min} \leq v$`.
                 shifted.max(0.0) as u64
             }
         })

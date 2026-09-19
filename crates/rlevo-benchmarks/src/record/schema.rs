@@ -430,7 +430,7 @@ pub struct CheckpointRef {
 /// to refuse mismatched files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpisodeRecordHeader {
-    /// Wire-format version stamp; loader rejects any value ≠ [`FORMAT_VERSION`].
+    /// Wire-format version stamp; loader rejects any value `$\neq$` [`FORMAT_VERSION`].
     pub format_version: u16,
     /// Unique identifier of the parent recording run.
     pub run_id: RunId,

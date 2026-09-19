@@ -110,21 +110,19 @@
 //! against the raw window would assert a property of a projection no
 //! environment emits.
 //!
-//! Invariant M is *not* satisfied automatically, and — contrary to what ADR
-//! 0043 §3 predicted, and contrary to what the earlier occlusion gap implied
-//! it would take (`egocentric_view` applied no visibility masking at all, so
-//! this environment had to fall back on raw distance instead of walls,
-//! forcing `MIN_SIZE = 11` rather than canonical's occlusion-reliant S7/S9) —
-//! now that occlusion is actually implemented, **it still does not buy it**. rlevo
-//! runs the canonical shadow cast (`see_through_walls=False`), and an executed
-//! sweep over every decision-region cell × facing at sizes **7 and 9** finds the
-//! cue visible under [`Visibility::Occluded`] in exactly the same (cell, facing)
-//! pairs as under [`Visibility::SeeThrough`] — 5 of them at each size. The
-//! mechanism is the flood fill described above: the cue is reachable *around*
-//! the corridor's walls, through the mouth at `x = 4` and out sideways into the
-//! open start room. So here Invariant M is still bought with **distance
-//! alone**, and `MIN_SIZE` stays 11. This is pinned, with the sizes and the
-//! violating poses, by `test_memory_env_occlusion_does_not_relax_min_size`.
+//! Invariant M is *not* satisfied automatically, and — contrary to what ADR 0043 §3 predicted, and
+//! contrary to what the earlier occlusion gap implied it would take (`egocentric_view` applied no
+//! visibility masking at all, so this environment had to fall back on raw distance instead of
+//! walls, forcing `MIN_SIZE = 11` rather than canonical's occlusion-reliant S7/S9) — now that
+//! occlusion is actually implemented, **it still does not buy it**. rlevo runs the canonical shadow
+//! cast (`see_through_walls=False`), and an executed sweep over every decision-region cell
+//! `$\times$` facing at sizes **7 and 9** finds the cue visible under [`Visibility::Occluded`] in
+//! exactly the same (cell, facing) pairs as under [`Visibility::SeeThrough`] — 5 of them at each
+//! size. The mechanism is the flood fill described above: the cue is reachable *around* the
+//! corridor's walls, through the mouth at `x = 4` and out sideways into the open start room. So
+//! here Invariant M is still bought with **distance alone**, and `MIN_SIZE` stays 11. This is
+//! pinned, with the sizes and the violating poses, by
+//! `test_memory_env_occlusion_does_not_relax_min_size`.
 //!
 //! (That is a statement about rlevo's port, which is a faithful transcription of
 //! `Grid.process_vis`; it has not been checked against a live Python
@@ -206,7 +204,7 @@
 //! objects are positioned so that a facing-based `Done` is always reachable.
 //! This is a deliberate, documented deviation, not an oversight.
 //!
-//! | Observation | 7 × 7 **occluded** egocentric grid, `[type, color, state]` per cell |
+//! | Observation | `$7 \times 7$` **occluded** egocentric grid, `[type, color, state]` per cell |
 //! |-------------|--------------------------------------------------------------------|
 //! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Done`                         |
 //! | Reward      | `success_reward(steps, max_steps)` on correct Done; else `0.0`     |
@@ -503,9 +501,9 @@ impl FromStr for MemoryConfig {
     /// Parses `"size=13,max_steps=845,seed=0"` (keys in any order) or the
     /// positional form `"13,845,0"`.
     ///
-    /// When `max_steps` is omitted it is derived from `size` as `$5 \cdot \text{size}^2$`,
-    /// so `"size=13"` yields the canonical budget for a 13×13 grid rather than
-    /// the default-size one.
+    /// When `max_steps` is omitted it is derived from `size` as `$5 \cdot \text{size}^2$`, so
+    /// `"size=13"` yields the canonical budget for a `$13 \times 13$` grid rather than the
+    /// default-size one.
     ///
     /// # Errors
     ///
@@ -559,9 +557,8 @@ impl FromStr for MemoryConfig {
 /// the cue, so nothing in the configuration pins the answer to a side — the only
 /// way to score above chance is to remember the cue.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] /
-/// [`ScalarReward`].
+/// Implements [`Environment<3, 3, 1>`] with [`GridState`] / [`GridObservation`]
+/// / [`GridAction`] / [`ScalarReward`].
 ///
 /// The episode ends on the first [`GridAction::Done`] (or at the step budget);
 /// a [`step`](Environment::step) taken afterwards is rejected with
@@ -1643,14 +1640,12 @@ mod tests {
     /// Two episodes that differ **only** in the cue produce byte-identical
     /// observations at the fork, yet demand opposite actions.
     ///
-    /// This is a mechanical proof that no reactive (memoryless) policy can beat
-    /// chance here: at the decision point the two worlds are indistinguishable
-    /// from the observation alone. It fails on the environment as it stood
-    /// before the cue was sampled from `_rng` (the fork match didn't depend on
-    /// the cue, so both episodes demanded the same action), and it would still
-    /// fail after a naive "just sample the cue" fix on the old 7×5
-    /// layout — the cue was re-readable from the fork. It also only passes
-    /// because every object is green.
+    /// This is a mechanical proof that no reactive (memoryless) policy can beat chance here: at the
+    /// decision point the two worlds are indistinguishable from the observation alone. It fails on
+    /// the environment as it stood before the cue was sampled from `_rng` (the fork match didn't
+    /// depend on the cue, so both episodes demanded the same action), and it would still fail after
+    /// a naive "just sample the cue" fix on the old `$7 \times 5$` layout — the cue was re-readable
+    /// from the fork. It also only passes because every object is green.
     #[test]
     fn test_memory_env_fork_observation_is_cue_invariant() {
         let mut env = env_default();

@@ -107,16 +107,14 @@ impl<F: FunctionSet> GenotypePhenotypeMap<F> for GepDecoder {
             orf_len += 1;
         }
 
-        // A well-formed GEP gene (head ∈ F∪T, tail ∈ T strictly, tail length
-        // t = h(n−1)+1 with n = max arity) always satisfies every open child
-        // slot within the chromosome, so the scan must exit with `needed == 0`
-        // (Ferreira 2001, Complex Systems 13(2), §3.2 eq. 3.4). A residual
-        // `needed > 0` can only arise from a contract-violating genome (e.g.
-        // one hand-built via `Symbol::from_raw` that bypasses the head/tail
-        // rule): its child ranges would overrun `node_count()` and later panic
-        // in `eval`. Flag that precondition breach in debug builds; `eval`
-        // carries a matching release-time clamp so the failure degrades to a
-        // finite value rather than an out-of-bounds slice.
+        // A well-formed GEP gene (head `$\in F \cup T$`, tail `$\in$` T strictly, tail length
+        // `$t = h(n-1)+1$` with n = max arity) always satisfies every open child slot within the
+        // chromosome, so the scan must exit with `needed == 0` (Ferreira 2001, Complex Systems
+        // 13(2), §3.2 eq. 3.4). A residual `needed > 0` can only arise from a contract-violating
+        // genome (e.g. one hand-built via `Symbol::from_raw` that bypasses the head/tail rule): its
+        // child ranges would overrun `node_count()` and later panic in `eval`. Flag that
+        // precondition breach in debug builds; `eval` carries a matching release-time clamp so the
+        // failure degrades to a finite value rather than an out-of-bounds slice.
         debug_assert!(
             needed == 0,
             "genome violates GEP head/tail invariant t = h(n-1)+1 (Ferreira \
@@ -268,14 +266,12 @@ mod tests {
 
     // §7.4 -----------------------------------------------------------------
 
-    /// The key structural guarantee this decoder relies on: Ferreira (2001, eq.
-    /// 3.4) guarantees any well-formed head/tail gene decodes to a complete
-    /// tree — the ORF scan never
-    /// leaves an unfilled child slot, so every child range stays in bounds and
-    /// `eval` never slices past `node_count()`. Generate many random but
-    /// well-formed genomes (head ∈ F∪T, tail ∈ T strictly, tail length
-    /// t = h(n−1)+1) and assert the guarantee holds structurally and that `eval`
-    /// returns a finite value without panic.
+    /// The key structural guarantee this decoder relies on: Ferreira (2001, eq. 3.4) guarantees any
+    /// well-formed head/tail gene decodes to a complete tree — the ORF scan never leaves an
+    /// unfilled child slot, so every child range stays in bounds and `eval` never slices past
+    /// `node_count()`. Generate many random but well-formed genomes (head `$\in F \cup T$`, tail
+    /// `$\in$` T strictly, tail length `$t = h(n-1)+1$`) and assert the guarantee holds
+    /// structurally and that `eval` returns a finite value without panic.
     #[test]
     fn wellformed_genomes_always_decode_in_bounds() {
         let mut rng = StdRng::seed_from_u64(0x9E37_79B9_7F4A_7C15);

@@ -51,17 +51,15 @@
 /// ergonomics for exactly the boundary ADR 0050 §3 forbids, advertising the
 /// crossing as a supported thing to do.
 ///
-/// This is the same reasoning that keeps a bad-β variant out of the enum:
-/// `sample`'s β is an [`ImportanceExponent`](super::ImportanceExponent), valid
-/// by construction, and `UniformReplay` ignores β entirely, so per ADR 0051 §2
-/// "a fallible signature would force it to carry an error variant it can never
-/// produce" (restated on
-/// [`ReplayStrategy::sample`](super::ReplayStrategy::sample)). It is also
-/// consistent with how the module already handles the one *real*
-/// batch-assembly failure it has: [`SampledBatch::weighted`](super::SampledBatch::weighted)
-/// treats `weights.len() != ids.len()` as a deliberate panic — "a programming
-/// error in the strategy" — rather than an `Err`. A `BatchError` variant would
-/// contradict a decision this module has already made explicitly.
+/// This is the same reasoning that keeps a bad-`$\beta$` variant out of the enum: `sample`'s
+/// `$\beta$` is an [`ImportanceExponent`](super::ImportanceExponent), valid by construction, and
+/// `UniformReplay` ignores `$\beta$` entirely, so per ADR 0051 §2 "a fallible signature would force
+/// it to carry an error variant it can never produce" (restated on
+/// [`ReplayStrategy::sample`](super::ReplayStrategy::sample)). It is also consistent with how the
+/// module already handles the one *real* batch-assembly failure it has:
+/// [`SampledBatch::weighted`](super::SampledBatch::weighted) treats `weights.len() != ids.len()` as
+/// a deliberate panic — "a programming error in the strategy" — rather than an `Err`. A
+/// `BatchError` variant would contradict a decision this module has already made explicitly.
 ///
 /// Because the enum is `#[non_exhaustive]`, adding a variant later is not a
 /// breaking change; a disk-backed or distributed strategy whose `sample`

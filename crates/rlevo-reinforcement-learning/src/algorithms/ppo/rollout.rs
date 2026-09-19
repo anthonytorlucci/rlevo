@@ -9,11 +9,10 @@
 //!
 //! # GAE - Generalized Advantage Estimation
 //!
-//! [`compute_gae`] follows Schulman et al. 2016 with **partial-episode
-//! bootstrapping** (Pardo et al. 2018, Eq. 6) at truncations, per ADR 0048.
-//! A truncated step bootstraps its delta from `V(s_continuation)` while its
-//! λ-recursion is cut; a terminated step does neither. This deliberately
-//! diverges from `CleanRL`'s default PPO.
+//! [`compute_gae`] follows Schulman et al. 2016 with **partial-episode bootstrapping** (Pardo et
+//! al. 2018, Eq. 6) at truncations, per ADR 0048. A truncated step bootstraps its delta from
+//! `V(s_continuation)` while its `$\lambda$`-recursion is cut; a terminated step does neither. This
+//! deliberately diverges from `CleanRL`'s default PPO.
 //!
 //! # Indexing convention
 //!
@@ -57,9 +56,9 @@ pub enum StepEnd {
 
 /// Fixed-capacity on-policy rollout buffer.
 ///
-/// Storage layout is struct-of-arrays: `obs[i]`, `action_flat[i · action_dim + j]`,
-/// `log_probs[i]`, etc. all index the same step `i`. Advantages and returns
-/// are only populated after [`RolloutBuffer::finish`].
+/// Storage layout is struct-of-arrays: `obs[i]`,
+/// `$\text{action\_flat}[i \cdot \text{action\_dim} + j]$`, `log_probs[i]`, etc. all index the same
+/// step `i`. Advantages and returns are only populated after [`RolloutBuffer::finish`].
 #[derive(Debug)]
 pub struct RolloutBuffer<B: Backend, O> {
     capacity: usize,
@@ -219,7 +218,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
         self.obs.is_empty()
     }
 
-    /// Capacity, i.e. `num_envs · num_steps`.
+    /// Capacity, i.e. `$\text{num\_envs} \cdot \text{num\_steps}$`.
     #[must_use]
     pub fn capacity(&self) -> usize {
         self.capacity
@@ -322,11 +321,10 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 ///
 /// # Indexing
 ///
-/// `terminated[t]` / `truncated[t]` describe the transition *out of* step `t`
-/// (see the module docs), so both the bootstrap mask and the λ-recursion mask
-/// read index `[t]`. `last_value` supplies the bootstrap for the final step
-/// only when that step left the episode `Running`; when it ended, its own flag
-/// zeroes the bootstrap and `last_value` is unused.
+/// `terminated[t]` / `truncated[t]` describe the transition *out of* step `t` (see the module
+/// docs), so both the bootstrap mask and the `$\lambda$`-recursion mask read index `[t]`.
+/// `last_value` supplies the bootstrap for the final step only when that step left the episode
+/// `Running`; when it ended, its own flag zeroes the bootstrap and `last_value` is unused.
 ///
 /// # Truncation: two masks, not one
 ///
@@ -340,7 +338,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 /// - the **delta bootstraps** from `V(s_continuation)`, carried in
 ///   `truncation_value[t]` — the agent's future is real, only the clock
 ///   stopped;
-/// - the **λ-recursion is cut** — the trajectory genuinely ended, so advantage
+/// - the **`$\lambda$`-recursion is cut** — the trajectory genuinely ended, so advantage
 ///   must not propagate across the boundary.
 ///
 /// This deliberately diverges from `CleanRL`'s default PPO, which ORs the flags.
@@ -374,7 +372,7 @@ pub fn compute_gae(
         } else {
             values[t + 1]
         };
-        // Mask 1: the episode boundary, which cuts the λ-recursion.
+        // Mask 1: the episode boundary, which cuts the `$\lambda$`-recursion.
         let ended = terminated[t] || truncation_value[t].is_some();
         // Mask 2: the delta's bootstrap. Zero only at a true termination —
         // a truncation bootstraps V(s_continuation) instead (PEB).
@@ -417,11 +415,11 @@ mod tests {
 
         // Independent reference recursion, general per-step form. With no
         // termination and no truncation every mask is 1, so
-        //   δ[t] = r[t] + γ·V'[t] − V[t],  V'[t] = V[t+1] (V' = last_value at t = 4)
-        //   A[t] = δ[t] + γλ·A[t+1],       A[5] ≡ 0,  γλ = 0.9405
+        //   `$\delta[t] = r[t] + \gamma V'[t] - V[t]$`,  `$V'[t] = V[t+1]$` (`$V'$` = last_value at `$t = 4$`)
+        //   A[t] = `$\delta[t] + \gamma\lambda A[t+1]$`,       `$A[5] \equiv 0$`,  `$\gamma\lambda = 0.9405$`
         // Spot values for the tail:
-        //   t=4: δ = 1 + 0.99·0.5 − 0.5 = 0.995        → A[4] = 0.995
-        //   t=3: δ = 1 + 0.99·0.5 − 0.7 = 0.795        → A[3] = 0.795 + 0.9405·0.995
+        //   t=4: `$\delta = 1 + 0.99 \cdot 0.5 - 0.5 = 0.995$`        → A[4] = 0.995
+        //   t=3: `$\delta = 1 + 0.99 \cdot 0.5 - 0.7 = 0.795$`        → `$A[3] = 0.795 + 0.9405 \cdot 0.995$`
         //                                                     = 1.730_797_5
         let n = rewards.len();
         let mut expected = [0.0_f32; 5];
@@ -465,16 +463,16 @@ mod tests {
         let trunc = vec![None, None, None];
         let (advs, rets) = compute_gae(&rewards, &values, &term, &trunc, 0.5, 0.99, 0.95);
 
-        // Hand-computed, γ = 0.99, λ = 0.95, γλ = 0.9405:
+        // Hand-computed, `$\gamma$` = 0.99, `$\lambda$` = 0.95, `$\gamma\lambda$` = 0.9405:
         //   t=2: ended = term[2] = false → V' = last_value = 0.5
-        //        δ₂ = 1 + 0.99·0.5 − 0.5 = 0.995
-        //        A₂ = 0.995
+        //        `$\delta_2 = 1 + 0.99 \cdot 0.5 - 0.5 = 0.995$`
+        //        `$A_2 = 0.995$`
         //   t=1: ended = term[1] = true → bootstrap and recursion both cut
-        //        δ₁ = 1 + 0 − 0.5 = 0.5
-        //        A₁ = 0.5 + 0.9405·0·A₂ = 0.5
+        //        `$\delta_1 = 1 + 0 - 0.5 = 0.5$`
+        //        `$A_1 = 0.5 + 0.9405 \cdot 0 \cdot A_2 = 0.5$`
         //   t=0: ended = term[0] = false → V' = values[1] = 0.5
-        //        δ₀ = 1 + 0.99·0.5 − 0.5 = 0.995
-        //        A₀ = 0.995 + 0.9405·0.5 = 0.995 + 0.47025 = 1.46525
+        //        `$\delta_0 = 1 + 0.99 \cdot 0.5 - 0.5 = 0.995$`
+        //        `$A_0 = 0.995 + 0.9405 \cdot 0.5 = 0.995 + 0.47025 = 1.46525$`
         let a2 = 0.995_f32;
         let a1 = 0.5_f32;
         let a0 = 1.465_25_f32;
@@ -504,28 +502,27 @@ mod tests {
 
     #[test]
     fn test_rollout_gae_bootstraps_truncation_value_mid_rollout() {
-        // Same 3-step rollout as `gae_handles_terminated_mid_rollout`, but the
-        // transition out of step 1 was *truncated* (a time limit fired) with
-        // V(s_continuation) = 2.0. Partial-episode bootstrapping splits the
-        // two masks: step 1's delta bootstraps 2.0, while its λ-recursion is
-        // still cut. Contrast with the terminated case, where the delta gets
-        // nothing — that difference is the whole point of ADR 0048.
+        // Same 3-step rollout as `gae_handles_terminated_mid_rollout`, but the transition out of
+        // step 1 was *truncated* (a time limit fired) with V(s_continuation) = 2.0. Partial-episode
+        // bootstrapping splits the two masks: step 1's delta bootstraps 2.0, while its
+        // `$\lambda$`-recursion is still cut. Contrast with the terminated case, where the delta
+        // gets nothing — that difference is the whole point of ADR 0048.
         let rewards = vec![1.0, 1.0, 1.0];
         let values = vec![0.5, 0.5, 0.5];
         let term = vec![false, false, false];
         let trunc = vec![None, Some(2.0), None];
         let (advs, rets) = compute_gae(&rewards, &values, &term, &trunc, 0.5, 0.99, 0.95);
 
-        // Hand-computed, γ = 0.99, λ = 0.95, γλ = 0.9405:
+        // Hand-computed, `$\gamma$` = 0.99, `$\lambda$` = 0.95, `$\gamma\lambda$` = 0.9405:
         //   t=2: not ended → V' = last_value = 0.5
-        //        δ₂ = 1 + 0.99·0.5 − 0.5 = 0.995
-        //        A₂ = 0.995
+        //        `$\delta_2 = 1 + 0.99 \cdot 0.5 - 0.5 = 0.995$`
+        //        `$A_2 = 0.995$`
         //   t=1: truncated → boot = 2.0 (NOT 0.0), but ended = true
-        //        δ₁ = 1 + 0.99·2.0 − 0.5 = 1 + 1.98 − 0.5 = 2.48
-        //        A₁ = 2.48 + 0.9405·0·A₂ = 2.48
+        //        `$\delta_1 = 1 + 0.99 \cdot 2.0 - 0.5 = 1 + 1.98 - 0.5 = 2.48$`
+        //        `$A_1 = 2.48 + 0.9405 \cdot 0 \cdot A_2 = 2.48$`
         //   t=0: not ended → V' = values[1] = 0.5
-        //        δ₀ = 1 + 0.99·0.5 − 0.5 = 0.995
-        //        A₀ = 0.995 + 0.9405·2.48 = 0.995 + 2.33244 = 3.32744
+        //        `$\delta_0 = 1 + 0.99 \cdot 0.5 - 0.5 = 0.995$`
+        //        `$A_0 = 0.995 + 0.9405 \cdot 2.48 = 0.995 + 2.33244 = 3.32744$`
         let a2 = 0.995_f32;
         let a1 = 2.48_f32;
         let a0 = 3.327_44_f32;
@@ -584,8 +581,8 @@ mod tests {
             trunc_advs[1],
             term_advs[1]
         );
-        // The λ-recursion is cut identically in both cases, so the *only*
-        // difference at t=0 is the one that propagated in via A₁.
+        // The `$\lambda$`-recursion is cut identically in both cases, so the *only* difference at
+        // t=0 is the one that propagated in via `$A_1$`.
         assert!(
             trunc_advs[0] > term_advs[0],
             "the truncation bootstrap must raise the preceding advantage: {} vs {}",
@@ -608,7 +605,7 @@ mod tests {
             0.99,
             0.95,
         );
-        // δ₀ = 1 + 0.99·10·0 − 0.5 = 0.5
+        // `$\delta_0 = 1 + 0.99 \cdot 10 \cdot 0 - 0.5 = 0.5$`
         assert!(
             (advs[0] - 0.5).abs() < 1e-6,
             "terminated final step must ignore last_value: {} vs 0.5",
@@ -618,8 +615,8 @@ mod tests {
 
     #[test]
     fn test_rollout_gae_running_final_step_uses_last_value() {
-        // Same rollout, but the episode is still `Running`, so `last_value`
-        // *is* the bootstrap: δ₀ = 1 + 0.99·10 − 0.5 = 10.4
+        // Same rollout, but the episode is still `Running`, so `last_value` *is* the bootstrap:
+        // `$\delta_0 = 1 + 0.99 \cdot 10 - 0.5 = 10.4$`
         let (advs, _) = compute_gae(&[1.0], &[0.5], &[false], &[None], 10.0, 0.99, 0.95);
         assert!(
             (advs[0] - 10.4).abs() < 1e-4,

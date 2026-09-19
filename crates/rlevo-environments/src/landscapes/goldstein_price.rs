@@ -143,10 +143,10 @@ mod tests {
 
     /// O2 (no spurious optimum) — no point of the box scores below `$f^* = 3$`.
     ///
-    /// A deterministic 401×401 sweep of `bounds()²`. The 400-step grid over `$[-2, 2]$`
-    /// lands exactly on `$(0, -1)$`, so the tightest sample sits at `$f^*$` itself; `eps`
-    /// covers float error only. The surface spans `$[3, \approx 1.3e6]$`, but near the minimum
-    /// its scale is O(1), so an absolute `1e-9` is the right guard.
+    /// A deterministic `$401 \times 401$` sweep of `$\text{bounds}()^2$`. The 400-step grid over
+    /// `$[-2, 2]$` lands exactly on `$(0, -1)$`, so the tightest sample sits at `$f^*$` itself;
+    /// `eps` covers float error only. The surface spans `$[3, \approx 1.3e6]$`, but near the
+    /// minimum its scale is O(1), so an absolute `1e-9` is the right guard.
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {
         const STEPS: u16 = 400;

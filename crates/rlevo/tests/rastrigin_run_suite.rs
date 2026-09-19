@@ -42,7 +42,8 @@ impl FitnessEvaluable for Minimizer {
     }
 }
 
-/// Creates a GA harness on Rastrigin-D10 with tournament selection, BLX-α crossover, and elitist replacement.
+/// Creates a GA harness on Rastrigin-D10 with tournament selection, BLX-`$\alpha$` crossover, and
+/// elitist replacement.
 fn ga_factory(
     seed: u64,
 ) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {

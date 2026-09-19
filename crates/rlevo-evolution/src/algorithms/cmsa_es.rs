@@ -6,10 +6,10 @@
 //!
 //! - self-adapts the step size **per individual** with the classical
 //!   log-normal rule `$\sigma_i = \bar\sigma \cdot \exp(\tau \cdot N(0,1))$`, then recombines the selected
-//!   `$\sigma_i$` into the next `$\bar\sigma$` (the same σ-self-adaptation mechanism as
-//!   [`crate::algorithms::es_classical`], so the two ES σ-adaptation families
+//!   `$\sigma_i$` into the next `$\bar\sigma$` (the same `$\sigma$`-self-adaptation mechanism as
+//!   [`crate::algorithms::es_classical`], so the two ES `$\sigma$`-adaptation families
 //!   share one mutation rule);
-//! - blends the covariance toward the rank-μ maximum-likelihood estimate of the
+//! - blends the covariance toward the rank-`$\mu$` maximum-likelihood estimate of the
 //!   selected mutation steps with time constant
 //!   `$\tau_c = 1 + D(D+1)/(2\mu)$`:
 //!   `$C \leftarrow (1 - 1/\tau_c) C + (1/\tau_c) \cdot (1/\mu) \sum s_{(i)} s_{(i)}^T$`.
@@ -17,22 +17,20 @@
 //! Sampling needs only a Cholesky factor of `C` (no eigendecomposition,
 //! no `C^{-1/2}`), so each generation is cheaper than CMA-ES.
 //!
-//! # On the τ constant
+//! # On the `$\tau$` constant
 //!
-//! The canonical CMSA-ES learning rate is `$\tau = 1/\sqrt{2D}$` (Beyer & Sendhoff,
-//! 2008), used here. Note this differs from
-//! [`EsConfig`](crate::algorithms::es_classical::EsConfig)'s `$1/\sqrt{2\sqrt{D}}$`: the two
-//! strategies share the log-normal σ-self-adaptation *mechanism* (ADR 0021 §5),
-//! but CMSA-ES keeps its own algorithm-faithful constant.
+//! The canonical CMSA-ES learning rate is `$\tau = 1/\sqrt{2D}$` (Beyer & Sendhoff, 2008), used
+//! here. Note this differs from [`EsConfig`](crate::algorithms::es_classical::EsConfig)'s
+//! `$1/\sqrt{2\sqrt{D}}$`: the two strategies share the log-normal `$\sigma$`-self-adaptation
+//! *mechanism* (ADR 0021 §5), but CMSA-ES keeps its own algorithm-faithful constant.
 //!
 //! # Relationship to the EDA / `ProbabilityModel` family
 //!
-//! Like [`CmaEs`](crate::algorithms::cma_es), this is a self-contained
-//! [`Strategy`]; per ADR 0021 it does not instantiate
-//! [`ProbabilityModel`](crate::ProbabilityModel). The rank-μ covariance blend
-//! is closer to an EMNA-style maximum-likelihood update than CMA-ES's
-//! path-driven adaptation, but the per-individual σ self-adaptation keeps it on
-//! the ES side of the boundary (research note `eda-vs-cma-es-boundary`).
+//! Like [`CmaEs`](crate::algorithms::cma_es), this is a self-contained [`Strategy`]; per ADR 0021
+//! it does not instantiate [`ProbabilityModel`](crate::ProbabilityModel). The rank-`$\mu$`
+//! covariance blend is closer to an EMNA-style maximum-likelihood update than CMA-ES's path-driven
+//! adaptation, but the per-individual `$\sigma$` self-adaptation keeps it on the ES side of the
+//! boundary (research note `eda-vs-cma-es-boundary`).
 //!
 //! # References
 //!
@@ -101,7 +99,7 @@ pub struct CmsaEsConfig {
     pub initial_sigma: f32,
     /// Number of selected parents `$\mu = \lfloor \lambda/2 \rfloor$`.
     pub mu: usize,
-    /// Log-normal σ-self-adaptation learning rate `$\tau = 1/\sqrt{2D}$`.
+    /// Log-normal `$\sigma$`-self-adaptation learning rate `$\tau = 1/\sqrt{2D}$`.
     pub tau: f32,
     /// Covariance time constant `$\tau_c = 1 + D(D+1)/(2\mu)$`.
     pub tau_c: f32,
@@ -181,7 +179,7 @@ pub struct CmsaEsState<B: Backend> {
     /// Global step size `$\bar\sigma$`.
     sigma: f32,
     /// Per-offspring step sizes `$\sigma_i$`, carried `ask → tell` (length `$\lambda$`, empty
-    /// before the first `ask`). Mirrors the σ-scratchpad pattern in
+    /// before the first `ask`). Mirrors the `$\sigma$`-scratchpad pattern in
     /// [`EsState`](crate::algorithms::es_classical::EsState).
     offspring_sigmas: Vec<f32>,
     /// Completed-generation counter.
@@ -196,14 +194,12 @@ impl<B: Backend> CmsaEsState<B> {
     /// Assembles a CMSA-ES state, checking the distribution parameters are
     /// dimensionally consistent and normalizing `cov` to exact symmetry.
     ///
-    /// The supplied `cov` is symmetrized in place via
-    /// [`crate::ops::linalg::symmetrize`] before construction. The in-loop
-    /// covariance blend in [`tell`](CmsaEs::tell) already preserves bit-exact
-    /// symmetry — IEEE-754 multiplication is commutative and the two triangle
-    /// entries `C[i,j]` / `C[j,i]` accumulate the identical rank-μ terms in the
-    /// identical order — so caller-supplied construction is the *only* asymmetry
-    /// entry point. Normalizing it here mirrors `pycma` practice and the
-    /// ADR 0034 sanitize-at-chokepoint convention.
+    /// The supplied `cov` is symmetrized in place via [`crate::ops::linalg::symmetrize`] before
+    /// construction. The in-loop covariance blend in [`tell`](CmsaEs::tell) already preserves
+    /// bit-exact symmetry — IEEE-754 multiplication is commutative and the two triangle entries
+    /// `C[i,j]` / `C[j,i]` accumulate the identical rank-`$\mu$` terms in the identical order — so
+    /// caller-supplied construction is the *only* asymmetry entry point. Normalizing it here
+    /// mirrors `pycma` practice and the ADR 0034 sanitize-at-chokepoint convention.
     ///
     /// # Errors
     ///
@@ -384,13 +380,12 @@ where
         let mut rows: Vec<f32> = Vec::with_capacity(lambda * d);
         let mut sigmas: Vec<f32> = Vec::with_capacity(lambda);
         for _ in 0..lambda {
-            // Floor σᵢ at the smallest positive f32. `exp` of a large negative
-            // draw underflows to exactly `0.0` in f32; `tell` would then compute
-            // sᵢ = (xᵢ − m)/σᵢ = 0/0 = NaN, which permanently poisons the
-            // covariance blend. This floor matches the CSA σ floor in
-            // cma_es.rs. A floored σᵢ yields a *benign zero step* — the
-            // offspring collapses to ≈m and contributes ~0 to the rank-μ blend —
-            // not a corrected tiny step.
+            // Floor `$\sigma_i$` at the smallest positive f32. `exp` of a large negative draw
+            // underflows to exactly `0.0` in f32; `tell` would then compute
+            // `$s_i = (x_i - m)/\sigma_i = 0/0 = \text{NaN}$`, which permanently poisons the
+            // covariance blend. This floor matches the CSA `$\sigma$` floor in cma_es.rs. A floored
+            // `$\sigma_i$` yields a *benign zero step* — the offspring collapses to `$\approx$`m
+            // and contributes ~0 to the rank-`$\mu$` blend — not a corrected tiny step.
             let sigma_i: f32 = (state.sigma
                 * (params.tau * crate::sampling::standard_normal(&mut stream)).exp())
             .max(f32::MIN_POSITIVE);
@@ -410,8 +405,8 @@ where
         (population, next)
     }
 
-    /// Recombines the `$\mu$` best offspring into the next mean, step size, and
-    /// rank-μ covariance blend.
+    /// Recombines the `$\mu$` best offspring into the next mean, step size, and rank-`$\mu$`
+    /// covariance blend.
     fn tell(
         &self,
         params: &CmsaEsConfig,
@@ -434,10 +429,10 @@ where
             .into_vec::<f32>()
             .expect("population tensor must be readable as f32");
 
-        // Rank descending (canonical maximise); take the μ best (highest).
+        // Rank descending (canonical maximise); take the `$\mu$` best (highest).
         let mut ranked: Vec<usize> = (0..lambda).collect();
-        // Sanitize NaN → −inf (worst) so it can never rank as best, then order
-        // by `total_cmp` (deterministic; sanitized NaN sorts last).
+        // Sanitize NaN → `$-\infty$` (worst) so it can never rank as best, then order by
+        // `total_cmp` (deterministic; sanitized NaN sorts last).
         let sane: Vec<f32> = fitness_host
             .iter()
             .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -448,8 +443,9 @@ where
         #[allow(clippy::cast_precision_loss)]
         let inv_mu: f32 = 1.0 / mu as f32;
 
-        // New mean (equal-weight recombination), new σ̄ (mean of selected σᵢ),
-        // and the mutation steps s_{(i)} = (x_{(i)} − m) / σᵢ for rank-μ.
+        // New mean (equal-weight recombination), new `$\bar{\sigma}$` (mean of selected
+        // `$\sigma_i$`), and the mutation steps `$s_{(i)} = (x_{(i)} - m)/\sigma_i$` for
+        // rank-`$\mu$`.
         let mut mean_new: Vec<f32> = vec![0.0; d];
         let mut sigma_sum: f32 = 0.0;
         let mut s_sel: Vec<Vec<f32>> = Vec::with_capacity(mu);
@@ -470,8 +466,8 @@ where
         }
         let sigma_new: f32 = sigma_sum * inv_mu;
 
-        // Rank-μ ML covariance blend:
-        // C ← (1 − 1/τ_c) C + (1/τ_c) (1/μ) Σ s_{(i)} s_{(i)}ᵀ.
+        // Rank-`$\mu$` ML covariance blend:
+        // `$C \leftarrow (1 - 1/\tau_c) C + (1/\tau_c)(1/\mu) \sum s_{(i)} s_{(i)}^\top$`.
         let blend: f32 = 1.0 / params.tau_c;
         let c_old: Vec<f32> = state.cov.clone();
         let mut cov_new: Vec<f32> = vec![0.0; d * d];
@@ -485,10 +481,10 @@ where
                 cov_new[i * d + j] = (1.0 - blend) * c_old[i * d + j] + blend * rankmu;
             }
         }
-        // Defensive float-drift hygiene (pycma-style): the Beyer & Sendhoff
-        // (2008, PPSN X) rank-μ blend is symmetric by construction, so this
-        // re-symmetrization is a no-op today; it guards the solver's symmetry
-        // assumption against a future edit that reorders the accumulation.
+        // Defensive float-drift hygiene (pycma-style): the Beyer & Sendhoff (2008, PPSN X)
+        // rank-`$\mu$` blend is symmetric by construction, so this re-symmetrization is a no-op
+        // today; it guards the solver's symmetry assumption against a future edit that reorders the
+        // accumulation.
         symmetrize(&mut cov_new, d);
 
         update_best(&mut state, &population, &fitness_host);
@@ -550,7 +546,7 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    /// Reconstruct `$L \cdot L^T$` for a row-major `n × n` lower-triangular factor.
+    /// Reconstruct `$L \cdot L^T$` for a row-major `$n \times n$` lower-triangular factor.
     fn recon_llt(l: &[f32], n: usize) -> Vec<f32> {
         let mut out: Vec<f32> = vec![0.0; n * n];
         for i in 0..n {
@@ -567,18 +563,17 @@ mod tests {
 
     #[test]
     fn cholesky_with_jitter_recovers_from_non_pd_covariance() {
-        // Jitter-recovery coverage. Fixture: a diagonal (hence
-        // symmetric) NON-positive-definite covariance with eigenvalues
-        // {−1e-5, 1} — for a diagonal matrix the eigenvalues *are* the diagonal
-        // entries. The −1e-5 pivot makes the un-jittered `cholesky` return
-        // `None`, forcing the trace-proportional jitter path.
+        // Jitter-recovery coverage. Fixture: a diagonal (hence symmetric) NON-positive-definite
+        // covariance with eigenvalues `$\{-1\text{e-}5, 1\}$` — for a diagonal matrix the
+        // eigenvalues *are* the diagonal entries. The `$-1\text{e-}5$` pivot makes the un-jittered
+        // `cholesky` return `None`, forcing the trace-proportional jitter path.
         //
-        // mean_diag = (−1e-5 + 1)/2 ≈ 0.5, so jitter starts at ≈5e-9 and grows
-        // ×10 per retry. A `+jitter·I` shift moves every eigenvalue by exactly
-        // +jitter, so the smallest eigenvalue (−1e-5 + jitter) first turns
-        // positive at jitter = 5e-5 — retry index 4 of 6, two retries to spare.
-        // Empirically the JITTER-RECOVERY branch fires here (factor
-        // ≈ [6.32e-3, 0, 0, 1.000025]); the identity fallback does NOT.
+        // `$\text{mean\_diag} = (-1\text{e-}5 + 1)/2 \approx 0.5$`, so jitter starts at
+        // `$\approx 5\text{e-}9$` and grows `$\times 10$` per retry. A `$+\text{jitter} \cdot I$`
+        // shift moves every eigenvalue by exactly +jitter, so the smallest eigenvalue
+        // (`$-1\text{e-}5$` + jitter) first turns positive at jitter = 5e-5 — retry index 4 of 6,
+        // two retries to spare. Empirically the JITTER-RECOVERY branch fires here (factor
+        // `$\approx$` [6.32e-3, 0, 0, 1.000025]); the identity fallback does NOT.
         let cov: Vec<f32> = vec![-1e-5, 0.0, 0.0, 1.0];
         let factor: Vec<f32> = cholesky_with_jitter(&cov, 2);
 
@@ -594,28 +589,28 @@ mod tests {
             "non-positive pivots: {factor:?}"
         );
 
-        // L·Lᵀ ≈ the jittered covariance. The (0,0) entry is the recovered
-        // ≈4e-5, NOT 1.0 — the proof the identity fallback did NOT fire (that
-        // branch would return L = I, giving L·Lᵀ (0,0) = 1.0).
+        // `$L \cdot L^\top$` `$\approx$` the jittered covariance. The (0,0) entry is the recovered
+        // `$\approx$`4e-5, NOT 1.0 — the proof the identity fallback did NOT fire (that branch
+        // would return L = I, giving `$L \cdot L^\top$` (0,0) = 1.0).
         let recon: Vec<f32> = recon_llt(&factor, 2);
         assert!(
             recon[0] < 0.5,
             "identity fallback fired instead of jitter recovery: recon = {recon:?}"
         );
-        // The (1,1) entry stays ≈1 (jitter is only O(1e-5)).
+        // The (1,1) entry stays `$\approx$`1 (jitter is only O(1e-5)).
         approx::assert_relative_eq!(recon[3], 1.0, epsilon = 1e-3);
     }
 
     #[test]
     fn cholesky_with_jitter_falls_back_to_identity_when_degenerate() {
-        // Fallback-branch coverage. Fixture: a symmetric,
-        // strongly indefinite covariance [[1, 2], [2, 1]] with eigenvalues
-        // {3, −1} (the same indefinite matrix `linalg::cholesky_rejects_non_
-        // positive_definite` uses). The jitter shifts every eigenvalue by
-        // +jitter, but jitter tops out at mean_diag·1e-8·10⁵ = 1·1e-3 after the
-        // 6 retries — far too small to lift the −1 eigenvalue positive, so
-        // every retry's (1,1) pivot stays negative. Empirically all 6 retries
-        // fail and the function returns the IDENTITY factor.
+        // Fallback-branch coverage. Fixture: a symmetric, strongly indefinite covariance [[1, 2],
+        // [2, 1]] with eigenvalues `$\{3, -1\}$` (the same indefinite matrix
+        // `linalg::cholesky_rejects_non_ positive_definite` uses). The jitter shifts every
+        // eigenvalue by +jitter, but jitter tops out at
+        // `$\text{mean\_diag}\cdot 1\text{e-}8\cdot 10^5 = 1\cdot 1\text{e-}3$` after the 6 retries
+        // — far too small to lift the `$-1$` eigenvalue positive, so every retry's (1,1) pivot
+        // stays negative. Empirically all 6 retries fail and the function returns the IDENTITY
+        // factor.
         let cov: Vec<f32> = vec![1.0, 2.0, 2.0, 1.0];
         let factor: Vec<f32> = cholesky_with_jitter(&cov, 2);
 
@@ -632,22 +627,20 @@ mod tests {
 
     #[test]
     fn ask_tell_round_trip_survives_non_pd_covariance() {
-        // Ask/tell round-trip guard on the ill-conditioned-covariance
-        // hazard. `try_new` symmetrizes `cov`, so a caller cannot inject
-        // asymmetry — but it CAN inject a SYMMETRIC non-PD covariance, which is
-        // the reachable path into `cholesky_with_jitter`. We reuse the
-        // recovery-branch fixture (diagonal, eigenvalues {−1e-5, 1}); `ask` must
-        // route it through the jitter recovery, sample valid offspring, and the
-        // `ask → tell` round-trip must leave cov/mean/σ̄ finite (no NaN/inf
-        // leaking from the ill-conditioned factor). Mirrors the structure of
-        // `sigma_i_underflow_does_not_poison_covariance`.
+        // Ask/tell round-trip guard on the ill-conditioned-covariance hazard. `try_new` symmetrizes
+        // `cov`, so a caller cannot inject asymmetry — but it CAN inject a SYMMETRIC non-PD
+        // covariance, which is the reachable path into `cholesky_with_jitter`. We reuse the
+        // recovery-branch fixture (diagonal, eigenvalues `$\{-1\text{e-}5, 1\}$`); `ask` must route
+        // it through the jitter recovery, sample valid offspring, and the `ask → tell` round-trip
+        // must leave cov/mean/`$\bar{\sigma}$` finite (no NaN/inf leaking from the ill-conditioned
+        // factor). Mirrors the structure of `sigma_i_underflow_does_not_poison_covariance`.
         let strategy = CmsaEs::<Flex>::new();
         let params = CmsaEsConfig::with_pop_size(8, 2);
         let device = Default::default();
         let mut rng = StdRng::seed_from_u64(1);
 
-        // Symmetric but non-PD: eigenvalue −1e-5 survives `symmetrize` (the
-        // matrix is already symmetric) and reaches `ask`'s Cholesky.
+        // Symmetric but non-PD: eigenvalue `$-1\text{e-}5$` survives `symmetrize` (the matrix is
+        // already symmetric) and reaches `ask`'s Cholesky.
         let state: CmsaEsState<Flex> = CmsaEsState::try_new(
             vec![0.0, 0.0],
             vec![-1e-5, 0.0, 0.0, 1.0],
@@ -686,29 +679,28 @@ mod tests {
 
     #[test]
     fn sigma_i_underflow_does_not_poison_covariance() {
-        // Regression for the σᵢ underflow. With a minuscule σ̄, a negative
-        // log-normal draw makes the raw σᵢ = σ̄·exp(τ·N) underflow to exactly
-        // 0.0. Without the `.max(f32::MIN_POSITIVE)` floor in `ask`, `tell` then
-        // forms sᵢ = (xᵢ − m)/σᵢ = 0/0 = NaN and poisons the rank-μ covariance
-        // blend — reverting the floor turns this test red (NaN in `cov()`,
-        // confirmed manually). The floor clamps those raw zeros up to
-        // `f32::MIN_POSITIVE`, a benign zero step (the offspring collapses to
-        // ≈m and contributes ~0 to the blend), so cov/mean/σ̄ all stay finite.
+        // Regression for the `$\sigma_i$` underflow. With a minuscule `$\bar{\sigma}$`, a negative
+        // log-normal draw makes the raw `$\sigma_i$` = `$\bar{\sigma}\cdot\exp(\tau N)$` underflow
+        // to exactly 0.0. Without the `.max(f32::MIN_POSITIVE)` floor in `ask`, `tell` then forms
+        // `$s_i = (x_i - m)/\sigma_i = 0/0 = \text{NaN}$` and poisons the rank-`$\mu$` covariance
+        // blend — reverting the floor turns this test red (NaN in `cov()`, confirmed manually). The
+        // floor clamps those raw zeros up to `f32::MIN_POSITIVE`, a benign zero step (the offspring
+        // collapses to `$\approx$`m and contributes ~0 to the blend), so cov/mean/`$\bar{\sigma}$`
+        // all stay finite.
         //
-        // We seed σ̄ at the smallest positive **subnormal** f32 rather than
-        // `f32::MIN_POSITIVE` (the smallest *normal*): from the smallest normal,
-        // an exact-0.0 underflow needs N < −33 (a ~33σ event that never fires),
-        // whereas from the smallest subnormal any N < ≈−1.4 flushes to exactly
-        // 0.0 — the realistic hazard. Because σ̄ is subnormal, *every* raw σᵢ
-        // sits below `f32::MIN_POSITIVE`, so with the floor active every entry
-        // reads back as exactly `f32::MIN_POSITIVE`; the precondition asserts the
-        // floor engaged on at least one offspring (it is the observable proxy for
-        // "an underflow would have occurred").
+        // We seed `$\bar{\sigma}$` at the smallest positive **subnormal** f32 rather than
+        // `f32::MIN_POSITIVE` (the smallest *normal*): from the smallest normal, an exact-0.0
+        // underflow needs `$N < -33$` (a ~`$33\sigma$` event that never fires), whereas from the
+        // smallest subnormal any `$N < \approx -1.4$` flushes to exactly 0.0 — the realistic
+        // hazard. Because `$\bar{\sigma}$` is subnormal, *every* raw `$\sigma_i$` sits below
+        // `f32::MIN_POSITIVE`, so with the floor active every entry reads back as exactly
+        // `f32::MIN_POSITIVE`; the precondition asserts the floor engaged on at least one offspring
+        // (it is the observable proxy for "an underflow would have occurred").
         let strategy = CmsaEs::<Flex>::new();
         let params = CmsaEsConfig::with_pop_size(8, 2);
         let device = Default::default();
-        // Seed 1's `SeedPurpose::CmaSampling` stream draws at least one N < ≈−1.4
-        // across the 8 offspring, the draw whose raw σᵢ underflows to 0.0.
+        // Seed 1's `SeedPurpose::CmaSampling` stream draws at least one `$N < \approx -1.4$` across
+        // the 8 offspring, the draw whose raw `$\sigma_i$` underflows to 0.0.
         let mut rng = StdRng::seed_from_u64(1);
 
         let state: CmsaEsState<Flex> = CmsaEsState::try_new(
@@ -856,15 +848,15 @@ mod tests {
         let cfg = CmsaEsConfig::default_for(10);
         assert_eq!(cfg.pop_size, 10);
         assert_eq!(cfg.mu, 5);
-        // τ = 1/√20 ≈ 0.2236.
+        // `$\tau = 1/\sqrt{20} \approx 0.2236$`.
         approx::assert_relative_eq!(cfg.tau, 1.0 / 20.0_f32.sqrt(), epsilon = 1e-6);
-        // τ_c = 1 + 10·11/(2·5) = 1 + 11 = 12.
+        // `$\tau_c = 1 + 10 \cdot 11/(2 \cdot 5) = 1 + 11 = 12$`.
         approx::assert_relative_eq!(cfg.tau_c, 12.0, epsilon = 1e-5);
     }
 
     #[test]
     fn tau_differs_from_es_classical() {
-        // CMSA-ES uses the canonical 1/√(2D); es_classical uses 1/√(2√D).
+        // CMSA-ES uses the canonical `$1/\sqrt{2D}$`; es_classical uses `$1/\sqrt{2\sqrt{D}}$`.
         let cfg = CmsaEsConfig::default_for(10);
         #[allow(clippy::cast_precision_loss)]
         let d = 10.0_f32;
@@ -875,11 +867,10 @@ mod tests {
         );
     }
 
-    /// Determinism coverage: two runs from the same seed produce
-    /// bit-identical trajectories. CMSA-ES host-samples off a `StdRng` threaded
-    /// through `init`/`ask` (which key their `seed_stream`s on `rng.next_u64()`
-    /// and the generation counter), so an identical seed and identical call
-    /// sequence must reproduce the mean, covariance, and σ̄ exactly.
+    /// Determinism coverage: two runs from the same seed produce bit-identical trajectories.
+    /// CMSA-ES host-samples off a `StdRng` threaded through `init`/`ask` (which key their
+    /// `seed_stream`s on `rng.next_u64()` and the generation counter), so an identical seed and
+    /// identical call sequence must reproduce the mean, covariance, and `$\bar{\sigma}$` exactly.
     #[test]
     fn same_seed_yields_identical_trajectories() {
         fn run() -> (Vec<f32>, Vec<f32>, f32) {
@@ -917,11 +908,10 @@ mod tests {
         );
     }
 
-    /// Regression coverage: the rank-μ covariance blend must keep `C`
-    /// bit-exactly symmetric across several generations. Guards the explicit
-    /// `symmetrize` at the blend chokepoint (defensive float-drift hygiene per
-    /// Beyer & Sendhoff 2008) against a future edit that reorders the outer-
-    /// product accumulation and breaks the commutativity assumption.
+    /// Regression coverage: the rank-`$\mu$` covariance blend must keep `C` bit-exactly symmetric
+    /// across several generations. Guards the explicit `symmetrize` at the blend chokepoint
+    /// (defensive float-drift hygiene per Beyer & Sendhoff 2008) against a future edit that
+    /// reorders the outer- product accumulation and breaks the commutativity assumption.
     #[test]
     fn covariance_stays_symmetric_across_generations() {
         let strategy = CmsaEs::<Flex>::new();
@@ -954,16 +944,14 @@ mod tests {
     }
 
     proptest! {
-        // Stochastic-invariant coverage for the CMSA-ES
-        // ask/tell loop. proptest generates ONLY the scalar problem shape
-        // `(lambda, d, seed)` (ADR 0029 RNG boundary); the run then seeds a
-        // `StdRng` exactly as the hand-written tests do and threads it through
-        // `init`/`ask`/`tell`, which key their own `seed_stream`s off
-        // `rng.next_u64()` + the generation counter. No `B::seed` /
-        // `Tensor::random`. `lambda >= 4` keeps `mu = lambda/2 >= 2` so the
-        // rank-µ recombination has at least two parents; `d >= 2` exercises the
-        // off-diagonal symmetry invariant. All four assertions are
-        // thread-count-invariant (sign / finiteness / bit-exact symmetry).
+        // Stochastic-invariant coverage for the CMSA-ES ask/tell loop. proptest generates ONLY the
+        // scalar problem shape `(lambda, d, seed)` (ADR 0029 RNG boundary); the run then seeds a
+        // `StdRng` exactly as the hand-written tests do and threads it through `init`/`ask`/`tell`,
+        // which key their own `seed_stream`s off `rng.next_u64()` + the generation counter. No
+        // `B::seed` / `Tensor::random`. `lambda >= 4` keeps `mu = lambda/2 >= 2` so the
+        // rank-`$\mu$` recombination has at least two parents; `d >= 2` exercises the off-diagonal
+        // symmetry invariant. All four assertions are thread-count-invariant (sign / finiteness /
+        // bit-exact symmetry).
         #![proptest_config(ProptestConfig {
             cases: 16,
             max_shrink_iters: 256,
@@ -980,8 +968,8 @@ mod tests {
             let device = Default::default();
             let mut rng = StdRng::seed_from_u64(seed);
 
-            // Strictly descending, finite fitness of length `lambda`
-            // (1.0, 0.0, −1.0, …) — no cast, ranking is unambiguous.
+            // Strictly descending, finite fitness of length `lambda` `$(1.0, 0.0, -1.0, \ldots)$` —
+            // no cast, ranking is unambiguous.
             let mut fitness_vals: Vec<f32> = Vec::with_capacity(lambda);
             let mut v: f32 = 1.0;
             for _ in 0..lambda {
@@ -993,9 +981,9 @@ mod tests {
             for generation in 0..5 {
                 let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
 
-                // (4) Every floored σᵢ is strictly positive and finite: the
-                // `.max(f32::MIN_POSITIVE)` floor in `ask` must have clamped
-                // out every raw-zero / NaN draw before `tell` forms sᵢ.
+                // (4) Every floored `$\sigma_i$` is strictly positive and finite: the
+                // `.max(f32::MIN_POSITIVE)` floor in `ask` must have clamped out every raw-zero /
+                // NaN draw before `tell` forms `$s_i$`.
                 for (k, &s) in asked.offspring_sigmas().iter().enumerate() {
                     prop_assert!(
                         s.is_finite() && s > 0.0,
@@ -1011,7 +999,7 @@ mod tests {
                 let (told, _metrics) =
                     strategy.tell(&params, population, fitness, asked, &mut rng);
 
-                // (1) σ̄ stays strictly positive and finite.
+                // (1) `$\bar{\sigma}$` stays strictly positive and finite.
                 prop_assert!(
                     told.sigma().is_finite() && told.sigma() > 0.0,
                     "σ̄ not finite-positive in generation {generation}: {} \

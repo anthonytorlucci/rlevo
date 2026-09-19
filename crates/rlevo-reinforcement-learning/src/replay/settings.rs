@@ -8,14 +8,14 @@
 //!
 //! # What lives here vs. on the buffer
 //!
-//! Schaul's α (priority exponent) and ε (priority floor) configure the buffer
-//! and are forwarded into a [`PrioritizedReplayConfig`]. The importance-sampling
-//! exponent β and its annealing **schedule** do *not* live on the buffer: the
-//! buffer has no step counter, and giving it one duplicates the agent's — the
-//! second-source-of-truth shape `rules.md` §10 forbids, and outright wrong the
-//! moment two learners share one buffer (ADR 0050 §11). So the schedule endpoints
-//! live here and the agent passes the *evaluated* β into
-//! [`sample`](super::ReplayStrategy::sample) each step via [`beta`](PrioritizedReplaySettings::beta).
+//! Schaul's `$\alpha$` (priority exponent) and `$\epsilon$` (priority floor) configure the buffer
+//! and are forwarded into a [`PrioritizedReplayConfig`]. The importance-sampling exponent `$\beta$`
+//! and its annealing **schedule** do *not* live on the buffer: the buffer has no step counter, and
+//! giving it one duplicates the agent's — the second-source-of-truth shape `rules.md` §10 forbids,
+//! and outright wrong the moment two learners share one buffer (ADR 0050 §11). So the schedule
+//! endpoints live here and the agent passes the *evaluated* `$\beta$` into
+//! [`sample`](super::ReplayStrategy::sample) each step via
+//! [`beta`](PrioritizedReplaySettings::beta).
 
 use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
@@ -23,23 +23,22 @@ use serde::{Deserialize, Serialize};
 use super::config::{DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, PrioritizedReplayConfig};
 use super::importance_exponent::ImportanceExponent;
 
-/// Schaul et al. (2016) Table 3's β start for the proportional variant.
+/// Schaul et al. (2016) Table 3's `$\beta$` start for the proportional variant.
 pub const DEFAULT_BETA_START: f32 = 0.4;
 
-/// Schaul et al. (2016) Table 3's annealed β endpoint (`$\beta \to 1$`).
+/// Schaul et al. (2016) Table 3's annealed `$\beta$` endpoint (`$\beta \to 1$`).
 pub const DEFAULT_BETA_END: f32 = 1.0;
 
-/// Default number of env steps over which β anneals from
-/// [`DEFAULT_BETA_START`] to [`DEFAULT_BETA_END`].
+/// Default number of env steps over which `$\beta$` anneals from [`DEFAULT_BETA_START`] to
+/// [`DEFAULT_BETA_END`].
 ///
-/// **Not a paper value.** Schaul anneals β "linearly to 1" over the run but
-/// gives no fixed step count (it is training-length dependent). `100_000` is a
-/// pragmatic default sized to the small discrete-control runs this library
-/// ships defaults for; a longer run should scale it up.
+/// **Not a paper value.** Schaul anneals `$\beta$` "linearly to 1" over the run but gives no fixed
+/// step count (it is training-length dependent). `100_000` is a pragmatic default sized to the
+/// small discrete-control runs this library ships defaults for; a longer run should scale it up.
 pub const DEFAULT_BETA_ANNEAL_STEPS: usize = 100_000;
 
-/// The agent-side prioritized-replay hyperparameters: Schaul's α/ε plus the β
-/// importance-sampling schedule the buffer cannot own.
+/// The agent-side prioritized-replay hyperparameters: Schaul's `$\alpha/\epsilon$` plus the
+/// `$\beta$` importance-sampling schedule the buffer cannot own.
 ///
 /// # Naming
 ///
@@ -49,20 +48,19 @@ pub const DEFAULT_BETA_ANNEAL_STEPS: usize = 100_000;
 ///
 /// | Schaul symbol | Field |
 /// |---|---|
-/// | α (priority exponent) | [`priority_exponent`](Self::priority_exponent) |
-/// | ε (priority floor) | [`priority_epsilon`](Self::priority_epsilon) |
-/// | β₀ (IS exponent start) | [`beta_start`](Self::beta_start) |
-/// | β (IS exponent end) | [`beta_end`](Self::beta_end) |
+/// | `$\alpha$` (priority exponent) | [`priority_exponent`](Self::priority_exponent) |
+/// | `$\epsilon$` (priority floor) | [`priority_epsilon`](Self::priority_epsilon) |
+/// | `$\beta_0$` (IS exponent start) | [`beta_start`](Self::beta_start) |
+/// | `$\beta$` (IS exponent end) | [`beta_end`](Self::beta_end) |
 ///
-/// # β validation is not optional
+/// # `$\beta$` validation is not optional
 ///
-/// [`beta_anneal_steps`](Self::beta_anneal_steps) is `nonzero`-validated. A zero
-/// there makes the evaluated progress fraction `0/0 = NaN`, and a `NaN` β
-/// poisons the importance weights, then the loss, then every gradient the
-/// optimizer touches next — the release-build defect ADR 0051 §3 exists to
-/// close. Validation kills the `0/0` at its source; [`beta`](Self::beta) clamps
-/// so an in-range value is produced by construction; and
-/// [`ImportanceExponent`] is the loud-panic backstop for any residual bug.
+/// [`beta_anneal_steps`](Self::beta_anneal_steps) is `nonzero`-validated. A zero there makes the
+/// evaluated progress fraction `0/0 = NaN`, and a `NaN` `$\beta$` poisons the importance weights,
+/// then the loss, then every gradient the optimizer touches next — the release-build defect ADR
+/// 0051 §3 exists to close. Validation kills the `0/0` at its source; [`beta`](Self::beta) clamps
+/// so an in-range value is produced by construction; and [`ImportanceExponent`] is the loud-panic
+/// backstop for any residual bug.
 ///
 /// # Examples
 ///
@@ -106,24 +104,24 @@ pub const DEFAULT_BETA_ANNEAL_STEPS: usize = 100_000;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PrioritizedReplaySettings {
-    /// Schaul Eq. 1's α. Must lie in `[0, 1]`; `0.0` is the uniform case.
-    /// Defaults to [`DEFAULT_PRIORITY_EXPONENT`] (Table 3, proportional row).
+    /// Schaul Eq. 1's `$\alpha$`. Must lie in `[0, 1]`; `0.0` is the uniform case. Defaults to
+    /// [`DEFAULT_PRIORITY_EXPONENT`] (Table 3, proportional row).
     pub priority_exponent: f32,
 
-    /// Schaul §3.3's ε in `$p_i = |\delta_i| + \epsilon$`. Must be finite and strictly
+    /// Schaul §3.3's `$\epsilon$` in `$p_i = |\delta_i| + \epsilon$`. Must be finite and strictly
     /// positive. Defaults to [`DEFAULT_PRIORITY_EPSILON`].
     pub priority_epsilon: f32,
 
-    /// Schaul §3.4's β at step 0. Must lie in `[0, 1]`. Defaults to
-    /// [`DEFAULT_BETA_START`] (`0.4`).
+    /// Schaul §3.4's `$\beta$` at step 0. Must lie in `[0, 1]`. Defaults to [`DEFAULT_BETA_START`]
+    /// (`0.4`).
     pub beta_start: f32,
 
-    /// Schaul §3.4's annealed β endpoint. Must lie in `[0, 1]`. Defaults to
+    /// Schaul §3.4's annealed `$\beta$` endpoint. Must lie in `[0, 1]`. Defaults to
     /// [`DEFAULT_BETA_END`] (`1.0`) — the paper's "unbiased near convergence".
     pub beta_end: f32,
 
-    /// Number of env steps over which β interpolates linearly from
-    /// `beta_start` to `beta_end`.
+    /// Number of env steps over which `$\beta$` interpolates linearly from `beta_start` to
+    /// `beta_end`.
     ///
     /// Must be non-zero: a zero makes the schedule's progress fraction `0/0`
     /// (ADR 0051 §3). Defaults to [`DEFAULT_BETA_ANNEAL_STEPS`].
@@ -143,8 +141,8 @@ impl Default for PrioritizedReplaySettings {
 }
 
 impl PrioritizedReplaySettings {
-    /// Builds the buffer-side [`PrioritizedReplayConfig`] for a replay of
-    /// `capacity` transitions, applying this settings' α and ε.
+    /// Builds the buffer-side [`PrioritizedReplayConfig`] for a replay of `capacity` transitions,
+    /// applying this settings' `$\alpha$` and `$\epsilon$`.
     ///
     /// Capacity is threaded from the agent config's `replay_buffer_capacity`
     /// rather than duplicated here, so there is exactly one capacity knob.
@@ -157,14 +155,13 @@ impl PrioritizedReplaySettings {
         }
     }
 
-    /// Evaluates Schaul §3.4's β schedule at `step`, linearly interpolating from
+    /// Evaluates Schaul §3.4's `$\beta$` schedule at `step`, linearly interpolating from
     /// `beta_start` to `beta_end` over `beta_anneal_steps`.
     ///
-    /// The progress fraction is clamped to `[0, 1]`, and the interpolated value
-    /// is clamped to `[beta_start, 1.0]` **before** constructing the
-    /// [`ImportanceExponent`], so an in-range β is produced by construction
-    /// rather than by luck of a limiter's IEEE-754 behaviour (ADR 0051 §3). With
-    /// `beta_anneal_steps` non-zero (enforced by [`validate`](Self::validate))
+    /// The progress fraction is clamped to `[0, 1]`, and the interpolated value is clamped to
+    /// `[beta_start, 1.0]` **before** constructing the [`ImportanceExponent`], so an in-range
+    /// `$\beta$` is produced by construction rather than by luck of a limiter's IEEE-754 behaviour
+    /// (ADR 0051 §3). With `beta_anneal_steps` non-zero (enforced by [`validate`](Self::validate))
     /// there is no `0/0`, so this is total on any validated settings.
     ///
     /// # Panics

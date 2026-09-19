@@ -1,4 +1,4 @@
-//! ε-greedy exploration schedule for DQN.
+//! `$\epsilon$`-greedy exploration schedule for DQN.
 //!
 //! [`EpsilonGreedy`] tracks the current exploration rate, decays it
 //! multiplicatively each step, and clamps it at a configurable floor. The
@@ -9,7 +9,7 @@ use rand::{Rng, RngExt};
 
 use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 
-/// Multiplicative ε-decay schedule used by DQN's exploration policy.
+/// Multiplicative `$\epsilon$`-decay schedule used by DQN's exploration policy.
 #[derive(Clone, Debug)]
 pub struct EpsilonGreedy {
     epsilon: f64,

@@ -156,14 +156,12 @@ impl C51TrainingConfig {
 impl Default for C51TrainingConfig {
     /// Returns defaults consistent with `CleanRL`'s reference C51 hyperparameters.
     ///
-    /// [`target_update`](Self::target_update) is a `$\tau$` = 0.005 Polyak step on
-    /// **every** gradient update. That is bit-for-bit the pre-[`TargetUpdate`]
-    /// behaviour: the old `tau = 0.005` soft update ran ungated inside every
-    /// learn step, which in gradient-update units is exactly `every = 1`. The
-    /// old `target_update_frequency = 10_000` is deliberately not carried over
-    /// — it was inert under `tau > 0` and, read as a cadence under the unified
-    /// rule, would collapse the Polyak schedule 10 000×
-    /// (ADR 0059 section on Consequences).
+    /// [`target_update`](Self::target_update) is a `$\tau$` = 0.005 Polyak step on **every**
+    /// gradient update. That is bit-for-bit the pre-[`TargetUpdate`] behaviour: the old
+    /// `tau = 0.005` soft update ran ungated inside every learn step, which in gradient-update
+    /// units is exactly `every = 1`. The old `target_update_frequency = 10_000` is deliberately not
+    /// carried over — it was inert under `tau > 0` and, read as a cadence under the unified rule,
+    /// would collapse the Polyak schedule `$10\,000\times$` (ADR 0059 section on Consequences).
     fn default() -> Self {
         Self {
             batch_size: 32,
@@ -220,13 +218,12 @@ impl Validate for C51TrainingConfig {
         if let Some(per) = &self.prioritized_replay {
             per.validate()?;
         }
-        // `target_update` carries no check here, deliberately: `TargetUpdate`
-        // is valid by construction (ADR 0027 section 3 — a validated newtype *removes*
-        // its paired `config::` line). Its `PolyakTau` excludes τ = 0.0 and its
-        // `NonZeroUsize` cadence excludes 0, so the frozen target the old
-        // cross-field check rejected is now unrepresentable rather than merely
-        // rejected — including through `..Default::default()` struct update,
-        // which `validate` never saw.
+        // `target_update` carries no check here, deliberately: `TargetUpdate` is valid by
+        // construction (ADR 0027 section 3 — a validated newtype *removes* its paired `config::`
+        // line). Its `PolyakTau` excludes `$\tau$` = 0.0 and its `NonZeroUsize` cadence excludes 0,
+        // so the frozen target the old cross-field check rejected is now unrepresentable rather
+        // than merely rejected — including through `..Default::default()` struct update, which
+        // `validate` never saw.
         Ok(())
     }
 }

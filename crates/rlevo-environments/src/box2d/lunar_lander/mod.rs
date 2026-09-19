@@ -20,8 +20,8 @@
 //!
 //! ## Termination conditions
 //!
-//! - Crash (lander touches ground without both legs) → `Terminated` (−100).
-//! - Out of bounds → `Terminated` (−100).
+//! - Crash (lander touches ground without both legs) → `Terminated` (`$-100$`).
+//! - Out of bounds → `Terminated` (`$-100$`).
 //! - Soft landing (both legs down, low velocity and angle) → `Terminated` (+100).
 //! - Step count reaches `config.max_steps` (default 1000) → `Truncated`.
 //!

@@ -14,8 +14,7 @@ use rand::{Rng, RngExt};
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
 
-/// Builds an `(n·d,)` host vector of `N(0, 1)` draws sized for a
-/// `(n, d)` tensor.
+/// Builds an `$(n \cdot d,)$` host vector of `N(0, 1)` draws sized for a `(n, d)` tensor.
 fn standard_normal_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
     let mut rows = Vec::with_capacity(n * d);
     for _ in 0..n * d {
@@ -24,16 +23,15 @@ fn standard_normal_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
     rows
 }
 
-/// Isotropic Gaussian mutation with a scalar step-size σ.
+/// Isotropic Gaussian mutation with a scalar step-size `$\sigma$`.
 ///
-/// Each gene in the population is independently perturbed by `$\sigma \cdot N(0, 1)$`
-/// noise. The same σ is applied to every individual and every gene dimension.
-/// When `$\sigma = 0$` the function is an identity and returns a tensor numerically
-/// equal to the input.
+/// Each gene in the population is independently perturbed by `$\sigma \cdot N(0, 1)$` noise. The
+/// same `$\sigma$` is applied to every individual and every gene dimension. When `$\sigma = 0$` the
+/// function is an identity and returns a tensor numerically equal to the input.
 ///
-/// The `n·d` standard-normal draws are taken from the caller-supplied host
-/// `rng` via `crate::sampling::standard_normal` and loaded onto the device
-/// using [`Tensor::from_data`]; no backend-global RNG state is touched.
+/// The `$n \cdot d$` standard-normal draws are taken from the caller-supplied host `rng` via
+/// `crate::sampling::standard_normal` and loaded onto the device using [`Tensor::from_data`]; no
+/// backend-global RNG state is touched.
 ///
 /// The input tensor must have shape `(N, D)` where `N` is the population size
 /// and `D` is the genome length; the returned tensor has the same shape.
@@ -56,23 +54,21 @@ pub fn gaussian_mutation<B: Backend>(
 
 /// Per-individual anisotropic Gaussian mutation.
 ///
-/// A generalisation of [`gaussian_mutation`] that applies a distinct step-size
-/// σ to each individual. `sigmas` is a `(N,)` tensor whose `i`-th entry is the
-/// σ for the `i`-th genome row. All `D` genes within a row share the same σ,
-/// so mutation is isotropic within a row but can vary across the population.
-/// This matches the self-adaptive σ convention used by (1+1)-ES and CMA-ES
-/// warm-starts.
+/// A generalisation of [`gaussian_mutation`] that applies a distinct step-size `$\sigma$` to each
+/// individual. `sigmas` is a `(N,)` tensor whose `i`-th entry is the `$\sigma$` for the `i`-th
+/// genome row. All `D` genes within a row share the same `$\sigma$`, so mutation is isotropic
+/// within a row but can vary across the population. This matches the self-adaptive `$\sigma$`
+/// convention used by (1+1)-ES and CMA-ES warm-starts.
 ///
-/// When all entries of `sigmas` are zero the function is an identity and
-/// returns a tensor numerically equal to the input. The `n·d` standard-normal
-/// draws are taken from the caller-supplied host `rng` and loaded onto the
-/// device via [`Tensor::from_data`]; no backend-global RNG state is touched.
+/// When all entries of `sigmas` are zero the function is an identity and returns a tensor
+/// numerically equal to the input. The `$n \cdot d$` standard-normal draws are taken from the
+/// caller-supplied host `rng` and loaded onto the device via [`Tensor::from_data`]; no
+/// backend-global RNG state is touched.
 ///
 /// # Panics
 ///
-/// Panics if the length of `sigmas` does not equal the population's first
-/// dimension `N` (the internal `reshape([n, 1])` step requires exactly `n`
-/// σ values).
+/// Panics if the length of `sigmas` does not equal the population's first dimension `N` (the
+/// internal `reshape([n, 1])` step requires exactly `n` `$\sigma$` values).
 #[must_use]
 pub fn gaussian_mutation_per_row<B: Backend>(
     population: Tensor<B, 2>,
@@ -101,9 +97,9 @@ pub fn gaussian_mutation_per_row<B: Backend>(
 /// bounded real-valued genomes where reinitialisation is preferable to additive
 /// noise.
 ///
-/// All `n·d` uniform draws and `n·d` Bernoulli coin flips are taken from the
-/// caller-supplied host `rng` and loaded onto the device via
-/// [`Tensor::from_data`]; no backend-global RNG state is touched.
+/// All `$n \cdot d$` uniform draws and `$n \cdot d$` Bernoulli coin flips are taken from the
+/// caller-supplied host `rng` and loaded onto the device via [`Tensor::from_data`]; no
+/// backend-global RNG state is touched.
 ///
 /// The input tensor must have shape `(N, D)`; the returned tensor has the same
 /// shape.
@@ -131,18 +127,16 @@ pub fn uniform_reset<B: Backend>(
 
 /// Bit-flip mutation on a binary `Tensor<B, 2, Int>` population.
 ///
-/// Each gene is independently flipped with probability `p`. The flip is
-/// computed arithmetically as `1 − x`, so the input tensor must hold values
-/// exclusively in `{0, 1}`; any value outside that set will produce
-/// out-of-range results silently.
+/// Each gene is independently flipped with probability `p`. The flip is computed arithmetically as
+/// `$1 - x$`, so the input tensor must hold values exclusively in `{0, 1}`; any value outside that
+/// set will produce out-of-range results silently.
 ///
 /// `p = 0.0` is an identity; `p = 1.0` inverts every gene. The conventional
 /// mutation rate for bit-string GAs is `1 / D` (one expected flip per
 /// individual), but this function does not enforce any particular rate.
 ///
-/// All `n·d` Bernoulli coin flips are taken from the caller-supplied host
-/// `rng` and loaded onto the device via [`Tensor::from_data`]; no
-/// backend-global RNG state is touched.
+/// All `$n \cdot d$` Bernoulli coin flips are taken from the caller-supplied host `rng` and loaded
+/// onto the device via [`Tensor::from_data`]; no backend-global RNG state is touched.
 ///
 /// The input tensor must have shape `(N, D)`; the returned tensor has the same
 /// shape and element type.

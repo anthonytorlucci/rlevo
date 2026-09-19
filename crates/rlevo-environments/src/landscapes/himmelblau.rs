@@ -155,8 +155,8 @@ mod tests {
 
     /// O2 (no spurious optimum) — no point of the box scores below `$f^* = 0$`.
     ///
-    /// A deterministic 401×401 sweep of `bounds()²`. `$f$` is a sum of two squares, so
-    /// `$f \geq 0$` holds exactly and `eps` guards float error only (each square is
+    /// A deterministic `$401 \times 401$` sweep of `$\text{bounds}()^2$`. `$f$` is a sum of two
+    /// squares, so `$f \geq 0$` holds exactly and `eps` guards float error only (each square is
     /// non-negative in IEEE-754 too, so the margin is really zero-sided).
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {

@@ -1,8 +1,8 @@
 //! Navigate a four-quadrant maze to reach the goal.
 //!
-//! Ports Farama Minigrid's [`FourRoomsEnv`] (`MiniGrid-FourRooms-v0`). An
-//! interior cross of walls splits the `N×N` grid into four equal quadrants. The
-//! **partition is fixed**; everything else is drawn fresh every episode:
+//! Ports Farama Minigrid's [`FourRoomsEnv`] (`MiniGrid-FourRooms-v0`). An interior cross of walls
+//! splits the `$N \times N$` grid into four equal quadrants. The **partition is fixed**; everything
+//! else is drawn fresh every episode:
 //!
 //! - one opening per wall segment — the cross has four segments (the upper and
 //!   lower halves of the centre column, the left and right halves of the centre
@@ -354,20 +354,18 @@ pub struct FourRoomsEnv {
     rng: StdRng,
     /// Rejects a `step()` taken after the goal (or lava) ended the episode.
     ///
-    /// Without it the goal cell stays `Entity::Goal` under the agent and
-    /// `apply_action` re-classifies it on every visit, so a finished episode was
-    /// not merely resumed — it was *farmable*. Measured on `size = 11`,
-    /// `max_steps = 484`, seed 3 before this guard existed: the derived route
-    /// reached the goal on step 17 and paid `success_reward(17, 484) = 0.968`;
-    /// the next `step()` re-emitted a **`Running`** snapshot (the episode came
-    /// back to life), five more steps walked the agent off the goal and back on,
-    /// and step 23 paid `success_reward(23, 484) = 0.957` a second time. Because
-    /// the payout is step-count-discounted rather than one-shot, each re-entry
-    /// pays again at a slightly smaller discount — a two-step oscillation on and
-    /// off the goal adds ≈0.95 to the episode return per cycle, for as many
-    /// cycles as `max_steps` allows, while `steps` runs past the true episode
-    /// length and the zero-reward `Running` snapshots in between enter the
-    /// replay buffer as ordinary transitions.
+    /// Without it the goal cell stays `Entity::Goal` under the agent and `apply_action`
+    /// re-classifies it on every visit, so a finished episode was not merely resumed — it was
+    /// *farmable*. Measured on `size = 11`, `max_steps = 484`, seed 3 before this guard existed:
+    /// the derived route reached the goal on step 17 and paid `success_reward(17, 484) = 0.968`;
+    /// the next `step()` re-emitted a **`Running`** snapshot (the episode came back to life), five
+    /// more steps walked the agent off the goal and back on, and step 23 paid
+    /// `success_reward(23, 484) = 0.957` a second time. Because the payout is step-count-discounted
+    /// rather than one-shot, each re-entry pays again at a slightly smaller discount — a two-step
+    /// oscillation on and off the goal adds `$\approx 0.95$` to the episode return per cycle, for
+    /// as many cycles as `max_steps` allows, while `steps` runs past the true episode length and
+    /// the zero-reward `Running` snapshots in between enter the replay buffer as ordinary
+    /// transitions.
     guard: EpisodeGuard,
 }
 
@@ -417,12 +415,11 @@ impl FourRoomsEnv {
     /// arrived by `Deserialize` or struct-update syntax without passing through
     /// [`FromStr`].
     ///
-    /// Also returns a [`ConfigError`] if placing the agent or the goal exhausts
-    /// the free cells — converted from [`PlacementError`] (ADR 0062 §3a). No
-    /// `size` that passes [`Validate`] can reach that path, because a validated
-    /// board has at least `4 × 4 × 4` free interior cells and only two are
-    /// consumed; it is propagated rather than asserted so that the sampler owns
-    /// the invariant.
+    /// Also returns a [`ConfigError`] if placing the agent or the goal exhausts the free cells —
+    /// converted from [`PlacementError`] (ADR 0062 §3a). No `size` that passes [`Validate`] can
+    /// reach that path, because a validated board has at least `$4 \times 4 \times 4$` free
+    /// interior cells and only two are consumed; it is propagated rather than asserted so that the
+    /// sampler owns the invariant.
     pub fn with_config(config: FourRoomsConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
@@ -646,7 +643,7 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
     ///
     /// # Errors
     ///
-    /// Propagates [`PlacementError`] from [`FourRoomsEnv::build`] as an
+    /// Propagates [`PlacementError`] from `FourRoomsEnv::build` as an
     /// [`EnvironmentError`]. On that path the guard is deliberately left
     /// **latched**: the sole fallible call runs first, and the guard is cleared
     /// only once a whole new episode is in hand. Clearing it first would re-open

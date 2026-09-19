@@ -32,7 +32,7 @@ fn main() {
     let git_commit = capture("git", &["rev-parse", "HEAD"]);
     println!("cargo:rustc-env=GIT_COMMIT={git_commit}");
 
-    // `--porcelain` prints one line per change; empty output ⇒ clean tree.
+    // `--porcelain` prints one line per change; empty output `$\Rightarrow$` clean tree.
     // Emit "" when git is unavailable so the reporter records `None`.
     let git_dirty = if git_commit.is_empty() {
         String::new()

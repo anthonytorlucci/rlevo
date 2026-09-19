@@ -112,7 +112,8 @@ fn basic_cfg() -> EvaluatorConfig {
     }
 }
 
-/// Verifies that the suite evaluator runs 2 envs × 2 trials and populates reward/success-rate scalars.
+/// Verifies that the suite evaluator runs 2 envs `$\times$` 2 trials and populates
+/// reward/success-rate scalars.
 #[test]
 fn runs_suite_and_collects_trials() {
     let cfg = basic_cfg();

@@ -59,11 +59,11 @@ pub enum SeedPurpose {
     /// their streams alias. Prefer a dedicated named variant for any operator
     /// that needs guaranteed isolation within a fixed `(base, generation)`.
     ///
-    /// Note: this variant's constant `0x9E37_79B9_7F4A_7C15` coincides with the
-    /// φ64 golden-ratio multiplier applied to `generation` in [`seed_stream`].
-    /// No concrete collision exists today (no purpose uses constant `0`, and
-    /// the generation term is multiplied), but it is a latent footgun — do not
-    /// assume the `Other` domain is independent of the generation axis.
+    /// Note: this variant's constant `0x9E37_79B9_7F4A_7C15` coincides with the `$\varphi$`64
+    /// golden-ratio multiplier applied to `generation` in [`seed_stream`]. No concrete collision
+    /// exists today (no purpose uses constant `0`, and the generation term is multiplied), but it
+    /// is a latent footgun — do not assume the `Other` domain is independent of the generation
+    /// axis.
     Other = 6,
     /// Local-search refinement (memetic algorithms).
     ///
@@ -93,10 +93,9 @@ pub enum SeedPurpose {
     Transposition = 10,
     /// Multivariate-Gaussian sampling in covariance-matrix strategies.
     ///
-    /// Used by [`crate::algorithms::cma_es`] and
-    /// [`crate::algorithms::cmsa_es`] so each generation draws its `$N(m, \sigma^2 C)$`
-    /// offspring (and, for CMSA-ES, the per-individual log-normal σ mutations)
-    /// from a stream independent of every other operator purpose.
+    /// Used by [`crate::algorithms::cma_es`] and [`crate::algorithms::cmsa_es`] so each generation
+    /// draws its `$N(m, \sigma^2 C)$` offspring (and, for CMSA-ES, the per-individual log-normal
+    /// `$\sigma$` mutations) from a stream independent of every other operator purpose.
     CmaSampling = 11,
 }
 
@@ -126,8 +125,8 @@ impl SeedPurpose {
 /// arguments return bit-identical sequences.
 ///
 /// The mixer is two rounds of splitmix64 applied to
-/// `base + generation * φ64 + purpose_constant`, where φ64 is the
-/// 64-bit golden-ratio constant `0x9E3779B97F4A7C15`. This produces
+/// `$\text{base} + \text{generation} \cdot \varphi_{64} + \text{purpose\_constant}$`, where
+/// `$\varphi$`64 is the 64-bit golden-ratio constant `0x9E3779B97F4A7C15`. This produces
 /// well-distributed seeds even for small or sequential inputs.
 ///
 /// # Examples

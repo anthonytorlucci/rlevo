@@ -30,17 +30,16 @@ use rand::Rng;
 /// covariance-carrying CMA-ES state can be shared across threads; the same
 /// `fit`/`sample` shape is intended to host that model unchanged.
 ///
-/// The `fitness` tensor is passed to [`fit`](Self::fit) so models that weight
-/// or rank the selected individuals (rank-μ updates, weighted MLE) can use it.
-/// The univariate models shipped here perform an unweighted maximum-likelihood
-/// fit and ignore it.
+/// The `fitness` tensor is passed to [`fit`](Self::fit) so models that weight or rank the selected
+/// individuals (rank-`$\mu$` updates, weighted MLE) can use it. The univariate models shipped here
+/// perform an unweighted maximum-likelihood fit and ignore it.
 ///
 /// # Invariants
 ///
 /// - **Prior path.** When `prev = None`, the model builds its prior *purely*
 ///   from [`params`](Self::Params). On this path the `population` and
 ///   `fitness` tensors are ignored; [`EdaStrategy`](crate::algorithms::eda::EdaStrategy)'s
-///   `init` passes them as a `0 × 0` population and a length-`0` fitness tensor,
+///   `init` passes them as a `$0 \times 0$` population and a length-`0` fitness tensor,
 ///   so a model must never read their contents when `prev` is `None`.
 /// - **Host RNG only.** All randomness in [`sample`](Self::sample) must come
 ///   from the supplied `rng`. Implementations must never call `Tensor::random`
@@ -151,9 +150,9 @@ mod tests {
 
     #[test]
     fn prior_ignores_empty_population_and_fitness() {
-        // Pin the `prev = None` invariant: a 0×0 population and 0-length
-        // fitness tensor (exactly what `EdaStrategy::init` passes) must be
-        // ignored, with the prior built purely from `params`.
+        // Pin the `prev = None` invariant: a `$0 \times 0$` population and 0-length fitness tensor
+        // (exactly what `EdaStrategy::init` passes) must be ignored, with the prior built purely
+        // from `params`.
         let device = Default::default();
         let model = UnivariateGaussian;
         let params = UnivariateGaussianParams::default_for(3);

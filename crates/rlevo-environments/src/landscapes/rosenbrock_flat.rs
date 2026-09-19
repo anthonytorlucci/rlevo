@@ -25,7 +25,8 @@
 //!   corners while the entire structure of interest lives near the origin.
 //! - The optimum `$(1, \ldots, 1)$` sits *well inside* `$[-30, 30]$`, so the box is
 //!   **reachable** — no certified minimiser is excluded on any coordinate.
-//! - `f` is a sum of `100·|·|` and `(·)²` terms, hence `$f \geq 0$` on all of `$\mathbb{R}^n$`
+//! - `f` is a sum of `$100\lvert\cdot\rvert$` and `$(\cdot)^2$` terms, hence `$f \geq 0$` on all of
+//!   `$\mathbb{R}^n$`
 //!   with `$f = 0$` attained at `$(1, \ldots, 1)$`. No box — reduced or canonical —
 //!   can contain a point better than `$f^* = 0$`, so the reduction cannot
 //!   introduce a **spurious optimum**.
@@ -69,8 +70,8 @@ impl RosenbrockFlat {
     ///
     /// Returns [`ConfigError`] if `dim < 2`. Both the knife-edge term
     /// `$100 \cdot |x_{i+1} - x_i^2|$` and the `$(1 - x_i)^2$` pull term are defined only on
-    /// adjacent coordinate pairs (`i = 1..n−1`); with a single coordinate the sum
-    /// is empty, erasing the ridge the benchmark exists to test.
+    /// adjacent coordinate pairs (`$i = 1..n-1$`); with a single coordinate the sum is empty,
+    /// erasing the ridge the benchmark exists to test.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
         const C: &str = "RosenbrockFlat";
         config::at_least(C, "dim", dim, 2)?;
@@ -94,10 +95,11 @@ impl RosenbrockFlat {
     #[must_use]
     pub fn evaluate(&self, x: &[f64]) -> f64 {
         assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        // ERRATUM (do not "fix"): Al-Roomi lists f_min = 1 at x* = 0 for this
-        // family. That contradicts this very formula — at x = (1,…,1) both the
-        // 100·|x_{i+1} − x_i²| and (1 − x_i)² terms are zero, so f = 0 < 1. The
-        // correct optimum is f* = 0 at (1,…,1); the cited value is a source error.
+        // ERRATUM (do not "fix"): Al-Roomi lists f_min = 1 at x* = 0 for this family. That
+        // contradicts this very formula — at x = (1,…,1) both the
+        // `$100\lvert x_{i+1} - x_i^2 \rvert$` and `$(1 - x_i)^2$` terms are zero, so
+        // `$f = 0 < 1$`. The correct optimum is f* = 0 at (1,…,1); the cited value is a source
+        // error.
         x.windows(2)
             .map(|w| {
                 let (xi, xn) = (w[0], w[1]);
@@ -109,12 +111,12 @@ impl RosenbrockFlat {
 
     /// Cited reduced search range `(-30.0, 30.0)`, applied per-coordinate.
     ///
-    /// This is **not** a render window: the modified-Rosenbrock side constraints
-    /// were reduced from the canonical `$[-2000, 2000]^n$` (Monismith 2010) to
-    /// `$[-30, 30]$` after Chen (1997). The reduced box contains the optimum
-    /// `$(1, \ldots, 1)$` on every coordinate, and — because `f` is a sum of `100·|·|`
-    /// and `(·)²` terms, hence `$f \geq 0$` identically with `$f = 0$` at the optimum —
-    /// it contains no point better than `$f^* = 0$`. See the module docs.
+    /// This is **not** a render window: the modified-Rosenbrock side constraints were reduced from
+    /// the canonical `$[-2000, 2000]^n$` (Monismith 2010) to `$[-30, 30]$` after Chen (1997). The
+    /// reduced box contains the optimum `$(1, \ldots, 1)$` on every coordinate, and — because `f`
+    /// is a sum of `$100\lvert\cdot\rvert$` and `$(\cdot)^2$` terms, hence `$f \geq 0$` identically
+    /// with `$f = 0$` at the optimum — it contains no point better than `$f^* = 0$`. See the module
+    /// docs.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-30.0, 30.0)
@@ -186,7 +188,8 @@ mod tests {
 
     #[test]
     fn flat_on_ridge() {
-        // On the ridge x_{i+1} = x_i² (but not at x = 1) only the (1 − x_i)² term remains.
+        // On the ridge `$x_{i+1} = x_i^2$` (but not at `$x = 1$`) only the `$(1 - x_i)^2$` term
+        // remains.
         let r = RosenbrockFlat::new(2).expect("dim >= 2");
         let x = [2.0_f64, 4.0]; // x2 = x1² = 4 ⇒ abs term is 0
         let expected = (1.0 - 2.0_f64).powi(2); // 1.0
@@ -232,11 +235,11 @@ mod tests {
 
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {
-        // O2 — no spurious optimum. f is a sum of 100·|·| and (·)² terms, so
-        // f ≥ 0 identically on ℝⁿ and f* = 0 at (1,…,1). No box — the canonical
-        // [-2000, 2000]^n or the cited reduced [-30, 30] — can therefore contain
-        // a point better than f*. Pinned by a dense deterministic sweep of the
-        // 2-D slice over bounds()².
+        // O2 — no spurious optimum. f is a sum of `$100\lvert\cdot\rvert$` and `$(\cdot)^2$` terms,
+        // so `$f \geq 0$` identically on `$\mathbb{R}^n$` and `$f^* = 0$` at `$(1, \ldots, 1)$`. No
+        // box — the canonical [-2000, 2000]^n or the cited reduced [-30, 30] — can therefore
+        // contain a point better than f*. Pinned by a dense deterministic sweep of the 2-D slice
+        // over `$\text{bounds}()^2$`.
         const STEPS: i32 = 300;
         let r = RosenbrockFlat::new(2).expect("dim >= 2");
         let (lo, hi) = r.bounds();

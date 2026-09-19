@@ -4,13 +4,13 @@
 //!
 //! - **No crossover**. Each parent produces exactly one offspring by
 //!   Gaussian mutation.
-//! - **Self-adaptive σ**. Each individual carries its own σ, updated
+//! - **Self-adaptive `$\sigma$`**. Each individual carries its own `$\sigma$`, updated
 //!   by the log-normal rule `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$`. This is the
-//!   same mechanism and ordering as the multi-parent ES variants: σ is
-//!   perturbed first, and the updated σ' drives that individual's gene
-//!   mutation. Survivor σ are inherited, not reset.
+//!   same mechanism and ordering as the multi-parent ES variants: `$\sigma$` is
+//!   perturbed first, and the updated `$\sigma$`' drives that individual's gene
+//!   mutation. Survivor `$\sigma$` are inherited, not reset.
 //! - **q-tournament survivor selection** on the `$(\mu + \mu)$` pool. Each
-//!   individual plays `q` random opponents; the μ individuals with the
+//!   individual plays `q` random opponents; the `$\mu$` individuals with the
 //!   highest win-counts survive. This diverges from truncation
 //!   selection — EP gives weaker individuals a stochastic chance to
 //!   survive.
@@ -33,33 +33,31 @@ use crate::ops::mutation::gaussian_mutation_per_row;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
-/// Default σ floor for the log-normal self-adaptation (see
-/// [`EpConfig::sigma_min`]).
+/// Default `$\sigma$` floor for the log-normal self-adaptation (see [`EpConfig::sigma_min`]).
 const DEFAULT_SIGMA_MIN: f32 = 1e-8;
-/// Default σ ceiling for the log-normal self-adaptation (see
-/// [`EpConfig::sigma_max`]).
+/// Default `$\sigma$` ceiling for the log-normal self-adaptation (see [`EpConfig::sigma_max`]).
 const DEFAULT_SIGMA_MAX: f32 = 1e6;
 
 /// Static configuration for an [`EvolutionaryProgramming`] run.
 #[derive(Debug, Clone)]
 pub struct EpConfig {
-    /// Parent population size (offspring population is also μ — EP is
-    /// strictly `$\mu + \mu$`).
+    /// Parent population size (offspring population is also `$\mu$` — EP is strictly
+    /// `$\mu + \mu$`).
     pub mu: usize,
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds (initialization and clamping).
     pub bounds: Bounds,
-    /// Initial σ for every individual.
+    /// Initial `$\sigma$` for every individual.
     pub initial_sigma: f32,
-    /// Lower clamp for the self-adaptive σ.
+    /// Lower clamp for the self-adaptive `$\sigma$`.
     ///
     /// The log-normal update `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$` is an unbounded
-    /// multiplicative random walk; without a floor σ can underflow toward
-    /// `0`, collapsing the mutation amplitude so the search freezes. Must be
-    /// strictly positive and `< sigma_max`. Default `DEFAULT_SIGMA_MIN`.
+    /// multiplicative random walk; without a floor `$\sigma$` can underflow toward `0`, collapsing
+    /// the mutation amplitude so the search freezes. Must be strictly positive and `< sigma_max`.
+    /// Default `DEFAULT_SIGMA_MIN`.
     pub sigma_min: f32,
-    /// Upper clamp for the self-adaptive σ.
+    /// Upper clamp for the self-adaptive `$\sigma$`.
     ///
     /// Without a ceiling the log-normal update can overflow toward `$+\infty$`
     /// (genes then saturate to a bound with no error). Default
@@ -67,7 +65,7 @@ pub struct EpConfig {
     /// `[-5.12, 5.12]` benchmark domain, so it never binds in normal
     /// operation and only catches a runaway walk.
     pub sigma_max: f32,
-    /// Learning rate for the log-normal σ update. Default is
+    /// Learning rate for the log-normal `$\sigma$` update. Default is
     /// `$1 / \sqrt{2 \cdot \sqrt{D}}$`.
     pub tau: f32,
     /// Number of opponents per tournament round (q-tournament).
@@ -133,16 +131,16 @@ impl Validate for EpConfig {
 /// `best_genome`/`best_fitness` are initialized. Subsequent
 /// ask/tell cycles produce, evaluate, and select from the `$(\mu + \mu)$` pool.
 ///
-/// During `ask`, `sigmas` is temporarily expanded to length `$2\mu$` (parent
-/// σ concatenated with offspring σ) so `tell` can apply q-tournament
-/// selection over the combined pool without re-deriving σ values. After
-/// `tell` completes, `sigmas` is back to length `$\mu$`.
+/// During `ask`, `sigmas` is temporarily expanded to length `$2\mu$` (parent `$\sigma$`
+/// concatenated with offspring `$\sigma$`) so `tell` can apply q-tournament selection over the
+/// combined pool without re-deriving `$\sigma$` values. After `tell` completes, `sigmas` is back to
+/// length `$\mu$`.
 #[derive(Debug, Clone)]
 pub struct EpState<B: Backend> {
-    /// Current parents, shape `(μ, D)`.
+    /// Current parents, shape `$(\mu, D)$`.
     pub parents: Tensor<B, 2>,
-    /// Per-individual step-size σ, shape `(μ,)` between generations and
-    /// `(2μ,)` transiently inside an ask/tell cycle (parent σ ‖ offspring σ).
+    /// Per-individual step-size `$\sigma$`, shape `$(\mu,)$` between generations and `$(2\mu,)$`
+    /// transiently inside an ask/tell cycle (parent `$\sigma$` `$\Vert$` offspring `$\sigma$`).
     pub sigmas: Tensor<B, 1>,
     /// Host-side fitness cache for the current parents.
     ///
@@ -198,9 +196,8 @@ where
     type State = EpState<B>;
     type Genome = Tensor<B, 2>;
 
-    /// Samples the initial parent population uniformly within
-    /// `params.bounds`, initializes per-parent σ to
-    /// `params.initial_sigma`, and returns an [`EpState`] with an empty
+    /// Samples the initial parent population uniformly within `params.bounds`, initializes
+    /// per-parent `$\sigma$` to `params.initial_sigma`, and returns an [`EpState`] with an empty
     /// fitness cache.
     ///
     /// Initial sampling goes through [`seed_stream`] rather than
@@ -251,14 +248,14 @@ where
     ///
     /// **Subsequent calls:**
     ///
-    /// 1. Applies the log-normal σ update to each parent:
+    /// 1. Applies the log-normal `$\sigma$` update to each parent:
     ///    `$\sigma'_i = \sigma_i \cdot \exp(\tau \cdot N(0,1))$`, host-sampled via
     ///    [`seed_stream`] with [`SeedPurpose::Other`].
-    /// 2. Mutates each parent by its updated σ using
+    /// 2. Mutates each parent by its updated `$\sigma$` using
     ///    [`gaussian_mutation_per_row`], host-sampled via [`seed_stream`]
     ///    with [`SeedPurpose::Mutation`].
     /// 3. Clamps offspring to `params.bounds`.
-    /// 4. Appends the offspring σ values to `state.sigmas`, making it
+    /// 4. Appends the offspring `$\sigma$` values to `state.sigmas`, making it
     ///    length `$2\mu$` so [`Strategy::tell`] can select over the combined
     ///    pool without re-deriving them.
     ///
@@ -284,22 +281,21 @@ where
             SeedPurpose::Mutation,
         );
 
-        // Log-normal σ update for every parent. Host-sample the N(0,1)
-        // noise from the deterministic `sigma_rng` so it is reproducible
-        // across thread schedules.
+        // Log-normal `$\sigma$` update for every parent. Host-sample the N(0,1) noise from the
+        // deterministic `sigma_rng` so it is reproducible across thread schedules.
         let mut noise_rows = Vec::with_capacity(mu);
         for _ in 0..mu {
             noise_rows.push(crate::sampling::standard_normal(&mut sigma_rng));
         }
         let noise = Tensor::<B, 1>::from_data(TensorData::new(noise_rows, [mu]), device);
-        // Clamp the log-normal random walk to `[sigma_min, sigma_max]` so σ can
-        // neither underflow to 0 (search freezes) nor overflow to +∞ (genes
-        // saturate). Both bounds are construction-validated on `EpConfig`.
+        // Clamp the log-normal random walk to `[sigma_min, sigma_max]` so `$\sigma$` can neither
+        // underflow to 0 (search freezes) nor overflow to `$+\infty$` (genes saturate). Both bounds
+        // are construction-validated on `EpConfig`.
         let offspring_sigmas = (state.sigmas.clone() * noise.mul_scalar(params.tau).exp())
             .clamp(params.sigma_min, params.sigma_max);
 
-        // Mutate each parent exactly once using its own σ, drawing from the
-        // host `mutation_rng`.
+        // Mutate each parent exactly once using its own `$\sigma$`, drawing from the host
+        // `mutation_rng`.
         let offspring = gaussian_mutation_per_row(
             state.parents.clone(),
             offspring_sigmas.clone(),
@@ -309,7 +305,8 @@ where
         let (lo, hi): (f32, f32) = params.bounds.into();
         let offspring = offspring.clamp(lo, hi);
 
-        // Stash offspring σ onto state via concatenation (parent_σ || offspring_σ).
+        // Stash offspring `$\sigma$` onto state via concatenation (parent_`$\sigma$` ||
+        // offspring_`$\sigma$`).
         let mut state = state.clone();
         state.sigmas = Tensor::cat(vec![state.sigmas.clone(), offspring_sigmas], 0);
         (offspring, state)
@@ -317,17 +314,17 @@ where
 
     /// Consumes the evaluated offspring and advances the state.
     ///
-    /// **First call (fitness cache empty):** stores the initial parent
-    /// fitness, initializes `best_genome`/`best_fitness`, resets σ to
-    /// `params.initial_sigma`, and increments the generation counter.
+    /// **First call (fitness cache empty):** stores the initial parent fitness, initializes
+    /// `best_genome`/`best_fitness`, resets `$\sigma$` to `params.initial_sigma`, and increments
+    /// the generation counter.
     ///
     /// **Subsequent calls:**
     ///
     /// 1. Builds the `$(\mu + \mu)$` combined pool of parents and offspring
-    ///    (and their `$2\mu$` σ values from [`Strategy::ask`]).
+    ///    (and their `$2\mu$` `$\sigma$` values from [`Strategy::ask`]).
     /// 2. Runs q-tournament selection: each of the `$2\mu$` members plays
     ///    `params.tournament_q` random opponents; the member wins a bout
-    ///    if its fitness is strictly higher. The μ members with the most
+    ///    if its fitness is strictly higher. The `$\mu$` members with the most
     ///    wins survive; ties are broken by fitness (higher wins).
     ///    Tournament indices are host-sampled via [`seed_stream`] with
     ///    [`SeedPurpose::Selection`].
@@ -370,7 +367,7 @@ where
         }
 
         let mu = params.mu;
-        // Build the (μ + μ) pool.
+        // Build the (`$\mu$` + `$\mu$`) pool.
         let combined_pop = Tensor::cat(vec![state.parents.clone(), offspring.clone()], 0);
         let combined_fit: Vec<f32> = state
             .parent_fitness
@@ -380,9 +377,8 @@ where
             .collect();
         let combined_sigmas = state.sigmas.clone(); // already (μ + μ) thanks to `ask`.
 
-        // q-tournament: for each of the 2μ members, sample q opponents
-        // and count wins (higher fitness beats lower). The μ highest-
-        // win members survive.
+        // q-tournament: for each of the 2`$\mu$` members, sample q opponents and count wins (higher
+        // fitness beats lower). The `$\mu$` highest- win members survive.
         let mut selection_rng = seed_stream(
             rng.next_u64(),
             state.generation as u64,
@@ -399,8 +395,8 @@ where
             }
         }
 
-        // Sort by (win_count desc, fitness desc) and pick top μ. Sanitize the
-        // fitness tiebreak (NaN → −inf, worst) so a NaN can never rank as best.
+        // Sort by (win_count desc, fitness desc) and pick top `$\mu$`. Sanitize the fitness
+        // tiebreak (NaN → `$-\infty$`, worst) so a NaN can never rank as best.
         let mut indexed: Vec<usize> = (0..n).collect();
         let sane: Vec<f32> = combined_fit
             .iter()
@@ -454,9 +450,9 @@ fn update_best<B: Backend>(state: &mut EpState<B>, pop: &Tensor<B, 2>, fitness: 
     if fitness.is_empty() {
         return;
     }
-    // Sanitize (NaN → −∞) then order with `total_cmp`: the §3 correctness floor
-    // for a direct (non-harness) caller. `best_fitness` seeds at `−∞`, so a
-    // legitimately sanitized `−∞` fitness is treated as the worst, not skipped.
+    // Sanitize (NaN → `$-\infty$`) then order with `total_cmp`: the §3 correctness floor for a
+    // direct (non-harness) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
+    // `$-\infty$` fitness is treated as the worst, not skipped.
     let sane: Vec<f32> = fitness
         .iter()
         .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -509,9 +505,9 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "mu");
     }
 
-    /// `$\mu = 1$` is the smallest population the config accepts; it must validate
-    /// and drive without panicking through several generations (`ep` §7, edge
-    /// case — smallest degenerate μ is handled, not rejected).
+    /// `$\mu = 1$` is the smallest population the config accepts; it must validate and drive
+    /// without panicking through several generations (`ep` §7, edge case — smallest degenerate
+    /// `$\mu$` is handled, not rejected).
     #[test]
     fn mu_one_is_handled() {
         use rand::SeedableRng;
@@ -520,7 +516,7 @@ mod tests {
         let device = Default::default();
         let strategy = EvolutionaryProgramming::<TestBackend>::new();
         let mut params = EpConfig::default_for(1, 3);
-        // q-tournament needs `q <= 2·μ`; with μ = 1 the ceiling is 2.
+        // q-tournament needs `$q \leq 2\mu$`; with `$\mu$` = 1 the ceiling is 2.
         params.tournament_q = 2;
         assert!(params.validate().is_ok(), "μ = 1 config must validate");
 
@@ -739,8 +735,8 @@ mod tests {
     }
 
     /// `genome_dim == 0` makes `$\tau = 1/\sqrt{2 \cdot \sqrt{0}} = +\infty$`; the config guard
-    /// must reject it at construction (ADR 0026) so the non-finite τ never
-    /// reaches the first `ask`.
+    /// must reject it at construction (ADR 0026) so the non-finite `$\tau$` never reaches the first
+    /// `ask`.
     #[test]
     fn rejects_zero_genome_dim() {
         let cfg = EpConfig::default_for(5, 0);
@@ -756,8 +752,8 @@ mod tests {
         );
     }
 
-    /// An inverted σ window (`sigma_min >= sigma_max`) is rejected so the clamp
-    /// bounds are always a valid interval (`ep` §1.1).
+    /// An inverted `$\sigma$` window (`sigma_min >= sigma_max`) is rejected so the clamp bounds are
+    /// always a valid interval (`ep` §1.1).
     #[test]
     fn rejects_inverted_sigma_window() {
         let mut cfg = EpConfig::default_for(5, 10);
@@ -770,10 +766,10 @@ mod tests {
         );
     }
 
-    /// The self-adaptive σ must stay inside `[sigma_min, sigma_max]` across many
-    /// generations even under an aggressive `tau` that would otherwise drive the
-    /// log-normal random walk to `0` or `$+\infty$` (`ep` §1.1). Drives the strategy
-    /// directly so the transient `(2μ,)` σ vector produced by `ask` is inspected.
+    /// The self-adaptive `$\sigma$` must stay inside `[sigma_min, sigma_max]` across many
+    /// generations even under an aggressive `tau` that would otherwise drive the log-normal random
+    /// walk to `0` or `$+\infty$` (`ep` §1.1). Drives the strategy directly so the transient
+    /// `$(2\mu,)$` `$\sigma$` vector produced by `ask` is inspected.
     #[test]
     fn sigma_stays_within_bounds_across_updates() {
         use rand::SeedableRng;
@@ -782,7 +778,7 @@ mod tests {
         let device = Default::default();
         let strategy = EvolutionaryProgramming::<TestBackend>::new();
         let mut params = EpConfig::default_for(6, 3);
-        // Aggressive τ plus a tight window: without the clamp σ would leave
+        // Aggressive `$\tau$` plus a tight window: without the clamp `$\sigma$` would leave
         // `[sigma_min, sigma_max]` within a handful of generations.
         params.tau = 5.0;
         params.sigma_min = 1e-4;

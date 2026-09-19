@@ -1,26 +1,26 @@
 //! `CarRacing` — top-down 2D car racing environment with pixel observations.
 //!
-//! Implements the CarRacing-v3 Gymnasium environment using `Rapier2D` physics and
-//! a software rasterizer. The agent receives a 96×96 RGB pixel observation and
-//! controls steering, gas, and brake inputs to complete a closed-loop track.
+//! Implements the CarRacing-v3 Gymnasium environment using `Rapier2D` physics and a software
+//! rasterizer. The agent receives a `$96 \times 96$` RGB pixel observation and controls steering,
+//! gas, and brake inputs to complete a closed-loop track.
 //!
 //! ## Spaces
 //!
 //! | | Type | Shape | Range |
 //! |---|---|---|---|
 //! | Action | Continuous | 3 | `$\text{steer} \in [-1,1]$`, `$\text{gas} \in [0,1]$`, `$\text{brake} \in [0,1]$` |
-//! | Observation | Pixel | 96 × 96 × 3 | `u8` per channel |
+//! | Observation | Pixel | `$96 \times 96 \times 3$` | `u8` per channel |
 //!
 //! ## Reward structure
 //!
 //! - Each new track tile visited pays `lap_reward / total_tiles`, so visiting
 //!   every tile sums to `lap_reward` (default 1000) for a full lap, regardless
 //!   of how many tiles the episode's track happens to have.
-//! - `frame_penalty` (default −0.1) applied every step.
+//! - `frame_penalty` (default `$-0.1$`) applied every step.
 //!
 //! ## Termination conditions
 //!
-//! - Car visits ≥ 95% of track tiles → `Terminated` (lap complete).
+//! - Car visits `$\geq 95\%$` of track tiles → `Terminated` (lap complete).
 //! - Step count reaches `config.max_steps` (default 1000) → `Truncated`.
 //!
 //! ## Track generation

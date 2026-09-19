@@ -30,10 +30,9 @@ impl Rosenbrock {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] if `dim < 2`. The chained sum runs over adjacent
-    /// coordinate pairs (`i = 1..n−1`) and is empty for a single coordinate, so
-    /// `f` would be identically `0` everywhere — a constant "landscape" whose
-    /// every point is a global optimum.
+    /// Returns [`ConfigError`] if `dim < 2`. The chained sum runs over adjacent coordinate pairs
+    /// (`$i = 1..n-1$`) and is empty for a single coordinate, so `f` would be identically `0`
+    /// everywhere — a constant "landscape" whose every point is a global optimum.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
         const C: &str = "Rosenbrock";
         config::at_least(C, "dim", dim, 2)?;
@@ -129,14 +128,14 @@ mod tests {
 
     #[test]
     fn minimum_at_ones() {
-        // Every term vanishes: 100·(1−1)² + (1−1)² = 0.
+        // Every term vanishes: `$100 \cdot (1-1)^2 + (1-1)^2 = 0$`.
         let r = Rosenbrock::new(5).expect("dim >= 2");
         assert_relative_eq!(r.evaluate(&[1.0; 5]), 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn known_value_at_origin() {
-        // Each of the n−1 terms contributes 100·0 + 1 = 1, so f(0) = n−1.
+        // Each of the `$n-1$` terms contributes `$100 \cdot 0 + 1 = 1$`, so `$f(0) = n-1$`.
         let r = Rosenbrock::new(4).expect("dim >= 2");
         assert_relative_eq!(r.evaluate(&[0.0; 4]), 3.0, epsilon = 1e-12);
     }

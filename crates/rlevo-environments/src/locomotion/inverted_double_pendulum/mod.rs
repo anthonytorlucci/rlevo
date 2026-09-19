@@ -22,7 +22,7 @@
 //! * Action: `Box(-1, 1, (1,))` — force target, scaled by `gear = [100]`.
 //! * Observation (9-dim):
 //!   `$[\text{cart\_x}, \sin\theta_1, \sin\theta_2, \cos\theta_1, \cos\theta_2, \text{cart\_vx}, \dot\theta_1, \dot\theta_2, F_{\text{ext},x}]$`.
-//!   θ₂ is the **relative** elbow angle (pole2 world − pole1 world), wrapped.
+//!   `$\theta_2$` is the **relative** elbow angle (`$\text{pole2 world} - \text{pole1 world}$`), wrapped.
 //! * Reward:
 //!   `$\text{alive\_bonus} - 0.01 \cdot x_{\text{tip}}^2 - (y_{\text{tip}} - 2)^2 - 1\text{e-}3 \cdot |\omega_1| - 5\text{e-}3 \cdot |\omega_2|$`,
 //!   with `alive_bonus = 10.0` while healthy and `0` otherwise.

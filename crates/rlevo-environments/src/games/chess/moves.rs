@@ -112,7 +112,7 @@ pub enum PromotionPiece {
 
 /// Chess move representation compatible with `AlphaZero`'s action space.
 ///
-/// Encodes moves in an 8×8×73 tensor format where:
+/// Encodes moves in an `$8 \times 8 \times 73$` tensor format where:
 /// - First dimension: source rank (0-7)
 /// - Second dimension: source file (0-7)
 /// - Third dimension: move type plane (0-72)
@@ -181,9 +181,9 @@ impl ChessMove {
     ///
     /// | Range   | Category                                    |
     /// |---------|---------------------------------------------|
-    /// | 0–55    | Queen-like: 8 directions × 7 distances      |
+    /// | 0–55    | Queen-like: 8 directions `$\times$` 7 distances      |
     /// | 56–63   | Knight: 8 L-shaped jumps                    |
-    /// | 64–72   | Underpromotion: 3 pieces × 3 directions     |
+    /// | 64–72   | Underpromotion: 3 pieces `$\times$` 3 directions     |
     ///
     /// Queen promotions are encoded as a queen-like north move of distance 1
     /// from rank 6 (no separate plane needed). Underpromotion planes cover
@@ -192,8 +192,8 @@ impl ChessMove {
     ///
     /// # Panics
     ///
-    /// Panics if the move delta does not match any of the 73 encoded patterns
-    /// (i.e., the move is geometrically impossible on an 8×8 board).
+    /// Panics if the move delta does not match any of the 73 encoded patterns (i.e., the move is
+    /// geometrically impossible on an `$8 \times 8$` board).
     fn compute_move_plane(self) -> usize {
         let from_rank = self.from_rank() as i8;
         let from_file = self.from_file() as i8;
@@ -249,8 +249,8 @@ impl ChessMove {
             }
         }
 
-        // Queen-like moves (planes 0-55): 8 directions × 7 distances
-        // Direction encoding: N, NE, E, SE, S, SW, W, NW
+        // Queen-like moves (planes 0-55): 8 directions `$\times$` 7 distances Direction encoding:
+        // N, NE, E, SE, S, SW, W, NW
         let direction_index = if delta_rank > 0 && delta_file == 0 {
             0 // North
         } else if delta_rank > 0 && delta_file > 0 && delta_rank == delta_file {

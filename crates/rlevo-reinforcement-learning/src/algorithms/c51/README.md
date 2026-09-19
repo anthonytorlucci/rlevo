@@ -2,14 +2,14 @@
 
 `rlevo-reinforcement-learning`'s C51 implementation learns a **discrete return distribution**
 over a fixed atom support instead of a scalar Q-value. It reuses the DQN
-scaffolding (ε-greedy schedule, replay buffer, target-network sync, Adam
+scaffolding ($\epsilon$-greedy schedule, replay buffer, target-network sync, Adam
 optimizer) and adds:
 
 - a categorical projection operator that back-propagates the Bellman update
   through a fixed support (`project_distribution`);
 - a cross-entropy loss between the projected target distribution and the
   policy's log-probabilities for the taken action;
-- an expectation-based action selector: `argmax_a Σ_i z_i · softmax(logits)_i`.
+- an expectation-based action selector: $\arg\max_a \sum_i z_i \cdot \mathrm{softmax}(\text{logits})_i$.
 
 ## Modules
 

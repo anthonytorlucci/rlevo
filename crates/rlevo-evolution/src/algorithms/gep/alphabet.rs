@@ -84,11 +84,10 @@ impl<F: FunctionSet> Alphabet<F> {
     ///
     /// # Panics
     ///
-    /// In debug builds, panics if any arity-0 function id precedes a function
-    /// with arity ≥ 1 — that ordering would make [`terminal_range`](Self::terminal_range) include a
-    /// non-terminal. (Release builds skip the check; well-formed function sets
-    /// such as [`ArithmeticFunctionSet`](crate::function_set::ArithmeticFunctionSet)
-    /// always satisfy it.)
+    /// In debug builds, panics if any arity-0 function id precedes a function with arity `$\geq$` 1
+    /// — that ordering would make [`terminal_range`](Self::terminal_range) include a non-terminal.
+    /// (Release builds skip the check; well-formed function sets such as
+    /// [`ArithmeticFunctionSet`](crate::function_set::ArithmeticFunctionSet) always satisfy it.)
     #[must_use]
     pub fn new(functions: F, n_vars: usize, constants: Vec<f32>) -> Self {
         let alphabet = Self {
@@ -197,7 +196,7 @@ impl<F: FunctionSet> Alphabet<F> {
         Symbol::from_raw(rng.random_range(range))
     }
 
-    /// True iff every arity-0 function id is `>=` every arity-≥1 function id.
+    /// True iff every arity-0 function id is `>=` every arity-`$\geq$`1 function id.
     fn zero_arity_functions_are_trailing(&self) -> bool {
         let n_func = self.n_func();
         let mut seen_zero = false;
@@ -285,7 +284,7 @@ mod tests {
 
     #[test]
     fn terminal_range_starts_at_first_zero_arity_function() {
-        // Arity-0 function is id 7; terminals = {7} ∪ variables ∪ constants.
+        // Arity-0 function is id 7; terminals = {7} `$\cup$` variables `$\cup$` constants.
         let a = alphabet(2, vec![1.0]);
         assert_eq!(a.terminal_range(), 7..11);
     }
@@ -319,9 +318,8 @@ mod tests {
         );
     }
 
-    /// A function set whose arity-0 opcode precedes an arity-≥1 opcode breaks the
-    /// contiguity precondition; [`Alphabet::new`] catches it with a
-    /// `debug_assert!`.
+    /// A function set whose arity-0 opcode precedes an arity-`$\geq$`1 opcode breaks the contiguity
+    /// precondition; [`Alphabet::new`] catches it with a `debug_assert!`.
     #[test]
     #[should_panic(expected = "arity-0 functions must be the trailing")]
     fn new_panics_when_zero_arity_function_precedes_a_function() {

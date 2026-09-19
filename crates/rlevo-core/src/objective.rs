@@ -30,7 +30,7 @@
 //!
 //! `ObjectiveSense` is the `K = 1` atom of a future per-objective sense vector.
 //! Multi-objective dominance canonicalises every objective to maximise space and
-//! then applies "≥ on all, > on at least one" with no per-objective branching —
+//! then applies "`$\geq$` on all, `$>$` on at least one" with no per-objective branching —
 //! the same chokepoint philosophy scaled to a vector.
 
 use serde::{Deserialize, Serialize};
@@ -53,7 +53,7 @@ impl ObjectiveSense {
     /// canonical space.
     ///
     /// `Maximize` passes the value through unchanged; `Minimize` negates it so a
-    /// cost surface is optimised as `−cost` by the maximise-native engine.
+    /// cost surface is optimised as `$-\text{cost}$` by the maximise-native engine.
     /// Applied **once**, at the harness / fitness-adapter boundary.
     ///
     /// ```

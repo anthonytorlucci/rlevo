@@ -1,13 +1,11 @@
 //! Santa Fe Trail artificial-ant environment — a dependency-free POMDP benchmark.
 //!
-//! The artificial ant (Koza 1992, pp. 147–155, following the toroidal-grid
-//! ant-trail paradigm of Jefferson et al.'s 1991 "John Muir Trail") walks a
-//! 32×32 **toroidal** grid carrying food pellets laid out along the canonical
-//! *Santa Fe Trail*. The ant perceives a single bit — *is there food in the
-//! cell directly ahead?* — and may [`Move`](SantaFeAntAction::Move) forward,
-//! [`TurnLeft`](SantaFeAntAction::TurnLeft), or
-//! [`TurnRight`](SantaFeAntAction::TurnRight). The episode lasts a fixed step
-//! budget (default 600); the goal is to eat all 89 pellets.
+//! The artificial ant (Koza 1992, pp. 147–155, following the toroidal-grid ant-trail paradigm of
+//! Jefferson et al.'s 1991 "John Muir Trail") walks a `$32 \times 32$` **toroidal** grid carrying
+//! food pellets laid out along the canonical *Santa Fe Trail*. The ant perceives a single bit — *is
+//! there food in the cell directly ahead?* — and may [`Move`](SantaFeAntAction::Move) forward,
+//! [`TurnLeft`](SantaFeAntAction::TurnLeft), or [`TurnRight`](SantaFeAntAction::TurnRight). The
+//! episode lasts a fixed step budget (default 600); the goal is to eat all 89 pellets.
 //!
 //! # Why this is a POMDP (and why it needs memory)
 //!
@@ -84,9 +82,9 @@ pub const DEFAULT_MAX_STEPS: usize = 600;
 pub enum SantaFeAntAction {
     /// Step forward one cell (toroidal), eating any food there.
     Move,
-    /// Rotate 90° counter-clockwise in place (no translation).
+    /// Rotate `$90^\circ$` counter-clockwise in place (no translation).
     TurnLeft,
-    /// Rotate 90° clockwise in place (no translation).
+    /// Rotate `$90^\circ$` clockwise in place (no translation).
     TurnRight,
 }
 
@@ -229,10 +227,10 @@ impl<B: Backend> TensorConvertible<1, B> for SantaFeAntObservation {
 
 /// Full environment state: the remaining-food grid plus the ant's pose.
 ///
-/// The 32×32 `food` grid and the pose are **internal** — they are not part of
-/// the observation-compatible tensor [`shape`](State::shape), which is `[1]`
-/// (the food-ahead bit). This is what keeps the env at order 1 while the true
-/// state is far larger, the defining feature of the POMDP.
+/// The `$32 \times 32$` `food` grid and the pose are **internal** — they are not part of the
+/// observation-compatible tensor [`shape`](State::shape), which is `[1]` (the food-ahead bit). This
+/// is what keeps the env at order 1 while the true state is far larger, the defining feature of the
+/// POMDP.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SantaFeAntState {
     /// Remaining pellets; `food[row][col] == true` means a pellet is present.
@@ -604,18 +602,17 @@ const fn wrap_step(pos: usize, delta: i32) -> usize {
     }
 }
 
-/// The canonical Santa Fe Trail: 89 pellets on a 32×32 grid.
+/// The canonical Santa Fe Trail: 89 pellets on a `$32 \times 32$` grid.
 ///
 /// Transcribed from DEAP `examples/gp/ant/santafe_trail.txt` (`#` = food,
 /// `.` = empty, `S` = start, ant facing east), audited against Koza 1992
 /// Fig. 7.1.
 ///
-/// **Defect note (row 24).** The DEAP source file is malformed on this row: it
-/// is 33 columns wide with a stray space byte (`0x20`) at column 6
-/// (`...##.·.#####....#...`). The canonical Koza 1992 Fig. 7.1 grid has no such cell;
-/// the space is dropped here, yielding the correct 32-column
-/// `...##..#####....#...............`. This preserves the 89-pellet count and a
-/// true 32×32 grid; the invariant tests below lock it in.
+/// **Defect note (row 24).** The DEAP source file is malformed on this row: it is 33 columns wide
+/// with a stray space byte (`0x20`) at column 6 (`...##.·.#####....#...`). The canonical Koza 1992
+/// Fig. 7.1 grid has no such cell; the space is dropped here, yielding the correct 32-column
+/// `...##..#####....#...............`. This preserves the 89-pellet count and a true
+/// `$32 \times 32$` grid; the invariant tests below lock it in.
 const SANTA_FE_TRAIL: &str = "\
 S###............................
 ...#............................
@@ -895,8 +892,8 @@ mod tests {
     fn trail_has_exactly_89_pellets_on_32x32() {
         let (food, _start): ([[bool; GRID_SIZE]; GRID_SIZE], (usize, usize)) =
             parse_trail(SANTA_FE_TRAIL);
-        // `parse_trail` itself asserts the 32×32 shape (it would panic above
-        // otherwise), so reaching here already proves the grid dimensions.
+        // `parse_trail` itself asserts the `$32 \times 32$` shape (it would panic above otherwise),
+        // so reaching here already proves the grid dimensions.
         let count: usize = food.iter().flatten().filter(|&&c| c).count();
         assert_eq!(count, 89);
     }
@@ -964,7 +961,7 @@ mod tests {
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move);
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move);
         let pellets: u32 = e.state().pellets_remaining();
-        // Turn around (180°) and step back onto the now-eaten (0,1).
+        // Turn around (`$180^\circ$`) and step back onto the now-eaten (0,1).
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
         let snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)

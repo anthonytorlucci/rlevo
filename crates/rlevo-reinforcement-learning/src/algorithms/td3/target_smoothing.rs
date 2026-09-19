@@ -26,11 +26,10 @@ use crate::algorithms::shared::clip_to_action_bounds;
 
 /// Applies target-policy smoothing to a batch of target-actor outputs.
 ///
-/// Adds independent `N(0, policy_noise²)` noise to each element of
-/// `target_action`, clips the noise to the **scalar** range
-/// `[-noise_clip, +noise_clip]`, and clips the summed result **per component**
-/// against `low` / `high`. The operation runs on the target's (non-autodiff)
-/// backend; no gradients are produced.
+/// Adds independent `$N(0, \text{policy\_noise}^2)$` noise to each element of `target_action`,
+/// clips the noise to the **scalar** range `[-noise_clip, +noise_clip]`, and clips the summed
+/// result **per component** against `low` / `high`. The operation runs on the target's
+/// (non-autodiff) backend; no gradients are produced.
 ///
 /// # Arguments
 ///
@@ -139,10 +138,9 @@ mod tests {
 
     #[test]
     fn test_target_smoothing_noise_clipped_symmetrically() {
-        // Huge σ → raw noise frequently exceeds `noise_clip`; the helper
-        // must always keep it inside `[-noise_clip, +noise_clip]`. We
-        // choose action = 0 and a wide `[low, high]` so the outer clip is
-        // inactive and the output is the clipped noise itself.
+        // Huge `$\sigma$` → raw noise frequently exceeds `noise_clip`; the helper must always keep
+        // it inside `[-noise_clip, +noise_clip]`. We choose action = 0 and a wide `[low, high]` so
+        // the outer clip is inactive and the output is the clipped noise itself.
         let device = Default::default();
         let noise_clip: f32 = 0.5;
         let mut rng = StdRng::seed_from_u64(7);

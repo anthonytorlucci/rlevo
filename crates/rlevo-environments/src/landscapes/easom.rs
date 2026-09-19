@@ -2,9 +2,9 @@
 //!
 //! `$f(x_1, x_2) = -\cos(x_1)\cdot\cos(x_2)\cdot\exp(-(x_1-\pi)^2 - (x_2-\pi)^2)$`, global minimum
 //! `$f^* = -1$` (analytically exact) at `$(\pi, \pi)$`. The surface is essentially flat
-//! (≈ 0) everywhere except inside a small basin around `$(\pi, \pi)$`: the
-//! half-maximum contour has radius `$\sqrt{\ln 2} \approx 0.833$`, so gradient methods that
-//! start outside the basin find no signal and fail. Differentiable everywhere.
+//! (`$\approx 0$`) everywhere except inside a small basin around `$(\pi, \pi)$`: the half-maximum
+//! contour has radius `$\sqrt{\ln 2} \approx 0.833$`, so gradient methods that start outside the
+//! basin find no signal and fail. Differentiable everywhere.
 //!
 //! # Domain
 //!
@@ -40,9 +40,9 @@ impl Easom {
         -x1.cos() * x2.cos() * (-(x1 - PI).powi(2) - (x2 - PI).powi(2)).exp()
     }
 
-    /// Recommended search box `(-10.0, 10.0)` applied per-coordinate — the canonical
-    /// domain per Al-Roomi #22. Contains the optimum `$(\pi, \pi)$`. See the type-level
-    /// docs for the divergence from sources that state `[-100, 100]²`.
+    /// Recommended search box `(-10.0, 10.0)` applied per-coordinate — the canonical domain per
+    /// Al-Roomi #22. Contains the optimum `$(\pi, \pi)$`. See the type-level docs for the
+    /// divergence from sources that state `$[-100, 100]^2$`.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-10.0, 10.0)
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        // Away from (π, π) the value is ≈ 0, which exceeds the minimum −1.
+        // Away from `$(\pi, \pi)$` the value is `$\approx 0$`, which exceeds the minimum `$-1$`.
         assert!(
             Easom::new().evaluate(0.0, 0.0) > -1.0,
             "value away from (π, π) must exceed the minimum −1"
@@ -115,8 +115,8 @@ mod tests {
 
     /// O1 (reachability) — the search box reaches the certified global optimum.
     ///
-    /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so `(π, π)`
-    /// must lie in `[lo, hi]` on BOTH axes.
+    /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so `$(\pi, \pi)$` must lie
+    /// in `[lo, hi]` on BOTH axes.
     #[test]
     fn bounds_box_contains_optimum_on_both_axes() {
         let (lo, hi) = Easom::new().bounds();
@@ -134,8 +134,8 @@ mod tests {
 
     /// O2 (no spurious optimum) — no point of the box scores below `$f^* = -1$`.
     ///
-    /// A deterministic 401×401 sweep of `bounds()²`. The bound `$f \geq -1$` is exact
-    /// (a product of factors each of modulus ≤ 1), so `eps` guards float error only
+    /// A deterministic `$401 \times 401$` sweep of `$\text{bounds}()^2$`. The bound `$f \geq -1$`
+    /// is exact (a product of factors each of modulus `$\leq 1$`), so `eps` guards float error only
     /// on a unit-scale surface.
     #[test]
     fn no_point_in_bounds_beats_global_minimum() {

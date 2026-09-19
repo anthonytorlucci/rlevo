@@ -112,9 +112,9 @@ impl<B: Backend> HallOfFame<B> {
             if fit_host.is_empty() {
                 continue;
             }
-            // Sanitize NaN → −inf (worst) so a NaN-fitness member can never be
-            // crowned champion over a finite one; this also keeps `archive_fitness`
-            // NaN-free, which the eviction `min_by` below relies on.
+            // Sanitize NaN → `$-\infty$` (worst) so a NaN-fitness member can never be crowned
+            // champion over a finite one; this also keeps `archive_fitness` NaN-free, which the
+            // eviction `min_by` below relies on.
             let sane: Vec<f32> = fit_host.iter().map(|&f| sanitize_fitness(f)).collect();
             // Argmax (best, highest fitness — canonical maximise) — ties
             // resolve to the lowest index. Hand-rolled with a strict
@@ -277,14 +277,14 @@ impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B
     /// Blend the inner fitness against the hall-of-fame archive, in NATURAL
     /// space.
     ///
-    /// The returned `blended` is left in the inner objective's **natural** sense
-    /// — the co-evolutionary algorithm canonicalises it, exactly as for the raw
-    /// inner fitness. This is correct because the blend is affine and
-    /// `to_canonical` is negation: `neg((1−w)·cur + w·res) == (1−w)·neg(cur) +
-    /// w·neg(res)`, so canonicalising the blend equals blending the
-    /// canonicalised terms. The internal archive champion-selection is a
-    /// *separate* concern and **is** canonicalised here (see `current_canon`),
-    /// because [`HallOfFame::update`] argmaxes highest = best in maximise space.
+    /// The returned `blended` is left in the inner objective's **natural** sense — the
+    /// co-evolutionary algorithm canonicalises it, exactly as for the raw inner fitness. This is
+    /// correct because the blend is affine and `to_canonical` is negation:
+    /// `$\text{neg}((1-w)\,\text{cur} + w\,\text{res}) = (1-w)\,\text{neg}(\text{cur}) +$`
+    /// `$w\,\text{neg}(\text{res})$`, so canonicalising the blend equals blending the canonicalised
+    /// terms. The internal archive champion-selection is a *separate* concern and **is**
+    /// canonicalised here (see `current_canon`), because [`HallOfFame::update`] argmaxes highest =
+    /// best in maximise space.
     ///
     /// This method is logically **serial per instance**: the archive snapshot
     /// and the later `update` are two separate lock acquisitions, so a single
@@ -390,9 +390,8 @@ mod tests {
     fn archive_grows_to_capacity_then_prunes_worst() {
         let device = Default::default();
         let mut hof = HallOfFame::<B>::new(2, 3, 1, &device);
-        // Each generation's champion (index 0, highest fitness) is 5,4,3,2,1;
-        // the index-1 value of −100 is always the worst, so it is never the
-        // champion under the maximise convention.
+        // Each generation's champion (index 0, highest fitness) is 5,4,3,2,1; the index-1 value of
+        // `$-100$` is always the worst, so it is never the champion under the maximise convention.
         for g in 0..5_usize {
             #[allow(clippy::cast_precision_loss)]
             let p = pop(&[g as f32, g as f32 + 0.5], 2, 1);

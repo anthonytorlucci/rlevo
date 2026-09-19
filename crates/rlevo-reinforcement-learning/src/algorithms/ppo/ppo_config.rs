@@ -74,13 +74,14 @@ pub struct PpoTrainingConfig {
     pub clip_grad: Option<GradientClippingConfig>,
 
     // ----- objective -----
-    /// Discount factor γ.
+    /// Discount factor `$\gamma$`.
     pub gamma: f32,
 
-    /// GAE bootstrap parameter λ.
+    /// GAE bootstrap parameter `$\lambda$`.
     pub gae_lambda: f32,
 
-    /// PPO clipping coefficient ε (applied symmetrically as `$[1-\epsilon, 1+\epsilon]$`).
+    /// PPO clipping coefficient `$\epsilon$` (applied symmetrically as
+    /// `$[1-\epsilon, 1+\epsilon]$`).
     pub clip_coef: f32,
 
     /// When `true`, value-function targets use the clipped loss
@@ -98,24 +99,23 @@ pub struct PpoTrainingConfig {
     /// multiplied into the surrogate objective.
     pub normalize_advantages: bool,
 
-    /// Optional early-stop target for the approximate KL divergence. When
-    /// `Some(k)`, the update epoch loop aborts as soon as the running
-    /// mean-approx-KL exceeds `1.5 · k`.
+    /// Optional early-stop target for the approximate KL divergence. When `Some(k)`, the update
+    /// epoch loop aborts as soon as the running mean-approx-KL exceeds `$1.5k$`.
     pub target_kl: Option<f32>,
 }
 
 impl PpoTrainingConfig {
     /// Size of a single minibatch under the configured rollout.
     ///
-    /// `(num_envs · num_steps) / num_minibatches`, floored to `1` so a
-    /// mis-sized `num_minibatches` never yields a zero-length batch. This
-    /// mirrors the `.max(1)` clamp in `PpoAgent::update`'s `mb_size`.
+    /// `$(\text{num\_envs} \cdot \text{num\_steps})/\text{num\_minibatches}$`, floored to `1` so a
+    /// mis-sized `num_minibatches` never yields a zero-length batch. This mirrors the `.max(1)`
+    /// clamp in `PpoAgent::update`'s `mb_size`.
     #[must_use]
     pub fn minibatch_size(&self) -> usize {
         (self.batch_size() / self.num_minibatches.max(1)).max(1)
     }
 
-    /// Total transitions per rollout: `num_envs · num_steps`.
+    /// Total transitions per rollout: `$\text{num\_envs} \cdot \text{num\_steps}$`.
     #[must_use]
     pub fn batch_size(&self) -> usize {
         self.num_envs * self.num_steps
@@ -278,21 +278,21 @@ impl PpoTrainingConfigBuilder {
         self
     }
 
-    /// Sets [`PpoTrainingConfig::gamma`] (discount factor γ).
+    /// Sets [`PpoTrainingConfig::gamma`] (discount factor `$\gamma$`).
     #[must_use]
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
         self
     }
 
-    /// Sets [`PpoTrainingConfig::gae_lambda`] (GAE bootstrap parameter λ).
+    /// Sets [`PpoTrainingConfig::gae_lambda`] (GAE bootstrap parameter `$\lambda$`).
     #[must_use]
     pub fn gae_lambda(mut self, gae_lambda: f32) -> Self {
         self.config.gae_lambda = gae_lambda;
         self
     }
 
-    /// Sets [`PpoTrainingConfig::clip_coef`] (PPO clipping coefficient ε).
+    /// Sets [`PpoTrainingConfig::clip_coef`] (PPO clipping coefficient `$\epsilon$`).
     #[must_use]
     pub fn clip_coef(mut self, clip_coef: f32) -> Self {
         self.config.clip_coef = clip_coef;

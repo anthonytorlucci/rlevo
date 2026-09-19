@@ -1,12 +1,11 @@
 //! Categorical DQN (C51) agent: actor, trainer, and replay buffer.
 //!
-//! The [`C51Agent`] struct owns the policy network (returning atom logits),
-//! a frozen target network, an Adam optimizer, a uniform replay buffer, and
-//! the ε-greedy exploration schedule shared with DQN. Action selection uses
-//! the expected Q-value `$\sum_i z_i \cdot \text{softmax}(\text{logits}_i)$`; the learning step
-//! projects the bootstrap distribution onto the fixed atom support (see
-//! [`crate::algorithms::c51::projection`]) and minimises the categorical
-//! cross-entropy against the policy's log-probabilities.
+//! The [`C51Agent`] struct owns the policy network (returning atom logits), a frozen target
+//! network, an Adam optimizer, a uniform replay buffer, and the `$\epsilon$`-greedy exploration
+//! schedule shared with DQN. Action selection uses the expected Q-value
+//! `$\sum_i z_i \cdot \text{softmax}(\text{logits}_i)$`; the learning step projects the bootstrap
+//! distribution onto the fixed atom support (see [`crate::algorithms::c51::projection`]) and
+//! minimises the categorical cross-entropy against the policy's log-probabilities.
 
 use std::marker::PhantomData;
 
@@ -250,8 +249,8 @@ where
             Some(clip) => adam.with_grad_clipping(Some(clip.clone())).init::<B, M>(),
             None => adam.init::<B, M>(),
         };
-        // ε-greedy is reused verbatim from DQN — construct it from the
-        // shared epsilon fields.
+        // `$\epsilon$`-greedy is reused verbatim from DQN — construct it from the shared epsilon
+        // fields.
         let exploration = EpsilonGreedy::new(
             config.epsilon_start,
             config.epsilon_end,
@@ -284,7 +283,7 @@ where
         })
     }
 
-    /// Current exploration rate (ε).
+    /// Current exploration rate (`$\epsilon$`).
     pub fn epsilon(&self) -> f64 {
         self.exploration.value()
     }
@@ -373,12 +372,11 @@ where
 
     /// Read-only view of the target network.
     ///
-    /// The observation seam for the target-update rule: with it, a caller — or
-    /// a test — can check *that* a target update fired on the expected gradient
-    /// update and moved the weights by the expected τ. The double-update
-    /// defect where `sync_target` ignored `tau` survived its own test suite
-    /// precisely because no such seam existed, so every assertion had to be
-    /// made through Q-values, which are a lossy function of the weights.
+    /// The observation seam for the target-update rule: with it, a caller — or a test — can check
+    /// *that* a target update fired on the expected gradient update and moved the weights by the
+    /// expected `$\tau$`. The double-update defect where `sync_target` ignored `tau` survived its
+    /// own test suite precisely because no such seam existed, so every assertion had to be made
+    /// through Q-values, which are a lossy function of the weights.
     ///
     /// `pub`, and a shared borrow rather than a clone: `M::InnerModule` is the
     /// caller's own network type, so this hands back nothing the caller did not
@@ -410,8 +408,8 @@ where
         Tensor::from_data(TensorData::new(data, vec![n]), device)
     }
 
-    /// ε-greedy action selection using the expected value of the predicted
-    /// return distribution.
+    /// `$\epsilon$`-greedy action selection using the expected value of the predicted return
+    /// distribution.
     ///
     /// # Non-finite observations
     ///
@@ -438,17 +436,16 @@ where
     /// Greedy (deterministic) action selection — the argmax over expected
     /// return computed from the predicted distribution.
     ///
-    /// Unlike [`act`](Self::act) this never explores, so it is the policy to
-    /// use for evaluation: it reflects what the network has learned without the
-    /// ε-greedy exploration noise that floors at `epsilon_end`.
+    /// Unlike [`act`](Self::act) this never explores, so it is the policy to use for evaluation: it
+    /// reflects what the network has learned without the `$\epsilon$`-greedy exploration noise that
+    /// floors at `epsilon_end`.
     ///
     /// # Non-finite observations
     ///
-    /// A `NaN`/`±Inf` observation is **counted and warned about; the action is
-    /// returned unchanged** (ADR 0067 §Decision 4). Do not "improve" this into a
-    /// substitution or a fallback action, and do not delete the check as
-    /// redundant — it is the *only* thing in the system that can observe this
-    /// failure, for two reasons that are both counter-intuitive:
+    /// A `NaN`/`$\pm\infty$` observation is **counted and warned about; the action is returned
+    /// unchanged** (ADR 0067 §Decision 4). Do not "improve" this into a substitution or a fallback
+    /// action, and do not delete the check as redundant — it is the *only* thing in the system that
+    /// can observe this failure, for two reasons that are both counter-intuitive:
     ///
     /// 1. On the `flex` (CPU) backend `relu` maps `NaN` to `0.0`. A ReLU-fronted
     ///    network fed a **fully** non-finite observation therefore emits a
@@ -569,19 +566,15 @@ where
     ///
     /// # Behavior
     ///
-    /// A non-finite `reward` (`NaN` or `±Inf`) is **discarded, not stored**:
-    /// the transition never enters the replay buffer and the call is otherwise
-    /// a no-op. Storing it would let every minibatch that later resampled it
-    /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
-    /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
-    /// 10th, 100th, … drop; use
-    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
-    /// programmatically.
+    /// A non-finite `reward` (`NaN` or `$\pm\infty$`) is **discarded, not stored**: the transition
+    /// never enters the replay buffer and the call is otherwise a no-op. Storing it would let every
+    /// minibatch that later resampled it produce a non-finite loss, which `FiniteLossGuard` then
+    /// skips — silently costing gradient updates for as long as the poisoned transition stayed
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st, 10th, 100th, … drop; use
+    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss programmatically.
     ///
-    /// A non-finite **observation** — a `NaN` or `±Inf` anywhere in the host row
-    /// of *either* `obs` or `next_obs` — is discarded on the same terms, and
-    /// counted separately by
+    /// A non-finite **observation** — a `NaN` or `$\pm\infty$` anywhere in the host row of *either*
+    /// `obs` or `next_obs` — is discarded on the same terms, and counted separately by
     /// [`dropped_observations`](Self::dropped_observations) (ADR 0067).
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if !self.reward_guard.admit(reward) {
@@ -681,7 +674,7 @@ where
     /// place the guard on opposite sides of their random-action branch.
     ///
     /// - **Discrete** (`dqn`, `c51`, `qrdqn`) — the guard sits *inside* the
-    ///   ε-explore branch, and the greedy branch delegates to `act_greedy`,
+    ///   `$\epsilon$`-explore branch, and the greedy branch delegates to `act_greedy`,
     ///   which guards itself. So **every** `act` call is counted, including the
     ///   whole early period where `epsilon_start = 1.0` means every action is
     ///   random and `obs` is read *only* to run this check.
@@ -715,7 +708,7 @@ where
         self.buffer.iter().map(|t| t.terminated).collect()
     }
 
-    /// Decays ε by one step.
+    /// Decays `$\epsilon$` by one step.
     pub fn decay_exploration(&mut self) {
         self.exploration.decay();
     }
@@ -754,27 +747,23 @@ where
     /// 6. Back-propagate and apply an Adam gradient step.
     /// 7. Advance [`gradient_updates`](Self::gradient_updates) and, when
     ///    [`C51TrainingConfig::target_update`] fires at that count, move the
-    ///    target network toward the policy by τ (ADR 0058 / 0059). This is the
+    ///    target network toward the policy by `$\tau$` (ADR 0058 / 0059). This is the
     ///    only place the target is updated.
     ///
     /// [`C51TrainingConfig::target_update`]: crate::algorithms::c51::c51_config::C51TrainingConfig::target_update
     ///
     /// # Returns
     ///
-    /// `Some(LearnOutcome)` with loss, mean Q-value, and distribution entropy
-    /// when a gradient step was taken. Returns `None` without side-effects
-    /// when [`can_learn`](Self::can_learn) is false (buffer too small or
-    /// step count below `learning_starts`), and also when the computed loss is
-    /// non-finite (NaN/±Inf): in that case the backward pass, optimizer step,
-    /// target update, and PER writeback are all skipped (ADR 0056) and
-    /// [`skipped_updates`](Self::skipped_updates) advances, so the caller keeps
-    /// its last healthy reported metrics rather than folding a NaN into them.
-    /// The accompanying `warn!` fires on a decade schedule — skips 1, 10, 100,
-    /// … — each line carrying the running total (ADR 0072 §1), so a run
-    /// discarding 1% of its updates is distinguishable from one discarding 40%.
-    /// The gradient-update counter
-    /// advances even then, so the target cadence does not drift on a diverging
-    /// run.
+    /// `Some(LearnOutcome)` with loss, mean Q-value, and distribution entropy when a gradient step
+    /// was taken. Returns `None` without side-effects when [`can_learn`](Self::can_learn) is false
+    /// (buffer too small or step count below `learning_starts`), and also when the computed loss is
+    /// non-finite (NaN/`$\pm$`Inf): in that case the backward pass, optimizer step, target update,
+    /// and PER writeback are all skipped (ADR 0056) and [`skipped_updates`](Self::skipped_updates)
+    /// advances, so the caller keeps its last healthy reported metrics rather than folding a NaN
+    /// into them. The accompanying `warn!` fires on a decade schedule — skips 1, 10, 100, … — each
+    /// line carrying the running total (ADR 0072 §1), so a run discarding 1% of its updates is
+    /// distinguishable from one discarding 40%. The gradient-update counter advances even then, so
+    /// the target cadence does not drift on a diverging run.
     ///
     /// # Panics
     ///
@@ -812,7 +801,7 @@ where
         let batch_size = self.config.batch_size;
         let num_atoms = self.config.num_atoms;
 
-        // β is only consulted by prioritized replay; uniform ignores it.
+        // `$\beta$` is only consulted by prioritized replay; uniform ignores it.
         let beta = self
             .config
             .prioritized_replay
@@ -963,9 +952,9 @@ where
         self.policy_net
             .step_with(&mut self.optimizer, self.config.learning_rate, grads);
 
-        // One target-update mechanism, gated on gradient updates (ADR 0058 /
-        // 0059). `fires_at` yields the τ to apply on this update, or `None`.
-        // A hard copy is the degenerate τ = 1.0, not a separate path.
+        // One target-update mechanism, gated on gradient updates (ADR 0058 / 0059). `fires_at`
+        // yields the `$\tau$` to apply on this update, or `None`. A hard copy is the degenerate
+        // `$\tau$` = 1.0, not a separate path.
         if let Some(tau) = self.config.target_update.fires_at(self.gradient_updates) {
             // Clone rather than move out: `soft_update` consumes `target` by
             // value, so on `Err` the `?` returns before this reassignment and
@@ -974,12 +963,12 @@ where
             self.target_net = M::soft_update(self.policy(), self.target_net.clone(), tau)?;
         }
 
-        // PER priority writeback (Schaul Alg. 1 lines 11-12): the C51 priority
-        // signal is the **KL divergence** `D_KL(target ‖ pred)`, not the
-        // cross-entropy above. They differ by the per-sample target entropy
-        // `H(target)` — constant in θ (so the gradient is unchanged) but varying
-        // per sample (so replay ranking differs). Rainbow prioritizes by KL "since
-        // this is what the algorithm is minimizing". A no-op for uniform replay.
+        // PER priority writeback (Schaul Alg. 1 lines 11-12): the C51 priority signal is the **KL
+        // divergence** `$D_{KL}(\text{target} \Vert \text{pred})$`, not the cross-entropy above.
+        // They differ by the per-sample target entropy `H(target)` — constant in `$\theta$` (so the
+        // gradient is unchanged) but varying per sample (so replay ranking differs). Rainbow
+        // prioritizes by KL "since this is what the algorithm is minimizing". A no-op for uniform
+        // replay.
         if self.buffer.is_prioritized() {
             let kl = categorical_kl_per_sample(target_autodiff, pred_log_p);
             let kl_host: Vec<f32> = kl
@@ -1176,10 +1165,9 @@ mod tests {
             .fold(0.0_f32, f32::max)
     }
 
-    /// Builds an agent whose buffer is primed and whose `learning_starts` is
-    /// `0`, so a single [`C51Agent::learn_step`] can be driven directly
-    /// without a training loop (and thus without coupling to ε decay or the
-    /// buffer-fill schedule).
+    /// Builds an agent whose buffer is primed and whose `learning_starts` is `0`, so a single
+    /// [`C51Agent::learn_step`] can be driven directly without a training loop (and thus without
+    /// coupling to `$\epsilon$` decay or the buffer-fill schedule).
     // Test fixture data: the loop counter and element count are bounded by small
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
@@ -1303,9 +1291,9 @@ mod tests {
     // `target_net()` — the seam whose absence let that defect pass a
     // Q-value-only test suite.
 
-    /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves
-    /// on **every** learn step, by exactly τ toward the post-step policy, and
-    /// stays Polyak-lagged behind it (never a copy).
+    /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves on **every** learn
+    /// step, by exactly `$\tau$` toward the post-step policy, and stays Polyak-lagged behind it
+    /// (never a copy).
     #[test]
     fn test_c51_polyak_default_moves_target_on_every_learn_step() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));

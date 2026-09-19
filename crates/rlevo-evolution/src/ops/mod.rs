@@ -3,10 +3,10 @@
 //! Operators are organized by role:
 //!
 //! - [`selection`] — parent selection (tournament, truncation).
-//! - [`crossover`] — recombination (BLX-α, uniform).
+//! - [`crossover`] — recombination (BLX-`$\alpha$`, uniform).
 //! - [`mutation`] — variation (Gaussian, Cauchy, uniform-reset).
 //! - [`replacement`] — survivor selection (generational, elitist,
-//!   (μ+λ), (μ,λ)).
+//!   (`$\mu$`+`$\lambda$`), (`$\mu$`,`$\lambda$`)).
 //! - [`linalg`] — host-side dense linear algebra (Jacobi eigendecomposition,
 //!   Cholesky) for the covariance-matrix strategies.
 //!

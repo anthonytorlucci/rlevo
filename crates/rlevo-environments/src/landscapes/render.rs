@@ -10,14 +10,12 @@
 //! - **Tier 3 (stress tests):** Alpine No.1, Deb No.1, Eggholder, Lunacek
 //!   bi-Rastrigin, Needle-Eye, Modified Rosenbrock, Trefethen.
 //!
-//! For visualisation we sample the surface on a
-//! `GRID_WIDTH × GRID_HEIGHT` grid spanning the env's `bounds()` along its
-//! first two coordinates (others fixed at zero) and project each cell's
-//! fitness into a quintile of the ramp ` `, `░`, `▒`, `▓`, `█`. The styled
+//! For visualisation we sample the surface on a `$\text{GRID\_WIDTH} \times \text{GRID\_HEIGHT}$`
+//! grid spanning the env's `bounds()` along its first two coordinates (others fixed at zero) and
+//! project each cell's fitness into a quintile of the ramp ` `, `░`, `▒`, `▓`, `█`. The styled
 //! variant additionally paints each block with a colour from the
-//! `DarkGray → Blue → Cyan → Yellow → LightYellow` perceptual ramp; the
-//! glyph itself carries the same information so colour-blind users still
-//! read the surface correctly.
+//! `DarkGray → Blue → Cyan → Yellow → LightYellow` perceptual ramp; the glyph itself carries the
+//! same information so colour-blind users still read the surface correctly.
 //!
 //! Candidate-overlay markers (`×` current, `*` best-so-far) are
 //! intentionally absent at this stage — the env type is stateless and the

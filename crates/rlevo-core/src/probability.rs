@@ -24,7 +24,8 @@
 //! `config::in_range(…, 0.0, 1.0, …)` check for that field. See ADR 0031.
 //!
 //! For a non-negative but *unbounded* rate (a step size or expansion factor
-//! such as BLX-α or Gaussian σ) see [`NonNegativeRate`](crate::rate::NonNegativeRate).
+//! such as BLX-`$\alpha$` or Gaussian `$\sigma$`) see
+//! [`NonNegativeRate`](crate::rate::NonNegativeRate).
 //!
 //! # Examples
 //!

@@ -42,9 +42,9 @@
 //!
 //! ## What the numbers actually come out as (and why)
 //!
-//! A ceiling is not an achievement. Both policies benchmarked here currently
-//! score **≈ 0%**, which is *below* the 50% ceiling, for a reason that has
-//! nothing to do with memory:
+//! A ceiling is not an achievement. Both policies benchmarked here currently score
+//! **`$\approx 0\%$`**, which is *below* the 50% ceiling, for a reason that has nothing to do with
+//! memory:
 //!
 //! - **Random** fires `Done` with probability `1/7` at every step, so it ends the
 //!   episode after ~7 actions — long before it could have walked the corridor
@@ -71,8 +71,8 @@
 //! 2. **Throughput** — a Criterion group timing per-step rollout cost of the
 //!    random policy vs. DQN-greedy inference.
 //!
-//! The flatten + MLP model over the `7×7×3` observation is shared with the
-//! other `*_dqn` benches via [`support`].
+//! The flatten + MLP model over the `$7 \times 7 \times 3$` observation is shared with the other
+//! `*_dqn` benches via [`support`].
 //!
 //! # Run with
 //!

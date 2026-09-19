@@ -1,18 +1,15 @@
 //! Host-side dense linear algebra for covariance-matrix strategies.
 //!
-//! CMA-ES and CMSA-ES need a symmetric eigendecomposition (for the sampling
-//! transform `$B \cdot \mathrm{diag}(\sqrt{\Lambda})$` and the conditioning matrix `C^{-1/2}`) and a
-//! Cholesky factor (for CMSA-ES sampling). Burn 0.21 ships **no** Cholesky or
-//! eigendecomposition primitive, and the workspace deliberately avoids a
-//! `nalgebra` dependency (ADR 0021 §3 / research note
-//! `cma-es-sampling-and-numerics` §L4: the logged `nalgebra` 4×4 symmetric-eigen
-//! bug and its non-portable LAPACK path do not justify the dependency for the
-//! `$D \leq 30$` regime these strategies target). Both routines therefore run on host
-//! `Vec<f32>` buffers — covariance matrices are tiny, so the device round-trip
-//! would dominate any on-device kernel anyway.
+//! CMA-ES and CMSA-ES need a symmetric eigendecomposition (for the sampling transform
+//! `$B \cdot \mathrm{diag}(\sqrt{\Lambda})$` and the conditioning matrix `C^{-1/2}`) and a Cholesky
+//! factor (for CMSA-ES sampling). Burn 0.21 ships **no** Cholesky or eigendecomposition primitive,
+//! and the workspace deliberately avoids a `nalgebra` dependency (ADR 0021 §3 / research note
+//! `cma-es-sampling-and-numerics` §L4: the logged `nalgebra` `$4 \times 4$` symmetric-eigen bug and
+//! its non-portable LAPACK path do not justify the dependency for the `$D \leq 30$` regime these
+//! strategies target). Both routines therefore run on host `Vec<f32>` buffers — covariance matrices
+//! are tiny, so the device round-trip would dominate any on-device kernel anyway.
 //!
-//! All matrices are **row-major** `n × n`: entry `(i, j)` lives at index
-//! `i * n + j`.
+//! All matrices are **row-major** `$n \times n$`: entry `(i, j)` lives at index `i * n + j`.
 
 /// Hard cap on Jacobi sweeps; convergence is quadratic, so for the small `n`
 /// the covariance-matrix strategies use this is never reached in practice.
@@ -29,17 +26,17 @@ const MAX_SWEEPS: usize = 100;
 pub struct SymEigen {
     /// Eigenvalues `$\Lambda$` (unsorted), length `n`.
     pub values: Vec<f32>,
-    /// Row-major `n × n` eigenvector matrix `V` whose **column** `k` is the
-    /// eigenvector for `values[k]`: component `i` lives at `vectors[i * n + k]`.
+    /// Row-major `$n \times n$` eigenvector matrix `V` whose **column** `k` is the eigenvector for
+    /// `values[k]`: component `i` lives at `vectors[i * n + k]`.
     pub vectors: Vec<f32>,
 }
 
 /// Symmetric eigendecomposition via the cyclic Jacobi method.
 ///
-/// `a` is an `n × n` **symmetric** matrix in row-major order. Returns a
-/// [`SymEigen`] carrying the eigenvalues (unsorted) and the row-major
-/// eigenvector matrix; see the [`SymEigen`] field docs for the column-layout
-/// invariant (`vectors` column `k` is the eigenvector for `values[k]`).
+/// `a` is an `$n \times n$` **symmetric** matrix in row-major order. Returns a [`SymEigen`]
+/// carrying the eigenvalues (unsorted) and the row-major eigenvector matrix; see the [`SymEigen`]
+/// field docs for the column-layout invariant (`vectors` column `k` is the eigenvector for
+/// `values[k]`).
 ///
 /// The eigenvector columns are orthonormal, so the input is reconstructed as
 /// `$V \cdot \mathrm{diag}(\Lambda) \cdot V^T$`. The classic numerically stable rotation (Golub & Van
@@ -104,7 +101,7 @@ pub fn jacobi_eigen(a: &[f32], n: usize) -> SymEigen {
                 };
                 let c: f32 = 1.0 / (1.0 + t * t).sqrt();
                 let s: f32 = t * c;
-                // A ← Jᵀ A J, applied as a column update then a row update.
+                // `$A \leftarrow J^\top A J$`, applied as a column update then a row update.
                 for r in 0..n {
                     let arp: f32 = work[r * n + p];
                     let arq: f32 = work[r * n + q];
@@ -140,10 +137,10 @@ pub fn jacobi_eigen(a: &[f32], n: usize) -> SymEigen {
 
 /// Lower-triangular Cholesky factor `L` with `$L \cdot L^T = a$`.
 ///
-/// `a` is an `n × n` **symmetric positive-definite** matrix in row-major order.
-/// Returns the lower-triangular `L` (row-major `n × n`, zeros above the
-/// diagonal) or `None` if a non-positive **or non-finite** pivot is
-/// encountered. Callers recover by jittering the diagonal and retrying.
+/// `a` is an `$n \times n$` **symmetric positive-definite** matrix in row-major order. Returns the
+/// lower-triangular `L` (row-major `$n \times n$`, zeros above the diagonal) or `None` if a
+/// non-positive **or non-finite** pivot is encountered. Callers recover by jittering the diagonal
+/// and retrying.
 ///
 /// The pivot guard rejects any NaN-bearing (or infinite) input matrix, not just
 /// a directly-NaN diagonal: a NaN anywhere in `a` — including strictly
@@ -181,7 +178,7 @@ pub fn cholesky(a: &[f32], n: usize) -> Option<Vec<f32>> {
     Some(l)
 }
 
-/// Matrix–vector product `$y = M \cdot x$` for a row-major `n × n` matrix `M`.
+/// Matrix–vector product `$y = M \cdot x$` for a row-major `$n \times n$` matrix `M`.
 ///
 /// # Panics
 ///
@@ -201,21 +198,19 @@ pub fn matvec(m: &[f32], x: &[f32], n: usize) -> Vec<f32> {
     y
 }
 
-/// Forces the row-major `n × n` matrix `m` to be exactly symmetric in place.
+/// Forces the row-major `$n \times n$` matrix `m` to be exactly symmetric in place.
 ///
 /// For every `j < i`, both `(i, j)` and `(j, i)` are set to the average
 /// `0.5 * (m[i*n+j] + m[j*n+i])`; the diagonal is untouched.
 ///
-/// This is **not** a fix for round-off drift in the strategy loop. The CMA-ES /
-/// CMSA-ES in-loop covariance updates preserve bit-exact symmetry on their own:
-/// IEEE-754 multiplication is commutative, and the two triangle entries `C[i,j]`
-/// and `C[j,i]` accumulate the identical rank-1 / rank-μ terms in the identical
-/// order, so they stay bit-for-bit equal without help. The helper exists as a
-/// **construction-boundary normalization** for caller-supplied covariance
-/// matrices — a state constructor handed an externally-built or deserialized
-/// `C` whose triangles may not agree — and as cheap defense-in-depth. It mirrors
-/// `pycma`, which likewise keeps `C` exactly symmetric rather than trusting the
-/// update to stay symmetric.
+/// This is **not** a fix for round-off drift in the strategy loop. The CMA-ES / CMSA-ES in-loop
+/// covariance updates preserve bit-exact symmetry on their own: IEEE-754 multiplication is
+/// commutative, and the two triangle entries `C[i,j]` and `C[j,i]` accumulate the identical rank-1
+/// / rank-`$\mu$` terms in the identical order, so they stay bit-for-bit equal without help. The
+/// helper exists as a **construction-boundary normalization** for caller-supplied covariance
+/// matrices — a state constructor handed an externally-built or deserialized `C` whose triangles
+/// may not agree — and as cheap defense-in-depth. It mirrors `pycma`, which likewise keeps `C`
+/// exactly symmetric rather than trusting the update to stay symmetric.
 ///
 /// # Panics
 ///
@@ -286,7 +281,7 @@ mod tests {
         let SymEigen { values, vectors } = jacobi_eigen(&a, 3);
         let recon = reconstruct(&values, &vectors, 3);
         assert_matrix_close(&a, &recon, 1e-4);
-        // Columns orthonormal: VᵀV ≈ I.
+        // Columns orthonormal: `$V^\top V \approx I$`.
         for p in 0..3 {
             for q in 0..3 {
                 let mut dot: f32 = 0.0;
@@ -312,14 +307,14 @@ mod tests {
 
     #[test]
     fn cholesky_known_2x2() {
-        // [[4,2],[2,3]] = L Lᵀ with L = [[2,0],[1,√2]].
+        // `$[[4,2],[2,3]] = L L^\top$` with `$L = [[2,0],[1,\sqrt{2}]]$`.
         let a: Vec<f32> = vec![4.0, 2.0, 2.0, 3.0];
         let l = cholesky(&a, 2).expect("matrix is positive-definite");
         approx::assert_relative_eq!(l[0], 2.0, epsilon = 1e-6);
         approx::assert_relative_eq!(l[1], 0.0, epsilon = 1e-6);
         approx::assert_relative_eq!(l[2], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(l[3], 2.0_f32.sqrt(), epsilon = 1e-6);
-        // Round-trip: L Lᵀ ≈ A.
+        // Round-trip: `$L L^\top \approx A$`.
         let mut recon: Vec<f32> = vec![0.0; 4];
         for i in 0..2 {
             for j in 0..2 {
@@ -350,9 +345,9 @@ mod tests {
 
     #[test]
     fn cholesky_rejects_off_diagonal_only_nan() {
-        // The ONLY NaN is off-diagonal; the diagonal is finite and positive.
-        // It reaches the pivot at (1, 1) via the `sum -= l[i]·l[j]`
-        // accumulation, exercising the propagation-to-pivot path.
+        // The ONLY NaN is off-diagonal; the diagonal is finite and positive. It reaches the pivot
+        // at (1, 1) via the `$\text{sum} \mathrel{-}= l[i] \cdot l[j]$` accumulation, exercising
+        // the propagation-to-pivot path.
         let a: Vec<f32> = vec![1.0, f32::NAN, f32::NAN, 1.0];
         assert!(cholesky(&a, 2).is_none());
     }
@@ -387,7 +382,7 @@ mod tests {
 
     #[test]
     fn symmetrize_handles_scalar_and_identity() {
-        // 1×1: nothing to average, value preserved.
+        // `$1 \times 1$`: nothing to average, value preserved.
         let mut one: Vec<f32> = vec![7.0];
         symmetrize(&mut one, 1);
         assert_eq!(one, vec![7.0]);
@@ -403,7 +398,7 @@ mod tests {
         let x: Vec<f32> = vec![3.0, -2.0];
         assert_eq!(matvec(&id, &x, 2), vec![3.0, -2.0]);
         let m: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-        // [1 2; 3 4] · [1; 1] = [3; 7].
+        // `$[1\ 2; 3\ 4] \cdot [1; 1] = [3; 7]$`.
         assert_eq!(matvec(&m, &[1.0, 1.0], 2), vec![3.0, 7.0]);
     }
 }

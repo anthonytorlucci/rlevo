@@ -9,10 +9,11 @@
 //! global Flex RNG mutex would otherwise interleave draws with sibling
 //! tests under the parallel runner.
 //!
-//! # BLX-α
+//! # BLX-`$\alpha$`
 //!
-//! For each gene, child ∈ `$U(\min(a,b) - \alpha \cdot |a-b|, \max(a,b) + \alpha \cdot |a-b|)$`.
-//! A common default is α = 0.5.
+//! For each gene, child `$\in$`
+//! `$U(\min(a,b) - \alpha \cdot |a-b|, \max(a,b) + \alpha \cdot |a-b|)$`. A common default is
+//! `$\alpha$` = 0.5.
 //!
 //! # Uniform
 //!
@@ -27,8 +28,7 @@ use rand::{Rng, RngExt};
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
 
-/// Builds an `(n·d,)` host vector of `U[0, 1)` draws sized for a
-/// `(n, d)` genome tensor.
+/// Builds an `$(n \cdot d,)$` host vector of `U[0, 1)` draws sized for a `(n, d)` genome tensor.
 fn unit_uniform_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
     let mut rows = Vec::with_capacity(n * d);
     for _ in 0..n * d {
@@ -37,7 +37,7 @@ fn unit_uniform_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
     rows
 }
 
-/// BLX-α (Blend Crossover α) between two parent populations.
+/// BLX-`$\alpha$` (Blend Crossover `$\alpha$`) between two parent populations.
 ///
 /// For each gene position `i`, the child's value is drawn uniformly from the
 /// extended interval
@@ -46,11 +46,10 @@ fn unit_uniform_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 /// U\left(\min(a_i, b_i) - \alpha \cdot |a_i - b_i|,\ \max(a_i, b_i) + \alpha \cdot |a_i - b_i|\right)
 /// ```
 ///
-/// When `$\alpha = 0$` the child lies strictly within the parents' bounding box.
-/// `$\alpha = 0.5$` is the conventional default and allows mild extrapolation beyond
-/// either parent. All `n·d` draws are taken from the caller-supplied host `rng`
-/// and loaded onto the device via [`Tensor::from_data`]; no backend-global RNG
-/// state is touched.
+/// When `$\alpha = 0$` the child lies strictly within the parents' bounding box. `$\alpha = 0.5$`
+/// is the conventional default and allows mild extrapolation beyond either parent. All
+/// `$n \cdot d$` draws are taken from the caller-supplied host `rng` and loaded onto the device via
+/// [`Tensor::from_data`]; no backend-global RNG state is touched.
 ///
 /// Both parent tensors must have shape `(N, D)` where `N` is the population
 /// size and `D` is the genome length; the returned offspring tensor has the
@@ -90,16 +89,15 @@ pub fn blx_alpha<B: Backend>(
 
 /// Uniform crossover: per-gene Bernoulli swap between two parents.
 ///
-/// For each gene position, the child inherits the value from `parent_a` with
-/// probability `p` and from `parent_b` with probability `1 − p`. No blending
-/// occurs; the child's gene values are drawn exclusively from the two parents'
-/// existing alleles, so the distribution over individual gene values is
-/// exactly preserved.
+/// For each gene position, the child inherits the value from `parent_a` with probability `p` and
+/// from `parent_b` with probability `$1 - p$`. No blending occurs; the child's gene values are
+/// drawn exclusively from the two parents' existing alleles, so the distribution over individual
+/// gene values is exactly preserved.
 ///
-/// `p = 0.5` gives an unbiased mix; `p = 1.0` returns a clone of `parent_a`;
-/// `p = 0.0` returns a clone of `parent_b`. All `n·d` Bernoulli draws are
-/// taken from the caller-supplied host `rng` and loaded onto the device via
-/// [`Tensor::from_data`]; no backend-global RNG state is touched.
+/// `p = 0.5` gives an unbiased mix; `p = 1.0` returns a clone of `parent_a`; `p = 0.0` returns a
+/// clone of `parent_b`. All `$n \cdot d$` Bernoulli draws are taken from the caller-supplied host
+/// `rng` and loaded onto the device via [`Tensor::from_data`]; no backend-global RNG state is
+/// touched.
 ///
 /// Both parent tensors must have shape `(N, D)` where `N` is the population
 /// size and `D` is the genome length; the returned offspring tensor has the
@@ -135,15 +133,14 @@ pub fn uniform_crossover<B: Backend>(
 
 /// Binary uniform crossover on `Tensor<B, 2, Int>` populations.
 ///
-/// The Int-tensor counterpart of [`uniform_crossover`], intended for binary
-/// genomes. For each gene, the child inherits `parent_a`'s allele with
-/// probability `p` and `parent_b`'s allele with probability `1 − p`. No
-/// blending is performed; the operation is a pure bitwise swap.
+/// The Int-tensor counterpart of [`uniform_crossover`], intended for binary genomes. For each gene,
+/// the child inherits `parent_a`'s allele with probability `p` and `parent_b`'s allele with
+/// probability `$1 - p$`. No blending is performed; the operation is a pure bitwise swap.
 ///
-/// Both parents must hold values in `{0, 1}`. The returned tensor has the
-/// same shape and element type as the inputs. All `n·d` Bernoulli draws are
-/// taken from the caller-supplied host `rng` and loaded onto the device via
-/// [`Tensor::from_data`]; no backend-global RNG state is touched.
+/// Both parents must hold values in `{0, 1}`. The returned tensor has the same shape and element
+/// type as the inputs. All `$n \cdot d$` Bernoulli draws are taken from the caller-supplied host
+/// `rng` and loaded onto the device via [`Tensor::from_data`]; no backend-global RNG state is
+/// touched.
 ///
 /// # Panics
 ///
@@ -197,7 +194,7 @@ mod tests {
             .into_data()
             .into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
-        // α = 0: children lie strictly in [0, 1].
+        // `$\alpha$` = 0: children lie strictly in [0, 1].
         for v in values {
             assert!((0.0..=1.0).contains(&v), "value out of bounds: {v}");
         }
@@ -249,11 +246,10 @@ mod tests {
 
     #[test]
     fn nan_and_inf_rates_are_unconstructable() {
-        // Regression (ADR 0031): the crossover/mutation rate scalars
-        // used to be bare `f32`s, so a NaN silently degenerated `u.lower_elem(p)`
-        // to an all-false mask (a no-op / one-parent clone) and a NaN/Inf BLX-α
-        // poisoned the whole offspring tensor. The operators now take validated
-        // newtypes, so those inputs cannot even be constructed — the hazard is
+        // Regression (ADR 0031): the crossover/mutation rate scalars used to be bare `f32`s, so a
+        // NaN silently degenerated `u.lower_elem(p)` to an all-false mask (a no-op / one-parent
+        // clone) and a NaN/Inf BLX-`$\alpha$` poisoned the whole offspring tensor. The operators
+        // now take validated newtypes, so those inputs cannot even be constructed — the hazard is
         // unrepresentable rather than silently mishandled.
         assert!(Probability::try_new(f32::NAN).is_err());
         assert!(Probability::try_new(1.5).is_err());

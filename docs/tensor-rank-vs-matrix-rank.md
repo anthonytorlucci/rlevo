@@ -102,12 +102,12 @@ column carefully shows that nearly all of them keep the tensor order fixed:
 | **Atari** | 1 / $[\text{ram}]$ | **2–3** / $[H, W, C]$ | **modality** change (RAM → pixels) | **yes** |
 
 The instructive trap is **LQG** (Linear Quadratic-Gaussian) — the example most often 
-cited as the "cleanest" statement of a rank-deficient observation. Its emission matrix $C \in
-\mathbb{R}^{m \times n}$ with $m < n$ genuinely *is* rank-deficient — but that is
-**matrix rank**. Both $x \in \mathbb{R}^{n}$ and $y \in \mathbb{R}^{m}$ are
-**order-1 tensors**; the Kalman filter and the separation principle live entirely
-in that constant-order, dimensionality-reducing regime. Nothing about LQG changes
-`ndim`.
+cited as the "cleanest" statement of a rank-deficient observation. Its emission
+matrix $C \in \mathbb{R}^{m \times n}$ with $m < n$ genuinely *is*
+rank-deficient — but that is **matrix rank**. Both $x \in \mathbb{R}^{n}$ and
+$y \in \mathbb{R}^{m}$ are **order-1 tensors**; the Kalman filter and the
+separation principle live entirely in that constant-order,
+dimensionality-reducing regime. Nothing about LQG changes `ndim`.
 
 Only the last row — **Atari**, a compact emulator-RAM state (order 1) observed as a
 pixel image (order 2 or 3) — actually changes the tensor order. That, and only

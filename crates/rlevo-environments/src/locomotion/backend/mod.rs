@@ -98,11 +98,11 @@ pub trait LocomotionBackend: 'static {
 
     /// Apply a scalar actuator torque to a revolute joint's single free axis.
     ///
-    /// `torque` is the **generalized force** on the joint's one free angular
-    /// degree of freedom — the direct analogue of a `MuJoCo` `motor` actuator on a
-    /// hinge joint, where the generalized force is `gear × ctrl`. Torque is in
-    /// world-scale units (newton-metres for `Rapier3D`); **gear scaling stays the
-    /// caller's responsibility** — see [`crate::locomotion::common::Gear`].
+    /// `torque` is the **generalized force** on the joint's one free angular degree of freedom —
+    /// the direct analogue of a `MuJoCo` `motor` actuator on a hinge joint, where the generalized
+    /// force is `$\text{gear} \times \text{ctrl}$`. Torque is in world-scale units (newton-metres
+    /// for `Rapier3D`); **gear scaling stays the caller's responsibility** — see
+    /// [`crate::locomotion::common::Gear`].
     ///
     /// # Semantics
     ///
@@ -113,10 +113,10 @@ pub trait LocomotionBackend: 'static {
     ///   actuation is a separate seam that envs still drive via a direct body
     ///   force. See ADR 0041.
     /// - **Sign convention.** A positive `torque` drives `body2` positively about
-    ///   the joint's free axis `+â` **relative to** `body1`, where `â` is the
+    ///   the joint's free axis `$+\hat{a}$` **relative to** `body1`, where `$\hat{a}$` is the
     ///   unit hinge axis mapped into world space by `body1`'s rotation. `body1` /
     ///   `body2` are the first / second bodies of the joint's insertion. (The
-    ///   exact extraction of `â` from the joint frame is backend-specific — see
+    ///   exact extraction of `$\hat{a}$` from the joint frame is backend-specific — see
     ///   the implementation.)
     /// - **Lifetime — one physics substep** (ADR 0037). Like `add_force` /
     ///   `add_torque`, the applied torque is integrated once and then cleared, so

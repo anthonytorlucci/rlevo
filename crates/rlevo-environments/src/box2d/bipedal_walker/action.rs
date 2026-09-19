@@ -77,9 +77,9 @@ impl ContinuousAction<1> for BipedalWalkerAction {
 /// Per-component bounds `[-1; 4] .. [1; 4]`.
 ///
 /// Source: Gymnasium `BipedalWalker-v3` declares
-/// `Box(-1.0, 1.0, (4,), float32)`, and this crate's
-/// [`all_valid`](BipedalWalkerAction::all_valid) rejects any component with
-/// `abs() > BOUND` where `BOUND == 1.0`. Spec and in-repo dynamics agree.
+/// `Box(-1.0, 1.0, (4,), float32)`, and this crate's `all_valid` rejects any
+/// component with `abs() > BOUND` where `BOUND == 1.0`. Spec and in-repo
+/// dynamics agree.
 ///
 /// The bound is on the **pre-gear** motor target: `apply_motors` scales each
 /// component by `speed_hip` / `speed_knee` afterwards, so the torque limits

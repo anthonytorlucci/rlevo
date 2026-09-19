@@ -1,10 +1,10 @@
 //! Random baseline vs. PPO / DDPG / TD3 / SAC on [`Pendulum`] — quality
 //! summary + throughput.
 //!
-//! Pendulum has a continuous torque action and no terminal condition: every
-//! episode runs to the [`TimeLimit`] (200 steps). A uniformly random torque
-//! policy scores around −1 200 per episode; it is the floor every learned
-//! policy must clear. This bench trains four agents sequentially and:
+//! Pendulum has a continuous torque action and no terminal condition: every episode runs to the
+//! [`TimeLimit`] (200 steps). A uniformly random torque policy scores around `$-1\,200$` per
+//! episode; it is the floor every learned policy must clear. This bench trains four agents
+//! sequentially and:
 //!
 //! 1. **Quality comparison** — prints mean episode return for random vs. each
 //!    trained policy (no solve rate — Pendulum is always truncated).

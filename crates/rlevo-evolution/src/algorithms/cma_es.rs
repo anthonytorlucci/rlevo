@@ -10,22 +10,20 @@
 //!   correlated or anti-correlated;
 //! - the **anisotropic path** `p_c` feeds the rank-1 update of `C`.
 //!
-//! A rank-μ update mixes in the empirical covariance of the selected steps. The
-//! conjugate path requires `C^{-1/2}`, obtained from a symmetric
-//! eigendecomposition of `C` (see [`crate::ops::linalg::jacobi_eigen`]).
+//! A rank-`$\mu$` update mixes in the empirical covariance of the selected steps. The conjugate
+//! path requires `C^{-1/2}`, obtained from a symmetric eigendecomposition of `C` (see
+//! [`crate::ops::linalg::jacobi_eigen`]).
 //!
 //! # Relationship to the EDA / `ProbabilityModel` family
 //!
-//! A full-covariance multivariate-Gaussian EDA (EMNA) is CMA-ES *minus* the
-//! evolution paths and step-size decoupling: it re-estimates `m`/`C` by maximum
-//! likelihood each generation. CMA-ES keeps the path-based momentum and CSA, so
-//! it does **not** fit the [`ProbabilityModel`](crate::ProbabilityModel)
-//! `fit → sample` seam — the CSA and path updates live in
-//! [`Strategy::tell`], not in a model fit. Per ADR 0021 this strategy is a
-//! self-contained [`Strategy`]; `ProbabilityModel<B>` is available but
-//! deliberately unused (research note `eda-vs-cma-es-boundary`). For the
-//! path-free sibling that self-adapts σ per individual, see
-//! [`crate::algorithms::cmsa_es`].
+//! A full-covariance multivariate-Gaussian EDA (EMNA) is CMA-ES *minus* the evolution paths and
+//! step-size decoupling: it re-estimates `m`/`C` by maximum likelihood each generation. CMA-ES
+//! keeps the path-based momentum and CSA, so it does **not** fit the
+//! [`ProbabilityModel`](crate::ProbabilityModel) `fit → sample` seam — the CSA and path updates
+//! live in [`Strategy::tell`], not in a model fit. Per ADR 0021 this strategy is a self-contained
+//! [`Strategy`]; `ProbabilityModel<B>` is available but deliberately unused (research note
+//! `eda-vs-cma-es-boundary`). For the path-free sibling that self-adapts `$\sigma$` per individual,
+//! see [`crate::algorithms::cmsa_es`].
 //!
 //! # References
 //!
@@ -77,8 +75,8 @@ pub struct CmaEsConfig {
     pub pop_size: usize,
     /// Genome dimensionality `D`.
     pub genome_dim: usize,
-    /// Search-space bounds; used only to sample the initial mean `$m^0$`.
-    /// Offspring are **not** clamped (CMA-ES samples in unbounded ℝᴰ).
+    /// Search-space bounds; used only to sample the initial mean `$m^0$`. Offspring are **not**
+    /// clamped (CMA-ES samples in unbounded `$\mathbb{R}^D$`).
     pub bounds: Bounds,
     /// Initial global step size `$\sigma$`.
     pub initial_sigma: f32,
@@ -96,7 +94,7 @@ pub struct CmaEsConfig {
     pub c_c: f32,
     /// Rank-1 covariance learning rate `c_1`.
     pub c_1: f32,
-    /// Rank-μ covariance learning rate `$c_\mu$`.
+    /// Rank-`$\mu$` covariance learning rate `$c_\mu$`.
     pub c_mu: f32,
     /// Expected length of `$N(0, I)$`, `$\chi_n \approx \sqrt{D}(1 - 1/4D + 1/21D^2)$`.
     pub chi_n: f32,
@@ -130,7 +128,7 @@ impl CmaEsConfig {
         let d = genome_dim as f32;
         let mu: usize = pop_size / 2;
 
-        // Positive recombination weights w'ᵢ = ln(μ + ½) − ln(i), normalized.
+        // Positive recombination weights `$w'_i = \ln(\mu + \tfrac{1}{2}) - \ln(i)$`, normalized.
         let raw: Vec<f32> = (1..=mu)
             .map(|i| {
                 #[allow(clippy::cast_precision_loss)]
@@ -213,7 +211,7 @@ impl Validate for CmaEsConfig {
             }));
         }
 
-        // Derived recombination weights: length μ, strictly positive, sum ≈ 1.
+        // Derived recombination weights: length `$\mu$`, strictly positive, sum `$\approx 1$`.
         if self.weights.len() != self.mu {
             v.check(Err(ConfigError {
                 config: C,
@@ -237,9 +235,9 @@ impl Validate for CmaEsConfig {
             weight_sum,
         ));
 
-        // Derived scalars. mu_eff = 1/Σwᵢ² ≥ 1; d_sigma and chi_n are positive
-        // denominators/scales — a non-positive value diverges the step-size
-        // control or the covariance update.
+        // Derived scalars. `$\mu_{eff} = 1/\sum w_i^2 \geq 1$`; d_sigma and chi_n are positive
+        // denominators/scales — a non-positive value diverges the step-size control or the
+        // covariance update.
         v.check(config::in_range(
             C,
             "mu_eff",
@@ -250,10 +248,9 @@ impl Validate for CmaEsConfig {
         v.check(config::positive(C, "d_sigma", f64::from(self.d_sigma)));
         v.check(config::positive(C, "chi_n", f64::from(self.chi_n)));
 
-        // Covariance/step-size learning rates each live in [0, 1], and the pair
-        // (c_1, c_mu) must not sum past 1: the rank-update retention factor is
-        // `1 − c_1 − c_mu`, so c_1 + c_mu > 1 turns it negative and the
-        // covariance matrix loses positive-definiteness.
+        // Covariance/step-size learning rates each live in [0, 1], and the pair (c_1, c_mu) must
+        // not sum past 1: the rank-update retention factor is `$1 - c_1 - c_\mu$`, so c_1 + c_mu >
+        // 1 turns it negative and the covariance matrix loses positive-definiteness.
         v.check(config::in_range(
             C,
             "c_sigma",
@@ -373,18 +370,16 @@ impl<B: Backend> CmaEsState<B> {
             });
         }
         config::positive("CmaEsState", "sigma", f64::from(sigma))?;
-        // Normalize a caller-supplied `cov` to exact symmetry: the
-        // eigendecomposition the strategy runs on `C` assumes symmetry. The
-        // in-loop rank-1 / rank-μ updates preserve symmetry only up to
-        // floating-point rounding (a few ULPs): the rank-μ accumulation forms
-        // `(w · yi[i]) · yi[j]` for the (i,j) entry but `(w · yi[j]) · yi[i]`
-        // for its transpose, which are equal under commutativity but *not*
-        // associativity, so the two triangle entries can diverge slightly (see
-        // the `cma_es_drive_preserves_invariants` property test's rationale).
-        // This `try_new` symmetrization still averages caller-supplied triangles
-        // (pycma-style) — better than a tolerance-based rejection, mirroring the
-        // sanitize-at-the-chokepoint convention of ADR 0034 rather than pushing
-        // the problem back onto the caller.
+        // Normalize a caller-supplied `cov` to exact symmetry: the eigendecomposition the strategy
+        // runs on `C` assumes symmetry. The in-loop rank-1 / rank-`$\mu$` updates preserve symmetry
+        // only up to floating-point rounding (a few ULPs): the rank-`$\mu$` accumulation forms
+        // `$(w \cdot y_i[i]) \cdot y_i[j]$` for the (i,j) entry but
+        // `$(w \cdot y_i[j]) \cdot y_i[i]$` for its transpose, which are equal under commutativity
+        // but *not* associativity, so the two triangle entries can diverge slightly (see the
+        // `cma_es_drive_preserves_invariants` property test's rationale). This `try_new`
+        // symmetrization still averages caller-supplied triangles (pycma-style) — better than a
+        // tolerance-based rejection, mirroring the sanitize-at-the-chokepoint convention of ADR
+        // 0034 rather than pushing the problem back onto the caller.
         symmetrize(&mut cov, d);
         Ok(Self {
             mean,
@@ -546,11 +541,11 @@ where
         let d = params.genome_dim;
         let lambda = params.pop_size;
 
-        // Sampling transform B·diag(√Λ) from the eigendecomposition of C. The
-        // raw decomposition is kept whole (not destructured) so it can be
-        // memoized on the returned state for `tell` to reuse. The eigenvalue
-        // floor is applied *here* per-use — `ask` needs `$\sqrt{\Lambda}$`, `tell` needs
-        // `$1/\sqrt{\Lambda}$`, so only the raw values are cached and each site floors them.
+        // Sampling transform `$B \cdot \mathrm{diag}(\sqrt{\Lambda})$` from the eigendecomposition
+        // of C. The raw decomposition is kept whole (not destructured) so it can be memoized on the
+        // returned state for `tell` to reuse. The eigenvalue floor is applied *here* per-use —
+        // `ask` needs `$\sqrt{\Lambda}$`, `tell` needs `$1/\sqrt{\Lambda}$`, so only the raw values
+        // are cached and each site floors them.
         let eig: SymEigen = jacobi_eigen(&state.cov, d);
         let floor: f32 = eigenvalue_floor(&eig.values);
         let mut bd: Vec<f32> = vec![0.0; d * d];
@@ -584,22 +579,20 @@ where
         (population, next)
     }
 
-    /// Ranks the offspring, recombines the mean, and runs CSA + the rank-1 /
-    /// rank-μ covariance updates.
+    /// Ranks the offspring, recombines the mean, and runs CSA + the rank-1 / rank-`$\mu$`
+    /// covariance updates.
     ///
     /// # Lost generations
     ///
-    /// The rank-μ update needs `$\mu$` *usable* selection steps. Ranking already
-    /// sanitizes (`NaN` → `$-\infty$`) and sorts with `total_cmp`, so a non-finite
-    /// fitness can never rank among the best — but if **fewer than `$\mu$`**
-    /// sanitized values are finite, non-usable individuals would still fill out
-    /// the selected `$\mu$` and feed meaningless steps `$y_i = (x_i - m)/\sigma$` into the
-    /// mean and covariance updates. When that happens `tell` takes a deliberate
-    /// **lost generation**: the entire adaptive update (mean, `C`, `$p_\sigma$`, `p_c`,
-    /// `$\sigma$`, and the eigendecomposition memo) is skipped and the search
-    /// distribution is left exactly unchanged. A legitimate `$-\infty$` counts as
-    /// non-usable here — it marks a member evaluation that broke, so it cannot
-    /// contribute a meaningful recombination step.
+    /// The rank-`$\mu$` update needs `$\mu$` *usable* selection steps. Ranking already sanitizes
+    /// (`NaN` → `$-\infty$`) and sorts with `total_cmp`, so a non-finite fitness can never rank
+    /// among the best — but if **fewer than `$\mu$`** sanitized values are finite, non-usable
+    /// individuals would still fill out the selected `$\mu$` and feed meaningless steps
+    /// `$y_i = (x_i - m)/\sigma$` into the mean and covariance updates. When that happens `tell`
+    /// takes a deliberate **lost generation**: the entire adaptive update (mean, `C`, `$p_\sigma$`,
+    /// `p_c`, `$\sigma$`, and the eigendecomposition memo) is skipped and the search distribution
+    /// is left exactly unchanged. A legitimate `$-\infty$` counts as non-usable here — it marks a
+    /// member evaluation that broke, so it cannot contribute a meaningful recombination step.
     ///
     /// A lost generation still **advances the generation counter and updates
     /// best-so-far tracking**. Advancing the counter matters for determinism:
@@ -621,11 +614,11 @@ where
         let lambda = params.pop_size;
         let mu = params.mu;
 
-        // Best-tracking (`update_best`, below) reads this raw fitness directly
-        // and relies on the harness-side sanitize chokepoint (ADR 0034) to have
-        // already mapped `+∞ → f32::MAX` before `tell`; that `+∞` hygiene is
-        // pre-existing and out of scope here. The adaptive update below reads
-        // only the locally-sanitized `sane` copy.
+        // Best-tracking (`update_best`, below) reads this raw fitness directly and relies on the
+        // harness-side sanitize chokepoint (ADR 0034) to have already mapped
+        // `$+\infty \to \text{f32::MAX}$` before `tell`; that `$+\infty$` hygiene is pre-existing
+        // and out of scope here. The adaptive update below reads only the locally-sanitized `sane`
+        // copy.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -636,31 +629,28 @@ where
             .into_vec::<f32>()
             .expect("population tensor must be readable as f32");
 
-        // Rank offspring descending (canonical maximise): ranked[0] is the
-        // best (highest fitness). The recombination weights `params.weights`
-        // are assigned to rank positions unchanged — only the ordering of
-        // which individuals occupy those ranks inverts relative to a
-        // minimisation engine. Against a `Minimize` landscape the harness
-        // feeds the engine `−cost`, so this descending canonical order
-        // matches the `pycma` ascending-cost order point-for-point.
+        // Rank offspring descending (canonical maximise): ranked[0] is the best (highest fitness).
+        // The recombination weights `params.weights` are assigned to rank positions unchanged —
+        // only the ordering of which individuals occupy those ranks inverts relative to a
+        // minimisation engine. Against a `Minimize` landscape the harness feeds the engine
+        // `$-\text{cost}$`, so this descending canonical order matches the `pycma` ascending-cost
+        // order point-for-point.
         let mut ranked: Vec<usize> = (0..lambda).collect();
-        // Sanitize NaN → −inf (worst) so it can never rank as best, then order
-        // by `total_cmp` (deterministic; sanitized NaN sorts last).
+        // Sanitize NaN → `$-\infty$` (worst) so it can never rank as best, then order by
+        // `total_cmp` (deterministic; sanitized NaN sorts last).
         let sane: Vec<f32> = fitness_host
             .iter()
             .map(|&f| crate::fitness::sanitize_fitness(f))
             .collect();
 
-        // Lost-generation guard: the rank-μ update needs μ *usable* (finite)
-        // steps. If fewer than μ sanitized values are finite, the selected μ
-        // would include non-usable members (`−∞`, a sanitized `NaN`, or a
-        // broken `−∞` evaluation) whose steps corrupt the mean/covariance
-        // update. Freeze the whole search distribution — mean, `C`, `$p_\sigma$`,
-        // `p_c`, `$\sigma$`, and the eig memo all stay untouched (the retained memo
-        // remains coherent because `cov` is unchanged) — but still advance the
-        // generation counter (so the next `ask` draws a fresh stream, not a
-        // replay) and best-so-far tracking. See the `# Lost generations` doc
-        // section above.
+        // Lost-generation guard: the rank-`$\mu$` update needs `$\mu$` *usable* (finite) steps. If
+        // fewer than `$\mu$` sanitized values are finite, the selected `$\mu$` would include
+        // non-usable members (`$-\infty$`, a sanitized `NaN`, or a broken `$-\infty$` evaluation)
+        // whose steps corrupt the mean/covariance update. Freeze the whole search distribution —
+        // mean, `C`, `$p_\sigma$`, `p_c`, `$\sigma$`, and the eig memo all stay untouched (the
+        // retained memo remains coherent because `cov` is unchanged) — but still advance the
+        // generation counter (so the next `ask` draws a fresh stream, not a replay) and best-so-far
+        // tracking. See the `# Lost generations` doc section above.
         let n_finite: usize = sane.iter().filter(|f| f.is_finite()).count();
         if n_finite < mu {
             update_best(&mut state, &population, &fitness_host);
@@ -679,8 +669,8 @@ where
         let m_old: Vec<f32> = state.mean.clone();
         let sigma_old: f32 = state.sigma;
 
-        // Selection steps yᵢ = (x_{(i)} − m) / σ for the μ best, plus the
-        // recombination y_w = Σ wᵢ y_{(i)}.
+        // Selection steps `$y_i = (x_{(i)} - m)/\sigma$` for the `$\mu$` best, plus the
+        // recombination `$y_w = \sum w_i y_{(i)}$`.
         let mut y_sel: Vec<Vec<f32>> = Vec::with_capacity(mu);
         let mut y_w: Vec<f32> = vec![0.0; d];
         for (&idx, &w) in ranked.iter().take(mu).zip(params.weights.iter()) {
@@ -692,18 +682,18 @@ where
             y_sel.push(yi);
         }
 
-        // New mean: m ← m + σ · y_w (cₘ = 1).
+        // New mean: `$m \leftarrow m + \sigma \cdot y_w$` (`$c_m = 1$`).
         let mut mean_new: Vec<f32> = vec![0.0; d];
         for i in 0..d {
             mean_new[i] = m_old[i] + sigma_old * y_w[i];
         }
 
-        // C^{-1/2} = B diag(1/√Λ) Bᵀ from the eigendecomposition of the old C.
-        // Reuse the memo `ask` stored for this exact (unchanged) `C`; `take()`
-        // it so the stale decomposition cannot outlive the `cov` overwrite at
-        // the end of this method. The fallback keeps `tell` correct for a state
-        // that reached here without a paired `ask`. The floor is applied here
-        // as `$1/\sqrt{\Lambda}$` (vs `ask`'s `$\sqrt{\Lambda}$`), so only the raw eigenvalues are cached.
+        // C^{-1/2} = `$B\,\mathrm{diag}(1/\sqrt{\Lambda})\,B^\top$` from the eigendecomposition of
+        // the old C. Reuse the memo `ask` stored for this exact (unchanged) `C`; `take()` it so the
+        // stale decomposition cannot outlive the `cov` overwrite at the end of this method. The
+        // fallback keeps `tell` correct for a state that reached here without a paired `ask`. The
+        // floor is applied here as `$1/\sqrt{\Lambda}$` (vs `ask`'s `$\sqrt{\Lambda}$`), so only
+        // the raw eigenvalues are cached.
         let SymEigen {
             values: eigvals,
             vectors: eigvecs,
@@ -724,7 +714,8 @@ where
             }
         }
 
-        // Conjugate path: p_σ ← (1−c_σ) p_σ + √(c_σ(2−c_σ)μ_eff) · C^{-1/2} y_w.
+        // Conjugate path:
+        // `$p_\sigma \leftarrow (1-c_\sigma) p_\sigma + \sqrt{c_\sigma(2-c_\sigma)\mu_{eff}} \cdot C^{-1/2} y_w$`.
         let cs_factor: f32 = (params.c_sigma * (2.0 - params.c_sigma) * params.mu_eff).sqrt();
         let c_inv_yw: Vec<f32> = matvec(&c_inv_sqrt, &y_w, d);
         let mut p_sigma: Vec<f32> = vec![0.0; d];
@@ -733,14 +724,15 @@ where
         }
         let p_sigma_norm: f32 = p_sigma.iter().map(|v| v * v).sum::<f32>().sqrt();
 
-        // CSA step-size update: σ ← σ · exp((c_σ/d_σ)(‖p_σ‖/χ_n − 1)). Floor at
-        // the smallest positive f32 so a collapsing σ can never reach exactly
-        // zero (which would make next generation's yᵢ = (xᵢ − m)/σ a 0/0 NaN).
+        // CSA step-size update:
+        // `$\sigma \leftarrow \sigma \cdot \exp((c_\sigma/d_\sigma)(\lVert p_\sigma\rVert/\chi_n - 1))$`.
+        // Floor at the smallest positive f32 so a collapsing `$\sigma$` can never reach exactly
+        // zero (which would make next generation's `$y_i = (x_i - m)/\sigma$` a 0/0 NaN).
         let sigma_new: f32 = (sigma_old
             * ((params.c_sigma / params.d_sigma) * (p_sigma_norm / params.chi_n - 1.0)).exp())
         .max(f32::MIN_POSITIVE);
 
-        // Heaviside stall guard hσ on the anisotropic path.
+        // Heaviside stall guard `$h_\sigma$` on the anisotropic path.
         let gen_count: f32 = state.generation as f32 + 1.0;
         let denom: f32 = (1.0 - (1.0 - params.c_sigma).powf(2.0 * gen_count)).sqrt();
         let h_sigma: f32 = if p_sigma_norm / denom
@@ -751,15 +743,16 @@ where
             0.0
         };
 
-        // Anisotropic path: p_c ← (1−c_c) p_c + hσ √(c_c(2−c_c)μ_eff) y_w.
+        // Anisotropic path:
+        // `$p_c \leftarrow (1-c_c) p_c + h_\sigma \sqrt{c_c(2-c_c)\mu_{eff}}\, y_w$`.
         let pc_factor: f32 = (params.c_c * (2.0 - params.c_c) * params.mu_eff).sqrt();
         let mut p_c: Vec<f32> = vec![0.0; d];
         for i in 0..d {
             p_c[i] = (1.0 - params.c_c) * state.p_c[i] + h_sigma * pc_factor * y_w[i];
         }
 
-        // Covariance update: rank-1 (p_c) + rank-μ (selected steps).
-        // δ(hσ) keeps E[C] unbiased when the rank-1 term is stalled.
+        // Covariance update: rank-1 (p_c) + rank-`$\mu$` (selected steps). `$\delta(h_\sigma)$`
+        // keeps E[C] unbiased when the rank-1 term is stalled.
         let delta_h: f32 = (1.0 - h_sigma) * params.c_c * (2.0 - params.c_c);
         let c_old: Vec<f32> = state.cov.clone();
         let mut cov_new: Vec<f32> = vec![0.0; d * d];
@@ -853,7 +846,7 @@ mod tests {
 
     #[test]
     fn try_new_checks_dimensions() {
-        // D = 2: cov is 2×2 = 4 entries, both paths length 2, σ > 0.
+        // D = 2: cov is `$2 \times 2 = 4$` entries, both paths length 2, `$\sigma > 0$`.
         assert!(
             CmaEsState::<Flex>::try_new(
                 vec![0.0, 0.0],
@@ -867,7 +860,7 @@ mod tests {
             )
             .is_ok()
         );
-        // cov length 3 ≠ D·D.
+        // cov length 3 `$\neq D \cdot D$`.
         assert!(
             CmaEsState::<Flex>::try_new(
                 vec![0.0, 0.0],
@@ -881,7 +874,7 @@ mod tests {
             )
             .is_err()
         );
-        // Non-positive σ.
+        // Non-positive `$\sigma$`.
         assert!(
             CmaEsState::<Flex>::try_new(
                 vec![0.0, 0.0],
@@ -916,8 +909,8 @@ mod tests {
 
     #[test]
     fn rejects_desynced_weights() {
-        // A hand-built literal that dropped a weight: length no longer equals μ
-        // and the remaining weights no longer sum to 1.
+        // A hand-built literal that dropped a weight: length no longer equals `$\mu$` and the
+        // remaining weights no longer sum to 1.
         let mut cfg = CmaEsConfig::default_for(10);
         cfg.weights.pop();
         let err = cfg.validate().unwrap_err();
@@ -957,7 +950,7 @@ mod tests {
     fn default_for_d10_constants() {
         // Hansen 2016 Table 1 reference values for D = 10.
         let cfg = CmaEsConfig::default_for(10);
-        // λ = 4 + ⌊3 ln 10⌋ = 4 + ⌊6.907⌋ = 10; μ = 5.
+        // `$\lambda = 4 + \lfloor 3\ln 10\rfloor = 4 + \lfloor 6.907\rfloor = 10$`; `$\mu = 5$`.
         assert_eq!(cfg.pop_size, 10);
         assert_eq!(cfg.mu, 5);
         assert_eq!(cfg.weights.len(), 5);
@@ -967,7 +960,7 @@ mod tests {
         for pair in cfg.weights.windows(2) {
             assert!(pair[0] >= pair[1], "weights must be descending");
         }
-        // μ_eff lies in (1, μ].
+        // `$\mu_{eff}$` lies in `$(1, \mu]$`.
         assert!(
             cfg.mu_eff > 1.0 && cfg.mu_eff <= 5.0,
             "mu_eff = {}",
@@ -980,7 +973,8 @@ mod tests {
         assert!(cfg.c_1 > 0.0 && cfg.c_1 < 1.0);
         assert!(cfg.c_mu > 0.0);
         assert!(cfg.c_1 + cfg.c_mu <= 1.0, "c_1 + c_mu must not exceed 1");
-        // χ_n = √10·(1 − 1/40 + 1/2100) ≈ 3.0847 (just below √10 ≈ 3.162).
+        // `$\chi_n = \sqrt{10}(1 - 1/40 + 1/2100) \approx 3.0847$` (just below
+        // `$\sqrt{10} \approx 3.162$`).
         approx::assert_relative_eq!(cfg.chi_n, 3.084_7_f32, epsilon = 1e-3);
     }
 
@@ -993,9 +987,9 @@ mod tests {
         approx::assert_relative_eq!(sum, 1.0, epsilon = 1e-5);
     }
 
-    /// Lost generation: with fewer than μ finite fitness values, `tell` must
-    /// freeze the entire search distribution (mean, `C`, `$\sigma$`, both paths) yet
-    /// still advance the generation counter and best-so-far tracking.
+    /// Lost generation: with fewer than `$\mu$` finite fitness values, `tell` must freeze the
+    /// entire search distribution (mean, `C`, `$\sigma$`, both paths) yet still advance the
+    /// generation counter and best-so-far tracking.
     #[test]
     fn tell_freezes_distribution_on_too_few_finite() {
         let strategy = CmaEs::<Flex>::new();
@@ -1015,7 +1009,7 @@ mod tests {
         let sigma0: f32 = asked.sigma();
         let gen0: usize = asked.generation();
 
-        // Only one finite value; μ = 3 → lost generation.
+        // Only one finite value; `$\mu = 3$` → lost generation.
         let fitness = Tensor::<Flex, 1>::from_data(
             TensorData::new(
                 vec![1.0f32, f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN],
@@ -1064,7 +1058,7 @@ mod tests {
         )
         .expect("valid state");
 
-        // Identical fitness (≥ μ finite → full adaptive update runs).
+        // Identical fitness (`$\geq \mu$` finite → full adaptive update runs).
         let fitness_vals: Vec<f32> = vec![6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
         let f_cached =
             Tensor::<Flex, 1>::from_data(TensorData::new(fitness_vals.clone(), [6]), &device);
@@ -1121,7 +1115,7 @@ mod tests {
         // `ask` produced a memo for this state.
         assert!(asked.eig.is_some(), "ask must populate the eig memo");
 
-        // ≥ μ finite → full adaptive update runs and overwrites `cov`.
+        // `$\geq \mu$` finite → full adaptive update runs and overwrites `cov`.
         let fitness = Tensor::<Flex, 1>::from_data(
             TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
             &device,
@@ -1174,18 +1168,15 @@ mod tests {
         assert!(told1.sigma().is_finite(), "sigma finite");
     }
 
-    /// A full adaptive `tell` must leave `C` symmetric and positive-definite.
-    /// The rank-μ update factors the bare outer-product term before applying
-    /// the per-rank weight, so each (i,j) and (j,i) contribution is
-    /// bit-identical, and a `symmetrize` backstop runs after the loop —
-    /// symmetry is therefore a *structural* guarantee, not a lucky rounding
-    /// for this seed. The `to_bits()` assertions below are consequently a
-    /// genuine invariant that holds for every seed/dim; the
-    /// `cma_es_drive_preserves_invariants` property asserts the same bit-exact
-    /// equality across the sampled space. PD is checked via a symmetric
-    /// eigendecomposition (all eigenvalues strictly positive), which is exactly
-    /// the property `ask`'s `$\sqrt{\Lambda}$` sampling and `tell`'s `C^{-1/2}` conditioning
-    /// rely on.
+    /// A full adaptive `tell` must leave `C` symmetric and positive-definite. The rank-`$\mu$`
+    /// update factors the bare outer-product term before applying the per-rank weight, so each
+    /// (i,j) and (j,i) contribution is bit-identical, and a `symmetrize` backstop runs after the
+    /// loop — symmetry is therefore a *structural* guarantee, not a lucky rounding for this seed.
+    /// The `to_bits()` assertions below are consequently a genuine invariant that holds for every
+    /// seed/dim; the `cma_es_drive_preserves_invariants` property asserts the same bit-exact
+    /// equality across the sampled space. PD is checked via a symmetric eigendecomposition (all
+    /// eigenvalues strictly positive), which is exactly the property `ask`'s `$\sqrt{\Lambda}$`
+    /// sampling and `tell`'s `C^{-1/2}` conditioning rely on.
     #[test]
     fn tell_keeps_covariance_symmetric_and_positive_definite() {
         let strategy = CmaEs::<Flex>::new();
@@ -1226,14 +1217,12 @@ mod tests {
         }
     }
 
-    /// The rank-μ update's factored-product accumulation plus the
-    /// `symmetrize` backstop keep `C` bit-exact symmetric after every `tell`,
-    /// so it never drifts off the symmetric manifold the solver assumes —
-    /// there is nothing to compound across generations. This long run
-    /// (`$\lambda=16$`, `D=5`, 400 generations of synthetic
-    /// strictly-descending fitness) exercises many `tell` updates and asserts,
-    /// after *every* generation, bit-exact symmetry across all `(i,j)`/`(j,i)`
-    /// pairs plus all-finite entries. It protects the fix against a future edit
+    /// The rank-`$\mu$` update's factored-product accumulation plus the `symmetrize` backstop keep
+    /// `C` bit-exact symmetric after every `tell`, so it never drifts off the symmetric manifold
+    /// the solver assumes — there is nothing to compound across generations. This long run
+    /// (`$\lambda=16$`, `D=5`, 400 generations of synthetic strictly-descending fitness) exercises
+    /// many `tell` updates and asserts, after *every* generation, bit-exact symmetry across all
+    /// `(i,j)`/`(j,i)` pairs plus all-finite entries. It protects the fix against a future edit
     /// that reorders the accumulation and reintroduces per-generation drift.
     #[test]
     #[allow(clippy::cast_precision_loss)]
@@ -1276,14 +1265,12 @@ mod tests {
         }
     }
 
-    /// Guards the rank-μ accumulation fix on its own, isolated from `tell`'s
-    /// unconditional `symmetrize` backstop: every `tell`-level symmetry test
-    /// would still pass even if the parenthesization were reverted, because
-    /// the backstop would mask it — nothing would independently catch a
-    /// regressed "bit-exact by construction" claim. This test reconstructs
-    /// the rank-µ accumulation the way `tell` does but WITHOUT calling
-    /// `tell`, so no backstop can mask a bad grouping. It uses
-    /// non-power-of-two floats chosen so the naive grouping
+    /// Guards the rank-`$\mu$` accumulation fix on its own, isolated from `tell`'s unconditional
+    /// `symmetrize` backstop: every `tell`-level symmetry test would still pass even if the
+    /// parenthesization were reverted, because the backstop would mask it — nothing would
+    /// independently catch a regressed "bit-exact by construction" claim. This test reconstructs
+    /// the rank-`$\mu$` accumulation the way `tell` does but WITHOUT calling `tell`, so no backstop
+    /// can mask a bad grouping. It uses non-power-of-two floats chosen so the naive grouping
     /// actually diverges in the last ULPs:
     ///  - (a) the FIXED grouping `$w \cdot (y_i[i] \cdot y_i[j])$` is bit-exact symmetric;
     ///  - (b) the OLD grouping `$(w \cdot y_i[i]) \cdot y_i[j]$` diverges on at least one
@@ -1379,10 +1366,10 @@ mod tests {
     /// floor the `$1/\sqrt{\Lambda}$` used in `tell`'s `C^{-1/2}` would diverge to `$+\infty$`.
     #[test]
     fn eigenvalue_floor_clamps_degenerate_eigenvalue() {
-        // λ_max = 1, one exactly-zero eigenvalue.
+        // `$\lambda_{max} = 1$`, one exactly-zero eigenvalue.
         let eigvals: Vec<f32> = vec![1.0, 0.0];
         let floor: f32 = eigenvalue_floor(&eigvals);
-        // Relative floor dominates the absolute backstop: 1·1e-14 > 1e-20.
+        // Relative floor dominates the absolute backstop: `$1 \cdot 10^{-14} > 10^{-20}$`.
         assert_eq!(floor.to_bits(), CONDITION_FLOOR.to_bits());
         assert!(floor > EIGENVALUE_FLOOR);
 
@@ -1392,7 +1379,7 @@ mod tests {
         assert!(clamped.sqrt().is_finite(), "√Λ must be finite");
         assert!((1.0 / clamped.sqrt()).is_finite(), "1/√Λ must be finite");
 
-        // Contrast: the un-floored zero eigenvalue would diverge under 1/√Λ.
+        // Contrast: the un-floored zero eigenvalue would diverge under `$1/\sqrt{\Lambda}$`.
         assert!(
             !(1.0f32 / eigvals[1].sqrt()).is_finite(),
             "un-floored 1/√0 must diverge — proves the floor is load-bearing"
@@ -1455,18 +1442,17 @@ mod tests {
         ) {
             let strategy = CmaEs::<Flex>::new();
             let params = CmaEsConfig::with_pop_size(lambda, d);
-            // Restrict the sampled `(λ, D)` box to the valid-config subset: in
-            // the small-`D` / large-`$\lambda$` corner the derived `c_1 + c_mu` rounds
-            // fractionally past 1.0, which `validate()` rejects. We only drive
-            // valid configs here; the `Err` path is covered by dedicated tests.
+            // Restrict the sampled `$(\lambda, D)$` box to the valid-config subset: in the
+            // small-`D` / large-`$\lambda$` corner the derived `c_1 + c_mu` rounds fractionally
+            // past 1.0, which `validate()` rejects. We only drive valid configs here; the `Err`
+            // path is covered by dedicated tests.
             prop_assume!(params.validate().is_ok());
             let device = Default::default();
             let mut rng = StdRng::seed_from_u64(seed);
 
-            // Synthetic strictly-descending fitness of length λ (canonical
-            // maximise: row 0 is the fittest offspring).
-            // Precision loss is irrelevant — these are small ordinal ranks used
-            // only for ordering, never compared for exact magnitude.
+            // Synthetic strictly-descending fitness of length `$\lambda$` (canonical maximise: row
+            // 0 is the fittest offspring). Precision loss is irrelevant — these are small ordinal
+            // ranks used only for ordering, never compared for exact magnitude.
             #[allow(clippy::cast_precision_loss)]
             let fitness_vals: Vec<f32> = (0..lambda).map(|i| (lambda - i) as f32).collect();
 
@@ -1479,7 +1465,7 @@ mod tests {
 
             for _generation in 0..4 {
                 let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
-                // Invariant 1: `ask` yields exactly `[λ, D]` offspring.
+                // Invariant 1: `ask` yields exactly `$[\lambda, D]$` offspring.
                 prop_assert_eq!(population.dims(), [lambda, d], "ask output shape");
 
                 let fitness = Tensor::<Flex, 1>::from_data(
@@ -1490,20 +1476,17 @@ mod tests {
                     strategy.tell(&params, population, fitness, asked, &mut rng);
 
                 let cov: &[f32] = told.cov();
-                // Invariant 2: covariance is *bit-exact* symmetric. Float
-                // multiplication is commutative but not associative, so naively
-                // accumulating the rank-μ term as `(w · yi[i]) · yi[j]` for the
-                // (i,j) entry and `(w · yi[j]) · yi[i]` for its (j,i) transpose
-                // can diverge by a few ULPs — and since each `tell` feeds off the
-                // previous `C`, that drift can compound across generations. The
-                // rank-μ update now factors the bare outer-product term
-                // (`yi[i] * yi[j]`, itself exactly commutative) before applying
-                // the per-rank weight, so both triangle entries sum identical
-                // per-rank terms in the same order and land on the same bits; a
-                // `symmetrize` backstop still runs after the loop as
-                // defense-in-depth. Symmetry is therefore guaranteed by
-                // construction across the whole sampled space — no ULP
-                // divergence between the transposed triangle entries.
+                // Invariant 2: covariance is *bit-exact* symmetric. Float multiplication is
+                // commutative but not associative, so naively accumulating the rank-`$\mu$` term as
+                // `$(w \cdot y_i[i]) \cdot y_i[j]$` for the (i,j) entry and
+                // `$(w \cdot y_i[j]) \cdot y_i[i]$` for its (j,i) transpose can diverge by a few
+                // ULPs — and since each `tell` feeds off the previous `C`, that drift can compound
+                // across generations. The rank-`$\mu$` update now factors the bare outer-product
+                // term (`yi[i] * yi[j]`, itself exactly commutative) before applying the per-rank
+                // weight, so both triangle entries sum identical per-rank terms in the same order
+                // and land on the same bits; a `symmetrize` backstop still runs after the loop as
+                // defense-in-depth. Symmetry is therefore guaranteed by construction across the
+                // whole sampled space — no ULP divergence between the transposed triangle entries.
                 for i in 0..d {
                     for j in 0..d {
                         prop_assert_eq!(

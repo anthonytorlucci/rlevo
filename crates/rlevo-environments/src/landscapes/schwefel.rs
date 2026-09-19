@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        // f(0) = 0, which exceeds the true minimum −418.98·n for any n ≥ 1.
+        // f(0) = 0, which exceeds the true minimum `$-418.98n$` for any `$n \geq 1$`.
         let s = Schwefel::new(3).expect("dim >= 1");
         assert!(
             s.evaluate(&[0.0; 3]) > s.evaluate(&[X_OPT; 3]),

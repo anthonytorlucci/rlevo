@@ -488,7 +488,7 @@ fn test_batch_graph_fitness_matches_interpreted_fitness() {
     let obs = parity_obs(&device);
     let targets = [0.0f32, 1.0, 1.0, 0.0];
 
-    // Interpreted per-genome fitness: 4 − Σ(out − target)².
+    // Interpreted per-genome fitness: `$4 - \sum(\text{out} - \text{target})^2$`.
     let builder = InterpretedBuilder;
     let interpreted_fitness = XorFitness::new(&device).evaluate(&genomes, &builder, &device);
 

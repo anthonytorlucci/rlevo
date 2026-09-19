@@ -42,8 +42,8 @@ Three orthogonal action abstractions cover the standard taxonomy:
 | Trait | Use Case |
 |---|---|
 | `DiscreteAction<R>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index`, `to_index`, `enumerate`, `random`. |
-| `MultiDiscreteAction<R>` | Multiple independent discrete dimensions (e.g., direction × attack). Combinatorial enumeration and weighted random sampling. |
-| `ContinuousAction<R>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[−1, 1\]). |
+| `MultiDiscreteAction<R>` | Multiple independent discrete dimensions (e.g., direction $\times$ attack). Combinatorial enumeration and weighted random sampling. |
+| `ContinuousAction<R>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[$-$1, 1\]). |
 | `BoundedAction<R>` | Extends `ContinuousAction<D>` with per-component `low()` / `high()` bounds. |
 
 ### `state` — Advanced State Abstractions

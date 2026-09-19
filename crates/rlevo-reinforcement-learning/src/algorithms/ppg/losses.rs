@@ -26,7 +26,7 @@ pub fn policy_kl_categorical<B: Backend>(
     let old_lp = log_softmax(old_logits, 1);
     let new_lp = log_softmax(new_logits, 1);
     let old_probs = old_lp.clone().exp();
-    // Σ_a p_old · (log p_old − log p_new), per row.
+    // `$\sum_a p_{old}(\log p_{old} - \log p_{new})$`, per row.
     let per_row = (old_probs * (old_lp - new_lp))
         .sum_dim(1)
         .squeeze_dim::<1>(1);

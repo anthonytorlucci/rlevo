@@ -28,9 +28,9 @@ use rand::{Rng, RngExt};
 /// the running best under a strict `>` seeded from `NEG_INFINITY`, so:
 ///
 /// - ties resolve to the lowest index,
-/// - `NaN` and `−inf` entries never displace the running best (every
+/// - `NaN` and `$-\infty$` entries never displace the running best (every
 ///   comparison against them or the seed is strict), and
-/// - a slice with no entry above `−inf` (e.g. all-`NaN`) falls back to
+/// - a slice with no entry above `$-\infty$` (e.g. all-`NaN`) falls back to
 ///   index `0`.
 ///
 /// # Examples
@@ -159,11 +159,10 @@ pub fn tournament_select<B: Backend>(
 
 /// Returns the indices of the `top_k` highest-fitness members.
 ///
-/// Sorts the population by fitness (descending, i.e. highest first) and
-/// returns the first `top_k` indices. The returned `Vec` is ordered from
-/// best to worst among the selected members. `NaN` fitnesses are sanitised to
-/// `−inf` (worst, per the maximise convention) and ordered with `f32::total_cmp`,
-/// so a `NaN`-fitness member always sorts last and can never be selected as best.
+/// Sorts the population by fitness (descending, i.e. highest first) and returns the first `top_k`
+/// indices. The returned `Vec` is ordered from best to worst among the selected members. `NaN`
+/// fitnesses are sanitised to `$-\infty$` (worst, per the maximise convention) and ordered with
+/// `f32::total_cmp`, so a `NaN`-fitness member always sorts last and can never be selected as best.
 ///
 /// This is the host-side building block; call [`truncation_select`] when
 /// you need the corresponding population rows as a tensor.
@@ -189,8 +188,8 @@ pub fn tournament_select<B: Backend>(
 pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32> {
     assert!(!fitness.is_empty(), "fitness must be non-empty");
     assert!(top_k <= fitness.len(), "top_k must be <= population size");
-    // Sanitize NaN → −inf (worst under maximise) so a NaN-fitness member can
-    // never rank as best; `total_cmp` then gives a deterministic total order.
+    // Sanitize NaN → `$-\infty$` (worst under maximise) so a NaN-fitness member can never rank as
+    // best; `total_cmp` then gives a deterministic total order.
     let mut indexed: Vec<(usize, f32)> = fitness
         .iter()
         .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -258,8 +257,8 @@ mod tests {
         let winners = tournament_indices_host(&fitness, 2, 1000, &mut rng);
         let wins_for_best = winners.iter().filter(|&&w| w == 1).count();
         // For pop_size=4 and tournament_size=2, P(best wins) =
-        // 1 − (3/4)² = 7/16 ≈ 0.4375 → ~437 wins per 1000 trials.
-        // Use a generous band to stay stable across RNG versions.
+        // `$1 - (3/4)^2 = 7/16 \approx 0.4375$` → ~437 wins per 1000 trials. Use a generous band to
+        // stay stable across RNG versions.
         assert!(
             (350..=550).contains(&wins_for_best),
             "wins_for_best={wins_for_best} (expected ~437)",

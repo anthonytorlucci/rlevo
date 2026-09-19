@@ -1,9 +1,8 @@
 //! Pick up the key, unlock the door, and reach the goal in two rooms.
 //!
-//! Ports Farama Minigrid's [`DoorKeyEnv`]. A vertical interior wall splits the
-//! `N×N` grid into a left room (agent + key) and a right room (goal). The wall
-//! carries exactly one [`Locked`] door; the agent must pick up the matching
-//! yellow key before it can toggle that door open.
+//! Ports Farama Minigrid's [`DoorKeyEnv`]. A vertical interior wall splits the `$N \times N$` grid
+//! into a left room (agent + key) and a right room (goal). The wall carries exactly one [`Locked`]
+//! door; the agent must pick up the matching yellow key before it can toggle that door open.
 //!
 //! ## The board is sampled every episode
 //!
@@ -313,16 +312,14 @@ pub struct DoorKeyEnv {
     rng: StdRng,
     /// Rejects a `step()` taken after the episode already ended.
     ///
-    /// Without it the goal cell is a reward faucet, because nothing here is
-    /// consumed on success: `Forward` leaves `Entity::Goal` in the grid and the
-    /// agent standing on it, so the agent can walk off the goal and back on and
-    /// `apply_action` reports `ReachedGoal` again, paying `success_reward` a
-    /// second time on a second `Terminated` snapshot. Measured on
-    /// `size = 5, max_steps = 100, reset_with_seed(3)`: the episode terminates
-    /// at step 11 with reward `0.901`, then five further steps (`TurnRight`,
-    /// `TurnRight`, `Forward`, `TurnRight` ×2, `Forward`) re-terminate at step
-    /// 17 with another `0.847` — and the five snapshots in between come back
-    /// `Running`, so a finished episode is silently resumed.
+    /// Without it the goal cell is a reward faucet, because nothing here is consumed on success:
+    /// `Forward` leaves `Entity::Goal` in the grid and the agent standing on it, so the agent can
+    /// walk off the goal and back on and `apply_action` reports `ReachedGoal` again, paying
+    /// `success_reward` a second time on a second `Terminated` snapshot. Measured on
+    /// `size = 5, max_steps = 100, reset_with_seed(3)`: the episode terminates at step 11 with
+    /// reward `0.901`, then five further steps (`TurnRight`, `TurnRight`, `Forward`, `TurnRight`
+    /// `$\times 2$`, `Forward`) re-terminate at step 17 with another `0.847` — and the five
+    /// snapshots in between come back `Running`, so a finished episode is silently resumed.
     ///
     /// The re-payment also *decays*, because `self.steps` never stops
     /// advancing: it is the numerator of `success_reward(steps, max_steps)`, so
@@ -601,9 +598,9 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
     ///
     /// # Errors
     ///
-    /// Propagates [`PlacementError`] from [`build`](Self::build) if the left
-    /// room has no free cell for the agent or the key. No legal
-    /// [`DoorKeyConfig`] reaches that path.
+    /// Propagates [`PlacementError`] from `build` if the left room has no free
+    /// cell for the agent or the key. No legal [`DoorKeyConfig`] reaches that
+    /// path.
     ///
     /// A failed reset is a **total no-op**: the board, the step counter, and the
     /// guard all keep the previous episode's values, so a finished episode stays
@@ -614,7 +611,7 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
     /// its guard only after the delegated reset succeeds.
     ///
     /// That `Err` path is unreachable for any config this crate accepts (see
-    /// [`build`](Self::build)), so it carries no test — only this ordering.
+    /// `build`), so it carries no test — only this ordering.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         // Draw first: only a *successful* build actually starts a new episode.
         let layout = Self::build(&self.config, &mut self.rng)?;
@@ -1286,8 +1283,8 @@ mod tests {
 
     // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
 
-    /// A 5×5 board whose seed-3 layout the module docs pin, so the scripted
-    /// solution below is written against a board that cannot silently move —
+    /// A `$5 \times 5$` board whose seed-3 layout the module docs pin, so the scripted solution
+    /// below is written against a board that cannot silently move —
     /// `module_doc_snapshot_is_current` fails first if the generator changes.
     fn env_seed_3() -> DoorKeyEnv {
         let mut env = env_5x5();

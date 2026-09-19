@@ -39,30 +39,30 @@ Tabular MDPs for baseline algorithm validation. Every state is fully observable.
 | `FrozenLake` | `toy_text::FrozenLake` | 16 or 64 discrete | Discrete(4) |
 | `CliffWalking` | `toy_text::CliffWalking` | 48 discrete | Discrete(4) |
 | `Taxi` | `toy_text::Taxi` | 500 discrete | Discrete(6) |
-| `Blackjack` | `toy_text::Blackjack` | 32×11×2 discrete | Discrete(2) |
+| `Blackjack` | `toy_text::Blackjack` | $32 \times 11 \times 2$ discrete | Discrete(2) |
 
 ---
 
 ### Gridworlds
 
-Twelve partially observable grid environments inspired by [Farama Minigrid](https://minigrid.farama.org). All share an egocentric 7×7 view and a 7-action discrete space. Physics are implemented once in `grids::core` and reused across every variant.
+Twelve partially observable grid environments inspired by [Farama Minigrid](https://minigrid.farama.org). All share an egocentric $7 \times 7$ view and a 7-action discrete space. Physics are implemented once in `grids::core` and reused across every variant.
 
 Eleven of the twelve encode that view as the shared 3-channel `GridObservation` (`[type, color, state]` per cell). **`GoToDoorEnv` is the one exception**: it emits a bespoke 4-channel `GoToDoorObservation`, whose extra channel carries the episode's mission (ADR 0043 — see the row below).
 
 | Environment | Grid size | Observation | Key mechanic |
 |---|---|---|---|
-| `EmptyEnv` | 6×6 | 7×7×3 | Reach the goal |
-| `DoorKeyEnv` | 8×8 | 7×7×3 | Pick up key, unlock door, reach goal |
-| `LavaGapEnv` | 7×7 | 7×7×3 | Navigate a gap in a lava wall |
-| `FourRoomsEnv` | 19×19 | 7×7×3 | Long-horizon exploration |
-| `UnlockEnv` | 6×6 | 7×7×3 | Single lock/key |
-| `UnlockPickupEnv` | 7×7 | 7×7×3 | Unlock then pick up object |
-| `MemoryEnv` | 13×13 (min 11, odd) | 7×7×3 | POMDP recall: a green Key-or-Ball cue is **sampled each episode**, then must be matched by *type* at a fork from which the cue is not observable |
-| `MultiRoomEnv` | variable | 7×7×3 | Chain of rooms |
-| `CrossingEnv` | 11×11 | 7×7×3 | Navigate obstacles |
-| `DistShiftEnv` | 9×… | 7×7×3 | Adaption to distribution shift |
-| `DynamicObstaclesEnv` | 6×6 | 7×7×3 | Moving obstacles |
-| `GoToDoorEnv` | 6×6 | **7×7×4** | Instruction-conditioned: the four door colours **and the target are re-sampled each episode**; the mission colour rides in observation channel 3, broadcast to every cell |
+| `EmptyEnv` | $6 \times 6$ | $7 \times 7 \times 3$ | Reach the goal |
+| `DoorKeyEnv` | $8 \times 8$ | $7 \times 7 \times 3$ | Pick up key, unlock door, reach goal |
+| `LavaGapEnv` | $7 \times 7$ | $7 \times 7 \times 3$ | Navigate a gap in a lava wall |
+| `FourRoomsEnv` | $19 \times 19$ | $7 \times 7 \times 3$ | Long-horizon exploration |
+| `UnlockEnv` | $6 \times 6$ | $7 \times 7 \times 3$ | Single lock/key |
+| `UnlockPickupEnv` | $7 \times 7$ | $7 \times 7 \times 3$ | Unlock then pick up object |
+| `MemoryEnv` | $13 \times 13$ (min 11, odd) | $7 \times 7 \times 3$ | POMDP recall: a green Key-or-Ball cue is **sampled each episode**, then must be matched by *type* at a fork from which the cue is not observable |
+| `MultiRoomEnv` | variable | $7 \times 7 \times 3$ | Chain of rooms |
+| `CrossingEnv` | $11 \times 11$ | $7 \times 7 \times 3$ | Navigate obstacles |
+| `DistShiftEnv` | $9\times$… | $7 \times 7 \times 3$ | Adaption to distribution shift |
+| `DynamicObstaclesEnv` | $6 \times 6$ | $7 \times 7 \times 3$ | Moving obstacles |
+| `GoToDoorEnv` | $6 \times 6$ | **$7 \times 7 \times 4$** | Instruction-conditioned: the four door colours **and the target are re-sampled each episode**; the mission colour rides in observation channel 3, broadcast to every cell |
 
 Observations are **occluded** for eight of the twelve grid environments, matching canonical Minigrid per-environment: `MiniGridEnv.__init__` defaults `see_through_walls=False`, and only `EmptyEnv`, `DistShiftEnv`, `DynamicObstaclesEnv`, and `GoToDoorEnv` opt out. Each environment states its own value as an inherent `const VISIBILITY`, so `grep -rn "const VISIBILITY"` audits the whole family against upstream; ADR 0063 holds the table and the reasoning.
 
@@ -70,13 +70,13 @@ Observations are **occluded** for eight of the twelve grid environments, matchin
 
 Be precise about what that buys, though. The cue is **not** hidden everywhere — because the view reaches 6 cells backward from the cue's fixed column (`x = 1`), an agent standing anywhere in the corridor at `x <= 7` can turn to face West and re-read it. That leak zone is fixed by the view geometry, does not depend on `size`, and (measurably) survives occlusion unchanged. What Invariant M guarantees is that the cue is unobservable **at the fork**, and that no single observation ever contains the cue *and* a fork object (they are more than a view-width apart) — which is what makes a memoryless policy unable to beat chance.
 
-Since the leak zone is fixed while the corridor grows, the **recall horizon scales with `size`**: the cue-free corridor cells are exactly \[x \in [8, \text{size} - 3 ]\]. At the floor of `size = 11` that is the single gap cell (≈1–2 steps of retention); at the **default `size = 13`** it is three cells; at `17`, seven. The default is deliberately *not* the minimum: `11` is the smallest **correct** size, not a memory benchmark, and shipping it would ship the weakest recall task the layout supports. Use the default (`13`, `max_steps = 845`) for memory research, or `17` for a long-horizon variant; drop to `11` only when step budget matters more than horizon.
+Since the leak zone is fixed while the corridor grows, the **recall horizon scales with `size`**: the cue-free corridor cells are exactly \[x \in [8, \text{size} - 3 ]\]. At the floor of `size = 11` that is the single gap cell ($\approx 1$–2 steps of retention); at the **default `size = 13`** it is three cells; at `17`, seven. The default is deliberately *not* the minimum: `11` is the smallest **correct** size, not a memory benchmark, and shipping it would ship the weakest recall task the layout supports. Use the default (`13`, `max_steps = 845`) for memory research, or `17` for a long-horizon variant; drop to `11` only when step budget matters more than horizon.
 
 ---
 
 ### Pixel Grid (modality-changing POMDP)
 
-`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a `5×5` grid, but whose observation is a rendered `20×20×3` RGB image — `Environment<3, 1, 1>` with observation rank `3` and state rank `1`. It is the crate's flagship consumer of `rlevo-core`'s `Observable<OR>` trait (ADR 0019), built from `Observable::project` rather than `State::observe`. Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
+`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — `Environment<3, 1, 1>` with observation rank `3` and state rank `1`. It is the crate's flagship consumer of `rlevo-core`'s `Observable<OR>` trait (ADR 0019), built from `Observable::project` rather than `State::observe`. Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
 
 ---
 
@@ -89,7 +89,7 @@ Continuous-control environments powered by [Rapier2D](https://rapier.rs). Enable
 | `BipedalWalker` | `box2d::BipedalWalker` | 24-D continuous | Continuous(4) |
 | `LunarLanderDiscrete` | `box2d::lunar_lander` | 8-D continuous | Discrete(4) |
 | `LunarLanderContinuous` | `box2d::lunar_lander` | 8-D continuous | Continuous(2) |
-| `CarRacing` | `box2d::CarRacing` | 96×96 pixel | Continuous(3) |
+| `CarRacing` | `box2d::CarRacing` | $96 \times 96$ pixel | Continuous(3) |
 
 ---
 
@@ -132,9 +132,9 @@ performance against problem size.
 | Griewank | `landscapes::griewank` | n-D | Dense lattice of minima; paradoxically easier at high n |
 | Michalewicz | `landscapes::michalewicz` | n-D | Steep ridges, near-flat plateaus; n!-scaling minima |
 | Penalized No.1 | `landscapes::penalized1` | n-D | Sinusoidal lattice with quartic boundary penalties |
-| Rosenbrock | `landscapes::rosenbrock` | n-D (n≥2) | Smooth curved "banana" valley; near-singular Hessian |
+| Rosenbrock | `landscapes::rosenbrock` | n-D ($n \geq 2$) | Smooth curved "banana" valley; near-singular Hessian |
 | Schwefel | `landscapes::schwefel` | n-D | Deceptive; optimum far from centre near the domain edge |
-| Concatenated Trap | `landscapes::concatenated_trap` | binary (n·k) | Deceptive, decomposable; strong all-zeros trap |
+| Concatenated Trap | `landscapes::concatenated_trap` | binary ($n \cdot k$) | Deceptive, decomposable; strong all-zeros trap |
 
 **Tier 2 — classical 2-D.** Well-known low-dimensional surfaces with
 characterised optima, useful for visualisation and surrogate-model tests.
@@ -144,7 +144,7 @@ characterised optima, useful for visualisation and surrogate-model tests.
 | Branin RCOS | `landscapes::branin` | 2-D | Three equal, non-symmetric global minima; smooth |
 | Bukin No.6 | `landscapes::bukin6` | 2-D | Knife-edge parabolic ridge; non-smooth |
 | Cross-in-Tray | `landscapes::cross_in_tray` | 2-D | Four equal minima; V-kinks along the axes |
-| Easom | `landscapes::easom` | 2-D | Needle-in-haystack; flat except a tiny basin at (π, π) |
+| Easom | `landscapes::easom` | 2-D | Needle-in-haystack; flat except a tiny basin at ($\pi, \pi$) |
 | Goldstein–Price | `landscapes::goldstein_price` | 2-D | Six-order-of-magnitude range; f* = 3 |
 | Himmelblau | `landscapes::himmelblau` | 2-D | Four equal minima; classic niching test |
 | Six-Hump Camel | `landscapes::six_hump_camel` | 2-D | Two global minima among six humps |
@@ -155,11 +155,11 @@ mode (non-smoothness, deception, vanishing optimal volume).
 | Function | Module | Dim | Notes |
 |---|---|---|---|
 | Alpine No.1 | `landscapes::alpine1` | n-D | Non-smooth; ~eight kinks per axis stall gradients |
-| Deb No.1 | `landscapes::deb1` | n-D (n≤2) | 10ⁿ equal optima; diversity / non-uniqueness test |
-| Eggholder | `landscapes::eggholder` | n-D (n≥2) | Deceptive; optimum pinned to the domain boundary |
-| Lunacek bi-Rastrigin | `landscapes::lunacek_bi_rastrigin` | n-D (n≥2) | Competing wide/narrow funnels plus Rastrigin oscillation |
+| Deb No.1 | `landscapes::deb1` | n-D ($n \leq 2$) | 10ⁿ equal optima; diversity / non-uniqueness test |
+| Eggholder | `landscapes::eggholder` | n-D ($n \geq 2$) | Deceptive; optimum pinned to the domain boundary |
+| Lunacek bi-Rastrigin | `landscapes::lunacek_bi_rastrigin` | n-D ($n \geq 2$) | Competing wide/narrow funnels plus Rastrigin oscillation |
 | Needle-Eye | `landscapes::needle_eye` | n-D | Piecewise-constant; astronomically small optimal region |
-| Modified Rosenbrock | `landscapes::rosenbrock_flat` | n-D (n≥2) | Bent knife-edge; flat, non-differentiable ridge |
+| Modified Rosenbrock | `landscapes::rosenbrock_flat` | n-D ($n \geq 2$) | Bent knife-edge; flat, non-differentiable ridge |
 | Trefethen | `landscapes::trefethen` | 2-D | Five incommensurate frequencies; no periodic lattice |
 
 ---

@@ -20,10 +20,10 @@
 //!
 //! | Env | Action dim | Obs dim (default) | Terminates? |
 //! |---|---|---|---|
-//! | Ant | 8 | 105 | z ∉ (0.2, 1.0) |
+//! | Ant | 8 | 105 | `$z \notin (0.2, 1.0)$` |
 //! | HalfCheetah | 6 | 17 | never |
 //! | Hopper | 3 | 11 | z + angle + state ranges |
-//! | Humanoid | 17 | 348 | z ∉ (1.0, 2.0) |
+//! | Humanoid | 17 | 348 | `$z \notin (1.0, 2.0)$` |
 //! | HumanoidStandup | 17 | 348 | never |
 //! | InvertedPendulum | 1 | 4 | `$|\text{angle}| \geq 0.2$` |
 //! | InvertedDoublePendulum | 1 | 9 | `$y_{\text{tip}} \leq 1.0$` |

@@ -127,11 +127,11 @@ use serde::{Deserialize, Serialize};
 pub struct PendulumConfig {
     /// Maximum angular velocity (rad/s). Default: `8.0`.
     pub max_speed: f32,
-    /// Maximum torque magnitude (N·m). Default: `2.0`.
+    /// Maximum torque magnitude (`$\text{N}\cdot\text{m}$`). Default: `2.0`.
     pub max_torque: f32,
     /// Integration time step (s). Default: `0.05`.
     pub dt: f32,
-    /// Gravitational acceleration (m/s²). Default: `10.0` (Gymnasium default).
+    /// Gravitational acceleration (`$\text{m/s}^2$`). Default: `10.0` (Gymnasium default).
     pub g: f32,
     /// Pendulum mass (kg). Default: `1.0`.
     pub m: f32,
@@ -265,7 +265,7 @@ impl BoundedAction<1> for PendulumAction {
 /// Internal state of the [`Pendulum`] (angles in radians).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PendulumState {
-    /// Angle (rad); 0 = upright, ±π = hanging down.
+    /// Angle (rad); 0 = upright, `$\pm\pi$` = hanging down.
     pub theta: f32,
     /// Angular velocity (rad/s).
     pub theta_dot: f32,
@@ -752,7 +752,8 @@ mod tests {
     #[allow(clippy::similar_names)]
     fn angle_normalize_examples() {
         let pi = std::f32::consts::PI;
-        // 3π and -3π are both ≡ π (mod 2π). The formula maps them to -π (same angle).
+        // `$3\pi$` and `$-3\pi$` are both `$\equiv \pi \pmod{2\pi}$`. The formula maps them to
+        // `$-\pi$` (same angle).
         let n3pi = angle_normalize(3.0 * pi);
         assert!(
             n3pi.abs() - pi < 1e-4,
@@ -763,10 +764,10 @@ mod tests {
             nm3pi.abs() - pi < 1e-4,
             "angle_normalize(-3π)={nm3pi} should be ±π"
         );
-        // 2π → 0; -2π → 0
+        // `$2\pi \to 0$`; `$-2\pi \to 0$`
         assert!(angle_normalize(2.0 * pi).abs() < 1e-4);
         assert!(angle_normalize(0.0).abs() < 1e-4);
-        // Result always in (-π, π]
+        // Result always in `$(-\pi, \pi]$`
         for x in [-5.0_f32, -pi, -0.5, 0.0, 0.5, pi, 5.0, 7.0] {
             let n = angle_normalize(x);
             assert!(

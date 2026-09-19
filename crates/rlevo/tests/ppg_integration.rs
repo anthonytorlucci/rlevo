@@ -227,15 +227,14 @@ fn ppg_aux_phase_actually_runs() {
     let aux = agent
         .last_aux_phase()
         .expect("aux phase should have run at least once");
-    // Precondition for the `policy_kl > 0.0` assertion below. `maybe_aux_phase`
-    // snapshots `π_old` once, before the aux epoch loop, so the *first*
-    // minibatch of the *first* epoch compares that snapshot against weights the
-    // phase has not stepped yet: its KL term is structurally `0.0` at any
-    // learning rate. `policy_kl` is the mean over minibatches, so it can only be
-    // strictly positive when the phase runs more than one of them.
+    // Precondition for the `policy_kl > 0.0` assertion below. `maybe_aux_phase` snapshots
+    // `$\pi_{old}$` once, before the aux epoch loop, so the *first* minibatch of the *first* epoch
+    // compares that snapshot against weights the phase has not stepped yet: its KL term is
+    // structurally `0.0` at any learning rate. `policy_kl` is the mean over minibatches, so it can
+    // only be strictly positive when the phase runs more than one of them.
     //
-    // This config does: 4 aux slices × 128 steps = 512 aux steps, chunked at
-    // `aux_batch_size = 128` → 4 chunks, × `e_aux = 6` epochs = 24 minibatches.
+    // This config does: 4 aux slices `$\times$` 128 steps = 512 aux steps, chunked at
+    // `aux_batch_size = 128` → 4 chunks, `$\times$` `e_aux = 6` epochs = 24 minibatches.
     assert!(
         aux.minibatches > 1,
         "`policy_kl > 0.0` is only meaningful when the aux phase runs more than one \
@@ -342,10 +341,10 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     let aux = agent
         .last_aux_phase()
         .expect("the aux phase must have fired at the final iteration");
-    // Liveness: the phase must have done real optimizer work for its reported
-    // learning rate to mean anything. This config does `n_iteration = 2` slices
-    // × `NUM_STEPS = 128` = 256 aux steps, chunked at `aux_batch_size = 128` →
-    // 2 chunks, × `e_aux = 6` epochs = 12 minibatches.
+    // Liveness: the phase must have done real optimizer work for its reported learning rate to mean
+    // anything. This config does `n_iteration = 2` slices `$\times$` `NUM_STEPS = 128` = 256 aux
+    // steps, chunked at `aux_batch_size = 128` → 2 chunks, `$\times$` `e_aux = 6` epochs = 12
+    // minibatches.
     assert!(
         aux.minibatches > 0,
         "the final aux phase must have run at least one minibatch for its learning rate \
@@ -361,20 +360,17 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     // copy of the `f64` the optimizer steps were handed, not a recomputation, so
     // `> 0.0` decides the bug on every backend with no tolerance to tune.
     //
-    // The previous form of this test asserted `policy_kl > 0.0` instead. That
-    // also catches the bug — at `lr == 0.0` the parameters are bitwise unchanged
-    // and every minibatch's KL is an exact zero — but it decides it through an
-    // `f32` mean of log-differences between near-identical logits. The healthy
-    // margin here measures ~4.1e-7, about 3.4× `f32::EPSILON`, so a backend with
-    // a different reduction order or fused multiply-add could round a *healthy*
-    // phase to zero and fail this test for a reason unrelated to the
-    // learning-rate bug. That exposure became live once this crate's
-    // non-ignored tests actually started running on hardware other than the
-    // author's: `rlevo`'s eight `*_integration.rs` suites used to fall between
-    // the PR-gate matrix (which omitted the `rlevo` crate) and the weekly job
-    // (which passes `-- --ignored`, so it runs only the heavy `#[ignore]`d
-    // tests), leaving this fast regression test executing in no CI workflow
-    // until the `rlevo` crate was added to the PR-gate matrix.
+    // The previous form of this test asserted `policy_kl > 0.0` instead. That also catches the bug
+    // — at `lr == 0.0` the parameters are bitwise unchanged and every minibatch's KL is an exact
+    // zero — but it decides it through an `f32` mean of log-differences between near-identical
+    // logits. The healthy margin here measures ~4.1e-7, about 3.4`$\times$` `f32::EPSILON`, so a
+    // backend with a different reduction order or fused multiply-add could round a *healthy* phase
+    // to zero and fail this test for a reason unrelated to the learning-rate bug. That exposure
+    // became live once this crate's non-ignored tests actually started running on hardware other
+    // than the author's: `rlevo`'s eight `*_integration.rs` suites used to fall between the PR-gate
+    // matrix (which omitted the `rlevo` crate) and the weekly job (which passes `-- --ignored`, so
+    // it runs only the heavy `#[ignore]`d tests), leaving this fast regression test executing in no
+    // CI workflow until the `rlevo` crate was added to the PR-gate matrix.
     //
     // The behavioral half — that a nonzero rate actually moves parameters — is
     // asserted directly, and deterministically, by
@@ -420,16 +416,14 @@ rl_reproducibility_test! {
     run = run_cartpole,
 }
 
-// Replaces the former `ppg_cart_pole_reaches_475` macro test. That run needed
-// 400k steps to clear the near-perfect 475 bar — well over the five-minute
-// budget and prone to borderline failures — because the aux phase's
-// distillation repeatedly pulls the policy back on CartPole (not PPG's home
-// turf; its wins live on Procgen-style envs, deferred). Capped at a
-// deterministic 50k-step budget, PPG reaches ~30 here, comfortably above a
-// measured uniform-random policy (≈ 20), so this stays a "learns beyond random"
-// sanity bar rather than a convergence proof. Determinism (seeded backend +
-// 1-thread rayon) keeps the margin reproducible; cross-crate macro convergence
-// is left to a longer, out-of-band run. (Generated by `rl_learning_test!`.)
+// Replaces the former `ppg_cart_pole_reaches_475` macro test. That run needed 400k steps to clear
+// the near-perfect 475 bar — well over the five-minute budget and prone to borderline failures —
+// because the aux phase's distillation repeatedly pulls the policy back on CartPole (not PPG's home
+// turf; its wins live on Procgen-style envs, deferred). Capped at a deterministic 50k-step budget,
+// PPG reaches ~30 here, comfortably above a measured uniform-random policy (`$\approx 20$`), so
+// this stays a "learns beyond random" sanity bar rather than a convergence proof. Determinism
+// (seeded backend + 1-thread rayon) keeps the margin reproducible; cross-crate macro convergence is
+// left to a longer, out-of-band run. (Generated by `rl_learning_test!`.)
 rl_learning_test! {
     #[ignore = "50 000-step discrete PPG CartPole run (~4 min on Flex); confirms avg reward beats a measured uniform-random baseline — run with `cargo test -- --ignored`"]
     ppg_cartpole_improves_over_random,

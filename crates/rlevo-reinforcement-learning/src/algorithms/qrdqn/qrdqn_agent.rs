@@ -1,13 +1,11 @@
 //! Quantile Regression DQN (QR-DQN) agent: actor, trainer, and replay buffer.
 //!
-//! The [`QrDqnAgent`] struct owns the policy network (returning raw quantile
-//! values), a frozen target network, an Adam optimizer, a uniform replay
-//! buffer, and the ε-greedy exploration schedule shared with DQN. Action
-//! selection uses the mean-quantile Q-value `$(1/N) \cdot \sum_i \theta_i(s, a)$`; the
-//! learning step computes target quantiles via a one-step Bellman backup on
-//! the bootstrap action's quantile vector — no categorical projection — and
-//! minimises the quantile Huber loss (see
-//! [`crate::algorithms::qrdqn::quantile_loss`]).
+//! The [`QrDqnAgent`] struct owns the policy network (returning raw quantile values), a frozen
+//! target network, an Adam optimizer, a uniform replay buffer, and the `$\epsilon$`-greedy
+//! exploration schedule shared with DQN. Action selection uses the mean-quantile Q-value
+//! `$(1/N) \cdot \sum_i \theta_i(s, a)$`; the learning step computes target quantiles via a
+//! one-step Bellman backup on the bootstrap action's quantile vector — no categorical projection —
+//! and minimises the quantile Huber loss (see [`crate::algorithms::qrdqn::quantile_loss`]).
 
 use std::marker::PhantomData;
 
@@ -248,7 +246,7 @@ where
             Some(clip) => adam.with_grad_clipping(Some(clip.clone())).init::<B, M>(),
             None => adam.init::<B, M>(),
         };
-        // ε-greedy is reused verbatim from DQN.
+        // `$\epsilon$`-greedy is reused verbatim from DQN.
         let exploration = EpsilonGreedy::new(
             config.epsilon_start,
             config.epsilon_end,
@@ -281,7 +279,7 @@ where
         })
     }
 
-    /// Current exploration rate (ε).
+    /// Current exploration rate (`$\epsilon$`).
     pub fn epsilon(&self) -> f64 {
         self.exploration.value()
     }
@@ -364,12 +362,11 @@ where
 
     /// Read-only view of the target network.
     ///
-    /// The observation seam for the target-update rule: with it, a caller — or
-    /// a test — can check *that* a target update fired on the expected gradient
-    /// update and moved the weights by the expected τ. The double-update
-    /// defect survived its own test suite precisely because no
-    /// such seam existed, so every assertion had to be made through Q-values,
-    /// which are a lossy function of the weights.
+    /// The observation seam for the target-update rule: with it, a caller — or a test — can check
+    /// *that* a target update fired on the expected gradient update and moved the weights by the
+    /// expected `$\tau$`. The double-update defect survived its own test suite precisely because no
+    /// such seam existed, so every assertion had to be made through Q-values, which are a lossy
+    /// function of the weights.
     ///
     /// `pub`, and a shared borrow rather than a clone: `M::InnerModule` is the
     /// caller's own network type, so this hands back nothing the caller did not
@@ -382,8 +379,8 @@ where
         self.policy_net.get()
     }
 
-    /// ε-greedy action selection using the mean-quantile Q-value of the
-    /// predicted return distribution.
+    /// `$\epsilon$`-greedy action selection using the mean-quantile Q-value of the predicted return
+    /// distribution.
     ///
     /// # Non-finite observations
     ///
@@ -410,17 +407,16 @@ where
     /// Greedy (deterministic) action selection — the argmax over mean-quantile
     /// Q-values of the predicted return distribution.
     ///
-    /// Unlike [`act`](Self::act) this never explores, so it is the policy to
-    /// use for evaluation: it reflects what the network has learned without the
-    /// ε-greedy exploration noise that floors at `epsilon_end`.
+    /// Unlike [`act`](Self::act) this never explores, so it is the policy to use for evaluation: it
+    /// reflects what the network has learned without the `$\epsilon$`-greedy exploration noise that
+    /// floors at `epsilon_end`.
     ///
     /// # Non-finite observations
     ///
-    /// A `NaN`/`±Inf` observation is **counted and warned about; the action is
-    /// returned unchanged** (ADR 0067 §Decision 4). Do not "improve" this into a
-    /// substitution or a fallback action, and do not delete the check as
-    /// redundant — it is the *only* thing in the system that can observe this
-    /// failure, for two reasons that are both counter-intuitive:
+    /// A `NaN`/`$\pm\infty$` observation is **counted and warned about; the action is returned
+    /// unchanged** (ADR 0067 §Decision 4). Do not "improve" this into a substitution or a fallback
+    /// action, and do not delete the check as redundant — it is the *only* thing in the system that
+    /// can observe this failure, for two reasons that are both counter-intuitive:
     ///
     /// 1. On the `flex` (CPU) backend `relu` maps `NaN` to `0.0`. A ReLU-fronted
     ///    network fed a **fully** non-finite observation therefore emits a
@@ -520,19 +516,15 @@ where
     ///
     /// # Behavior
     ///
-    /// A non-finite `reward` (`NaN` or `±Inf`) is **discarded, not stored**:
-    /// the transition never enters the replay buffer and the call is otherwise
-    /// a no-op. Storing it would let every minibatch that later resampled it
-    /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
-    /// costing gradient updates for as long as the poisoned transition stayed
-    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st,
-    /// 10th, 100th, … drop; use
-    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
-    /// programmatically.
+    /// A non-finite `reward` (`NaN` or `$\pm\infty$`) is **discarded, not stored**: the transition
+    /// never enters the replay buffer and the call is otherwise a no-op. Storing it would let every
+    /// minibatch that later resampled it produce a non-finite loss, which `FiniteLossGuard` then
+    /// skips — silently costing gradient updates for as long as the poisoned transition stayed
+    /// resident (ADR 0065). A `tracing::warn!` fires on the 1st, 10th, 100th, … drop; use
+    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss programmatically.
     ///
-    /// A non-finite **observation** — a `NaN` or `±Inf` anywhere in the host row
-    /// of *either* `obs` or `next_obs` — is discarded on the same terms, and
-    /// counted separately by
+    /// A non-finite **observation** — a `NaN` or `$\pm\infty$` anywhere in the host row of *either*
+    /// `obs` or `next_obs` — is discarded on the same terms, and counted separately by
     /// [`dropped_observations`](Self::dropped_observations) (ADR 0067).
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if !self.reward_guard.admit(reward) {
@@ -632,7 +624,7 @@ where
     /// place the guard on opposite sides of their random-action branch.
     ///
     /// - **Discrete** (`dqn`, `c51`, `qrdqn`) — the guard sits *inside* the
-    ///   ε-explore branch, and the greedy branch delegates to `act_greedy`,
+    ///   `$\epsilon$`-explore branch, and the greedy branch delegates to `act_greedy`,
     ///   which guards itself. So **every** `act` call is counted, including the
     ///   whole early period where `epsilon_start = 1.0` means every action is
     ///   random and `obs` is read *only* to run this check.
@@ -666,7 +658,7 @@ where
         self.buffer.iter().map(|t| t.terminated).collect()
     }
 
-    /// Decays ε by one step.
+    /// Decays `$\epsilon$` by one step.
     pub fn decay_exploration(&mut self) {
         self.exploration.decay();
     }
@@ -696,10 +688,10 @@ where
     /// cadence in `QrDqnTrainingConfig::target_update` decides whether this
     /// update moves the target (ADR 0058 / 0059).
     ///
-    /// Returns `None` when [`can_learn`](Self::can_learn) is false (buffer too
-    /// small or fewer than `learning_starts` steps taken), and also when the
-    /// computed loss is non-finite (NaN/±Inf): in that case the backward pass,
-    /// optimizer step, target update, and PER writeback are all skipped (ADR
+    /// Returns `None` when [`can_learn`](Self::can_learn) is false (buffer too small or fewer than
+    /// `learning_starts` steps taken), and also when the computed loss is non-finite
+    /// (NaN/`$\pm$`Inf): in that case the backward pass, optimizer step, target update, and PER
+    /// writeback are all skipped (ADR
     /// 0056) and [`skipped_updates`](Self::skipped_updates) advances, so
     /// the caller keeps its last healthy reported metrics rather than folding a
     /// NaN into them. The accompanying `warn!` fires on a decade schedule —
@@ -748,7 +740,7 @@ where
         let batch_size = self.config.batch_size;
         let num_quantiles = self.config.num_quantiles;
 
-        // β is only consulted by prioritized replay; uniform ignores it.
+        // `$\beta$` is only consulted by prioritized replay; uniform ignores it.
         let beta = self
             .config
             .prioritized_replay
@@ -803,7 +795,7 @@ where
         let next_quantiles_all: Tensor<B::InnerBackend, 3> =
             M::forward_inner(&self.target_net, next_tensor_inner); // (B, A, N)
 
-        // Pick bootstrap action a* = argmax_a mean_i θ_target(s', a)_i.
+        // Pick bootstrap action a* = argmax_a mean_i `$\theta$`_target(s', a)_i.
         let q_next: Tensor<B::InnerBackend, 2> =
             next_quantiles_all.clone().mean_dim(2).squeeze_dim::<2>(2); // (B, A)
         let a_star_2: Tensor<B::InnerBackend, 2, Int> = q_next.argmax(1); // (B, 1)
@@ -812,11 +804,11 @@ where
         let next_quantiles_chosen: Tensor<B::InnerBackend, 2> =
             next_quantiles_all.gather(1, a_star_3).squeeze_dim::<2>(1); // (B, N)
 
-        // Bellman backup (no projection): T θ_j = r + γ · θ_target_j on a
-        // non-terminal transition, and T θ_j = r on a terminal one — the
-        // bootstrap is *masked away* there, not scaled by (1 − terminated).
-        // Scaling would let a non-finite target-network quantile survive the
-        // terminal transition, since NaN · 0.0 == NaN.
+        // Bellman backup (no projection): T `$\theta$`_j = r + `$\gamma$` `$\cdot$`
+        // `$\theta$`_target_j on a non-terminal transition, and T `$\theta$`_j = r on a terminal
+        // one — the bootstrap is *masked away* there, not scaled by `$(1 - \text{terminated})$`.
+        // Scaling would let a non-finite target-network quantile survive the terminal transition,
+        // since `$\text{NaN} \cdot 0.0 = \text{NaN}$`.
         let rewards_bn: Tensor<B::InnerBackend, 2> = rewards_inner.unsqueeze_dim::<2>(1); // (B, 1)
         let terminated_bn: Tensor<B::InnerBackend, 2> = terminated_inner.unsqueeze_dim::<2>(1); // (B, 1)
         let gamma = self.config.gamma as f32;
@@ -841,8 +833,8 @@ where
             .repeat_dim(2, num_quantiles); // (B, 1, N)
         let pred_quantiles: Tensor<B, 2> = quantiles.gather(1, action_idx_3d).squeeze_dim::<2>(1);
 
-        // Spread diagnostic: batch-mean std of pred_quantiles along the
-        // quantile axis. Low spread ⇒ distribution collapse.
+        // Spread diagnostic: batch-mean std of pred_quantiles along the quantile axis. Low spread
+        // `$\Rightarrow$` distribution collapse.
         let pred_mean: Tensor<B, 2> = pred_quantiles.clone().mean_dim(1); // (B, 1)
         let centered: Tensor<B, 2> = pred_quantiles.clone() - pred_mean;
         let variance: Tensor<B, 1> = centered.powi_scalar(2).mean_dim(1).squeeze_dim::<1>(1); // (B,)
@@ -890,9 +882,9 @@ where
         self.policy_net
             .step_with(&mut self.optimizer, self.config.learning_rate, grads);
 
-        // One target-update mechanism, gated on gradient updates (ADR 0058 /
-        // 0059). `fires_at` yields the τ to apply on this update, or `None`.
-        // A hard copy is the degenerate τ = 1.0, not a separate path.
+        // One target-update mechanism, gated on gradient updates (ADR 0058 / 0059). `fires_at`
+        // yields the `$\tau$` to apply on this update, or `None`. A hard copy is the degenerate
+        // `$\tau$` = 1.0, not a separate path.
         if let Some(tau) = self.config.target_update.fires_at(self.gradient_updates) {
             // Clone rather than move out: `soft_update` consumes `target` by
             // value, so on `Err` the `?` returns before this reassignment and
@@ -1180,11 +1172,11 @@ mod tests {
 
     /// Weight fill for the target-arithmetic fixture.
     ///
-    /// `TestQrDqnNet` computes `$\text{obs} \cdot W$` with every element of `W` equal to this
-    /// fill, and `obs(x)` is four copies of `x`, so every one of the network's
-    /// `A × N` outputs is exactly `$4 \cdot x \cdot \text{fill}$` — `x` for `fill = 0.25`. Both
-    /// action heads therefore carry the same quantile vector, so the bootstrap
-    /// `argmax` and the taken action cannot change the arithmetic.
+    /// `TestQrDqnNet` computes `$\text{obs} \cdot W$` with every element of `W` equal to this fill,
+    /// and `obs(x)` is four copies of `x`, so every one of the network's `$A \times N$` outputs is
+    /// exactly `$4 \cdot x \cdot \text{fill}$` — `x` for `fill = 0.25`. Both action heads therefore
+    /// carry the same quantile vector, so the bootstrap `argmax` and the taken action cannot change
+    /// the arithmetic.
     const BELLMAN_FILL: f32 = 0.25;
     /// Reward on the fixture's single transition.
     ///
@@ -1195,8 +1187,8 @@ mod tests {
     /// Discount for the fixture. Dyadic, so `$\gamma \cdot \theta$` is exact in `f32` and the
     /// `f64` config knob round-trips without rounding.
     const BELLMAN_GAMMA: f32 = 0.5;
-    /// `$\sum_i \tau_i$` for `τ_i = (i + 0.5)/N`, which is `N/2` for any `N` — spelled
-    /// as a literal, with the `TEST_QUANTILES = 4` it assumes asserted below.
+    /// `$\sum_i \tau_i$` for `$\tau_i = (i + 0.5)/N$`, which is `N/2` for any `N` — spelled as a
+    /// literal, with the `TEST_QUANTILES = 4` it assumes asserted below.
     const TAU_SUM: f32 = 2.0;
     const _: () = assert!(TEST_QUANTILES == 4, "TAU_SUM is N/2, written out for N = 4");
 
@@ -1249,7 +1241,8 @@ mod tests {
     fn bellman_expected_loss(target: f32) -> f32 {
         let u = target - 1.0;
         assert!(u > 0.0, "closed form assumes a positive residual");
-        // κ = 1.0 (config default) and u > κ here, so L_κ(u) = |u| − 0.5.
+        // `$\kappa = 1.0$` (config default) and `$u > \kappa$` here, so
+        // `$L_\kappa(u) = \lvert u\rvert - 0.5$`.
         let huber = u - 0.5;
         huber * TAU_SUM
     }
@@ -1285,8 +1278,8 @@ mod tests {
              {terminal_loss}, want {want_terminal}"
         );
 
-        // Non-terminal: target = 3.0 + 0.5 · 2.0 = 4.0, u = 3.0,
-        // L_1(3.0) = 2.5, loss = 5.0.
+        // Non-terminal: `$\text{target} = 3.0 + 0.5 \cdot 2.0 = 4.0$`, `$u = 3.0$`, L_1(3.0) = 2.5,
+        // loss = 5.0.
         let (nonterminal_loss, _) = bellman_learn_once(false);
         let want_nonterminal = bellman_expected_loss(BELLMAN_REWARD + BELLMAN_GAMMA * 2.0);
         assert!(
@@ -1316,9 +1309,9 @@ mod tests {
     // target through `target_net()`, the seam whose absence let the
     // double-update defect pass a Q-value-only suite.
 
-    /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves
-    /// on **every** learn step, by exactly τ toward the post-step policy, and
-    /// stays lagged behind it rather than being copied onto it.
+    /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves on **every** learn
+    /// step, by exactly `$\tau$` toward the post-step policy, and stays lagged behind it rather
+    /// than being copied onto it.
     #[test]
     fn test_qrdqn_agent_polyak_default_moves_target_on_every_learn_step() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
@@ -1405,11 +1398,11 @@ mod tests {
     /// the target cadence. The three skips consume updates 1–3, so the healthy
     /// step lands on update 4 and `hard(2)` fires.
     ///
-    /// The paired counters over the all-poisoned prefix — `gradient_updates ==
-    /// skipped_updates == 3` — are the executable statement of "every attempt
-    /// advanced, none was applied" (ADR 0059 §Decision 4 ∧ ADR 0072): neither
-    /// counter alone can express it, and `applied = attempts − skipped` is only
-    /// meaningful if both move on the same events.
+    /// The paired counters over the all-poisoned prefix —
+    /// `gradient_updates == skipped_updates == 3` — are the executable statement of "every attempt
+    /// advanced, none was applied" (ADR 0059 §Decision 4 ∧ ADR 0072): neither counter alone can
+    /// express it, and `$\text{applied} = \text{attempts} - \text{skipped}$` is only meaningful if
+    /// both move on the same events.
     #[test]
     fn test_qrdqn_agent_gradient_counter_advances_through_a_nonfinite_loss_skip() {
         let mut agent = primed_agent(TargetUpdate::hard(2));

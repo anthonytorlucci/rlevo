@@ -1,23 +1,21 @@
 //! Shared primitives for the gridworld environments in [`super`].
 //!
-//! Every concrete grid environment is built from the same small set of
-//! building blocks — a [`Grid`] of [`Entity`] cells, an [`AgentState`]
-//! tracking position/direction/carried item, a fixed 7-action
-//! [`GridAction`] space, and a 7×7×3 egocentric [`GridObservation`]. The
-//! [`apply_action`] function is the single source of truth for grid
-//! mechanics: every environment's `step` delegates to it and then maps the
-//! returned [`StepOutcome`] to env-specific reward + termination logic.
+//! Every concrete grid environment is built from the same small set of building blocks — a [`Grid`]
+//! of [`Entity`] cells, an [`AgentState`] tracking position/direction/carried item, a fixed
+//! 7-action [`GridAction`] space, and a `$7 \times 7 \times 3$` egocentric [`GridObservation`]. The
+//! [`apply_action`] function is the single source of truth for grid mechanics: every environment's
+//! `step` delegates to it and then maps the returned [`StepOutcome`] to env-specific reward +
+//! termination logic.
 //!
 //! Per-episode layout randomization is shared the same way: [`placement`]
 //! holds the free-cell predicate, the uniform position sampler, and the
 //! agent-pose draw, so no environment hand-rolls a rejection loop.
 //!
 //! The observation is the one block that is not universal:
-//! [`GoToDoorEnv`](crate::grids::go_to_door::GoToDoorEnv) is goal-conditioned and
-//! emits a `7×7×4` view whose fourth channel carries the episode mission, so it
-//! uses neither [`GridObservation`] nor [`GridSnapshot`]. Everything else on this
-//! list — grid, agent, actions, dynamics — it shares. See ADR 0043
-//! (`docs/adr/0043-grid-observation-contract.md`).
+//! [`GoToDoorEnv`](crate::grids::go_to_door::GoToDoorEnv) is goal-conditioned and emits a
+//! `$7 \times 7 \times 4$` view whose fourth channel carries the episode mission, so it uses
+//! neither [`GridObservation`] nor [`GridSnapshot`]. Everything else on this list — grid, agent,
+//! actions, dynamics — it shares. See ADR 0043 (`docs/adr/0043-grid-observation-contract.md`).
 //!
 //! What an observation carries is the masked window **plus the carried item
 //! stamped at the agent's own cell** (or [`Entity::Empty`] when the hand is
@@ -155,10 +153,9 @@ pub enum Visibility {
 ///
 /// # Returns
 ///
-/// The `7×7×3` view rotated into the agent's frame, tagged with the agent's
-/// absolute facing. Under [`Visibility::Occluded`] the cells the agent cannot
-/// see carry the [`UNSEEN_TYPE`] byte triple; under
-/// [`Visibility::SeeThrough`] every cell is reported.
+/// The `$7 \times 7 \times 3$` view rotated into the agent's frame, tagged with the agent's
+/// absolute facing. Under [`Visibility::Occluded`] the cells the agent cannot see carry the
+/// [`UNSEEN_TYPE`] byte triple; under [`Visibility::SeeThrough`] every cell is reported.
 ///
 /// The agent's own cell (`view[VIEW_SIZE - 1][VIEW_SIZE / 2]`) reports
 /// [`AgentState::carrying`], or [`Entity::Empty`] when the hand is empty —

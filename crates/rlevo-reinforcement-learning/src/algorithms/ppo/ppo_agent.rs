@@ -197,7 +197,7 @@ pub struct PpoUpdateStats {
     pub entropy: f32,
     /// Last-epoch approx-KL (Schulman k3, for `target_kl` gating).
     pub approx_kl: f32,
-    /// First-minibatch pre-update approx-KL (Schulman k1, `mean(−log r)`).
+    /// First-minibatch pre-update approx-KL (Schulman k1, `$\mathrm{mean}(-\log r)$`).
     ///
     /// Captured on the very first minibatch of the first epoch, before any
     /// gradient step, so it reflects the policy that generated the rollout.
@@ -206,10 +206,10 @@ pub struct PpoUpdateStats {
     pub clip_frac: f32,
     /// Fraction of return variance the value net explains over this rollout.
     ///
-    /// `1 − Var(returns − values) / Var(returns)`; `0.0` for a degenerate
-    /// (zero-variance) rollout. See [`explained_variance`].
+    /// `$1 - \mathrm{Var}(\text{returns} - \text{values})/\mathrm{Var}(\text{returns})$`; `0.0` for
+    /// a degenerate (zero-variance) rollout. See [`explained_variance`].
     pub explained_variance: f32,
-    /// Number of update epochs actually completed (≤ `config.update_epochs`).
+    /// Number of update epochs actually completed (`$\leq$` `config.update_epochs`).
     pub epochs_run: usize,
     /// Smallest clamped `$\log \sigma$` across action dims after this update, or
     /// `None` for discrete (categorical) policies, which have no `$\log \sigma$`.
@@ -485,15 +485,14 @@ where
     ///
     /// # The unit is a minibatch, not an `update` call
     ///
-    /// This is where PPO differs from the off-policy agents, whose guards fire
-    /// once per learn step. PPO's guards sit **inside** the
-    /// `update_epochs × num_minibatches` loop of [`update`](Self::update), so a
-    /// single `update` call can contribute up to that many skips per site. Over
-    /// a run these counters therefore accumulate against
-    /// `iteration() × update_epochs × num_minibatches`, not against
-    /// `iteration()`. Normalize by that product before comparing this agent's
-    /// skip rate to a DQN's or a SAC's, and do not read a count above
-    /// `iteration()` as evidence of double counting.
+    /// This is where PPO differs from the off-policy agents, whose guards fire once per learn step.
+    /// PPO's guards sit **inside** the `$\text{update\_epochs} \times \text{num\_minibatches}$`
+    /// loop of [`update`](Self::update), so a single `update` call can contribute up to that many
+    /// skips per site. Over a run these counters therefore accumulate against
+    /// `$\text{iteration}() \times \text{update\_epochs} \times \text{num\_minibatches}$`, not
+    /// against `iteration()`. Normalize by that product before comparing this agent's skip rate to
+    /// a DQN's or a SAC's, and do not read a count above `iteration()` as evidence of double
+    /// counting.
     ///
     /// The epoch loop can also stop early on the `target_kl` trip, and an empty
     /// minibatch chunk is skipped before the guards, so the product is an upper
@@ -672,9 +671,9 @@ where
             .finish(last_value, self.config.gamma, self.config.gae_lambda);
     }
 
-    /// Runs `update_epochs × num_minibatches` gradient updates on the current
-    /// rollout, applies LR annealing, then clears the buffer. Returns summary
-    /// statistics used to populate [`PpoMetrics`].
+    /// Runs `$\text{update\_epochs} \times \text{num\_minibatches}$` gradient updates on the
+    /// current rollout, applies LR annealing, then clears the buffer. Returns summary statistics
+    /// used to populate [`PpoMetrics`].
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
@@ -1072,12 +1071,11 @@ mod tests {
     /// finalized (advantages/returns populated) with *healthy* networks, so a
     /// subsequent `update` can be driven directly after poisoning one net.
     ///
-    /// `num_minibatches` and `update_epochs` are parameters because the guards
-    /// fire **per minibatch** inside `update`: the number of skips a poisoned
-    /// net produces in one `update` is `update_epochs × num_minibatches`, and
-    /// the counter tests pin that product. The rollout is always 4 steps
-    /// (`num_envs = 1`, `num_steps = 4`), so `num_minibatches` must divide 4 for
-    /// the chunking to be even.
+    /// `num_minibatches` and `update_epochs` are parameters because the guards fire **per
+    /// minibatch** inside `update`: the number of skips a poisoned net produces in one `update` is
+    /// `$\text{update\_epochs} \times \text{num\_minibatches}$`, and the counter tests pin that
+    /// product. The rollout is always 4 steps (`num_envs = 1`, `num_steps = 4`), so
+    /// `num_minibatches` must divide 4 for the chunking to be even.
     fn primed_ppo_agent_with(num_minibatches: usize, update_epochs: usize) -> TestAgent {
         let device = Default::default();
         let policy: CategoricalPolicyHead<TestAdBackend> = CategoricalPolicyHeadConfig {
@@ -1131,8 +1129,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(1);
         let stats = agent.update(&mut rng);
 
-        // 1 epoch × 1 minibatch = 1 guarded policy site visit in this `update`,
-        // and the poisoned policy makes every one of them non-finite.
+        // 1 epoch `$\times$` 1 minibatch = 1 guarded policy site visit in this `update`, and the
+        // poisoned policy makes every one of them non-finite.
         assert_eq!(
             agent.skipped_policy_updates(),
             1,
@@ -1182,8 +1180,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(2);
         let stats = agent.update(&mut rng);
 
-        // 1 epoch × 1 minibatch = 1 guarded value site visit in this `update`,
-        // and the poisoned value net makes every one of them non-finite.
+        // 1 epoch `$\times$` 1 minibatch = 1 guarded value site visit in this `update`, and the
+        // poisoned value net makes every one of them non-finite.
         assert_eq!(
             agent.skipped_value_updates(),
             1,
@@ -1208,17 +1206,15 @@ mod tests {
     /// `update` whose policy loss is non-finite across several minibatches must
     /// leave a count above 1.
     ///
-    /// This is the PPO-specific half of the contract — the guards live inside
-    /// the `update_epochs × num_minibatches` loop, so one `update` call can
-    /// contribute many skips, unlike the off-policy agents' one-per-learn-step
-    /// sites.
+    /// This is the PPO-specific half of the contract — the guards live inside the
+    /// `$\text{update\_epochs} \times \text{num\_minibatches}$` loop, so one `update` call can
+    /// contribute many skips, unlike the off-policy agents' one-per-learn-step sites.
     #[test]
     fn test_ppo_agent_counts_repeated_loss_skips() {
-        // 3 epochs × 2 minibatches. The rollout is 4 steps and
-        // `num_minibatches = 2`, so `mb_size = 4 / 2 = 2` and `chunks(2)` over 4
-        // shuffled indices yields exactly 2 non-empty minibatches per epoch;
-        // `target_kl` is None, so no epoch is cut short. 3 × 2 = 6 guarded
-        // policy-site visits, all of them non-finite.
+        // 3 epochs `$\times$` 2 minibatches. The rollout is 4 steps and `num_minibatches = 2`, so
+        // `mb_size = 4 / 2 = 2` and `chunks(2)` over 4 shuffled indices yields exactly 2 non-empty
+        // minibatches per epoch; `target_kl` is None, so no epoch is cut short. 3 `$\times$` 2 = 6
+        // guarded policy-site visits, all of them non-finite.
         let mut agent = primed_ppo_agent_with(2, 3);
 
         let poisoned = agent.policy.get().clone().map(&mut NanInjector);
@@ -1256,14 +1252,14 @@ mod tests {
     /// write NaN advantages that cross-contaminate the policy site).
     #[test]
     fn test_ppo_agent_skipped_updates_aggregates_unequal_sites() {
-        // 1 epoch × 2 minibatches = 2 guarded visits per site per `update`.
+        // 1 epoch `$\times$` 2 minibatches = 2 guarded visits per site per `update`.
         let mut agent = primed_ppo_agent_with(2, 1);
         let healthy_policy = agent.policy.get().clone();
         let healthy_value = agent.value.get().clone();
         let mut rng = StdRng::seed_from_u64(0);
 
-        // Updates 1 and 2: value net poisoned, policy healthy. 2 × 2 = 4 value
-        // skips, 0 policy skips.
+        // Updates 1 and 2: value net poisoned, policy healthy. 2 `$\times$` 2 = 4 value skips, 0
+        // policy skips.
         for _ in 0..2 {
             agent.value = Slot::new(healthy_value.clone().map(&mut NanInjector));
             let _ = agent.update(&mut rng);
@@ -1273,7 +1269,7 @@ mod tests {
             collect_rollout(&mut agent, &mut rng);
         }
 
-        // Update 3: policy net poisoned, value healthy. 1 × 2 = 2 policy skips.
+        // Update 3: policy net poisoned, value healthy. 1 `$\times$` 2 = 2 policy skips.
         agent.policy = Slot::new(healthy_policy.clone().map(&mut NanInjector));
         let _ = agent.update(&mut rng);
 

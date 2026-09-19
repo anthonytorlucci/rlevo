@@ -20,12 +20,10 @@ pub struct CarRacingConfig {
     pub lap_complete_percent: f32,
     /// Total reward for a full lap, distributed evenly across the track's tiles.
     ///
-    /// A full lap (every tile visited) sums to exactly `lap_reward`; the
-    /// effective per-tile reward is therefore `lap_reward / total_tiles`,
-    /// computed per episode from the actual generated tile count. This matches
-    /// the canonical Gymnasium `CarRacing` formulation (`+1000 / len(track)` per
-    /// tile), where a full lap pays ≈ 1000 regardless of the episode's tile
-    /// count.
+    /// A full lap (every tile visited) sums to exactly `lap_reward`; the effective per-tile reward
+    /// is therefore `lap_reward / total_tiles`, computed per episode from the actual generated tile
+    /// count. This matches the canonical Gymnasium `CarRacing` formulation (`+1000 / len(track)`
+    /// per tile), where a full lap pays `$\approx 1000$` regardless of the episode's tile count.
     pub lap_reward: f32,
     /// Penalty applied every step regardless of tile visits.
     pub frame_penalty: f32,

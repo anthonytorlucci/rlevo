@@ -162,11 +162,10 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
         let mut best_f = f32::NEG_INFINITY;
         let mut worst_f = f32::INFINITY;
         for i in 0..k {
-            // Sanitize `NaN → −inf` at the seam. `EdaStrategy::tell` already does
-            // this upstream, but `fit` is a public trait method reachable
-            // directly; without this a `NaN` would sort as the largest value
-            // under `total_cmp` and be selected as the winner, nudging the model
-            // toward a meaningless genome.
+            // Sanitize `$\text{NaN} \to -\infty$` at the seam. `EdaStrategy::tell` already does
+            // this upstream, but `fit` is a public trait method reachable directly; without this a
+            // `NaN` would sort as the largest value under `total_cmp` and be selected as the
+            // winner, nudging the model toward a meaningless genome.
             let f = crate::fitness::sanitize_fitness(
                 fit_host.get(i).copied().unwrap_or(f32::NEG_INFINITY),
             );
@@ -359,10 +358,9 @@ mod tests {
             virtual_pop_size: 10,
         };
         let prior = fit_prior(&p);
-        // Column mean of [1, 0, 0] is 1/3 ≈ 0.333. cGA instead nudges 0.5 by
-        // +0.1 to 0.6 (winner=row 0 with gene 1, loser=row 2 with gene 0).
-        // Canonical maximise: row 0 has the highest fitness (winner), row 2 the
-        // lowest (loser).
+        // Column mean of [1, 0, 0] is 1/3 `$\approx$` 0.333. cGA instead nudges 0.5 by +0.1 to 0.6
+        // (winner=row 0 with gene 1, loser=row 2 with gene 0). Canonical maximise: row 0 has the
+        // highest fitness (winner), row 2 the lowest (loser).
         let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
             &CompactGenetic,
             &p,
@@ -471,8 +469,8 @@ mod tests {
 
     #[test]
     fn zero_population_with_prev_returns_prev_unchanged() {
-        // §7.1: a 0×0 selected population carries no genes to compete; the update
-        // loop never runs, so the previous probabilities pass through untouched.
+        // §7.1: a `$0 \times 0$` selected population carries no genes to compete; the update loop
+        // never runs, so the previous probabilities pass through untouched.
         let device = Default::default();
         let p = CompactGeneticParams::default_for(3);
         let prev = CompactGeneticState {
@@ -523,7 +521,7 @@ mod tests {
 
     #[test]
     fn sample_is_deterministic_for_seed_and_state() {
-        // §7.4: same seed + same state ⇒ byte-identical sample tensor.
+        // §7.4: same seed + same state `$\Rightarrow$` byte-identical sample tensor.
         let device = Default::default();
         let state = CompactGeneticState {
             prob: vec![0.3, 0.6, 0.9],
@@ -561,7 +559,7 @@ mod tests {
     use proptest::prelude::*;
 
     proptest! {
-        // §7.3: `prob ⊆ [0, 1]` must hold after ANY sequence of `fit` updates.
+        // §7.3: `$\text{prob} \subseteq [0, 1]$` must hold after ANY sequence of `fit` updates.
         // Moderate cost (host-side tensor ops, no backend train) → 64 cases.
         #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
 

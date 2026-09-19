@@ -1,10 +1,10 @@
 //! Shared ASCII / styled renderer for `Box2D` physics envs.
 //!
-//! Each `Box2D` env (`LunarLander`, `BipedalWalker`, `CarRacing`) holds rapier2d
-//! bodies in continuous 2D space. This renderer projects body centres onto
-//! a `CELL_COLS × CELL_ROWS` grid spanning a world-space viewport and
-//! plots one glyph per body. The agent body additionally carries an
-//! 8-direction arrow derived from its rotation angle.
+//! Each `Box2D` env (`LunarLander`, `BipedalWalker`, `CarRacing`) holds rapier2d bodies in
+//! continuous 2D space. This renderer projects body centres onto a
+//! `$\text{CELL\_COLS} \times \text{CELL\_ROWS}$` grid spanning a world-space viewport and plots
+//! one glyph per body. The agent body additionally carries an 8-direction arrow derived from its
+//! rotation angle.
 //!
 //! The renderer is intentionally lightweight — it shows body *positions*
 //! and the agent's orientation, not body geometry. Polygon rasterisation
@@ -171,7 +171,7 @@ fn glyph_style(g: Glyph) -> SpanStyle {
 /// - `bodies` — slice of [`Bodyish`] values describing every body to
 ///   render. The first `Agent` variant found determines the header
 ///   position and orientation readout; if there is no agent body the
-///   header defaults to `(0.0, 0.0, 0°)`.
+///   header defaults to `$(0.0, 0.0, 0^\circ)$`.
 /// - `viewport` — world-space rectangle that maps onto the cell grid.
 /// - `ground_y` — if `Some(y)`, draws a horizontal `─` line at the
 ///   corresponding world-space Y coordinate. Pass `None` to omit it.

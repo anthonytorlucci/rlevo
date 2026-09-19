@@ -141,7 +141,7 @@ non-deterministic across runs; both backends converge to similar optima.
 
 - **DE/Best1Bin and DE/CurrentToBest1Bin** converge prematurely on
   unimodal landscapes — documented on `DeVariant`.
-- **Classical ES \[(1+1)\] and \[(1 + \lambda)\] use fixed σ** (no log-normal
+- **Classical ES \[(1+1)\] and \[(1 + \lambda)\] use fixed $\sigma$** (no log-normal
   adaptation) and therefore converge more slowly than \[(\mu , \lambda)\] / \[(/mu + \lambda)\]
   which do adapt \[\sigma\].
 - **CGP phenotype evaluation runs on the host** (topological-sweep

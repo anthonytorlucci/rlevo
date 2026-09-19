@@ -9,11 +9,11 @@ surface and example scaffolding introduced here.
 
 - [`dqn_agent`](dqn_agent.rs) — `DqnAgent`, `DqnMetrics`, `DqnAgentError`.
 - [`dqn_config`](dqn_config.rs) — `DqnTrainingConfig` + builder with all
-  hyperparameters (batch size, γ, τ, ε schedule, `learning_starts`,
+  hyperparameters (batch size, $\gamma$, $\tau$, $\epsilon$ schedule, `learning_starts`,
   `train_frequency`, `double_q`, replay capacity, grad clip).
 - [`dqn_model`](dqn_model.rs) — the `DqnModel` trait: `forward`,
   `forward_inner`, and `soft_update` for Polyak averaging.
-- [`exploration`](exploration.rs) — multiplicative ε-greedy schedule.
+- [`exploration`](exploration.rs) — multiplicative $\epsilon$-greedy schedule.
 - [`train`](train.rs) — end-to-end collect-learn-sync loop.
 
 ## Implementing `DqnModel`

@@ -266,8 +266,8 @@ mod tests {
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
         let probe = probe.lock();
-        // on_trial_start opens ep 0; on_episode_end (×3) closes and re-opens for
-        // the next idx → episodes 0, 1, 2, 3 all reach on_episode_start.
+        // on_trial_start opens ep 0; on_episode_end (`$\times 3$`) closes and re-opens for the next
+        // idx → episodes 0, 1, 2, 3 all reach on_episode_start.
         assert!(probe.episodes.contains_key(&0));
         assert!(probe.episodes.contains_key(&1));
         assert!(probe.episodes.contains_key(&2));

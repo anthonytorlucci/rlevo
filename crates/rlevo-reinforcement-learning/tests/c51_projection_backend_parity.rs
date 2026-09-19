@@ -149,7 +149,7 @@ fn wgpu_matches_flex_on_non_finite_rewards() {
         );
     }
 
-    // 3. ±inf still saturate the support and stay finite, on both.
+    // 3. `$\pm$`inf still saturate the support and stay finite, on both.
     for (name, all) in [("flex", &flex), ("wgpu", &wgpu)] {
         let pos_inf_row = &all[N_ATOMS..2 * N_ATOMS];
         assert!(

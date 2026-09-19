@@ -1,9 +1,9 @@
 //! Continuous (tanh-squashed Gaussian) policy head for PPO.
 //!
-//! Two-layer MLP with `tanh` activations, a linear mean head, and a
-//! state-independent `log_std` parameter (length `action_dim`). Sampling:
-//! `$z = \mu + \sigma \cdot \epsilon$` with `$\epsilon \sim \mathcal{N}(0, 1)$` drawn on CPU; the env receives
-//! `a = scale · tanh(z)`, keeping it within the bounded action space.
+//! Two-layer MLP with `tanh` activations, a linear mean head, and a state-independent `log_std`
+//! parameter (length `action_dim`). Sampling: `$z = \mu + \sigma \cdot \epsilon$` with
+//! `$\epsilon \sim \mathcal{N}(0, 1)$` drawn on CPU; the env receives
+//! `$a = \text{scale} \cdot \tanh(z)$`, keeping it within the bounded action space.
 //!
 //! # z vs a in the rollout
 //!
@@ -35,10 +35,10 @@
 //! Clamping makes the domain of `log_prob` finite by construction, so the
 //! function is total on f32.
 //!
-//! The bound is deliberately **non-binding for healthy runs**. A converging
-//! continuous-control policy lives around `$\log \sigma \in [-3, 1]$`; the floor used
-//! throughout this repo, `−20`, is `$\sigma \approx 2 \times 10^{-9}$`. The only runs whose numbers
-//! change are runs that were already producing garbage.
+//! The bound is deliberately **non-binding for healthy runs**. A converging continuous-control
+//! policy lives around `$\log \sigma \in [-3, 1]$`; the floor used throughout this repo, `$-20$`,
+//! is `$\sigma \approx 2 \times 10^{-9}$`. The only runs whose numbers change are runs that were
+//! already producing garbage.
 //!
 //! ## Deliberate deviation from reference PPO
 //!
@@ -77,15 +77,15 @@
 //! collapsing `log_std` announced itself with a `NaN`; with the clamp it would
 //! otherwise present as flat returns and no signal at all. Two mechanisms
 //! restore observability (ADR 0049 §4), and both are driven from
-//! [`read_log_std_extrema_and_warn`](TanhGaussianPolicyHead::read_log_std_extrema_and_warn),
-//! which [`min_log_std`](PpoPolicy::min_log_std) and
+//! `read_log_std_extrema_and_warn`, which
+//! [`min_log_std`](PpoPolicy::min_log_std) and
 //! [`max_log_std`](PpoPolicy::max_log_std) each project one half of:
 //!
 //! 1. **A one-shot `tracing::warn!` per bound** the first time the raw
 //!    parameter leaves `[log_std_min, log_std_max]`, naming the bound, the
 //!    action dims that crossed it, and the fact that those dims are now
 //!    permanently frozen. The floor and the ceiling latch **independently**:
-//!    they are opposite failures (σ collapsing to a point mass vs σ exploding
+//!    they are opposite failures (`$\sigma$` collapsing to a point mass vs `$\sigma$` exploding
 //!    into pure noise) with different repairs, so silencing one because the
 //!    other already fired would hide the second diagnosis entirely.
 //! 2. **Two per-update metrics** — the minimum and the maximum clamped `$\log \sigma$`
@@ -94,17 +94,16 @@
 //!    the drift toward *either* bound is visible *before* it pins. A minimum
 //!    alone is structurally blind to the ceiling: with `[-20, 2]` bounds and a
 //!    dim pinned at `2`, `min_log_std` can read a perfectly healthy `0.0`
-//!    while σ on that dim is frozen at `$e^2 \approx 7.4$`.
+//!    while `$\sigma$` on that dim is frozen at `$e^2 \approx 7.4$`.
 //!
 //! ## Why the check is not in the forward pass
 //!
 //! Deciding "did the clamp bind" means comparing the raw parameter against the
 //! bounds, which is inherently a **host-side** predicate: on a GPU backend
-//! (wgpu) it costs a device→host sync. Putting that in
-//! [`clamped_log_std`](TanhGaussianPolicyHead::clamped_log_std) would pay a
-//! sync on *every* forward pass — and gating it behind "stop checking once it
-//! fires" does not help, because the healthy runs we care most about never
-//! fire and would sync forever.
+//! (wgpu) it costs a device→host sync. Putting that in `clamped_log_std` would
+//! pay a sync on *every* forward pass — and gating it behind "stop checking
+//! once it fires" does not help, because the healthy runs we care most about
+//! never fire and would sync forever.
 //!
 //! So the check is deliberately *not* in the hot path. It rides along with the
 //! stats read in [`min_log_std`](PpoPolicy::min_log_std) /
@@ -178,42 +177,41 @@ pub struct TanhGaussianPolicyHeadConfig {
 /// (or `0/0 = NaN`) and the `NaN` reaches `backward()`.
 ///
 /// `$\text{scaled\_sq} = ((z - \mu)/\sigma)^2$` leaves f32 range once
-/// `|scaled| > √f32::MAX ≈ 1.8447·10¹⁹`, so the admissible floor scales with
-/// the residual that must stay representable:
+/// `$\lvert\text{scaled}\rvert > \sqrt{\text{f32::MAX}} \approx 1.8447 \times 10^{19}$`, so the
+/// admissible floor scales with the residual that must stay representable:
 /// `$\text{log\_std\_min} \geq \ln|z - \mu| - 44.36$`. Over a worst-case residual sweep of
 /// `$10^{-3} \ldots 10^{2}$` the binding case is `$|z - \mu| = 10^2$`, which requires
-/// `$\geq -39.75$`; `-35` is that rounded up with margin. At `-35` the admissible
-/// residual is `√f32::MAX · exp(-35) ≈ 1.16·10⁴` — two decades beyond what the
-/// derivation assumes.
+/// `$\geq -39.75$`; `-35` is that rounded up with margin. At `-35` the admissible residual is
+/// `$\sqrt{\text{f32::MAX}} \cdot \exp(-35) \approx 1.16 \times 10^4$` — two decades beyond what
+/// the derivation assumes.
 ///
-/// The floor constrains no usable configuration: `$\sigma = \exp(-35) \approx 6.3 \times 10^{-16}$`,
-/// six orders of magnitude below this repo's default floor of `-20`. (For
-/// scale: `exp` leaves f32's **normal** range around `-87` but does not reach
-/// exactly `0.0` until `≈ -104`.)
+/// The floor constrains no usable configuration:
+/// `$\sigma = \exp(-35) \approx 6.3 \times 10^{-16}$`, six orders of magnitude below this repo's
+/// default floor of `-20`. (For scale: `exp` leaves f32's **normal** range around `-87` but does
+/// not reach exactly `0.0` until `$\approx -104$`.)
 ///
 /// Together with [`MAX_LOG_STD_SPAN`] this also bounds `log_std_max` from
 /// above, to `< 5`. That is intended and free — a converged
 /// continuous-control policy sits near `$\log \sigma \in [-3, 1]$`.
 const MIN_LOG_STD_FLOOR: f32 = -35.0;
 
-/// Largest permitted `log_std_max − log_std_min`.
+/// Largest permitted `$\text{log\_std\_max} - \text{log\_std\_min}$`.
 ///
 /// `log_prob` evaluates `$\text{scaled} = (z - \mu)/\sigma_{new}$` where `z` was sampled under
-/// `$\sigma_{old}$`; for a `k`-sigma sample the magnitude is `$O(k \cdot \sigma_{old}/\sigma_{new})$`, so
-/// `$\text{scaled}^2$` overflows f32 once
-/// `2·(log_std_max − log_std_min) + 2·ln k > ln(3.4e38) ≈ 88.7`. A span below
-/// `40` keeps `$((z - \mu)/\sigma)^2$` inside f32 range with headroom for large `k`.
+/// `$\sigma_{old}$`; for a `k`-sigma sample the magnitude is
+/// `$O(k \cdot \sigma_{old}/\sigma_{new})$`, so `$\text{scaled}^2$` overflows f32 once
+/// `$2(\text{log\_std\_max} - \text{log\_std\_min}) + 2\ln k > \ln(3.4\times 10^{38}) \approx 88.7$`.
+/// A span below `40` keeps `$((z - \mu)/\sigma)^2$` inside f32 range with headroom for large `k`.
 const MAX_LOG_STD_SPAN: f32 = 40.0;
 
 /// Per-head, per-bound one-shot latches for the "clamp has bound" warning.
 ///
-/// Two flags, not one. The floor and the ceiling are **opposite** failures —
-/// σ collapsing to a point mass versus σ exploding into pure noise — and they
-/// carry different repairs, so a single shared latch would let whichever bound
-/// crossed first permanently silence the diagnosis of the other. That is
-/// exactly the failure a single shared latch produced before this split: a
-/// 2-dim head crossing the floor on dim 0 and the ceiling on dim 1 emitted
-/// one warning naming only the floor.
+/// Two flags, not one. The floor and the ceiling are **opposite** failures — `$\sigma$` collapsing
+/// to a point mass versus `$\sigma$` exploding into pure noise — and they carry different repairs,
+/// so a single shared latch would let whichever bound crossed first permanently silence the
+/// diagnosis of the other. That is exactly the failure a single shared latch produced before this
+/// split: a 2-dim head crossing the floor on dim 0 and the ceiling on dim 1 emitted one warning
+/// naming only the floor.
 ///
 /// Both fields use [`Ordering::Relaxed`]: each flag guards nothing but itself,
 /// and the only requirement is that exactly one `swap` per flag observes
@@ -274,14 +272,12 @@ impl Validate for TanhGaussianPolicyHeadConfig {
         config::nonzero(C, "obs_dim", self.obs_dim)?;
         config::nonzero(C, "hidden", self.hidden)?;
         config::nonzero(C, "action_dim", self.action_dim)?;
-        // Ordering is *not* checked here: `Bounds` cannot be constructed
-        // inverted, so `lo <= hi` holds by type (ADR 0027). What `Bounds` does
-        // permit and `config::ordered`'s strict `<` did not is the degenerate
-        // `lo == hi`, so that case is re-checked explicitly. A zero-width
-        // `log σ` range is not merely useless: `log_std` is a single shared
-        // parameter, so pinning it to a constant freezes sigma — and its
-        // gradient — from step 0 with no path back (see the module docs). That
-        // is the trap door, entered deliberately at construction.
+        // Ordering is *not* checked here: `Bounds` cannot be constructed inverted, so `lo <= hi`
+        // holds by type (ADR 0027). What `Bounds` does permit and `config::ordered`'s strict `<`
+        // did not is the degenerate `lo == hi`, so that case is re-checked explicitly. A zero-width
+        // `$\log \sigma$` range is not merely useless: `log_std` is a single shared parameter, so
+        // pinning it to a constant freezes sigma — and its gradient — from step 0 with no path back
+        // (see the module docs). That is the trap door, entered deliberately at construction.
         config::nondegenerate_bounds(C, "log_std", self.log_std)?;
         // The *absolute* floor, checked before the span because the span check
         // says nothing about either bound's magnitude: `(-120, -100)` is
@@ -303,13 +299,13 @@ impl Validate for TanhGaussianPolicyHeadConfig {
                 ),
             });
         }
-        // Beyond mere orderedness, the *span* is bounded: `scaled =
-        // (z − μ)/σ_new` with `z` drawn under `σ_old` has magnitude
-        // `O(k · σ_old/σ_new)` for a k-sigma sample, so `scaled²` overflows f32
-        // once `2·(log_std_max − log_std_min) + 2·ln k > ln(3.4e38) ≈ 88.7`.
-        // `Bounds::span()` supplies the width; nothing in `Bounds` bounds it,
-        // and no range helper carries the derivation, so the error is built
-        // here.
+        // Beyond mere orderedness, the *span* is bounded: `$\text{scaled} =$`
+        // `$(z - \mu)/\sigma_{new}$` with `z` drawn under `$\sigma_{old}$` has magnitude
+        // `$O(k\,\sigma_{old}/\sigma_{new})$` for a k-sigma sample, so `$\text{scaled}^2$`
+        // overflows f32 once
+        // `$2(\text{log\_std\_max} - \text{log\_std\_min}) + 2\ln k > \ln(3.4\times 10^{38}) \approx 88.7$`.
+        // `Bounds::span()` supplies the width; nothing in `Bounds` bounds it, and no range helper
+        // carries the derivation, so the error is built here.
         if self.log_std.span() >= MAX_LOG_STD_SPAN {
             return Err(ConfigError {
                 config: C,
@@ -337,16 +333,16 @@ impl Validate for TanhGaussianPolicyHeadConfig {
 }
 
 /// MLP → Gaussian mean, with state-independent `log_std`, squashed via
-/// `scale · tanh(z)` at the env boundary.
+/// `$\text{scale} \cdot \tanh(z)$` at the env boundary.
 ///
 /// `log_std_min` / `log_std_max` / `action_scale` are constants captured at
 /// construction time. They are **not** learnable and travel with the module
 /// only because Burn's `#[derive(Module)]` requires fields to be either
 /// `Param`s, sub-modules, or plain data.
 ///
-/// The `log_std` bounds are applied on every read (see
-/// [`clamped_log_std`](Self::clamped_log_std)); the [module docs](self)
-/// explain why the bound exists and why it is *not* the same as SAC's.
+/// The `log_std` bounds are applied on every read (see `clamped_log_std`); the
+/// [module docs](self) explain why the bound exists and why it is *not* the
+/// same as SAC's.
 ///
 /// They are stored as two `f32`s rather than as the config's
 /// [`Bounds`] because the clamp site is
@@ -416,8 +412,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
     /// Deliberately unclamped: this is the learnable parameter as stored, so
     /// callers can observe drift past the bounds. The values actually used by
     /// [`sample_with_logprob`](PpoPolicy::sample_with_logprob) and
-    /// [`evaluate`](PpoPolicy::evaluate) come from
-    /// [`clamped_log_std`](Self::clamped_log_std).
+    /// [`evaluate`](PpoPolicy::evaluate) come from `clamped_log_std`.
     pub fn log_std_vec(&self) -> Tensor<B, 1> {
         self.log_std.val()
     }
@@ -591,7 +586,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         let log_std = self.clamped_log_std(batch);
         let std = log_std.clone().exp();
 
-        // log N(z | μ, σ) = -0.5·((z-μ)/σ)² - log σ - 0.5 log 2π
+        // `$\log N(z\mid \mu, \sigma) = -0.5((z-\mu)/\sigma)^2 - \log\sigma - 0.5\log 2\pi$`
         let centered = z - mean;
         let scaled = centered.clone() / std.clone();
         let scaled_sq = scaled.clone() * scaled;
@@ -600,7 +595,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         // Sum over action dim → (batch,).
         let log_prob = per_dim.sum_dim(1).squeeze_dim::<1>(1);
 
-        // Gaussian entropy per dim: 0.5·log(2πe) + log σ.
+        // Gaussian entropy per dim: `$0.5\log(2\pi e) + \log\sigma$`.
         let log_2pi_e = log_2pi + 1.0;
         let entropy_per_dim = log_std + log_2pi_e * 0.5;
         let entropy = entropy_per_dim.sum_dim(1).squeeze_dim::<1>(1);
@@ -621,8 +616,8 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     /// log-probability, and the per-row Gaussian entropy.
     ///
     /// `z` is stored in the rollout buffer, not the tanh-squashed env action
-    /// `a = scale · tanh(z)`. See the module-level note on why the tanh
-    /// Jacobian is omitted.
+    /// `$a = \text{scale} \cdot \tanh(z)$`. See the module-level note on why the tanh Jacobian is
+    /// omitted.
     // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
     // Narrowing to the tensor's own dtype is the intent, and the sample is finite
     // by construction.
@@ -636,7 +631,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
         let [batch, _] = obs.dims();
         let action_dim = self.action_dim;
 
-        // Draw ε ~ N(0, 1) on CPU for reproducibility.
+        // Draw `$\epsilon$` ~ N(0, 1) on CPU for reproducibility.
         let mut eps_vec: Vec<f32> = Vec::with_capacity(batch * action_dim);
         let normal = StandardNormal;
         for _ in 0..(batch * action_dim) {
@@ -648,7 +643,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
 
         let mean = self.mean(obs.clone());
         let std = self.clamped_log_std(batch).exp();
-        // z = μ + σ·ε
+        // `$z = \mu + \sigma\epsilon$`
         let z = mean + std * eps;
 
         let lp_ent = self.log_prob_entropy(obs, z.clone());
@@ -669,8 +664,8 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
 
     /// Extracts the pre-squash `z` row at `row` as `action_dim` `f32` values.
     ///
-    /// This is the buffer representation for continuous actions. The
-    /// environment-facing value (`scale · tanh(z)`) is produced separately by
+    /// This is the buffer representation for continuous actions. The environment-facing value
+    /// (`$\text{scale} \cdot \tanh(z)$`) is produced separately by
     /// [`raw_to_env_row`](Self::raw_to_env_row).
     fn action_row_from_tensor(action: &Self::ActionTensor, row: usize) -> Vec<f32> {
         let data = action.clone().into_data().convert::<f32>();
@@ -694,9 +689,8 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
         )
     }
 
-    /// Converts a pre-squash `z` row to the env-facing action
-    /// `scale · tanh(z)`, squashing each component into
-    /// `(−action_scale, +action_scale)`.
+    /// Converts a pre-squash `z` row to the env-facing action `$\text{scale} \cdot \tanh(z)$`,
+    /// squashing each component into `$(-\text{action\_scale}, +\text{action\_scale})$`.
     fn raw_to_env_row(&self, raw_row: &[f32]) -> Vec<f32> {
         raw_row
             .iter()
@@ -724,15 +718,15 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
         Some(self.read_log_std_extrema_and_warn().1)
     }
 
-    /// Returns `scale · tanh(μ(obs))` as the deterministic (noise-free) action
-    /// for the first batch row, evaluated on the frozen inner backend.
+    /// Returns `$\text{scale} \cdot \tanh(\mu(\text{obs}))$` as the deterministic (noise-free)
+    /// action for the first batch row, evaluated on the frozen inner backend.
     ///
-    /// No σ·ε noise is added — appropriate for evaluation and benchmarking.
+    /// No `$\sigma\epsilon$` noise is added — appropriate for evaluation and benchmarking.
     fn deterministic_env_row_inner(
         inner: &Self::InnerModule,
         obs: Tensor<B::InnerBackend, 2>,
     ) -> Vec<f32> {
-        // Deterministic action = squashed policy mean (no σ·ε noise).
+        // Deterministic action = squashed policy mean (no `$\sigma\epsilon$` noise).
         let action_dim = inner.action_dim();
         let env = tanh(inner.mean(obs)).mul_scalar(inner.action_scale());
         let data = env.into_data().convert::<f32>();
@@ -815,7 +809,7 @@ mod tests {
 
     #[test]
     fn test_ppo_gaussian_policy_gaussian_logprob_at_mean_matches_reference() {
-        // With μ=0, σ=1, z=0, per-dim log N(0|0,1) = -0.5·log(2π).
+        // With `$\mu=0$`, `$\sigma=1$`, `$z=0$`, per-dim `$\log N(0\mid 0,1) = -0.5\log(2\pi)$`.
         let device = Default::default();
         let cfg = TanhGaussianPolicyHeadConfig {
             obs_dim: 1,
@@ -835,7 +829,7 @@ mod tests {
             Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
         let mean = head.mean(obs.clone());
         let eval = head.evaluate(obs, mean.clone());
-        // Expected per dim: −0.5·log(2π), sum across dim=2 → −log(2π) ≈ −1.8379.
+        // Expected per dim: `$-0.5\log(2\pi)$`, sum across dim=2 → `$-\log(2\pi) \approx -1.8379$`.
         let expected = -(2.0_f32 * std::f32::consts::PI).ln();
         let got = eval.log_prob.into_scalar().elem::<f32>();
         assert!(
@@ -863,7 +857,7 @@ mod tests {
             .expect("valid head config");
         let obs_vals = vec![0.1_f32, -0.2, 0.3];
 
-        // Reference: scale · tanh(μ) computed on the autodiff head.
+        // Reference: scale `$\cdot$` tanh(`$\mu$`) computed on the autodiff head.
         let obs: Tensor<TestAdBackend, 2> =
             Tensor::from_data(TensorData::new(obs_vals.clone(), vec![1, 3]), &device);
         let mean = head.mean(obs).into_scalar().elem::<f32>();
@@ -921,7 +915,7 @@ mod tests {
             Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
         let mean = head.mean(obs.clone());
         let eval = head.evaluate(obs, mean);
-        // Per dim entropy at σ=1 is 0 + 0.5·log(2πe); two dims summed.
+        // Per dim entropy at `$\sigma=1$` is `$0 + 0.5\log(2\pi e)$`; two dims summed.
         let expected = 2.0 * 0.5 * ((2.0_f32 * std::f32::consts::PI).ln() + 1.0);
         let got = eval.entropy.into_scalar().elem::<f32>();
         assert!(
@@ -964,11 +958,11 @@ mod tests {
         assert!(Bounds::try_new(-20.0, 2.0).is_ok());
     }
 
-    /// `Bounds` permits the degenerate `lo == hi` (clamping to a constant is
-    /// well-defined), but PPO does not: `log_std` is a single shared parameter,
-    /// so a zero-width range freezes σ *and its gradient* from step 0 with no
-    /// path back. The old strict-`<` `config::ordered` rejected this as a side
-    /// effect; the explicit `config::nondegenerate_bounds` check preserves it.
+    /// `Bounds` permits the degenerate `lo == hi` (clamping to a constant is well-defined), but PPO
+    /// does not: `log_std` is a single shared parameter, so a zero-width range freezes `$\sigma$`
+    /// *and its gradient* from step 0 with no path back. The old strict-`<` `config::ordered`
+    /// rejected this as a side effect; the explicit `config::nondegenerate_bounds` check preserves
+    /// it.
     #[test]
     fn test_ppo_gaussian_policy_validate_rejects_equal_log_std_bounds() {
         let cfg = TanhGaussianPolicyHeadConfig {
@@ -984,10 +978,9 @@ mod tests {
     /// bounds are correctly ordered — orderedness alone (all `Bounds`
     /// guarantees) would accept it.
     ///
-    /// The lower bound is pinned to the absolute floor `−35` so that the *span*
-    /// is the only invariant in play: a lower bound of `−38` would trip
-    /// [`MIN_LOG_STD_FLOOR`] first and this test would silently assert the
-    /// wrong guard.
+    /// The lower bound is pinned to the absolute floor `$-35$` so that the *span* is the only
+    /// invariant in play: a lower bound of `$-38$` would trip [`MIN_LOG_STD_FLOOR`] first and this
+    /// test would silently assert the wrong guard.
     #[test]
     fn test_ppo_gaussian_policy_validate_rejects_log_std_span_of_forty_or_more() {
         let cfg = TanhGaussianPolicyHeadConfig {
@@ -1114,11 +1107,11 @@ mod tests {
             ..bounded_cfg()
         };
 
-        // Evaluates `log_prob` for a head whose bounds and initial `log σ` are
-        // `(min, max, init)`, *without* consulting `validate()` — the head is
-        // built from an accepted config and then forced into the state under
-        // test. This is deliberately the bypass `try_init` closed: the point of
-        // the test is the numerical fact, not the construction path.
+        // Evaluates `log_prob` for a head whose bounds and initial `$\log \sigma$` are
+        // `(min, max, init)`, *without* consulting `validate()` — the head is built from an
+        // accepted config and then forced into the state under test. This is deliberately the
+        // bypass `try_init` closed: the point of the test is the numerical fact, not the
+        // construction path.
         let eval_at = |min: f32, max: f32, init: f32| -> f32 {
             let mut head: TanhGaussianPolicyHead<TestAdBackend> = bounded_cfg()
                 .try_init::<TestAdBackend>(&device)
@@ -1320,22 +1313,21 @@ mod tests {
     /// The sampling path must draw `$z = \mu + \sigma \cdot \epsilon$` from the **clamped** `$\sigma$`, not
     /// the raw parameter.
     ///
-    /// Log-prob agreement alone cannot catch a one-sided clamp here, because
-    /// `sample_with_logprob` scores its own sample through `log_prob_entropy` —
-    /// the same function `evaluate` uses — so the two always agree by
-    /// construction. What a one-sided clamp *does* corrupt is the sample's
-    /// spread: with `log_std` forced to `−60`, an unclamped draw would sit
+    /// Log-prob agreement alone cannot catch a one-sided clamp here, because `sample_with_logprob`
+    /// scores its own sample through `log_prob_entropy` — the same function `evaluate` uses — so
+    /// the two always agree by construction. What a one-sided clamp *does* corrupt is the sample's
+    /// spread: with `log_std` forced to `$-60$`, an unclamped draw would sit
     /// `$\exp(-60) \approx 9 \times 10^{-27}$` from the mean while every density downstream scored
     /// it under `$\exp(-20) \approx 2 \times 10^{-9}$` — an on-policy rollout collecting samples
-    /// from a distribution the loss does not believe in. So this test pins the
-    /// realized `$|z - \mu|$` to the clamped scale, and checks agreement on top.
+    /// from a distribution the loss does not believe in. So this test pins the realized
+    /// `$|z - \mu|$` to the clamped scale, and checks agreement on top.
     #[test]
     fn test_ppo_gaussian_policy_clamped_sample_draws_at_the_floor_scale_and_agrees_with_evaluate() {
         let device = Default::default();
-        // A floor of −10 (σ ≈ 4.5·10⁻⁵) rather than the usual −20: at −20 the
-        // increment σ·ε is below one f32 ulp of a mean of order 0.1, so `$z - \mu$`
-        // would round to exactly zero and the assertion could not distinguish
-        // the two cases. The clamp under test is identical either way.
+        // A floor of `$-10$` (`$\sigma \approx 4.5 \times 10^{-5}$`) rather than the usual `$-20$`:
+        // at `$-20$` the increment `$\sigma\epsilon$` is below one f32 ulp of a mean of order 0.1,
+        // so `$z - \mu$` would round to exactly zero and the assertion could not distinguish the
+        // two cases. The clamp under test is identical either way.
         let cfg = TanhGaussianPolicyHeadConfig {
             log_std: Bounds::new(-10.0, 2.0),
             ..bounded_cfg()
@@ -1357,9 +1349,10 @@ mod tests {
         let out = head.sample_with_logprob(obs.clone(), &mut rng);
         let z = out.action.clone().into_scalar().elem::<f32>();
 
-        // |z − μ| = σ·|ε| with σ = exp(log_std_min); a fixed seed keeps |ε| in a
-        // sane band, so a two-decade window around σ is a generous bound that
-        // still rules out the exp(−60) draw by ~22 orders of magnitude.
+        // `$\lvert z - \mu\rvert = \sigma\lvert\epsilon\rvert$` with
+        // `$\sigma = \exp(\text{log\_std\_min})$`; a fixed seed keeps |`$\epsilon$`| in a sane
+        // band, so a two-decade window around `$\sigma$` is a generous bound that still rules out
+        // the `$\exp(-60)$` draw by ~22 orders of magnitude.
         let sigma_floor = head.log_std_min().exp();
         let dev = (z - mu).abs();
         assert!(
@@ -1635,11 +1628,10 @@ mod tests {
     /// **two** `WARN` events, one naming each bound, each carrying the dims
     /// that crossed it.
     ///
-    /// Under the old single-`AtomicBool` latch this call emitted exactly one
-    /// event, and — because the emitting branch was `if below { .. } else
-    /// { .. }` — that event named only `log_std_min`. The ceiling violation
-    /// (`$\log \sigma = 9$`, σ ≈ 8103, a policy sampling pure noise on dim 1) was
-    /// dropped from the very first warning and, the latch now being set, from
+    /// Under the old single-`AtomicBool` latch this call emitted exactly one event, and — because
+    /// the emitting branch was `if below { .. } else { .. }` — that event named only `log_std_min`.
+    /// The ceiling violation (`$\log \sigma = 9$`, `$\sigma \approx 8103$`, a policy sampling pure
+    /// noise on dim 1) was dropped from the very first warning and, the latch now being set, from
     /// every subsequent one too.
     ///
     /// Asserted on the captured events rather than the latches, and that is
@@ -1662,7 +1654,7 @@ mod tests {
             .try_init::<TestAdBackend>(&device)
             .expect("valid head config");
 
-        // dim 0 collapsed below −20, dim 1 exploded above +2, in one parameter.
+        // dim 0 collapsed below `$-20$`, dim 1 exploded above `$+2$`, in one parameter.
         let both: Tensor<TestAdBackend, 1> =
             Tensor::from_data(TensorData::new(vec![-60.0_f32, 9.0], vec![2]), &device);
         head.log_std = Param::from_tensor(both);
@@ -1704,9 +1696,9 @@ mod tests {
             "the ceiling warning must name the dim that exploded"
         );
         assert_eq!(ceiling.action_dim, Some(2));
-        // The two messages must be genuinely different prose, not the floor's
-        // text with a substituted bound name: a diverging σ and a collapsing σ
-        // have opposite repairs.
+        // The two messages must be genuinely different prose, not the floor's text with a
+        // substituted bound name: a diverging `$\sigma$` and a collapsing `$\sigma$` have opposite
+        // repairs.
         assert!(
             ceiling
                 .message
@@ -1850,13 +1842,12 @@ mod tests {
     /// `min_log_std` is structurally blind to a dim pinned at the ceiling, and
     /// `max_log_std` is the metric that sees it.
     ///
-    /// With `[-20, 2]` bounds, a head whose clamped `$\log \sigma$` is `[-20, 2]`
-    /// reports `min_log_std = -20.0`... but a head whose *raw* parameter is
-    /// `[-20.0, 9.0]` — one healthy dim, one dim frozen at σ = e² with a dead
-    /// gradient — reports `min_log_std = -20.0` too, and a head at
-    /// `[0.0, 9.0]` reports a completely healthy-looking `0.0`. A minimum can
-    /// never fall when a dim rises, so no threshold on it detects divergence.
-    /// That measured blindness is the reason `max_log_std` exists.
+    /// With `[-20, 2]` bounds, a head whose clamped `$\log \sigma$` is `[-20, 2]` reports
+    /// `min_log_std = -20.0`... but a head whose *raw* parameter is `[-20.0, 9.0]` — one healthy
+    /// dim, one dim frozen at `$\sigma = e^2$` with a dead gradient — reports `min_log_std = -20.0`
+    /// too, and a head at `[0.0, 9.0]` reports a completely healthy-looking `0.0`. A minimum can
+    /// never fall when a dim rises, so no threshold on it detects divergence. That measured
+    /// blindness is the reason `max_log_std` exists.
     #[test]
     fn test_ppo_gaussian_policy_max_log_std_sees_the_ceiling_that_min_log_std_cannot() {
         let device = Default::default();
@@ -1868,7 +1859,7 @@ mod tests {
             .try_init::<TestAdBackend>(&device)
             .expect("valid head config");
 
-        // dim 0 healthy at σ = 1; dim 1 pinned well above the ceiling.
+        // dim 0 healthy at `$\sigma$` = 1; dim 1 pinned well above the ceiling.
         let pinned: Tensor<TestAdBackend, 1> =
             Tensor::from_data(TensorData::new(vec![0.0_f32, 9.0], vec![2]), &device);
         head.log_std = Param::from_tensor(pinned);
@@ -1894,9 +1885,8 @@ mod tests {
         assert_eq!(events[0].dims.as_deref(), Some("[1]"));
     }
 
-    /// `min_log_std` is a minimum across action dims, and it reports the
-    /// **clamped** value — the σ actually used by every density computation,
-    /// not the raw parameter.
+    /// `min_log_std` is a minimum across action dims, and it reports the **clamped** value — the
+    /// `$\sigma$` actually used by every density computation, not the raw parameter.
     #[test]
     fn test_ppo_gaussian_policy_min_log_std_is_the_clamped_minimum_across_action_dims() {
         let device = Default::default();
@@ -1916,9 +1906,9 @@ mod tests {
         assert!((got - (-3.25)).abs() < 1e-6, "expected -3.25, got {got}");
         assert!(!head.clamp_warning_below_fired() && !head.clamp_warning_above_fired());
 
-        // One dim collapsed below the floor: the metric saturates at the floor
-        // rather than reporting the raw value, because the floor is the σ the
-        // policy is actually sampling and scoring with.
+        // One dim collapsed below the floor: the metric saturates at the floor rather than
+        // reporting the raw value, because the floor is the `$\sigma$` the policy is actually
+        // sampling and scoring with.
         let collapsed: Tensor<TestAdBackend, 1> =
             Tensor::from_data(TensorData::new(vec![1.5_f32, -60.0, 0.0], vec![3]), &device);
         head.log_std = Param::from_tensor(collapsed);

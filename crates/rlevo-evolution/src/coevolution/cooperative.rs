@@ -349,15 +349,14 @@ where
         let fits = self.fitness.evaluate_coupled(&[full_a, full_b]);
         debug_assert_eq!(fits.len(), 2, "cooperative co-evolution is bi-population");
 
-        // Canonicalise-then-sanitize chokepoint for the coupled-fitness path
-        // (ADR 0023 / 0034), mirroring `EvolutionaryHarness::step`. First map
-        // NATURAL → canonical (maximise-native: negate iff `Minimize`), THEN
-        // sanitize (`NaN → −∞` worst, `+∞ → f32::MAX`). The ordering is
-        // load-bearing: "NaN = worst" is only well-defined in maximise space, so
-        // sanitizing before `neg()` would flip a `NaN` cost to `+∞` = canonical
-        // *best* under `Minimize`. After this the per-population `tell`, the
-        // `snapshot` best/mean written into `CoEAState`, and any hall-of-fame all
-        // see canonical, finite-or-`−∞` fitness.
+        // Canonicalise-then-sanitize chokepoint for the coupled-fitness path (ADR 0023 / 0034),
+        // mirroring `EvolutionaryHarness::step`. First map NATURAL → canonical (maximise-native:
+        // negate iff `Minimize`), THEN sanitize (`$\text{NaN} \to -\infty$` worst,
+        // `$+\infty \to \text{f32::MAX}$`). The ordering is load-bearing: "NaN = worst" is only
+        // well-defined in maximise space, so sanitizing before `neg()` would flip a `NaN` cost to
+        // `$+\infty$` = canonical *best* under `Minimize`. After this the per-population `tell`,
+        // the `snapshot` best/mean written into `CoEAState`, and any hall-of-fame all see
+        // canonical, finite-or-`$-\infty$` fitness.
         let canon = |t: Tensor<B, 1>| {
             let c = match sense {
                 ObjectiveSense::Maximize => t,
@@ -679,9 +678,9 @@ mod tests {
         }
     }
 
-    /// Coupled fitness over assembled full-dimensional candidates: row 0 is
-    /// `NaN`, the rest a finite ramp `1, 2, …`. The chokepoint must sanitize
-    /// `NaN → −∞` so the finite maximum (`COOP_POP - 1`) is the champion.
+    /// Coupled fitness over assembled full-dimensional candidates: row 0 is `NaN`, the rest a
+    /// finite ramp `1, 2, …`. The chokepoint must sanitize `$\text{NaN} \to -\infty$` so the finite
+    /// maximum (`COOP_POP - 1`) is the champion.
     struct PoisonRow0Nan;
 
     impl CoupledFitness<B> for PoisonRow0Nan {
@@ -796,8 +795,8 @@ mod tests {
         let state = algo.init(&params, &mut rng, &device);
         let (_next, m) = algo.step(&params, state, &mut rng, &device);
 
-        // The engine optimises `−cost`; the best natural cost is 0.0 (row 0),
-        // reported back in natural sense.
+        // The engine optimises `$-\text{cost}$`; the best natural cost is 0.0 (row 0), reported
+        // back in natural sense.
         approx::assert_relative_eq!(m.best_fitness_a, 0.0, epsilon = 1e-6);
         approx::assert_relative_eq!(m.best_fitness_b, 0.0, epsilon = 1e-6);
         // Mean is a natural cost, finite and positive (rows 0..COOP_POP).

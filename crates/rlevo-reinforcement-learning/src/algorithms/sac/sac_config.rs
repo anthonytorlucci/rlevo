@@ -46,22 +46,22 @@ pub struct SacTrainingConfig {
     pub critic_lr: f64,
     /// Learning rate for the `$\log \alpha$` optimiser (ignored when `autotune=false`).
     pub alpha_lr: f64,
-    /// Discount factor γ applied to the bootstrap target.
+    /// Discount factor `$\gamma$` applied to the bootstrap target.
     pub gamma: f32,
     /// When `true`, `$\log \alpha$` is trained toward `target_entropy`. When `false`,
     /// `$\alpha$` is frozen at `initial_alpha`.
     pub autotune: bool,
-    /// Initial value for α (i.e. `log α = ln(initial_alpha)`). Defaults to
-    /// `1.0` so `$\log \alpha$` starts at `0`, matching `CleanRL`.
+    /// Initial value for `$\alpha$` (i.e. `$\log \alpha = \ln(\text{initial\_alpha})$`). Defaults
+    /// to `1.0` so `$\log \alpha$` starts at `0`, matching `CleanRL`.
     pub initial_alpha: f32,
-    /// Target entropy H̄. `None` ⇒ `-(A::COMPONENTS as f32)` (the common
-    /// heuristic from Haarnoja et al. 2018b, matching `CleanRL`).
+    /// Target entropy H̄. `None` `$\Rightarrow$` `-(A::COMPONENTS as f32)` (the common heuristic
+    /// from Haarnoja et al. 2018b, matching `CleanRL`).
     pub target_entropy: Option<f32>,
-    /// Critic-update cadence at which the actor and α updates run. `2`
-    /// matches `CleanRL`'s `sac_continuous_action.py` default.
+    /// Critic-update cadence at which the actor and `$\alpha$` updates run. `2` matches `CleanRL`'s
+    /// `sac_continuous_action.py` default.
     pub policy_frequency: usize,
-    /// Update rule for both critic target networks: the Polyak coefficient τ
-    /// and the cadence at which it fires. SAC has no target actor.
+    /// Update rule for both critic target networks: the Polyak coefficient `$\tau$` and the cadence
+    /// at which it fires. SAC has no target actor.
     ///
     /// The cadence counts **gradient (critic) updates**, not environment steps
     /// (ADR 0059) — unlike [`learning_starts`](Self::learning_starts), which is
@@ -70,9 +70,8 @@ pub struct SacTrainingConfig {
     pub target_update: TargetUpdate,
     /// Optional gradient clipping applied to actor and both critic grads.
     pub clip_grad: Option<GradientClippingConfig>,
-    /// Base Adam configuration cloned for each optimiser so the actor, both
-    /// critics, and `$\log \alpha$` share β-params but keep independent moment
-    /// estimates.
+    /// Base Adam configuration cloned for each optimiser so the actor, both critics, and
+    /// `$\log \alpha$` share `$\beta$`-params but keep independent moment estimates.
     pub optimizer: AdamConfig,
 }
 
@@ -124,10 +123,9 @@ impl Validate for SacTrainingConfig {
         config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
         config::positive(C, "initial_alpha", f64::from(self.initial_alpha))?;
         config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
-        // `target_update` carries no check here: `TargetUpdate` is valid by
-        // construction (τ ∈ (0, 1], cadence ≥ 1), so the newtype *removes* the
-        // paired `config::` lines rather than duplicating them — ADR 0027 §3,
-        // ADR 0058 §Consequences.
+        // `target_update` carries no check here: `TargetUpdate` is valid by construction (`$\tau$`
+        // `$\in$` (0, 1], cadence `$\geq$` 1), so the newtype *removes* the paired `config::` lines
+        // rather than duplicating them — ADR 0027 §3, ADR 0058 §Consequences.
         Ok(())
     }
 }
@@ -208,21 +206,21 @@ impl SacTrainingConfigBuilder {
         self
     }
 
-    /// Sets the discount factor γ.
+    /// Sets the discount factor `$\gamma$`.
     #[must_use]
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
         self
     }
 
-    /// Enables or disables auto-tuning of α.
+    /// Enables or disables auto-tuning of `$\alpha$`.
     #[must_use]
     pub fn autotune(mut self, autotune: bool) -> Self {
         self.config.autotune = autotune;
         self
     }
 
-    /// Sets the initial α (also used as the fixed α when `autotune=false`).
+    /// Sets the initial `$\alpha$` (also used as the fixed `$\alpha$` when `autotune=false`).
     #[must_use]
     pub fn initial_alpha(mut self, alpha: f32) -> Self {
         self.config.initial_alpha = alpha;
@@ -237,15 +235,15 @@ impl SacTrainingConfigBuilder {
         self
     }
 
-    /// Sets the critic-step cadence at which the actor + α updates run.
+    /// Sets the critic-step cadence at which the actor + `$\alpha$` updates run.
     #[must_use]
     pub fn policy_frequency(mut self, frequency: usize) -> Self {
         self.config.policy_frequency = frequency;
         self
     }
 
-    /// Sets the twin critic targets' update rule: the Polyak coefficient τ and
-    /// the critic-update cadence at which it fires.
+    /// Sets the twin critic targets' update rule: the Polyak coefficient `$\tau$` and the
+    /// critic-update cadence at which it fires.
     ///
     /// ```rust
     /// use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfigBuilder;
@@ -349,10 +347,9 @@ mod tests {
     /// consumed as `f64::from(tau)` under an `is_multiple_of(1)` gate. Pinning
     /// both halves separately is what makes "bit-identical at defaults" a
     /// checkable claim rather than a review comment.
-    // Bit-exactness *is* the property under test here: τ is a source literal
-    // stored verbatim and read back through a widening that is exact for every
-    // `f32`, never the result of arithmetic. A tolerance would let a genuine
-    // default drift pass.
+    // Bit-exactness *is* the property under test here: `$\tau$` is a source literal stored verbatim
+    // and read back through a widening that is exact for every `f32`, never the result of
+    // arithmetic. A tolerance would let a genuine default drift pass.
     #[allow(clippy::float_cmp)]
     #[test]
     fn test_sac_config_default_target_update_is_bit_identical_to_the_pre_migration_pair() {
@@ -428,8 +425,8 @@ mod tests {
     fn test_sac_config_nan_tau_cannot_be_constructed_for_struct_update_syntax() {
         assert!(TargetUpdate::try_polyak(f32::NAN, 1).is_err());
         assert!(TargetUpdate::try_polyak(f32::INFINITY, 1).is_err());
-        // Every τ a struct-update config can carry came through `PolyakTau`, so
-        // the result is necessarily valid.
+        // Every `$\tau$` a struct-update config can carry came through `PolyakTau`, so the result
+        // is necessarily valid.
         let config = SacTrainingConfig {
             target_update: TargetUpdate::polyak(0.005, 1),
             ..Default::default()

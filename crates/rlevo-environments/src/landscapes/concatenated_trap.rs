@@ -1,10 +1,9 @@
 //! Concatenated trap — a deceptive, additively decomposable binary landscape.
 //!
-//! The genome is `num_blocks · block_size` binary genes, partitioned into
-//! contiguous, non-overlapping blocks of `k = block_size` bits each. Genes
-//! are interpreted as bits via a `>= 0.5` threshold. Each block contributes a
-//! cost that depends only on its *unitation* `u` (the number of 1-bits in the
-//! block), and the total objective is the sum across blocks:
+//! The genome is `$\text{num\_blocks} \cdot \text{block\_size}$` binary genes, partitioned into
+//! contiguous, non-overlapping blocks of `k = block_size` bits each. Genes are interpreted as bits
+//! via a `>= 0.5` threshold. Each block contributes a cost that depends only on its *unitation* `u`
+//! (the number of 1-bits in the block), and the total objective is the sum across blocks:
 //!
 //! ```math
 //! \text{cost}(u) =
@@ -86,7 +85,7 @@ impl ConcatenatedTrap {
     ///   makes [`evaluate`](Self::evaluate) partition with `chunks_exact(0)`
     ///   (a panic) while scoring an empty genome at the *optimum* cost `0` —
     ///   a misconfigured run would read as "solved".
-    /// - [`ConstraintKind::Custom`] when `num_blocks · block_size` overflows
+    /// - [`ConstraintKind::Custom`] when `$\text{num\_blocks} \cdot \text{block\_size}$` overflows
     ///   `usize`: the genome dimension cannot be represented, so
     ///   [`dim`](Self::dim) has no correct answer to return.
     pub fn new(num_blocks: usize, block_size: usize) -> Result<Self, ConfigError> {
@@ -106,7 +105,7 @@ impl ConcatenatedTrap {
         })
     }
 
-    /// Total genome dimension: `num_blocks · block_size`. Always non-zero.
+    /// Total genome dimension: `$\text{num\_blocks} \cdot \text{block\_size}$`. Always non-zero.
     ///
     /// The multiplication cannot overflow: [`new`](Self::new) rejects any
     /// `(num_blocks, block_size)` whose product exceeds `usize`, and the fields
@@ -136,7 +135,7 @@ impl ConcatenatedTrap {
                 Self::block_cost(self.block_size, u)
             })
             .sum();
-        // The total is bounded by num_blocks · (k + 1), well within the exact
+        // The total is bounded by `$\text{num\_blocks} \cdot (k + 1)$`, well within the exact
         // integer range of f64 (2^53), so the cast is exact, not lossy.
         #[allow(clippy::cast_precision_loss)]
         let cost = total as f64;
@@ -222,7 +221,7 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
-    /// A valid trap-5 × 4 for the happy-path tests.
+    /// A valid trap-5 `$\times$` 4 for the happy-path tests.
     fn trap_5x4() -> ConcatenatedTrap {
         ConcatenatedTrap::new(4, 5).expect("4 blocks of 5 bits is a valid trap")
     }
@@ -331,7 +330,8 @@ mod tests {
     #[test]
     fn threshold_rounds_genes_to_bits() {
         let t = ConcatenatedTrap::new(1, 5).expect("valid trap");
-        // 0.49 -> 0, 0.5 -> 1, 0.51 -> 1, 1.0 -> 1, 0.99 -> 1 ⇒ u = 4 ⇒ cost 5.
+        // 0.49 -> 0, 0.5 -> 1, 0.51 -> 1, 1.0 -> 1, 0.99 -> 1 `$\Rightarrow u = 4 \Rightarrow$`
+        // cost 5.
         assert_relative_eq!(
             t.evaluate(&[0.5, 0.49, 0.51, 1.0, 0.99]),
             5.0,

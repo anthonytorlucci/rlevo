@@ -2,7 +2,7 @@
 //! [`NonNegativeRateError`].
 //!
 //! Some evolutionary-operator parameters are non-negative magnitudes that are
-//! *not* probabilities — they have no upper bound of one. BLX-α's expansion
+//! *not* probabilities — they have no upper bound of one. BLX-`$\alpha$`'s expansion
 //! factor `$\alpha$` (conventionally `0.5`, but legitimately larger) widens the
 //! crossover sampling box, and Gaussian mutation's step size `$\sigma$` scales the
 //! injected noise. Carried as bare `f32`s, a `NaN` or `Inf` value poisons the
@@ -20,7 +20,7 @@
 //! 0026) exactly as [`Bounds`](crate::bounds::Bounds) does (ADR 0027): a config
 //! field of type `NonNegativeRate` is self-validating, so its
 //! [`Validate`](crate::config::Validate) impl no longer repeats a
-//! `config::in_range(…, 0.0, ∞, …)` check for that field. See ADR 0031.
+//! `$\text{config::in\_range}(\ldots, 0.0, \infty, \ldots)$` check for that field. See ADR 0031.
 //!
 //! For a rate that must additionally be bounded above by one (a Bernoulli
 //! probability) see [`Probability`](crate::probability::Probability).
@@ -49,8 +49,8 @@ use serde::{Deserialize, Serialize};
 /// A `NonNegativeRate` can never hold a `NaN`, an infinity, or a negative: the
 /// invariant is `is_finite() && r >= 0.0`. Unlike
 /// [`Probability`](crate::probability::Probability) it has **no** upper bound —
-/// it is the right type for an unbounded magnitude such as BLX-α's expansion
-/// factor or Gaussian mutation's σ, where the hazard is a `NaN`/`Inf` poisoning
+/// it is the right type for an unbounded magnitude such as BLX-`$\alpha$`'s expansion
+/// factor or Gaussian mutation's `$\sigma$`, where the hazard is a `NaN`/`Inf` poisoning
 /// the offspring tensor rather than an out-of-`[0,1]` saturation.
 ///
 /// Construct with [`new`](Self::new) for literals (panics on an invalid value)

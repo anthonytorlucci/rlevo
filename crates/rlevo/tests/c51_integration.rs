@@ -98,19 +98,17 @@ type Agent = C51Agent<Be, C51Mlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>
 /// produce identical initial weights. Callers must hold the [`flex_guard`] lock
 /// for the duration of the test.
 ///
-/// C51-specific settings: `num_atoms = 51` discretises the return distribution;
-/// `v_min = 0.0` / `v_max = 500.0` spans `CartPole`'s full 500-step
-/// cumulative-return range. The distributional loss is a categorical projection
-/// (cross-entropy over the projected Bellman target), in contrast to DQN's
-/// scalar Bellman MSE. The ε-greedy schedule and replay configuration are
+/// C51-specific settings: `num_atoms = 51` discretises the return distribution; `v_min = 0.0` /
+/// `v_max = 500.0` spans `CartPole`'s full 500-step cumulative-return range. The distributional
+/// loss is a categorical projection (cross-entropy over the projected Bellman target), in contrast
+/// to DQN's scalar Bellman MSE. The `$\epsilon$`-greedy schedule and replay configuration are
 /// otherwise equivalent to the DQN integration test.
 ///
-/// The target rule is `polyak(0.005, 1)` — a soft update on every gradient
-/// step. This is the behaviour this test has always exercised: it used to be
-/// spelled `.tau(0.005).target_update_frequency(500)`, in which the `500` was
-/// **inert** (the hard path self-gated to a no-op whenever τ > 0). Transcribing
-/// the `500` as a cadence would be a 500× slowdown of the soft update, not a
-/// faithful translation.
+/// The target rule is `polyak(0.005, 1)` — a soft update on every gradient step. This is the
+/// behaviour this test has always exercised: it used to be spelled
+/// `.tau(0.005).target_update_frequency(500)`, in which the `500` was **inert** (the hard path
+/// self-gated to a no-op whenever `$\tau > 0$`). Transcribing the `500` as a cadence would be a
+/// `$500\times$` slowdown of the soft update, not a faithful translation.
 fn fresh_agent(seed: u64) -> Agent {
     let device = seeded_device::<Be>(seed);
     let num_atoms = 51;

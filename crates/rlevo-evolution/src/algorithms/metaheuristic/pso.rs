@@ -33,11 +33,10 @@
 //!
 //! # Position and velocity clamping
 //!
-//! After every velocity update the velocities are clamped to
-//! `[−v_max, v_max]` (per [`PsoConfig::v_max`]), and the resulting
-//! positions are clamped to [`PsoConfig::bounds`]. Particles that hit a
-//! boundary keep their clamped position but retain the (clamped) velocity,
-//! so they may escape on the next step.
+//! After every velocity update the velocities are clamped to `$[-v_{max}, v_{max}]$` (per
+//! [`PsoConfig::v_max`]), and the resulting positions are clamped to [`PsoConfig::bounds`].
+//! Particles that hit a boundary keep their clamped position but retain the (clamped) velocity, so
+//! they may escape on the next step.
 //!
 //! # References
 //!
@@ -271,10 +270,9 @@ where
             return (state.positions.clone(), state.clone());
         }
 
-        // Sample r1, r2 ∈ U[0,1) — one matrix each per generation. Host
-        // sampling (distinct `seed_stream` purposes) keeps the draws
-        // reproducible across thread schedules; the global Flex RNG path
-        // could be interleaved by a concurrent test between seed and draw.
+        // Sample r1, r2 `$\in$` U[0,1) — one matrix each per generation. Host sampling (distinct
+        // `seed_stream` purposes) keeps the draws reproducible across thread schedules; the global
+        // Flex RNG path could be interleaved by a concurrent test between seed and draw.
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;
         let r1 = {
@@ -493,7 +491,7 @@ mod tests {
     fn rejects_constriction_with_insufficient_phi() {
         let mut cfg = PsoConfig::default_for(30, 10);
         cfg.variant = PsoVariant::Constriction;
-        // default c1 = c2 = 1.49618 gives phi ≈ 2.99 < 4.
+        // default c1 = c2 = 1.49618 gives phi `$\approx$` 2.99 < 4.
         assert_eq!(cfg.validate().unwrap_err().field, "c1");
     }
 
@@ -513,7 +511,7 @@ mod tests {
         let mut params = PsoConfig::default_for(32, dim);
         params.variant = variant;
         if variant == PsoVariant::Constriction {
-            // Constriction requires φ = c1 + c2 > 4 (Clerc & Kennedy 2002).
+            // Constriction requires `$\varphi$` = c1 + c2 > 4 (Clerc & Kennedy 2002).
             params.c1 = 2.05;
             params.c2 = 2.05;
         }
@@ -539,10 +537,9 @@ mod tests {
 
     #[test]
     fn inertia_converges_on_sphere_d10() {
-        // PSO on Sphere D=10: inertia variant. Budget 500 generations
-        // chosen to stay well within the acceptance envelope (within 2×
-        // of the best-in-class classical baseline on Rastrigin; on
-        // Sphere we want < 1e-6).
+        // PSO on Sphere D=10: inertia variant. Budget 500 generations chosen to stay well within
+        // the acceptance envelope (within `$2\times$` of the best-in-class classical baseline on
+        // Rastrigin; on Sphere we want < 1e-6).
         let best = run_pso(PsoVariant::Inertia, 10, 500, 42);
         assert!(best < 1e-6, "PSO inertia D10 best={best}");
     }
@@ -555,7 +552,7 @@ mod tests {
 
     #[test]
     fn constriction_chi_matches_canonical_value() {
-        // φ = 4.1 → χ ≈ 0.729843788...
+        // `$\varphi$` = 4.1 → `$\chi$` `$\approx$` 0.729843788...
         let mut cfg = PsoConfig::default_for(2, 2);
         cfg.c1 = 2.05;
         cfg.c2 = 2.05;
@@ -668,13 +665,12 @@ mod tests {
             "bootstrap tell latched a raw NaN into the personal-best cache: {:?}",
             state.personal_best_fitness
         );
-        // Pin the *value*, not just "not NaN": under the canonical maximise
-        // convention (ADR 0023 / ADR 0034) `−∞` is the worst representable
-        // fitness, and that is precisely what makes a sanitized member unable
-        // to win a champion scan. Any other finite substitute (e.g. `0.0`)
-        // clears `is_nan` yet would let particle 0 tie or beat the finite rows
-        // and seed the global best from a NaN-scoring particle — the leader
-        // poisoning this regression exists to catch.
+        // Pin the *value*, not just "not NaN": under the canonical maximise convention (ADR 0023 /
+        // ADR 0034) `$-\infty$` is the worst representable fitness, and that is precisely what
+        // makes a sanitized member unable to win a champion scan. Any other finite substitute (e.g.
+        // `0.0`) clears `is_nan` yet would let particle 0 tie or beat the finite rows and seed the
+        // global best from a NaN-scoring particle — the leader poisoning this regression exists to
+        // catch.
         assert!(
             state.personal_best_fitness[0].is_infinite()
                 && state.personal_best_fitness[0].is_sign_negative(),

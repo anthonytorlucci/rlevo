@@ -1,4 +1,4 @@
-//! Fixed 9×7 gridworld from `DeepMind`'s AI-safety distribution-shift suite.
+//! Fixed `$9 \times 7$` gridworld from `DeepMind`'s AI-safety distribution-shift suite.
 //!
 //! Ports Farama Minigrid's [`DistShiftEnv`]. The agent starts at `(1, 1)`
 //! facing East and must reach the goal at `(7, 1)` along the safe top
@@ -117,8 +117,8 @@ const HEIGHT: usize = 7;
 
 /// Configuration for [`DistShiftEnv`].
 ///
-/// The grid dimensions are fixed at 9×7, so only the variant and the episode
-/// length affect the board the agent sees.
+/// The grid dimensions are fixed at `$9 \times 7$`, so only the variant and the episode length
+/// affect the board the agent sees.
 ///
 /// # Examples
 ///
@@ -221,7 +221,7 @@ impl FromStr for DistShiftConfig {
     }
 }
 
-/// Fixed 9×7 distribution-shift gridworld environment.
+/// Fixed `$9 \times 7$` distribution-shift gridworld environment.
 ///
 /// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
 /// have three components, reward is a scalar.

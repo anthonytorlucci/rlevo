@@ -30,14 +30,14 @@ const D: f64 = 1.0;
 
 /// Lunacek bi-Rastrigin function evaluator with configurable dimensionality.
 ///
-/// The depth-scaling `s` and deceptive-funnel centre `μ₂` are derived from `n`
-/// on demand (see [`s`](Self::s) / [`mu2`](Self::mu2)) because they require a
-/// `sqrt`, which cannot run in a `const fn` constructor. Both are total only
-/// because [`new`](Self::new) rejects `dim < 2`: `s` is non-positive below `n = 2`,
-/// which would send `μ₂` through the square root of a negative number.
+/// The depth-scaling `s` and deceptive-funnel centre `$\mu_2$` are derived from `n` on demand (see
+/// [`s`](Self::s) / [`mu2`](Self::mu2)) because they require a `sqrt`, which cannot run in a
+/// `const fn` constructor. Both are total only because [`new`](Self::new) rejects `dim < 2`: `s` is
+/// non-positive below `n = 2`, which would send `$\mu_2$` through the square root of a negative
+/// number.
 #[derive(Debug, Clone, Copy)]
 pub struct LunacekBiRastrigin {
-    /// Number of input dimensions. Always `≥ 2` — enforced by [`LunacekBiRastrigin::new`].
+    /// Number of input dimensions. Always `$\geq 2$` — enforced by [`LunacekBiRastrigin::new`].
     dim: usize,
 }
 
@@ -188,11 +188,10 @@ mod tests {
         }
     }
 
-    /// The funnel parameters are the reason `dim >= 2` is a *construction*
-    /// invariant: `s` goes non-positive below `n = 2`, and `mu2` then takes the
-    /// square root of a negative number and yields NaN with no panic. Pin both at
-    /// the boundary dimension, where `s` is smallest and closest to the zero
-    /// crossing (`s(2) ≈ 0.153`).
+    /// The funnel parameters are the reason `dim >= 2` is a *construction* invariant: `s` goes
+    /// non-positive below `n = 2`, and `mu2` then takes the square root of a negative number and
+    /// yields NaN with no panic. Pin both at the boundary dimension, where `s` is smallest and
+    /// closest to the zero crossing (`$s(2) \approx 0.153$`).
     #[test]
     fn funnel_parameters_finite_at_minimum_dim() {
         let f = LunacekBiRastrigin::new(2).expect("dim >= 2");
@@ -213,13 +212,14 @@ mod tests {
 
     #[test]
     fn new_rejects_dim_one() {
-        // s(1) ≈ −0.036 ⇒ mu2 = −√(negative) = NaN, silently.
+        // `$s(1) \approx -0.036 \Rightarrow \text{mu2} = -\sqrt{\text{negative}}$` = `NaN`,
+        // silently.
         assert!(LunacekBiRastrigin::new(1).is_err());
     }
 
     #[test]
     fn new_rejects_dim_zero() {
-        // s(0) ≈ −0.344 ⇒ same NaN hole.
+        // `$s(0) \approx -0.344 \Rightarrow$` same `NaN` hole.
         assert!(LunacekBiRastrigin::new(0).is_err());
     }
 

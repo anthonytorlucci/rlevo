@@ -20,7 +20,7 @@
 //! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
 //! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
 //! | [`probability`] | [`Probability`] — a `[0, 1]` rate valid by construction (rejects `NaN`, `Inf`, out-of-range) |
-//! | [`rate`] | [`NonNegativeRate`] — a finite non-negative magnitude valid by construction (BLX-α, σ) |
+//! | [`rate`] | [`NonNegativeRate`] — a finite non-negative magnitude valid by construction (BLX-`$\alpha$`, `$\sigma$`) |
 //! | [`render`] | [`AsciiRenderable`], [`Renderer`](crate::render::Renderer), styled/palette/payload sub-modules — optional debug and TUI visualization layer |
 //! | [`agent`] | Reserved; empty while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
@@ -215,7 +215,7 @@ pub mod probability;
 /// Provides [`NonNegativeRate`], a finite non-negative `f32` valid by
 /// construction (invariant `is_finite() && r >= 0.0`), plus its
 /// [`NonNegativeRateError`]. The unbounded companion to [`Probability`] for
-/// magnitudes such as BLX-α's expansion factor or Gaussian mutation's σ, where
+/// magnitudes such as BLX-`$\alpha$`'s expansion factor or Gaussian mutation's `$\sigma$`, where
 /// a `NaN`/`Inf` would otherwise poison the offspring tensor (ADR 0031).
 ///
 /// [`NonNegativeRate`]: crate::rate::NonNegativeRate

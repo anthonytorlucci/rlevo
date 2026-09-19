@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum GridAction {
-    /// Rotate 90° counter-clockwise.
+    /// Rotate `$90^\circ$` counter-clockwise.
     TurnLeft = 0,
-    /// Rotate 90° clockwise.
+    /// Rotate `$90^\circ$` clockwise.
     TurnRight = 1,
     /// Move one cell forward if passable.
     Forward = 2,

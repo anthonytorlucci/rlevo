@@ -13,16 +13,15 @@
 //!
 //! ## Demo 1 — continuous, Rosenbrock-D10: why dependencies matter
 //!
-//! Compares [`UnivariateGaussian`] (UMDA, models each dimension independently)
-//! against [`DependencyChain`] (MIMIC, models a first-order chain of pairwise
-//! dependencies). Rosenbrock's `x_{i+1} ≈ x_i²` ridge *couples* adjacent
-//! variables — structure a univariate model literally cannot represent. Watch
-//! MIMIC's `link_corr` vector light up as it discovers the coupling, then beat
-//! UMDA's final fitness. (The calibrated prior — `init_mean = 0.5`,
-//! `min_variance = 1e-3`, `selection_ratio = 0.3`, de Jong bounds ±2.048 — puts
-//! the population on the valley limb where the coupling is locally linear;
-//! centred at the origin the ridge's tangent is flat and there is nothing to
-//! model. See `crates/rlevo/tests/eda_convergence.rs` for the full rationale.)
+//! Compares [`UnivariateGaussian`] (UMDA, models each dimension independently) against
+//! [`DependencyChain`] (MIMIC, models a first-order chain of pairwise dependencies). Rosenbrock's
+//! `$x_{i+1} \approx x_i^2$` ridge *couples* adjacent variables — structure a univariate model
+//! literally cannot represent. Watch MIMIC's `link_corr` vector light up as it discovers the
+//! coupling, then beat UMDA's final fitness. (The calibrated prior — `init_mean = 0.5`,
+//! `min_variance = 1e-3`, `selection_ratio = 0.3`, de Jong bounds `$\pm 2.048$` — puts the
+//! population on the valley limb where the coupling is locally linear; centred at the origin the
+//! ridge's tangent is flat and there is nothing to model. See
+//! `crates/rlevo/tests/eda_convergence.rs` for the full rationale.)
 //!
 //! ## Demo 2 — binary, `OneMax`-D20: the probability-vector mechanic
 //!
@@ -33,20 +32,18 @@
 //! analogue of "dependencies matter" needs a deceptive problem **and** a
 //! multivariate binary model (BOA) — see Demo 3.
 //!
-//! ## Demo 3 — binary deception, `ConcatenatedTrap` trap-5 × 4: linkage matters
+//! ## Demo 3 — binary deception, `ConcatenatedTrap` trap-5 `$\times$` 4: linkage matters
 //!
-//! Runs [`UnivariateGaussian`] (UMDA), [`DependencyChain`] (MIMIC), and
-//! [`BayesianNetwork`] (BOA) on a deceptive order-5 trap of four blocks
-//! (dim 20). Each block costs `cost(u) = 0` if `u == k` else `u + 1`, where `u`
-//! is the block's unitation (1-bit count) and `k = 5` — so the all-ones optimum
-//! costs `0` but the all-zeros deceptive basin costs `num_blocks = 4`. In a
-//! random population, blocks with *fewer* ones are cheaper on average, so every
-//! per-gene average marches the model toward all-zeros: UMDA's means collapse,
-//! and MIMIC's first-order chain — which can tie at most one neighbour per gene
-//! — still cannot capture the order-5 intra-block linkage. Only BOA, learning a
-//! bounded-in-degree DAG, discovers the within-block edges and samples whole
-//! solved blocks; watch its intra-block edge count climb while UMDA/MIMIC are
-//! deceived. Verdict: BOA median cost `0.0`, UMDA/MIMIC medians ≈ `3`.
+//! Runs [`UnivariateGaussian`] (UMDA), [`DependencyChain`] (MIMIC), and [`BayesianNetwork`] (BOA)
+//! on a deceptive order-5 trap of four blocks (dim 20). Each block costs `cost(u) = 0` if `u == k`
+//! else `u + 1`, where `u` is the block's unitation (1-bit count) and `k = 5` — so the all-ones
+//! optimum costs `0` but the all-zeros deceptive basin costs `num_blocks = 4`. In a random
+//! population, blocks with *fewer* ones are cheaper on average, so every per-gene average marches
+//! the model toward all-zeros: UMDA's means collapse, and MIMIC's first-order chain — which can tie
+//! at most one neighbour per gene — still cannot capture the order-5 intra-block linkage. Only BOA,
+//! learning a bounded-in-degree DAG, discovers the within-block edges and samples whole solved
+//! blocks; watch its intra-block edge count climb while UMDA/MIMIC are deceived. Verdict: BOA
+//! median cost `0.0`, UMDA/MIMIC medians `$\approx$` `3`.
 //!
 //! Demo 3 deliberately omits the *incremental* binary models. At this large
 //! population the damped PBIL/cGA updates resist the deceptive average gradient
@@ -60,9 +57,9 @@
 //! cargo run --release -p rlevo-examples --example eda_showcase
 //! ```
 //!
-//! No feature flags are required. Release is strongly recommended — the run
-//! drives a few thousand generations of Burn tensor ops, and Demo 3 alone adds
-//! ~11 runs at population 2000 × 60 generations.
+//! No feature flags are required. Release is strongly recommended — the run drives a few thousand
+//! generations of Burn tensor ops, and Demo 3 alone adds ~11 runs at population 2000 `$\times$` 60
+//! generations.
 
 use burn::backend::Flex;
 use burn::tensor::backend::BackendTypes;
@@ -217,7 +214,7 @@ fn rosenbrock_demo() {
     let landscape = Rosenbrock::new(ROSEN_DIM).expect("dim >= 2");
     let trace_seed = ROSEN_SEEDS[0];
 
-    // Verbose single-seed run: UMDA. Print mean position magnitude + mean σ.
+    // Verbose single-seed run: UMDA. Print mean position magnitude + mean `$\sigma$`.
     println!("UMDA (seed {trace_seed}) — independent per-dimension Gaussian:");
     println!("  {:>4} {:>12} {:>10}", "gen", "mean|μ|", "mean σ");
     let umda_best = run_eda(
@@ -363,8 +360,8 @@ fn onemax_zeros(row: &[f32]) -> f32 {
     zeros
 }
 
-/// Render a probability vector as one glyph per gene (`0`–`9` ≈ ⌊10·p⌋, `#` for
-/// p ≈ 1) so convergence reads without relying on colour.
+/// Render a probability vector as one glyph per gene (`0`–`9` `$\approx \lfloor 10p \rfloor$`, `#`
+/// for `$p \approx 1$`) so convergence reads without relying on colour.
 fn prob_bar(prob: &[f32]) -> String {
     prob.iter()
         .map(|&p| {
@@ -445,12 +442,12 @@ fn onemax_demo() {
 
 // ── Demo 3 — binary deception: UMDA vs MIMIC vs BOA on ConcatenatedTrap ────────
 
-/// Number of order-`TRAP_K` trap blocks; total dim is `TRAP_BLOCKS · TRAP_K`.
+/// Number of order-`TRAP_K` trap blocks; total dim is `$\text{TRAP\_BLOCKS} \cdot \text{TRAP\_K}$`.
 const TRAP_BLOCKS: usize = 4;
 /// Trap order `k`: bits per block. Reaching the per-block optimum requires
 /// flipping all `k` bits together — the order-`k` linkage UMDA/MIMIC miss.
 const TRAP_K: usize = 5;
-/// Genome dimension: `TRAP_BLOCKS · TRAP_K = 20`.
+/// Genome dimension: `$\text{TRAP\_BLOCKS} \cdot \text{TRAP\_K} = 20$`.
 const TRAP_DIM: usize = TRAP_BLOCKS * TRAP_K;
 /// Selected-row count is load-bearing: the BIC edge gain grows with `N` while
 /// the complexity penalty grows like `ln N`, so the intra-block edges clear the

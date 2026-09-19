@@ -829,7 +829,7 @@ mod tests {
         env.reset().unwrap();
         let action = MountainCarContinuousAction::new(0.0).unwrap();
         let snap = env.step(action).unwrap();
-        // ctrl cost = -0.1 * 0² = 0; no goal bonus
+        // ctrl cost `$= -0.1 \cdot 0^2 = 0$`; no goal bonus
         if !snap.is_done() {
             assert!((snap.reward().0 - 0.0).abs() < 1e-6);
         }
@@ -867,7 +867,7 @@ mod tests {
             "expected terminated, got {:?}",
             snap.status()
         );
-        // reward = -0.1 * 1² + 100 = 99.9
+        // reward `$= -0.1 \cdot 1^2 + 100 = 99.9$`
         assert!(
             snap.reward().0 > 90.0,
             "expected large positive reward, got {}",
