@@ -33,7 +33,7 @@ Default hyperparameters match the Nature DQN paper:
 | Hyperparameter | Default | Source |
 |----------------|---------|--------|
 | `batch_size` | 32 | Nature DQN |
-| `gamma` (γ) | 0.99 | Nature DQN |
+| `gamma` ($\gamma$) | 0.99 | Nature DQN |
 | `target_update` | `TargetUpdate::polyak(0.005, 1)` | CleanRL |
 | `learning_rate` | 0.001 | CleanRL |
 | `epsilon_start` | 1.0 | Nature DQN |
@@ -72,7 +72,7 @@ Distributional-specific hyperparameters:
 | Hyperparameter | Default | Source |
 |----------------|---------|--------|
 | `num_atoms` | 51 | Bellemare et al. (2017) — gives the algorithm its name |
-| `v_min` | −10.0 | Bellemare et al. (2017) |
+| `v_min` | $-$10.0 | Bellemare et al. (2017) |
 | `v_max` | 10.0 | Bellemare et al. (2017) |
 
 All standard DQN hyperparameters are inherited unchanged.
@@ -88,7 +88,7 @@ All standard DQN hyperparameters are inherited unchanged.
 
 **Module:** `algorithms::qrdqn`
 
-Dabney et al.'s distributional algorithm that replaces C51's fixed atom support with implicit quantile targets. The network outputs N quantile values \[\theta_i(s, a)\] for midpoints \[\tau_i = (i + 0.5) / N\]. No `[v_min, v_max]` range is required — the distribution is unconstrained. The loss is the quantile Huber loss (asymmetric Huber weighted by \[\left | \tau_i − 𝟙[u < 0] \right |\]).
+Dabney et al.'s distributional algorithm that replaces C51's fixed atom support with implicit quantile targets. The network outputs N quantile values \[\theta_i(s, a)\] for midpoints \[\tau_i = (i + 0.5) / N\]. No `[v_min, v_max]` range is required — the distribution is unconstrained. The loss is the quantile Huber loss (asymmetric Huber weighted by \[\left | \tau_i $-$ $\mathbb{1}$[u < 0] \right |\]).
 
 Key components:
 
@@ -107,12 +107,12 @@ Distributional-specific hyperparameters:
 | `num_quantiles` | 200 | Dabney et al. (2018) |
 | `kappa` (Huber threshold) | 1.0 | Dabney et al. (2018) |
 
-`kappa` must be **strictly positive and small enough that `0.5·κ²` stays finite
-in `f32`** (κ ⩽ √(2·`f32::MAX`) ≈ 2.6e19) — Eq. (10) divides by κ, and the Huber
-loss evaluates its `−0.5·κ²` linear branch eagerly before masking it out, so
-`validate()` rejects `0.0`, negatives, `NaN`, `±∞`, and any overflowing κ. An
-invalid κ does not corrupt weights: `FiniteLossGuard` skips the update, so
-training stalls silently instead. The paper's κ = 0
+`kappa` must be **strictly positive and small enough that $0.5\kappa^2$ stays finite
+in `f32`** ($\kappa$ ⩽ $\sqrt{\ }$(2$\cdot$`f32::MAX`) $\approx$ 2.6e19) — Eq. (10) divides by $\kappa$, and the Huber
+loss evaluates its $-0.5\kappa^2$ linear branch eagerly before masking it out, so
+`validate()` rejects `0.0`, negatives, `NaN`, $\pm\infty$, and any overflowing $\kappa$. An
+invalid $\kappa$ does not corrupt weights: `FiniteLossGuard` skips the update, so
+training stalls silently instead. The paper's $\kappa$ = 0
 variant (QR-DQN-0) is the *unsmoothed* Eq. (8) quantile loss, a separate
 formula that is not implemented here; it is not reachable by setting
 `kappa = 0.0`.
@@ -128,7 +128,7 @@ formula that is not implemented here; it is not reachable by setting
 
 **Module:** `algorithms::ppo`
 
-Schulman et al.'s on-policy policy-gradient algorithm with a clipped surrogate objective. Supports both discrete and continuous action spaces through two built-in policy heads: `CategoricalPolicyHead` (softmax over logits) and `TanhGaussianPolicyHead` (state-independent `log_std` with `scale · tanh(z)` squashing). The rollout buffer computes GAE advantages; the update step runs `update_epochs` passes over `num_minibatches`-sized minibatches with an optional early-stop on `approx_kl`. Implementation details follow Huang et al. 2022.
+Schulman et al.'s on-policy policy-gradient algorithm with a clipped surrogate objective. Supports both discrete and continuous action spaces through two built-in policy heads: `CategoricalPolicyHead` (softmax over logits) and `TanhGaussianPolicyHead` (state-independent `log_std` with $\text{scale} \cdot \tanh(z)$ squashing). The rollout buffer computes GAE advantages; the update step runs `update_epochs` passes over `num_minibatches`-sized minibatches with an optional early-stop on `approx_kl`. Implementation details follow Huang et al. 2022.
 
 Key components:
 
@@ -153,9 +153,9 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 | `update_epochs` | 4 | CleanRL |
 | `learning_rate` | 2.5e-4 | CleanRL |
 | `anneal_lr` | true | Huang et al. #4 |
-| `gamma` (γ) | 0.99 | CleanRL |
-| `gae_lambda` (λ) | 0.95 | Schulman et al. (2017) |
-| `clip_coef` (ε) | 0.2 | Schulman et al. (2017) |
+| `gamma` ($\gamma$) | 0.99 | CleanRL |
+| `gae_lambda` ($\lambda$) | 0.95 | Schulman et al. (2017) |
+| `clip_coef` ($\epsilon$) | 0.2 | Schulman et al. (2017) |
 | `clip_value_loss` | true | Huang et al. #9 |
 | `entropy_coef` | 0.01 | CleanRL |
 | `value_coef` | 0.5 | CleanRL |
@@ -167,7 +167,7 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 The continuous head's `log_std` initialisation and action scale (`log_std_init`,
 `action_scale`, plus the `log_std: Bounds` clamp range) are **not**
 training-config fields — they live on `TanhGaussianPolicyHeadConfig`, the config
-consumed to build the head and where the `scale · tanh(z)` squash is applied
+consumed to build the head and where the $\text{scale} \cdot \tanh(z)$ squash is applied
 (ADR 0049). Build the head with `try_init`, which validates the config first;
 there is deliberately no infallible `init`, since that would reopen the same
 bypass — a config with `log_std_min == log_std_max` reaching a built head.
@@ -249,9 +249,9 @@ Default hyperparameters follow CleanRL:
 | `learning_starts` | 25 000 | CleanRL |
 | `actor_lr` | 3e-4 | CleanRL |
 | `critic_lr` | 3e-4 | CleanRL |
-| `gamma` (γ) | 0.99 | CleanRL |
+| `gamma` ($\gamma$) | 0.99 | CleanRL |
 | `target_update` | `TargetUpdate::polyak(0.005, 2)` | CleanRL |
-| `exploration_noise` (σ) | 0.1 | CleanRL |
+| `exploration_noise` ($\sigma$) | 0.1 | CleanRL |
 | `policy_frequency` | 2 | CleanRL |
 
 **References**
@@ -281,8 +281,8 @@ TD3 inherits DDPG's defaults and adds target-smoothing parameters:
 
 | Hyperparameter | Default | Source |
 |----------------|---------|--------|
-| `policy_noise` (target σ) | 0.2 | Fujimoto et al. (2018) |
-| `noise_clip` (target σ clip) | 0.5 | Fujimoto et al. (2018) |
+| `policy_noise` (target $\sigma$) | 0.2 | Fujimoto et al. (2018) |
+| `noise_clip` (target $\sigma$ clip) | 0.5 | Fujimoto et al. (2018) |
 | `policy_frequency` (delayed actor) | 2 | Fujimoto et al. (2018) |
 
 **References**
@@ -296,7 +296,7 @@ TD3 inherits DDPG's defaults and adds target-smoothing parameters:
 
 **Module:** `algorithms::sac`
 
-Haarnoja et al.'s off-policy max-entropy algorithm for continuous action spaces. Pairs a squashed-Gaussian stochastic actor with two critics (each with a Polyak-averaged target), a scalar learnable temperature α, and a uniform replay buffer. The Bellman target includes the entropy term \(-\alpha  \log \pi \left ( a' \mid s' \right )\); the actor is trained via reparameterization; \(\alpha\) is auto-tuned toward the heuristic target entropy \(-\left | A \right |\) by default. CleanRL's `sac_continuous_action.py` is the reference.
+Haarnoja et al.'s off-policy max-entropy algorithm for continuous action spaces. Pairs a squashed-Gaussian stochastic actor with two critics (each with a Polyak-averaged target), a scalar learnable temperature $\alpha$, and a uniform replay buffer. The Bellman target includes the entropy term \(-\alpha  \log \pi \left ( a' \mid s' \right )\); the actor is trained via reparameterization; \(\alpha\) is auto-tuned toward the heuristic target entropy \(-\left | A \right |\) by default. CleanRL's `sac_continuous_action.py` is the reference.
 
 Key components:
 
@@ -326,7 +326,7 @@ Default hyperparameters follow CleanRL:
 | `target_entropy` | \(-\left | A \right |\) heuristic | Haarnoja et al. (2018b) |
 | `policy_frequency` | 2 | CleanRL |
 
-The squashed-Gaussian head's `log σ` clamp range (`log_std: Bounds::new(-5.0,
+The squashed-Gaussian head's $\log \sigma$ clamp range (`log_std: Bounds::new(-5.0,
 2.0)`, CleanRL) is **not** a training-config field — it lives on
 `SquashedGaussianPolicyHeadConfig`, the config consumed to build the head and
 where the clamp is applied. Build the head with `try_init`, which validates the
@@ -358,13 +358,13 @@ The following algorithms are deferred stubs — scope is parked until prerequisi
 
 ### Exploration (`algorithms::dqn::exploration`)
 
-`EpsilonGreedy` is shared across all discrete value-based algorithms (DQN, C51, QR-DQN). The schedule decays ε multiplicatively from `epsilon_start` to `epsilon_end` at rate `epsilon_decay`.
+`EpsilonGreedy` is shared across all discrete value-based algorithms (DQN, C51, QR-DQN). The schedule decays $\epsilon$ multiplicatively from `epsilon_start` to `epsilon_end` at rate `epsilon_decay`.
 
 ### Utilities (`utils`)
 
 `compute_target_q_values` — Bellman target computation shared by DQN variants.
 
-`polyak_update` — soft target-network update (`θ_target ← τθ + (1-τ)θ_target`) shared by DDPG, TD3, and SAC.
+`polyak_update` — soft target-network update ($\theta_{target} \leftarrow \tau\theta + (1-\tau)\theta_{target}$) shared by DDPG, TD3, and SAC.
 
 ### Experience Replay (`replay`)
 
@@ -374,9 +374,9 @@ The replay-strategy seam (ADR 0050): off-policy transition storage shared across
 |------|-------------|
 | `ReplayStrategy<T>` | The seam trait: `push` / `sample` / `get` over a stored item `T`. Pure host-side bookkeeping, testable without a Burn backend. |
 | `UniformReplay<T>` | FIFO, i.i.d.-with-replacement buffer. The **default** every agent uses. Emits no importance weights. |
-| `PrioritizedReplay<T>` | Schaul et al. (2016) proportional PER over a sum-tree: `P(i) ∝ p_i^α`, stratified draw, max-normalized importance weights, and a `update_priorities` writeback. **Opt-in**, value-based agents only. |
+| `PrioritizedReplay<T>` | Schaul et al. (2016) proportional PER over a sum-tree: $P(i) \propto p_i^\alpha$, stratified draw, max-normalized importance weights, and a `update_priorities` writeback. **Opt-in**, value-based agents only. |
 | `ReplayKind<T>` | Enum dispatch over the two strategies; `ReplayKind::uniform(cap)` / `ReplayKind::prioritized(config)`. What DQN/C51/QR-DQN actually store. |
-| `PrioritizedReplaySettings` | Agent-config opt-in (`Option<…>`): Schaul's α/ε plus the β importance-sampling schedule. `Some` selects `PrioritizedReplay`; `None` selects `UniformReplay`. |
+| `PrioritizedReplaySettings` | Agent-config opt-in (`Option<…>`): Schaul's $\alpha$/$\epsilon$ plus the $\beta$ importance-sampling schedule. `Some` selects `PrioritizedReplay`; `None` selects `UniformReplay`. |
 
 PER is enabled through the agent config, not by hand-constructing a buffer:
 
@@ -420,8 +420,8 @@ Episode-level outcome tracking for training loops. Moved here from `rlevo-core` 
 |------|-------------|
 | `PerformanceRecord` | Per-episode outcome: `score() -> f32`, `duration() -> usize` |
 | `AgentStats<T>` | Running counters (`total_episodes`, `total_steps`, `best_score`) with a configurable sliding-window average (`avg_score`) |
-| `AgentStats::finite_avg_score` | The same window average over its **finite** entries only, paired with `non_finite_recent_len` (the count of what was excluded). `avg_score` deliberately transits a `NaN`/`±∞` score as a detection channel (ADR 0065 §Decision 4); reach for this pair when *reporting* a curve rather than *detecting* a problem (ADR 0070) |
-| `AgentStats::finite_best_score` | The **lifetime** best score over `is_finite()` episodes only (`None` until something finite is recorded), paired with `non_finite_episodes` — a **monotone lifetime** count that never heals, deliberately unlike the windowed, self-healing `non_finite_recent_len`. `best_score` latches a `+∞` score **permanently** by decision: `f32::max` discards a `NaN` operand but propagates `+∞`, and the best is never evicted by the window. It is left that way because `+∞` *is* the true maximum observed — filtering under that name would report a number the run contradicts (ADR 0061, ADR 0071) |
+| `AgentStats::finite_avg_score` | The same window average over its **finite** entries only, paired with `non_finite_recent_len` (the count of what was excluded). `avg_score` deliberately transits a `NaN`/$\pm\infty$ score as a detection channel (ADR 0065 §Decision 4); reach for this pair when *reporting* a curve rather than *detecting* a problem (ADR 0070) |
+| `AgentStats::finite_best_score` | The **lifetime** best score over `is_finite()` episodes only (`None` until something finite is recorded), paired with `non_finite_episodes` — a **monotone lifetime** count that never heals, deliberately unlike the windowed, self-healing `non_finite_recent_len`. `best_score` latches a $+\infty$ score **permanently** by decision: `f32::max` discards a `NaN` operand but propagates $+\infty$, and the best is never evicted by the window. It is left that way because $+\infty$ *is* the true maximum observed — filtering under that name would report a number the run contradicts (ADR 0061, ADR 0071) |
 
 ---
 

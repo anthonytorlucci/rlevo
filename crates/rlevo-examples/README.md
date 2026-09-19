@@ -40,7 +40,7 @@ print results to stdout. The quickest way to see the harness in action.
 
 | Example          | What it demonstrates                                                                                          | Run                                                  |
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| `tabular_bandit` | An ε-greedy sample-average agent on `TenArmedBandit`; prints per-trial `return/mean` across the seed sweep.   | `cargo run -p rlevo-examples --example tabular_bandit` |
+| `tabular_bandit` | An $\epsilon$-greedy sample-average agent on `TenArmedBandit`; prints per-trial `return/mean` across the seed sweep.   | `cargo run -p rlevo-examples --example tabular_bandit` |
 | `ga_rastrigin`   | A hand-rolled GA on the Rastrigin landscape; exercises the `FitnessEvaluable` + `BenchEnv` harness contracts. | `cargo run -p rlevo-examples --example ga_rastrigin`   |
 
 ### Evolutionary algorithms — no features required

@@ -91,7 +91,7 @@ Decision, part 9.
   step-size adaptation (CSA), the two evolution paths $p_\sigma$/`p_c`, and the
   *learning-rate-blended* rank-1 + rank-$\mu$ covariance update. CMSA-ES's identity is
   per-individual log-normal $\sigma$ self-adaptation. Forcing either through `fit`/`sample`
-  would (a) leak ES strategy state (`σ`, paths, per-individual $\sigma_i$) into the model
+  would (a) leak ES strategy state ($\sigma$, paths, per-individual $\sigma_i$) into the model
   `State`, and (b) split one algorithm awkwardly across `fit` and a `tell` overlay
   for no expressive gain.
 - **The natural design heuristic points here:** EDA uses the model *only* to

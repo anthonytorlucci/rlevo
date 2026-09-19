@@ -7,7 +7,7 @@ intuitive: picture every candidate solution as a point on a map, with elevation
 standing in for fitness. Optimisation becomes navigation — find the highest peak
 (or, for a cost landscape, the lowest valley) without being able to see the whole
 terrain at once. The bundled landscapes are cost surfaces, so `rlevo` declares
-them `ObjectiveSense::Minimize` and the engine internally climbs `−cost`; you
+them `ObjectiveSense::Minimize` and the engine internally climbs $-\text{cost}$; you
 still read the result as the natural low valley.
 
 **Benchmark functions** are standardised landscapes with known optima, designed

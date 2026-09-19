@@ -68,11 +68,11 @@ pane into a true playback surface:
 
 - **Timeline scrubber** (`<input type="range">`) drives a `frame_idx`
   Leptos signal across `record.frames`.
-- **Play / Pause / Restart** with **1× / 2× / 5× / 10×** speed buttons.
+- **Play / Pause / Restart** with **$1\times$ / $2\times$ / $5\times$ / $10\times$** speed buttons.
   The play loop runs a single `set_interval_with_handle`; it auto-pauses
   at the terminal frame, and `on_cleanup` clears the handle whenever the
   selected episode changes.
-- **Per-frame readout**: `frame i/N · step N · reward ±X.XXX`.
+- **Per-frame readout**: $\text{frame } i/N \cdot \text{step } N \cdot \text{reward} \pm X.XXX$.
 - **Styled-frame HTML rendering** (`src/styled.rs`): wire-mirror
   `StyledFrame` → `<pre>` + colour-classed `<span>`s. Pair every colour
   with a hue-redundant signal (`font-weight: 700` for BOLD, CSS
@@ -151,7 +151,7 @@ playback pane renders per-run scalar charts as hand-rolled pure-Rust
 SVG (`src/charts.rs` / `src/series.rs`) — no JS interop and no charting
 dependency, per umbrella spec §3 constraint #6. (`leptos-chartistry`
 was evaluated but dropped: its 0.2 `Line`/`Bar` primitives don't cover
-the box-plot and ±std-band panels, so the whole chart layer is
+the box-plot and $\pm$std-band panels, so the whole chart layer is
 hand-rolled — it appears nowhere in `Cargo.toml`.) Wire format is
 unchanged — every panel below consumes data already in the M4-era
 record (`MetricSample` stream, per-frame rewards).
@@ -216,7 +216,7 @@ the run):
   (no charting dependency — see the M8 note; the box-plot, whisker, and
   outlier primitives have no off-the-shelf equivalent). Per generation: filled
   `[Q1, Q3]` rectangle, horizontal median tick, vertical whiskers
-  clipped at the Tukey 1.5×IQR fence, outliers as small open circles.
+  clipped at the Tukey $1.5\times$IQR fence, outliers as small open circles.
   Three overlay polylines (best / median / worst) pair colour with
   distinct dash patterns (`solid` / `4 2` / `1 3`) so the trio is
   distinguishable in a B/W screenshot — the project's hue-redundant
@@ -281,7 +281,7 @@ The M8.2 chart-polish items have since landed in `src/charts.rs` /
   full-resolution series.
 - **Axis-mode toggle** (`step | episode | wallclock`) via the `AxisMode`
   enum and a reactive UI switch.
-- **Multi-seed ±std bands** — `metric_band` / `BandPoint` /
+- **Multi-seed $\pm$std bands** — `metric_band` / `BandPoint` /
   `distinct_seed_count` feed `band_chart_view`'s filled envelope.
 - **Strip-plot overlay** on the box plot, toggleable via an "Individual
   points" button.

@@ -280,8 +280,8 @@ asserting the *opposite* half of it ("`best_score` is **not** poisoned"), which
 0070's correction to ADR 0065 (b) had to narrow. A reader following the
 documentation was being actively misled.
 
-The clause now lives at `metrics.rs:174-216`, under the heading "`A +∞ score
-latches here permanently, by decision`", covering: which operand positions
+The clause now lives at `metrics.rs:174-216`, under the heading "A $+\infty$ score
+latches here permanently, by decision", covering: which operand positions
 propagate and which discard, the "never evicted" interaction that makes it
 permanent, the comparison to `avg_score`'s self-healing transit, the explicit
 "this is not filtered, and must not be", both reachability paths from this
@@ -867,7 +867,7 @@ Deliberately short, and built on ADR 0070's own Literature section and ADR
 
 ## References
 
-- Issue **#1078** — "[rl] `AgentStats::best_score` latches at `+∞` permanently,
+- Issue **#1078** — "[rl] `AgentStats::best_score` latches at $+\infty$ permanently,
   worse than the `avg_score` case (#409)". Resolved as its *second* option; its
   analysis is adopted in full (this ADR's own Context, part 1, above) and the
   policy choice it declined to make is made in this ADR's own Decision 1

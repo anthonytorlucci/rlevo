@@ -221,7 +221,7 @@ Add to your `Cargo.toml`:
 rlevo-benchmarks = { path = "../rlevo-benchmarks" }
 ```
 
-### Minimal example — ε-greedy bandit
+### Minimal example — $\epsilon$-greedy bandit
 
 ```rust
 use rlevo_benchmarks::{
@@ -302,7 +302,7 @@ The following works directly informed the design and algorithms in this crate:
 
 - Rastrigin, L. A. (1974). *Systems of extreme control*. Nauka, Moscow. — original formulation of the Rastrigin function \(f(x)=A n + \sum x_i^2 - A \cos (2 \pi x_i ))\) used in the `ga_rastrigin` example and `rlevo-environments::landscapes::rastrigin`.
 
-- Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — sample-average and ε-greedy methods demonstrated in `tabular_bandit` follow Chapter 2 of this text.
+- Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — sample-average and $\epsilon$-greedy methods demonstrated in `tabular_bandit` follow Chapter 2 of this text.
 
 ---
 

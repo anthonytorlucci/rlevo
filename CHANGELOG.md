@@ -166,7 +166,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   line, so it never reached a plot or a saved run. The row is `Rl` /
   `PerUpdate`, unit `"updates"`, `LowerIsBetter`, placed immediately after
   `n_updates` because the pair is only meaningful read together: applied updates
-  are `n_updates − skipped_updates`. It is **cumulative**, not per-interval — a
+  are $\text{n\_updates} - \text{skipped\_updates}$. It is **cumulative**, not per-interval — a
   per-interval count would be a function of `log_every`, a logging parameter,
   which would make two runs of the same configuration incomparable purely
   because one logged more often. Per ADR 0015's registry promise, adding the row
@@ -299,7 +299,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   overflow wrapped instead of panicking. `C(66, 33)` is
   `7_219_428_434_016_265_740`, well under `u64::MAX`
   (`18_446_744_073_709_551_615`), yet the helper returned
-  `128_965_714_594_187_190` — a plausible-looking number some 56× too small,
+  `128_965_714_594_187_190` — a plausible-looking number some $56\times$ too small,
   with nothing to distinguish it from a correct one.
   Sweeping `n < 200`, 2603 `(n, k)` pairs whose exact value is representable
   came back corrupted this way.
@@ -541,14 +541,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   is false — so the slot became a zombie the algorithm could never replace. Bat
   and PSO have no reset mechanism at all, so the freeze was
   permanent-until-restart; ABC escaped only via the scout `limit`
-  (`pop_size · genome_dim / 2` — hundreds of generations for realistic configs);
+  ($\text{pop\_size} \cdot \text{genome\_dim}/2$ — hundreds of generations for realistic configs);
   Cuckoo escaped via abandonment, but never at `p_a = 0`, a valid configuration
   the suite already exercises. All nine metaheuristic `tell` impls now sanitize
   the fitness vector once, where it is pulled to host, so the bootstrap seed and
   the accept-store are both covered by one call.
 
   The issue was filed as leader/global-best poisoning; it is not that.
-  `argmax_host` seeds from `−∞` and compares with `>`, so a `NaN` can neither
+  `argmax_host` seeds from $-\infty$ and compares with `>`, so a `NaN` can neither
   win a champion scan nor seed one, and `best()` was correct throughout — which
   is precisely why the frozen slot went unnoticed: the run's *reported* optimum
   stayed right while the search quietly ran a member short. Two files were
@@ -577,10 +577,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   placed directly into a state's fitness vector via the `pub` `*State::try_new`
   constructors (or `PsoState`'s `pub` fields) still freezes that slot.
 
-- **`mean_fitness` still reported `+∞` for a population of optimal
-  individuals** (resolves the metrics half of #132). ADR 0034 maps a `+∞`
+- **`mean_fitness` still reported $+\infty$ for a population of optimal
+  individuals** (resolves the metrics half of #132). ADR 0034 maps a $+\infty$
   fitness to `f32::MAX` and states that, because the clamped value is finite, it
-  "cannot blow a `mean`, `variance`, or reward to `+∞`". That guarantee did not
+  "cannot blow a `mean`, `variance`, or reward to $+\infty$". That guarantee did not
   hold: `f32::MAX` passes `is_finite()` and so joins the running total, and
   `f32::MAX + f32::MAX` saturates straight back to `f32::INFINITY`. Two
   individuals legitimately pegging the objective in one generation were enough
@@ -591,7 +591,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Because the chokepoint is shared, every evolutionary strategy was affected,
   not only the EA-root family #132 names.
 
-  The existing coverage could not have caught this: the one `+∞` regression test
+  The existing coverage could not have caught this: the one $+\infty$ regression test
   passed a slice with a *single* infinite member, and a single `f32::MAX` in the
   sum is exactly the case that does not overflow. The defect needed two.
 
@@ -615,28 +615,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   were never exposed. `Strategy` is public and re-exported in the umbrella
   prelude, and the existing tests all went through the harness. `es_classical.rs`
   and `de.rs` were checked and are unaffected: both delegate to `argmax_host`,
-  which seeds at `−∞` and is `NaN`-safe under `>`.
+  which seeds at $-\infty$ and is `NaN`-safe under `>`.
 
-- **Two `+∞` fitnesses anywhere in a NEAT population erased fitness-proportional
+- **Two $+\infty$ fitnesses anywhere in a NEAT population erased fitness-proportional
   offspring apportionment for *every* species, not just the one holding them**
   (resolves #1062). This is the same overflow as the `mean_fitness` defect
   above, at a site that fix could not reach: `speciate` and `allocate_offspring`
   in `neuroevolution/species.rs` never route through
   `StrategyMetrics::from_host_fitness`, so widening that accumulator left these
   two untouched. Both summed sanitized fitness into an `f32`, and two members
-  clamped to `f32::MAX` saturate the total to `+∞`.
+  clamped to `f32::MAX` saturate the total to $+\infty$.
 
   The population-wide blast radius comes from `allocate_offspring` inheriting
-  the infinity. Its `if total <= 0.0` guard does not fire, because `+∞ > 0`.
-  Healthy species then compute `pop_size × finite / ∞ = 0.0`; the poisoned one
-  computes `pop_size × ∞ / ∞ = NaN`, and `NaN as usize` saturates to `0` in
+  the infinity. Its `if total <= 0.0` guard does not fire, because $+\infty > 0$.
+  Healthy species then compute $\text{pop\_size} \times \text{finite}/\infty = 0.0$; the poisoned one
+  computes $\text{pop\_size} \times \infty/\infty = \text{NaN}$, and `NaN as usize` saturates to `0` in
   Rust. Every floored share lands on zero, so the largest-remainder
   reconciliation hands out all `pop_size` seats round-robin — a species holding
-  a 100× fitness advantage went from 27 of 30 seats to 10, exactly the even
+  a $100\times$ fitness advantage went from 27 of 30 seats to 10, exactly the even
   split NEAT's speciation exists to avoid. Unlike #132's champion desync, no
   unusual usage is required: `NeatStrategy::tell` sanitizes and then calls
   `speciate` unconditionally, and it is NEAT's only entry point, so any
-  objective that can return `+∞` twice reaches this on the normal path.
+  objective that can return $+\infty$ twice reaches this on the normal path.
 
   `allocate_offspring`'s `total` also overflows *independently* of the first
   defect — three species whose adjusted sums are each individually finite still
@@ -645,7 +645,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
   The blind spot was inherited too. `test_speciate_sanitizes_nan_and_inf_fitness`
   passes, and is correct: it covers the raw-`NaN` path, which ADR 0034 genuinely
-  fixed. But it places a *single* `+∞` member in a species, and one `f32::MAX` in
+  fixed. But it places a *single* $+\infty$ member in a species, and one `f32::MAX` in
   a sum is precisely the case that does not overflow. The new tests pin exact
   count vectors rather than asserting the total sums to `pop_size` — that
   weaker assertion holds on the buggy code, and is what let this through.
@@ -654,9 +654,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   for any population containing a single saturated member.** Found while
   generalising the two fixes above into ADR 0069, and latent: `z_score` is `pub`
   but has no in-workspace caller yet. It squares its centred terms, so a member
-  at `f32::MAX` overflowed *its own squared term* to `+∞` at `N = 1`, before any
-  accumulation — no accumulator width would have helped. `var = +∞` drove
-  `std = +∞` and collapsed every output element to `±0.0`. An entirely saturated
+  at `f32::MAX` overflowed *its own squared term* to $+\infty$ at `N = 1`, before any
+  accumulation — no accumulator width would have helped. $\text{var} = +\infty$ drove
+  $\text{std} = +\infty$ and collapsed every output element to $\pm 0.0$. An entirely saturated
   population returned `NaN` instead. Both are finite-looking, panic-free, and
   exactly the shape of failure that gets mistaken for a converged run.
 
@@ -666,19 +666,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   introduced `sanitize_fitness_tensor` to avoid. `z_score` now divides the
   population by its own max-abs magnitude before reducing, bounding every squared
   term. That is strictly stronger than widening would have been — it also holds
-  on a narrower element type, where the old formula overflowed at fitness ≈ 256 —
+  on a narrower element type, where the old formula overflowed at fitness $\approx$ 256 —
   and z-scoring is invariant to a positive rescale, so ordinary inputs move by at
   most a few ULP.
 
-  A `−∞` member still yields `+∞`/`NaN` utilities. That behaviour is unchanged,
+  A $-\infty$ member still yields $+\infty$/`NaN` utilities. That behaviour is unchanged,
   pre-existing, and deliberately left alone here rather than folded into an
   overflow fix; it is tracked as #1068 and pinned by a test marked "Pin, not a
   fix".
 
 **Changed**
 
-- **The rule that a sanitized `+∞` "cannot blow a `mean`, `variance`, or reward
-  to `+∞`" has been corrected wherever it was stated** (ADR 0069). It was false —
+- **The rule that a sanitized $+\infty$ "cannot blow a `mean`, `variance`, or reward
+  to $+\infty$" has been corrected wherever it was stated** (ADR 0069). It was false —
   `f32::MAX` is finite, so it *joins* a sum — and it was the direct cause of
   #132, #1062, and the `z_score` defect above: in each case the author read the
   rule, sanitized correctly, and then accumulated in `f32` because the
@@ -721,12 +721,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   factor of `2^30` below the smallest capacity that wraps. It is enforced
   through `Validate` wherever a `Result` already existed
   (`PrioritizedReplayConfig`, the six agents' `replay_buffer_capacity`, and
-  PPO's previously-unchecked `num_envs · num_steps` product), so every
+  PPO's previously-unchecked $\text{num\_envs} \cdot \text{num\_steps}$ product), so every
   config-driven path now returns a recoverable `ConstraintKind::TooLarge`
   instead of dying; and as a widened `assert!` in the infallible constructors
   (`History::new`, `UniformReplay::new`, `SumTree::new`, `AgentStats::new`, and
   `RolloutBuffer::new`, which had no guard at either end and multiplied
-  `capacity · action_dim` unchecked). No signature changes: `try_reserve_exact`
+  $\text{capacity} \cdot \text{action\_dim}$ unchecked). No signature changes: `try_reserve_exact`
   and a fallible `try_new` were both rejected, matching the #190/#191 precedent
   — measured, `try_reserve_exact` recovers only the `usize::MAX` arm, which
   already unwinds as a catchable panic.
@@ -749,8 +749,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **A non-finite target quantile survived terminal transitions in QR-DQN's
   Bellman backup** (resolves #357). QR-DQN builds its target inline rather than
   through the shared helper, and it still computed the backup by *scaling* the
-  bootstrap term: `rewards + (1 − terminated) · θ_target · γ`. Because IEEE-754
-  gives `NaN · 0.0 == NaN` (as does `inf · 0.0`), a poisoned quantile anywhere
+  bootstrap term: $\text{rewards} + (1 - \text{terminated})\,\theta_{target}\,\gamma$. Because IEEE-754
+  gives $\text{NaN} \cdot 0.0 = \text{NaN}$ (as does $\infty \cdot 0.0$), a poisoned quantile anywhere
   in the target network's output for the bootstrap action contaminated the
   target on exactly the samples where the terminal convention says the
   bootstrap must vanish — samples whose correct value, the reward alone, is
@@ -763,7 +763,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   own projection step)". That is false for QR-DQN: it did not mask, it scaled,
   and this is the fix for the gap that sentence denied. C51 genuinely is
   unaffected, for a reason worth stating precisely so nobody patches it on a
-  pattern match — its `(1 − terminated)` factor multiplies the **fixed atom
+  pattern match — its $(1 - \text{terminated})$ factor multiplies the **fixed atom
   support**, finite by construction from `v_min`/`v_max` and asserted so, never
   a network output.
 
@@ -890,7 +890,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
   These pair with ADR 0059's `gradient_updates()` / `critic_updates()`, which
   advance **unconditionally, including on a skip**: those count *attempts*, so
-  the applied-update count is `attempts − skipped`, and neither number means
+  the applied-update count is $\text{attempts} - \text{skipped}$, and neither number means
   what a reader expects without the other. `n_updates` and the new
   `skipped_updates` metric row carry the same relationship into the record.
 
@@ -898,7 +898,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the work above: DDPG tracked `critic_updates` as a private field with no
   accessor, unlike `SacAgent` and `Td3Agent`, which both expose theirs. So DDPG
   alone had a numerator (`skipped_critic_updates()`) with no publicly readable
-  denominator — the `applied = attempts − skipped` identity was unevaluable on
+  denominator — the $\text{applied} = \text{attempts} - \text{skipped}$ identity was unevaluable on
   exactly one of the eight agents. Additive; it restores parity across the
   off-policy family.
 
@@ -917,27 +917,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   poisons `best_score`"; that claim was refuted, and #1078 opens by conceding
   it — `record()` folds the score with `f32::max`, which **discards** a `NaN`
   operand in either position. What it
-  does *not* discard is `+∞`, which it propagates from either position because
-  `+∞` compares greater than every finite value, and `best_score` is never
-  evicted by the sliding window. One `+∞` episode therefore pins the accessor
-  at `+∞` for the agent's entire remaining lifetime, with no self-healing at
+  does *not* discard is $+\infty$, which it propagates from either position because
+  $+\infty$ compares greater than every finite value, and `best_score` is never
+  evicted by the sliding window. One $+\infty$ episode therefore pins the accessor
+  at $+\infty$ for the agent's entire remaining lifetime, with no self-healing at
   all — strictly worse than the `avg_score` case #409 was about, which recovers
   within one `window_size` as the offending episode rolls out. The existing
   tests missed it because the two `NaN` tests pin `f32::max`'s discarding
   behaviour in both operand positions and were read as covering "non-finite
-  scores"; they cover `NaN` only, and `+∞` is the one non-finite value
+  scores"; they cover `NaN` only, and $+\infty$ is the one non-finite value
   `f32::max` propagates rather than discards. Nothing else gated it either —
   `rlevo-test-support`'s `assert_reaches` and `assert_improves_over_random`
-  both read `avg_score` and never `best_score`, so a latched `+∞` survives a
+  both read `avg_score` and never `best_score`, so a latched $+\infty$ survives a
   fully green suite. It is also more reachable than it looks: ADR 0065's
   `FiniteRewardGuard` refuses to *store* a non-finite per-step reward, but all
   eight training loops still accumulate `episode_reward += reward_f32`
-  unconditionally and by design (ADR 0065 §Decision 4), so a single `+∞`
+  unconditionally and by design (ADR 0065 §Decision 4), so a single $+\infty$
   environment reward reaches `record()` on a fully guarded agent with
   `dropped_transitions()` reading 1 — and separately, a long episode of
   entirely *finite* rewards can saturate the `f32` accumulator with no
   non-finite reward anywhere and `dropped_transitions()` reading zero.
-  `best_score` is nevertheless byte-for-byte unchanged: `+∞` genuinely *is* the
+  `best_score` is nevertheless byte-for-byte unchanged: $+\infty$ genuinely *is* the
   maximum score observed, and filtering it under that name would report a
   number the run contradicts — the same fabrication ADR 0061 rules out and ADR
   0070 refused for the mean. Two additive accessors close the gap instead:
@@ -984,7 +984,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   predicate is `is_finite()`, deliberately stronger than #409's proposed
   `!is_nan()`: `episode_reward` is an `f32` accumulator over a whole episode,
   and a long episode of entirely *finite* per-step rewards can saturate it to
-  `±∞` with no `NaN` anywhere and no reward-ingestion guard on that path —
+  $\pm\infty$ with no `NaN` anywhere and no reward-ingestion guard on that path —
   `!is_nan()` would let that value straight into a mean advertised as
   hardened.
 
@@ -1048,7 +1048,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ergonomics for the crossing, advertising it as supported.
 
   This mirrors the reasoning already recorded on `ReplayStrategy::sample`, where
-  ADR 0051 §2 kept a bad-β variant out of the enum so `UniformReplay` "is not
+  ADR 0051 §2 kept a bad-$\beta$ variant out of the enum so `UniformReplay` "is not
   made to carry an error variant it could never produce"; and it is consistent
   with `SampledBatch::weighted`, which treats the one *real* batch-assembly
   failure (`weights.len() != ids.len()`) as a deliberate panic rather than an
@@ -1125,7 +1125,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 
 - **Observation production moved off `State` to a new env-side `Sensor` trait**
   (ADR 0047, supersedes ADR 0019, resolves #329). In the POMDP tuple
-  ⟨S, A, T, R, Ω, O⟩ the emission model `O` is a property of the environment,
+  $\langle$S, A, T, R, $\Omega$, O$\rangle$ the emission model `O` is a property of the environment,
   not of a state value, so it no longer lives on `State`. `State<R>` **loses**
   its `type Observation: Observation<R>` associated type and its
   `fn observe(&self) -> Self::Observation` method; a `State` now carries only
@@ -1247,7 +1247,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   paired-value checks `config::ordered` and `config::distinct` now require
   *both* arguments finite** (ADR 0060, resolves #353). The rule is now
   explicit and enforced in one place: a config **value** must be finite, a
-  config **bound** may be `±∞`. `positive(f64::INFINITY)` returned `Ok`
+  config **bound** may be $\pm\infty$. `positive(f64::INFINITY)` returned `Ok`
   — `f64::INFINITY > 0.0` is true — and the same comparison-vs-usable-number
   gap ran through the sibling predicates, across call sites spanning learning
   rates, physics constants, and evolution parameters. A new
@@ -1255,22 +1255,22 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   float constraint, and `ConstraintKind` is now `#[non_exhaustive]`. No call
   site changed — the fix sits entirely inside the four predicates.
   `in_range(C, f, 0.0, f64::INFINITY, x)` is unaffected and remains the
-  blessed spelling of "non-negative, unbounded above": `hi = ∞` is a bound,
+  blessed spelling of "non-negative, unbounded above": $\text{hi} = \infty$ is a bound,
   not a value.
 
   This is a **breaking**, not a bugfix-only, change because a downstream
   `Validate` impl inherits the stricter behaviour with no source change of its
   own. It breaks in four distinct ways:
 
-  1. **Previously-accepted configs are now rejected.** `positive(+∞)`:
-     `Ok` → `Err(NotFinite)`. `in_range(lo, ∞, ∞)`: `Ok` → `Err(NotFinite)`
-     for any `lo`. `ordered(-∞, ∞)`, `ordered(x, ∞)`, `ordered(-∞, x)`:
+  1. **Previously-accepted configs are now rejected.** $\text{positive}(+\infty)$:
+     `Ok` → `Err(NotFinite)`. $\text{in\_range}(\text{lo}, \infty, \infty)$: `Ok` → `Err(NotFinite)`
+     for any `lo`. $\text{ordered}(-\infty, \infty)$, $\text{ordered}(x, \infty)$, $\text{ordered}(-\infty, x)$:
      `Ok` → `Err(NotFinite)`.
   2. **The error *kind* changes for inputs that already failed** —
      source-compatible, but assertion-breaking. `positive(NaN)` /
-     `positive(-∞)`: `NotPositive` → `NotFinite`. `in_range(0, 1, ±∞)` and
+     $\text{positive}(-\infty)$: `NotPositive` → `NotFinite`. $\text{in\_range}(0, 1, \pm\infty)$ and
      `in_range(.., NaN)`: `OutOfRange` → `NotFinite`. `distinct(NaN, x)` and
-     `distinct(∞, ∞)`: `DegenerateInterval` → `NotFinite`. `ordered(∞, ∞)`:
+     $\text{distinct}(\infty, \infty)$: `DegenerateInterval` → `NotFinite`. $\text{ordered}(\infty, \infty)$:
      `NotOrdered` → `NotFinite`.
   3. **Type-level.** The new `ConstraintKind::NotFinite { got: f64 }` variant
      and the enum's new `#[non_exhaustive]` both break a downstream `match`
@@ -1281,10 +1281,10 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 
   *Migration.* If you genuinely wanted an unbounded **value** rather than a
   bound, spell it with `f32::MAX` / `f64::MAX` instead of infinity — the two
-  in-workspace parameters where `+∞` was a meaningful sentinel, TD3's
+  in-workspace parameters where $+\infty$ was a meaningful sentinel, TD3's
   `noise_clip` and CMSA-ES's `tau_c`, both mean "effectively
   unclipped/frozen", and `f32::MAX` expresses that exactly, since
-  `clip(x, −f32::MAX, f32::MAX) ≡ x` for any finite `x`. **No persisted-data
+  $\text{clip}(x, -\text{f32::MAX}, \text{f32::MAX}) \equiv x$ for any finite `x`. **No persisted-data
   format changed, and no call site in the workspace needed editing.**
 
   *Why the existing tests missed it.* `positive` had a `positive_rejects_nan`
@@ -1293,7 +1293,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   test passed without the predicate ever having a finiteness concept.
   Infinity is the one input where "greater than zero" and "usable as a
   number" diverge, and nothing exercised it. Separately, `qrdqn_config.rs`
-  had already hand-rolled its own `is_finite()` guard on κ (see #345, below)
+  had already hand-rolled its own `is_finite()` guard on $\kappa$ (see #345, below)
   — a call site working around the missing shared-layer rule rather than
   reporting it.
 - **`Observation<R>` loses its `Serialize + for<'de> Deserialize<'de>`
@@ -1410,8 +1410,8 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   *Why no test caught it.* A zero-width range is *legitimate* for 30 of the
   workspace's 32 `Bounds` fields — clamping or sampling to a constant is
   well-defined — so there was no invariant to assert generally. The two fields
-  where it is a misconfiguration are both a policy head's `log σ`, where zero
-  width collapses σ to a constant that still trains and still reports finite
+  where it is a misconfiguration are both a policy head's $\log \sigma$, where zero
+  width collapses $\sigma$ to a constant that still trains and still reports finite
   numbers. It was caught once, on SAC, only because PPO happened to be a
   sibling to diff against; the next migration would have had no sibling.
 
@@ -1512,7 +1512,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   *Migration.* Raise the offending field to the environment's documented minimum:
   `Empty`/`Unlock` 4, `DoorKey`/`DynamicObstacles`/`LavaGap` 5,
   `Crossing`/`UnlockPickup` 7, `FourRooms` 11 **and odd**, `MultiRoom`
-  `num_rooms ≥ 2`, `room_width ≥ 3`, `height ≥ 5`. Every `Default` config already
+  $\text{num\_rooms} \geq 2$, $\text{room\_width} \geq 3$, $\text{height} \geq 5$. Every `Default` config already
   satisfies its floor, so `ConstructableEnv::new` is unaffected. No persisted data
   is involved — `Deserialize` remains non-validating by design (ADR 0026 §2), and
   the constructor is where the rejection now happens for a deserialized config too.
@@ -1574,7 +1574,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   payload serialized before this change still deserializes.
 - **`CrossingEnv::gap_col` returns `Vec<i32>` instead of `i32`**, and
   `strip_rows()` narrows in meaning. The old board was two horizontal strips at
-  `size / 2 ± 1` sharing a single opening at `size / 2`, which one column
+  $\text{size}/2 \pm 1$ sharing a single opening at `size / 2`, which one column
   described completely. Upstream `CrossingEnv` shuffles its candidate rivers and
   punches one opening per river, and a river may be vertical as easily as
   horizontal, so neither the count nor the orientation is fixed: `gap_col()[k]`
@@ -1641,7 +1641,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   the rank-keyed bounds representation had kept out of DDPG/TD3/SAC: each is
   rank-1 with more than one component, so it could not state its bounds at all
   under the old signature. `CarRacingAction` is the workspace's only action whose
-  components disagree — steering ∈ [-1, 1] but gas and brake ∈ [0, 1].
+  components disagree — steering $\in$ [-1, 1] but gas and brake $\in$ [0, 1].
 - **`reset_with_seed(seed)` on `CrossingEnv`, `DoorKeyEnv`, `LavaGapEnv`,
   `FourRoomsEnv` and `UnlockPickupEnv`** — the inherent replay hatch ADR 0029 §1
   mandates, matching the three grid environments that already had it
@@ -1679,7 +1679,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   re-weight. Two design choices are documented at the sampler: exhaustion returns
   `Result` and converts to `ConfigError` at the environment boundary rather than
   panicking, because a region can exhaust on an unlucky draw from an entirely
-  valid config (`DoorKey` at `size = 5` has a 3×3 interior and the draws consume
+  valid config (`DoorKey` at `size = 5` has a $3 \times 3$ interior and the draws consume
   two cells of it), so the ADR 0026 chokepoint cannot rule it out; and the sampler
   materializes the candidate cells and draws a uniform index rather than porting
   upstream's unbounded rejection loop, whose failure mode is a `reset()` that
@@ -1834,7 +1834,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   so walking onto the goal *after* truncation paid a **penalty** for reaching
   it. Measured on the pre-fix code with `max_steps = 3`, fixed placement: the
   episode truncated at step 3, a further 16 steps to the goal terminated at
-  step 19 with reward **−4.7**.
+  step 19 with reward **$-$4.7**.
 
   `PixelGridEnv` now holds an `episode::EpisodeGuard`, `check()`s it as the
   **first** statement of `step()` — ahead of every mutation — and `record()`s
@@ -1862,7 +1862,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 
   The two pendulums are the sharp case: their healthiness predicates are live
   reads of the current pose, not latches. A toppled pole that swings back
-  through `|θ| < 0.2` (`InvertedPendulum`) or a tip that swings back above the
+  through $\lvert\theta\rvert < 0.2$ (`InvertedPendulum`) or a tip that swings back above the
   healthy z floor (`InvertedDoublePendulum`) re-earns the alive bonus (+1,
   +10 respectively) on a **`Running`** snapshot — a finished episode was
   silently resurrected, not merely drifted. `Reacher` and `Swimmer` have no
@@ -1897,14 +1897,14 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   made the terminal reward *overwritten* rather than accumulated: a crash sets
   `reward = -100.0` exactly, discarding the shaping delta. A crashed hull stays
   in ground contact, so `hull_in_contact()` was still `true` on the next call
-  and the unguarded environment re-emitted `Terminated` with a **fresh −100
+  and the unguarded environment re-emitted `Terminated` with a **fresh $-$100
   every time**. Measured on the default config at `seed = 0`, free fall,
-  `DoNothing`: terminal at step 135 with −100, then −100 on each of five further
-  steps — **−600 banked for a single crash**, identically for both the discrete
+  `DoNothing`: terminal at step 135 with $-$100, then $-$100 on each of five further
+  steps — **$-$600 banked for a single crash**, identically for both the discrete
   and continuous variants, and unbounded because the contact never clears. A
   rollout loop that steps once more before checking `is_done()` pays that
   penalty again with no signal that anything went wrong. `BipedalWalker` had the
-  same shape one level deeper: a fallen hull re-pays the −100 fall penalty into
+  same shape one level deeper: a fallen hull re-pays the $-$100 fall penalty into
   `total_reward`, which is itself the accumulator its `total_reward < -100.0`
   termination rule reads.
 
@@ -1925,7 +1925,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   Each environment gained a `assert_rejects_post_terminal_step` conformance
   test, a reset-reopens-the-episode test, and a state-untouched test that
   compares the observation across the rejected call — for `CarRacing` that is
-  the full 96×96×3 frame, which is the direct evidence the world did not
+  the full $96 \times 96 \times 3$ frame, which is the direct evidence the world did not
   integrate. `LunarLander` additionally pins the #122 regression on both
   variants. Existing tests missed all of this because none of them stepped past
   a terminal snapshot — they unwrapped every call and never asked what the
@@ -1996,7 +1996,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   the true episode length, and on `MountainCarContinuous` it re-paid the `+100`
   goal bonus on every extra call. `Acrobot` was worse still — the RK4 integrator
   keeps running past the goal, the tip swings back *below* the height threshold,
-  and the next snapshot reads **`Running`** with reward `−1`, so a finished
+  and the next snapshot reads **`Running`** with reward $-1$, so a finished
   episode came back to life with a corrupted return. `SantaFeAnt` could keep
   eating pellets past a budget it had already exhausted. Every one of these
   environments now holds an `episode::EpisodeGuard`, `check()`s it before any
@@ -2110,7 +2110,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   in the script or the planner rather than tolerating it.
 - **`egocentric_view` applied no masking at all, so `see_through_walls` was
   effectively `true` crate-wide** (ADR 0063, resolves #281). Every cell of the
-  rotated `7×7` window was read straight from the grid, walls included, the
+  rotated $7 \times 7$ window was read straight from the grid, walls included, the
   opposite of canonical Minigrid's own default. A new crate-private
   `grid::process_vis` — a direct port of `Grid.process_vis` — flood-fills from
   the agent's own cell outward and masks any cell an opaque cell (a wall, or a
@@ -2173,18 +2173,18 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   + ADR 0059, resolves #334, closes #455). The two fields did not describe two
   mechanisms — they described one, badly, and they did not agree on what they
   meant. `target_update_frequency` gated a **hard copy** in DQN/C51/QR-DQN but
-  the **soft** Polyak update in SAC, so a τ carried from one family to the other
+  the **soft** Polyak update in SAC, so a $\tau$ carried from one family to the other
   silently produced a different training regime. Worse, and not what the issue
   reported: DDPG and TD3 had no such field at all but gated their Polyak update
   on `policy_frequency`, making the actor-delay knob an *undeclared alias* for
   target cadence — you could not change how often the actor updated without also
   changing how often the target moved. Three regimes, one field name, no error.
 
-  The new type says it once: the cadence decides *when* an update fires, τ
-  decides *how far* the target moves, and `τ = 1.0` is a hard copy by degeneracy
+  The new type says it once: the cadence decides *when* an update fires, $\tau$
+  decides *how far* the target moves, and $\tau = 1.0$ is a hard copy by degeneracy
   rather than a separate mode. That formulation is not borrowed from
   Stable-Baselines3 — it is Haarnoja et al. 2018a's own "SAC (hard target
-  update)" ablation (τ = 1, interval = 1000) and TD3's Algorithm 1, which gates
+  update)" ablation ($\tau = 1$, interval = 1000) and TD3's Algorithm 1, which gates
   the soft update on a period. What was rejected is SB3's *two-flat-fields
   shape*, which is the mechanism by which the three families drifted apart.
 
@@ -2211,7 +2211,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 
   This also makes a frozen target unrepresentable rather than merely rejected.
   `PolyakTau`'s invariant is the half-open `(0, 1]` and the cadence is a
-  `NonZeroUsize`, so `τ = 0.0` — which passed `config::in_range`'s closed
+  `NonZeroUsize`, so $\tau = 0.0$ — which passed `config::in_range`'s closed
   interval and froze the target network (#455) — no longer type-checks, in all
   six configs and including via struct-literal `..Default::default()`
   construction. Six `config::in_range("tau", ..)` checks, SAC's
@@ -2225,7 +2225,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   canonical source counts it that way — Nature DQN's `C` is "measured in the
   number of parameter updates", SAC's interval sits inside "for each gradient
   step do", TD3's `d` is "updates to the critic" — and the env-step reading was
-  the reason the shipped default was 4× more frequent than the Nature value it
+  the reason the shipped default was $4\times$ more frequent than the Nature value it
   claimed to match. `learning_starts` and `train_frequency` still count
   environment steps, so a config now deliberately carries two units; the field
   rustdoc says which is which. The counter advances even when the ADR-0056
@@ -2239,7 +2239,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   the correct and the defective regimes passed. The agents now expose a
   target-network observation seam, and the new tests assert the arithmetic
   directly: that a fired update moves each parameter to exactly
-  `(1 − τ)·target + τ·live`, that no update fires between cadence boundaries,
+  $(1 - \tau)\,\text{target} + \tau\,\text{live}$, that no update fires between cadence boundaries,
   and — the configuration that was previously unexpressible — that an actor
   cadence of 1 and a target cadence of 2 are now independent.
 - **The target soft-update path is now fallible** (ADR 0057, resolves #341,
@@ -2355,7 +2355,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   as terminations** (ADR 0048, resolves #170, part 2). Per Pardo et al.,
   "Time Limits in Reinforcement Learning" (ICML 2018) Eq. 6, a time-limit
   cutoff ends the *trajectory*, not the *task*: the GAE delta must bootstrap
-  from the value of the state the episode was cut at, while the λ-recursion is
+  from the value of the state the episode was cut at, while the $\lambda$-recursion is
   still cut at the boundary. These are two distinct masks, and the single
   `next_nonterminal` term could not express both — which is why the previous
   code could not be fixed by reworking the existing flags alone.
@@ -2430,16 +2430,16 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   interval, a `log_std_min` below `-35`, a span of `40` or more, and a
   `log_std_init` outside the bounds — all four are construction-time errors,
   not silent coercions. The floor and the span guard **different** failures and
-  neither implies the other: the span bounds the ratio `σ_old/σ_new`, while the
-  floor bounds `σ` itself, so `(-120, -100)` — ordered, spanning only `20` — is
+  neither implies the other: the span bounds the ratio $\sigma_{old}/\sigma_{new}$, while the
+  floor bounds $\sigma$ itself, so `(-120, -100)` — ordered, spanning only `20` — is
   rejected because `exp(-110)` is exactly `0.0` in f32. `-35` is derived from
-  `|z − μ|/σ ≤ sqrt(f32::MAX)`; it sits six orders of magnitude below the
+  $\lvert z - \mu\rvert/\sigma \leq \sqrt{\text{f32::MAX}}$; it sits six orders of magnitude below the
   default `-20` and constrains no usable configuration. Note the two numerical
   checks jointly imply `log_std_max < 5`. **Persisted
   records still load**: the bounds are plain `f32` constants on the head, not
   `Param`s, so no saved weights are invalidated. Seeded results are unchanged
   at the default bounds, which never bind on a healthy run (verified: the
-  Pendulum end-to-end run passes unchanged at avg −1167.78).
+  Pendulum end-to-end run passes unchanged at avg $-$1167.78).
 
 - **`SacTrainingConfig::log_std_min` / `log_std_max` removed — they were dead
   state that silently did nothing** (resolves #185). Both fields were public,
@@ -2492,7 +2492,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   `TanhGaussianPolicyHeadConfig` (`ppo/policies/gaussian.rs`), which carries its
   own `log_std_init` and `action_scale` — and that copy is untouched here. The
   duplication was the defect; the head is the surviving owner, which is what ADR
-  0049 already established for PPO's `log σ` bounds. As with SAC, removal rather
+  0049 already established for PPO's $\log \sigma$ bounds. As with SAC, removal rather
   than delegation is the only viable fix: `PpoAgent::new` and `PpgAgent::new`
   both take an already-built `policy`, so the head's scale is fixed before the
   training config is ever consulted — there is no seam to wire through.
@@ -2523,7 +2523,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   did not validate, and the agent constructors validate only the *training*
   config, so every call to `validate()` on a head config in the entire
   workspace sat inside a `#[cfg(test)]` module. The bounds that feed the live
-  `log σ` clamp were therefore unenforced: `validate()` was, in effect,
+  $\log \sigma$ clamp were therefore unenforced: `validate()` was, in effect,
   documentation that happened to compile. #185 and #385 above removed the dead
   *duplicates* of these fields; this entry closes the gap on the *surviving*
   copy, the one that actually feeds the clamp.
@@ -2533,7 +2533,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   (`log_std_min: 5.0, log_std_max: -5.0`) reaches `Tensor::clamp`, and the two
   backends disagree about what that means. On the actor path (`Autodiff<Flex>`)
   the default `float_clamp` is `clamp_min(clamp_max(x, max), min)`, which with
-  an inverted range pins **every** `log σ` to the constant `log_std_min` — a
+  an inverted range pins **every** $\log \sigma$ to the constant `log_std_min` — a
   deterministic, gradient-dead collapse with no NaN, no panic, and no signal.
   On the target/critic path (raw `Flex`) `float_clamp` delegates to
   `core::f32::clamp`, which asserts `min <= max` and **panics**. Same config,
@@ -2577,7 +2577,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   `ConstraintKind::DegenerateInterval`. The
   consequence differs by algorithm — on PPO a zero-width range freezes the
   shared `log_std` parameter and its gradient from step 0 with no path back,
-  while on SAC it pins the per-observation `σ` to a constant and flattens the
+  while on SAC it pins the per-observation $\sigma$ to a constant and flattens the
   entropy term the temperature is tuned against — but in both cases it is a
   silent collapse, not a usable setting.
 
@@ -2667,7 +2667,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 
   Enable it per agent with the DQN/C51/QR-DQN builders'
   `.prioritized_replay(PrioritizedReplaySettings::default())` — defaults
-  `priority_exponent 0.6`, β annealing `0.4 → 1.0` (Schaul Table 3,
+  `priority_exponent 0.6`, $\beta$ annealing `0.4 → 1.0` (Schaul Table 3,
   proportional). Two fidelity notes are encoded in code and rustdoc rather
   than left to convention: C51 prioritizes by the **KL divergence** — what
   the algorithm minimizes, per Rainbow — not by its cross-entropy loss (they
@@ -2683,7 +2683,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   defect, not a feature.
 
 - **`algorithms::c51::projection::atom_spacing`** — the single source of truth
-  for the atom spacing `Δz = (v_max − v_min) / (N − 1)` (Bellemare et al. 2017,
+  for the atom spacing $\Delta z = (v_{max} - v_{min})/(N - 1)$ (Bellemare et al. 2017,
   §4.1). `C51TrainingConfig::delta_z()` now delegates to it, so the support
   tensor built in `C51Agent` and the index scale used by the projection can no
   longer drift apart. Exposed as a free function taking scalars rather than a
@@ -2693,7 +2693,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 **Changed**
 
 - **`C51TrainingConfig::delta_z()` returns `f32::NAN` for `num_atoms < 2`,
-  where it previously returned `±inf`.** The old body divided by
+  where it previously returned $\pm\infty$.** The old body divided by
   `num_atoms.saturating_sub(1)`, i.e. by zero. Both values are degenerate and
   the builder's `validate()` rejects `num_atoms < 2` before either can be
   observed, but `NaN` propagates visibly through downstream arithmetic whereas
@@ -2705,7 +2705,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 - **`target_update_frequency` default tuning — superseded within this same
   release.** An interim change here raised the DQN/C51/QR-DQN default from
   `100` to `10_000`, on the reasoning that it should match Stable-Baselines3's
-  `target_update_interval` (measured in environment steps, ≈4× more frequent
+  `target_update_interval` (measured in environment steps, $\approx$$4\times$ more frequent
   than Nature DQN's `C = 10,000` parameter-update figure once `train_frequency:
   4` is accounted for). That field no longer exists: the ADR 0058/0059
   `tau`/`target_update_frequency` → `TargetUpdate` unification (above)
@@ -2731,7 +2731,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   removal of a per-parameter host round trip — a blocking device→host readback and
   matching upload — on every soft update; on any future accelerator backend it also
   removes a per-parameter GPU sync stall. A standalone benchmark on the `Flex` CPU
-  backend measured ~1.4–1.9× on the soft-update step (see issue #322). The public
+  backend measured ~1.4–$1.9\times$ on the soft-update step (see issue #322). The public
   signature and `PolyakError` are unchanged.
 
 **Fixed**
@@ -2870,7 +2870,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   then both bounds at once — emitted **exactly one** warning; the other three were
   silent. Second, and not what the issue reported: the `if below { … } else { … }`
   arm meant that even on a *fresh* latch, a call violating both bounds at once
-  named only the floor. A σ of `exp(9) ≈ 8103` was dropped from the very first
+  named only the floor. A $\sigma$ of $\exp(9) \approx 8103$ was dropped from the very first
   warning, so the defect never needed a prior crossing to lose information.
   Third, `min_log_std` is a *minimum* and is therefore structurally blind to
   ceiling drift: while dim1 sat pinned at `log_std_max`, the metric reported a
@@ -2888,7 +2888,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   a signal-loss mechanism. The offending dimension indices are emitted as a
   structured `dims` field on the single per-bound event instead, which is
   strictly more information at none of the cost. The two messages are now
-  distinct prose — σ collapsing and σ diverging are different pathologies with
+  distinct prose — $\sigma$ collapsing and $\sigma$ diverging are different pathologies with
   different remedies — and the floor message no longer asserts that the whole run
   is dead, which overclaimed for any head with more than one action dimension.
 
@@ -2919,26 +2919,26 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   anyone who did not call `agent.update()` by hand and inspect the return value —
   the drift-warning half of ADR 0049 §4 was, as shipped, not delivered.
 
-- **QR-DQN's Huber threshold κ is now required to be finite and strictly
+- **QR-DQN's Huber threshold $\kappa$ is now required to be finite and strictly
   positive, closing two NaN paths that `validate()` waved through** (resolves
-  #345). `QrDqnTrainingConfig::validate` checked κ with
+  #345). `QrDqnTrainingConfig::validate` checked $\kappa$ with
   `config::in_range("kappa", 0.0, f64::INFINITY, …)`, and `config::in_range` is
   inclusive at *both* ends — so the one value that must never reach the loss was
-  the one the check explicitly admitted. κ is the divisor of Dabney et al.
-  (2018) Eq. (10), `ρ^κ_τ(u) = |τ − 𝟙{u<0}| · L_κ(u) / κ`, which
-  `quantile_loss.rs` implements literally as `(weight * huber_u).div_scalar(κ)`.
-  Correcting the issue as filed: κ = 0 does **not** produce `inf`. `huber()`
-  returns exactly `0.0` at κ = 0 (the `|u| ≤ 0` mask is false for nonzero `u`,
-  leaving the linear branch `(|u| − 0)·0`), so the division is `0/0` and the
+  the one the check explicitly admitted. $\kappa$ is the divisor of Dabney et al.
+  (2018) Eq. (10), $\rho^\kappa_\tau(u) = \lvert \tau - \mathbb{1}\{u<0\}\rvert \cdot L_\kappa(u)/\kappa$, which
+  `quantile_loss.rs` implements literally as $(\text{weight} \cdot \text{huber\_u})\text{.div\_scalar}(\kappa)$.
+  Correcting the issue as filed: $\kappa$ = 0 does **not** produce `inf`. `huber()`
+  returns exactly `0.0` at $\kappa$ = 0 (the $\lvert u\rvert \leq 0$ mask is false for nonzero `u`,
+  leaving the linear branch $(\lvert u\rvert - 0)\cdot 0$), so the division is `0/0` and the
   loss is `NaN` — verified by execution, not by reading. The inclusive *upper*
   bound was the second hole and went unreported: the Huber mask selects the
-  quadratic branch everywhere, but the masked-out linear branch `(|u| − 0.5κ)·κ`
+  quadratic branch everywhere, but the masked-out linear branch $(\lvert u\rvert - 0.5\kappa)\kappa$
   is still evaluated eagerly, so once it overflows f32 the blend computes
-  `0 · (−inf)` = `NaN` in **every** element, including at `u = 0`. That happens
-  at κ = `+∞` and also at any κ large enough that `0.5·κ²` exceeds `f32::MAX`,
+  $0 \cdot (-\infty)$ = `NaN` in **every** element, including at `u = 0`. That happens
+  at $\kappa$ = $+\infty$ and also at any $\kappa$ large enough that $0.5\kappa^2$ exceeds `f32::MAX`,
   so an `is_finite` check alone is not sufficient. `NaN` itself was never
   reachable — `NaN >= lo` is false, so `in_range` already rejected it.
-  Also correcting the severity this issue was filed under: an invalid κ does
+  Also correcting the severity this issue was filed under: an invalid $\kappa$ does
   **not** corrupt weights. `FiniteLossGuard` (ADR 0056, #318) checks the loss
   scalar in `qrdqn_agent.rs` before `backward()`, skips the optimizer step, and
   fires a one-shot `tracing::warn!` — so the actual pre-fix consequence was a
@@ -2952,19 +2952,19 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   than inside the loss: both
   `QrDqnTrainingConfigBuilder::build` and `QrDqnAgent::new` call `validate()`,
   so a hand-constructed config with `pub` fields cannot route around it. No
-  behavior changes for any valid κ, and no call site in the repo moved — every
+  behavior changes for any valid $\kappa$, and no call site in the repo moved — every
   one already passed `1.0`. The existing tests missed this because the config
-  suite covered `num_quantiles == 0` and the τ/cadence cross-field case but had
-  no κ boundary test at all; the new `rejects_*_kappa` tests fence the whole
+  suite covered `num_quantiles == 0` and the $\tau$/cadence cross-field case but had
+  no $\kappa$ boundary test at all; the new `rejects_*_kappa` tests fence the whole
   invalid domain, and were confirmed to fail against the pre-fix validator
   before the fix landed. The root cause of the upper-bound half lives in
-  `huber()`'s eagerly-evaluated masked-out branch, not in κ — that pattern is
+  `huber()`'s eagerly-evaluated masked-out branch, not in $\kappa$ — that pattern is
   filed separately, since it is reachable through the public
   `quantile_huber_loss_per_sample` regardless of what the config accepts. Note
-  for anyone expecting the paper's κ = 0 variant: QR-DQN-0 is *not* Eq. (10)
-  evaluated at zero. The paper's "as κ → 0 the quantile Huber loss reverts to
-  the quantile regression loss" is a limit statement, and its κ = 0 experiments
-  substitute the separate unsmoothed Eq. (8), `ρ_τ(u) = u(τ − 𝟙{u<0})`, which
+  for anyone expecting the paper's $\kappa$ = 0 variant: QR-DQN-0 is *not* Eq. (10)
+  evaluated at zero. The paper's "as $\kappa$ → 0 the quantile Huber loss reverts to
+  the quantile regression loss" is a limit statement, and its $\kappa$ = 0 experiments
+  substitute the separate unsmoothed Eq. (8), $\rho_\tau(u) = u(\tau - \mathbb{1}\{u<0\})$, which
   this crate does not implement — so `kappa = 0.0` was never a way to select it.
   The field docs and the crate README now say so.
 
@@ -2992,7 +2992,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   demonstrably passed against the bug it was positioned to guard; it and the new
   regression test now assert `policy_kl > 0.0`, guarded by an explicit
   `minibatches > 1` precondition (the first minibatch of the first auxiliary
-  epoch forward-passes the same weights `π_old` was snapshotted from, so its KL
+  epoch forward-passes the same weights $\pi_{old}$ was snapshotted from, so its KL
   term is structurally zero and a single-minibatch phase would report `0.0` at a
   perfectly healthy rate). Training impact is one phase per run and small in
   absolute terms; the diagnostic trap was the real cost.
@@ -3021,9 +3021,9 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   `learn_step`. `act()` and the on-policy agents keep the panic shape, so #317 is
   only partially addressed here.
 - **A non-finite loss no longer silently poisons the weights** (ADR 0056,
-  resolves #318). Burn does not panic on `NaN`/`±Inf` — it propagates it. A loss
-  that went non-finite (a PPO `ratio = exp(new − old)` overflow when
-  `new − old > ~88`, a degenerate `log`/`div` in an entropy or log-prob term, an
+  resolves #318). Burn does not panic on `NaN`/$\pm\infty$ — it propagates it. A loss
+  that went non-finite (a PPO $\text{ratio} = \exp(\text{new} - \text{old})$ overflow when
+  $\text{new} - \text{old} > \sim 88$, a degenerate `log`/`div` in an entropy or log-prob term, an
   exploding gradient) was fed straight into `backward()` and the optimizer step,
   corrupting every weight while training continued and reported finite-looking
   bookkeeping. Every agent now runs its already-host-resident loss scalar through
@@ -3035,7 +3035,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   sync and runs unconditionally in release. Skipped values are excluded from the
   reported loss means, so a single `NaN` can no longer masquerade as a finite
   average. Covers all eight agents (PPO, PPG, DQN, C51, QR-DQN, SAC, DDPG, TD3),
-  generalizing the SAC-α guard from #184. The existing tests missed this because
+  generalizing the SAC-$\alpha$ guard from #184. The existing tests missed this because
   the cross-crate suite asserts *reward* finiteness (a fully `NaN`-poisoned
   network still emits finite rewards) and the reproducibility suite only checks
   same-seed self-consistency (a deterministic `NaN` reproduces perfectly). This
@@ -3096,7 +3096,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   The companion claim filed against this module — that a single `NaN` score
   permanently poisons `best_score` — was **refuted** and no change was made:
   `f32::max` is NaN-ignoring, so `best_score` self-heals on the very next
-  record, and the proposed "sanitize `NaN` to −∞" fix would have been a no-op.
+  record, and the proposed "sanitize `NaN` to $-$$\infty$" fix would have been a no-op.
   `avg_score` does propagate a `NaN` through its sum, but only until the value
   slides out of the window; filtering it there stays out of scope because both
   upstream NaN origins are already guarded (#184's SAC alpha optimizer, #173's
@@ -3155,14 +3155,14 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   *after* the inner rollout `for` loop, so `global_step` was only ever observed
   at multiples of `num_steps` (default `128`). Logging therefore required
   `log_every` to divide the rollout stride. With `log_every = 100` the first
-  line landed at step 3200 instead of 100 — 32× too sparse — and with
+  line landed at step 3200 instead of 100 — $32\times$ too sparse — and with
   `log_every = 500` at step 16000, so any run shorter than that emitted
   **nothing at all**, silently, while the rustdoc promised "a progress line
   every this many global steps". The six off-policy loops were never affected:
   they check `(step + 1) % log_every == 0` *inside* the step loop.
 
   The trigger is now a last-logged watermark
-  (`global_step − last ≥ log_every`), which is robust to the stride instead of
+  ($\text{global\_step} - \text{last} \geq \text{log\_every}$), which is robust to the stride instead of
   depending on divisibility. It stays at the rollout boundary by necessity —
   the log payload reports `PpoUpdateStats` from `update()`, which does not
   exist mid-rollout — so the realised cadence is bounded by
@@ -3193,55 +3193,55 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   `log_every = 100`). `log_every == 0` still disables logging.
 - **One non-finite gradient permanently bricked SAC's temperature controller for
   the rest of the run** (resolves #184). `LogAlpha::adam_step` folded
-  `g = −(log π̄ + H̄)` straight into its hand-rolled Adam moments with no
+  $g = -(\log \bar{\pi} + \bar{H})$ straight into its hand-rolled Adam moments with no
   finiteness check. Those moments are exponential moving averages, so
-  `β₁ · NaN = NaN`: a single pathological batch poisoned `m` and `v`
-  **permanently**, and every subsequent α was NaN no matter how healthy later
+  $\beta_1 \cdot \text{NaN} = \text{NaN}$: a single pathological batch poisoned `m` and `v`
+  **permanently**, and every subsequent $\alpha$ was NaN no matter how healthy later
   gradients were. The actor and critic optimizers rebuild from fresh gradients
   each step and self-heal; `m`/`v` carry state across steps and never recover.
 
-  A collapsed squashed-Gaussian policy legitimately emits `log π → −Inf` on
+  A collapsed squashed-Gaussian policy legitimately emits $\log \pi \to -\infty$ on
   out-of-distribution actions and a diverging critic can feed NaN back through
   the reparameterised actor, so this needed no exotic configuration to fire —
-  and it fired on the *first* bad gradient. From there the NaN α propagated into
+  and it fired on the *first* bad gradient. From there the NaN $\alpha$ propagated into
   both critic losses via the Bellman target and into the actor loss, taking down
   the rest of the agent with it. The run kept reporting finite-looking
   bookkeeping throughout.
 
   `adam_step` now skips the update in full when `g` is not finite — `m`, `v`,
-  `t` and `log α` are all left untouched — and emits a one-shot `tracing::warn!`
-  naming the likely cause. A separate backstop clamps `log α` to `[−88, 88]` so
-  `α = exp(log α)` cannot overflow to `+Inf` down the *other* path into those
+  `t` and $\log \alpha$ are all left untouched — and emits a one-shot `tracing::warn!`
+  naming the likely cause. A separate backstop clamps $\log \alpha$ to $[-88, 88]$ so
+  $\alpha = \exp(\log \alpha)$ cannot overflow to `+Inf` down the *other* path into those
   same losses. The two are independent: clamping the parameter does nothing for
   already-poisoned moments, which is why the guard is the actual fix.
 
   **A finite gradient is not enough**, and review of the first guard turned up a
-  second route to the same permanent corruption. `(1 − β₂) · g · g` is
+  second route to the same permanent corruption. $(1 - \beta_2) \cdot g \cdot g$ is
   left-associative, so it overflows to `+Inf` from about `|g| ≳ 1e21` while `g`
   itself is still an ordinary finite float and the finiteness check passes.
   `v = +Inf` is absorbing under the moving average, so `v̂.sqrt()` is `Inf` and
   every later step size is exactly `0`: the controller freezes **silently** —
-  no NaN, no odd-looking `log α`, nothing to notice — which is strictly harder
+  no NaN, no odd-looking $\log \alpha$, nothing to notice — which is strictly harder
   to diagnose than the NaN it replaces. This is reachable rather than
-  adversarial: the policy's `log σ` is clamped but its Gaussian *mean* is an
-  unclamped `Linear` output, so a mean that has run away against a near-floor σ
-  makes `((a − μ)/σ)²` huge but finite and `log π` follows. Both moments are
+  adversarial: the policy's $\log \sigma$ is clamped but its Gaussian *mean* is an
+  unclamped `Linear` output, so a mean that has run away against a near-floor $\sigma$
+  makes $((a - \mu)/\sigma)^2$ huge but finite and $\log \pi$ follows. Both moments are
   now computed into locals and committed only once known finite, under their own
   one-shot warning — a separate latch, so whichever failure fires first cannot
   silence the other.
 
-  A non-finite `alpha_lr` is rejected by the same guard. The `[−88, 88]` clamp
-  appears to cover it, but only for `g ≠ 0`: at `g = 0` the step is `Inf · 0 =
-  NaN`, and `NaN.clamp(..)` propagates rather than rescuing. (Such a value
+  A non-finite `alpha_lr` is rejected by the same guard. The $[-88, 88]$ clamp
+  appears to cover it, but only for $g \neq 0$: at $g = 0$ the step is
+  $\infty \cdot 0 = \text{NaN}$, and `NaN.clamp(..)` propagates rather than rescuing. (Such a value
   could reach the optimizer at all because `config::positive` treated `+Inf`
   as positive — fixed by #353, see the `rlevo-core` finiteness entry above.)
 
   A third variant sits one level further down, in the **bias-corrected** values:
-  `v̂ = v / (1 − β₂ᵗ)` can overflow to `+Inf` while `g`, `lr` and both raw
+  $\hat{v} = v/(1 - \beta_2^t)$ can overflow to `+Inf` while `g`, `lr` and both raw
   moments are finite, because the divisor is only ~`0.001` at `t = 1`. Same
   silent-freeze signature. This one is *bounded* rather than permanent — the
   divisor grows and the controller recovers on its own — but the reachable band
-  `|g| ∈ (1.84e19, 5.83e20)` drops between 27 and 686 consecutive updates, and
+  $\lvert g\rvert \in (1.84 \times 10^{19}, 5.83 \times 10^{20})$ drops between 27 and 686 consecutive updates, and
   the band's lower edge moves with `t`. Guarded by rolling the whole step back;
   keeping the raw moment update and skipping only the parameter subtraction was
   measured to be bit-for-bit identical to no guard at all, since the freeze is
@@ -3253,15 +3253,15 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   the second indicates a NaN source.
 
   Both hardenings are deliberate `rlevo` deviations — softlearning (the SAC
-  authors' own code), rlkit, CleanRL and Stable-Baselines3 all leave `log α`
-  unbounded and none guards the α optimizer against a non-finite gradient. The
+  authors' own code), rlkit, CleanRL and Stable-Baselines3 all leave $\log \alpha$
+  unbounded and none guards the $\alpha$ optimizer against a non-finite gradient. The
   bounds are wide enough to be provably non-binding in a healthy run (SAC's
-  legitimate α range is ~`[0, 10]`, i.e. `log α ≤ 2.3`), so no converging run's
+  legitimate $\alpha$ range is ~`[0, 10]`, i.e. $\log \alpha \leq 2.3$), so no converging run's
   numbers change. The module docs record the deviation against Haarnoja et al.
   (arXiv:1812.05905) Eq. 18 rather than presenting it as standard practice.
 
   The three existing tests only ever drove `adam_step` with finite log-probs and
-  asserted the *direction* α moved, so nothing exercised the failure path at
+  asserted the *direction* $\alpha$ moved, so nothing exercised the failure path at
   all. The new coverage asserts that the controller still **moves** after a
   poisoned step, not merely that its state is finite — a frozen controller is
   perfectly finite, which is exactly how the overflow variant would have slipped
@@ -3270,24 +3270,24 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 - **C51 crashed on roughly 4% of valid atom supports — f32 rounding pushed the
   projection's atom index one past the end of the support** (resolves #180).
   `project_distribution` clamps the Bellman shift `Tz` to `[v_min, v_max]`, so
-  the continuous atom coordinate `b = (Tz − v_min) / Δz` is *mathematically*
-  confined to `[0, N−1]`. Bellemare et al. 2017 assert exactly that, as an
-  inline comment in Algorithm 1 — and it is exact in ℝ. It is not exact in
+  the continuous atom coordinate $b = (Tz - v_{min})/\Delta z$ is *mathematically*
+  confined to $[0, N-1]$. Bellemare et al. 2017 assert exactly that, as an
+  inline comment in Algorithm 1 — and it is exact in $\mathbb{R}$. It is not exact in
   IEEE-754. When `Tz` saturates at `v_max`, the division can round `b` a few
-  ULPs **above** `N−1`, `ceil` then yields `N`, and the `scatter` indexes off
+  ULPs **above** $N-1$, `ceil` then yields `N`, and the `scatter` indexes off
   the end of a size-`N` axis and panics.
 
-  With `v_min = −10, v_max = 0.1, N = 8`, `b = 7.000000477` and any reward
-  `≥ 0.1` panics with `index 8 out of bounds for dimension of size 8`. A sweep
-  over `v_min ∈ [−20, 0)`, `v_max ∈ (v_min, 20]` and `N ∈ [2, 64]` found
+  With $v_{min} = -10, v_{max} = 0.1, N = 8$, `b = 7.000000477` and any reward
+  $\geq 0.1$ panics with `index 8 out of bounds for dimension of size 8`. A sweep
+  over $v_{min} \in [-20, 0)$, $v_{max} \in (v_{min}, 20]$ and $N \in [2, 64]$ found
   **165,092 of 3,786,300 supports** affected. Every one of them passes
-  `validate()`; none is exotic. `b` is now clamped to `[0, N−1]` before
+  `validate()`; none is exotic. `b` is now clamped to $[0, N-1]$ before
   `floor`/`ceil` — a no-op in real arithmetic, and the same guard CleanRL's
   `c51.py` carries.
 
-  **Why the tests missed it.** The default support `(−10, 10, 51)` lands on
-  `b = 50.0` exactly, and so do every unit test's `(−1, 1, 3)` and `(−2, 2, n)`
-  and every benchmark's `(−10, 10, {21, 51, 101})`. The suite contained a
+  **Why the tests missed it.** The default support $(-10, 10, 51)$ lands on
+  `b = 50.0` exactly, and so do every unit test's $(-1, 1, 3)$ and $(-2, 2, n)$
+  and every benchmark's $(-10, 10, \{21, 51, 101\})$. The suite contained a
   `projection_clamps_above_support` test aimed squarely at this boundary, but on
   an exactly-landing support it cannot observe the defect no matter how it is
   written. The regression tests added here use non-default supports chosen
@@ -3299,7 +3299,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
 
 - **`project_distribution` silently returned a corrupted target distribution
   for a degenerate support, instead of failing** (found while fixing #180).
-  With `v_min == v_max` the spacing `Δz` is `0`, so `b = (Tz − v_min)/0` is
+  With `v_min == v_max` the spacing $\Delta z$ is `0`, so $b = (Tz - v_{min})/0$ is
   `NaN`. `f32::clamp` **propagates** `NaN` rather than rescuing it, and Rust's
   saturating float→int cast maps `NaN` to `0` — so every index collapsed to
   atom 0 and the function returned a plausible-looking distribution with all
@@ -3307,7 +3307,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   Silent corruption is a worse failure than the out-of-bounds panic above.
 
   The pre-existing `assert!(num_atoms >= 2)` does not cover this: `num_atoms`
-  can be perfectly valid while `v_max − v_min == 0`. `project_distribution` now
+  can be perfectly valid while $v_{max} - v_{min} = 0$. `project_distribution` now
   asserts that the spacing is finite and strictly positive, and documents both
   panic conditions under `# Panics`.
 
@@ -3318,19 +3318,19 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   literal bypasses `validate()` entirely is tracked as #326.
 
 - **PPO's Gaussian `log_std` was unbounded, so a long continuous-control run
-  could collapse it until `σ` underflowed to zero and NaN poisoned every
+  could collapse it until $\sigma$ underflowed to zero and NaN poisoned every
   weight** (resolves #173, ADR 0049). The gradient of the Gaussian log-prob
-  w.r.t. `log_std` is `((z − μ)/σ)² − 1`, which is `≈ −1` for a high-advantage
+  w.r.t. `log_std` is $((z - \mu)/\sigma)^2 - 1$, which is $\approx -1$ for a high-advantage
   action near the mean — exactly the case the surrogate rewards. Every such
-  update pushed `log_std` down, linearly and without limit. Below `≈ −87`,
-  `σ = exp(log_std)` underflows f32 to exactly `0.0`, `centered / σ` becomes
-  `±inf`, and `backward()` corrupts the parameters permanently. At the Pendulum
+  update pushed `log_std` down, linearly and without limit. Below $\approx -87$,
+  $\sigma = \exp(\text{log\_std})$ underflows f32 to exactly `0.0`, $\text{centered}/\sigma$ becomes
+  $\pm\infty$, and `backward()` corrupts the parameters permanently. At the Pendulum
   benchmark's `lr = 3e-4` that is on the order of 290k updates — inside a normal
   training budget, and with no error signal until the run visibly diverges.
 
   **The entropy bonus does not save it.** Gaussian entropy here is linear in
-  `log σ`, so its restoring force is a constant `entropy_coef · lr` — roughly
-  300× weaker than the drift at the default `entropy_coef = 0.01`, and *zero*
+  $\log \sigma$, so its restoring force is a constant $\text{entropy\_coef} \cdot \text{lr}$ — roughly
+  $300\times$ weaker than the drift at the default `entropy_coef = 0.01`, and *zero*
   in the workspace's only continuous-control benchmark. That zero is correct,
   not an oversight: it is the published SB3 rl-zoo tuned Pendulum-v1 config, and
   PPO's own MuJoCo benchmark (Schulman et al. 2017, Table 3) also ran without an
@@ -3364,7 +3364,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   `Terminated`. Zeroing on truncation tells the agent the trajectory genuinely
   ended with no future value; the error is systematic, always downward, and
   compounds silently over long runs. The canonical target is
-  `r + γ · ¬terminated · max_a Q(s′, a)` (Pardo et al. 2018 Eq. 6; Gymnasium
+  $r + \gamma \cdot \lnot\text{terminated} \cdot \max_a Q(s', a)$ (Pardo et al. 2018 Eq. 6; Gymnasium
   Eq. 2) — the mask is `¬terminated`, never `¬done`. TD3's own paper specified
   this in 2018 (Fujimoto et al., Appendix D), so the implementation diverged
   from its own primary source.
@@ -3423,7 +3423,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   pinning that no-op plus the `tau == 0.0` hard-sync branch. Neither
   `sync_target` nor the `tau`/`target_update_frequency` pair it read exist
   anymore: ADR 0058/0059 (the `target_update: TargetUpdate` entry above)
-  replaces both fields with a single cadence+τ type under which this
+  replaces both fields with a single cadence+$\tau$ type under which this
   dual-mechanism bug — and the `tau == 0.0` / `target_update_frequency == 0`
   frozen-target case this entry also fixed — are structurally unrepresentable,
   and folds in the #334 cross-family (SAC vs. DQN/C51/QR-DQN) divergence this
@@ -3473,7 +3473,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   line and cost nothing observable. On a panic inside `soft_update` it was
   never overwritten, so the agent unwound with the target field holding a full
   copy of the policy — a hard sync the caller never asked for, and the exact
-  failure mode τ exists to avoid. On TD3 the window spanned three fields, so
+  failure mode $\tau$ exists to avoid. On TD3 the window spanned three fields, so
   one fault could corrupt the target actor and both target critics. The tests
   could not catch it for the same reason they missed #167: nothing in the
   suite drives a panic through a learn step. `M::InnerModule` is `Clone`
@@ -3545,19 +3545,19 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   regression test, which previously decided the bug through
   `policy_kl > 0.0`. That form is correct but is an `f32` mean of
   log-differences between near-identical logits, measured at ~4.1e-7 — about
-  3.4× `f32::EPSILON` — so a backend with a different reduction order could
+  $3.4\times$ `f32::EPSILON` — so a backend with a different reduction order could
   round a *healthy* phase to zero. Exposure that mattered once #519 put the
   crate on shared CI hardware. The behavioral half of the check moved to a new
   in-crate test, `ppg_aux_phase_at_nonzero_lr_moves_policy_parameters`, which
   measures a host-side weight delta across the terminal auxiliary phase —
-  `lr · step`, linear in the rate and clear of `f32` resolution by orders of
+  $\text{lr} \cdot \text{step}$, linear in the rate and clear of `f32` resolution by orders of
   magnitude. Both assertions were verified to fail against a deliberately
-  reintroduced #324 (`max |Δw| = 0` exactly).
+  reintroduced #324 ($\max \lvert\Delta w\rvert = 0$ exactly).
 
 - **`PpoUpdateStats::min_log_std` and a one-shot warning when the `log_std`
   bound binds** (resolves #173, ADR 0049). Bounding `log_std` trades a *loud*
   failure for a *quiet* one: before, a collapsing policy produced NaN and the run
-  visibly died; now it can sit silently pinned at `σ ≈ 2·10⁻⁹`, emitting
+  visibly died; now it can sit silently pinned at $\sigma \approx 2 \times 10^{-9}$, emitting
   near-deterministic actions with no crash. Worse, because `log_std` is a
   state-independent `Param` rather than a per-state network output, `clamp`
   zeroes its gradient **permanently** once it crosses — there is no recovery
@@ -3608,7 +3608,7 @@ notes; there are no changes to `rlevo-evolution`, `rlevo-hybrid`,
   net; hand-built fixtures must reuse the active net's `ParamId`s explicitly.
 
   A second qualification, added when #182 landed: the phrase "the exact
-  failure mode τ exists to avoid" above overstates the practical exposure on
+  failure mode $\tau$ exists to avoid" above overstates the practical exposure on
   `dqn`, `c51` and `qrdqn` specifically. Under the `tau`/`target_update_frequency`
   field pair that existed at the time — since replaced by `TargetUpdate` (see
   above) — those three hard-synced the target on schedule anyway whenever a
@@ -3763,7 +3763,7 @@ Patch release: no breaking changes since 0.3.0.
   resolves #160). `Landscape::sense()` defaults to `Minimize`. A cost
   objective now declares its sense once instead of every caller hand-negating
   fitness. `rlevo-benchmarks`' record schema bumps **v6 → v7**:
-  `RunManifest` gains `objective_sense` (absent ⇒ `Maximize`).
+  `RunManifest` gains `objective_sense` (absent $\Rightarrow$ `Maximize`).
 - **`Probability` and `NonNegativeRate` newtypes replace bare `f32` rate
   fields** (ADR 0031) across `rlevo-evolution` config and operator signatures
   — `GaConfig`/`BinaryGaConfig`/`CgpConfig`/`GepConfig`, `GaCrossover`,
@@ -3796,7 +3796,7 @@ Patch release: no breaking changes since 0.3.0.
   liveness, finiteness, and structural invariants instead of rubber-stamping
   `true`. `CarRacingState::current_tile` becomes `Option<usize>`.
 - **`LunarLander`'s terminal reward is now overwritten, not accumulated**
-  (resolves #122) — crash/out-of-bounds is a flat −100 and landing is a flat
+  (resolves #122) — crash/out-of-bounds is a flat $-$100 and landing is a flat
   +100 (matching Gymnasium), replacing that step's shaping delta and control
   cost. Previously a hard crash could net a positive reward via Rapier's
   stiff-contact shaping spike; recorded LunarLander benchmark numbers will
@@ -3824,7 +3824,7 @@ Patch release: no breaking changes since 0.3.0.
   - `MemoryConfig::swap_fork` is **removed**, and `MemoryConfig::new` changes
     arity: `new(size, max_steps, seed)` (was `new(max_steps, seed, swap_fork)`).
     `size` is a new field — odd and `>= 11`, rejected by `Validate` otherwise.
-    Defaults are `size = 13`, `max_steps = 845` (`5 * size²`), `seed = 0`.
+    Defaults are `size = 13`, `max_steps = 845` ($5\,\text{size}^2$), `seed = 0`.
     The default sits deliberately **above** the minimum: `11` is the smallest
     size at which the cue is unobservable from the fork (Invariant M), but it is
     also the size at which the cue-free corridor run collapses to a single cell,
@@ -3840,7 +3840,7 @@ Patch release: no breaking changes since 0.3.0.
     emits the shared `GridObservation` / `GridSnapshot`; it emits
     `GoToDoorObservation` (`[7, 7, 4]`) and `GoToDoorSnapshot`. Rank is still
     `3`, so `Environment<3, 3, 1>` is unchanged, but any code naming its
-    `ObservationType` / `SnapshotType`, or feeding a `7×7×3` model, must be
+    `ObservationType` / `SnapshotType`, or feeding a $7 \times 7 \times 3$ model, must be
     updated. This is the grid family's only 4-channel observation.
   - Both configs pinned a quantity the environment is supposed to sample every
     episode; determinism for tests is served by the new `reset_with_seed` (ADR
@@ -3912,7 +3912,7 @@ Patch release: no breaking changes since 0.3.0.
   derives `to_tensor` from a `row_shape`/`write_host_row` primitive so a
   batch uploads as one `Tensor::from_data` instead of per-item transfers +
   `cat` (ADR 0028); migrated across ~27 impls.
-- `Probability` ([0,1]) and `NonNegativeRate` (finite, ≥0) validated newtypes
+- `Probability` ([0,1]) and `NonNegativeRate` (finite, $\geq$0) validated newtypes
   (ADR 0031).
 - Public `splitmix64` mixer, promoted from a duplicated private copy (ADR
   0033).
@@ -3948,7 +3948,7 @@ Patch release: no breaking changes since 0.3.0.
 - `PixelGridEnv` — first production consumer of `Observable<OR>`, projecting a
   compact rank-1 grid latent into a rank-3 `[20, 20, 3]` RGB image (ADR 0020).
 - `SantaFeAntEnv` — canonical GP/POMDP benchmark: artificial-ant trail
-  following with a one-bit `food_ahead` percept on a 32×32 toroidal grid, plus
+  following with a one-bit `food_ahead` percept on a $32 \times 32$ toroidal grid, plus
   a structured render path and optional `AsciiRenderable` debug helper.
 - Three-tier benchmark landscape function suite (unimodal / multimodal /
   deceptive) for evolutionary-algorithm evaluation.
@@ -3998,7 +3998,7 @@ Patch release: no breaking changes since 0.3.0.
   stays at its old position — the standard vertex-conflict rule, and the same
   no-merge guarantee Farama Minigrid gets from its `place_obj` rejection loop.
   The agent's cell is claimed like every other, so exactly one obstacle can
-  collide with the agent on a step (the −1.0 terminal collision is unchanged);
+  collide with the agent on a step (the $-$1.0 terminal collision is unchanged);
   `obstacles()` positions are now pairwise distinct throughout any episode
   driven per the `Environment` contract (`reset` → `step` until `done` →
   `reset`), including on the terminal collision step. (Stepping *past* a
@@ -4013,12 +4013,12 @@ Patch release: no breaking changes since 0.3.0.
   #113, ADR 0045) — `bounds()` returns a single `(lo, hi)` pair that every
   consumer applies to *each* coordinate, so for a landscape whose true domain is
   a rectangle the only correct value is the **square hull** of that rectangle.
-  `Branin` instead returned the `x₁` range `(-5, 10)`, and `Trefethen` the `x₂`
+  `Branin` instead returned the $x_1$ range `(-5, 10)`, and `Trefethen` the $x_2$
   range `(-4.5, 4.5)`. Branin's box therefore **excluded the certified global
-  minimum `(−π, 12.275)`** outright — `x₂ = 12.275 > 10`, so no search
+  minimum $(-\pi, 12.275)$** outright — $x_2 = 12.275 > 10$, so no search
   constrained to `bounds()` could ever reach one of its three equal optima, and
   a run that never found it looked like an algorithm that had converged rather
-  than a box that was wrong. `Trefethen` clipped `x₁ ∈ [-6.5, 6.5]` to `±4.5`.
+  than a box that was wrong. `Trefethen` clipped $x_1 \in [-6.5, 6.5]$ to $\pm 4.5$.
   Both now return the hull (`(-5, 15)` and `(-6.5, 6.5)`); `Bukin6` had this
   right already and is now the documented model. The existing tests missed it
   because they only ever asserted that `evaluate` returns `f*` **at** each
@@ -4027,8 +4027,8 @@ Patch release: no breaking changes since 0.3.0.
   certified optimum on every axis (this is the test that catches #113), and
   **O2**, the box contains no point beating `f*` — the guard that makes widening
   a box safe rather than a silent way to invent a better optimum. Both widenings
-  are provably safe: Branin's `f* = 10/(8π)` is the global infimum over all of
-  `ℝ²`, and any point beating Trefethen's `f*` must lie within radius ≈0.817 of
+  are provably safe: Branin's $f^* = 10/(8\pi)$ is the global infimum over all of
+  $\mathbb{R}^2$, and any point beating Trefethen's `f*` must lie within radius $\approx$0.817 of
   the origin. **Note for anyone comparing against earlier runs:** Branin and
   Trefethen results are now obtained over a larger box, so their baselines shift
   and are not comparable to pre-#113 numbers.
@@ -4042,7 +4042,7 @@ Patch release: no breaking changes since 0.3.0.
   resulting evaluator did not fail: it lied. `Sphere`, `Rastrigin`, `Alpine1`,
   `Schwefel`, `Needle` and `Griewank` evaluated over an empty slice and returned
   their own **global optimum**, so a misconfigured run read as converged —
-  `Griewank` via `sum − prod + 1 = 0 − 1 + 1 = 0`, where the empty product is
+  `Griewank` via $\text{sum} - \text{prod} + 1 = 0 - 1 + 1 = 0$, where the empty product is
   `1`. `Ackley` and `Deb1` divided by `n` and returned `NaN`, and
   `Penalized1` was worse still — `y[0]`
   indexed an empty `Vec` and `self.dim - 1` underflowed `usize`, panicking in
@@ -4052,11 +4052,11 @@ Patch release: no breaking changes since 0.3.0.
   `LunacekBiRastrigin` was the sharpest case: its `dim >= 2` assert lived inside
   `evaluate`, but the *public* `s()` and `mu2()` accessors bypass `evaluate`
   entirely, and below `n = 2` the depth-scaling parameter
-  `s = 1 − 1/(2√(n+20) − 8.2)` goes non-positive (`s(1) ≈ −0.036`), making
-  `mu2 = −√((μ₁² − d)/s)` a silent `NaN` that no assert could reach. The
+  $s = 1 - 1/(2\sqrt{n+20} - 8.2)$ goes non-positive ($s(1) \approx -0.036$), making
+  $\text{mu2} = -\sqrt{(\mu_1^2 - d)/s}$ a silent `NaN` that no assert could reach. The
   existing tests missed all of this because they only ever constructed
   *sensible* dimensions, and — per ADR 0034 — the fitness-hygiene chokepoint
-  maps `NaN → −inf`, so even the NaN cases surfaced as "the optimizer failed to
+  maps $\text{NaN} \to -\infty$, so even the NaN cases surfaced as "the optimizer failed to
   converge" rather than "the landscape is misconfigured". The guard now lives at
   construction, where it is unreachable-by-design rather than merely asserted,
   and a table-driven regression test pins all 15 constructors so a future
@@ -4066,7 +4066,7 @@ Patch release: no breaking changes since 0.3.0.
   terminality, so a `step()` after a terminal snapshot kept mutating state.
   This was not a benign no-op. In `CliffWalking` the goal `(3, 11)` sits
   *adjacent to the cliff*, so a post-terminal `Left` landed on `(3, 10)`,
-  teleported the agent back to the start, and emitted −100 on a **`Running`**
+  teleported the agent back to the start, and emitted $-$100 on a **`Running`**
   snapshot — a finished episode brought back to life with a corrupted
   trajectory. In `Blackjack` a post-terminal `Hit` kept pushing cards onto the
   player's hand, and `hand_value` summed them into a `u8`: ~26 ten-valued cards
@@ -4105,18 +4105,18 @@ Patch release: no breaking changes since 0.3.0.
 - **`car_racing`'s reward and termination were miscalibrated** (resolves
   #121) — the default per-tile reward was calibrated to a phantom 200-tile
   track (the generator actually produces 60), understating a full-lap payout
-  by ~3.5×; the config field is renamed `lap_reward` (default 1000) and
+  by ~$3.5\times$; the config field is renamed `lap_reward` (default 1000) and
   per-tile reward is now derived from it. The per-step progress scan also
   marked only the single nearest tile, letting a fast car skip tiles and
   making the 95%-lap-complete termination unreachable; replaced with a
   bounded contiguous forward sweep.
-- **`car_racing`'s 27 KB pixel framebuffer was deep-copied ~3–4× per step**
+- **`car_racing`'s 27 KB pixel framebuffer was deep-copied ~3–$4\times$ per step**
   (resolves #115) — `Rasterizer::take_pixels()` now moves the buffer out and
   it's stored as `Arc<[u8; N]>` instead of `Box`, dropping the hot path to
   one copy plus atomic-refcount clones.
 - **`lunar_lander`'s crash termination was unreachable** (resolves #122) —
   gated on `pos.y < 0.1`, a height the hull collider never reaches (it rests
-  at `y≈0.78`), so crashes never terminated the episode; replaced with a
+  at $y \approx 0.78$), so crashes never terminated the episode; replaced with a
   hull-ground contact query matching Gymnasium's `game_over` semantics.
 - **Locomotion `rapier3d` backend's `apply_joint_torque` was
   `unimplemented!()`** (ADR 0041, resolves #123) — now dispatches by joint
@@ -4218,13 +4218,13 @@ Patch release: no breaking changes since 0.3.0.
   ArchNAS / coevolution driver seams.
 - CMA-ES/CMSA-ES numerical stability: a NaN Cholesky pivot could return a
   poisoned factor past the existing guard; `sigma_i` could underflow to `0.0`
-  and poison the rank-µ blend via `0/0`; a generation with fewer than `mu`
-  finite fitness values could corrupt the rank-µ update; rank-µ covariance
+  and poison the rank-$\mu$ blend via `0/0`; a generation with fewer than `mu`
+  finite fitness values could corrupt the rank-$\mu$ update; rank-$\mu$ covariance
   accumulation could drift a few ULPs off symmetric under float
   non-associativity (resolves #241, closed by a new proptest property).
 - `gp_cgp` (Cartesian GP) panicked on an empty candidate pool or an empty
   fitness batch (`lambda == 0`), and an `Inf` fitness sentinel could collapse
-  the `(1+λ)` loop; all three now degrade gracefully.
+  the $(1+\lambda)$ loop; all three now degrade gracefully.
 - `memetic.rs` had a NaN-selection bug in hall-of-fame/coverage selection
   (fitness now sanitized before `total_cmp`) and a per-row writeback upload
   that's now coalesced per contiguous covered-index run.
@@ -4254,8 +4254,8 @@ Patch release: no breaking changes since 0.3.0.
   consolidated into shared `ops::selection` functions.
 - `PopulationObserver` dispatch wrapped in `catch_unwind` — a panicking
   observer no longer aborts the run.
-- `InterpretedPhenotype::new` rewritten from O(n²)+O(n·e) to O(n+e); `forward`'s
-  per-column input clone cut from O(I²·B) to O(I·B) — no behavior change,
+- `InterpretedPhenotype::new` rewritten from $O(n^2)+O(n e)$ to $O(n+e)$; `forward`'s
+  per-column input clone cut from $O(I^2 B)$ to $O(I B)$ — no behavior change,
   removes a performance cliff on larger genomes.
 
 ### `rlevo-hybrid`
@@ -4374,7 +4374,7 @@ Patch release: no breaking changes since 0.3.0.
 
 - Interactive post-run static HTML report (Leptos + WASM):
   - Min/max downsampling for long metric series (ADR 0013 / M8.2).
-  - Multi-seed mean ± std band aggregation.
+  - Multi-seed mean $\pm$ std band aggregation.
   - Hover crosshair with exact raw-value tooltip.
   - Per-panel SVG export buttons.
   - Step / episode / wall-clock x-axis toggle for episode panels.
@@ -4393,7 +4393,7 @@ Patch release: no breaking changes since 0.3.0.
 
 **Added**
 
-- GitHub Actions CI: integration-test matrix (Linux × stable toolchain) and weekly full-workspace test run.
+- GitHub Actions CI: integration-test matrix (Linux $\times$ stable toolchain) and weekly full-workspace test run.
 - `BACKEND_LOCK` per-binary synchronisation for wgpu-backed integration tests; removes the previous `--test-threads=1` requirement.
 
 ---
@@ -4441,9 +4441,9 @@ Initial alpha release. All crates are published together at the same version.
 - `EvolutionaryHarness<B, S, F>` — wraps any `Strategy` as a `BenchEnv`.
 - `BatchFitnessFn` trait with `FromFitnessEvaluable` adapter.
 - `GenomeKind` enum (`RealValued`, `Binary`, `Integer`, `Program`).
-- **Classical families** — `GeneticAlgorithm` (real-valued, SBX crossover + polynomial mutation), `BinaryGeneticAlgorithm` (one-point/uniform crossover + bit-flip mutation), `EvolutionStrategy` (`(1+1)`, `(1+λ)`, `(μ,λ)`, `(μ+λ)` with self-adaptive σ), `EvolutionaryProgramming` (Gaussian perturbation + tournament), `DifferentialEvolution` (Rand/1/Bin, Best/1/Bin, CurrentToBest/1/Bin), `CartesianGeneticProgramming` (symbolic regression via CGP graph).
+- **Classical families** — `GeneticAlgorithm` (real-valued, SBX crossover + polynomial mutation), `BinaryGeneticAlgorithm` (one-point/uniform crossover + bit-flip mutation), `EvolutionStrategy` (`(1+1)`, $(1+\lambda)$, $(\mu,\lambda)$, $(\mu+\lambda)$ with self-adaptive $\sigma$), `EvolutionaryProgramming` (Gaussian perturbation + tournament), `DifferentialEvolution` (Rand/1/Bin, Best/1/Bin, CurrentToBest/1/Bin), `CartesianGeneticProgramming` (symbolic regression via CGP graph).
 - **Metaheuristics** — `ParticleSwarmOptimization`, `AntColonyOptimizationReal`, `AntColonyOptimizationPermutation`, `ArtificialBeeColony`, `FireflyAlgorithm`, `BatAlgorithm`, `CuckooSearch` (Lévy flights via Mantegna), `GreyWolfOptimizer`, `SalpSwarmAlgorithm`, `WhaleOptimizationAlgorithm`.
-- **Genetic operators** (`ops`) — selection (tournament, roulette, rank, SUS, elitism, NSGA-II crowding), crossover (uniform, one-point, multi-point, SBX, BLX-α, intermediate), mutation (Gaussian, uniform, polynomial, bit-flip, inversion), replacement (generational, steady-state, elitist, comma, plus).
+- **Genetic operators** (`ops`) — selection (tournament, roulette, rank, SUS, elitism, NSGA-II crowding), crossover (uniform, one-point, multi-point, SBX, BLX-$\alpha$, intermediate), mutation (Gaussian, uniform, polynomial, bit-flip, inversion), replacement (generational, steady-state, elitist, comma, plus).
 - **Custom CubeCL kernels** (`custom-kernels` feature) — fused pairwise-attract (Firefly large-N path) and fused Lévy-flight (Cuckoo/Bat) kernels; pure-tensor fallbacks used when feature is off.
 - `PopulationState` tensor wrapper; `ShapingFn` fitness shaping (linear rank, exponential rank, truncation).
 
@@ -4454,14 +4454,14 @@ Initial alpha release. All crates are published together at the same version.
 - **Replay memory** — `PrioritizedExperienceReplay` (uniform-sampling mode in v0.1.0); `TrainingBatch` typed container.
 - **Experience** — `ExperienceTuple` (s, a, r, s', done), `History` trajectory buffer.
 - **Metrics** — `AgentStats` (per-step), `PerformanceRecord` (per-episode).
-- **DQN** — `DqnModel`, `DqnAgent`, `DqnTrainingConfig`; ε-greedy exploration schedule; Double-DQN target option.
+- **DQN** — `DqnModel`, `DqnAgent`, `DqnTrainingConfig`; $\epsilon$-greedy exploration schedule; Double-DQN target option.
 - **C51** — `C51Model`, `C51Agent`, `C51TrainingConfig`; Bellman projection onto N-atom support; categorical cross-entropy loss.
 - **QR-DQN** — `QrDqnModel`, `QrDqnAgent`, `QrDqnTrainingConfig`; quantile Huber loss; no `[v_min, v_max]` required.
 - **PPO** — `PpoAgent`, `PpoTrainingConfig`, `RolloutBuffer`, GAE advantages, `CategoricalPolicyHead` (discrete), `TanhGaussianPolicyHead` (continuous), clipped surrogate + value loss, early-stop on `approx_kl`.
 - **PPG** — `PpgAgent`, `PpgConfig`, `AuxBuffer`, `PpgCategoricalPolicyHead`; interleaved policy-phase + auxiliary-phase with KL distillation.
 - **DDPG** — `DdpgAgent`, `DdpgTrainingConfig`; deterministic actor + Q-critic; Polyak target sync; Gaussian exploration noise.
 - **TD3** — `Td3Agent`, `Td3TrainingConfig`; twin-critic min-bootstrap; delayed actor updates; target-policy smoothing.
-- **SAC** — `SacAgent`, `SacTrainingConfig`; squashed-Gaussian stochastic actor; twin critics; learnable temperature α with auto-tuning toward `-|A|`.
+- **SAC** — `SacAgent`, `SacTrainingConfig`; squashed-Gaussian stochastic actor; twin critics; learnable temperature $\alpha$ with auto-tuning toward `-|A|`.
 - Shared `EpsilonGreedy` schedule (DQN / C51 / QR-DQN) and `GaussianNoise` exploration (DDPG / TD3).
 
 ### `rlevo-benchmarks`

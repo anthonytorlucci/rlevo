@@ -6,7 +6,7 @@ date: 2026-08-08
 tags: [adr, decision, fitness, sanitization, f32, f64, accumulator, overflow, reduction, neat, rlevo-evolution]
 ---
 
-# ADR 0069: Sanitized fitness is reduced in `f64` — the `+∞ → f32::MAX` clamp bounds a *value*, not a *reduction*
+# ADR 0069: Sanitized fitness is reduced in `f64` — the $+\infty \to \text{f32::MAX}$ clamp bounds a *value*, not a *reduction*
 
 ## Status
 
@@ -19,16 +19,16 @@ while writing this ADR.
 **Supersedes nothing. Extends ADR
 [0034](0034-fitness-hygiene-chokepoint-convention.md)**, in the same relation
 0034 itself holds to ADR [0023](0023-objective-sense-and-maximize-convention.md):
-0034's `NaN → −∞` / `+∞ → f32::MAX` / `−∞`-pass-through rule is preserved
+0034's $\text{NaN} \to -\infty$ / $+\infty \to \text{f32::MAX}$ / $-\infty$-pass-through rule is preserved
 **verbatim and unchanged**, its four driver chokepoints stand, and 0034 stays
 `active`. Nothing in `sanitize_fitness` or `sanitize_fitness_tensor` changes.
 
 **It does correct one sentence of ADR 0034's reasoning.** ADR 0034's
-clamp-mapping decision (Decision 1) justifies the `+∞ → f32::MAX` mapping
+clamp-mapping decision (Decision 1) justifies the $+\infty \to \text{f32::MAX}$ mapping
 with the parenthetical
 
-> `+∞ → f32::MAX` (ranks top but **finite**, so it cannot blow a `mean`,
-> `variance`, or reward to `+∞`)
+> $+\infty \to \text{f32::MAX}$ (ranks top but **finite**, so it cannot blow a `mean`,
+> `variance`, or reward to $+\infty$)
 
 That claim is false, and this ADR's own Context section, below, shows it is
 not merely false about `f32::MAX` — it is unachievable by *any* finite
@@ -56,9 +56,9 @@ either — by the rustdoc on `sanitize_fitness` itself.
 
 ### The claim is not slightly wrong; it is structurally unachievable
 
-`f32::MAX` is finite, so a sanitized `+∞` **joins** a sum rather than being
-excluded from it. And `f32::MAX + f32::MAX == f32::INFINITY`. Two sanitized-`+∞`
-members in one `f32` accumulator therefore produce exactly the `+∞` mean ADR 0034
+`f32::MAX` is finite, so a sanitized $+\infty$ **joins** a sum rather than being
+excluded from it. And `f32::MAX + f32::MAX == f32::INFINITY`. Two sanitized-$+\infty$
+members in one `f32` accumulator therefore produce exactly the $+\infty$ mean ADR 0034
 says they cannot.
 
 The deeper point, which is what makes this an ADR rather than a comment: the
@@ -68,7 +68,7 @@ $N \cdot S < \texttt{f32::MAX}$. For `f32::MAX` that fails at $N = 2$; and no
 fixed finite $S$ satisfies it for unbounded $N$ (at $N = 10^{6}$ the largest
 admissible $S$ is $\approx 3.4 \times 10^{32}$, seven orders of magnitude below
 `f32::MAX`). Lowering $S$ would also forfeit the property the clamp exists for —
-`+∞` must rank above every legitimate finite fitness, and any
+$+\infty$ must rank above every legitimate finite fitness, and any
 $S < \texttt{f32::MAX}$ is exceeded by some legitimate value.
 
 So the clamp and the accumulator width are answering **two different questions**,
@@ -114,7 +114,7 @@ routes through `from_host_fitness`, so it did not inherit the widening.
 **Second: `z_score` is the "variance" the parenthetical names, and it fails at
 `N = 1`.** `shaping::z_score` computes `mean` on the `f32` fitness tensor, then
 `centered.powf_scalar(2.0).sum()` — also `f32`. Squaring means a *single*
-`f32::MAX` member overflows its own squared term to `+∞` before any accumulation
+`f32::MAX` member overflows its own squared term to $+\infty$ before any accumulation
 happens, so accumulation order is irrelevant. A host simulation of that exact
 `f32` arithmetic over nine ordinary members plus one `f32::MAX`:
 
@@ -123,7 +123,7 @@ one f32::MAX member -> [-0.0, -0.0, -0.0, -0.0, -0.0, -0.0, -0.0, -0.0, -0.0, 0.
 control (top = 1e18) -> [-0.33, -0.33, -0.33, -0.33, -0.33, -0.33, -0.33, -0.33, -0.33, 3.0]
 ```
 
-`var = +∞` → `std = +∞` → **every** shaped utility is zero. No `NaN`, no panic,
+$\text{var} = +\infty$ → $\text{std} = +\infty$ → **every** shaped utility is zero. No `NaN`, no panic,
 no infinity in the output. In a gradient-style ES update
 ($\sum_i u_i \cdot \varepsilon_i$, the exact consumer centered-rank/z-score exist
 to feed) that is a silent zero update: the strategy stops learning and reports
@@ -181,7 +181,7 @@ magnitude, and reducing over *it* is covered (this is exactly
 `allocate_offspring`).
 
 Three operations are explicitly **not** covered, and stay `f32`: ordering
-(`total_cmp`, sorts, `fold(−∞, f32::max)`), single-value comparison, and argmax.
+(`total_cmp`, sorts, $\text{fold}(-\infty, \text{f32::max})$), single-value comparison, and argmax.
 They are unaffected because saturation is order-preserving — `rules.md`'s
 section 3 sanitize-then-`total_cmp` convention is complete for them and is
 not touched here.
@@ -223,7 +223,7 @@ divisor — it does not need to be `f32` at all.
 
 **Empty-input contract**, decided during implementation because this decision as
 first written omitted it: `sanitized_mean([]) == f32::NEG_INFINITY`, total, never
-panicking. `−∞` is the maximise-native worst sentinel (ADR 0023), it is already
+panicking. $-\infty$ is the maximise-native worst sentinel (ADR 0023), it is already
 what `from_host_fitness` returns for an all-broken population — so adoption is
 bit-for-bit behaviour-preserving — and the IEEE answer (`0/0 → NaN`) is the one
 value the crate's hygiene rule exists to eliminate. A panicking primitive would
@@ -247,7 +247,7 @@ let mean = crate::fitness::sanitized_mean(
 ```
 
 Same accumulation order, same division, same single narrowing, and the empty case
-coincides with the old all-broken `−∞` branch, so `mean_fitness` is unchanged
+coincides with the old all-broken $-\infty$ branch, so `mean_fitness` is unchanged
 bit-for-bit for every input — which matters, because it is read in five crates.
 The cost is a second pass over a once-per-generation statistic. No
 `sanitized_mean_of_finite` variant was added; `best`/`worst`/`broken_count` stay
@@ -257,8 +257,8 @@ excludes.
 **Term consistency is co-equal with accumulator width — swapping in the primitive
 for a total alone is a regression.** This decision as first written treats
 accumulator width as the whole of the change. At `allocate_offspring` it is not.
-Sanitizing `total` while leaving the share *numerator* unsanitized makes a `+∞`
-term divide a now-**finite** total, yielding an infinite share; `∞.floor() as
+Sanitizing `total` while leaving the share *numerator* unsanitized makes a $+\infty$
+term divide a now-**finite** total, yielding an infinite share; $\infty$`.floor() as
 usize` saturates to `usize::MAX`, and the overshoot-reclaim loop then runs
 $\texttt{usize::MAX} - \texttt{pop\_size}$ times. That is a **hang**, not a wrong answer, and it was
 hit live during implementation (`test_allocate_offspring_poisoned_species_keeps_
@@ -273,15 +273,15 @@ ADR 0034's false parenthetical is currently reproduced, near-verbatim, on three
 **editable** surfaces. All three are corrected; the ADR itself is not touched.
 
 - **`crates/rlevo-evolution/src/fitness.rs` — the `sanitize_fitness` rustdoc.**
-  This is the highest-priority edit in the entire ADR. It currently reads "`+∞ →
-  f32::MAX`: … so it cannot blow a population `mean`/`variance`/reward to `+∞`",
+  This is the highest-priority edit in the entire ADR. It currently reads "$+\infty \to$
+  $\text{f32::MAX}$: … so it cannot blow a population `mean`/`variance`/reward to $+\infty$",
   and it is the IDE tooltip at every one of the ~90 `sanitize_fitness` call sites
   in the crate. It is the surface that misled the author of `speciate`. It must
   say instead that the clamp makes the value *summable*, and that the
   reduction's safety comes from this ADR's own Decision 1's accumulator
   width.
 - **`docs/rules.md`'s "Optimisation direction" section.** The one-line summary
-  of the hygiene rule ("`+∞ → f32::MAX` (ranks top but finite, so it cannot
+  of the hygiene rule ("$+\infty \to \text{f32::MAX}$ (ranks top but finite, so it cannot
   blow a `mean`/reward up)") is corrected, and this ADR's own Decision 1's
   corollary is added as its own bullet beside the existing
   sanitize-then-`total_cmp` bullet.
@@ -326,11 +326,11 @@ z-scoring is invariant to a positive rescale, so the result is unchanged.
 
 **The bound is conditional, and saying otherwise would repeat this ADR's own
 mistake.** `max_abs` is non-finite exactly when the population carries a raw
-`±∞` — and a `−∞` member is *legal* input here, being ADR 0034's worst-value
+$\pm\infty$ — and a $-\infty$ member is *legal* input here, being ADR 0034's worst-value
 sentinel. The implementation therefore falls back to `scale = 1.0` for a
 non-finite or zero max, reproducing the pre-ADR-0069 arithmetic bit-for-bit, so
 the `[0, 4]` bound does **not** hold for such a population. That fallback is
-deliberate: it keeps this ADR's overflow fix from silently changing the `−∞`
+deliberate: it keeps this ADR's overflow fix from silently changing the $-\infty$
 semantics, which is a separate policy question tracked as **#1068** and pinned by
 a test marked "Pin, not a fix". An unqualified "cannot overflow for any
 population" here would be a second over-strong guarantee of exactly the kind
@@ -491,12 +491,12 @@ fire on the narrowing, not on the overflow, and the workspace already
   reflexively. Revisit under the reopen triggers below; the arithmetic changes if
   the reduction population grows or leaves the crate.
 
-- **Lower the `+∞` sentinel below `f32::MAX`** (e.g. `f32::MAX / 1024`) so small
+- **Lower the $+\infty$ sentinel below `f32::MAX`** (e.g. `f32::MAX / 1024`) so small
   sums survive. Rejected, and worth recording because it is the intuitive repair:
   it does not achieve the property (this ADR's own Context section — no
   fixed finite `S` works for unbounded `N`), it silently caps legitimate
   large finite fitness by making some real values indistinguishable from
-  `+∞`, and it changes a *value* convention
+  $+\infty$, and it changes a *value* convention
   that four chokepoints and ~90 call sites already depend on, to avoid a
   one-word change to an accumulator declaration.
 
@@ -630,7 +630,7 @@ keep; the ratio, not the principle, is what was decided.
   record, which is the granularity argument in this ADR's own
   Alternatives-considered section.
 - `docs/rules.md`'s "Optimisation direction" section — gains this ADR's own
-  Decision 1's corollary bullet; its existing one-line paraphrase of the `+∞`
+  Decision 1's corollary bullet; its existing one-line paraphrase of the $+\infty$
   rationale is corrected.
 - `docs/adr/README.md` — 0034's row gains the appended correction clause
   (this ADR's own Decision 3).

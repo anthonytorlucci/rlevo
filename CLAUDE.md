@@ -116,7 +116,7 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 ## Testing Philosophy
 
 - Property/invariant tests use `proptest` (see ADR 0036), a `rlevo-evolution`-only
-  dev-dependency. proptest generates **host config only** (`λ`, `D`, structural
+  dev-dependency. proptest generates **host config only** ($\lambda$, `D`, structural
   sizes, a `seed: u64`); the test body drives all algorithm randomness through
   `seed_stream(seed, generation, SeedPurpose::_)` per ADR 0029 — proptest's own
   PRNG never touches Burn. Use proptest for **input-space invariants** (roundtrips,

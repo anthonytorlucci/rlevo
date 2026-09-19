@@ -5,7 +5,7 @@ both discrete and continuous action spaces through two built-in policy heads:
 
 - `CategoricalPolicyHead` — discrete, softmax over logits.
 - `TanhGaussianPolicyHead` — continuous, state-independent `log_std` with
-  `scale · tanh(z)` squashing applied at the env boundary.
+  $\text{scale} \cdot \tanh(z)$ squashing applied at the env boundary.
 
 Reference: [CleanRL PPO](https://docs.cleanrl.dev/rl-algorithms/ppo/);
 implementation details follow
@@ -42,7 +42,7 @@ critical subset):
 | 8 | Clipped value loss | `losses::clipped_value_loss` |
 | 9 | Entropy bonus | `ppo_agent::PpoAgent::update` |
 | 12 | Separate policy / value networks | `PpoAgent` fields |
-| — | Early stop on target_kl | `PpoAgent::update` (threshold `1.5 · target_kl`) |
+| — | Early stop on target_kl | `PpoAgent::update` (threshold $1.5 \cdot \text{target\_kl}$) |
 | — | Gaussian log-prob summed across action dims | `gaussian::log_prob_entropy` |
 | — | Terminated / truncated stored distinctly | `rollout::RolloutBuffer` |
 
