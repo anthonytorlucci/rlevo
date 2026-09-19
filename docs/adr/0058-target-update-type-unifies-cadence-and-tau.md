@@ -145,22 +145,21 @@ rlevo is merely borrowing.** The issue asks the ADR to record "why the
 SB3/CleanRL *semantics* were adopted but their *field shape* was not." That
 framing under-attributes the mechanism. Haarnoja et al. 2018a (SAC, ICML,
 arXiv:1801.01290), Appendix D Table 1, runs a **"SAC (hard target update)"**
-ablation — $\tau = 1$, target update interval = 1000 — beside standard SAC — $\tau =
-0.005$, interval = 1 — inside the SAC paper itself: the degenerate hard copy is
-obtained purely by setting $\tau = 1$ on the soft rule, a controlled ablation, not a
-different code path. Fujimoto et al. 2018 (TD3, ICML, arXiv:1802.09477),
-Section 3, states the same generality directly: "The weights of a target
-network are either updated periodically to exactly match the weights of the
-current network, or by some proportion τ at each time step
-θ′ ← τθ + (1 − τ)θ′." Algorithm 1 then runs the gated soft form, and
-Section 5.2:
-"The modification is to only update the policy and target networks after a
-fixed number of updates *d* to the critic." So the unified operator predates
-SB3/CleanRL by four years and appears in both the SAC and TD3 papers
-themselves. What is rejected here is SB3/CleanRL's **two-flat-`pub`-field
-shape**, not their semantics — that shape is the concrete mechanism by which
-the three in-tree families diverged, since nothing ties the two fields'
-meanings together at the type level.
+ablation — $\tau = 1$, target update interval = 1000 — beside standard SAC —
+$\tau = 0.005$, interval = 1 — inside the SAC paper itself: the degenerate hard
+copy is obtained purely by setting $\tau = 1$ on the soft rule, a controlled
+ablation, not a different code path. Fujimoto et al. 2018 (TD3, ICML,
+arXiv:1802.09477), Section 3, states the same generality directly: "The weights
+of a target network are either updated periodically to exactly match the weights
+of the current network, or by some proportion τ at each time step θ′ ← τθ + (1 −
+τ)θ′." Algorithm 1 then runs the gated soft form, and Section 5.2: "The
+modification is to only update the policy and target networks after a fixed
+number of updates *d* to the critic." So the unified operator predates
+SB3/CleanRL by four years and appears in both the SAC and TD3 papers themselves.
+What is rejected here is SB3/CleanRL's **two-flat-`pub`-field shape**, not their
+semantics — that shape is the concrete mechanism by which the three in-tree
+families diverged, since nothing ties the two fields' meanings together at the
+type level.
 
 The theory literature does not contest this unification, but it does not
 endorse it as a mathematical identity either, and the ADR does not overclaim

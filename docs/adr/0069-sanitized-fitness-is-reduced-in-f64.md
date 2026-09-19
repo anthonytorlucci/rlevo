@@ -598,9 +598,9 @@ keep; the ratio, not the principle, is what was decided.
   `f64`. Its in-file comment already documents this ADR's mechanism, locally.
 - Issue **#1062** — the second and third instances (`speciate`,
   `allocate_offspring`), verified by execution to collapse NEAT's
-  fitness-proportional apportionment population-wide ($[27, 3, 0] \to [10, 10,
-  10]$), with `allocate_offspring`'s `total` overflowing independently of the
-  per-species means.
+  fitness-proportional apportionment population-wide
+  ($[27, 3, 0] \to [10, 10, 10]$), with `allocate_offspring`'s `total`
+  overflowing independently of the per-species means.
 - Issue **#131** — the per-slot fitness caches whose stored `f32` fields are part
   of this ADR's own Alternatives-considered section's newtype blast radius.
 - ADR [0034](0034-fitness-hygiene-chokepoint-convention.md) — the sanitization

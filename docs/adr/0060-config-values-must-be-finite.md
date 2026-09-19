@@ -56,8 +56,9 @@ A further **37** call sites (40 textual occurrences of `in_range(.., INFINITY,
 rustdoc) spell `in_range(C, f, lo, f64::INFINITY, got)`, where $hi = \infty$
 correctly means *unbounded above* — `cmsa_es.rs:164`, `ppo_config.rs:162,169`,
 `td3_config.rs:100,107,114`, the locomotion configs, and so on. The same
-comparison chain that made $hi = \infty$ work also accepted $got = \infty$: $\infty \ge lo \land
-\infty \le \infty$ is `true`. One predicate, two roles, one domain — that is the defect.
+comparison chain that made $hi = \infty$ work also accepted $got = \infty$:
+$\infty \ge lo \land \infty \le \infty$ is `true`. One predicate, two roles, one
+domain — that is the defect.
 
 `Bounds` (ADR 0027) makes the legitimacy of an infinite *bound* concrete rather
 than hypothetical: `locomotion/common.rs:312` constructs

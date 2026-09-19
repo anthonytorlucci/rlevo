@@ -168,9 +168,10 @@ $\exp(-110)$ is **exactly** `0.0` in f32, so $(z - \mu)/\sigma$ is $\pm\infty$ a
 reaches `backward()`. The span check bounds the ratio between two $\sigma$s; it says
 nothing about either one's absolute magnitude. Mode 1 needs its own guard.
 
-Together the two numerical checks also cap the *upper* bound: $\text{log\_std\_min} \ge
--35$ with a span under `40` forces `log_std_max < 5`. That is intended and
-free, since a converged continuous-control policy sits near $\log \sigma \in [-3, 1]$.
+Together the two numerical checks also cap the *upper* bound:
+$\text{log\_std\_min} \ge -35$ with a span under `40` forces `log_std_max < 5`.
+That is intended and free, since a converged continuous-control policy sits near
+$\log \sigma \in [-3, 1]$.
 
 ### 4. Clamp-plus-telemetry ship together, not the clamp alone
 

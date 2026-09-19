@@ -179,10 +179,10 @@ correct and this ADR does not touch it.
 
 But it leaves a reader holding a counter that means "updates *attempted*" while
 the name says "updates". Today there is no way to recover how many of those
-attempts moved the weights. After this ADR there is: $\text{applied} = \text{attempts} -
-\text{skipped}$, both terms readable from the agent. **The counter is what makes ADR
-0059's counter-advance decision (Decision 4) legible rather than a source of
-confusion** — the unconditional
+attempts moved the weights. After this ADR there is:
+$\text{applied} = \text{attempts} - \text{skipped}$, both terms readable from
+the agent. **The counter is what makes ADR 0059's counter-advance decision
+(Decision 4) legible rather than a source of confusion** — the unconditional
 advance stops being a silent approximation and becomes one half of a stated
 identity.
 
