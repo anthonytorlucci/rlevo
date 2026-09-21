@@ -356,6 +356,10 @@ The following algorithms are deferred stubs — scope is parked until prerequisi
 
 ## Shared Infrastructure
 
+### Network ownership (`algorithms::Slot`)
+
+Every agent holds its trainable networks in a `Slot<M>`. Burn's `Optimizer::step` consumes the module by value, so a network has to leave the agent to be updated. `Slot` keeps it out for the `step` call and nothing else: the forward pass, the loss, `backward` and `GradientsParams::from_grads` all run on a borrow from `get`, and only `step_with` moves the module. A panic in any of the borrowed work leaves the agent usable. A panic inside `Optimizer::step` itself loses the network, and the agent is then *poisoned*: its methods panic, and it must be rebuilt from a fresh network. `Slot` is public, so an agent written outside this crate can hold its networks the same way, and code that holds a `Slot` can check `is_poisoned` without unwinding. The built-in agents keep their slots private.
+
 ### Exploration (`algorithms::dqn::exploration`)
 
 `EpsilonGreedy` is shared across all discrete value-based algorithms (DQN, C51, QR-DQN). The schedule decays $\epsilon$ multiplicatively from `epsilon_start` to `epsilon_end` at rate `epsilon_decay`.

@@ -7,6 +7,57 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### `rlevo-reinforcement-learning`
+
+**Added**
+
+- **`Slot<M>` is public, re-exported as `algorithms::Slot`** (resolves
+  #1122). Every agent holds its trainable networks in a `Slot`, and seven
+  public agent types pointed readers at it to explain why a panic inside an
+  optimizer step poisons the agent permanently. With `Slot` `pub(crate)`,
+  that explanation rendered nowhere. `Slot` and its four methods (`new`,
+  `get`, `step_with`, `is_poisoned`) are now public. The rationale that lived
+  in the private `shared` module's docs has moved onto the type. It covers why
+  a network must leave the agent for Burn's by-value `Optimizer::step`, and
+  why a drop guard, `catch_unwind` or a per-step clone cannot close the one
+  window that remains. The `ignore`d usage sketch is now a compiled doctest.
+  An agent implemented outside the crate can hold its networks the same way.
+  `step_with`'s closure-free signature is now public API; it is closure-free
+  by design, because a closure would let callers put the forward pass back
+  inside the poison window. The rest of `shared` stays private. Agent fields
+  are still private, so `is_poisoned` cannot be called on a built-in agent's
+  networks.
+
+**Fixed**
+
+- **22 public agent methods now document the poisoned-agent panic.** On DQN,
+  C51, QR-DQN, PPO and PPG, every public method that reads a network through
+  `Slot::get` (`act`, `act_greedy`, `inference_net`, `learn_step`, `update`,
+  `record_step`, `finalize_rollout`, `policy_phase_update`,
+  `maybe_aux_phase`) could panic on a poisoned agent with no `# Panics`
+  section saying so. DDPG, TD3 and SAC already documented it.
+  `clippy::missing_panics_doc` cannot see a panic inside a callee, so nothing
+  flagged these. Where the read is conditional, the section states the
+  condition: `act` on an exploring step, `record_step` on a non-truncated step,
+  and `finalize_rollout` after an episode-ending step read no network. TD3's
+  inline copy of the irreducibility argument now links to `Slot` instead of
+  duplicating it.
+
+### Infrastructure
+
+**Changed**
+
+- **`rustdoc::private_intra_doc_links` and `rustdoc::redundant_explicit_links`
+  are now `deny`** in `[workspace.lints.rustdoc]`, alongside
+  `broken_intra_doc_links`. Publishing `Slot` cleared the last 26 warnings, so
+  `cargo doc --workspace --no-deps` is now warning-free under both default
+  features and `--all-features`, and the `docs` CI job fails on a new private
+  or redundant link. `docs/rules.md` gains a panic-contract row for
+  `Slot::get` / `Slot::step_with`, the first row whose condition is a state
+  rather than an argument.
+
 ## [0.5.0] – 2026-09-19
 
 ### Breaking changes

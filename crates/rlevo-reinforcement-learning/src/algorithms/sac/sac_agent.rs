@@ -199,9 +199,8 @@ pub(crate) fn compute_sac_target<BK: Backend>(
 /// The three slots are stepped independently and in sequence, so their windows
 /// are disjoint: a panic inside `critic_1`'s optimizer step poisons `critic_1`
 /// alone and leaves `critic_2` and the actor intact. A panic inside a `step`
-/// is nonetheless terminal for the network it was stepping — see the
-/// [`shared`](crate::algorithms::shared) module docs for why that residual
-/// window cannot be closed.
+/// is nonetheless terminal for the network it was stepping — see [`Slot`] for
+/// why that residual window cannot be closed.
 pub struct SacAgent<
     B,
     Actor,

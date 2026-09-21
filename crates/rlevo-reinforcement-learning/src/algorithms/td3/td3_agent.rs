@@ -182,8 +182,9 @@ pub(crate) fn compute_twin_critic_target<BK: Backend>(
 ///
 /// # Network ownership
 ///
-/// Burn's [`Optimizer::step`](burn::optim::Optimizer::step) consumes the module
-/// it updates, so each network must briefly leave the agent to be trained. Every
+/// The actor and both critics live in a [`Slot`], because Burn's
+/// [`Optimizer::step`](burn::optim::Optimizer::step) consumes the module it
+/// updates and each network must briefly leave the agent to be trained. Every
 /// *fallible* operation — the forward pass, the loss, `backward`, and gradient
 /// reduction — instead runs on a borrow, so a network is out of the agent only
 /// for the duration of the `step` call itself. The actor and the two critics are
@@ -192,15 +193,13 @@ pub(crate) fn compute_twin_critic_target<BK: Backend>(
 ///
 /// # Panics
 ///
-/// That residual step window is irreducible: if `Optimizer::step` itself panics
-/// (a shape mismatch, a device error), the network was already moved into `step`
-/// and is dropped during unwinding, so there is nothing left to restore — a drop
-/// guard or `catch_unwind` cannot recover it, and keeping a spare copy would
-/// cost a full clone of every parameter tensor on every step. The agent is then
-/// *poisoned* with respect to that one network: every later read of it —
-/// [`act`](Self::act), [`inference_net`](Self::inference_net),
-/// [`learn_step`](Self::learn_step) — panics with a message naming the cause and
-/// the remedy, which is to rebuild the agent from a fresh network.
+/// If `Optimizer::step` itself panics (a shape mismatch, a device error), the
+/// network it was stepping is lost; [`Slot`] documents why that residual window
+/// cannot be closed. The agent is then *poisoned* with respect to that one
+/// network: every later read of it — [`act`](Self::act),
+/// [`inference_net`](Self::inference_net), [`learn_step`](Self::learn_step) —
+/// panics with a message naming the cause and the remedy, which is to rebuild
+/// the agent from a fresh network.
 pub struct Td3Agent<
     B,
     Actor,

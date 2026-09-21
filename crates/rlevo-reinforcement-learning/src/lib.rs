@@ -28,6 +28,10 @@
 //! - [`algorithms::sac`] — Soft Actor-Critic (off-policy, continuous actions):
 //!   stochastic squashed-Gaussian actor + twin critics with entropy-augmented
 //!   Bellman backup and auto-tuned temperature `$\alpha$` per Haarnoja et al. 2018.
+//! - [`algorithms::Slot`] — The network-ownership newtype every agent above
+//!   holds its trainable networks in, across Burn's by-value
+//!   `Optimizer::step`. Its docs state what a panic inside that step does to
+//!   an agent (it must be rebuilt) and why that cannot be avoided.
 //! - [`replay`] — The replay-strategy seam (ADR 0050): [`replay::Transition`],
 //!   the [`replay::ReplayStrategy`] trait, and [`replay::UniformReplay`], the
 //!   FIFO uniform buffer every off-policy agent above draws its batches from.
@@ -84,8 +88,13 @@ pub const MAX_BUFFER_CAPACITY: usize = 1 << 32;
 
 pub mod algorithms {
     //! Reinforcement learning algorithm implementations.
+    //!
+    //! Every agent here holds its trainable networks in a [`Slot`], which
+    //! also documents what a panic inside an optimizer step does to an agent.
 
     pub(crate) mod shared;
+
+    pub use shared::Slot;
 
     /// Shared test scaffolding for the truncation-vs-termination bootstrap
     /// guard in the six off-policy `train` loops.

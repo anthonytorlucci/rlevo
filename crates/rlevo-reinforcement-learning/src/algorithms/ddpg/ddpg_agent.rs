@@ -163,8 +163,7 @@ pub struct LearnOutcome {
 /// networks are out of their slots only for the duration of the
 /// [`Optimizer::step`](burn::optim::Optimizer::step) call itself; a panic in
 /// that one window is terminal for this agent and requires rebuilding it. See
-/// the [`shared`](crate::algorithms::shared) module docs for why that residual
-/// window is irreducible.
+/// [`Slot`] for why that residual window is irreducible.
 ///
 /// # Const generics
 ///
@@ -535,9 +534,8 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the actor slot is poisoned — see
-    /// [`Slot::get`](crate::algorithms::shared::Slot::get). This requires a
-    /// prior panic *inside* the actor's optimizer step; a panic anywhere else
+    /// Panics if the actor slot is poisoned — see [`Slot::get`]. This requires
+    /// a prior panic *inside* the actor's optimizer step; a panic anywhere else
     /// in [`learn_step`](Self::learn_step) leaves this method working. Also
     /// panics if the actor's output tensor is not `f32`: that host-read is an
     /// `.expect` on a named invariant, the form `docs/rules.md` §4 sanctions
@@ -588,8 +586,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the actor slot is poisoned — see
-    /// [`Slot::get`](crate::algorithms::shared::Slot::get).
+    /// Panics if the actor slot is poisoned — see [`Slot::get`].
     pub fn inference_net(&self) -> Actor::InnerModule {
         self.actor.get().valid()
     }

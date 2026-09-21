@@ -45,9 +45,9 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// # A deliberately closed set
 ///
 /// `ReplayKind` is closed to out-of-crate strategies (ADR 0051 §1): no such
-/// consumer exists, `Slot`'s `pub(crate)` visibility is in-repo precedent, and
-/// it is a two-way door — the enum can grow a variant, or the dispatch can move
-/// to a generic parameter later, without breaking a stored format.
+/// consumer exists, and it is a two-way door — the enum can grow a variant, or
+/// the dispatch can move to a generic parameter later, without breaking a
+/// stored format.
 /// [`ReplayStrategy`] itself stays public and implementable; only the agent's
 /// dispatch is closed.
 pub enum ReplayKind<T> {

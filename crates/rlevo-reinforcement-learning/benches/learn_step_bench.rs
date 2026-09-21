@@ -42,11 +42,10 @@
 //!   host read is gated behind `buffer.is_prioritized()` in production, so a
 //!   default-config agent never takes that branch either.
 //! - **`Slot`** (the panic-safety wrapper around the policy network across
-//!   `Optimizer::step`) is `pub(crate)` in `rlevo-reinforcement-learning`
-//!   and unreachable from a bench, which links against the crate's public
-//!   API only. This file uses the same `Option<M>` + `take()` idiom `Slot`'s
-//!   own module doc describes as its historical predecessor -- adequate for
-//!   a bench with no panic-safety requirement.
+//!   `Optimizer::step`) is not used. This file keeps the `Option<M>` +
+//!   `take()` idiom `Slot`'s docs describe as its historical predecessor --
+//!   adequate for a bench with no panic-safety requirement, and identical in
+//!   both staging arms.
 //!
 //! Every other line -- batch staging, tensor construction, forward, target
 //! computation via [`compute_target_q_values`], Huber loss, `backward()`,
@@ -704,11 +703,10 @@ fn bench_learn_step<B, M, O, const DO: usize, const DB: usize>(
                     let init_policy: M = make_model(&device);
                     let init_target: M::InnerModule = init_policy.valid();
                     let mut optimizer = build_optimizer::<Autodiff<B>, M>();
-                    // `Option<M>` + `take()`/reassign: the same idiom
-                    // `crate::algorithms::shared::Slot`'s module doc
-                    // describes as its historical predecessor, standing in
-                    // here because `Slot` is `pub(crate)` and unreachable
-                    // from a bench (see module doc). Needed because
+                    // `Option<M>` + `take()`/reassign: the idiom
+                    // `rlevo_reinforcement_learning::algorithms::Slot`'s docs
+                    // describe as its historical predecessor, kept here in
+                    // place of `Slot` (see module doc). Needed because
                     // `Optimizer::step` and `DqnModel::soft_update` both
                     // consume their module by value, and a `FnMut` closure
                     // cannot move out of a captured variable directly.
