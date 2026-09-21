@@ -165,7 +165,7 @@ impl TransitionId {
 /// across a by-value `Optimizer::step`, and carries poisoning semantics and an
 /// ownership hazard that `SampledBatch` — plain host data — has none of.
 ///
-/// [`Slot`]: crate::algorithms::shared::Slot
+/// [`Slot`]: crate::algorithms::Slot
 #[derive(Clone, Debug, PartialEq)]
 pub struct SampledBatch {
     /// Drawn ids, in draw order.

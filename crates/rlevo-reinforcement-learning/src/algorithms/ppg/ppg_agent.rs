@@ -221,8 +221,7 @@ pub struct AuxPhaseStats {
 /// forward pass, the losses, `backward`, and `GradientsParams::from_grads` —
 /// runs on a borrow, so a panic there leaves both networks intact and the agent
 /// usable. Only a panic *inside* the optimizer step itself poisons a slot; that
-/// window is irreducible and terminal for the agent (see the
-/// [`shared`](crate::algorithms::shared) module docs).
+/// window is irreducible and terminal for the agent (see [`Slot`]).
 pub struct PpgAgent<B, P, V, O, const OR: usize, const BOR: usize>
 where
     B: AutodiffBackend,
@@ -301,6 +300,12 @@ where
     /// once after training, then reuse across many steps — the snapshot goes
     /// stale if the policy is updated again. Mirrors
     /// [`PpoAgent::inference_net`](crate::algorithms::ppo::ppo_agent::PpoAgent::inference_net).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy network was lost to a panic inside an earlier
+    /// optimizer step. Such an agent is poisoned and must be rebuilt — see
+    /// [`Slot`].
     pub fn inference_net(&self) -> P::InnerModule {
         self.policy().valid()
     }
@@ -631,6 +636,12 @@ where
     /// For evaluation use [`act_greedy`](Self::act_greedy) (no exploration
     /// noise) or [`act_greedy_env_row_with`](Self::act_greedy_env_row_with)
     /// (no autodiff graph overhead).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy or value network was lost to a panic inside an
+    /// earlier optimizer step. Such an agent is poisoned and must be rebuilt —
+    /// see [`Slot`].
     pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
         let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
         let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
@@ -666,6 +677,12 @@ where
     /// [`ppg_policy`](crate::algorithms::ppg::ppg_policy)), so the "mode" is the
     /// highest-logit action; a future Gaussian head would instead return the
     /// distribution mean.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy network was lost to a panic inside an earlier
+    /// optimizer step. Such an agent is poisoned and must be rebuilt — see
+    /// [`Slot`].
     #[allow(clippy::cast_precision_loss)]
     pub fn act_greedy(&self, obs: &O) -> Vec<f32> {
         let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
@@ -684,6 +701,13 @@ where
     /// bootstrap for partial-episode bootstrapping (ADR 0048). It must be the
     /// **pre-reset** observation from the snapshot `env.step` returned. See
     /// [`PpoAgent::record_step`](crate::algorithms::ppo::ppo_agent::PpoAgent::record_step).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `status` is [`EpisodeStatus::Truncated`] and the value network
+    /// was lost to a panic inside an earlier optimizer step — the bootstrap
+    /// forward reads it. Such an agent is poisoned and must be rebuilt — see
+    /// [`Slot`].
     pub fn record_step(
         &mut self,
         obs: O,
@@ -724,6 +748,13 @@ where
     /// [`PpoAgent::finalize_rollout`](crate::algorithms::ppo::ppo_agent::PpoAgent::finalize_rollout),
     /// `last_obs` is consulted only when the rollout's final step left the
     /// episode `Running`; otherwise the value forward is skipped.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rollout's final step left the episode `Running` and the
+    /// value network was lost to a panic inside an earlier optimizer step —
+    /// the bootstrap forward reads it. Such an agent is poisoned and must be
+    /// rebuilt — see [`Slot`].
     pub fn finalize_rollout(&mut self, last_obs: &O) {
         let last_value = if self.buffer.last_step_ended() {
             0.0
@@ -766,6 +797,14 @@ where
     /// The annealed learning rate is snapshotted once, *before* the increment,
     /// and retained in `policy_phase_lr` so the auxiliary phase that may follow
     /// this update steps at the same rate.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy or value network was lost to a panic inside an
+    /// earlier optimizer step. Such an agent is poisoned and must be rebuilt —
+    /// see [`Slot`]. The forward passes, the losses, and `backward` all run
+    /// against a borrow, so a panic in any of them leaves the agent usable;
+    /// only a panic inside an optimizer step poisons a network.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
@@ -983,6 +1022,13 @@ where
     /// every auxiliary phase run one tick early and, whenever
     /// `total_iterations % n_iteration == 0`, made the final one a bit-exact
     /// no-op at `lr == 0.0`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the auxiliary phase runs and the policy or value network was
+    /// lost to a panic inside an earlier optimizer step. Such an agent is
+    /// poisoned and must be rebuilt — see [`Slot`]. A call that returns `None`
+    /// without running the phase reads neither network.
     // Divisor/normalizer derived from a count -- batch size, minibatch count,
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.

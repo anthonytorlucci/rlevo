@@ -388,6 +388,13 @@ where
     /// [`act_greedy`](Self::act_greedy) for the full reasoning and
     /// [`degenerate_action_selections`](Self::degenerate_action_selections) for
     /// the counter.
+    ///
+    /// # Panics
+    ///
+    /// Panics on the greedy branch if the policy network was lost to a panic
+    /// inside an earlier optimizer step; an exploring call returns a random
+    /// action without reading the network. Such an agent is poisoned and must
+    /// be rebuilt — see [`Slot`].
     pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> A {
         if self.exploration.should_explore(rng) {
             // Guarded here rather than once at the top of the function: the
@@ -432,6 +439,12 @@ where
     ///
     /// The `argmax` behaviour itself is deliberately **not**
     /// fixed here; this guard only makes it attributable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy network was lost to a panic inside an earlier
+    /// optimizer step. Such an agent is poisoned and must be rebuilt — see
+    /// [`Slot`].
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
     // sign; where an index round-trips through f32 it stays far below the 2^24
@@ -466,6 +479,12 @@ where
     /// autodiff graph construction that [`act_greedy`](Self::act_greedy)
     /// incurs. Snapshot once after training, then reuse across many steps —
     /// the snapshot goes stale if the policy is updated again.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy network was lost to a panic inside an earlier
+    /// optimizer step. Such an agent is poisoned and must be rebuilt — see
+    /// [`Slot`].
     pub fn inference_net(&self) -> M::InnerModule {
         self.policy().valid()
     }

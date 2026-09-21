@@ -1,69 +1,17 @@
 //! Shared infrastructure for the algorithm implementations in this module.
 //!
 //! Hosts [`Slot`], the network-ownership newtype every agent uses to hold a
-//! trainable network across a Burn optimizer step; [`clamp_preserving_nan`],
-//! the backend-independent clamp used wherever a `NaN` must stay observable;
-//! [`FiniteLossGuard`], the non-finite-loss skip-and-warn guard every learn
-//! step consults before `backward()` (ADR 0056); [`FiniteRewardGuard`], the
-//! non-finite-reward drop-and-warn guard every off-policy `remember` consults
-//! before pushing into the replay buffer (ADR 0065); [`FiniteObsGuard`], its
-//! observation-side counterpart, which drops and counts at `remember` and
-//! detects and reports at `act` (ADR 0067); and [`LogWatermark`], the
-//! progress-logging trigger shared by the on-policy training loops.
-//!
-//! # Why a `Slot` exists
-//!
-//! Burn's [`Optimizer::step`] consumes the module **by value** and returns the
-//! updated module:
-//!
-//! ```text
-//! fn step(&mut self, lr: LearningRate, module: M, grads: GradientsParams) -> M;
-//! ```
-//!
-//! An agent that owns its network in a plain field therefore cannot call
-//! `step` through `&mut self` — the module must first be moved out. The
-//! historical idiom in this crate was to store the network as `Option<M>` and
-//! `take()` it for the duration of an entire learn step:
-//!
-//! ```text
-//! let net = self.net.take().expect("...");   // field is now None
-//! let loss = net.forward(batch);             // ← any panic here
-//! let grads = loss.backward();               // ← or here
-//! let grads = GradientsParams::from_grads(grads, &net);
-//! self.net = Some(self.optimizer.step(lr, net, grads));
-//! ```
-//!
-//! Every line between the `take()` and the write-back is a window in which a
-//! panic leaves the field permanently `None`, bricking the agent: every later
-//! `act` / `learn_step` hits the `expect` and panics again, with a message
-//! pointing at the *wrong* method. `Slot` closes that window by construction —
-//! the module is only ever out of the field for the duration of the `step`
-//! call itself, inside [`Slot::step_with`], which nothing else can widen.
-//!
-//! # The residual window is irreducible — do not try to close it
-//!
-//! A panic *inside* [`Optimizer::step`] still poisons the slot, and this is
-//! accepted by design. It cannot be fixed, only paid for:
-//!
-//! - **An RAII drop guard cannot help.** A guard restores a value it still
-//!   holds. Once `module` has been moved into `step`, this code no longer owns
-//!   it — there is nothing left to restore. The value is in `step`'s frame and
-//!   is dropped during unwinding.
-//! - **`catch_unwind` cannot help either.** Catching the unwind tells us the
-//!   step failed; it does not hand the moved-in module back. `step` returns `M`
-//!   only on the success path.
-//! - **The only real fix is a clone**, i.e. keeping a spare copy of the weights
-//!   to restore from. That is a full copy of every parameter tensor on *every*
-//!   step of the hot training loop, to defend against a panic that only occurs
-//!   on an already-fatal bug (shape mismatch, device OOM, NaN assertion). The
-//!   cost is rejected.
-//!
-//! So the contract is: do all fallible work — `forward`, loss, `backward`,
-//! [`GradientsParams::from_grads`] — on a borrow from [`Slot::get`] *before*
-//! calling [`Slot::step_with`], and accept that a panic in `step` itself is
-//! terminal for that agent.
-//!
-//! [`Optimizer::step`]: burn::optim::Optimizer::step
+//! trainable network across a Burn optimizer step (public, re-exported as
+//! `crate::algorithms::Slot`, and documented on the type itself);
+//! [`clamp_preserving_nan`], the backend-independent clamp used wherever a
+//! `NaN` must stay observable; [`FiniteLossGuard`], the non-finite-loss
+//! skip-and-warn guard every learn step consults before `backward()` (ADR
+//! 0056); [`FiniteRewardGuard`], the non-finite-reward drop-and-warn guard
+//! every off-policy `remember` consults before pushing into the replay buffer
+//! (ADR 0065); [`FiniteObsGuard`], its observation-side counterpart, which
+//! drops and counts at `remember` and detects and reports at `act` (ADR 0067);
+//! and [`LogWatermark`], the progress-logging trigger shared by the on-policy
+//! training loops.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -79,7 +27,7 @@ use crate::replay::{ImportanceExponent, SampledBatch};
 /// Panic message for a read against a poisoned slot.
 ///
 /// Deliberately names the *cause* (a panic inside the optimizer step, the one
-/// irreducible window — see the module docs) and the *remedy* (rebuild the
+/// irreducible window — see [`Slot`]) and the *remedy* (rebuild the
 /// agent), rather than naming a method. Agents disagree on what their learn
 /// step is called (`learn_step` for the DQN family, `update` for PPO/PPG), so a
 /// method name here would be wrong for half the crate.
@@ -99,21 +47,104 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 /// constructor. A `Slot` is [`new`](Self::new)'d from a module and stays
 /// populated unless [`step_with`](Self::step_with) panics.
 ///
-/// # Usage
+/// Every agent in this crate holds its trainable networks in `Slot`s. The type
+/// is public so that an agent implemented outside the crate can hold its
+/// networks the same way.
 ///
-/// Do every fallible operation on a borrow from [`get`](Self::get) — the
+/// # Why a `Slot` exists
+///
+/// Burn's [`Optimizer::step`] consumes the module **by value** and returns the
+/// updated module:
+///
+/// ```text
+/// fn step(&mut self, lr: LearningRate, module: M, grads: GradientsParams) -> M;
+/// ```
+///
+/// An agent that owns its network in a plain field therefore cannot call
+/// `step` through `&mut self` — the module must first be moved out. The
+/// obvious idiom is to store the network as `Option<M>` and `take()` it for the
+/// duration of an entire learn step, as this crate's agents once did:
+///
+/// ```text
+/// let net = self.net.take().expect("...");   // field is now None
+/// let loss = net.forward(batch);             // ← any panic here
+/// let grads = loss.backward();               // ← or here
+/// let grads = GradientsParams::from_grads(grads, &net);
+/// self.net = Some(self.optimizer.step(lr, net, grads));
+/// ```
+///
+/// Every line between the `take()` and the write-back is a window in which a
+/// panic leaves the field permanently `None`, bricking the agent: every later
+/// `act` / `learn_step` hits the `expect` and panics again, with a message
+/// pointing at the *wrong* method. `Slot` closes that window by construction —
+/// the module is only ever out of the field for the duration of the `step`
+/// call itself, inside [`step_with`](Self::step_with), which nothing else can
+/// widen.
+///
+/// # The residual window is irreducible — do not try to close it
+///
+/// A panic *inside* [`Optimizer::step`] still poisons the slot, and this is
+/// accepted by design. It cannot be fixed, only paid for:
+///
+/// - **An RAII drop guard cannot help.** A guard restores a value it still
+///   holds. Once `module` has been moved into `step`, this code no longer owns
+///   it — there is nothing left to restore. The value is in `step`'s frame and
+///   is dropped during unwinding.
+/// - **`catch_unwind` cannot help either.** Catching the unwind tells us the
+///   step failed; it does not hand the moved-in module back. `step` returns `M`
+///   only on the success path.
+/// - **The only real fix is a clone**, i.e. keeping a spare copy of the weights
+///   to restore from. That is a full copy of every parameter tensor on *every*
+///   step of the hot training loop, to defend against a panic that only occurs
+///   on an already-fatal bug (shape mismatch, device OOM, NaN assertion). The
+///   cost is rejected.
+///
+/// So the contract is: do all fallible work — `forward`, loss, `backward`,
+/// [`GradientsParams::from_grads`] — on a borrow from [`get`](Self::get)
+/// *before* calling [`step_with`](Self::step_with), and accept that a panic in
+/// `step` itself is terminal for the agent that owns the slot. A poisoned slot
+/// cannot be repaired; the owning agent must be rebuilt from a fresh network.
+///
+/// # Examples
+///
+/// Every fallible operation runs on a borrow from [`get`](Self::get) — the
 /// forward pass, the loss, `backward`, and [`GradientsParams::from_grads`]
 /// (which takes `&M` and carries no lifetime, so NLL ends the borrow at its
-/// last use). Only then call [`step_with`](Self::step_with):
+/// last use). Only then does [`step_with`](Self::step_with) move the module
+/// out for the optimizer step:
 ///
-/// ```ignore
-/// let loss = self.net.get().forward(batch);
-/// let grads = loss.backward();
-/// let grads = GradientsParams::from_grads(grads, self.net.get());
-/// self.net.step_with(&mut self.optimizer, lr, grads);
-/// // Post-step reads (e.g. refreshing a target net) go through `get` too:
-/// self.target = self.net.get().valid();
 /// ```
+/// use burn::backend::{Autodiff, Flex};
+/// use burn::nn::{Linear, LinearConfig};
+/// use burn::optim::{AdamConfig, GradientsParams};
+/// use burn::tensor::{Device, Tensor};
+/// use rlevo_reinforcement_learning::algorithms::Slot;
+///
+/// type B = Autodiff<Flex>;
+///
+/// let device = Device::<B>::default();
+/// let mut net = Slot::new(LinearConfig::new(2, 1).init::<B>(&device));
+/// let mut optimizer = AdamConfig::new().init::<B, Linear<B>>();
+///
+/// // A panic anywhere in these three lines leaves `net` populated.
+/// let input = Tensor::<B, 2>::from_floats([[0.5_f32, -0.25]], &device);
+/// let loss = net.get().forward(input).sum();
+/// let grads = GradientsParams::from_grads(loss.backward(), net.get());
+///
+/// // Only a panic inside this call can poison the slot.
+/// net.step_with(&mut optimizer, 1e-2, grads);
+/// assert!(!net.is_poisoned());
+/// ```
+///
+/// Post-step reads, such as refreshing a target network with
+/// `net.get().valid()`, go through [`get`](Self::get) too.
+///
+/// # Panics
+///
+/// [`get`](Self::get) and [`step_with`](Self::step_with) panic on a poisoned
+/// slot, i.e. one whose module was lost to a panic inside an earlier
+/// [`Optimizer::step`]. Check [`is_poisoned`](Self::is_poisoned) to detect that
+/// state without unwinding.
 ///
 /// # There is deliberately no closure-taking variant
 ///
@@ -130,9 +161,9 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 /// - `Slot` is `Some` after a [`step_with`](Self::step_with) that returns
 ///   normally.
 /// - `Slot` is `None` (poisoned, permanently) only if
-///   [`step_with`](Self::step_with) unwound. See the module docs for why this
-///   case is irreducible.
-pub(crate) struct Slot<M>(Option<M>);
+///   [`step_with`](Self::step_with) unwound. The section on the residual
+///   window above explains why this case is irreducible.
+pub struct Slot<M>(Option<M>);
 
 /// The importance-sampling exponent (`$\beta$`) the off-policy agents pass to
 /// [`ReplayStrategy::sample`].
@@ -386,7 +417,7 @@ impl<M> Slot<M> {
     /// # Returns
     ///
     /// A `Slot` for which [`is_poisoned`](Self::is_poisoned) is `false`.
-    pub(crate) fn new(module: M) -> Self {
+    pub fn new(module: M) -> Self {
         Self(Some(module))
     }
 
@@ -408,9 +439,9 @@ impl<M> Slot<M> {
     /// Panics if the slot is poisoned — i.e. a previous
     /// [`step_with`](Self::step_with) unwound and the module was lost inside
     /// [`Optimizer::step`]. The agent cannot be recovered and must be rebuilt;
-    /// see the module docs for why. Check [`is_poisoned`](Self::is_poisoned)
+    /// the [`Slot`] docs explain why. Check [`is_poisoned`](Self::is_poisoned)
     /// first if a caller needs to handle this without unwinding.
-    pub(crate) fn get(&self) -> &M {
+    pub fn get(&self) -> &M {
         self.0.as_ref().expect(POISONED)
     }
 
@@ -422,7 +453,7 @@ impl<M> Slot<M> {
     /// `true` if the slot is empty, in which case [`get`](Self::get) and
     /// [`step_with`](Self::step_with) will panic and the owning agent must be
     /// rebuilt. `false` in every other case.
-    pub(crate) fn is_poisoned(&self) -> bool {
+    pub fn is_poisoned(&self) -> bool {
         self.0.is_none()
     }
 
@@ -452,8 +483,8 @@ impl<M> Slot<M> {
     /// poisoned: the module was already moved into `step` and is dropped during
     /// unwinding, so there is nothing left to restore. This residual window is
     /// accepted by design and is not fixable with a drop guard or
-    /// `catch_unwind` — see the module docs before proposing either.
-    pub(crate) fn step_with<B, O>(&mut self, opt: &mut O, lr: LearningRate, grads: GradientsParams)
+    /// `catch_unwind` — read the [`Slot`] docs before proposing either.
+    pub fn step_with<B, O>(&mut self, opt: &mut O, lr: LearningRate, grads: GradientsParams)
     where
         B: AutodiffBackend,
         M: AutodiffModule<B>,

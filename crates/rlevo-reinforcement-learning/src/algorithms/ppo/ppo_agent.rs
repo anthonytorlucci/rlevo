@@ -282,8 +282,7 @@ impl Default for PpoUpdateStats {
 /// `GradientsParams::from_grads` — runs on a borrow, so a panic there leaves
 /// both networks intact and the agent usable. Only a panic *inside* the
 /// optimizer step itself poisons a slot; that window is irreducible and
-/// terminal for the agent (see the [`shared`](crate::algorithms::shared) module
-/// docs).
+/// terminal for the agent (see [`Slot`]).
 pub struct PpoAgent<B, P, V, O, const OR: usize, const BOR: usize>
 where
     B: AutodiffBackend,
@@ -348,6 +347,12 @@ where
     /// [`act_greedy_env_row_with`](Self::act_greedy_env_row_with). Snapshot
     /// once after training, then reuse across many steps — the snapshot goes
     /// stale if the policy is updated again.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy network was lost to a panic inside an earlier
+    /// optimizer step. Such an agent is poisoned and must be rebuilt — see
+    /// [`Slot`].
     pub fn inference_net(&self) -> P::InnerModule {
         self.policy().valid()
     }
@@ -580,6 +585,12 @@ where
     /// and entropy plus the value-network prediction at that observation.
     ///
     /// Batched rollout is not supported in v1 (`num_envs` == 1).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy or value network was lost to a panic inside an
+    /// earlier optimizer step. Such an agent is poisoned and must be rebuilt —
+    /// see [`Slot`].
     pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
         let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
         let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
@@ -619,6 +630,13 @@ where
     /// The caller must pass the **pre-reset** observation: the one carried by
     /// the snapshot `env.step` returned, not the one a subsequent `env.reset`
     /// produces.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `status` is [`EpisodeStatus::Truncated`] and the value network
+    /// was lost to a panic inside an earlier optimizer step — the bootstrap
+    /// forward reads it. Such an agent is poisoned and must be rebuilt — see
+    /// [`Slot`].
     pub fn record_step(
         &mut self,
         obs: O,
@@ -661,6 +679,13 @@ where
     /// status supplies the bootstrap and the value forward is skipped entirely
     /// — so a caller holding a stale or post-`reset` observation on that path
     /// cannot contaminate the advantages, and the forward is not wasted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rollout's final step left the episode `Running` and the
+    /// value network was lost to a panic inside an earlier optimizer step —
+    /// the bootstrap forward reads it. Such an agent is poisoned and must be
+    /// rebuilt — see [`Slot`].
     pub fn finalize_rollout(&mut self, last_obs: &O) {
         let last_value = if self.buffer.last_step_ended() {
             0.0
@@ -674,6 +699,13 @@ where
     /// Runs `$\text{update\_epochs} \times \text{num\_minibatches}$` gradient updates on the
     /// current rollout, applies LR annealing, then clears the buffer. Returns summary statistics
     /// used to populate [`PpoMetrics`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy or value network was lost to a panic inside an earlier optimizer
+    /// step. Such an agent is poisoned and must be rebuilt — see [`Slot`]. The forward passes,
+    /// the losses, and `backward` all run against a borrow, so a panic in any of them leaves the
+    /// agent usable; only a panic inside an optimizer step poisons a network.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
