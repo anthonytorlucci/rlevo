@@ -45,10 +45,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   inline copy of the irreducibility argument now links to `Slot` instead of
   duplicating it.
 
+### `rlevo-benchmarks`
+
+**Changed**
+
+- **`report::OpenError::ManifestParse` carries `toml` 1.1's `de::Error`**
+  (was `toml` 0.8). The harness moved to `toml` 1.1 and `base64` 0.23. A
+  caller that names `toml::de::Error` to inspect this variant needs `toml`
+  1.x in its own manifest; nothing else in the public API changes type.
+  Recorded runs are unaffected: for a bare and a fully populated
+  `RunManifest`, `toml` 1.1 writes the same `run.toml` bytes as 0.8 and
+  reads back what 0.8 wrote.
+
 ### Infrastructure
 
 **Changed**
 
+- **The toolchain pin moves from Rust 1.94.1 to 1.99.0**
+  (`rust-toolchain.toml`); rustup installs it on first use. The newer
+  compiler, Clippy and rustdoc asked for changes that alter no behaviour:
+  two test modules name `Strategy` explicitly, because a trait reached
+  through two glob imports is now a future-incompatibility warning; 34
+  emptiness assertions carry a failure message (`clippy::assert_is_empty`);
+  five averages use `midpoint`; five doc links drop a redundant target.
+  `Cargo.lock` is refreshed within semver, which replaces the yanked
+  `chacha20` 0.10.0.
 - **`rustdoc::private_intra_doc_links` and `rustdoc::redundant_explicit_links`
   are now `deny`** in `[workspace.lints.rustdoc]`, alongside
   `broken_intra_doc_links`. Publishing `Slot` cleared the last 26 warnings, so
