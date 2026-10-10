@@ -106,7 +106,7 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 
 ```toml
 [dependencies]
-rlevo = "0.3"
+rlevo = "0.5"
 ```
 
 ```rust

@@ -9,6 +9,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### `rlevo`
+
+**Fixed**
+
+- **`README.md` and the crate docs said `rlevo = "0.3"`.** They now state
+  the current version, 0.5.
+
 ### `rlevo-reinforcement-learning`
 
 **Added**
