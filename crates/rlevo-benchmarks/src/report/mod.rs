@@ -317,7 +317,11 @@ mod tests {
             !r.scalars.contains_key("agent/return/mean"),
             "the privileged path must not rename its own measurements"
         );
-        assert!(r.displaced_metrics.is_empty());
+        assert!(
+            r.displaced_metrics.is_empty(),
+            "r.displaced_metrics must be empty, got {:?}",
+            r.displaced_metrics
+        );
     }
 
     #[test]
@@ -333,7 +337,11 @@ mod tests {
         }]);
 
         assert!((r.scalars["rl/epsilon"] - 0.2).abs() < f64::EPSILON);
-        assert!(r.displaced_metrics.is_empty());
+        assert!(
+            r.displaced_metrics.is_empty(),
+            "r.displaced_metrics must be empty, got {:?}",
+            r.displaced_metrics
+        );
     }
 
     /// All three metric kinds go through the same rename rule — a fix that

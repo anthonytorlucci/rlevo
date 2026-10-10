@@ -208,8 +208,8 @@ pub fn landscape_value(label: &str, x: f64, y: f64) -> Option<f64> {
         let term = |v: f64| v * v - 10.0 * (2.0 * PI * v).cos();
         Some(20.0 + term(x) + term(y))
     } else if l.contains("ackley") {
-        let sq = 0.5 * (x * x + y * y);
-        let cos = 0.5 * ((2.0 * PI * x).cos() + (2.0 * PI * y).cos());
+        let sq = f64::midpoint(x * x, y * y);
+        let cos = f64::midpoint((2.0 * PI * x).cos(), (2.0 * PI * y).cos());
         Some(-20.0 * (-0.2 * sq.sqrt()).exp() - cos.exp() + E + 20.0)
     } else {
         None
@@ -769,7 +769,7 @@ mod tests {
     fn downsample_constant_series_stays_constant() {
         let pts: Vec<(u32, f64)> = (0..20_000u32).map(|i| (i, 3.0)).collect();
         let out = downsample_minmax(&pts);
-        assert!(!out.is_empty());
+        assert!(!out.is_empty(), "out must not be empty");
         assert!(out.iter().all(|(_, y)| (*y - 3.0).abs() < 1e-12));
     }
 
@@ -1173,7 +1173,7 @@ mod tests {
         let pl = metric_series(&recs, "policy_loss");
         assert_eq!(pl, vec![(0, 0.5), (1, 0.4), (2, 0.3)]);
         let unknown = metric_series(&recs, "no_such_metric");
-        assert!(unknown.is_empty());
+        assert!(unknown.is_empty(), "unknown must be empty, got {unknown:?}");
     }
 
     #[test]
@@ -1204,7 +1204,11 @@ mod tests {
 
     #[test]
     fn available_metric_names_empty_when_no_records() {
-        assert!(available_metric_names(&[]).is_empty());
+        assert!(
+            available_metric_names(&[]).is_empty(),
+            "result must be empty, got {:?}",
+            available_metric_names(&[])
+        );
     }
 
     #[test]
@@ -1234,7 +1238,11 @@ mod tests {
 
     #[test]
     fn rolling_mean_empty_input() {
-        assert!(rolling_mean(&[], 5).is_empty());
+        assert!(
+            rolling_mean(&[], 5).is_empty(),
+            "result must be empty, got {:?}",
+            rolling_mean(&[], 5)
+        );
     }
 
     #[test]
@@ -1286,7 +1294,11 @@ mod tests {
         assert_eq!(b.q3, 4.0);
         assert_eq!(b.min, 1.0);
         assert_eq!(b.max, 5.0);
-        assert!(b.outliers.is_empty());
+        assert!(
+            b.outliers.is_empty(),
+            "b.outliers must be empty, got {:?}",
+            b.outliers
+        );
     }
 
     #[test]
@@ -1333,7 +1345,11 @@ mod tests {
     #[test]
     fn diversity_series_empty_when_no_sample_provides_diversity() {
         let samples = vec![pop_sample(0, vec![1.0, 2.0], None)];
-        assert!(diversity_series(&samples).is_empty());
+        assert!(
+            diversity_series(&samples).is_empty(),
+            "result must be empty, got {:?}",
+            diversity_series(&samples)
+        );
     }
 
     #[test]
@@ -1382,9 +1398,9 @@ mod tests {
     #[test]
     fn fitness_range_empty_input_yields_three_empty_vectors() {
         let (best, median, worst) = fitness_range_series(&[], ObjectiveSense::Maximize);
-        assert!(best.is_empty());
-        assert!(median.is_empty());
-        assert!(worst.is_empty());
+        assert!(best.is_empty(), "best must be empty, got {best:?}");
+        assert!(median.is_empty(), "median must be empty, got {median:?}");
+        assert!(worst.is_empty(), "worst must be empty, got {worst:?}");
     }
 
     #[test]
@@ -1401,7 +1417,11 @@ mod tests {
     #[test]
     fn selection_pressure_skips_all_nan_generation() {
         let samples = vec![pop_sample(0, vec![f32::NAN, f32::NAN], None)];
-        assert!(selection_pressure_series(&samples, ObjectiveSense::Maximize).is_empty());
+        assert!(
+            selection_pressure_series(&samples, ObjectiveSense::Maximize).is_empty(),
+            "result must be empty, got {:?}",
+            selection_pressure_series(&samples, ObjectiveSense::Maximize)
+        );
     }
 
     #[test]

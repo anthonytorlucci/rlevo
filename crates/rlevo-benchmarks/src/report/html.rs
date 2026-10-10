@@ -650,7 +650,10 @@ mod tests {
         let run_dir = write_run(dir.path());
         fs::remove_file(run_dir.join("run.toml")).unwrap();
         let run = RecordedRun::open(&run_dir).unwrap();
-        assert!(!run.warnings().is_empty());
+        assert!(
+            !run.warnings().is_empty(),
+            "run.warnings() must not be empty"
+        );
 
         let out = dir.path().join("index.html");
         emit_static_html(&run, &out, &EmitConfig::default()).unwrap();

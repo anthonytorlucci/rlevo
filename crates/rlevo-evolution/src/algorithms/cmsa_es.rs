@@ -541,6 +541,9 @@ fn update_best<B: Backend>(state: &mut CmsaEsState<B>, pop: &Tensor<B, 2>, fitne
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Named explicitly: `proptest::prelude::*` also exports a `Strategy`, and a
+    // trait reached through two globs is ambiguous.
+    use crate::strategy::Strategy;
     use burn::backend::Flex;
     use proptest::prelude::*;
     use rand::SeedableRng;

@@ -573,7 +573,7 @@ mod tests {
     fn roulette_empty_with_zero_k_is_empty() {
         let mut rng = seed_stream(34, 0, SeedPurpose::Selection);
         let picks: Vec<usize> = roulette_select(&[], 0, &mut rng);
-        assert!(picks.is_empty());
+        assert!(picks.is_empty(), "picks must be empty, got {picks:?}");
     }
 
     /// With all-negative (canonical) fitness the shift `$f - \text{min\_finite}$` still favours the

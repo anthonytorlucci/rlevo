@@ -394,7 +394,7 @@ mod tests {
     fn test_flat_terrain_is_flat() {
         let mut rng = StdRng::seed_from_u64(0);
         let pts = FlatTerrain.generate(&mut rng);
-        assert!(!pts.is_empty());
+        assert!(!pts.is_empty(), "pts must not be empty");
         for p in &pts {
             assert_eq!(p[1], 0.0, "flat terrain must have y=0 everywhere");
         }

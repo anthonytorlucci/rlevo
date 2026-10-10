@@ -349,7 +349,7 @@ mod tests {
         point_mutation(&mut empty, 0, &a, 1.0, &mut rng);
         is_transposition(&mut empty, 0, &mut rng);
         ris_transposition(&mut empty, 0, &a, &mut rng);
-        assert!(empty.is_empty());
+        assert!(empty.is_empty(), "empty must be empty, got {empty:?}");
 
         let mut lhs: Vec<Symbol> = Vec::new();
         let mut rhs: Vec<Symbol> = Vec::new();

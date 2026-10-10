@@ -17,7 +17,7 @@
 //! by construction — the invariant travels with the value rather than being
 //! re-checked (or, today, silently skipped) at each boundary.
 //!
-//! This complements the [`config`](crate::config) validation convention (ADR
+//! This complements the [`config`] validation convention (ADR
 //! 0026), exactly as [`Bounds`](crate::bounds::Bounds) does (ADR 0027): a config
 //! field of type `Probability` is self-validating, so its
 //! [`Validate`](crate::config::Validate) impl no longer repeats a

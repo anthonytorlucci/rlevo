@@ -758,7 +758,11 @@ mod tests {
     fn zero_obstacles_degenerates_to_empty_env() {
         let mut env = env_no_obstacles();
         env.reset().unwrap();
-        assert!(env.obstacles().is_empty());
+        assert!(
+            env.obstacles().is_empty(),
+            "env.obstacles() must be empty, got {:?}",
+            env.obstacles()
+        );
         // Scripted rollout reaches the goal at (3, 3) from (1, 1).
         let script = [
             GridAction::Forward,   // (2, 1)

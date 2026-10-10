@@ -584,7 +584,7 @@ mod tests {
         assert_eq!(d.cadence, Cadence::PerUpdate);
         assert_eq!(d.unit, Some("updates"));
         assert_eq!(d.trend, Trend::LowerIsBetter);
-        assert!(!d.hint.is_empty());
+        assert!(!d.hint.is_empty(), "d.hint must not be empty");
         assert!(!is_per_generation("skipped_updates"));
         // The counter is cumulative, so a flat line reads as "healthy", not as
         // "no data". Losing that word from the hint makes the panel

@@ -16,7 +16,7 @@
 //! travels with the value, so an operator that takes a `NonNegativeRate` cannot
 //! be handed a poisoning scalar.
 //!
-//! This complements the [`config`](crate::config) validation convention (ADR
+//! This complements the [`config`] validation convention (ADR
 //! 0026) exactly as [`Bounds`](crate::bounds::Bounds) does (ADR 0027): a config
 //! field of type `NonNegativeRate` is self-validating, so its
 //! [`Validate`](crate::config::Validate) impl no longer repeats a

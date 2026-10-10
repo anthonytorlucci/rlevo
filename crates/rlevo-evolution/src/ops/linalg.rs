@@ -219,7 +219,7 @@ pub fn symmetrize(m: &mut [f32], n: usize) {
     assert_eq!(m.len(), n * n, "matrix buffer must be n*n");
     for i in 0..n {
         for j in 0..i {
-            let avg: f32 = 0.5 * (m[i * n + j] + m[j * n + i]);
+            let avg: f32 = f32::midpoint(m[i * n + j], m[j * n + i]);
             m[i * n + j] = avg;
             m[j * n + i] = avg;
         }

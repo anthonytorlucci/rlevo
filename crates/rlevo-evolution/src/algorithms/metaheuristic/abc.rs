@@ -731,7 +731,11 @@ mod tests {
             .into_vec::<f32>()
             .expect("genome readable as f32");
         assert_eq!(before, after);
-        assert!(next.target_of_candidate().is_empty());
+        assert!(
+            next.target_of_candidate().is_empty(),
+            "next.target_of_candidate() must be empty, got {:?}",
+            next.target_of_candidate()
+        );
     }
 
     // Gap (a): a two-bee colony is the smallest legal ABC. The employed-phase neighbour draw

@@ -675,7 +675,11 @@ mod tests {
             .into_vec::<f32>()
             .expect("genome readable as f32");
         assert_eq!(before, after);
-        assert!(next.fitness().is_empty());
+        assert!(
+            next.fitness().is_empty(),
+            "next.fitness() must be empty, got {:?}",
+            next.fitness()
+        );
     }
 
     // Gap (e): the best-so-far accessor is `None` until a `tell` records one.
