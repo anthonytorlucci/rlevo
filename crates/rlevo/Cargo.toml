@@ -31,7 +31,6 @@ rand_distr = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 tempfile = "3"
-tracing-subscriber = { workspace = true }
 
 [features]
 default = ["box2d", "locomotion"]
