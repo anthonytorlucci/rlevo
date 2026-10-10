@@ -20,7 +20,7 @@
 //! The whole invariant is therefore exactly `lo <= hi`: a `NaN` endpoint makes
 //! that comparison `false` and is rejected, an infinite one does not.
 //!
-//! This complements the [`config`](crate::config) validation convention (ADR
+//! This complements the [`config`] validation convention (ADR
 //! 0026): a config field of type `Bounds` is self-validating, so its
 //! [`Validate`](crate::config::Validate) impl no longer repeats a
 //! `config::ordered(…, "bounds", …)` check for that field. `Bounds` narrows one

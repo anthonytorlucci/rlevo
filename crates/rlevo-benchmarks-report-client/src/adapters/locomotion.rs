@@ -67,8 +67,8 @@ fn payload_bounds(payload: &Locomotion2DPayload) -> (f32, f32, f32, f32) {
 
     let (x_min, x_max) = bounds(&xs).unwrap_or((-1.0, 1.0));
     let (y_min, y_max) = bounds(&ys).unwrap_or((0.0, 2.0));
-    let cx = (x_min + x_max) * 0.5;
-    let cy = (y_min + y_max) * 0.5;
+    let cx = f32::midpoint(x_min, x_max);
+    let cy = f32::midpoint(y_min, y_max);
     let hx = ((x_max - x_min) * 0.5).max(MIN_HALF_RANGE);
     let hy = ((y_max - y_min) * 0.5).max(MIN_HALF_RANGE);
     (cx - hx, cx + hx, cy - hy, cy + hy)

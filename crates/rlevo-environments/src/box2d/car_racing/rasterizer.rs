@@ -82,7 +82,7 @@ impl Rasterizer {
                 }
             }
             xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            for chunk in xs.chunks_exact(2) {
+            for chunk in xs.as_chunks::<2>().0 {
                 let x0 = (chunk[0] as i32).clamp(0, FRAME_SIZE as i32 - 1);
                 let x1 = (chunk[1] as i32).clamp(0, FRAME_SIZE as i32 - 1);
                 for px in x0..=x1 {

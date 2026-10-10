@@ -33,6 +33,12 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 
 **Reproducible, structured run records.** Every run can emit a typed, versioned `EpisodeRecord` with full provenance (algorithm, versions, git SHA, device, seeds), replayable in a self-contained static-HTML report — built for reproducible experiments and shareable results.
 
+## Target Audiences (current focus for `v0.6.0`)
+
+1. **Researchers & Students Learning Evolutionary RL**
+2. **Algorithm Engineers - Brung Your Own Algorithm [BYOA]**
+3. **Practitioners & Simulation Engineers - Bring Your Own Environment [BYOE]**
+
 ## What's Included
 
 ### Environments

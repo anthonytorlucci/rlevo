@@ -696,7 +696,7 @@ mod tests {
         let reward = TestReward(42.0);
         let debug_str = format!("{reward:?}");
 
-        assert!(!debug_str.is_empty());
+        assert!(!debug_str.is_empty(), "debug_str must not be empty");
         assert!(debug_str.contains("TestReward"));
     }
 

@@ -387,7 +387,11 @@ mod tests {
         assert_eq!(run.manifest().episode_count, 3);
         assert_eq!(run.manifest().env_family, EnvFamily::Classic);
         assert_eq!(run.manifest().seed, 11);
-        assert!(run.warnings().is_empty());
+        assert!(
+            run.warnings().is_empty(),
+            "run.warnings() must be empty, got {:?}",
+            run.warnings()
+        );
 
         let ep0 = &run.episodes()[0];
         assert_eq!(ep0.episode, 0);

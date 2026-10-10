@@ -22,8 +22,12 @@ patterns.
 
 See [`docs/rules.md`](docs/rules.md) for the full constraint list. Read it before
 making implementation decisions. The single most important rule: **production
-crates must not depend on `rlevo-benchmarks` or any visualization crate** — the
-benchmark/viz layer consumes production types, never constrains them.
+crates must not depend on any visualization crate** (`ratatui`, `leptos`, chart
+crates, ...); `rlevo-benchmarks` is the sole exception, and only behind its
+`tui` / `report` / `record` feature gates. A production crate may depend on
+`rlevo-benchmarks` only as an off-by-default optional feature (e.g.
+`rlevo-environments`' `bench`). The benchmark/viz layer consumes production
+types, never constrains them.
 
 ## Architectural Decisions
 

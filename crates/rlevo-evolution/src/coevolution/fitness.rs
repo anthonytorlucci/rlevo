@@ -185,6 +185,10 @@ mod tests {
 
     #[test]
     fn default_archive_sizes_is_empty() {
-        assert!(CoupledFitness::<Flex>::archive_sizes(&RowSum).is_empty());
+        assert!(
+            CoupledFitness::<Flex>::archive_sizes(&RowSum).is_empty(),
+            "result must be empty, got {:?}",
+            CoupledFitness::<Flex>::archive_sizes(&RowSum)
+        );
     }
 }

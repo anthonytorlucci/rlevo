@@ -93,7 +93,7 @@ pub fn arrow_glyph(angle_rad: f32) -> char {
 }
 
 fn header_line(label: &str, agent_x: f32, agent_y: f32, angle_deg: f32, step: usize) -> String {
-    format!("{label}  pos=({agent_x:.1}, {agent_y:.1})  angle={angle_deg:>4.0}°  step={step}",)
+    format!("{label}  pos=({agent_x:.1}, {agent_y:.1})  angle={angle_deg:>4.0}°  step={step}")
 }
 
 fn rasterise(
@@ -112,9 +112,7 @@ fn rasterise(
                 #[allow(clippy::cast_precision_loss)]
                 let ground_row = CELL_ROWS - 1 - (ty * (CELL_ROWS as f32 - 1.0)).round() as usize;
                 let row = ground_row.min(CELL_ROWS - 1);
-                for cell in &mut grid[row] {
-                    *cell = ('─', Glyph::Static);
-                }
+                grid[row].fill(('─', Glyph::Static));
             }
         }
     }

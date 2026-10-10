@@ -141,7 +141,11 @@ mod tests {
 
     #[test]
     fn encode_returns_empty_yields_empty() {
-        assert!(encode_returns(&VecDeque::new()).is_empty());
+        assert!(
+            encode_returns(&VecDeque::new()).is_empty(),
+            "result must be empty, got {:?}",
+            encode_returns(&VecDeque::new())
+        );
     }
 
     #[test]

@@ -261,7 +261,11 @@ mod tests {
         let parsed: RunManifest = toml::from_str(&body).unwrap();
         assert_eq!(m, parsed);
         assert!(parsed.algorithm.is_none());
-        assert!(parsed.checkpoints.is_empty());
+        assert!(
+            parsed.checkpoints.is_empty(),
+            "parsed.checkpoints must be empty, got {:?}",
+            parsed.checkpoints
+        );
     }
 
     #[test]

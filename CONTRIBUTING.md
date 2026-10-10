@@ -82,7 +82,7 @@ You are responsible for every line in your PR — regardless of whether you wrot
 
 ## Toolchain
 
-This project uses **Rust edition 2024**. There is no pinned toolchain file — latest stable is expected. Verify with `rustup update stable` before working on the codebase.
+This project uses **Rust edition 2024**. The toolchain is pinned in `rust-toolchain.toml` (`channel = "1.99.0"`, with `rustfmt` and `clippy`), so local and CI builds use the same compiler; `rustup` installs the pin on first use.
 
 ---
 

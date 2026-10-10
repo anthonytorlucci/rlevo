@@ -1276,7 +1276,11 @@ mod tests {
         // M8.1 leaves these fields empty / None — see observer.rs docs.
         assert!(guard.snapshots[0].diversity.is_none());
         assert!(guard.snapshots[0].best_genome_digest.is_none());
-        assert!(guard.snapshots[0].parents_of_best.is_empty());
+        assert!(
+            guard.snapshots[0].parents_of_best.is_empty(),
+            "guard.snapshots[0].parents_of_best must be empty, got {:?}",
+            guard.snapshots[0].parents_of_best
+        );
     }
 
     /// Observer whose callback always panics — used to prove the harness

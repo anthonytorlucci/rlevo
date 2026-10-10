@@ -9,7 +9,7 @@
 //!   TUI panels (best-effort, lossy on a slow render thread).
 //! - [`RecordingTap`] pushes through an
 //!   [`Arc<Mutex<dyn RecordSink>>`](RecordSink), which the
-//!   [`RecordWriter`](crate::record::RecordWriter) drains to disk. The
+//!   [`RecordWriter`] drains to disk. The
 //!   wrapper still owns episode-return + length bookkeeping since no
 //!   harness is involved.
 //!
@@ -544,7 +544,11 @@ mod tests {
         let ep = &probe.episodes[&0];
         assert_eq!(ep.frames.len(), 1);
         assert_eq!(ep.frames[0].step, 0);
-        assert!(ep.frames[0].action.is_empty());
+        assert!(
+            ep.frames[0].action.is_empty(),
+            "ep.frames[0].action must be empty, got {:?}",
+            ep.frames[0].action
+        );
         assert_eq!(ep.frames[0].ascii.as_deref(), Some("pos=0"));
     }
 
@@ -564,8 +568,14 @@ mod tests {
         assert!((ep.frames[1].reward - 0.5).abs() < f32::EPSILON);
         // bincode-standard encoding for a 1-byte tuple struct over u8 is
         // a varint length + payload.
-        assert!(!ep.frames[1].action.is_empty());
-        assert!(!ep.frames[2].action.is_empty());
+        assert!(
+            !ep.frames[1].action.is_empty(),
+            "ep.frames[1].action must not be empty"
+        );
+        assert!(
+            !ep.frames[2].action.is_empty(),
+            "ep.frames[2].action must not be empty"
+        );
     }
 
     #[test]
@@ -745,7 +755,11 @@ mod tests {
         // The step frames ship with an empty action, distinguishable from a
         // legitimate reset frame only via take_error.
         assert_eq!(ep.frames[1].step, 1);
-        assert!(ep.frames[1].action.is_empty());
+        assert!(
+            ep.frames[1].action.is_empty(),
+            "ep.frames[1].action must be empty, got {:?}",
+            ep.frames[1].action
+        );
 
         // First-error-wins: the surfaced error is the *first* failing step.
         match guard.take_error() {

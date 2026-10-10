@@ -28,6 +28,9 @@ mod tests {
         assert!(is_canonical_metric("best_fitness_ever"));
         assert!(is_canonical_metric("explained_variance"));
         assert!(!is_canonical_metric("not_a_metric"));
-        assert!(!CANONICAL_METRICS.is_empty());
+        assert!(
+            !CANONICAL_METRICS.is_empty(),
+            "CANONICAL_METRICS must not be empty"
+        );
     }
 }

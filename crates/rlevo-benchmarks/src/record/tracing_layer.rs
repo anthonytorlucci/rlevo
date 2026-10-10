@@ -196,7 +196,11 @@ mod tests {
         });
         let probe = probe.lock();
         let ep = &probe.episodes[&0];
-        assert!(ep.metrics.is_empty());
+        assert!(
+            ep.metrics.is_empty(),
+            "ep.metrics must be empty, got {:?}",
+            ep.metrics
+        );
     }
 
     #[test]

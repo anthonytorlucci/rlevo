@@ -867,8 +867,16 @@ mod tests {
     fn coverage_indices_empty_population_is_empty() {
         // Empty population: every policy yields an empty coverage set, so the
         // refinement loop is a no-op (no rows to refine, no writeback).
-        assert!(coverage_indices(&CoveragePolicy::Full, &[], 0).is_empty());
-        assert!(coverage_indices(&CoveragePolicy::TopK { k: 3 }, &[], 0).is_empty());
+        assert!(
+            coverage_indices(&CoveragePolicy::Full, &[], 0).is_empty(),
+            "result must be empty, got {:?}",
+            coverage_indices(&CoveragePolicy::Full, &[], 0)
+        );
+        assert!(
+            coverage_indices(&CoveragePolicy::TopK { k: 3 }, &[], 0).is_empty(),
+            "result must be empty, got {:?}",
+            coverage_indices(&CoveragePolicy::TopK { k: 3 }, &[], 0)
+        );
     }
 
     #[test]
