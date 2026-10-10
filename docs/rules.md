@@ -512,12 +512,22 @@ If an example imports from `rlevo-benchmarks` for any reason — harness invocat
 
 ## 12. Deferred Work Gets a GitHub Issue
 
-Every deferral is filed as a GitHub issue **at the moment it is decided**, before the change that defers it lands. This applies equally to human contributors and coding agents. A deferral is any of: an implementation postponed, a known gap or bug left unfixed, a follow-up split off a PR, a TODO/FIXME/stub, a QA-flagged non-blocking finding, or an option consciously not taken.
+A deferral is recorded where every contributor can find it, **before the change that defers it merges**. This applies equally to human contributors and coding agents. Which record depends on what is deferred.
+
+**File a GitHub issue** when the change leaves any of these behind:
+
+- a known bug or gap left unfixed;
+- a limitation a user can hit, whether the change introduces it or keeps it;
+- a follow-up split off a pull request that no accepted ADR assigns to a later decision;
+- a `TODO`, `FIXME` or stub in the code;
+- a QA-flagged finding that is not fixed.
+
+**An accepted ADR is the record, and no issue is needed,** when it lands in the same change and names both what is left in place and the decision that owns it (ADR 0081 Decision 5 is the model). An option that was considered and not taken belongs in the ADR's *Alternatives considered*, not in the tracker.
 
 - **File first, then defer.** Open the issue with `gh issue create` (or the web UI) *before* merging the code that leaves the gap. "I'll file it later" is how follow-ups vanish.
-- **A session log or code comment is not a substitute for an issue.** Working notes and session logs live only on one maintainer's machine - a follow-up recorded solely there is lost to every other contributor and to CI. The issue tracker is the single shared, durable backlog. Record context in the vault *in addition to*, never *instead of*, the issue.
+- **A session log, a private plan or a code comment is not a substitute.** Working notes live only on one maintainer's machine - a follow-up recorded solely there is lost to every other contributor and to CI. Record context in the vault *in addition to*, never *instead of*, the issue or the ADR.
 - **Prefer fixing over filing when the fix is in scope and cheap.** An issue is for work genuinely deferred, not an excuse to punt a one-line fix that belongs in the current change. If it can be resolved now, resolve it now; file an issue only for what actually carries over.
-- **Give the issue enough to act on later:** what is deferred, why it was deferred now, the affected files/sites, and the acceptance check that closes it. Label it (`enhancement`, `bug`, `chore`, …) and link the originating PR or ADR.
+- **Give the issue enough to act on later:** what is deferred, why it was deferred now, the affected files/sites, and the acceptance check that closes it. Give the command that measures a count rather than the count alone; a number in an issue goes stale and the command does not. Label it (`enhancement`, `bug`, `chore`, …) and link the originating PR or ADR.
 
 ## 13. Session Protocol
 
