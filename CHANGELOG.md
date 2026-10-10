@@ -106,6 +106,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Infrastructure
 
+**Added**
+
+- **`tools/public-surface.sh <crate>`** lists a crate's public surface from
+  rustdoc's JSON output, one item per line: items, inherent methods, public
+  fields and re-exports. The diff of two listings is a change's surface
+  delta, which a pull request that touches the public surface now reports
+  (ADR 0081). It needs `jq`, and sets `RUSTC_BOOTSTRAP=1` to read the
+  unstable JSON format on the pinned toolchain.
+
 **Changed**
 
 - **The toolchain pin moves from Rust 1.94.1 to 1.99.0**
