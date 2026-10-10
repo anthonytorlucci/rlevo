@@ -11,6 +11,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **The library crates no longer select a Burn backend** (ADR 0080).
+  `rlevo-core`, `rlevo-environments`, `rlevo-evolution`,
+  `rlevo-reinforcement-learning` and `rlevo-hybrid` now declare `burn` with
+  `default-features = false, features = ["std"]`. Until now each of them
+  enabled `wgpu`, `flex`, `train`, `tui` and `metrics`, so every consumer
+  compiled the GPU shader stack, an image and SQLite stack, and `ratatui`,
+  whether or not it used them. **If you depend on `rlevo`, nothing changes:**
+  its new `flex` feature is on by default and selects the same CPU backend
+  with the same Burn features as before. **If you depend on a library crate
+  directly,** add `burn` to your own manifest with the backend feature you
+  want (`flex` or `wgpu`), plus `autodiff` to train an RL agent. Without one,
+  `burn::backend::Flex` and `Wgpu` do not exist and the build says so.
+- **`rlevo` no longer enables the GPU backend by default.** Add the `wgpu`
+  feature to get `burn::backend::Wgpu`.
 - **The `custom-kernels` feature is removed** from `rlevo-evolution` and
   `rlevo`, with the modules `rlevo_evolution::ops::kernels` and
   `rlevo_evolution::algorithms::metaheuristic::kernels`. The feature gated
@@ -27,6 +41,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   where it used to return `ConstraintKind::Custom` with the feature off.
 
 ### `rlevo`
+
+**Added**
+
+- **`flex` and `wgpu` features**, which select the Burn backend for the
+  whole dependency tree; `flex` is on by default. Each also enables Burn's
+  `autodiff` and Burn's own defaults for the backend it selects.
+- **`rlevo::burn`**, a re-export of the Burn release `rlevo` is built
+  against, so a consumer names tensors and backends without a `burn` entry
+  of its own.
 
 **Fixed**
 

@@ -9,7 +9,9 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-burn = { workspace = true }
+# The fixtures here name `Flex` and `Autodiff` in library code, which is why
+# this crate, unlike the published ones, selects a backend (ADR 0080).
+burn = { workspace = true, features = ["default", "flex", "autodiff"] }
 rand = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }

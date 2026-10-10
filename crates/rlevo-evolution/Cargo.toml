@@ -30,6 +30,11 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }
+# Backend for this crate's tests and doctests only; the library itself
+# names no backend (ADR 0080). `default` keeps Burn's own backend defaults
+# (Flex with `simd` and `rayon`), which the facade cannot enable one by one.
+# `wgpu` is for `tests/backend_parity.rs` and one GPU-tier unit test.
+burn = { workspace = true, features = ["default", "flex", "wgpu"] }
 criterion = { workspace = true }
 proptest = { workspace = true }
 

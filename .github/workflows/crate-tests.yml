@@ -178,6 +178,58 @@ jobs:
           cargo clippy -p rlevo-environments --all-targets
           --no-default-features --features locomotion -- -D warnings
 
+  # ADR 0080: no library crate selects a Burn backend. Every other job here
+  # builds several workspace members at once, and cargo then unifies features
+  # across them: a test target's `burn/flex` reaches the library under test, so
+  # a library that names `burn::backend::Flex` compiles everywhere in CI and
+  # nowhere for a consumer or on docs.rs, which build one crate with only the
+  # features its own `[dependencies]` request. Building each library alone is
+  # the only configuration that sees it.
+  #
+  # Three checks per crate. The resolved `burn` feature set is exactly `std`,
+  # so the manifest selects nothing. `--lib` builds without dev-dependencies
+  # (which do select a backend), so the code names nothing. The doc pass is the
+  # same check for intra-doc links: a link to a backend type resolves in the
+  # workspace build and is a hard error alone, where `broken_intra_doc_links`
+  # is `deny`.
+  #
+  # The list is derived, not written down: every publishable member with a
+  # normal dependency on `burn`, except the `rlevo` umbrella, which is the
+  # leaf that selects the backend.
+  libraries-select-no-backend:
+    name: library crates select no Burn backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: libraries-select-no-backend
+
+      - name: Check each library crate alone
+        run: |
+          set -euo pipefail
+          crates=$(cargo metadata --no-deps --format-version 1 | jq -r '
+            .packages[]
+            | select(.publish == null and .name != "rlevo")
+            | select(any(.dependencies[]; .name == "burn" and .kind == null))
+            | .name')
+          if [ -z "$crates" ]; then
+            echo "::error::no publishable crate depends on burn; this job checks nothing"
+            exit 1
+          fi
+          for crate in $crates; do
+            features=$(cargo tree -p "$crate" -e normal -f '{p} [{f}]' --prefix none \
+              | grep '^burn v' | sed -E 's/^burn v[^ ]+ \[(.*)\].*/\1/' | sort -u)
+            if [ "$features" != "std" ]; then
+              echo "::error::$crate resolves burn with features [$features]; a library crate enables only [std] (ADR 0080)"
+              exit 1
+            fi
+            cargo check -p "$crate" --lib
+            cargo doc -p "$crate" --no-deps
+          done
+
   # ── Per-crate default test sets ─────────────────────────────────────────────
   #
   # `cargo xtask test-fast <crate>` expands to `cargo test -p <crate>` plus the

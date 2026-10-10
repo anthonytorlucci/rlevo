@@ -14,7 +14,8 @@ rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", defaul
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.5.0", default-features = false }
 rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.5.0" }
 rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.5.0", default-features = false }
-burn = { workspace = true }
+# Every example here runs a backend, so this crate selects one (ADR 0080).
+burn = { workspace = true, features = ["default", "flex", "autodiff"] }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -120,3 +121,6 @@ path = "examples/evolution/backend_sweep_neuroevolution.rs"
 rlevo-test-support = { path = "../rlevo-test-support" }
 # Pin rayon to one thread in the examples/test for reproducible Burn RNG.
 rayon = { workspace = true }
+# `wgpu` for `examples/evolution/backend_sweep_neuroevolution.rs`, the one
+# example that sweeps both backends.
+burn = { workspace = true, features = ["wgpu"] }
