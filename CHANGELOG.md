@@ -67,6 +67,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `AcoPermConfig`, `AcoPermState`). Its `init`, `ask` and `tell` were
   `todo!()`, so a published `Strategy` panicked when driven. It returns with
   an implementation. The `Permutation` genome kind stays.
+- **The `experience` module is removed** from
+  `rlevo-reinforcement-learning`, with `ExperienceTuple` and `History` (ADR
+  0082). Nothing in the workspace used either: every off-policy agent stores
+  `replay::Transition`, and `ExperienceTuple` was a second definition of the
+  same five fields. Store transitions through the `replay` module.
 
 ### `rlevo`
 

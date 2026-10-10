@@ -115,7 +115,6 @@ applies is decided by the *kind* of struct, not case by case:
 | `HostRow<R>` | `write_host_row` pushes exactly `row_shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `R` |
 | `TensorConvertible<R, B>` | Two clauses, for all valid `x`: **(1) tensor-image fidelity** — `from_tensor(x.to_tensor(r))?.to_tensor(r) == x.to_tensor(r)`, i.e. decode-then-re-encode is a no-op on the tensor; **(2) no fabrication** — any field `write_host_row` does not write must decode to a value *representing absence* (`None`, or a dedicated "unknown" variant), never to a plausible in-domain value. A type whose `write_host_row` covers every field meets (1) in the stronger form `from_tensor(x.to_tensor(r)) == Ok(x)` and meets (2) vacuously — that is the expected case, and (1) is a **floor**, not licence to be partial. The row-writer half of the contract lives on the backend-independent `HostRow<R>` supertrait; `to_tensor` is derived from it and must not be overridden |
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |
-| `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
 | `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted |
 | `PrioritizedReplay<T>` | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` |
 
@@ -169,8 +168,6 @@ Non-fitness float comparisons (geometry, eigenvalues, argmax over logits) use pl
 | `ImportanceExponent::new(b)` | `b` not finite or $\notin [0, 1]$ — use `try_new` for runtime-derived values |
 | `Priority::new(p)` | `p` not finite or not `> 0` — use `try_new` for runtime-derived values |
 | `util::combinations(n, k)` | exact `C(n, k)` exceeds `u64::MAX` — use `checked_combinations` for the full domain |
-| `History::index(i)` | `i >= len()` |
-| `History::new(n)` | `n == 0` or `n > MAX_BUFFER_CAPACITY` |
 | `AgentStats::new(window_size)` | `window_size == 0` or `window_size > MAX_BUFFER_CAPACITY` — the value reaches `VecDeque::with_capacity` unfiltered, where an out-of-range request **aborts** rather than unwinding |
 | `RolloutBuffer::new(capacity, action_dim)` | either argument `== 0` or `> MAX_BUFFER_CAPACITY`; or `capacity * action_dim` overflows `usize` or exceeds `MAX_BUFFER_CAPACITY` — **both factors can be in range while the product is not** |
 | `Slot::get()` / `Slot::step_with(opt, lr, grads)` | the slot is poisoned: an earlier `step_with` unwound inside `Optimizer::step` and lost the module. Every agent method that reads a trainable network inherits this through `get` |

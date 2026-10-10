@@ -21,7 +21,7 @@
 /// could hold it; the agents' staging paths need `usize` / `Vec<f32>` anyway
 /// and would immediately erase a typed `A` again. The erasure is the design,
 /// not an accident — see ADR 0050 §2 and its *Alternatives considered* entry
-/// on `ExperienceTuple`.
+/// on `ExperienceTuple`, a typed-action tuple that ADR 0082 has since removed.
 ///
 /// Use the aliases rather than spelling the payload at each site:
 /// [`DiscreteTransition<O>`] for index actions, [`ContinuousTransition<O>`] for

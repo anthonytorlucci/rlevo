@@ -122,7 +122,6 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 - `crates/rlevo-core/src/environment.rs`: Environment and Snapshot traits
 - `crates/rlevo-core/src/base.rs`: Reward, TensorConvertible, transition dynamics
 - `crates/rlevo-reinforcement-learning/src/replay/`: RL replay-strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`) — moved out of core in ADR 0003, reshaped as a strategy seam in ADR 0050
-- `crates/rlevo-reinforcement-learning/src/experience.rs`: `ExperienceTuple`, `History` — RL-only trajectory storage
 - `crates/rlevo-reinforcement-learning/src/metrics.rs`: `AgentStats`, `PerformanceRecord` — RL-only episode tracking
 
 ### Example Reference Implementations

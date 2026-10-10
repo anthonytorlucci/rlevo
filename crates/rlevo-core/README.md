@@ -206,7 +206,7 @@ impl ConstructableEnv for MyEnv {
 ### Replay Buffer
 
 Replay lives in `rlevo-reinforcement-learning`, not `rlevo-core` (per ADR 0003 —
-replay/experience/metrics moved to where they are consumed). The replay-strategy
+replay and metrics moved to where they are consumed). The replay-strategy
 seam is `rlevo_reinforcement_learning::replay` (ADR 0050): `ReplayStrategy`, the
 default `UniformReplay`, and the opt-in `PrioritizedReplay`. See that crate's
 README for the API and the config-level PER opt-in.
