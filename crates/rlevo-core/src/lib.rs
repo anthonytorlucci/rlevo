@@ -9,9 +9,9 @@
 //!
 //! | Module | What it provides |
 //! |---|---|
-//! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`], [`TensorConvertible`], [`UpdateFunction`] — the primitive trait vocabulary |
+//! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`], [`TensorConvertible`] — the primitive trait vocabulary |
 //! | [`action`] | [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`] — layered action-space extensions |
-//! | [`state`] | [`MarkovState`], [`BeliefState`], [`HiddenState`], [`LatentState`], [`StateAggregation`], [`Observable`] — POMDP and latent-space extensions |
+//! | [`state`] | [`BeliefState`], [`StateAggregation`], [`Observable`] — POMDP belief, state aggregation and the state-to-observation projection |
 //! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`GenerationProbe`] — drive seam for self-paced work (evolutionary generation loops) |
@@ -21,7 +21,7 @@
 //! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
 //! | [`probability`] | [`Probability`] — a `[0, 1]` rate valid by construction (rejects `NaN`, `Inf`, out-of-range) |
 //! | [`rate`] | [`NonNegativeRate`] — a finite non-negative magnitude valid by construction (BLX-`$\alpha$`, `$\sigma$`) |
-//! | [`render`] | [`AsciiRenderable`], [`Renderer`](crate::render::Renderer), styled/palette/payload sub-modules — optional debug and TUI visualization layer |
+//! | [`render`] | [`AsciiRenderable`], styled/palette/payload sub-modules — optional debug and TUI visualization layer |
 //! | [`agent`] | Reserved; empty while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
 //!
@@ -63,14 +63,10 @@
 //! [`Action`]: crate::base::Action
 //! [`HostRow`]: crate::base::HostRow
 //! [`TensorConvertible`]: crate::base::TensorConvertible
-//! [`UpdateFunction`]: crate::base::UpdateFunction
 //! [`DiscreteAction`]: crate::action::DiscreteAction
 //! [`MultiDiscreteAction`]: crate::action::MultiDiscreteAction
 //! [`ContinuousAction`]: crate::action::ContinuousAction
-//! [`MarkovState`]: crate::state::MarkovState
 //! [`BeliefState`]: crate::state::BeliefState
-//! [`HiddenState`]: crate::state::HiddenState
-//! [`LatentState`]: crate::state::LatentState
 //! [`StateAggregation`]: crate::state::StateAggregation
 //! [`Observable`]: crate::state::Observable
 //! [`Environment`]: crate::environment::Environment
@@ -95,10 +91,9 @@
 //! [`Probability`]: crate::probability::Probability
 //! [`NonNegativeRate`]: crate::rate::NonNegativeRate
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
-//! [`Renderer`]: crate::render::Renderer
 
 /// Primitive trait vocabulary: [`Reward`], [`Observation`], [`State`],
-/// [`Action`], [`HostRow`], [`TensorConvertible`], and [`UpdateFunction`].
+/// [`Action`], [`HostRow`], and [`TensorConvertible`].
 ///
 /// All other modules in this crate depend on the types defined here.
 ///
@@ -108,7 +103,6 @@
 /// [`Action`]: crate::base::Action
 /// [`HostRow`]: crate::base::HostRow
 /// [`TensorConvertible`]: crate::base::TensorConvertible
-/// [`UpdateFunction`]: crate::base::UpdateFunction
 pub mod base;
 
 /// Layered action-space traits: [`DiscreteAction`], [`MultiDiscreteAction`],
@@ -225,12 +219,11 @@ pub mod rate;
 
 /// Optional rendering layer for debug output and TUI visualization.
 ///
-/// Contains [`AsciiRenderable`], [`Renderer`] (via the [`ascii`] sub-module),
+/// Contains [`AsciiRenderable`] (via the [`ascii`] sub-module),
 /// styled color primitives ([`styled`] / [`palette`]), and environment
 /// payload types ([`payload`]).
 ///
 /// [`AsciiRenderable`]: crate::render::AsciiRenderable
-/// [`Renderer`]: crate::render::Renderer
 /// [`ascii`]: crate::render::ascii
 /// [`styled`]: crate::render::styled
 /// [`palette`]: crate::render::palette
@@ -245,17 +238,14 @@ pub mod render;
 /// [`ScalarReward`]: crate::reward::ScalarReward
 pub mod reward;
 
-/// Advanced state abstractions for POMDPs and latent representations.
+/// State abstractions beyond the base contract.
 ///
-/// Extends [`base::State`] with [`MarkovState`], [`BeliefState`],
-/// [`HiddenState`], [`LatentState`], [`StateAggregation`], and [`Observable`]
-/// (the modality-changing state→observation projection for `OR != SR`).
+/// Extends [`base::State`] with [`BeliefState`], [`StateAggregation`], and
+/// [`Observable`] (the modality-changing state→observation projection for
+/// `OR != SR`).
 ///
 /// [`base::State`]: crate::base::State
-/// [`MarkovState`]: crate::state::MarkovState
 /// [`BeliefState`]: crate::state::BeliefState
-/// [`HiddenState`]: crate::state::HiddenState
-/// [`LatentState`]: crate::state::LatentState
 /// [`StateAggregation`]: crate::state::StateAggregation
 /// [`Observable`]: crate::state::Observable
 pub mod state;

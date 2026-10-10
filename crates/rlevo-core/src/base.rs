@@ -9,14 +9,6 @@ use burn::tensor::TensorData;
 use burn::tensor::backend::Backend;
 use std::fmt::Debug;
 
-/// Generic update function: how something evolves over time.
-///
-/// Parameterized over the input stimulus and the output type it transforms.
-pub trait UpdateFunction<Input, Output> {
-    /// Computes the next value given the current value and an input.
-    fn update(&self, current: &Output, input: &Input) -> Output;
-}
-
 /// A scalar reward signal emitted by an environment each step.
 ///
 /// # Finiteness

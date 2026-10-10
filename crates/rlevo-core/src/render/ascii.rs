@@ -13,13 +13,11 @@
 //! `rlevo-benchmarks` can still bound on it without a circular package dep.
 //! It is not a supertrait of `Environment`.
 
-use super::{Renderer, StyledFrame};
+use super::StyledFrame;
 
 /// An environment that can render itself as an ASCII string.
 ///
 /// Optional (ADR-0013): implement it only for envs that want a text dump.
-/// The [`AsciiRenderer`] delegates to [`render_ascii`](Self::render_ascii)
-/// and returns the `String` as its `Frame`.
 ///
 /// # Two projections
 ///
@@ -49,44 +47,5 @@ pub trait AsciiRenderable {
     /// projection. Envs that want colour override this method directly.
     fn render_styled(&self) -> StyledFrame {
         StyledFrame::unstyled(self.render_ascii())
-    }
-}
-
-/// A renderer that produces ASCII `String` frames.
-///
-/// Implements [`Renderer<E>`](super::Renderer) for any `E: AsciiRenderable`,
-/// delegating to [`AsciiRenderable::render_ascii`].  Pair with
-/// [`NullRenderer`](crate::render::NullRenderer) when rendering is
-/// disabled so the call compiles away entirely.
-///
-/// # Example
-///
-/// ```no_run
-/// use rlevo_core::render::{AsciiRenderable, AsciiRenderer, Renderer};
-///
-/// struct GridEnv { width: usize, height: usize }
-///
-/// impl AsciiRenderable for GridEnv {
-///     fn render_ascii(&self) -> String {
-///         (0..self.height)
-///             .map(|_| ".".repeat(self.width))
-///             .collect::<Vec<_>>()
-///             .join("\n")
-///     }
-/// }
-///
-/// let env = GridEnv { width: 5, height: 3 };
-/// let renderer = AsciiRenderer;
-/// let frame: String = renderer.render(&env);
-/// println!("{frame}");
-/// ```
-#[derive(Debug, Clone, Copy, Default)]
-pub struct AsciiRenderer;
-
-impl<E: AsciiRenderable> Renderer<E> for AsciiRenderer {
-    type Frame = String;
-
-    fn render(&self, env: &E) -> String {
-        env.render_ascii()
     }
 }

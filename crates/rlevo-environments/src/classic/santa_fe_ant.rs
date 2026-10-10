@@ -15,8 +15,8 @@
 //! perceptual aliasing makes the *optimal* policy provably require internal
 //! memory: a memoryless reactive map `$\{0, 1\} \to \text{action}$` cannot cross the trail's
 //! single, double, and L-shaped gaps, where the ant must step forward over an
-//! empty cell to reach food beyond it. [`SantaFeAntState`] signals this at the
-//! type level with [`MarkovState::is_markov`] returning `false`.
+//! empty cell to reach food beyond it. The percept is therefore not a Markov
+//! state for the agent: it must stack observations or carry recurrent memory.
 //!
 //! Because the projection keeps the tensor order at 1, the environment is a
 //! plain [`Environment<1, 1, 1>`] and touches **no** new core trait. In
@@ -50,7 +50,6 @@ use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
-use rlevo_core::state::MarkovState;
 use serde::{Deserialize, Serialize};
 
 use crate::direction::Direction;
@@ -294,15 +293,6 @@ impl State<1> for SantaFeAntState {
 
     fn is_valid(&self) -> bool {
         self.row < GRID_SIZE && self.col < GRID_SIZE && self.pellets_remaining == self.count_food()
-    }
-}
-
-/// Non-Markov: the one-bit percept does **not** summarise the history needed to
-/// act optimally, so agents must stack observations or carry recurrent memory.
-/// This single override is the type-level statement of the environment's purpose.
-impl MarkovState for SantaFeAntState {
-    fn is_markov() -> bool {
-        false
     }
 }
 
@@ -1173,13 +1163,6 @@ mod tests {
             !snap.is_done(),
             "the first step of a fresh episode must not be done"
         );
-    }
-
-    // -- POMDP marker ------------------------------------------------------
-
-    #[test]
-    fn state_is_non_markov() {
-        assert!(!<SantaFeAntState as MarkovState>::is_markov());
     }
 
     // -- TensorConvertible round-trips ------------------------------------

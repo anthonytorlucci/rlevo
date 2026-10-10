@@ -124,14 +124,14 @@ screenshot of the report still reads.
 
 Envs become payload sources by implementing one of:
 
-- `rlevo_core::render::Landscape2DPayloadSource`
 - `rlevo_core::render::Box2dPayloadSource`
 - `rlevo_core::render::Locomotion2DPayloadSource`
 
 `RecordingTap` then exposes per-family convenience constructors —
-`with_landscape_payload(env, sink)` / `with_box2d_payload(env, sink)` /
-`with_locomotion_payload(env, sink)` — that wire the snapshot into
-every captured frame. Locomotion routes through a new
+`with_box2d_payload(env, sink)` / `with_locomotion_payload(env, sink)` —
+that wire the snapshot into every captured frame. A landscape is not an
+environment, so it has no source trait and no constructor; a
+`Landscape2D` payload is built by the caller. Locomotion routes through a new
 `RecordingTap::new_headless` constructor that drops the
 `AsciiRenderable` bound; ASCII / styled fields ship as `None` and the
 M7 SVG is the only rendering pathway.

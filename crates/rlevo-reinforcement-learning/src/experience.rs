@@ -1,27 +1,19 @@
-//! Trajectory storage and history representation for experience replay.
+//! Trajectory storage for experience replay.
 //!
-//! This module provides the building blocks for storing and reasoning over
-//! sequences of agent–environment interactions:
+//! This module provides two building blocks for storing sequences of
+//! agent–environment interactions:
 //! - [`ExperienceTuple`] — a single `(obs, action, reward, next_obs, terminated)` transition
 //! - [`History`] — a fixed-capacity FIFO buffer of transitions
-//! - [`HistoryRepresentation`] — trait for constructing state summaries from history
-//! - [`SufficientStatistic`] — history summary that satisfies the Markov property
 //!
 //! # Not the replay integration path
 //!
 //! [`crate::replay::Transition`] is the **live** stored-transition model: it is
 //! what every off-policy agent writes into a [`ReplayStrategy`], and it is the
-//! type to reach for when wiring a new agent to replay. The four items in this
-//! module have **zero consumers** in the workspace today. They are ADR 0003
-//! roadmap markers, kept under that ADR's conservative dead-code policy for the
-//! POMDP/history-conditioned work they were sketched for. Their survival is an
-//! open design decision between two ways of giving a
-//! discrete-action RL agent memory on a POMDP (first target: the `SantaFeAnt`
-//! environment's one-bit percept): a lighter observation history-framing
-//! adapter feeding an existing feedforward agent, versus a heavier recurrent
-//! agent with explicit hidden-state threading and sequence replay. Whichever
-//! path is chosen picks which of these trait seams (if any) gets its first
-//! real implementor; until the decision lands, do not build against them.
+//! type to reach for when wiring a new agent to replay. The two types in this
+//! module have **zero consumers** in the workspace today. ADR 0003 kept them as
+//! roadmap markers. ADR 0081 removed the two history traits that sat beside
+//! them (`HistoryRepresentation`, `SufficientStatistic`); whether these two
+//! stay is still open, so do not build against them.
 //!
 //! ADR 0050 §9 records this pointer as its own deliverable: `experience.rs` was
 //! deliberately left untouched by the replay-strategy seam, so the module docs
@@ -32,7 +24,6 @@
 
 use crate::MAX_BUFFER_CAPACITY;
 use rlevo_core::base::{Action, Observation, Reward};
-use rlevo_core::state::MarkovState;
 use std::collections::VecDeque;
 use std::ops::Index;
 
@@ -259,56 +250,6 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     pub fn get(&self, idx: usize) -> Option<&ExperienceTuple<D, AD, O, A, R>> {
         self.trace.get(idx)
     }
-}
-
-/// A summary representation constructed from an interaction history.
-///
-/// Implementors encode the information in a [`History`] buffer into a
-/// compact form that an agent can act on. The trait provides two construction
-/// paths:
-///
-/// - [`from_history`] — builds the representation from scratch by scanning
-///   the entire buffer; use this after a reset or when the full trajectory
-///   is available.
-/// - [`update_with`] — incrementally folds a single new transition into an
-///   existing representation without re-scanning the buffer; use this at
-///   each step for O(1) updates.
-///
-/// Implementations must be [`Clone`] so that representations can be stored
-/// alongside experience tuples in a replay buffer.
-///
-/// [`from_history`]: HistoryRepresentation::from_history
-/// [`update_with`]: HistoryRepresentation::update_with
-pub trait HistoryRepresentation<
-    const D: usize,
-    const AD: usize,
-    O: Observation<D>,
-    A: Action<AD>,
-    R: Reward,
->: Clone
-{
-    /// Constructs this representation from the complete interaction history.
-    fn from_history(history: &History<D, AD, O, A, R>) -> Self;
-
-    /// Incrementally incorporates one new `(obs, action, reward)` triple.
-    fn update_with(&mut self, obs: &O, action: &A, reward: &R);
-}
-
-/// A history summary that captures all decision-relevant information.
-///
-/// A sufficient statistic satisfies the Markov property: conditioning on it
-/// renders the future independent of the past, so agents need not retain the
-/// full trajectory.
-pub trait SufficientStatistic<
-    const D: usize,
-    const AD: usize,
-    O: Observation<D>,
-    A: Action<AD>,
-    R: Reward,
->: HistoryRepresentation<D, AD, O, A, R> + MarkovState
-{
-    /// Returns `true` if `self` is a sufficient statistic for `history`.
-    fn is_sufficient(&self, history: &History<D, AD, O, A, R>) -> bool;
 }
 
 #[cfg(test)]

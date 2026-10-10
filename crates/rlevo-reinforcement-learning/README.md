@@ -407,14 +407,12 @@ Prioritized Experience Replay follows the algorithm of Schaul et al.:
 
 Per-transition records and a FIFO trajectory buffer. Moved here from `rlevo-core` per ADR 0003.
 
-> **Not used by any algorithm.** No shipped agent consumes these types; the off-policy agents store transitions through the [`replay`](#experience-replay-replay) seam instead. `experience` survives only as a POMDP roadmap seam — `HistoryRepresentation` and `SufficientStatistic` take `&History` in their signatures. Keep-or-delete is a POMDP-milestone decision.
+> **Not used by any algorithm.** No shipped agent consumes these types; the off-policy agents store transitions through the [`replay`](#experience-replay-replay) seam instead. ADR 0081 removed the two history traits that took `&History` (`HistoryRepresentation`, `SufficientStatistic`); whether `ExperienceTuple` and `History` stay is still open.
 
 | Item | Description |
 |------|-------------|
 | `ExperienceTuple<D, AD, O, A, R>` | Single `(s, a, r, s′, done)` transition |
 | `History<D, AD, O, A, R>` | Fixed-capacity FIFO buffer (`VecDeque`); indexable, iterable |
-| `HistoryRepresentation` | Trait for summaries built from a `History` (POMDP roadmap seam) |
-| `SufficientStatistic` | Extends `HistoryRepresentation + MarkovState`; checks whether a history summary is Markov-sufficient (POMDP roadmap seam) |
 
 ### Performance Tracking (`metrics`)
 

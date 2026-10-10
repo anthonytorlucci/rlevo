@@ -31,7 +31,6 @@ The primitive building blocks of the RL abstraction.
 | `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
 | `TensorConvertible<R, B>` | Bidirectional conversion between domain types and Burn tensors |
 | `TransitionDynamics<SR, AR, S, A>` | Deterministic state-transition function |
-| `UpdateFunction<Input, Output>` | Generic parameterized update (policy gradient step, etc.) |
 
 `TensorConvertible` is the integration point with Burn: implement it on your state/action types to enable neural-network-based agents.
 
@@ -48,15 +47,12 @@ Three orthogonal action abstractions cover the standard taxonomy:
 
 ### `state` — Advanced State Abstractions
 
-Extensions to `State<R>` for partial observability, recurrence, and hierarchy:
+Extensions to `State<R>` for partial observability and hierarchy:
 
 | Trait | Purpose |
 |---|---|
-| `MarkovState` | Asserts the Markov property holds for this state representation |
 | `Observable<OR>` | Modality-changing state→observation projection for `OR != SR` (ADR 0019) |
 | `BeliefState<SR, AR, S, A>` | POMDP belief distribution over latent states, updated by action `A` |
-| `HiddenState<R>` | RNN-style recurrent memory (`update`, `reset`) |
-| `LatentState<R, AR>` | World-model compressed representation (`encode`, `predict`, `decode`) |
 | `StateAggregation<SR, S>` | Maps concrete states to abstract representatives for hierarchical RL |
 
 ### `environment` — Environment Protocol
@@ -124,19 +120,11 @@ Placeholder module reserved for a future unified agent trait hierarchy (`act` / 
 
 The rendering surface feeds the two visualisation products (ADR 0013): a live metrics-only `ratatui` TUI and a post-run static-HTML report that replays env state from structured payloads. `rlevo-core` ships zero terminal-side dependencies — the conversions into `ratatui`/HTML live downstream in `rlevo-benchmarks`.
 
-**Core renderer trait**
-
-| Item | Description |
-|---|---|
-| `Renderer<E>` | Generic over environment and associated `Frame` type (`String`, `Vec<u8>`, `()`, …) |
-| `NullRenderer` | Zero-cost no-op; compiles away entirely |
-
 **`ascii` — optional text rendering**
 
 | Item | Description |
 |---|---|
 | `AsciiRenderable` | Optional debug helper (not a library invariant, per ADR 0013): a grep-friendly text dump for logs, snapshot tests, and the report's legacy `<pre>` fallback |
-| `AsciiRenderer` | Renderer adapter over an `AsciiRenderable` env |
 
 **`styled` — colour-aware projection** (consumed by the live TUI and report tiers)
 
@@ -153,7 +141,7 @@ The rendering surface feeds the two visualisation products (ADR 0013): a live me
 
 | Family | Snapshot type | Opt-in source trait |
 |---|---|---|
-| Landscapes | `Landscape2DSnapshot` (`Point2`) | `Landscape2DPayloadSource` |
+| Landscapes | `Landscape2DSnapshot` (`Point2`) | none: a landscape is not an environment |
 | Box2D | `Box2dSnapshot` (`RigidBody2D`, `BodyKind`) | `Box2dPayloadSource` |
 | Locomotion | `Locomotion2DSnapshot` | `Locomotion2DPayloadSource` |
 | Grid | `GridSnapshot` (`GridTile`, `GridDir`, `GridColor`, `GridDoorState`, `GridAgentMarker`) | `GridPayloadSource` |
@@ -170,7 +158,7 @@ The rendering surface feeds the two visualisation products (ADR 0013): a live me
 
 **Trait-based composition.** No inheritance. New action spaces, state types, and genome kinds are added by implementing the appropriate trait.
 
-**Zero-cost abstractions.** `NullRenderer`, `Copy` reward/state types, and const-generic shapes incur no runtime cost.
+**Zero-cost abstractions.** `Copy` reward/state types and const-generic shapes incur no runtime cost.
 
 ## Usage
 
@@ -229,7 +217,7 @@ The following papers directly informed the algorithms and concepts in this crate
 
 - Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — foundational framework for the `Environment` / `Snapshot` / `Reward` trait design and the Terminated vs. Truncated episode status distinction.
 
-- Puterman, M. L. (1994). **Markov Decision Processes: Discrete Stochastic Dynamic Programming**. Wiley [acm digital library](https://dl.acm.org/doi/10.5555/528623). — theoretical grounding for `MarkovState`, `BeliefState`, and `TransitionDynamics`.
+- Puterman, M. L. (1994). **Markov Decision Processes: Discrete Stochastic Dynamic Programming**. Wiley [acm digital library](https://dl.acm.org/doi/10.5555/528623). — theoretical grounding for `BeliefState` and `TransitionDynamics`.
 
 ## License
 
