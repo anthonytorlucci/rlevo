@@ -17,13 +17,18 @@ rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", defaul
 rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.5.0" }
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.5.0", default-features = false }
 rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.5.0" }
+# Re-exported as `rlevo::burn`, and the crate through which the `flex` and
+# `wgpu` features below select a backend for the whole tree (ADR 0080).
+burn = { workspace = true }
 
 [dev-dependencies]
 rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.5.0" }
 rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", features = ["bench"] }
 rlevo-test-support = { path = "../rlevo-test-support" }
 approx = { workspace = true }
-burn = { workspace = true }
+# Tests, benches and examples run on Flex whatever features the umbrella is
+# built with.
+burn = { workspace = true, features = ["default", "flex", "autodiff"] }
 criterion = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
@@ -31,16 +36,21 @@ rand_distr = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 tempfile = "3"
-tracing-subscriber = { workspace = true }
 
 [features]
-default = ["box2d", "locomotion", "custom-kernels"]
+default = ["box2d", "locomotion", "flex"]
+# Burn backends. The library crates name none; one of these, or a `burn`
+# entry in the consumer's own manifest, selects it. Each also turns on
+# `autodiff`, which the RL agents train through, and Burn's own defaults for
+# the backend it selects.
+# CPU backend (Burn's Flex).
+flex = ["burn/default", "burn/flex", "burn/autodiff"]
+# GPU backend (Burn's wgpu: Metal, Vulkan, DX12, WebGPU).
+wgpu = ["burn/default", "burn/wgpu", "burn/autodiff"]
 # Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
 box2d = ["rlevo-environments/box2d"]
 # MuJoCo-inspired locomotion environments via Rapier3D
 locomotion = ["rlevo-environments/locomotion"]
-# Custom CubeCL GPU kernels for evolutionary algorithm hot paths
-custom-kernels = ["rlevo-evolution/custom-kernels"]
 # Live metrics TUI product (ADR-0013).
 viz-tui = ["rlevo-benchmarks/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls

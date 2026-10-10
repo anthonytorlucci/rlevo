@@ -5,14 +5,14 @@
 //! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, `TensorConvertible`
 //! - [`envs`] — benchmark environments: classic control, gridworlds, `Box2D` physics, locomotion
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay buffer / experience / metrics modules they consume)
-//! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP with GPU kernels
+//! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP
 //! - [`hybrid`] — combined evolutionary + RL strategies
 //!
 //! # Quick Start
 //!
 //! ```toml
 //! [dependencies]
-//! rlevo = "0.3"
+//! rlevo = "0.5"
 //! ```
 //!
 //! ```rust
@@ -26,12 +26,36 @@
 //! use rlevo::envs::classic::cartpole::CartPole;
 //! use rlevo::rl::algorithms::dqn::dqn_agent::DqnAgent;
 //! ```
+//!
+//! # Backends
+//!
+//! The library crates name no Burn backend. A Cargo feature of this crate
+//! selects one, and Burn itself is re-exported as [`burn`], so a consumer
+//! needs no `burn` entry of its own:
+//!
+//! - `flex` (default) — CPU, through Burn's Flex backend.
+//! - `wgpu` — GPU, through Burn's wgpu backend (Metal, Vulkan, DX12, WebGPU).
+//!
+//! Each also turns on Burn's `autodiff`, which the RL agents train through.
+//!
+//! ```rust
+//! use rlevo::burn::backend::{Autodiff, Flex};
+//!
+//! type TrainingBackend = Autodiff<Flex>;
+//! ```
 
 pub use rlevo_core as core;
 pub use rlevo_environments as envs;
 pub use rlevo_evolution as evo;
 pub use rlevo_hybrid as hybrid;
 pub use rlevo_reinforcement_learning as rl;
+
+/// The Burn release this version of `rlevo` is built against, re-exported so
+/// a consumer names tensors and backends without a `burn` entry of its own.
+///
+/// Which backends exist under `burn::backend` is decided by this crate's
+/// `flex` and `wgpu` features.
+pub use burn;
 
 /// The most commonly used traits and types, importable with `use rlevo::prelude::*`.
 ///

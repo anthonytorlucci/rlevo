@@ -29,7 +29,7 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 
 **Shared abstractions for evolutionary and gradient-based RL.** Evolutionary and gradient-based agents implement the same `rlevo::core` traits and run against identical environments. Hybrid algorithms that interleave the two — the evolution-guided injection loop pioneered by [Khadka & Tumer (2018)](https://arxiv.org/abs/1805.07917) and extended by work like [EvoRainbow](https://github.com/yeshenpy/EvoRainbow) (ICML 2024) — are in active design in `rlevo-hybrid`. JAX-based libraries such as [EvoRL](https://github.com/EMI-Group/evorl) already ship implemented hybrids; `rlevo` aims to bring that pairing to a type-safe Rust stack.
 
-**Backend-agnostic tensors via Burn.** Neural network weights, population tensors, and replay buffers are all Burn tensors. Hardware backends (CPU, WGPU, CUDA) swap without touching algorithm code.
+**Backend-agnostic tensors via Burn.** Neural network weights, population tensors, and replay buffers are all Burn tensors. Hardware backends (CPU through Burn's Flex, GPU through wgpu) swap without touching algorithm code: the library crates name no backend, and a Cargo feature of `rlevo` selects one.
 
 **Reproducible, structured run records.** Every run can emit a typed, versioned `EpisodeRecord` with full provenance (algorithm, versions, git SHA, device, seeds), replayable in a self-contained static-HTML report — built for reproducible experiments and shareable results.
 
@@ -106,7 +106,7 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 
 ```toml
 [dependencies]
-rlevo = "0.3"
+rlevo = "0.5"
 ```
 
 ```rust
@@ -130,6 +130,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+### Backends
+
+`rlevo` runs on Burn's CPU backend by default (the `flex` feature). Add the
+`wgpu` feature for GPU:
+
+```toml
+[dependencies]
+rlevo = { version = "0.5", features = ["wgpu"] }
+```
+
+The `flex` and `wgpu` features are on `main` and ship with the next release;
+the published 0.5.0 always compiles both backends and has neither feature.
+
+Burn is re-exported as `rlevo::burn`, so you need no `burn` entry of your
+own: `rlevo::burn::backend::Flex`, `rlevo::burn::backend::Wgpu`. The
+individual `rlevo-*` crates select no backend; if you depend on one of
+them directly, add `burn` with the backend feature you want.
 
 ```bash
 # Build the workspace
@@ -157,8 +175,7 @@ cargo doc --workspace --no-deps --open
 
 ## Dependencies
 
-- **[Burn](https://burn.dev/) 0.21** — backend-agnostic tensor operations; features: `wgpu`, `train`, `tui`, `metrics`, `flex`
-- **cubecl 0.10** — compute abstraction layer underlying Burn's wgpu backend
+- **[Burn](https://burn.dev/) 0.21** — backend-agnostic tensor operations, re-exported as `rlevo::burn`. The library crates enable no backend; `rlevo`'s `flex` feature (default, CPU) or `wgpu` feature (GPU) selects one
 - **rand 0.10** — randomness and deterministic seeding
 - **rand_distr 0.6** — probability distributions (normal, uniform, etc.)
 - **ringbuffer 0.16** — fixed-capacity circular buffer for replay buffers

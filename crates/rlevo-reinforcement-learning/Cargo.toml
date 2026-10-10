@@ -21,6 +21,12 @@ rlevo-core = { path = "../rlevo-core", version = "0.5.0" }
 
 [dev-dependencies]
 approx = { workspace = true }
+# Backend for this crate's tests and doctests only; the library itself
+# names no backend (ADR 0080). `default` keeps Burn's own backend defaults
+# (Flex with `simd` and `rayon`), which the facade cannot enable one by one.
+# `autodiff` because every agent here trains; `wgpu` for the backend-parity
+# tests and the benches that sweep both backends.
+burn = { workspace = true, features = ["default", "flex", "autodiff", "wgpu"] }
 criterion = { workspace = true }
 # `box2d` is on for the dev cone only: `benches/obs_guard_bench.rs` (issue
 # #1043) measures the observation-finiteness guard against the two shapes the

@@ -20,6 +20,10 @@ rand_distr = {workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }
+# Backend for this crate's tests and doctests only; the library itself
+# names no backend (ADR 0080). `default` keeps Burn's own backend defaults
+# (Flex with `simd` and `rayon`), which the facade cannot enable one by one.
+burn = { workspace = true, features = ["default", "flex"] }
 
 # Render LaTeX in docs (e.g. TransitionDynamics) via KaTeX on docs.rs.
 # The header must live inside this crate's own directory — docs.rs builds

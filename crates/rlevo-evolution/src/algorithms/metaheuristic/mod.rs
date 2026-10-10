@@ -34,16 +34,6 @@
 //!
 //! See `README.md` in this module's source directory for the full
 //! calibration table and prose guidance.
-//!
-//! # Custom kernels
-//!
-//! The [`kernels`] submodule ships fused `CubeCL` kernels for two
-//! operator paths where the pure-tensor decomposition is measurably
-//! wasteful: the pairwise-attract inner loop used by
-//! [`firefly`] and the Lévy-flight sampling used by
-//! [`cuckoo`] (and optionally [`bat`]). The kernels are gated behind
-//! the crate-level `custom-kernels` feature; pure-tensor fallbacks
-//! always compile.
 
 pub mod abc;
 pub mod aco_perm;
@@ -52,7 +42,6 @@ pub mod bat;
 pub mod cuckoo;
 pub mod firefly;
 pub mod gwo;
-pub mod kernels;
 pub mod pso;
 pub mod salp;
 pub mod woa;

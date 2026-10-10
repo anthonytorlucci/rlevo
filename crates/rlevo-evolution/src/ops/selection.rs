@@ -2,9 +2,7 @@
 //!
 //! Selection operators turn a fitness slice into winner indices that the
 //! caller uses (via `Tensor::select`) to gather parents out of the
-//! population. The baseline is host-side sampling + a single device
-//! gather; a fused [kernel](super::kernels) variant is tracked as
-//! follow-up work.
+//! population: host-side sampling, then a single device gather.
 //!
 //! All operators that draw random numbers accept an explicit `&mut dyn Rng`
 //! (the host-RNG convention). Operators never touch thread-local or

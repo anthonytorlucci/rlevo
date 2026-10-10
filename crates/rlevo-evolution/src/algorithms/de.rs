@@ -18,10 +18,8 @@
 //!
 //! # Hot path
 //!
-//! A fused `CubeCL` kernel for trial-vector construction is tracked as
-//! follow-up work (see [`crate::ops::kernels`]). Until then this module
-//! uses host-sampled indices and composes the update from primitive
-//! tensor ops.
+//! Trial-vector construction uses host-sampled indices and composes the
+//! update from primitive tensor ops, so it runs on every Burn backend.
 //!
 //! # Reference
 //!

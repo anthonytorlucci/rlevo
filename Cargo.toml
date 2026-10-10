@@ -37,9 +37,12 @@ keywords = ["evolution", "deep-learning", "burn", "neural-network"]
 categories = ["science", "algorithms", "simulation"]
 
 [workspace.dependencies]
-# Core ML and tensor computation
-burn = { version = "0.21.0", features = ["wgpu", "train", "tui", "metrics", "flex"] }
-cubecl = { version = "0.10.0", features = ["wgpu"] }
+# Core ML and tensor computation.
+# No backend and no default features here: a library crate compiles against
+# Burn's traits alone, and the leaf selects the backend (the `rlevo` umbrella's
+# `flex` / `wgpu` features, or a consumer's own manifest). Tests, benches and
+# examples add theirs in `[dev-dependencies]`. See ADR 0080.
+burn = { version = "0.21.0", default-features = false, features = ["std"] }
 
 # Utilities
 rand = "0.10.1"

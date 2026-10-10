@@ -9,9 +9,9 @@ the [Burn](https://burn.dev/) framework.
 
 **Alpha.** v1 of the `classical-evolutionary-algorithms` spec. The
 trait surface, the classical families, the EDA/neuroevolution/coevolution
-suites, and a swarm/metaheuristic suite below are shipping; custom CubeCL
-kernels are enabled by default (`custom-kernels` feature, default-on) with
-the pure-Burn-ops path preserved for backends that don't support them.
+suites, and a swarm/metaheuristic suite below are shipping. Every operator
+is composed from Burn tensor primitives, so a strategy runs on whichever
+backend the caller selects; this crate selects none.
 
 ## Algorithm families
 
@@ -62,8 +62,14 @@ populations.
 
 ## Quick start
 
+This crate selects no Burn backend. Through the `rlevo` umbrella, the `flex`
+(default) or `wgpu` feature selects one and Burn is re-exported as
+`rlevo::burn`. Depending on this crate directly, add `burn` at the version
+this crate uses, with the backend feature you want (`flex` for CPU, `wgpu`
+for GPU).
+
 ```rust,no_run
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use rlevo_core::fitness::FitnessEvaluable;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::fitness::FromFitnessEvaluable;
@@ -81,8 +87,8 @@ impl FitnessEvaluable for SphereFit {
 
 fn main() {
     let device = Default::default();
-    let mut harness = EvolutionaryHarness::<NdArray, _, _>::new(
-        GeneticAlgorithm::<NdArray>::new(),
+    let mut harness = EvolutionaryHarness::<Flex, _, _>::new(
+        GeneticAlgorithm::<Flex>::new(),
         GaConfig::default_for(64, 10),
         FromFitnessEvaluable::new(SphereFit, Sphere),
         42,          // base seed
@@ -133,7 +139,7 @@ drives it identically to an RL environment — one generation per
 
 ## Reproducibility
 
-Same `base_seed` → bit-identical trajectory on the `ndarray` backend
+Same `base_seed` → bit-identical trajectory on the `flex` backend
 (enforced by `tests/determinism.rs`). The `wgpu` backend is
 non-deterministic across runs; both backends converge to similar optima.
 

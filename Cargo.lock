@@ -6682,7 +6682,6 @@ dependencies = [
  "rlevo-test-support",
  "serde",
  "tempfile",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -6767,7 +6766,6 @@ dependencies = [
  "approx",
  "burn",
  "criterion",
- "cubecl",
  "parking_lot",
  "proptest",
  "rand 0.10.3",

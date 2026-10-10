@@ -8,15 +8,10 @@
 //! - `$\Delta x_i = \sum_{j : f(x_j) > f(x_i)} \beta(r_{ij}) \cdot (x_j - x_i) + \alpha \cdot (U[-0.5, 0.5])$`,
 //! - `$x_i \leftarrow x_i + \Delta x_i$`.
 //!
-//! The attraction sum is canonically `$O(N^2)$`; a naïve tensor
-//! implementation materializes an `(N, N, D)` pairwise-difference
-//! tensor and therefore blows out memory at `N > 128`. This module
-//! enforces that hard cap when the `custom-kernels` feature is off. A
-//! future fused `CubeCL` kernel
-//! ([`super::kernels::pairwise_attract_cube`]) is designed to stream
-//! over the neighbour axis and keep memory at `$O(ND)$`, removing the
-//! cap; until that kernel lands, the pure-tensor path runs even when
-//! the feature is enabled.
+//! The attraction sum is canonically `$O(N^2)$`, and this implementation
+//! materializes an `(N, N, D)` pairwise-difference tensor, so its device
+//! memory grows with the square of the swarm. [`FireflyConfig`] therefore
+//! rejects a swarm larger than [`FIREFLY_PURE_TENSOR_CAP`].
 //!
 //! # References
 //!
@@ -37,9 +32,8 @@ use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
-/// Hard cap for the pure-tensor `$O(N^2 D)$` Firefly path. Exceeding this
-/// without the fused `CubeCL` kernel would allocate a cubic tensor on
-/// device; the kernel path removes the cap.
+/// Largest swarm [`FireflyConfig`] accepts. The attraction step allocates an
+/// `(N, N, D)` tensor on the device, so its memory grows as `$O(N^2 D)$`.
 pub const FIREFLY_PURE_TENSOR_CAP: usize = 128;
 
 /// Static configuration for [`FireflyAlgorithm`].
@@ -87,18 +81,9 @@ impl Validate for FireflyConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "FireflyConfig";
         config::at_least(C, "pop_size", self.pop_size, 1)?;
-        // Without the fused kernel the pure-tensor path materialises an
-        // (N, N, D) tensor, so cap the swarm at FIREFLY_PURE_TENSOR_CAP.
-        #[cfg(not(feature = "custom-kernels"))]
-        if self.pop_size > FIREFLY_PURE_TENSOR_CAP {
-            return Err(ConfigError {
-                config: C,
-                field: "pop_size",
-                kind: rlevo_core::config::ConstraintKind::Custom(
-                    "pop_size exceeds the pure-tensor cap (128); enable `custom-kernels`",
-                ),
-            });
-        }
+        // The attraction step materialises an (N, N, D) tensor, so cap the
+        // swarm at FIREFLY_PURE_TENSOR_CAP.
+        config::at_most(C, "pop_size", self.pop_size, FIREFLY_PURE_TENSOR_CAP)?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::in_range(C, "beta0", 0.0, f64::INFINITY, f64::from(self.beta0))?;
         config::positive(C, "gamma", f64::from(self.gamma))?;
@@ -181,13 +166,9 @@ impl<B: Backend> FireflyState<B> {
 
 /// Firefly Algorithm strategy.
 ///
-/// When the `custom-kernels` feature is **off**, [`FireflyConfig`] enforces a
-/// `pop_size <= FIREFLY_PURE_TENSOR_CAP` (= 128) cap through
-/// [`Validate::validate`] at the harness chokepoint, since the pure-tensor path
-/// materializes an `(N, N, D)` pairwise tensor. With the feature on the same
-/// cap is surfaced via a `debug_assert!` in [`Strategy::init`], because the
-/// fused kernel [`super::kernels::pairwise_attract_cube`] is still designed-only
-/// and the strategy keeps using the pure-tensor path in the meantime.
+/// [`FireflyConfig`] enforces `pop_size <= FIREFLY_PURE_TENSOR_CAP` (= 128)
+/// through [`Validate::validate`] at the harness chokepoint, since the
+/// attraction step materializes an `(N, N, D)` pairwise tensor.
 ///
 /// # Example
 ///
@@ -213,10 +194,8 @@ impl<B: Backend> FireflyAlgorithm<B> {
         }
     }
 
-    /// Pure-tensor `$O(N^2 D)$` attraction kernel — always available, even
-    /// without the `custom-kernels` feature. The fused `CubeCL` kernel
-    /// designed in [`super::kernels::pairwise_attract_cube`] slots in at
-    /// this call site once it lands.
+    /// The `$O(N^2 D)$` attraction step, composed from Burn tensor primitives
+    /// so it runs on every backend.
     fn pure_tensor_attract(
         positions: &Tensor<B, 2>,
         fitness: &[f32],
@@ -285,9 +264,8 @@ where
     /// initialisation is bit-stable regardless of core count or test
     /// ordering; the process-wide Flex RNG is never touched.
     ///
-    /// The `pop_size <= FIREFLY_PURE_TENSOR_CAP` cap (without `custom-kernels`)
-    /// is enforced by [`FireflyConfig`]'s [`Validate`] impl at the harness
-    /// chokepoint.
+    /// The `pop_size <= FIREFLY_PURE_TENSOR_CAP` cap is enforced by
+    /// [`FireflyConfig`]'s [`Validate`] impl at the harness chokepoint.
     fn init(
         &self,
         params: &FireflyConfig,
@@ -297,17 +275,6 @@ where
         debug_assert!(
             params.validate().is_ok(),
             "invalid FireflyConfig reached init: {params:?}"
-        );
-        // Even with the kernel feature active, the fused pairwise-attract
-        // kernel is currently a design placeholder and the pure-tensor
-        // path is still in use. A debug assert surfaces the limitation in
-        // tests without blocking downstream users who have wired in their
-        // own kernel.
-        #[cfg(feature = "custom-kernels")]
-        debug_assert!(
-            params.pop_size <= FIREFLY_PURE_TENSOR_CAP,
-            "Firefly pop_size > {FIREFLY_PURE_TENSOR_CAP} requires the fused pairwise-attract kernel; \
-             the placeholder kernel module still runs the pure-tensor path"
         );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial swarm from a deterministic `seed_stream`
@@ -441,6 +408,7 @@ mod tests {
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
     use rand::rngs::StdRng;
+    use rlevo_core::config::ConstraintKind;
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
@@ -557,15 +525,33 @@ mod tests {
         };
     }
 
-    // Gap (g): `pop_size > 128` on the pure-tensor path panics in `init` in a
-    // debug (test) build — either via the `Validate` `debug_assert!` (feature
-    // off) or the explicit cap `debug_assert!` (feature on). Either way the
-    // oversized swarm never materializes its cubic pairwise tensor.
+    // Gap (g): the cap is exact. `validate` accepts a swarm of exactly
+    // `FIREFLY_PURE_TENSOR_CAP` and rejects one more, naming the field and
+    // both numbers. This is the only guard a release build has.
     #[test]
-    // The panic message differs by feature (`Validate` debug_assert vs. the cap
-    // debug_assert), so no single `expected` substring covers both builds.
-    #[allow(clippy::should_panic_without_expect)]
-    #[should_panic]
+    fn validate_caps_pop_size_at_the_pure_tensor_cap() {
+        assert!(
+            FireflyConfig::default_for(FIREFLY_PURE_TENSOR_CAP, 4)
+                .validate()
+                .is_ok()
+        );
+        let err = FireflyConfig::default_for(FIREFLY_PURE_TENSOR_CAP + 1, 4)
+            .validate()
+            .unwrap_err();
+        assert_eq!(err.field, "pop_size");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooLarge {
+                max: FIREFLY_PURE_TENSOR_CAP as u64,
+                got: FIREFLY_PURE_TENSOR_CAP as u64 + 1,
+            }
+        );
+    }
+
+    // An oversized swarm that skips `validate` still never materializes its
+    // cubic pairwise tensor in a debug (test) build: `init` asserts the config.
+    #[test]
+    #[should_panic(expected = "invalid FireflyConfig reached init")]
     fn pop_size_over_cap_panics_in_init() {
         let device = Default::default();
         let strategy = FireflyAlgorithm::<TestBackend>::new();

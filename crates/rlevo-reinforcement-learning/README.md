@@ -6,7 +6,7 @@ Deep reinforcement learning algorithms for the `rlevo` workspace.
 
 This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set into Rust using the [Burn](https://burn.dev) deep learning framework. The design follows CleanRL's *single-file-per-algorithm* pedagogical model: each algorithm lives under `src/algorithms/<algo>/` and its training loop is a linear, readable `train.rs` function. That being said, `rlevo` embraces the DRY (do not repeat yourself) paradigm and abstracts concepts wherever possible.
 
-All algorithms operate over the `rlevo-core` environment and agent abstractions. Neural-network operations go through Burn's `AutodiffBackend` so the same code runs on `ndarray` (CPU, bit-deterministic) and `wgpu` (GPU, within `1e-5` relative tolerance).
+All algorithms operate over the `rlevo-core` environment and agent abstractions. Neural-network operations go through Burn's `AutodiffBackend` so the same code runs on `flex` (CPU, bit-deterministic) and `wgpu` (GPU, within `1e-5` relative tolerance). This crate selects neither: through the `rlevo` umbrella, the `flex` (default) or `wgpu` feature does, and depending on this crate directly you add `burn` with `autodiff` and a backend feature yourself.
 
 ---
 
@@ -452,8 +452,8 @@ All config structs are `Clone + Debug`. Serde support is planned.
 ## Reproducibility
 
 - Every stochastic entry point (`act`, `learn`, `sample`) takes an explicit `rng` — no thread-locals or module-owned RNG.
-- `ndarray` backend is bit-deterministic; `wgpu` is within `1e-5` relative tolerance.
-- Unit tests that assert exact equality run on `ndarray`.
+- `flex` backend is bit-deterministic; `wgpu` is within `1e-5` relative tolerance.
+- Unit tests that assert exact equality run on `flex`.
 
 ---
 

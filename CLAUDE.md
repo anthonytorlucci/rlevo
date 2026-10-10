@@ -29,6 +29,14 @@ crates, ...); `rlevo-benchmarks` is the sole exception, and only behind its
 `rlevo-environments`' `bench`). The benchmark/viz layer consumes production
 types, never constrains them.
 
+The second: **library crates select no Burn backend** (ADR 0080). The
+workspace `burn` entry is `default-features = false, features = ["std"]`;
+library code is generic over `B: Backend` and never names `Flex`, `Wgpu` or
+`Autodiff<_>`. The leaf picks the backend: the `rlevo` umbrella's `flex`
+(default) and `wgpu` features for a consumer, `[dev-dependencies]` for a
+crate's own tests, benches and doctests. A workspace-wide build hides a
+violation, so check a library alone: `cargo check -p <crate> --lib`.
+
 ## Architectural Decisions
 
 Immutable architectural decision records live in [`docs/adr/`](docs/adr/); the
