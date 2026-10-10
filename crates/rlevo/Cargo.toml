@@ -34,13 +34,11 @@ tempfile = "3"
 tracing-subscriber = { workspace = true }
 
 [features]
-default = ["box2d", "locomotion", "custom-kernels"]
+default = ["box2d", "locomotion"]
 # Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
 box2d = ["rlevo-environments/box2d"]
 # MuJoCo-inspired locomotion environments via Rapier3D
 locomotion = ["rlevo-environments/locomotion"]
-# Custom CubeCL GPU kernels for evolutionary algorithm hot paths
-custom-kernels = ["rlevo-evolution/custom-kernels"]
 # Live metrics TUI product (ADR-0013).
 viz-tui = ["rlevo-benchmarks/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls

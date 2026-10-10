@@ -10,15 +10,11 @@
 //! - [`linalg`] — host-side dense linear algebra (Jacobi eigendecomposition,
 //!   Cholesky) for the covariance-matrix strategies.
 //!
-//! The [`kernels`] submodule houses custom `CubeCL` fused kernels (empty
-//! for now; see the `custom-kernels` crate feature).
-//!
 //! All operator functions take an explicit `&mut dyn RngCore` and a
 //! `&B::Device` so the harness owns determinism. Operators never touch
 //! thread-local or global RNG state.
 
 pub mod crossover;
-pub mod kernels;
 pub mod linalg;
 pub mod mutation;
 pub mod replacement;

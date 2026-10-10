@@ -3,8 +3,8 @@
 //! This crate ships the classical EA families — Genetic Algorithm (GA),
 //! Evolution Strategy (ES), Evolutionary Programming (EP), Differential
 //! Evolution (DE), and Cartesian Genetic Programming (CGP) — on top of the
-//! Burn tensor abstraction, with GPU acceleration via custom `CubeCL` kernels
-//! on hot paths.
+//! Burn tensor abstraction. Every operator is composed from Burn tensor
+//! primitives, so a strategy runs on whichever backend the caller selects.
 //!
 //! # Surface area
 //!

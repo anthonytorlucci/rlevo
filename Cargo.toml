@@ -39,7 +39,6 @@ categories = ["science", "algorithms", "simulation"]
 [workspace.dependencies]
 # Core ML and tensor computation
 burn = { version = "0.21.0", features = ["wgpu", "train", "tui", "metrics", "flex"] }
-cubecl = { version = "0.10.0", features = ["wgpu"] }
 
 # Utilities
 rand = "0.10.1"

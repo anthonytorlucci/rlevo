@@ -9,6 +9,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **The `custom-kernels` feature is removed** from `rlevo-evolution` and
+  `rlevo`, with the modules `rlevo_evolution::ops::kernels` and
+  `rlevo_evolution::algorithms::metaheuristic::kernels`. The feature gated
+  no kernel: the modules held design notes and no items, and its dependency
+  on `cubecl` with the `wgpu` feature pulled the whole GPU stack into every
+  default build. Remove `custom-kernels` from any feature list that names
+  it.
+- **`FireflyConfig` rejects `pop_size > 128` in every build.** The one thing
+  `custom-kernels` did was switch this check off: with the feature on, which
+  was the default, `validate` accepted any swarm, a debug build then panicked
+  in `init`, and a release build ran the `(N, N, D)` attraction tensor at
+  whatever size was asked. `validate` now returns
+  `ConstraintKind::TooLarge` for a swarm above `FIREFLY_PURE_TENSOR_CAP`,
+  where it used to return `ConstraintKind::Custom` with the feature off.
+
 ### `rlevo`
 
 **Fixed**

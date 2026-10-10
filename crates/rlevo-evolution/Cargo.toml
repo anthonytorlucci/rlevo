@@ -12,7 +12,6 @@ categories.workspace = true
 
 [dependencies]
 burn = { workspace = true }
-cubecl = { workspace = true, optional = true }
 rlevo-core = { path = "../rlevo-core", version = "0.5.0" }
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -41,19 +40,6 @@ harness = false
 [[bench]]
 name = "neat_xor"
 harness = false
-
-[features]
-default = ["custom-kernels"]
-# Enables custom CubeCL kernels on hot paths. Two kernel slots are
-# declared today: the fused pairwise-attract kernel used by Firefly
-# (large-`N` path) and the fused Lévy-flight (Mantegna) kernel available
-# to Cuckoo and Bat. Additional design placeholders for tournament
-# selection, DE trial vectors, and fitness-proportionate selection remain
-# unimplemented — see `src/ops/kernels/mod.rs`. When the feature is
-# disabled, pure-tensor fallbacks are used; Firefly in that mode is
-# capped at `pop_size ≤ 128` because the `O(N²D)` decomposition's memory
-# grows as the cube of `N`.
-custom-kernels = ["dep:cubecl"]
 
 # Render LaTeX in docs (e.g. the cartpole physics) via KaTeX on docs.rs.
 # The header must live inside this crate's own directory — docs.rs builds

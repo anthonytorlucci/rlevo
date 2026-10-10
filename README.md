@@ -158,7 +158,6 @@ cargo doc --workspace --no-deps --open
 ## Dependencies
 
 - **[Burn](https://burn.dev/) 0.21** — backend-agnostic tensor operations; features: `wgpu`, `train`, `tui`, `metrics`, `flex`
-- **cubecl 0.10** — compute abstraction layer underlying Burn's wgpu backend
 - **rand 0.10** — randomness and deterministic seeding
 - **rand_distr 0.6** — probability distributions (normal, uniform, etc.)
 - **ringbuffer 0.16** — fixed-capacity circular buffer for replay buffers

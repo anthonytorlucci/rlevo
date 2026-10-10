@@ -6767,7 +6767,6 @@ dependencies = [
  "approx",
  "burn",
  "criterion",
- "cubecl",
  "parking_lot",
  "proptest",
  "rand 0.10.3",
