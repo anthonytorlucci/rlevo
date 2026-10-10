@@ -39,6 +39,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   whatever size was asked. `validate` now returns
   `ConstraintKind::TooLarge` for a swarm above `FIREFLY_PURE_TENSOR_CAP`,
   where it used to return `ConstraintKind::Custom` with the feature off.
+- **Eight public traits that nothing could use are removed** (ADR 0081).
+  None had an implementor a user could have written and a consumer:
+  - `rlevo_core::base::UpdateFunction`. Use a closure.
+  - `rlevo_core::state::HiddenState` and `LatentState`. Neither fits the
+    code it was sketched for: `LatentState::encode` has no `self` to hold an
+    encoder's parameters, and `HiddenState::update` takes no action, so a
+    world-model step cannot implement it. Recurrent state is
+    `rlevo_hybrid::policy::StatefulPolicy`'s `Hidden` associated type.
+  - `rlevo_core::state::MarkovState`. Its one implementation,
+    `SantaFeAntState`, is removed with it; the environment's documentation
+    says its percept is not Markov.
+  - `rlevo_reinforcement_learning::experience::HistoryRepresentation` and
+    `SufficientStatistic`. `ExperienceTuple` and `History` stay for now.
+  - `rlevo_core::render::Landscape2DPayloadSource`, and with it
+    `rlevo_benchmarks::record::RecordingTap::with_landscape_payload`, the
+    constructor bounded on it. A landscape is not an environment, so no type
+    could satisfy the bound. `Landscape2DSnapshot` and `Landscape2DPayload`
+    stay; build the snapshot directly.
+  - `rlevo_core::render::Renderer`, with its two implementors `NullRenderer`
+    and `AsciiRenderer` and the re-export
+    `rlevo_environments::render::AsciiRenderer`. Nothing bounded on the
+    trait. Replace `AsciiRenderer.render(&env)` with `env.render_ascii()`;
+    `AsciiRenderable` is unchanged.
+- **The `aco_perm` stub strategy is removed** from `rlevo-evolution`
+  (`algorithms::metaheuristic::aco_perm`: `AntColonyPermutation`,
+  `AcoPermConfig`, `AcoPermState`). Its `init`, `ask` and `tell` were
+  `todo!()`, so a published `Strategy` panicked when driven. It returns with
+  an implementation. The `Permutation` genome kind stays.
 
 ### `rlevo`
 
@@ -105,6 +133,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   reads back what 0.8 wrote.
 
 ### Infrastructure
+
+**Added**
+
+- **`tools/public-surface.sh <crate>`** lists a crate's public surface from
+  rustdoc's JSON output, one item per line: items, inherent methods, public
+  fields and re-exports. The diff of two listings is a change's surface
+  delta, which a pull request that touches the public surface now reports
+  (ADR 0081). It needs `jq`, and sets `RUSTC_BOOTSTRAP=1` to read the
+  unstable JSON format on the pinned toolchain.
 
 **Changed**
 

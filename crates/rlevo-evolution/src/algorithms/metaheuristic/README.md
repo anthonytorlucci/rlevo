@@ -28,7 +28,6 @@ Independent benchmarking (IEEE CEC competitions, Piotrowski et al.
 | **FA** ([firefly.rs](firefly.rs))      | Ships    | *Legacy comparator.* Camacho Villalón et al. (2020/2023) show the pairwise attraction reduces to a PSO-style attractor under a new metaphor — no novel mechanism. Occasionally informative on multimodal landscapes where the $O(N^2)$ multi-pull is. The swarm is capped at $\text{pop\_size} \leq 128$, because the attraction step allocates an $(N, N, D)$ tensor. |
 | **BA** ([bat.rs](bat.rs))              | Ships    | *Legacy comparator.* Same caveat. |
 | **SSA** ([salp.rs](salp.rs))           | Ships    | *Legacy comparator.* Same caveat. |
-| **ACO (permutation)** ([aco_perm.rs](aco_perm.rs)) | Stubbed | All `Strategy` methods invoke `todo!()`. The struct is constructible so downstream crates can pin the future API surface; not drivable through a harness. |
 
 Module-level doc comments restate the caveats at the point of use so
 they show up in `cargo doc`.

@@ -21,7 +21,7 @@ Ports of the canonical Gymnasium control tasks implemented in pure Rust.
 | `MountainCar` | `classic::MountainCar` | 2-D continuous | Discrete(3) | Sparse reward; needs exploration |
 | `MountainCarContinuous` | `classic::MountainCarContinuous` | 2-D continuous | Continuous(1) | Dense reward variant |
 | `Pendulum` | `classic::Pendulum` | 3-D continuous | Continuous(1) | Underactuated swing-up |
-| `SantaFeAnt` | `classic::santa_fe_ant` | 1-D | Discrete(3) | POMDP food-foraging trail; not Markov (`MarkovState::is_markov` is `false`) |
+| `SantaFeAnt` | `classic::santa_fe_ant` | 1-D | Discrete(3) | POMDP food-foraging trail; the one-bit percept is not Markov |
 | `TenArmedBandit` | `classic::bandit::k_armed` | 1-D | Discrete(K) | Sutton & Barto §2 k-armed testbed |
 | `KArmedBandit` | `classic::bandit::k_armed` | 1-D | Discrete(K) | Generalized k-armed variant |
 | `ContextualBandit` | `classic::bandit::contextual` | C-D | Discrete(K) | Per-episode context vector determines reward distribution |

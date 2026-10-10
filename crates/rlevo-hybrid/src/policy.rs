@@ -3,8 +3,8 @@
 //! [`StatefulPolicy`] is the general seam: the evolved policy module carries
 //! per-episode hidden state across a rollout, so **recurrent / memory policies
 //! are first-class**. This is what the library's POMDP environments require —
-//! the Santa Fe ant ([`is_markov`](rlevo_core::state::MarkovState::is_markov)
-//! `== false`) cannot be cleared by a memoryless reflex.
+//! the Santa Fe ant, whose one-bit percept is not a Markov state, cannot be
+//! cleared by a memoryless reflex.
 //!
 //! [`ReactivePolicy`] is the `Hidden = ()` convenience for memoryless (Markov)
 //! policies: implement one method and get [`StatefulPolicy`] for free via the

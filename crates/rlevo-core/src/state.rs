@@ -1,11 +1,6 @@
-//! Advanced state abstraction traits for non-Markovian and latent representations.
+//! State abstraction traits beyond the base [`State`] contract.
 //!
-//! This module extends the base [`State`] contract with higher-level abstractions
-//! needed for POMDPs, recurrent policies, and world-model-based agents:
-//! - [`MarkovState`] — verifies the Markov property holds for a representation
 //! - [`BeliefState`] — probability distribution over possible states (POMDP)
-//! - [`HiddenState`] — recurrent agent memory (e.g., RNN hidden state)
-//! - [`LatentState`] — learned compact representation with encode/predict/decode
 //! - [`StateAggregation`] — maps concrete states to abstract representatives
 //! - [`Observable`] — optional pure-projection helper an env-side
 //!   [`Sensor`](crate::environment::Sensor) may delegate to (e.g. `OR != SR`)
@@ -52,22 +47,6 @@ pub enum StateError {
     InvalidSize { expected: usize, got: usize },
 }
 
-/// Verifies that a state representation satisfies the Markov property.
-///
-/// A representation is Markov when the future is conditionally independent of
-/// the past given the present. Tabular and neural Q-learning both assume this.
-pub trait MarkovState {
-    /// Returns `true` if this representation satisfies the Markov property.
-    ///
-    /// The default implementation returns `true`, which is correct for most
-    /// fully-observable environments. Override to return `false` for raw pixel
-    /// or partially-observable representations that require history stacking.
-    #[must_use]
-    fn is_markov() -> bool {
-        true
-    }
-}
-
 /// A probability distribution over possible environment states (POMDP belief).
 ///
 /// Belief states are used in partially-observable settings where the agent
@@ -76,8 +55,7 @@ pub trait MarkovState {
 ///
 /// # Observation type
 ///
-/// The belief carries its own [`Observation`] associated type at rank `OR`,
-/// mirroring [`HiddenState::Observation`] and [`LatentState::Observation`].
+/// The belief carries its own [`Observation`] associated type at rank `OR`.
 /// Before ADR 0047 this was `State::Observation`, but observation production
 /// moved off [`State`] to the env-side [`Sensor`](crate::environment::Sensor),
 /// so the belief now names the observation it is updated from independently of
@@ -112,51 +90,6 @@ pub trait BeliefState<
 
     /// Returns the probability (or unnormalized weight) assigned to `state`.
     fn probability(&self, state: &S) -> f64;
-}
-
-/// Recurrent agent memory analogous to an RNN hidden state.
-///
-/// Implementations hold the internal summary of past observations (e.g., the
-/// `h_t` vector of a GRU or LSTM). The hidden state is updated at each step
-/// with the latest [`Observation`] and reset to a
-/// zero vector at episode start.
-///
-/// # Type Parameters
-///
-/// - `R`: Rank of the observation space tensor used to update this state.
-pub trait HiddenState<const R: usize>: Clone {
-    /// The observation type used to update this hidden state.
-    type Observation: Observation<R>;
-
-    /// Incorporates `observation` into the hidden state in-place.
-    fn update(&mut self, observation: &Self::Observation);
-
-    /// Resets the hidden state to its initial value at episode start.
-    fn reset(&mut self);
-}
-
-/// Learned compact representation with encode, predict, and decode steps.
-///
-/// Used by world-model agents (e.g., `DreamerV3`) that operate in a learned
-/// latent space rather than the raw observation space.
-///
-/// # Type Parameters
-///
-/// - `R`: Rank of the observation space tensor this latent state is derived from.
-/// - `AR`: Rank of the action space tensor used in the transition prediction step.
-pub trait LatentState<const R: usize, const AR: usize>: Clone {
-    /// The observation type this latent state is derived from.
-    type Observation: Observation<R>;
-
-    /// Projects `observation` into the latent space.
-    fn encode(observation: &Self::Observation) -> Self;
-
-    /// Rolls the latent state forward by one step given `action`.
-    #[must_use]
-    fn predict_next<A: Action<AR>>(&self, action: &A) -> Self;
-
-    /// Reconstructs an observation from the latent representation.
-    fn decode(&self) -> Self::Observation;
 }
 
 /// Maps concrete states to abstract representatives for state aggregation.
@@ -204,7 +137,7 @@ pub trait StateAggregation<const SR: usize, S: State<SR>> {
 /// # Type Parameters
 ///
 /// - `OR`: Tensor order (rank) of the projected observation. Named `OR` rather
-///   than `R` — as on the sibling [`HiddenState`]/[`LatentState`] seams — to
+///   than `R` to
 ///   make the state→observation rank decoupling explicit at every impl site
 ///   (`impl Observable<2> for Ram`) and to distinguish it from the state order
 ///   `SR`. This naming is deliberate; do not normalise it to `R`.

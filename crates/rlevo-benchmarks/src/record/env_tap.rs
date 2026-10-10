@@ -25,13 +25,13 @@ use parking_lot::Mutex;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::render::{
     AsciiRenderable, Box2dPayloadSource, Classic2DPayloadSource, GridPayloadSource,
-    Landscape2DPayloadSource, Locomotion2DPayloadSource, StyledFrame, TabularPayloadSource,
+    Locomotion2DPayloadSource, StyledFrame, TabularPayloadSource,
 };
 use serde::Serialize;
 
 use super::schema::{
-    Box2dPayload, Classic2DPayload, FamilyPayload, FrameRecord, GridPayload, Landscape2DPayload,
-    Locomotion2DPayload, TabularPayload,
+    Box2dPayload, Classic2DPayload, FamilyPayload, FrameRecord, GridPayload, Locomotion2DPayload,
+    TabularPayload,
 };
 use super::writer::RecordSink;
 
@@ -164,21 +164,6 @@ impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD,
     #[must_use]
     pub const fn episode_idx(&self) -> u32 {
         self.episode_idx
-    }
-}
-
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
-where
-    E: AsciiRenderable + Landscape2DPayloadSource + 'static,
-{
-    /// Convenience constructor for `landscapes` envs: extracts a
-    /// [`Landscape2DPayload`] per frame via [`Landscape2DPayloadSource`].
-    /// Landscape envs implement [`AsciiRenderable`], so the static-frame
-    /// ascii / styled projection is captured alongside the rich payload.
-    pub fn with_landscape_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
-        Self::with_payload_extractor(inner, sink, |e| {
-            FamilyPayload::Landscape2D(Landscape2DPayload::from(e.landscape2d_snapshot()))
-        })
     }
 }
 

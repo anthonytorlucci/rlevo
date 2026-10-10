@@ -67,6 +67,12 @@ a crate or a heavy test target is a one-line change in `xtask/src/commands/`, no
 a YAML edit. `test-gpu` aborts rather than fails on a host with no adapter, which
 is why no workflow calls it.
 
+A change to a crate's public surface reports its **surface delta** (ADR 0081):
+`tools/public-surface.sh <crate>` lists the public items, one per line, and
+the delta is the diff of the listing at the base commit and on the branch. A
+`pub` item needs an implementor and a consumer; an addition says what it
+replaces.
+
 ## Working with the Codebase
 
 ### Common Generic Types

@@ -12,10 +12,12 @@
 //!      `box2d` envs.
 //!    - [`Locomotion2DSnapshot`] for `locomotion` envs (their **canonical
 //!      view** — locomotion has no ASCII path).
-//! 3. Three opt-in **payload-source** traits — one per family — that an
-//!    env implements when it wants the recording layer to capture the
+//! 3. Opt-in **payload-source** traits, one per environment family, that
+//!    an env implements when it wants the recording layer to capture the
 //!    richer payload. Each trait has a single method; envs that do not
 //!    implement them fall back to the default `FamilyPayload::Ascii`.
+//!    Landscapes have a snapshot type and no source trait: a landscape is
+//!    not an environment, so no recording tap wraps one (ADR 0081).
 //!
 //! Wire-format conversion (snapshot → `FamilyPayload`) lives in
 //! `rlevo-benchmarks::record` so the wire layer stays owned by the
@@ -70,13 +72,6 @@ pub struct Landscape2DSnapshot {
     /// `"ackley"`, `"rastrigin"`). The renderer uses this to look up a
     /// shared heatmap; unknown labels fall back to a plain background.
     pub label: String,
-}
-
-/// Producer-side trait. An env implements this when it wants its
-/// recording to ship a `FamilyPayload::Landscape2D` instead of `Ascii`.
-pub trait Landscape2DPayloadSource {
-    /// Returns a [`Landscape2DSnapshot`] capturing the current frame.
-    fn landscape2d_snapshot(&self) -> Landscape2DSnapshot;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,18 +499,6 @@ mod tests {
     /// implementor must supply a non-trivial snapshot. Sticking a stub
     /// impl here also guards against unintentional accidental renames.
     struct Stub;
-    impl Landscape2DPayloadSource for Stub {
-        fn landscape2d_snapshot(&self) -> Landscape2DSnapshot {
-            Landscape2DSnapshot {
-                bounds_x: (0.0, 1.0),
-                bounds_y: (0.0, 1.0),
-                current: Point2::default(),
-                best: None,
-                trail: vec![],
-                label: "stub".into(),
-            }
-        }
-    }
     impl Box2dPayloadSource for Stub {
         fn box2d_snapshot(&self) -> Box2dSnapshot {
             Box2dSnapshot {
@@ -540,7 +523,6 @@ mod tests {
     #[test]
     fn payload_source_traits_compose_via_stub() {
         let stub = Stub;
-        assert_eq!(stub.landscape2d_snapshot().label, "stub");
         assert_eq!(stub.box2d_snapshot().bodies.len(), 0);
         assert_eq!(stub.locomotion2d_snapshot().joints.len(), 0);
     }

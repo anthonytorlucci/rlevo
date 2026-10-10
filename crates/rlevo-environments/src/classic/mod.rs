@@ -21,9 +21,7 @@
 //! Wrap any env with [`crate::wrappers::TimeLimit`] to impose a step cap.
 //!
 //! Unlike the others, [`santa_fe_ant`] is a **POMDP**: its single food-ahead
-//! bit does not summarise the history needed to act optimally
-//! ([`MarkovState::is_markov`](rlevo_core::state::MarkovState::is_markov) is
-//! `false`).
+//! bit does not summarise the history needed to act optimally.
 pub mod acrobot;
 pub mod bandit;
 pub mod cartpole;
