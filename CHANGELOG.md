@@ -39,6 +39,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   whatever size was asked. `validate` now returns
   `ConstraintKind::TooLarge` for a swarm above `FIREFLY_PURE_TENSOR_CAP`,
   where it used to return `ConstraintKind::Custom` with the feature off.
+- **The `aco_perm` stub strategy is removed** from `rlevo-evolution`
+  (`algorithms::metaheuristic::aco_perm`: `AntColonyPermutation`,
+  `AcoPermConfig`, `AcoPermState`). Its `init`, `ask` and `tell` were
+  `todo!()`, so a published `Strategy` panicked when driven. It returns with
+  an implementation. The `Permutation` genome kind stays.
 
 ### `rlevo`
 

@@ -18,7 +18,6 @@
 //! | [`firefly`] | Firefly Algorithm | Real | Useful for multimodal |
 //! | [`bat`] | Bat Algorithm | Real | Legacy comparator |
 //! | [`salp`] | Salp Swarm Algorithm | Real | Legacy comparator |
-//! | [`aco_perm`] | Ant Colony (permutation) | Permutation | **Stub** — deferred to a future release |
 //!
 //! # Calibration
 //!
@@ -36,7 +35,6 @@
 //! calibration table and prose guidance.
 
 pub mod abc;
-pub mod aco_perm;
 pub mod aco_r;
 pub mod bat;
 pub mod cuckoo;

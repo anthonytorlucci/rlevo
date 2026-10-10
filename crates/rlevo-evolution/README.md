@@ -56,10 +56,6 @@ populations.
 | Bat Algorithm | `algorithms::metaheuristic::bat::BatAlgorithm` |
 | Salp Swarm | `algorithms::metaheuristic::salp::SalpSwarm` |
 
-> `algorithms::metaheuristic::aco_perm::AntColonyPermutation` (combinatorial ACO)
-> is a deferred stub — its `Strategy` methods `todo!()` pending a permutation
-> genome path.
-
 ## Quick start
 
 This crate selects no Burn backend. Through the `rlevo` umbrella, the `flex`
