@@ -21,6 +21,8 @@
 //! is the global infimum of a coercive polynomial, so no point of the smaller box
 //! can beat it. Both obligations are pinned by unit tests below.
 
+use rlevo_core::fitness::Landscape;
+
 /// Six-Hump Camel-Back function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
 pub struct SixHumpCamel;
@@ -30,14 +32,6 @@ impl SixHumpCamel {
     #[must_use]
     pub const fn new() -> Self {
         Self
-    }
-
-    /// Evaluate the Six-Hump Camel-Back function at `(x1, x2)`.
-    #[must_use]
-    pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        // `x1.powi(6) / 3.0` avoids the rounding error of multiplying by 1.0/3.0.
-        4.0 * x1 * x1 - 2.1 * x1.powi(4) + x1.powi(6) / 3.0 + x1 * x2 - 4.0 * x2 * x2
-            + 4.0 * x2.powi(4)
     }
 
     /// Recommended search box `(-2.0, 2.0)` applied per-coordinate — a deliberate
@@ -51,7 +45,22 @@ impl SixHumpCamel {
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
-        self.evaluate(x, y)
+        self.evaluate(&[x, y])
+    }
+}
+
+impl Landscape for SixHumpCamel {
+    /// Evaluate the Six-Hump Camel-Back function at `x = [x1, x2]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != 2`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), 2, "input dimension mismatch");
+        let (x1, x2) = (x[0], x[1]);
+        // `x1.powi(6) / 3.0` avoids the rounding error of multiplying by 1.0/3.0.
+        4.0 * x1 * x1 - 2.1 * x1.powi(4) + x1.powi(6) / 3.0 + x1 * x2 - 4.0 * x2 * x2
+            + 4.0 * x2.powi(4)
     }
 }
 
@@ -101,7 +110,7 @@ mod tests {
     fn global_minimum_at_known_location() {
         let c = SixHumpCamel::new();
         assert_relative_eq!(
-            c.evaluate(0.089_842_013_683_013_31, -0.712_656_403_270_413_5),
+            c.evaluate(&[0.089_842_013_683_013_31, -0.712_656_403_270_413_5]),
             F_OPT,
             epsilon = 1e-12
         );
@@ -111,7 +120,7 @@ mod tests {
     fn positive_or_greater_elsewhere() {
         let c = SixHumpCamel::new();
         assert!(
-            c.evaluate(1.5, 1.5) > F_OPT,
+            c.evaluate(&[1.5, 1.5]) > F_OPT,
             "value away from the basins must exceed the global minimum"
         );
     }
@@ -119,8 +128,8 @@ mod tests {
     #[test]
     fn two_global_minima_equal() {
         let c = SixHumpCamel::new();
-        let v1 = c.evaluate(0.089_842_013_683_013_31, -0.712_656_403_270_413_5);
-        let v2 = c.evaluate(-0.089_842_013_683_013_31, 0.712_656_403_270_413_5);
+        let v1 = c.evaluate(&[0.089_842_013_683_013_31, -0.712_656_403_270_413_5]);
+        let v2 = c.evaluate(&[-0.089_842_013_683_013_31, 0.712_656_403_270_413_5]);
         assert_relative_eq!(v1, F_OPT, epsilon = 1e-12);
         assert_relative_eq!(v2, F_OPT, epsilon = 1e-12);
     }
@@ -129,8 +138,8 @@ mod tests {
     fn point_symmetry() {
         let c = SixHumpCamel::new();
         assert_relative_eq!(
-            c.evaluate(1.3, -0.7),
-            c.evaluate(-1.3, 0.7),
+            c.evaluate(&[1.3, -0.7]),
+            c.evaluate(&[-1.3, 0.7]),
             epsilon = 1e-12
         );
     }
@@ -179,7 +188,7 @@ mod tests {
             let x1 = lo + span * f64::from(i) / n;
             for j in 0..=STEPS {
                 let x2 = lo + span * f64::from(j) / n;
-                let v = c.evaluate(x1, x2);
+                let v = c.evaluate(&[x1, x2]);
                 assert!(
                     v >= F_OPT - EPS,
                     "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"

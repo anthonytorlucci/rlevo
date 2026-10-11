@@ -53,7 +53,7 @@ use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 
 use crate::direction::Direction;
-use crate::episode::EpisodeGuard;
+use rlevo_core::episode::EpisodeGuard;
 
 /// Side length of the (square, toroidal) trail grid.
 pub const GRID_SIZE: usize = 32;

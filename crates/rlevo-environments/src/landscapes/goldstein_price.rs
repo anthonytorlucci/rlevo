@@ -17,6 +17,8 @@
 //! below `3`, so both `bounds()` obligations hold (ADR 0045: O1 reachability,
 //! O2 no spurious optimum) — pinned by unit tests below.
 
+use rlevo_core::fitness::Landscape;
+
 /// Goldstein-Price function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
 pub struct GoldsteinPrice;
@@ -28,18 +30,6 @@ impl GoldsteinPrice {
         Self
     }
 
-    /// Evaluate the Goldstein-Price function at `(x1, x2)`.
-    #[must_use]
-    pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        let a = 1.0
-            + (x1 + x2 + 1.0).powi(2)
-                * (19.0 - 14.0 * x1 + 3.0 * x1 * x1 - 14.0 * x2 + 6.0 * x1 * x2 + 3.0 * x2 * x2);
-        let b = 30.0
-            + (2.0 * x1 - 3.0 * x2).powi(2)
-                * (18.0 - 32.0 * x1 + 12.0 * x1 * x1 + 48.0 * x2 - 36.0 * x1 * x2 + 27.0 * x2 * x2);
-        a * b
-    }
-
     /// Recommended search box `(-2.0, 2.0)` applied per-coordinate — the canonical
     /// domain per Al-Roomi #14. Contains the global minimizer `$(0, -1)$`.
     #[must_use]
@@ -49,7 +39,26 @@ impl GoldsteinPrice {
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
-        self.evaluate(x, y)
+        self.evaluate(&[x, y])
+    }
+}
+
+impl Landscape for GoldsteinPrice {
+    /// Evaluate the Goldstein-Price function at `x = [x1, x2]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != 2`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), 2, "input dimension mismatch");
+        let (x1, x2) = (x[0], x[1]);
+        let a = 1.0
+            + (x1 + x2 + 1.0).powi(2)
+                * (19.0 - 14.0 * x1 + 3.0 * x1 * x1 - 14.0 * x2 + 6.0 * x1 * x2 + 3.0 * x2 * x2);
+        let b = 30.0
+            + (2.0 * x1 - 3.0 * x2).powi(2)
+                * (18.0 - 32.0 * x1 + 12.0 * x1 * x1 + 48.0 * x2 - 36.0 * x1 * x2 + 27.0 * x2 * x2);
+        a * b
     }
 }
 
@@ -94,7 +103,7 @@ mod tests {
     #[test]
     fn global_minimum_at_known_location() {
         assert_relative_eq!(
-            GoldsteinPrice::new().evaluate(0.0, -1.0),
+            GoldsteinPrice::new().evaluate(&[0.0, -1.0]),
             3.0,
             epsilon = 1e-10
         );
@@ -103,7 +112,7 @@ mod tests {
     #[test]
     fn positive_or_greater_elsewhere() {
         assert!(
-            GoldsteinPrice::new().evaluate(1.0, 1.0) > 3.0,
+            GoldsteinPrice::new().evaluate(&[1.0, 1.0]) > 3.0,
             "value must exceed the minimum 3 away from (0, −1)"
         );
     }
@@ -111,7 +120,7 @@ mod tests {
     #[test]
     fn global_minimum_at_zero_neg_one() {
         assert_relative_eq!(
-            GoldsteinPrice::new().evaluate(0.0, -1.0),
+            GoldsteinPrice::new().evaluate(&[0.0, -1.0]),
             3.0,
             epsilon = 1e-10
         );
@@ -119,7 +128,7 @@ mod tests {
 
     #[test]
     fn greater_than_minimum_elsewhere() {
-        assert!(GoldsteinPrice::new().evaluate(1.0, 1.0) > 3.0);
+        assert!(GoldsteinPrice::new().evaluate(&[1.0, 1.0]) > 3.0);
     }
 
     /// O1 (reachability) — the search box reaches the certified global optimum.
@@ -161,7 +170,7 @@ mod tests {
             let x1 = lo + span * f64::from(i) / n;
             for j in 0..=STEPS {
                 let x2 = lo + span * f64::from(j) / n;
-                let v = g.evaluate(x1, x2);
+                let v = g.evaluate(&[x1, x2]);
                 assert!(
                     v >= F_OPT - EPS,
                     "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"

@@ -119,6 +119,10 @@ and `src/games/connect_four.rs`). They compile but do not yet implement the
 
 Single-objective fitness functions for evaluating evolutionary algorithms. Each
 is a stateless N-D evaluator; the global optimum is a *minimum* by convention.
+Each implements `rlevo_core::fitness::Landscape`, with no cargo feature, so it
+plugs into `rlevo-evolution`'s `FromLandscape` adapter directly. The trait's
+`evaluate(&[f64])` is the one evaluation method every landscape has, so import
+the trait to call it; a fixed 2-D landscape takes a slice of two.
 The functions are grouped into three tiers by intended use.
 
 **Tier 1 — scalable n-D.** Arbitrary-dimension functions for sweeping
@@ -248,6 +252,8 @@ To replay one specific episode bit-for-bit, use the inherent `reset_with_seed(se
 - `Running` — episode continues
 - `Terminated` — natural episode end (goal reached, fell over, game over)
 - `Truncated` — wall-clock time limit exceeded (`TimeLimit` wrapper)
+
+A `step` after `Terminated` or `Truncated` returns `EnvironmentError::StepAfterEpisodeEnd` and changes nothing; call `reset` first. Every environment here, and `TimeLimit`, holds a `rlevo_core::episode::EpisodeGuard` for this.
 
 ### Const Generics
 

@@ -8,10 +8,9 @@
 //! # Module Organization
 //!
 //! - [`classic`]: Classic control problems (`CartPole`, `MountainCar`, Pendulum, Acrobot, `TenArmedBandit`)
-//! - [`episode`]: [`EpisodeGuard`](episode::EpisodeGuard) — the shared post-terminal
-//!   `step()` guard consumed by `toy_text` and [`wrappers::time_limit`]
 //! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin,
-//!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites)
+//!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites),
+//!   each a [`rlevo_core::fitness::Landscape`]
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`pixel_grid`]: Synthetic pixel-over-grid env — a rank-1 latent observed as
 //!   a rank-3 RGB image (first real [`rlevo_core::state::Observable`] consumer)
@@ -31,7 +30,10 @@
 //!   [`EpisodeStatus::Running`](rlevo_core::environment::EpisodeStatus::Running).
 //! - [`step`](rlevo_core::environment::Environment::step) — applies an action and
 //!   returns the next snapshot; status transitions to `Terminated` or `Truncated`
-//!   when the episode ends.
+//!   when the episode ends. A `step` after that returns
+//!   [`EnvironmentError::StepAfterEpisodeEnd`](rlevo_core::environment::EnvironmentError::StepAfterEpisodeEnd):
+//!   each environment here, and the [`TimeLimit`](wrappers::time_limit::TimeLimit)
+//!   wrapper, holds an [`EpisodeGuard`](rlevo_core::episode::EpisodeGuard).
 //!
 //! Environments may be deterministic or stochastic depending on their configuration.
 
@@ -93,7 +95,10 @@ pub mod classic;
 /// depending on the Minigrid framework. `grids::core` re-exports it for
 /// backward compatibility.
 pub mod direction;
-pub mod episode;
+/// The post-terminal conformance check this crate's tests share. The guard it
+/// checks for is [`rlevo_core::episode::EpisodeGuard`].
+#[cfg(test)]
+mod episode;
 /// Board-game environments — **stub, no `Environment` impls yet**.
 ///
 /// The submodules compile but do not yet implement the [`rlevo_core::environment::Environment`]

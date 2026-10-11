@@ -48,7 +48,7 @@ use rlevo_benchmarks::metrics::Metric;
 use rlevo_benchmarks::metrics::ea;
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::MetricsProvider;
+use rlevo_core::fitness::{Landscape, MetricsProvider};
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 
 // --- FitnessEvaluable wiring -------------------------------------------

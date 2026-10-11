@@ -48,7 +48,7 @@ use std::str::FromStr;
 use super::k_armed::{
     KArmedBanditAction, KArmedBanditObservation, KArmedBanditState, sample_arm_means,
 };
-use crate::episode::EpisodeGuard;
+use rlevo_core::episode::EpisodeGuard;
 
 // ---------------------------------------------------------------------------
 // Config

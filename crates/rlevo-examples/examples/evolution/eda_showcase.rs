@@ -68,6 +68,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::bounds::Bounds;
+use rlevo_core::fitness::Landscape;
 use rlevo_environments::landscapes::concatenated_trap::ConcatenatedTrap;
 use rlevo_environments::landscapes::rosenbrock::Rosenbrock;
 use rlevo_evolution::algorithms::eda::{

@@ -11,6 +11,7 @@
 //! (e.g. `NiaPy`) drop the leading `x_i` factor — that is a different function.
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Alpine function No.01 evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
@@ -39,18 +40,6 @@ impl Alpine1 {
         self.dim
     }
 
-    /// Evaluate the Alpine No.01 function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        // non-differentiable at zero crossings of x*sin(x) + 0.1*x
-        x.iter().map(|xi| (xi * xi.sin() + 0.1 * xi).abs()).sum()
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -70,6 +59,19 @@ impl Alpine1 {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Alpine1 {
+    /// Evaluate the Alpine No.01 function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        // non-differentiable at zero crossings of x*sin(x) + 0.1*x
+        x.iter().map(|xi| (xi * xi.sin() + 0.1 * xi).abs()).sum()
     }
 }
 

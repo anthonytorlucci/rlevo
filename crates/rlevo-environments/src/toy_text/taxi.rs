@@ -42,7 +42,6 @@
 //! - **Fickle passenger** (`fickle_passenger`): after pickup, the first movement step has a
 //!   30% chance to resample the destination.
 
-use crate::episode::EpisodeGuard;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -52,6 +51,7 @@ use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
 };
+use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};

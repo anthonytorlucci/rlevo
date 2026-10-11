@@ -57,6 +57,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend, backend::BackendTypes};
 
+use rlevo::core::fitness::Landscape;
 use rlevo::envs::landscapes::rastrigin::Rastrigin;
 use rlevo::evo::algorithms::de::{DeConfig, DifferentialEvolution};
 use rlevo::evo::algorithms::memetic::{

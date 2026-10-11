@@ -36,6 +36,8 @@
 
 use std::f64::consts::PI;
 
+use rlevo_core::fitness::Landscape;
+
 /// Branin RCOS function No.01 (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
 pub struct Branin;
@@ -45,13 +47,6 @@ impl Branin {
     #[must_use]
     pub const fn new() -> Self {
         Self
-    }
-
-    /// Evaluate the Branin function at `(x1, x2)`.
-    #[must_use]
-    pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        let a = x2 - 5.1 * x1 * x1 / (4.0 * PI * PI) + 5.0 * x1 / PI - 6.0;
-        a * a + 10.0 * (1.0 - 1.0 / (8.0 * PI)) * x1.cos() + 10.0
     }
 
     /// Square hull `(-5.0, 15.0)` of the asymmetric domain, applied
@@ -83,7 +78,21 @@ impl Branin {
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
-        self.evaluate(x, y)
+        self.evaluate(&[x, y])
+    }
+}
+
+impl Landscape for Branin {
+    /// Evaluate the Branin function at `x = [x1, x2]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != 2`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), 2, "input dimension mismatch");
+        let (x1, x2) = (x[0], x[1]);
+        let a = x2 - 5.1 * x1 * x1 / (4.0 * PI * PI) + 5.0 * x1 / PI - 6.0;
+        a * a + 10.0 * (1.0 - 1.0 / (8.0 * PI)) * x1.cos() + 10.0
     }
 }
 
@@ -125,13 +134,13 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        assert_relative_eq!(Branin::new().evaluate(PI, 2.275), F_OPT, epsilon = 1e-4);
+        assert_relative_eq!(Branin::new().evaluate(&[PI, 2.275]), F_OPT, epsilon = 1e-4);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
         assert!(
-            Branin::new().evaluate(0.0, 0.0) > F_OPT,
+            Branin::new().evaluate(&[0.0, 0.0]) > F_OPT,
             "value away from the three minima must exceed f*"
         );
     }
@@ -139,9 +148,9 @@ mod tests {
     #[test]
     fn three_global_minima_equal() {
         let b = Branin::new();
-        assert_relative_eq!(b.evaluate(-PI, 12.275), F_OPT, epsilon = 1e-4);
-        assert_relative_eq!(b.evaluate(PI, 2.275), F_OPT, epsilon = 1e-4);
-        assert_relative_eq!(b.evaluate(3.0 * PI, 2.475), F_OPT, epsilon = 1e-4);
+        assert_relative_eq!(b.evaluate(&[-PI, 12.275]), F_OPT, epsilon = 1e-4);
+        assert_relative_eq!(b.evaluate(&[PI, 2.275]), F_OPT, epsilon = 1e-4);
+        assert_relative_eq!(b.evaluate(&[3.0 * PI, 2.475]), F_OPT, epsilon = 1e-4);
     }
 
     #[test]
@@ -187,7 +196,7 @@ mod tests {
             let x1 = f64::from(i).mul_add(step, lo);
             for j in 0..=CELLS {
                 let x2 = f64::from(j).mul_add(step, lo);
-                let f = b.evaluate(x1, x2);
+                let f = b.evaluate(&[x1, x2]);
                 assert!(
                     f >= F_OPT - 1e-9,
                     "point ({x1}, {x2}) in bounds evaluates to {f} < f* = {F_OPT}"

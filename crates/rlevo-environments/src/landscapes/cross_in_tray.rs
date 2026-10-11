@@ -21,6 +21,10 @@
 //! Over this window the inner exponential reaches `$\approx e^{93}$`, but the outer
 //! `$0.0001 \cdot (\cdot)^{0.1}$` compresses it back — no `f64` overflow.
 
+use std::f64::consts::PI;
+
+use rlevo_core::fitness::Landscape;
+
 // non-differentiable at zero crossings of sin(x1)*sin(x2) (the cross ridges)
 
 /// Cross-in-Tray function (strictly 2-D).
@@ -34,15 +38,6 @@ impl CrossInTray {
         Self
     }
 
-    /// Evaluate the Cross-in-Tray function at `(x1, x2)`.
-    #[must_use]
-    pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        use std::f64::consts::PI;
-        let r = (x1 * x1 + x2 * x2).sqrt();
-        let inner = (x1.sin() * x2.sin() * (100.0 - r / PI).abs().exp()).abs();
-        -0.0001 * (inner + 1.0).powf(0.1)
-    }
-
     /// Recommended search box `(-15.0, 15.0)` applied per-coordinate — the canonical
     /// domain per Al-Roomi #44. Contains all four global minimizers `$(\pm 1.3494\ldots, \pm 1.3494\ldots)$`.
     #[must_use]
@@ -52,7 +47,22 @@ impl CrossInTray {
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
-        self.evaluate(x, y)
+        self.evaluate(&[x, y])
+    }
+}
+
+impl Landscape for CrossInTray {
+    /// Evaluate the Cross-in-Tray function at `x = [x1, x2]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != 2`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), 2, "input dimension mismatch");
+        let (x1, x2) = (x[0], x[1]);
+        let r = (x1 * x1 + x2 * x2).sqrt();
+        let inner = (x1.sin() * x2.sin() * (100.0 - r / PI).abs().exp()).abs();
+        -0.0001 * (inner + 1.0).powf(0.1)
     }
 }
 
@@ -104,7 +114,7 @@ mod tests {
     #[test]
     fn global_minimum_at_known_location() {
         assert_relative_eq!(
-            CrossInTray::new().evaluate(X_OPT, X_OPT),
+            CrossInTray::new().evaluate(&[X_OPT, X_OPT]),
             F_OPT,
             epsilon = 1e-4
         );
@@ -114,7 +124,7 @@ mod tests {
     fn positive_or_greater_elsewhere() {
         // Every value is negative; the origin (`$f = -0.0001$`) exceeds the minimum.
         assert!(
-            CrossInTray::new().evaluate(0.0, 0.0) > F_OPT,
+            CrossInTray::new().evaluate(&[0.0, 0.0]) > F_OPT,
             "value away from the four minima must exceed f*"
         );
     }
@@ -128,14 +138,14 @@ mod tests {
             (-X_OPT, X_OPT),
             (-X_OPT, -X_OPT),
         ] {
-            assert_relative_eq!(c.evaluate(x1, x2), F_OPT, epsilon = 1e-4);
+            assert_relative_eq!(c.evaluate(&[x1, x2]), F_OPT, epsilon = 1e-4);
         }
     }
 
     #[test]
     fn negative_everywhere_in_domain() {
-        assert!(CrossInTray::new().evaluate(0.0, 0.0) < 0.0);
-        assert!(CrossInTray::new().evaluate(5.0, 7.0) < 0.0);
+        assert!(CrossInTray::new().evaluate(&[0.0, 0.0]) < 0.0);
+        assert!(CrossInTray::new().evaluate(&[5.0, 7.0]) < 0.0);
     }
 
     /// O1 (reachability) — the search box reaches every certified global optimum.
@@ -178,7 +188,7 @@ mod tests {
             let x1 = lo + span * f64::from(i) / n;
             for j in 0..=STEPS {
                 let x2 = lo + span * f64::from(j) / n;
-                let v = c.evaluate(x1, x2);
+                let v = c.evaluate(&[x1, x2]);
                 assert!(
                     v >= F_OPT - EPS,
                     "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"
@@ -191,7 +201,7 @@ mod tests {
     fn no_overflow_at_domain_corner() {
         // The inner exp reaches `$\approx e^{93}$` at the corner but stays finite after
         // compression.
-        let v = CrossInTray::new().evaluate(15.0, 15.0);
+        let v = CrossInTray::new().evaluate(&[15.0, 15.0]);
         assert!(
             v.is_finite(),
             "value must be finite at the domain corner, got {v}"

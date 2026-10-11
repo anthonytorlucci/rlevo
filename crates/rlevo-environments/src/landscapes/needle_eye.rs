@@ -16,6 +16,7 @@
 //! failure-demonstration function, not a solvable test. Requires `$n \geq 1$`.
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Needle-Eye function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
@@ -48,28 +49,6 @@ impl Needle {
         self.dim
     }
 
-    /// Evaluate the Needle-Eye function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        // non-differentiable; gradient-based agents cannot optimize this function.
-        // `<= EYE` (matching the "inside the eye" boundary in the docs) so that a
-        // point exactly on the boundary returns the minimum f = 1 rather than
-        // falling through to an empty penalty sum (which would yield 0 < f*).
-        if x.iter().all(|xi| xi.abs() <= Self::EYE) {
-            1.0
-        } else {
-            x.iter()
-                .filter(|xi| xi.abs() > Self::EYE)
-                .map(|xi| 100.0 + xi.abs())
-                .sum()
-        }
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -90,6 +69,29 @@ impl Needle {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Needle {
+    /// Evaluate the Needle-Eye function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        // non-differentiable; gradient-based agents cannot optimize this function.
+        // `<= EYE` (matching the "inside the eye" boundary in the docs) so that a
+        // point exactly on the boundary returns the minimum f = 1 rather than
+        // falling through to an empty penalty sum (which would yield 0 < f*).
+        if x.iter().all(|xi| xi.abs() <= Self::EYE) {
+            1.0
+        } else {
+            x.iter()
+                .filter(|xi| xi.abs() > Self::EYE)
+                .map(|xi| 100.0 + xi.abs())
+                .sum()
+        }
     }
 }
 

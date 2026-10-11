@@ -33,6 +33,7 @@ use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend, backend::BackendTypes};
 
 use rlevo_core::bounds::Bounds;
+use rlevo_core::fitness::Landscape;
 use rlevo_core::probability::Probability;
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 use rlevo_evolution::algorithms::de::{DeConfig, DifferentialEvolution};

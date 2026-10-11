@@ -81,9 +81,9 @@
 //! ```
 use std::fmt;
 
-use crate::episode::EpisodeGuard;
 use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
+use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
     base::{Action, HostRow, Observation, State, TensorConversionError, TensorConvertible},
