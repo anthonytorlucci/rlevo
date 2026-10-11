@@ -8,9 +8,10 @@ built on [Burn](https://burn.dev/) tensor operations.
 ## Status
 
 **Alpha, evolution-guided policy init shipped.** This crate is the
-dependency boundary between pure evolution (`rlevo-evolution`, which never
-depends on `rlevo-core`) and anything that couples an evolutionary strategy
-to an `Environment` rollout. Three modules ship today:
+boundary between pure evolution (`rlevo-evolution`, which never names an
+`Environment`) and anything that couples an evolutionary strategy to an
+`Environment` rollout. It depends on `rlevo-core` and `rlevo-evolution`.
+Three modules ship today:
 
 - `rollout_fitness::RolloutFitness` — a `BatchFitnessFn` that scores a
   population of flat policy parameters by running episodes against an
@@ -43,8 +44,9 @@ strategy and `RolloutFitness` into an `EvolutionaryHarness`, so a
 fixed-topology policy module `M` is optimized purely by black-box search
 against environment `E`'s return — no gradients. Planned strategies that
 interleave gradient-based RL with the evolutionary loop (PBT, ERL, CEM-RL)
-will build on this same rollout/fitness seam once `rlevo-reinforcement-learning`
-integration lands.
+will build on this same rollout/fitness seam. The first of them brings a
+dependency on `rlevo-reinforcement-learning` with it; the crate has none
+today, because nothing in it uses that crate.
 
 ## Related crates
 

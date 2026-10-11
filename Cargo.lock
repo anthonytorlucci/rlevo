@@ -6806,7 +6806,6 @@ dependencies = [
  "rlevo-core",
  "rlevo-environments",
  "rlevo-evolution",
- "rlevo-reinforcement-learning",
  "serde",
 ]
 

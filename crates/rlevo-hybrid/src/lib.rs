@@ -1,10 +1,15 @@
 //! Hybrid evolutionary + reinforcement-learning strategies for `rlevo`.
 //!
-//! This crate marks the dependency boundary between pure evolution and
-//! reinforcement learning: strictly evolutionary code lives in
-//! `rlevo-evolution`, which never depends on `rlevo-core`, while anything that
-//! couples a strategy to an [`Environment`](rlevo_core::environment::Environment)
-//! rollout lives here, where that dependency is permitted.
+//! This crate marks the boundary between pure evolution and anything that
+//! runs an environment: strictly evolutionary code lives in
+//! `rlevo-evolution`, which never names an
+//! [`Environment`](rlevo_core::environment::Environment), while anything that
+//! couples a strategy to an `Environment` rollout lives here.
+//!
+//! It depends on `rlevo-core` and `rlevo-evolution`. Nothing here uses
+//! `rlevo-reinforcement-learning` yet, so the crate does not depend on it;
+//! the first strategy that trains a gradient learner inside the evolutionary
+//! loop brings that dependency with it.
 //!
 //! # Surface area
 //!
