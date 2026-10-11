@@ -119,6 +119,10 @@ and `src/games/connect_four.rs`). They compile but do not yet implement the
 
 Single-objective fitness functions for evaluating evolutionary algorithms. Each
 is a stateless N-D evaluator; the global optimum is a *minimum* by convention.
+Each implements `rlevo_core::fitness::Landscape`, with no cargo feature, so it
+plugs into `rlevo-evolution`'s `FromLandscape` adapter directly. The trait's
+`evaluate(&[f64])` is the one evaluation method every landscape has, so import
+the trait to call it; a fixed 2-D landscape takes a slice of two.
 The functions are grouped into three tiers by intended use.
 
 **Tier 1 — scalable n-D.** Arbitrary-dimension functions for sweeping

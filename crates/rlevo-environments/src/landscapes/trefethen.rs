@@ -36,6 +36,8 @@
 //! benchmark domain and the optimum `$(-0.024403, 0.210612)$` on both axes.
 //! The evaluator never clamps.
 
+use rlevo_core::fitness::Landscape;
+
 /// Trefethen's function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
 pub struct Trefethen;
@@ -45,21 +47,6 @@ impl Trefethen {
     #[must_use]
     pub const fn new() -> Self {
         Self
-    }
-
-    /// Evaluate Trefethen's function at `(x1, x2)`.
-    ///
-    /// The `$\sin(60 \cdot e^{x_2})$` term is finite across the recommended domain, but for
-    /// `$x_2 \gtrsim 710$` the inner `$e^{x_2}$` overflows to infinity and the result is `NaN`;
-    /// callers operating far outside the domain must clamp `$x_2$` themselves.
-    #[must_use]
-    pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        (50.0 * x1).sin().exp()
-            + (60.0 * x2.exp()).sin()
-            + (70.0 * x1.sin()).sin()
-            + (80.0 * x2).sin().sin()
-            - (10.0 * (x1 + x2)).sin()
-            + (x1 * x1 + x2 * x2) / 4.0
     }
 
     /// Square hull `(-6.5, 6.5)` of the asymmetric benchmark box
@@ -91,7 +78,29 @@ impl Trefethen {
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
-        self.evaluate(x, y)
+        self.evaluate(&[x, y])
+    }
+}
+
+impl Landscape for Trefethen {
+    /// Evaluate Trefethen's function at `x = [x1, x2]`.
+    ///
+    /// The `$\sin(60 \cdot e^{x_2})$` term is finite across the recommended domain, but for
+    /// `$x_2 \gtrsim 710$` the inner `$e^{x_2}$` overflows to infinity and the result is `NaN`;
+    /// callers operating far outside the domain must clamp `$x_2$` themselves.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != 2`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), 2, "input dimension mismatch");
+        let (x1, x2) = (x[0], x[1]);
+        (50.0 * x1).sin().exp()
+            + (60.0 * x2.exp()).sin()
+            + (70.0 * x1.sin()).sin()
+            + (80.0 * x2).sin().sin()
+            - (10.0 * (x1 + x2)).sin()
+            + (x1 * x1 + x2 * x2) / 4.0
     }
 }
 
@@ -137,14 +146,14 @@ mod tests {
     #[test]
     fn global_minimum_at_known_location() {
         let t = Trefethen::new();
-        assert_relative_eq!(t.evaluate(X_OPT.0, X_OPT.1), F_OPT, epsilon = 1e-3);
+        assert_relative_eq!(t.evaluate(&[X_OPT.0, X_OPT.1]), F_OPT, epsilon = 1e-3);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
         let t = Trefethen::new();
         assert!(
-            t.evaluate(6.0, 4.0) > t.evaluate(X_OPT.0, X_OPT.1),
+            t.evaluate(&[6.0, 4.0]) > t.evaluate(&[X_OPT.0, X_OPT.1]),
             "value far from the optimum must exceed f*"
         );
     }
@@ -195,7 +204,7 @@ mod tests {
                     reason = "j <= 400; exactly representable in f64"
                 )]
                 let x2 = lo + step * j as f64;
-                let f = t.evaluate(x1, x2);
+                let f = t.evaluate(&[x1, x2]);
                 assert!(
                     f >= F_OPT - 1e-6,
                     "found point ({x1}, {x2}) with f = {f} below the global minimum {F_OPT}"
@@ -208,7 +217,7 @@ mod tests {
     fn quadratic_term_dominates_far_from_origin() {
         // At (6, 4) the quadratic (36+16)/4 = 13 dominates, so f > 10.
         let t = Trefethen::new();
-        assert!(t.evaluate(6.0, 4.0) > 10.0);
+        assert!(t.evaluate(&[6.0, 4.0]) > 10.0);
     }
 
     #[test]

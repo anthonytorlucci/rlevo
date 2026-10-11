@@ -16,6 +16,8 @@
 //! so nothing can score below `0` — both `bounds()` obligations hold (ADR 0045:
 //! O1 reachability, O2 no spurious optimum), pinned by unit tests below.
 
+use rlevo_core::fitness::Landscape;
+
 /// Himmelblau's function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
 pub struct Himmelblau;
@@ -27,12 +29,6 @@ impl Himmelblau {
         Self
     }
 
-    /// Evaluate Himmelblau's function at `(x1, x2)`.
-    #[must_use]
-    pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        (x1 + x2 * x2 - 7.0).powi(2) + (x1 * x1 + x2 - 11.0).powi(2)
-    }
-
     /// Recommended search box `(-6.0, 6.0)` applied per-coordinate — the canonical
     /// domain per Al-Roomi #56. Contains all four global minimizers.
     #[must_use]
@@ -42,7 +38,20 @@ impl Himmelblau {
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
-        self.evaluate(x, y)
+        self.evaluate(&[x, y])
+    }
+}
+
+impl Landscape for Himmelblau {
+    /// Evaluate Himmelblau's function at `x = [x1, x2]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != 2`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), 2, "input dimension mismatch");
+        let (x1, x2) = (x[0], x[1]);
+        (x1 + x2 * x2 - 7.0).powi(2) + (x1 * x1 + x2 - 11.0).powi(2)
     }
 }
 
@@ -95,13 +104,17 @@ mod tests {
     #[test]
     fn global_minimum_at_known_location() {
         // The exact minimum (3, 2) evaluates to 0.
-        assert_relative_eq!(Himmelblau::new().evaluate(3.0, 2.0), 0.0, epsilon = 1e-12);
+        assert_relative_eq!(
+            Himmelblau::new().evaluate(&[3.0, 2.0]),
+            0.0,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
         assert!(
-            Himmelblau::new().evaluate(0.0, 0.0) > 0.0,
+            Himmelblau::new().evaluate(&[0.0, 0.0]) > 0.0,
             "Himmelblau must exceed its minimum away from the four basins"
         );
     }
@@ -110,19 +123,19 @@ mod tests {
     fn all_four_global_minima_zero() {
         // 12-digit certified minimizers (Al-Roomi 2015 via Maple).
         let h = Himmelblau::new();
-        assert_relative_eq!(h.evaluate(3.0, 2.0), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(h.evaluate(&[3.0, 2.0]), 0.0, epsilon = 1e-10);
         assert_relative_eq!(
-            h.evaluate(3.584_428_340_330, -1.848_126_526_964),
+            h.evaluate(&[3.584_428_340_330, -1.848_126_526_964]),
             0.0,
             epsilon = 1e-6
         );
         assert_relative_eq!(
-            h.evaluate(-3.779_310_253_378, -3.283_185_991_286),
+            h.evaluate(&[-3.779_310_253_378, -3.283_185_991_286]),
             0.0,
             epsilon = 1e-6
         );
         assert_relative_eq!(
-            h.evaluate(-2.805_118_086_953, 3.131_312_518_250),
+            h.evaluate(&[-2.805_118_086_953, 3.131_312_518_250]),
             0.0,
             epsilon = 1e-6
         );
@@ -131,7 +144,11 @@ mod tests {
     #[test]
     fn positive_at_origin() {
         // f(0,0) = 49 + 121 = 170.
-        assert_relative_eq!(Himmelblau::new().evaluate(0.0, 0.0), 170.0, epsilon = 1e-10);
+        assert_relative_eq!(
+            Himmelblau::new().evaluate(&[0.0, 0.0]),
+            170.0,
+            epsilon = 1e-10
+        );
     }
 
     /// O1 (reachability) — the search box reaches every certified global optimum.
@@ -172,7 +189,7 @@ mod tests {
             let x1 = lo + span * f64::from(i) / n;
             for j in 0..=STEPS {
                 let x2 = lo + span * f64::from(j) / n;
-                let v = h.evaluate(x1, x2);
+                let v = h.evaluate(&[x1, x2]);
                 assert!(
                     v >= F_OPT - EPS,
                     "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"

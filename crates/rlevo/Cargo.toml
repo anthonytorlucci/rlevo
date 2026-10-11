@@ -23,7 +23,9 @@ burn = { workspace = true }
 
 [dev-dependencies]
 rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.5.0" }
-rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", features = ["bench"] }
+# Default features on, so the test targets that drive the physics
+# environments build whatever features the umbrella itself is built with.
+rlevo-environments = { path = "../rlevo-environments", version = "0.5.0" }
 rlevo-test-support = { path = "../rlevo-test-support" }
 approx = { workspace = true }
 # Tests, benches and examples run on Flex whatever features the umbrella is

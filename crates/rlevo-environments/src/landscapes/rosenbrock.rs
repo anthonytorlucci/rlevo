@@ -14,6 +14,7 @@
 //! Requires `$n \geq 2$`; the sum is empty for `$n = 1$`.
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Rosenbrock function evaluator with configurable dimensionality.
 ///
@@ -45,22 +46,6 @@ impl Rosenbrock {
         self.dim
     }
 
-    /// Evaluate the Rosenbrock function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        x.windows(2)
-            .map(|w| {
-                let (xi, xn) = (w[0], w[1]);
-                100.0 * (xn - xi * xi).powi(2) + (xi - 1.0).powi(2)
-            })
-            .sum()
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -81,6 +66,23 @@ impl Rosenbrock {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Rosenbrock {
+    /// Evaluate the Rosenbrock function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        x.windows(2)
+            .map(|w| {
+                let (xi, xn) = (w[0], w[1]);
+                100.0 * (xn - xi * xi).powi(2) + (xi - 1.0).powi(2)
+            })
+            .sum()
     }
 }
 

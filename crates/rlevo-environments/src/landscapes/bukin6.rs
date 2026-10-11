@@ -30,6 +30,8 @@
 //! Surjanovic, S. & Bingham, D., *Virtual Library of Simulation Experiments: Test Functions and
 //! Datasets*, Simon Fraser University.
 
+use rlevo_core::fitness::Landscape;
+
 // non-differentiable on the parabolic ridge x2 = 0.01*x1^2 and at x1 = -10
 
 /// Bukin function No.06 (strictly 2-D).
@@ -43,14 +45,6 @@ impl Bukin6 {
         Self
     }
 
-    /// Evaluate the Bukin No.06 function at `(x1, x2)`.
-    #[must_use]
-    pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        // `(x2 - 0.01 * x1.powi(2)).abs()` is `$\geq 0$` by construction, so the sqrt is safe; the
-        // derivative is undefined on the ridge where the argument is zero.
-        100.0 * (x2 - 0.01 * x1 * x1).abs().sqrt() + 0.01 * (x1 + 10.0).abs()
-    }
-
     /// Square bounding box `(-15.0, 3.0)` of the asymmetric domain, applied per-coordinate.
     /// Contains the full domain, the parabolic ridge, and the optimum `$(-10, 1)$`. See the
     /// type-level docs for the true asymmetric domain.
@@ -61,7 +55,22 @@ impl Bukin6 {
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
-        self.evaluate(x, y)
+        self.evaluate(&[x, y])
+    }
+}
+
+impl Landscape for Bukin6 {
+    /// Evaluate the Bukin No.06 function at `x = [x1, x2]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != 2`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), 2, "input dimension mismatch");
+        let (x1, x2) = (x[0], x[1]);
+        // `(x2 - 0.01 * x1.powi(2)).abs()` is `$\geq 0$` by construction, so the sqrt is safe; the
+        // derivative is undefined on the ridge where the argument is zero.
+        100.0 * (x2 - 0.01 * x1 * x1).abs().sqrt() + 0.01 * (x1 + 10.0).abs()
     }
 }
 
@@ -100,20 +109,20 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        assert_relative_eq!(Bukin6::new().evaluate(-10.0, 1.0), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(Bukin6::new().evaluate(&[-10.0, 1.0]), 0.0, epsilon = 1e-10);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
         assert!(
-            Bukin6::new().evaluate(-12.0, 0.0) > 0.0,
+            Bukin6::new().evaluate(&[-12.0, 0.0]) > 0.0,
             "value off the ridge must exceed the minimum 0"
         );
     }
 
     #[test]
     fn global_minimum_zero() {
-        assert_relative_eq!(Bukin6::new().evaluate(-10.0, 1.0), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(Bukin6::new().evaluate(&[-10.0, 1.0]), 0.0, epsilon = 1e-10);
     }
 
     #[test]
@@ -123,12 +132,12 @@ mod tests {
         let x1 = -8.0_f64;
         let x2 = 0.01 * x1 * x1; // 0.64
         let expected = 0.01 * (x1 + 10.0).abs(); // 0.02
-        assert_relative_eq!(Bukin6::new().evaluate(x1, x2), expected, epsilon = 1e-10);
+        assert_relative_eq!(Bukin6::new().evaluate(&[x1, x2]), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn positive_off_ridge() {
-        assert!(Bukin6::new().evaluate(-12.0, 0.0) > 0.0);
+        assert!(Bukin6::new().evaluate(&[-12.0, 0.0]) > 0.0);
     }
 
     #[test]
@@ -168,7 +177,7 @@ mod tests {
             let x1 = lo + step * f64::from(i);
             for j in 0..=STEPS {
                 let x2 = lo + step * f64::from(j);
-                let v = b.evaluate(x1, x2);
+                let v = b.evaluate(&[x1, x2]);
                 assert!(
                     v >= -1e-12,
                     "f({x1}, {x2}) = {v} beats the global minimum f* = 0 inside bounds()"

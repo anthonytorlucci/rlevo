@@ -10,6 +10,7 @@
 use std::f64::consts::{E, PI};
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Ackley function evaluator with configurable dimensionality and constants.
 #[derive(Debug, Clone, Copy)]
@@ -49,20 +50,6 @@ impl Ackley {
         self.dim
     }
 
-    /// Evaluate the Ackley function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        let n = x.len() as f64;
-        let sum_sq: f64 = x.iter().map(|xi| xi * xi).sum();
-        let sum_cos: f64 = x.iter().map(|xi| (self.c * xi).cos()).sum();
-        -self.a * (-self.b * (sum_sq / n).sqrt()).exp() - (sum_cos / n).exp() + self.a + E
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -83,6 +70,21 @@ impl Ackley {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Ackley {
+    /// Evaluate the Ackley function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        let n = x.len() as f64;
+        let sum_sq: f64 = x.iter().map(|xi| xi * xi).sum();
+        let sum_cos: f64 = x.iter().map(|xi| (self.c * xi).cos()).sum();
+        -self.a * (-self.b * (sum_sq / n).sqrt()).exp() - (sum_cos / n).exp() + self.a + E
     }
 }
 

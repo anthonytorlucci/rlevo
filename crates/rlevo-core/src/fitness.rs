@@ -130,12 +130,13 @@ pub trait Landscape: Send + Sync {
     /// positive elsewhere. The maximise-native engine reconciles this via
     /// [`sense`](Landscape::sense) at a single chokepoint — you never negate
     /// the value here.
+    #[must_use]
     fn evaluate(&self, x: &[f64]) -> f64;
 
     /// The optimisation direction of this landscape.
     ///
     /// A landscape is a cost surface, so this defaults to
-    /// [`ObjectiveSense::Minimize`] — the 24 bundled landscapes need no
+    /// [`ObjectiveSense::Minimize`] — the bundled landscapes need no
     /// per-type override. The `FromLandscape` adapter forwards this to the
     /// harness, which negates a `Minimize` objective into canonical (maximise)
     /// space and reports `best_fitness` back in this natural sense.

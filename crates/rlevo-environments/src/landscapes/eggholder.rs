@@ -27,6 +27,7 @@
 //! resting on that weaker footing; the `n = 2` optimum below is solid.
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Eggholder function evaluator with configurable dimensionality.
 ///
@@ -59,25 +60,6 @@ impl Eggholder {
         self.dim
     }
 
-    /// Evaluate the Eggholder function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        x.windows(2)
-            .map(|w| {
-                let (xi, xn) = (w[0], w[1]);
-                // `abs()` guards the sqrt against negative arguments from rounding.
-                let t1 = (xi - xn - 47.0).abs().sqrt();
-                let t2 = (0.5 * xi + xn + 47.0).abs().sqrt();
-                -xi * t1.sin() - (xn + 47.0) * t2.sin()
-            })
-            .sum()
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -98,6 +80,26 @@ impl Eggholder {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Eggholder {
+    /// Evaluate the Eggholder function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        x.windows(2)
+            .map(|w| {
+                let (xi, xn) = (w[0], w[1]);
+                // `abs()` guards the sqrt against negative arguments from rounding.
+                let t1 = (xi - xn - 47.0).abs().sqrt();
+                let t2 = (0.5 * xi + xn + 47.0).abs().sqrt();
+                -xi * t1.sin() - (xn + 47.0) * t2.sin()
+            })
+            .sum()
     }
 }
 

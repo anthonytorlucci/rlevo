@@ -55,6 +55,7 @@
 //! Al-Roomi.
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Generalized Modified Rosenbrock No.01 evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
@@ -84,31 +85,6 @@ impl RosenbrockFlat {
         self.dim
     }
 
-    /// Evaluate the Modified Rosenbrock No.01 function at `x`.
-    ///
-    /// Every term is non-negative, so `$f \geq 0$` everywhere on `$\mathbb{R}^n$`; the global
-    /// minimum is `$f^* = 0$` at `$x = (1, \ldots, 1)$`, where each term vanishes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        // ERRATUM (do not "fix"): Al-Roomi lists f_min = 1 at x* = 0 for this family. That
-        // contradicts this very formula — at x = (1,…,1) both the
-        // `$100\lvert x_{i+1} - x_i^2 \rvert$` and `$(1 - x_i)^2$` terms are zero, so
-        // `$f = 0 < 1$`. The correct optimum is f* = 0 at (1,…,1); the cited value is a source
-        // error.
-        x.windows(2)
-            .map(|w| {
-                let (xi, xn) = (w[0], w[1]);
-                // non-differentiable on the manifold x_{i+1} = x_i^2 (the knife edge)
-                100.0 * (xn - xi * xi).abs() + (1.0 - xi).powi(2)
-            })
-            .sum()
-    }
-
     /// Cited reduced search range `(-30.0, 30.0)`, applied per-coordinate.
     ///
     /// This is **not** a render window: the modified-Rosenbrock side constraints were reduced from
@@ -135,6 +111,32 @@ impl RosenbrockFlat {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for RosenbrockFlat {
+    /// Evaluate the Modified Rosenbrock No.01 function at `x`.
+    ///
+    /// Every term is non-negative, so `$f \geq 0$` everywhere on `$\mathbb{R}^n$`; the global
+    /// minimum is `$f^* = 0$` at `$x = (1, \ldots, 1)$`, where each term vanishes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        // ERRATUM (do not "fix"): Al-Roomi lists f_min = 1 at x* = 0 for this family. That
+        // contradicts this very formula — at x = (1,…,1) both the
+        // `$100\lvert x_{i+1} - x_i^2 \rvert$` and `$(1 - x_i)^2$` terms are zero, so
+        // `$f = 0 < 1$`. The correct optimum is f* = 0 at (1,…,1); the cited value is a source
+        // error.
+        x.windows(2)
+            .map(|w| {
+                let (xi, xn) = (w[0], w[1]);
+                // non-differentiable on the manifold x_{i+1} = x_i^2 (the knife edge)
+                100.0 * (xn - xi * xi).abs() + (1.0 - xi).powi(2)
+            })
+            .sum()
     }
 }
 

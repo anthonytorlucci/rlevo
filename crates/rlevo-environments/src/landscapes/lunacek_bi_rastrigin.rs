@@ -22,6 +22,7 @@
 use std::f64::consts::PI;
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Global-funnel centre `$\mu_1$`.
 const MU1: f64 = 2.5;
@@ -87,29 +88,6 @@ impl LunacekBiRastrigin {
         -((MU1 * MU1 - D) / self.s()).sqrt()
     }
 
-    /// Evaluate the Lunacek bi-Rastrigin function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        let n = self.dim as f64;
-        let s = self.s();
-        let mu2 = self.mu2();
-
-        let funnel1: f64 = x.iter().map(|xi| (xi - MU1).powi(2)).sum();
-        let funnel2: f64 = D * n + s * x.iter().map(|xi| (xi - mu2).powi(2)).sum::<f64>();
-        // non-differentiable where funnel1 == funnel2
-        let rastrigin: f64 = x
-            .iter()
-            .map(|xi| 1.0 - (2.0 * PI * (xi - MU1)).cos())
-            .sum::<f64>();
-
-        funnel1.min(funnel2) + 10.0 * rastrigin
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -129,6 +107,30 @@ impl LunacekBiRastrigin {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for LunacekBiRastrigin {
+    /// Evaluate the Lunacek bi-Rastrigin function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        let n = self.dim as f64;
+        let s = self.s();
+        let mu2 = self.mu2();
+
+        let funnel1: f64 = x.iter().map(|xi| (xi - MU1).powi(2)).sum();
+        let funnel2: f64 = D * n + s * x.iter().map(|xi| (xi - mu2).powi(2)).sum::<f64>();
+        // non-differentiable where funnel1 == funnel2
+        let rastrigin: f64 = x
+            .iter()
+            .map(|xi| 1.0 - (2.0 * PI * (xi - MU1)).cos())
+            .sum::<f64>();
+
+        funnel1.min(funnel2) + 10.0 * rastrigin
     }
 }
 

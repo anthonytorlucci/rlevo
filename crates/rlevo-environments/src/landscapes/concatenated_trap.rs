@@ -60,6 +60,7 @@
 //!   Optimization Algorithm." *Proceedings of GECCO-99*, 525–532.
 
 use rlevo_core::config::{self, ConfigError, ConstraintKind};
+use rlevo_core::fitness::Landscape;
 
 /// Concatenated trap evaluator: `num_blocks` order-`block_size` traps.
 ///
@@ -115,33 +116,6 @@ impl ConcatenatedTrap {
         self.num_blocks * self.block_size
     }
 
-    /// Evaluate the concatenated trap at `x`.
-    ///
-    /// Genes are thresholded to bits via `>= 0.5`, partitioned into contiguous
-    /// blocks of `block_size`, and each block's trap cost (`0` if the block is
-    /// all-ones, else `u + 1` for unitation `u`) is summed. Lower is better;
-    /// the all-ones genome scores `0`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim()`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim(), "input dimension mismatch");
-        let total: usize = x
-            .chunks_exact(self.block_size)
-            .map(|block| {
-                let u = block.iter().filter(|&&gene| gene >= 0.5).count();
-                Self::block_cost(self.block_size, u)
-            })
-            .sum();
-        // The total is bounded by `$\text{num\_blocks} \cdot (k + 1)$`, well within the exact
-        // integer range of f64 (2^53), so the cast is exact, not lossy.
-        #[allow(clippy::cast_precision_loss)]
-        let cost = total as f64;
-        cost
-    }
-
     /// Recommended search domain for each coordinate: the binary box `[0, 1]`.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -190,6 +164,34 @@ impl ConcatenatedTrap {
         if self.num_blocks >= 2 {
             cost += relaxed(y);
         }
+        cost
+    }
+}
+
+impl Landscape for ConcatenatedTrap {
+    /// Evaluate the concatenated trap at `x`.
+    ///
+    /// Genes are thresholded to bits via `>= 0.5`, partitioned into contiguous
+    /// blocks of `block_size`, and each block's trap cost (`0` if the block is
+    /// all-ones, else `u + 1` for unitation `u`) is summed. Lower is better;
+    /// the all-ones genome scores `0`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim()`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim(), "input dimension mismatch");
+        let total: usize = x
+            .chunks_exact(self.block_size)
+            .map(|block| {
+                let u = block.iter().filter(|&&gene| gene >= 0.5).count();
+                Self::block_cost(self.block_size, u)
+            })
+            .sum();
+        // The total is bounded by `$\text{num\_blocks} \cdot (k + 1)$`, well within the exact
+        // integer range of f64 (2^53), so the cast is exact, not lossy.
+        #[allow(clippy::cast_precision_loss)]
+        let cost = total as f64;
         cost
     }
 }

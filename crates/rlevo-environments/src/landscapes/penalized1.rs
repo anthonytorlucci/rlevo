@@ -23,6 +23,7 @@
 use std::f64::consts::PI;
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Quartic boundary penalty `$u(x)$` with `$a = 10$`, `$k = 100$`, `$m = 4$`.
 fn penalty(x: f64) -> f64 {
@@ -68,26 +69,6 @@ impl Penalized1 {
         self.dim
     }
 
-    /// Evaluate the Penalized No.01 function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        let y: Vec<f64> = x.iter().map(|xi| 1.0 + (xi + 1.0) / 4.0).collect();
-
-        let mut body = 10.0 * (PI * y[0]).sin().powi(2);
-        for w in y.windows(2) {
-            body += (w[0] - 1.0).powi(2) * (1.0 + 10.0 * (PI * w[1]).sin().powi(2));
-        }
-        body += (y[self.dim - 1] - 1.0).powi(2);
-
-        let penalty_sum: f64 = x.iter().map(|&xi| penalty(xi)).sum();
-        (PI / self.dim as f64) * body + penalty_sum
-    }
-
     /// Recommended search domain for each coordinate (the full domain; the soft
     /// penalty walls sit at `$\pm 10$`).
     #[must_use]
@@ -107,6 +88,27 @@ impl Penalized1 {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Penalized1 {
+    /// Evaluate the Penalized No.01 function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        let y: Vec<f64> = x.iter().map(|xi| 1.0 + (xi + 1.0) / 4.0).collect();
+
+        let mut body = 10.0 * (PI * y[0]).sin().powi(2);
+        for w in y.windows(2) {
+            body += (w[0] - 1.0).powi(2) * (1.0 + 10.0 * (PI * w[1]).sin().powi(2));
+        }
+        body += (y[self.dim - 1] - 1.0).powi(2);
+
+        let penalty_sum: f64 = x.iter().map(|&xi| penalty(xi)).sum();
+        (PI / self.dim as f64) * body + penalty_sum
     }
 }
 

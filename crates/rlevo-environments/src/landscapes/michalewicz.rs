@@ -14,6 +14,7 @@
 use std::f64::consts::{FRAC_PI_2, PI};
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Michalewicz function evaluator with configurable dimensionality and steepness.
 #[derive(Debug, Clone, Copy)]
@@ -45,26 +46,6 @@ impl Michalewicz {
         self.dim
     }
 
-    /// Evaluate the Michalewicz function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        // Integer power preserves precision; `.powf(20.0)` would not.
-        let exp = 2 * self.m as i32;
-        -x.iter()
-            .enumerate()
-            .map(|(idx, &xj)| {
-                let j = (idx + 1) as f64; // 1-based dimension index
-                let inner = (j * xj * xj / PI).sin();
-                xj.sin() * inner.powi(exp)
-            })
-            .sum::<f64>()
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -85,6 +66,27 @@ impl Michalewicz {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Michalewicz {
+    /// Evaluate the Michalewicz function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        // Integer power preserves precision; `.powf(20.0)` would not.
+        let exp = 2 * self.m as i32;
+        -x.iter()
+            .enumerate()
+            .map(|(idx, &xj)| {
+                let j = (idx + 1) as f64; // 1-based dimension index
+                let inner = (j * xj * xj / PI).sin();
+                xj.sin() * inner.powi(exp)
+            })
+            .sum::<f64>()
     }
 }
 

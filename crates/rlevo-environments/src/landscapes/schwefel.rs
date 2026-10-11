@@ -28,6 +28,7 @@ const X_OPT: f64 = 420.968_746_359_982_025;
 const F_PER_DIM: f64 = 418.982_887_274_338;
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Schwefel function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
@@ -57,18 +58,6 @@ impl Schwefel {
         self.dim
     }
 
-    /// Evaluate the Schwefel function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        // `x_i.abs().sqrt()` is well-defined for all finite x_i.
-        -x.iter().map(|xi| xi * xi.abs().sqrt().sin()).sum::<f64>()
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -89,6 +78,19 @@ impl Schwefel {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Schwefel {
+    /// Evaluate the Schwefel function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        // `x_i.abs().sqrt()` is well-defined for all finite x_i.
+        -x.iter().map(|xi| xi * xi.abs().sqrt().sin()).sum::<f64>()
     }
 }
 

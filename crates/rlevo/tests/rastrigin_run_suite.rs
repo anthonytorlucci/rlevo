@@ -13,7 +13,7 @@ use rlevo_benchmarks::agent::FitnessEvaluable;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::MetricsProvider;
+use rlevo_core::fitness::{Landscape, MetricsProvider};
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;

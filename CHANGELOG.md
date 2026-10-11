@@ -79,6 +79,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   import. The guard implements the post-terminal contract that `rlevo-core`
   puts on every `Environment::step`, and an environment written against
   `rlevo-core` alone could not reach it.
+- **The module path `rlevo_environments::bench::landscape` is removed.** It
+  held trait impls and no item, so nothing could be imported from it; see
+  `rlevo-environments` below for where the impls went.
+- **Every landscape has one `evaluate`, the `Landscape` trait's:
+  `evaluate(&self, x: &[f64]) -> f64`.** The inherent `evaluate` methods
+  are removed from all 23 landscapes in `rlevo_environments::landscapes`.
+  Each type had two public methods of that name, the trait's forwarding to
+  its own, and the two groups disagreed on the signature: the 15 n-D
+  landscapes took a slice, the eight fixed 2-D ones (`Branin`,
+  `Himmelblau`, `SixHumpCamel`, `Easom`, `GoldsteinPrice`, `CrossInTray`,
+  `Bukin6`, `Trefethen`) took `(x1, x2)`. To migrate: import
+  `rlevo_core::fitness::Landscape` (`rlevo::core::fitness::Landscape`
+  through the umbrella) where you call `evaluate`, and write
+  `landscape.evaluate(&[x1, x2])` for a 2-D landscape. Values are
+  unchanged. A 2-D landscape now panics with `input dimension mismatch`,
+  the n-D landscapes' message, when the slice is not two long.
+  `Landscape::evaluate` is `#[must_use]`, as the inherent methods were.
 
 ### `rlevo`
 
@@ -131,6 +148,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and `finalize_rollout` after an episode-ending step read no network. TD3's
   inline copy of the irreducibility argument now links to `Slot` instead of
   duplicating it.
+
+### `rlevo-environments`
+
+**Changed**
+
+- **The 23 landscapes implement `rlevo_core::fitness::Landscape` with no
+  cargo feature.** The impls sat behind `bench`, which pulls in the
+  `rlevo-benchmarks` harness, although they use nothing from it: evaluating
+  Rastrigin as a fitness function meant linking the harness. They are now
+  compiled in every configuration. Each landscape's `impl Landscape` is
+  its evaluation, in its own file, and the file of forwarding impls is
+  gone. `bench` still gates the preset `Suite` factories.
 
 ### `rlevo-benchmarks`
 

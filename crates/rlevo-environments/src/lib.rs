@@ -9,7 +9,8 @@
 //!
 //! - [`classic`]: Classic control problems (`CartPole`, `MountainCar`, Pendulum, Acrobot, `TenArmedBandit`)
 //! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin,
-//!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites)
+//!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites),
+//!   each a [`rlevo_core::fitness::Landscape`]
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`pixel_grid`]: Synthetic pixel-over-grid env — a rank-1 latent observed as
 //!   a rank-3 RGB image (first real [`rlevo_core::state::Observable`] consumer)

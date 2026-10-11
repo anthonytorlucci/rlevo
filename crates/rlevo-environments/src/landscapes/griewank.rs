@@ -12,6 +12,7 @@
 //! Requires `$n \geq 1$`.
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Griewank function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
@@ -40,26 +41,6 @@ impl Griewank {
         self.dim
     }
 
-    /// Evaluate the Griewank function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        let sum: f64 = x.iter().map(|xi| xi * xi).sum::<f64>() / 4000.0;
-        let prod: f64 = x
-            .iter()
-            .enumerate()
-            .map(|(idx, xi)| {
-                let i = (idx + 1) as f64; // 1-based index per the canonical definition
-                (xi / i.sqrt()).cos()
-            })
-            .product();
-        sum - prod + 1.0
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -79,6 +60,27 @@ impl Griewank {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Griewank {
+    /// Evaluate the Griewank function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        let sum: f64 = x.iter().map(|xi| xi * xi).sum::<f64>() / 4000.0;
+        let prod: f64 = x
+            .iter()
+            .enumerate()
+            .map(|(idx, xi)| {
+                let i = (idx + 1) as f64; // 1-based index per the canonical definition
+                (xi / i.sqrt()).cos()
+            })
+            .product();
+        sum - prod + 1.0
     }
 }
 

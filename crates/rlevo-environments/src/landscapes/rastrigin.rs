@@ -6,6 +6,7 @@
 use std::f64::consts::PI;
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Rastrigin function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
@@ -36,21 +37,6 @@ impl Rastrigin {
         self.dim
     }
 
-    /// Evaluate the Rastrigin function at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        let sum: f64 = x
-            .iter()
-            .map(|xi| xi * xi - self.a * (2.0 * PI * xi).cos())
-            .sum();
-        self.a * self.dim as f64 + sum
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -71,6 +57,22 @@ impl Rastrigin {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Rastrigin {
+    /// Evaluate the Rastrigin function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        let sum: f64 = x
+            .iter()
+            .map(|xi| xi * xi - self.a * (2.0 * PI * xi).cos())
+            .sum();
+        self.a * self.dim as f64 + sum
     }
 }
 

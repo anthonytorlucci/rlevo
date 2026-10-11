@@ -13,6 +13,7 @@
 use std::f64::consts::PI;
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Deb's function No.01 evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
@@ -41,18 +42,6 @@ impl Deb1 {
         self.dim
     }
 
-    /// Evaluate Deb's function No.01 at `x`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
-        assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        let sum: f64 = x.iter().map(|xi| (5.0 * PI * xi).sin().powi(6)).sum();
-        -sum / self.dim as f64
-    }
-
     /// Recommended search domain for each coordinate.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
@@ -72,6 +61,19 @@ impl Deb1 {
             p[1] = y;
         }
         self.evaluate(&p)
+    }
+}
+
+impl Landscape for Deb1 {
+    /// Evaluate Deb's function No.01 at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.dim, "input dimension mismatch");
+        let sum: f64 = x.iter().map(|xi| (5.0 * PI * xi).sin().powi(6)).sum();
+        -sum / self.dim as f64
     }
 }
 

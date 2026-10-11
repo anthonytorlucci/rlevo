@@ -23,6 +23,8 @@
 
 use std::f64::consts::PI;
 
+use rlevo_core::fitness::Landscape;
+
 /// Easom's function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
 pub struct Easom;
@@ -32,12 +34,6 @@ impl Easom {
     #[must_use]
     pub const fn new() -> Self {
         Self
-    }
-
-    /// Evaluate Easom's function at `(x1, x2)`.
-    #[must_use]
-    pub fn evaluate(&self, x1: f64, x2: f64) -> f64 {
-        -x1.cos() * x2.cos() * (-(x1 - PI).powi(2) - (x2 - PI).powi(2)).exp()
     }
 
     /// Recommended search box `(-10.0, 10.0)` applied per-coordinate — the canonical domain per
@@ -50,7 +46,20 @@ impl Easom {
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
     fn evaluate_2d(self, x: f64, y: f64) -> f64 {
-        self.evaluate(x, y)
+        self.evaluate(&[x, y])
+    }
+}
+
+impl Landscape for Easom {
+    /// Evaluate Easom's function at `x = [x1, x2]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != 2`.
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), 2, "input dimension mismatch");
+        let (x1, x2) = (x[0], x[1]);
+        -x1.cos() * x2.cos() * (-(x1 - PI).powi(2) - (x2 - PI).powi(2)).exp()
     }
 }
 
@@ -85,26 +94,26 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        assert_relative_eq!(Easom::new().evaluate(PI, PI), -1.0, epsilon = 1e-12);
+        assert_relative_eq!(Easom::new().evaluate(&[PI, PI]), -1.0, epsilon = 1e-12);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
         // Away from `$(\pi, \pi)$` the value is `$\approx 0$`, which exceeds the minimum `$-1$`.
         assert!(
-            Easom::new().evaluate(0.0, 0.0) > -1.0,
+            Easom::new().evaluate(&[0.0, 0.0]) > -1.0,
             "value away from (π, π) must exceed the minimum −1"
         );
     }
 
     #[test]
     fn global_minimum_at_pi_pi() {
-        assert_relative_eq!(Easom::new().evaluate(PI, PI), -1.0, epsilon = 1e-12);
+        assert_relative_eq!(Easom::new().evaluate(&[PI, PI]), -1.0, epsilon = 1e-12);
     }
 
     #[test]
     fn near_zero_far_from_optimum() {
-        let v = Easom::new().evaluate(0.0, 0.0);
+        let v = Easom::new().evaluate(&[0.0, 0.0]);
         assert!(v.abs() < 1e-6, "expected near-zero at origin, got {v}");
     }
 
@@ -151,7 +160,7 @@ mod tests {
             let x1 = lo + span * f64::from(i) / n;
             for j in 0..=STEPS {
                 let x2 = lo + span * f64::from(j) / n;
-                let v = e.evaluate(x1, x2);
+                let v = e.evaluate(&[x1, x2]);
                 assert!(
                     v >= F_OPT - EPS,
                     "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"

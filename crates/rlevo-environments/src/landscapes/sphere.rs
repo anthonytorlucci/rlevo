@@ -5,6 +5,7 @@
 //! Rastrigin / Ackley, though any symmetric domain works.
 
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Landscape;
 
 /// Sphere function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
@@ -34,21 +35,22 @@ impl Sphere {
         self.dim
     }
 
+    /// Recommended search domain for each coordinate.
+    #[must_use]
+    pub const fn bounds(&self) -> (f64, f64) {
+        (-5.12, 5.12)
+    }
+}
+
+impl Landscape for Sphere {
     /// Evaluate the Sphere function at `x`.
     ///
     /// # Panics
     ///
     /// Panics if `x.len() != self.dim`.
-    #[must_use]
-    pub fn evaluate(&self, x: &[f64]) -> f64 {
+    fn evaluate(&self, x: &[f64]) -> f64 {
         assert_eq!(x.len(), self.dim, "input dimension mismatch");
         x.iter().map(|xi| xi * xi).sum()
-    }
-
-    /// Recommended search domain for each coordinate.
-    #[must_use]
-    pub const fn bounds(&self) -> (f64, f64) {
-        (-5.12, 5.12)
     }
 }
 
