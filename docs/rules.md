@@ -115,7 +115,6 @@ applies is decided by the *kind* of struct, not case by case:
 | `HostRow<R>` | `write_host_row` pushes exactly `row_shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `R` |
 | `TensorConvertible<R, B>` | Two clauses, for all valid `x`: **(1) tensor-image fidelity** — `from_tensor(x.to_tensor(r))?.to_tensor(r) == x.to_tensor(r)`, i.e. decode-then-re-encode is a no-op on the tensor; **(2) no fabrication** — any field `write_host_row` does not write must decode to a value *representing absence* (`None`, or a dedicated "unknown" variant), never to a plausible in-domain value. A type whose `write_host_row` covers every field meets (1) in the stronger form `from_tensor(x.to_tensor(r)) == Ok(x)` and meets (2) vacuously — that is the expected case, and (1) is a **floor**, not licence to be partial. The row-writer half of the contract lives on the backend-independent `HostRow<R>` supertrait; `to_tensor` is derived from it and must not be overridden |
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |
-| `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
 | `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted |
 | `PrioritizedReplay<T>` | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` |
 
@@ -169,8 +168,6 @@ Non-fitness float comparisons (geometry, eigenvalues, argmax over logits) use pl
 | `ImportanceExponent::new(b)` | `b` not finite or $\notin [0, 1]$ — use `try_new` for runtime-derived values |
 | `Priority::new(p)` | `p` not finite or not `> 0` — use `try_new` for runtime-derived values |
 | `util::combinations(n, k)` | exact `C(n, k)` exceeds `u64::MAX` — use `checked_combinations` for the full domain |
-| `History::index(i)` | `i >= len()` |
-| `History::new(n)` | `n == 0` or `n > MAX_BUFFER_CAPACITY` |
 | `AgentStats::new(window_size)` | `window_size == 0` or `window_size > MAX_BUFFER_CAPACITY` — the value reaches `VecDeque::with_capacity` unfiltered, where an out-of-range request **aborts** rather than unwinding |
 | `RolloutBuffer::new(capacity, action_dim)` | either argument `== 0` or `> MAX_BUFFER_CAPACITY`; or `capacity * action_dim` overflows `usize` or exceeds `MAX_BUFFER_CAPACITY` — **both factors can be in range while the product is not** |
 | `Slot::get()` / `Slot::step_with(opt, lr, grads)` | the slot is poisoned: an earlier `step_with` unwound inside `Optimizer::step` and lost the module. Every agent method that reads a trainable network inherits this through `get` |
@@ -512,12 +509,22 @@ If an example imports from `rlevo-benchmarks` for any reason — harness invocat
 
 ## 12. Deferred Work Gets a GitHub Issue
 
-Every deferral is filed as a GitHub issue **at the moment it is decided**, before the change that defers it lands. This applies equally to human contributors and coding agents. A deferral is any of: an implementation postponed, a known gap or bug left unfixed, a follow-up split off a PR, a TODO/FIXME/stub, a QA-flagged non-blocking finding, or an option consciously not taken.
+A deferral is recorded where every contributor can find it, **before the change that defers it merges**. This applies equally to human contributors and coding agents. Which record depends on what is deferred.
+
+**File a GitHub issue** when the change leaves any of these behind:
+
+- a known bug or gap left unfixed;
+- a limitation a user can hit, whether the change introduces it or keeps it;
+- a follow-up split off a pull request that no accepted ADR assigns to a later decision;
+- a `TODO`, `FIXME` or stub in the code;
+- a QA-flagged finding that is not fixed.
+
+**An accepted ADR is the record, and no issue is needed,** when it lands in the same change and names both what is left in place and the decision that owns it (ADR 0081 Decision 5 is the model). An option that was considered and not taken belongs in the ADR's *Alternatives considered*, not in the tracker.
 
 - **File first, then defer.** Open the issue with `gh issue create` (or the web UI) *before* merging the code that leaves the gap. "I'll file it later" is how follow-ups vanish.
-- **A session log or code comment is not a substitute for an issue.** Working notes and session logs live only on one maintainer's machine - a follow-up recorded solely there is lost to every other contributor and to CI. The issue tracker is the single shared, durable backlog. Record context in the vault *in addition to*, never *instead of*, the issue.
+- **A session log, a private plan or a code comment is not a substitute.** Working notes live only on one maintainer's machine - a follow-up recorded solely there is lost to every other contributor and to CI. Record context in the vault *in addition to*, never *instead of*, the issue or the ADR.
 - **Prefer fixing over filing when the fix is in scope and cheap.** An issue is for work genuinely deferred, not an excuse to punt a one-line fix that belongs in the current change. If it can be resolved now, resolve it now; file an issue only for what actually carries over.
-- **Give the issue enough to act on later:** what is deferred, why it was deferred now, the affected files/sites, and the acceptance check that closes it. Label it (`enhancement`, `bug`, `chore`, …) and link the originating PR or ADR.
+- **Give the issue enough to act on later:** what is deferred, why it was deferred now, the affected files/sites, and the acceptance check that closes it. Give the command that measures a count rather than the count alone; a number in an issue goes stale and the command does not. Label it (`enhancement`, `bug`, `chore`, …) and link the originating PR or ADR.
 
 ## 13. Session Protocol
 

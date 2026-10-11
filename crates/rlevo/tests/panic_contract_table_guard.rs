@@ -94,17 +94,16 @@
 //! the workspace, or the guard fails and names every site), then looks for the
 //! item's `fn` in the declaring file — widening to any file whose production
 //! source carries an `impl … T` or a bare `for T` line. The second alternative
-//! is not redundant: `History`'s impl header **wraps**, and
-//! `rlevo-reinforcement-learning/src/experience.rs:103-105` reads
-//! `impl<…> Index<usize>` / `for History<D, AD, O, A, R>` / `{`. Any owner parse
-//! that assumes one impl per line drops it.
+//! is not redundant: `EpisodicTrial`'s impl headers **wrap**, and
+//! `rlevo-benchmarks/src/evaluator.rs` reads `impl<…> Trial` /
+//! `for EpisodicTrial<E, A, D, SD, AD>` / `where`. Any owner parse that assumes
+//! one impl per line drops it.
 //!
 //! ## Step C is unreached by today's table, and that is recorded, not hidden
 //!
 //! Every type-tier row in the current table resolves at **step B**: each item's
-//! `fn` happens to sit in its type's own declaring file — `History::index`
-//! included, since `experience.rs` declares both `struct History` (line 98) and
-//! `fn index` (line 119). Step C exists for the ordinary case where a method
+//! `fn` happens to sit in its type's own declaring file. Step C exists for the
+//! ordinary case where a method
 //! lives in a different file from its type, and it is kept because that case
 //! costs nothing to support and is expensive to diagnose when unsupported.
 //!
@@ -569,7 +568,7 @@ impl SourceFile {
 
     /// Whether a production line looks like an impl block header for `ty`,
     /// including the `for T` continuation of a **wrapped** header (see the
-    /// module docs: `History`'s `impl<…> Index<usize>` / `for History<…>`).
+    /// module docs: `EpisodicTrial`'s `impl<…> Trial` / `for EpisodicTrial<…>`).
     fn mentions_impl_of(&self, ty: &str) -> bool {
         self.lines
             .iter()
@@ -1307,56 +1306,57 @@ fn no_exempted_row_names_an_identifier() {
 /// Pins type-tier **step C**'s wrapped-impl-header handling, which no row in
 /// today's table exercises.
 ///
-/// `crates/rlevo-reinforcement-learning/src/experience.rs` is the workspace's
-/// live example: **both** its `History` impl headers wrap, so
-/// `impl<…> Index<usize>` (line 103) and `impl<…>` (line 124) each sit on a line
-/// that does not contain `History` at all, and the type name appears only on the
-/// continuation line `for History<D, AD, O, A, R>` (line 104). A step C that
-/// matched only `^\s*impl\b.*\bT\b` would find **zero** candidate files for
-/// `History` and silently degrade — and because step C is a *widening*, its
-/// degradation shows up as a spurious failure much later, in some future diff
-/// that moves a method out of its type's declaring file.
+/// `crates/rlevo-benchmarks/src/evaluator.rs` is the workspace's live example:
+/// **both** impl headers of `EpisodicTrial` wrap, so `impl<…> std::fmt::Debug`
+/// and `impl<…> Trial` each sit on a line that does not contain `EpisodicTrial`
+/// at all, and the type name appears only on the continuation line
+/// `for EpisodicTrial<E, A, D, SD, AD>`. A step C that matched only
+/// `^\s*impl\b.*\bT\b` would find **zero** candidate files for `EpisodicTrial`
+/// and silently degrade — and because step C is a *widening*, its degradation
+/// shows up as a spurious failure much later, in some future diff that moves a
+/// method out of its type's declaring file.
 ///
 /// This test therefore asserts both halves: that the file *is* recognised, and
-/// that the single-line `impl … History` alternative alone would *not* have
-/// recognised it. The second assertion is what makes the first one informative.
+/// that the single-line `impl … EpisodicTrial` alternative alone would *not*
+/// have recognised it. The second assertion is what makes the first one
+/// informative.
 #[test]
 fn the_wrapped_impl_header_is_recognized() {
-    let experience = workspace()
+    let evaluator = workspace()
         .iter()
-        .find(|file| file.display == "crates/rlevo-reinforcement-learning/src/experience.rs")
+        .find(|file| file.display == "crates/rlevo-benchmarks/src/evaluator.rs")
         .expect(
-            "crates/rlevo-reinforcement-learning/src/experience.rs should exist; it holds \
-             `History`, the workspace's only wrapped impl header",
+            "crates/rlevo-benchmarks/src/evaluator.rs should exist; it holds \
+             `EpisodicTrial`, whose impl headers all wrap",
         );
 
     assert!(
-        experience.mentions_impl_of("History"),
-        "type-tier step C no longer recognises `crates/rlevo-reinforcement-learning/src/\
-         experience.rs` as carrying an impl of `History`. Its impl headers **wrap** — the \
-         type name is on the `for History<D, AD, O, A, R>` continuation line, not on the \
-         `impl` line — so the `for T` alternative in `mentions_impl_of` is load bearing, \
-         not redundant. Do not delete this assertion.",
+        evaluator.mentions_impl_of("EpisodicTrial"),
+        "type-tier step C no longer recognises `crates/rlevo-benchmarks/src/evaluator.rs` \
+         as carrying an impl of `EpisodicTrial`. Its impl headers **wrap** — the type \
+         name is on the `for EpisodicTrial<E, A, D, SD, AD>` continuation line, not on \
+         the `impl` line — so the `for T` alternative in `mentions_impl_of` is load \
+         bearing, not redundant. Do not delete this assertion.",
     );
     assert!(
-        experience.declares_fn("index"),
-        "`fn index` is no longer a production declaration in experience.rs; step C would \
+        evaluator.declares_fn("run"),
+        "`fn run` is no longer a production declaration in evaluator.rs; step C would \
          have nothing to accept even with the candidate file in hand.",
     );
 
-    let single_line_impl_headers = experience
+    let single_line_impl_headers = evaluator
         .lines
         .iter()
-        .zip(&experience.production)
+        .zip(&evaluator.production)
         .filter(|(_, production)| **production)
         .filter(|(line, _)| {
             let trimmed = line.trim_start();
-            starts_with_word(trimmed, "impl") && contains_word(trimmed, "History")
+            starts_with_word(trimmed, "impl") && contains_word(trimmed, "EpisodicTrial")
         })
         .count();
     assert_eq!(
         single_line_impl_headers, 0,
-        "experience.rs now has a single-line `impl … History` header, so this test no \
+        "evaluator.rs now has a single-line `impl … EpisodicTrial` header, so this test no \
          longer proves the `for T` alternative is required. Find another wrapped header to \
          pin step C against, or delete the alternative and this test together.",
     );

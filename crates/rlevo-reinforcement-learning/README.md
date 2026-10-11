@@ -403,17 +403,6 @@ Prioritized Experience Replay follows the algorithm of Schaul et al.:
 
 > T. Schaul, J. Quan, I. Antonoglou, and D. Silver, "Prioritized experience replay," in Proc. Int. Conf. Learn. Represent. (ICLR), 2016. [arXiv:1511.05952](https://arxiv.org/abs/1511.05952)
 
-### Trajectory Storage (`experience`)
-
-Per-transition records and a FIFO trajectory buffer. Moved here from `rlevo-core` per ADR 0003.
-
-> **Not used by any algorithm.** No shipped agent consumes these types; the off-policy agents store transitions through the [`replay`](#experience-replay-replay) seam instead. ADR 0081 removed the two history traits that took `&History` (`HistoryRepresentation`, `SufficientStatistic`); whether `ExperienceTuple` and `History` stay is still open.
-
-| Item | Description |
-|------|-------------|
-| `ExperienceTuple<D, AD, O, A, R>` | Single `(s, a, r, s′, done)` transition |
-| `History<D, AD, O, A, R>` | Fixed-capacity FIFO buffer (`VecDeque`); indexable, iterable |
-
 ### Performance Tracking (`metrics`)
 
 Episode-level outcome tracking for training loops. Moved here from `rlevo-core` per ADR 0003.

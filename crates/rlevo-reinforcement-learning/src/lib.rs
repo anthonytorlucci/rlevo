@@ -224,7 +224,6 @@ pub mod algorithms {
     }
 }
 
-pub mod experience;
 pub mod metrics;
 pub mod replay;
 pub mod target;

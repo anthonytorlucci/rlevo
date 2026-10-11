@@ -67,6 +67,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `AcoPermConfig`, `AcoPermState`). Its `init`, `ask` and `tell` were
   `todo!()`, so a published `Strategy` panicked when driven. It returns with
   an implementation. The `Permutation` genome kind stays.
+- **The `experience` module is removed** from
+  `rlevo-reinforcement-learning`, with `ExperienceTuple` and `History` (ADR
+  0082). Nothing in the workspace used either: every off-policy agent stores
+  `replay::Transition`, and `ExperienceTuple` was a second definition of the
+  same five fields. Store transitions through the `replay` module.
 
 ### `rlevo`
 
@@ -145,6 +150,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Changed**
 
+- **`docs/rules.md` section 12 no longer asks for a GitHub issue for every
+  deferral.** An issue is still required for a known bug or gap, a
+  limitation a user can hit, an unowned follow-up, a `TODO` or stub, and an
+  unfixed QA finding. Where an accepted ADR in the same change names what is
+  left in place and the decision that owns it, the ADR is the record, and an
+  option not taken belongs in the ADR's alternatives. An issue should give
+  the command that measures a count, not only the count.
 - **The toolchain pin moves from Rust 1.94.1 to 1.99.0**
   (`rust-toolchain.toml`); rustup installs it on first use. The newer
   compiler, Clippy and rustdoc asked for changes that alter no behaviour:
