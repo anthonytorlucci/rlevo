@@ -72,6 +72,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   0082). Nothing in the workspace used either: every off-policy agent stores
   `replay::Transition`, and `ExperienceTuple` was a second definition of the
   same five fields. Store transitions through the `replay` module.
+- **`EpisodeGuard` moves to `rlevo-core`** (ADR 0083). It is
+  `rlevo_core::episode::EpisodeGuard`, or `rlevo::core::episode::EpisodeGuard`
+  through the umbrella, and the module `rlevo_environments::episode` is no
+  longer public. The type and its five methods are unchanged; replace the
+  import. The guard implements the post-terminal contract that `rlevo-core`
+  puts on every `Environment::step`, and an environment written against
+  `rlevo-core` alone could not reach it.
 
 ### `rlevo`
 

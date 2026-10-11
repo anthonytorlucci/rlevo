@@ -13,6 +13,7 @@
 //! | [`action`] | [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`] — layered action-space extensions |
 //! | [`state`] | [`BeliefState`], [`StateAggregation`], [`Observable`] — POMDP belief, state aggregation and the state-to-observation projection |
 //! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
+//! | [`episode`] | [`EpisodeGuard`] — the state machine behind `Environment::step`'s post-terminal contract, held by every implementor |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`GenerationProbe`] — drive seam for self-paced work (evolutionary generation loops) |
 //! | [`fitness`] | [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
@@ -77,6 +78,7 @@
 //! [`EpisodeStatus::Terminated`]: crate::environment::EpisodeStatus::Terminated
 //! [`EpisodeStatus::Truncated`]: crate::environment::EpisodeStatus::Truncated
 //! [`EnvironmentError`]: crate::environment::EnvironmentError
+//! [`EpisodeGuard`]: crate::episode::EpisodeGuard
 //! [`ScalarReward`]: crate::reward::ScalarReward
 //! [`GenerationProbe`]: crate::evaluation::GenerationProbe
 //! [`BenchableAgent`]: crate::fitness::BenchableAgent
@@ -158,6 +160,18 @@ pub mod config;
 /// [`EpisodeStatus`]: crate::environment::EpisodeStatus
 /// [`EnvironmentError`]: crate::environment::EnvironmentError
 pub mod environment;
+
+/// Episode-lifecycle guard.
+///
+/// Provides [`EpisodeGuard`], the state machine an [`Environment`] holds to
+/// meet the post-terminal contract on `step`: a step taken after the episode
+/// ended returns [`EnvironmentError::StepAfterEpisodeEnd`] and changes
+/// nothing (ADR 0044).
+///
+/// [`EpisodeGuard`]: crate::episode::EpisodeGuard
+/// [`Environment`]: crate::environment::Environment
+/// [`EnvironmentError::StepAfterEpisodeEnd`]: crate::environment::EnvironmentError::StepAfterEpisodeEnd
+pub mod episode;
 
 /// Drive seam for work that paces itself.
 ///

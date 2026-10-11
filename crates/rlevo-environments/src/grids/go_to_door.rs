@@ -85,7 +85,6 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use crate::episode::EpisodeGuard;
 use burn::tensor::{Tensor, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
@@ -94,6 +93,7 @@ use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _, SnapshotBase,
 };
+use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};

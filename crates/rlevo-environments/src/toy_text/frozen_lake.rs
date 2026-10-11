@@ -42,8 +42,8 @@ use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
 
-use crate::episode::EpisodeGuard;
 use crate::toy_text::MapError;
+use rlevo_core::episode::EpisodeGuard;
 
 // ── tile ──────────────────────────────────────────────────────────────────────
 

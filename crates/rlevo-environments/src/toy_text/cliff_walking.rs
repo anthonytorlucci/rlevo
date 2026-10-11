@@ -45,7 +45,6 @@
 //! When enabled, intended direction succeeds with probability 1/3; each of the two
 //! perpendicular directions occurs with probability 1/3.
 
-use crate::episode::EpisodeGuard;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -55,6 +54,7 @@ use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
 };
+use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};

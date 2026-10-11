@@ -81,7 +81,7 @@ use std::fmt::{Display, Formatter};
 
 use burn::tensor::{Tensor, backend::Backend};
 
-use crate::episode::EpisodeGuard;
+use rlevo_core::episode::EpisodeGuard;
 
 /// Grid side length in cells; the grid is [`GRID_SIDE`]`$^2$` cells.
 pub const GRID_SIDE: usize = 5;

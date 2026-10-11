@@ -20,9 +20,9 @@ use rlevo_core::environment::{
 };
 use rlevo_core::reward::ScalarReward;
 
-use crate::episode::EpisodeGuard;
 use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
 use crate::locomotion::common::{LocomotionSnapshot, ctrl_cost, wrap_to_pi};
+use rlevo_core::episode::EpisodeGuard;
 
 use super::action::SwimmerAction;
 use super::config::SwimmerConfig;

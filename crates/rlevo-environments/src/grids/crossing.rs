@@ -106,9 +106,9 @@ use rand::seq::SliceRandom;
 // `Rng` is the trait bound (rules.md §8); `RngExt` carries `random_range`,
 // which rand 0.10 moved out of `Rng` into a blanket extension implemented for
 // every `R: Rng + ?Sized`. Imported anonymously — only its methods are wanted.
-use crate::episode::EpisodeGuard;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::episode::EpisodeGuard;
 // `Snapshot` is imported anonymously: `step()` needs its `status()` method to
 // feed the guard, but re-exporting the name through this module's `use super::*`
 // in the test module would shadow the test module's own explicit import.

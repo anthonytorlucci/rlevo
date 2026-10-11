@@ -27,7 +27,7 @@ use rlevo_core::environment::{
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
-use crate::episode::EpisodeGuard;
+use rlevo_core::episode::EpisodeGuard;
 
 use super::action::BipedalWalkerAction;
 use super::config::{BipedalTerrain, BipedalWalkerConfig};

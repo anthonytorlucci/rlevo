@@ -4,7 +4,7 @@ use rlevo_core::{
     render::{AsciiRenderable, StyledFrame},
 };
 
-use crate::episode::EpisodeGuard;
+use rlevo_core::episode::EpisodeGuard;
 
 /// Wraps an environment and truncates episodes after `max_steps` steps.
 ///

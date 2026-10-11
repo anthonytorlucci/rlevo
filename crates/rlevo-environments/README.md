@@ -249,6 +249,8 @@ To replay one specific episode bit-for-bit, use the inherent `reset_with_seed(se
 - `Terminated` — natural episode end (goal reached, fell over, game over)
 - `Truncated` — wall-clock time limit exceeded (`TimeLimit` wrapper)
 
+A `step` after `Terminated` or `Truncated` returns `EnvironmentError::StepAfterEpisodeEnd` and changes nothing; call `reset` first. Every environment here, and `TimeLimit`, holds a `rlevo_core::episode::EpisodeGuard` for this.
+
 ### Const Generics
 
 State and observation dimensions are encoded as const generics (`State<D>`, `Observation<D>`). Mismatched dimensions produce a compile-time error rather than a runtime panic.

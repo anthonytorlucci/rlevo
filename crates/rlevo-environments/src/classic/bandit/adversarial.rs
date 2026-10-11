@@ -56,7 +56,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use super::k_armed::{KArmedBanditAction, KArmedBanditObservation, KArmedBanditState};
-use crate::episode::EpisodeGuard;
+use rlevo_core::episode::EpisodeGuard;
 
 // ---------------------------------------------------------------------------
 // Config

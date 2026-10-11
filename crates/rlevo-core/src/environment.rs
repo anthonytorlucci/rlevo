@@ -383,6 +383,10 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// environment's RNG stream is a persistent, observable part of its state,
     /// so a rejected step must not advance it either.
     ///
+    /// [`EpisodeGuard`](crate::episode::EpisodeGuard) implements this: hold
+    /// one, `check()` it first, `record()` the status of each snapshot emitted,
+    /// and `reset()` it in [`reset`](Self::reset).
+    ///
     /// # Errors
     ///
     /// Returns [`EnvironmentError::InvalidAction`] if the action is not legal in

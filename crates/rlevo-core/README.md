@@ -66,6 +66,10 @@ Extensions to `State<R>` for partial observability and hierarchy:
 | `SnapshotBase<D, O, R>` | Default `Snapshot` implementation with named constructors: `running()`, `terminated()`, `truncated()` |
 | `SnapshotMetadata` | Builder for named reward components and 3-D positions (visualization / debugging) |
 
+### `episode` — Episode-Lifecycle Guard
+
+`EpisodeGuard` is the state machine behind `Environment::step`'s post-terminal contract: a step taken after the episode ended returns `EnvironmentError::StepAfterEpisodeEnd` and changes nothing. Every environment holds one. `check()` it first in `step`, `record()` the status of each snapshot emitted, and `reset()` it in `reset`.
+
 ### `reward` — Concrete Reward Types
 
 `ScalarReward(f32)` is a thin newtype implementing `Reward`. It covers the vast majority of environments. Custom reward types can implement `Reward` directly.
@@ -174,11 +178,12 @@ rlevo-core = { path = "../rlevo-core" }  # or version once published
 ```rust
 use rlevo_core::{
     base::{Action, Observation, Reward, State},
-    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, Snapshot, SnapshotBase},
+    episode::EpisodeGuard,
     reward::ScalarReward,
 };
 
-struct MyEnv { /* ... */ }
+struct MyEnv { guard: EpisodeGuard, /* ... */ }
 
 impl Environment<1, 1, 1> for MyEnv {
     type StateType = MyState;
@@ -188,18 +193,23 @@ impl Environment<1, 1, 1> for MyEnv {
     type SnapshotType = SnapshotBase<1, MyObservation, ScalarReward>;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         // reset internal state, return initial snapshot
         Ok(SnapshotBase::running(MyObservation::default(), ScalarReward::new(0.0)))
     }
 
     fn step(&mut self, action: MyAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // first: a step after the episode ended is an error and changes nothing
+        self.guard.check()?;
         // apply action, compute reward
-        Ok(SnapshotBase::terminated(MyObservation::default(), ScalarReward::new(1.0)))
+        let snapshot = SnapshotBase::terminated(MyObservation::default(), ScalarReward::new(1.0));
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
 impl ConstructableEnv for MyEnv {
-    fn new(render: bool) -> Self { MyEnv { /* ... */ } }
+    fn new(render: bool) -> Self { MyEnv { guard: EpisodeGuard::new(), /* ... */ } }
 }
 ```
 

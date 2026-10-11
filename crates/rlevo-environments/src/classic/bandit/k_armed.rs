@@ -44,7 +44,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use crate::episode::EpisodeGuard;
+use rlevo_core::episode::EpisodeGuard;
 
 // ---------------------------------------------------------------------------
 // State

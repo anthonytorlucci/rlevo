@@ -93,10 +93,10 @@ use super::core::{
 // `Rng` is the object-safe core trait in rand 0.10; the `random_range` sugar
 // lives on the blanket-implemented `RngExt`. The public bound stays
 // `R: Rng + ?Sized` per `rules.md` §8.
-use crate::episode::EpisodeGuard;
 use rand::{Rng, RngExt as _, SeedableRng, rngs::StdRng};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};

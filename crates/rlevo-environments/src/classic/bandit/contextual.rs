@@ -50,7 +50,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use super::k_armed::KArmedBanditAction;
-use crate::episode::EpisodeGuard;
+use rlevo_core::episode::EpisodeGuard;
 
 // ---------------------------------------------------------------------------
 // State / Observation
