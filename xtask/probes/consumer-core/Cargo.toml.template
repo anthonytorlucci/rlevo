@@ -1,0 +1,13 @@
+[package]
+name = "consumer-core"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# An environment author with no learner: the contract crate and nothing else.
+# `src/lib.rs` is not stored here. `xtask` writes it from the thermostat's
+# environment file, so this probe builds what that one builds.
+[dependencies]
+rlevo-core = "{{rlevo_version}}"
+
+[workspace]

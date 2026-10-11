@@ -98,13 +98,20 @@ const FAST_CRATES: &[FastCrate] = &[
         name: "rlevo",
         features: &["viz-report"],
     },
+    // The probe runner's own logic: what counts as a hand-added crate, which
+    // paths leave the contract crate, how step lines become a verdict. A
+    // defect in any of them is a probe that passes when it should not.
+    FastCrate {
+        name: "xtask",
+        features: &[],
+    },
 ];
 
 /// Workspace members deliberately outside the tier, each with its reason.
 ///
 /// Add here rather than dropping a member from `FAST_CRATES` — a silent
 /// omission is the failure mode `assert_tier_is_total` exists to prevent.
-const NOT_TESTED: &[(&str, &str)] = &[("xtask", "the build tooling itself; it carries no tests")];
+const NOT_TESTED: &[(&str, &str)] = &[];
 
 #[macros::declare_command_args(None, None)]
 pub struct TestFastCmdArgs {

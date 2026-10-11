@@ -9391,6 +9391,7 @@ name = "xtask"
 version = "0.5.0"
 dependencies = [
  "log",
+ "serde_json",
  "strum 0.27.2",
  "tracel-xtask",
 ]

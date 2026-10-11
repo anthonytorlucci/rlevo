@@ -1,0 +1,13 @@
+[package]
+name = "consumer-ppo"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# "PPO on my own environment": the contract and the RL crate, without the
+# umbrella and so without the shipped environments.
+[dependencies]
+rlevo-core = "{{rlevo_version}}"
+rlevo-reinforcement-learning = "{{rlevo_version}}"
+
+[workspace]
