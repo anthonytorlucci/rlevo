@@ -10,7 +10,7 @@
 //! - [`linalg`] — host-side dense linear algebra (Jacobi eigendecomposition,
 //!   Cholesky) for the covariance-matrix strategies.
 //!
-//! All operator functions take an explicit `&mut dyn RngCore` and a
+//! All operator functions take an explicit `&mut dyn Rng` and a
 //! `&B::Device` so the harness owns determinism. Operators never touch
 //! thread-local or global RNG state.
 

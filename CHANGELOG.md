@@ -192,6 +192,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `RunManifest`, `toml` 1.1 writes the same `run.toml` bytes as 0.8 and
   reads back what 0.8 wrote.
 
+**Fixed**
+
+- **Two lines of the README's usage example did not compile.** The agent
+  took `&mut dyn rand::RngCore`, a trait `rand` 0.10 does not have (it is
+  `rand::Rng`), and the call was `run_suite::<_, MyAgent, _, _>(..)`, four
+  generic arguments to a method that takes seven, under a comment that
+  promised no turbofish. Nothing compiles a README, so nothing said so; the
+  `byoe-1-thermostat` probe did, with each line tried as an outside author
+  would write it. The example now reads `run_suite(&suite, |_seed| MyAgent,
+  &mut reporter)`.
+
 ### Infrastructure
 
 **Added**
