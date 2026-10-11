@@ -161,6 +161,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   its evaluation, in its own file, and the file of forwarding impls is
   gone. `bench` still gates the preset `Suite` factories.
 
+### `rlevo-hybrid`
+
+**Changed**
+
+- **`rlevo-hybrid` no longer depends on `rlevo-reinforcement-learning`.**
+  No file in the crate used it: the three modules that ship
+  (`RolloutFitness`, `PolicyNeuroevolution`, `StatefulPolicy`) are built on
+  `rlevo-core` and `rlevo-evolution`. A consumer that depends on
+  `rlevo-hybrid` alone no longer compiles the RL crate, and nothing else in
+  its dependency tree changes. No public item changes. The dependency
+  returns with the first strategy that trains a gradient learner inside the
+  evolutionary loop.
+
+**Fixed**
+
+- **The crate docs and README said `rlevo-evolution` never depends on
+  `rlevo-core`.** It does. What it never does is name an `Environment`,
+  and that is the boundary this crate marks.
+
 ### `rlevo-benchmarks`
 
 **Changed**
