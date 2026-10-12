@@ -53,9 +53,12 @@
 /// must keep in step with the probe: the consumer needs no copy of the
 /// budget to know when to stop.
 ///
-/// (The evaluator still holds `max_steps` as a backstop against a probe that
-/// never returns `None`, and stops there without a warning. Set it at least
-/// as large as the probe's budget.)
+/// The evaluator still holds `max_steps`, as a backstop against a probe that
+/// never returns `None`. Set it at least as large as the probe's budget. When
+/// the backstop is reached, the evaluator calls `advance` once more to learn
+/// whether the probe was finished, and warns if it was not. The contract
+/// above is what makes that call safe: on a finished probe it does nothing.
+/// On an unfinished one it runs one generation, whose metrics are dropped.
 ///
 /// # Who calls this, and who implements it
 ///

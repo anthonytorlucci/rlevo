@@ -434,9 +434,13 @@ Three things decide whether such a run is the one you meant:
   times would replay the same run ten times.
 - **`max_steps` caps a generation trial.** The harness stops a trial at the
   loop's `max_generations` or at `EvaluatorConfig::max_steps`, whichever comes
-  first, and `max_steps` defaults to 1000. It does not warn when its own cap is
-  the one that ends the trial. Set `max_steps` at least as large as the loop's
-  budget; the `generations` scalar in each trial's report says how many ran.
+  first, and `max_steps` defaults to 1000. Set `max_steps` at least as large as
+  the loop's budget. If the cap ends a trial that had budget left, the harness
+  logs a warning that names the trial and the cap, and the `generations` scalar
+  in that trial's report is the cap, not the budget. The warning is a `tracing`
+  event, as `LoggingReporter`'s own lines are: a program that installs no
+  `tracing` subscriber sees neither, and has only the `generations` scalar to
+  go by.
 - **Threads.** Trials run concurrently on a thread pool
   (`EvaluatorConfig::num_threads`). On `Flex` the results do not depend on the
   thread count; see the determinism note above for the two exceptions.

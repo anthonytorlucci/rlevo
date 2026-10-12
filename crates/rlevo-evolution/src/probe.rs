@@ -47,10 +47,15 @@
 //! # What the harness adds, and one thing to set
 //!
 //! A `GenerationTrial` stops when `advance` returns `None` or after
-//! `EvaluatorConfig::max_steps` generations, whichever comes first, and it
-//! does not warn when its own cap is the one that ends the trial. `max_steps`
-//! defaults to 1000. Set it at least as large as the loop's budget. The
-//! `generations` scalar in each trial's report says how many ran.
+//! `EvaluatorConfig::max_steps` generations, whichever comes first.
+//! `max_steps` defaults to 1000. Set it at least as large as the loop's
+//! budget. A trial that the cap ends with budget left logs one warning, and
+//! the `generations` scalar in its report is the cap, not the budget.
+//!
+//! To know whether budget was left, the trial calls `advance` once more when
+//! it reaches the cap. For the loops here that call returns `None` without
+//! running anything when the budget is spent, because `advance` asks
+//! `is_done` first. A driver of your own must do the same.
 //!
 //! # Writing a driver of your own
 //!

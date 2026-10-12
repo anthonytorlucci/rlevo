@@ -3,7 +3,7 @@ project: rlevo
 status: active
 type: decision
 date: 2026-10-12
-tags: [adr, decision, architecture, naming, evolution, coevolution, hybrid, breaking-change]
+tags: [adr, decision, architecture, naming, evolution, coevolution, hybrid, harness, seeding, breaking-change]
 ---
 
 # ADR 0085: The generation loop is named `EvolutionaryLoop`
@@ -37,6 +37,10 @@ Closes a cost that ADR
 [0084](0084-the-umbrella-carries-the-evaluation-harness.md) recorded: that
 "harness" names two things until the evolution crate's generation drivers
 are renamed.
+
+Extends ADR [0076](0076-trial-seam-splits-machinery-from-trial-shape.md),
+which demoted `EvaluatorConfig::max_steps` to a backstop for a generation
+trial. It is still one. A trial it ends now says so (Decision 9).
 
 ## Context
 
@@ -198,6 +202,28 @@ before a how-to for strategy authors is written.
    names the loop. Section 8's seeding rule, which forbids re-seeding in
    `reset()`, gains the exception the loops have always been: a loop's
    `reset` starts a new run and re-seeds on purpose.
+9. **A generation trial warns when the evaluator's cap ends it.**
+   `GenerationTrial` stops when its probe returns `None` or after
+   `EvaluatorConfig::max_steps` generations, as before. The cap defaults to
+   1000 and ended a trial without a word: a loop with a budget of 1500
+   under the default configuration reported 1000 generations and nothing
+   else. Now, when the count reaches the cap, the trial calls `advance`
+   once more. If that returns `None` the probe was finished and the trial
+   is silent. If it returns a generation, the probe had budget left: the
+   trial emits one `tracing::warn!` carrying the unit's name, the trial
+   index and the cap, and drops that generation. It is in neither the
+   `generations` scalar, the reported metrics nor the wall clock, which is
+   read before the call.
+
+   The trial asks the probe because the count cannot tell. A budget equal
+   to the cap reaches the cap too, and is not cut short. Four of the five
+   generation-trial configurations in the workspace set the two equal, so a
+   check on the count alone would warn on each of them. It asks with
+   `advance` because that is the question `GenerationProbe` has: the
+   trait's contract already requires `advance` past exhaustion to return
+   `None` without doing work, and both loops' `advance` asks `is_done`
+   first. The cost falls only on a trial that is cut short, which runs one
+   generation it does not report.
 
 ## Consequences
 
@@ -213,6 +239,8 @@ before a how-to for strategy authors is written.
   evaluator always did. A budget of zero now runs no generation by either
   route; `while !harness.step(()).done {}` ran one.
 - An evolutionary run and an episode stop on the same word.
+- A suite whose cap is below a loop's budget says so, once per affected
+  trial, where it reported a shorter run and nothing else.
 - The documentation says what the loop does, and why. The loops' own
   documentation gives the six things one `step` does and the reason `step`
   reports no status; `rlevo_evolution::probe` sets the two ways of driving
@@ -252,6 +280,18 @@ before a how-to for strategy authors is written.
 - Eleven accepted ADRs name types that no longer exist under those names,
   ADR 0077 names `GenerationStep` and ADR 0001 quotes the old call. They
   are not edited. The Status section above is the mapping.
+- A trial that the cap cuts short runs one generation it does not report:
+  one in 1001 at the default cap. A fitness function that counts its own
+  calls, or writes anything, sees that generation. A trial that is not cut
+  short pays one call to `advance` that returns `None`.
+- The evaluator now relies on a clause of `GenerationProbe`'s contract it
+  did not exercise when a budget equalled the cap: that `advance` past
+  exhaustion returns `None` and does nothing. A probe that runs another
+  generation there is warned about as cut short, which is the backstop
+  working; one that panics there is reported as an errored trial.
+- The warning is a `tracing` event, seen only where a subscriber is
+  installed. The report carries the shorter `generations` scalar and no
+  other mark.
 - The two loops are still one shape written twice. `CoEvolutionaryLoop`'s
   ten fields and seven public methods each have a counterpart in
   `EvolutionaryLoop`. Merging them needs a per-generation step trait on the
@@ -265,6 +305,8 @@ before a how-to for strategy authors is written.
 - `GenerationProbe`, its contract and both implementations' behaviour:
   `advance` still checks the budget before it steps, and `step` still does
   not.
+- What a generation trial reports, cut short or not: the same
+  `generations` scalar, the same metrics and the same report shape.
 - The `tracing` events and their field names, which the live dashboard
   reads.
 
@@ -286,7 +328,12 @@ read `reward` now read the value where it lives: the canonical fitness the
 test strategy's `tell` received, and `CoEAMetrics::binding_fitness`. Four
 unit tests are new, two on each loop, and pin what Decision 2 states:
 `is_done` is `true` straight after `reset` when the budget is zero, and a
-`step` past the budget runs a generation. The four outside-in probes pass;
+`step` past the budget runs a generation. Two more pin Decision 9: a probe
+with a budget of 7 under a cap of 4 warns once, reports 4 generations and
+the fourth generation's metrics, and is advanced 5 times; budgets of 0, 3
+and 4 under the same cap do not warn. Three mutants of the check fail them:
+warning on the count alone, never warning, and keeping the dropped
+generation's metrics. The four outside-in probes pass;
 none of their templates names a loop. Every Markdown example this change
 wrote or corrected was compiled and run once in a throwaway test, since
 nothing else compiles them.
@@ -338,6 +385,23 @@ uncheckable: with only the two types renamed, a search for "harness" in the
 files that name a loop returned 635 lines to read by hand.
 
 **Merge the two loops in the same change.** Not done; see Costs.
+
+**Warn whenever a generation trial reaches the cap.** Rejected. It needs no
+extra call, and it is wrong for a budget equal to the cap, which is how
+four of the workspace's five generation-trial configurations are written.
+A warning that fires on a correct configuration is one people learn to
+ignore.
+
+**Add a predicate to `GenerationProbe`,** `is_exhausted(&self) -> bool`,
+and ask that at the cap. Rejected. It would be a third method for every
+probe to implement, in a contract crate, to spare one generation on a run
+whose configuration is already wrong. The trait's own documentation argues
+against a status flag beside `advance`, and `advance` past exhaustion is
+already required to be free.
+
+**Make a cut-short trial an errored one.** Rejected. Its numbers are true
+of the generations it reports, an errored trial discards them, and under
+`fail_fast` a cap set too low would abort the suite.
 
 ## References
 

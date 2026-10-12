@@ -371,6 +371,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Changed**
 
+- **A `GenerationTrial` warns when `EvaluatorConfig::max_steps` cuts it
+  short** (ADR 0085, Decision 9). The cap is a backstop, 1000 by default,
+  and it used to end a trial without a word: a loop with a budget of 1500
+  under the default config reported 1000 generations and nothing else. Now
+  the trial logs one `tracing::warn!` with the unit's name, the trial
+  index and the cap. To learn whether the probe had budget left, the trial
+  calls `advance` once more when it reaches the cap. A finished probe
+  returns `None` and nothing happens, so a budget equal to the cap stays
+  silent. An unfinished one runs one more generation, which is dropped: it
+  is in neither the `generations` scalar, the reported metrics nor the
+  wall clock, and a fitness function that counts its own calls sees it.
+  Set `max_steps` at least as large as the probe's budget and nothing
+  changes.
+
 - **`report::OpenError::ManifestParse` carries `toml` 1.1's `de::Error`**
   (was `toml` 0.8). The harness moved to `toml` 1.1 and `base64` 0.23. A
   caller that names `toml::de::Error` to inspect this variant needs `toml`
@@ -384,10 +398,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`GenerationTrial`'s docs did not say that `max_steps` caps it.** A
   generation trial stops when its probe returns `None` or after
   `EvaluatorConfig::max_steps` generations, whichever comes first, and
-  `max_steps` defaults to 1000. A loop with a budget of 1500 under the
-  default config reports 1000 generations, with no warning. The behaviour
-  is unchanged; it is now documented on `GenerationTrial`, on
-  `GenerationProbe`, in `rlevo_evolution::probe` and in the ask/tell guide.
+  `max_steps` defaults to 1000. The cap is now documented on
+  `GenerationTrial`, on `EvaluatorConfig::max_steps`, on `GenerationProbe`,
+  in `rlevo_evolution::probe` and in the ask/tell guide, with the warning
+  described under Changed above.
 
 - **Two lines of the README's usage example did not compile.** The agent
   took `&mut dyn rand::RngCore`, a trait `rand` 0.10 does not have (it is
