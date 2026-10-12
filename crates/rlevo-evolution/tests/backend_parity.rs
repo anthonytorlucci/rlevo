@@ -1,23 +1,23 @@
 //! Cross-backend parity for the pure-tensor operator baselines.
 //!
-//! A `1e-4` relative-tolerance match of `best_fitness_ever` between
-//! flex and wgpu on Sphere-D10 is untestable in practice: the two
-//! backends use independent RNG streams (flex = splitmix-seeded
-//! `FlexRng`; wgpu = per-device compute-pipeline seeded stream) so
-//! even when the same host seed is supplied, tensor `random()` calls
-//! produce different bytes. The strategies therefore take different
-//! trajectories and end at different points — both small, neither a
-//! function of the other.
+//! This test validates a weak but meaningful criterion: the pure-tensor
+//! operators compose correctly on both backends and each drives GA to a
+//! non-trivial optimum on Sphere-D10.
 //!
-//! This test accordingly validates a weaker but meaningful criterion:
-//! the pure-tensor operators compose correctly on both backends and
-//! each drives GA to a non-trivial optimum on Sphere-D10. Bit-level
-//! backend-parity would require routing a single host RNG through both
-//! backends, which `CubeCL` doesn't currently expose.
+//! It was written when operators drew from each backend's own generator,
+//! so that the two backends took unrelated trajectories and nothing
+//! stronger could be asserted. That is no longer so. Every operator draws
+//! from the host `seed_stream` (`rlevo_evolution::rng`), both backends
+//! receive the same random numbers, and a `wgpu` run follows the `flex`
+//! one closely: in a one-off measurement (GA at its defaults, 6-D
+//! Rastrigin, population 32, 60 generations, seed 42, Apple M2 Pro) the
+//! best fitness differed by at most `5.7e-5` across the run, and two
+//! `wgpu` runs were bit-identical. A tolerance assertion between the
+//! backends is therefore possible now; this test does not make one.
 //!
 //! # Reduction-nondeterminism caveat
 //!
-//! Even when the RNG disparity is set aside, the wgpu backend does not
+//! Even with the same random numbers, the wgpu backend does not
 //! guarantee bit-identical reductions because workgroup ordering is
 //! implementation-dependent. The Flex backend is still expected to
 //! be bit-deterministic; that contract is enforced by
@@ -25,11 +25,9 @@
 //!
 //! # Single test, serial execution
 //!
-//! Both backends seed their internal RNG through process-global state
-//! (`Mutex<Option<FlexRng>>` for flex; per-device seed for
-//! wgpu). To keep the two runs comparable, this file contains exactly
-//! one `#[test]` function so nothing else in the test binary runs
-//! concurrently.
+//! History, as in `tests/determinism.rs`: the single `#[test]` function
+//! dates from operators that drew from process-global backend generators.
+//! Nothing here touches one now.
 
 use burn::backend::{Flex, Wgpu};
 use rlevo_core::bounds::Bounds;

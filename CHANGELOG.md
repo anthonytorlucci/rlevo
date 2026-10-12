@@ -171,8 +171,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **The `ga_rastrigin` example's probe did not re-seed in `begin`.**
+  `GenerationProbe` requires `begin` to re-seed, so that two runs of one
+  probe produce the same metrics. The example's hand-written probe
+  resampled its population from an RNG that kept advancing, and worked only
+  because every trial builds a fresh probe. `begin` now re-seeds from a
+  stored seed, and the population is sampled there and not in `new`. The
+  example's printed results change once, because the first population is
+  now the first sample from the seed where it was the second. Its
+  documented sample output is now what it prints.
+
 - **`README.md` and the crate docs said `rlevo = "0.3"`.** They now state
   the current version, 0.5.
+
+### `rlevo-core`
+
+**Fixed**
+
+- **`FitnessEvaluable`'s docs named a consumer that does not exist**,
+  `Evaluator::run_optimizer_trial`. The consumer is `rlevo-evolution`'s
+  `FromFitnessEvaluable` adapter.
+- **`GenerationProbe`'s docs did not say who calls it or who implements
+  it.** An evaluator calls it; a user implements it only for a generation
+  loop of their own. The docs now say so, point at the recipe in
+  `rlevo_evolution::probe`, and qualify the determinism clause for backends
+  whose arithmetic is not deterministic.
 
 ### `rlevo-reinforcement-learning`
 
@@ -234,6 +257,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   type docs give the three calls, the six things one `step` does and the
   reason `step` reports no status. `rlevo_evolution::probe` shows driving a
   loop by hand beside handing it to `rlevo::harness`.
+- **A test that seeded trials do not depend on the thread count.**
+  `parallel_trials_match_serial_trials` (in `crates/rlevo/tests/`) runs the
+  same seeded trials on one thread, on four and on the default pool and
+  compares every scalar bit for bit. A loop made to draw from a
+  process-global generator fails it.
 
 **Fixed**
 
@@ -250,6 +278,45 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   parallel.** It does neither: it stops at `max_generations` and calls the
   fitness function once per generation. The guide now lists what it does
   add.
+- **The reproducibility notes said parallel loops race, and they do not.**
+  `EvolutionaryLoop`'s docs, the crate README and the ask/tell guide warned
+  that loops run in parallel race on Burn's process-global generator and
+  advised pinning `EvaluatorConfig::num_threads = Some(1)`. No strategy has
+  drawn from that generator since the host-RNG convention; every draw comes
+  from the loop's own RNG. Measured on `Flex` (Apple M2 Pro, 12 cores): 16
+  seeded trials of each of GA, DE, EP, PSO and CMA-ES, 60 generations on a
+  6-dimensional Rastrigin, gave bit-identical scalars on one thread, on
+  eight and on the default pool. The notes now say so. They also said the
+  `wgpu` backend takes an unrelated trajectory; it follows the `Flex` one,
+  to within `5.7e-5` in best fitness over 60 generations in one measurement
+  (GA, same problem, seed 42), with two `wgpu` runs bit-identical on that
+  machine. Bit-identical repeats on `wgpu` are still not promised.
+- **`docs/objective-adapters.md` could not be followed as written.** Its
+  `BatchFitnessFn` snippet left out the required `sense`, it named a
+  private type, `RowFitness`, as an adapter to reach for, it said the
+  backend parameter is inferred when every example names it, and it never
+  showed how its on-device objective is built. Corrected, and every example
+  in it and in the ask/tell guide now uses the `rlevo` umbrella's paths, so
+  one dependency runs them.
+- **The crate README named modules that do not exist**
+  (`algorithms::local_search` and `algorithms::coevolution`; they are
+  `local_search` and `coevolution`), listed NEAT among the `Strategy`
+  implementations, and
+  taught the roundabout on-ramp. NEAT and the bounded architecture search
+  are now listed as the standalone strategies they are, and the quick start
+  implements `Landscape` and reads the minimiser back with `best()`.
+- **`Strategy::tell`'s docs read as leave to skip sanitising.** They said a
+  `tell` "may build leaders ... without a finite check" because the loop
+  sanitises first, and two paragraphs later that an implementor owes a
+  sanitise at the host pull. ADR 0034 Decision 3 and `rules.md` section 3
+  make the second the rule; the docs now say only that, with the two
+  replacements spelled out for a strategy written outside this crate.
+- **Undocumented behaviour a first run meets.** Twelve `default_for`
+  constructors search `[-5.12, 5.12]` and did not say so.
+  `EvolutionaryLoop::best` returns the best genome so far, a
+  `(1, genome_dim)` tensor, and said neither. `StrategyMetrics::generation`
+  was documented as zero-based and is a count. The guides now note that
+  genomes, fitness and metrics are `f32`.
 - **The ask/tell guide's hand-written loop optimised the wrong way.** It
   passed the Sphere cost to `Strategy::tell` without negating it, and a
   strategy maximises, so the printed "best" rose from 121.06 to 209.72,
@@ -295,6 +362,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   reads back what 0.8 wrote.
 
 **Fixed**
+
+- **`GenerationTrial`'s docs did not say that `max_steps` caps it.** A
+  generation trial stops when its probe returns `None` or after
+  `EvaluatorConfig::max_steps` generations, whichever comes first, and
+  `max_steps` defaults to 1000. A loop with a budget of 1500 under the
+  default config reports 1000 generations, with no warning. The behaviour
+  is unchanged; it is now documented on `GenerationTrial`, on
+  `GenerationProbe`, in `rlevo_evolution::probe` and in the ask/tell guide.
 
 - **Two lines of the README's usage example did not compile.** The agent
   took `&mut dyn rand::RngCore`, a trait `rand` 0.10 does not have (it is

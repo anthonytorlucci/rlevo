@@ -103,6 +103,9 @@ impl EsConfig {
     /// Sets `bounds = (-5.12, 5.12)` (the standard Rastrigin/sphere domain), `initial_sigma = 1.0`,
     /// and `$\tau$` via the standard formula `$1 / \sqrt{2 \cdot \sqrt{D}}$` (Beyer & Schwefel
     /// 2002, eq. 12).
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(kind: EsKind, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]

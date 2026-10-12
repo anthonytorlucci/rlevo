@@ -12,6 +12,10 @@ each is the right tool. Read it when you need to:
   synchronous call or because you are combining evolution with RL, or
 - understand exactly why a run is — or isn't — reproducible.
 
+> **Running the examples.** They need one dependency, `rlevo` at its default
+> features, plus `rand` for the example that seeds an RNG by hand. Burn is
+> reached through `rlevo::burn`.
+
 ## The contract
 
 This is the same `Strategy` trait every algorithm in `rlevo::evo` implements —
@@ -154,7 +158,7 @@ into the `BatchFitnessFn` the strategy expects — a function that takes the
 whole population at once and returns a `Tensor<B, 1>` of per-individual costs:
 
 ```rust,no_run
-use burn::backend::Flex;
+use rlevo::burn::backend::Flex;
 use rand::{SeedableRng, rngs::StdRng};
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
@@ -166,6 +170,7 @@ type B = Flex;
 fn main() {
     let device = Default::default();
     let strategy = GeneticAlgorithm::<B>::new();
+    // `default_for` searches [-5.12, 5.12] in every dimension.
     let params = GaConfig::default_for(/* pop = */ 64, /* dim = */ 8);
     let mut rng = StdRng::seed_from_u64(42);
     let mut fitness_fn = FromLandscape::new(Sphere::new(8).expect("dim >= 1"));
@@ -200,9 +205,9 @@ fn main() {
 ```
 
 > **Why `Flex`?** `Flex` is the Burn backend `rlevo`'s own examples, tests, and
-> benches run on, so the book uses it too. Any `Backend` works —
+> benches run on, so this page uses it too. Any `Backend` works —
 > `init`/`ask`/`tell` are generic over `B` — but matching the codebase means the
-> snippets above line up with what you'll see in `crates/rlevo-examples`.
+> snippets above line up with the examples in the repository.
 
 A few things worth pointing out:
 
@@ -251,17 +256,19 @@ This means:
 
 The host-RNG convention (all randomness through `seed_stream`, never via
 `Backend::seed` or `Tensor::random`) is enforced by convention throughout
-`rlevo::evo`. The contributor book documents why.
+`rlevo::evo`. `docs/rules.md` gives the reason, under "Host-RNG seeding
+convention".
 
-> **Determinism under parallel suites.** The *strategy's* own randomness is
-> reproducible by construction — every draw comes from the host `seed_stream`. But
-> Burn *backends* seed their tensor RNG through process-global state, so running
-> several loops across threads (e.g. a benchmark suite on the default rayon
-> pool) can still race on that shared state for any backend RNG use, breaking
-> bit-reproducibility across runs. For exact reproduction, pin execution to a single
-> thread (`EvaluatorConfig::num_threads = Some(1)`) or run one loop per process;
-> the `tests/determinism.rs` and `tests/rastrigin_run_suite.rs` integration tests do
-> exactly this.
+> **Determinism when trials run in parallel.** Because every draw comes from the
+> host `seed_stream` and none from Burn's process-global generator, a loop's
+> trajectory cannot be reached from another thread. On the `Flex` backend, seeded
+> trials give the same scalars, bit for bit, whether the harness runs them on one
+> thread or on a pool; a test in the repository pins it
+> (`parallel_trials_match_serial_trials`). You do not need to pin the thread
+> count to reproduce an evolution run. Two things can still break it: a fitness
+> function of your own that draws from the backend generator (`Tensor::random`),
+> and the `Wgpu` backend, where a run follows the `Flex` trajectory only to within
+> the GPU's floating-point differences.
 
 ## The same run with `EvolutionaryLoop`
 
@@ -270,7 +277,7 @@ strategy's state, the RNG, the fitness function and the generation count.
 `EvolutionaryLoop` owns all four and reduces the run to three calls:
 
 ```rust,no_run
-use burn::backend::Flex;
+use rlevo::burn::backend::Flex;
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::fitness::FromLandscape;
@@ -371,7 +378,7 @@ seed it is handed; the harness calls the closure once per trial and drives each
 loop to its budget.
 
 ```rust,no_run
-use burn::backend::Flex;
+use rlevo::burn::backend::Flex;
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::fitness::FromLandscape;
@@ -427,9 +434,9 @@ Three things decide whether such a run is the one you meant:
   first, and `max_steps` defaults to 1000. It does not warn when its own cap is
   the one that ends the trial. Set `max_steps` at least as large as the loop's
   budget; the `generations` scalar in each trial's report says how many ran.
-- **Threads.** Trials run concurrently unless you set
-  `EvaluatorConfig::num_threads = Some(1)`. Read the determinism note above
-  before comparing results across thread counts.
+- **Threads.** Trials run concurrently on a thread pool
+  (`EvaluatorConfig::num_threads`). On `Flex` the results do not depend on the
+  thread count; see the determinism note above for the two exceptions.
 
 The harness drives each loop through a trait, `GenerationProbe`, whose two
 methods are built from the three calls above: `begin` is `reset`, and `advance`

@@ -116,6 +116,9 @@ pub struct DeConfig {
 impl DeConfig {
     /// Default configuration (`Rand1Bin`, F = 0.5, CR = 0.9) for a given
     /// dimensionality.
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {

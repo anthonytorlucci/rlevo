@@ -29,7 +29,8 @@
 ///
 /// - [`begin`](Self::begin) resets to a fresh initial state and re-seeds
 ///   deterministically. Two `begin`-to-exhaustion runs of the same probe MUST
-///   produce identical metric sequences.
+///   produce identical metric sequences, to the extent the arithmetic under
+///   the probe is itself deterministic (a GPU backend may not promise it).
 /// - [`advance`](Self::advance) runs exactly one generation and returns its
 ///   metrics, or `None` once the generation budget is exhausted. It MUST check
 ///   the budget before stepping, so calling it past exhaustion is a cheap

@@ -29,14 +29,18 @@ backend the caller selects; this crate selects none.
 | Estimation of Distribution (EDA) | `algorithms::eda::EdaStrategy` | `Tensor<B, 2>` | 5 model variants: univariate Gaussian/Bernoulli, compact GA, dependency-chain, Bayesian network |
 | Memetic wrapper | `algorithms::memetic::MemeticWrapper` | wraps any `Strategy<B>` | hybridizes a population strategy with local search |
 | Neuroevolution — weight-only | `algorithms::neuroevolution::weight_only::WeightOnly` | fixed-topology network weights | evolves weights of a fixed architecture (used by `rlevo-hybrid`) |
-| Neuroevolution — NEAT | `algorithms::neuroevolution::neat::NeatStrategy` | growing topology + weights | complexifying topology search |
 
-Also shipping, not tied to a single-population `Strategy<B>`:
+Every row above implements [`Strategy<B>`](src/strategy.rs) and is run by
+`EvolutionaryLoop`.
+
+Also shipping, and not a `Strategy<B>`:
 
 | Module | Entry point | Purpose |
 |---|---|---|
-| Local search | `algorithms::local_search::{HillClimbing, NelderMead, RandomRestart, SimulatedAnnealing}` | standalone local-search operators, also used inside `MemeticWrapper` |
-| Coevolution | `algorithms::coevolution::{CompetitiveCoEA, CooperativeCoEA, CoEvolutionaryLoop, HallOfFame}` | two-population competitive/cooperative coevolution with hall-of-fame tracking |
+| Local search | `local_search::{HillClimbing, NelderMead, RandomRestart, SimulatedAnnealing}` | standalone local-search operators, also used inside `MemeticWrapper` |
+| Coevolution | `coevolution::{CompetitiveCoEA, CooperativeCoEA, CoEvolutionaryLoop, HallOfFame}` | two-population competitive/cooperative coevolution with hall-of-fame tracking, run by its own `CoEvolutionaryLoop` |
+| Neuroevolution — NEAT | `algorithms::neuroevolution::neat::NeatStrategy` | complexifying topology search over growing networks. A standalone strategy with its own `init`/`ask`/`tell`: no loop drives it, you write the generation loop |
+| Neuroevolution — bounded architecture search | `algorithms::neuroevolution::arch_nas::ArchNasStrategy` | chooses among a fixed menu of network architectures while evolving each one's weights. Standalone, like NEAT |
 
 ## Swarm & metaheuristic suite
 
@@ -66,17 +70,15 @@ for GPU).
 
 ```rust,no_run
 use burn::backend::Flex;
-use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_core::fitness::Landscape;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
-use rlevo_evolution::fitness::FromFitnessEvaluable;
+use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryLoop;
 
-struct Sphere;
-struct SphereFit;
-impl FitnessEvaluable for SphereFit {
-    type Individual = Vec<f64>;
-    type Landscape = Sphere;
-    fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+/// Your function. A `Landscape` is a cost: lower is better.
+struct MySphere;
+impl Landscape for MySphere {
+    fn evaluate(&self, x: &[f64]) -> f64 {
         x.iter().map(|v| v * v).sum()
     }
 }
@@ -85,28 +87,41 @@ fn main() {
     let device = Default::default();
     let mut evo_loop = EvolutionaryLoop::<Flex, _, _>::new(
         GeneticAlgorithm::<Flex>::new(),
+        // population 64, 10 dimensions, each searched in [-5.12, 5.12]
         GaConfig::default_for(64, 10),
-        FromFitnessEvaluable::new(SphereFit, Sphere),
-        42,          // base seed
+        FromLandscape::new(MySphere),
+        42,          // seed
         device,
-        500,         // max generations
+        500,         // generation budget
     ).expect("valid config");
+
     evo_loop.reset();
     while !evo_loop.is_done() {
         evo_loop.step();
     }
-    let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
-    println!("final best = {best:.3e}");
+
+    let metrics = evo_loop.latest_metrics().expect("a generation has run");
+    println!("best cost = {:.3e}", metrics.best_fitness_ever());
+    // The minimiser itself: a `(1, 10)` tensor, with its cost.
+    if let Some((genome, cost)) = evo_loop.best() {
+        let x: Vec<f32> = genome.into_data().into_vec().expect("f32 genome");
+        println!("x* = {x:?}, f(x*) = {cost:.3e}");
+    }
 }
 ```
 
-The quick start's `FitnessEvaluable` trait lives in `rlevo-core` (it was
-hoisted there per ADR 0004). Swap in your own objective by implementing
-`FitnessEvaluable` or `BatchFitnessFn` directly;
-[Objective Adapters](../../docs/objective-adapters.md) says which on-ramp fits
-which kind of function. [The Ask/Tell Contract](../../docs/ask-tell-contract.md)
-covers the protocol the loop drives, what the loop does on your behalf, and how
-to run many seeds through the evaluation harness.
+The quick start implements `Landscape`, from `rlevo-core`, which is the on-ramp
+for a plain function of a point; `FromLandscape` turns it into the
+`BatchFitnessFn` the loop calls. A crate that depends on `rlevo-evolution`
+directly, as this example does, also lists `rlevo-core` and `burn` in its own
+manifest; through the `rlevo` umbrella the same paths are `rlevo::evo`,
+`rlevo::core` and `rlevo::burn`, and one dependency is enough.
+[Objective Adapters](../../docs/objective-adapters.md) covers the other
+on-ramps (an evaluator kept apart from its problem, a network, a policy, a
+fully on-device objective) and says which fits which kind of function.
+[The Ask/Tell Contract](../../docs/ask-tell-contract.md) covers the protocol
+the loop drives, what the loop does on your behalf, and how to run many seeds
+through the evaluation harness.
 
 This crate ships no examples of its own; runnable demos live in the
 umbrella `rlevo` and in `rlevo-examples`, e.g.:
@@ -164,9 +179,17 @@ driving a loop side by side.
 
 ## Reproducibility
 
-Same `base_seed` → bit-identical trajectory on the `flex` backend
-(enforced by `tests/determinism.rs`). The `wgpu` backend is
-non-deterministic across runs; both backends converge to similar optima.
+A run is a function of its seed: every random draw comes from the loop's
+host RNG and none from the backend's global generator.
+
+- On the `flex` backend, the same seed gives a bit-identical trajectory
+  (enforced by `tests/determinism.rs`), and seeded trials give bit-identical
+  results whether the evaluation harness runs them on one thread or on a
+  pool (enforced by `parallel_trials_match_serial_trials` in
+  `crates/rlevo/tests/generation_trial_seam.rs`).
+- On the `wgpu` backend the same draws are used, so a run follows the `flex`
+  trajectory to within the GPU's floating-point differences. Bit-identical
+  repeats are not guaranteed there.
 
 ## Caveats
 

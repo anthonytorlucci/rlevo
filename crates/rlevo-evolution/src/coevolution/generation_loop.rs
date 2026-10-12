@@ -93,10 +93,10 @@ pub struct CoEAMetrics {
 ///
 /// # Determinism
 ///
-/// Determinism follows the same backend-RNG caveats documented on
-/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop): run one
-/// loop per process, or pin `EvaluatorConfig::num_threads = Some(1)`, for
-/// bit-reproducible runs.
+/// As for [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop): a run is
+/// a function of its seed, because every draw comes from the loop's host RNG
+/// and none from the backend's process-global generator. The parallel case
+/// is measured and pinned for the single-population loop only.
 ///
 /// [`PopulationObserver`]: crate::observer::PopulationObserver
 pub struct CoEvolutionaryLoop<B, C>

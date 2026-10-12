@@ -78,6 +78,9 @@ impl EpConfig {
     /// Sets `initial_sigma = 1.0`, `tournament_q = 10`, and derives
     /// `$\tau = 1.0 / \sqrt{2.0 \cdot \sqrt{D}}$` — the standard EP learning-rate
     /// recommendation from Fogel (1994). Bounds are `(-5.12, 5.12)`.
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(mu: usize, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]

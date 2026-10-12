@@ -102,6 +102,9 @@ impl PsoConfig {
     /// update `c1` and `c2` so that `c1 + c2 > 4` (the Clerc & Kennedy
     /// requirement — the default `c1 = c2 = 1.49618` gives `$\varphi \approx 2.99$`,
     /// which violates this); a canonical choice is `c1 = c2 = 2.05`.
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {

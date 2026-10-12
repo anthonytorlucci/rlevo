@@ -17,6 +17,9 @@ competing concepts — they are one trait and four on-ramps to it.**
 > contract). You are never writing five objectives — you are picking which on-ramp
 > matches the objective you already have.
 
+> **Running the examples.** They need one dependency, `rlevo` at its default
+> features. Burn is reached through it, as `rlevo::burn`.
+
 ---
 
 ## Part 1 — The decision guide
@@ -25,21 +28,27 @@ competing concepts — they are one trait and four on-ramps to it.**
 
 The engine — specifically the `EvolutionaryLoop` — consumes exactly one trait:
 
-```rust
+```rust,ignore
 pub trait BatchFitnessFn<B: Backend, G>: Send {
-    /// Whole population in, one cost per row out. Row order is preserved:
-    /// `fitness[i]` scores the individual at row `i`.
+    /// Whole population in, one fitness value per row out, in the objective's
+    /// own direction: a cost as a cost, a score as a score. Row order is
+    /// preserved: `fitness[i]` scores the individual at row `i`.
     fn evaluate_batch(&mut self, population: &G, device: &B::Device) -> Tensor<B, 1>;
+
+    /// Which way is better. Required, with no default, so that a score cannot
+    /// be minimised by omission.
+    fn sense(&self) -> ObjectiveSense;
 }
 ```
 
 Everything else on this page is a type that *implements* `BatchFitnessFn` so you
-do not have to write `evaluate_batch` by hand. The two generic parameters are less
-exotic than they look:
+do not have to write it by hand. The two generic parameters are less exotic than
+they look:
 
 - **`B`** is the Burn **backend** — the compute target (`Flex`, `Wgpu`, `NdArray`).
-  It rides along on every tensor type; you almost never name it explicitly, because
-  `EvolutionaryLoop` infers it.
+  It rides along on every tensor type. You name it once, in the loop's turbofish
+  (`EvolutionaryLoop::<B, _, _>::new`); the strategy's and the adapter's types are
+  inferred from the arguments.
 - **`G`** is the **genome container** — the *shape of one population*. For the
   real-coded algorithms (GA, ES, EP, DE) it is `Tensor<B, 2>`: a `(pop_size,
   genome_dim)` block of `f32`. For discrete algorithms it is `Tensor<B, 2, Int>`.
@@ -79,10 +88,11 @@ Two things worth internalising from the table:
 There is a second, smaller trait — `FitnessFn<G>`, with `evaluate_one(&mut self,
 member: &G) -> f32`. **`EvolutionaryLoop` never calls it.** Its job is *single-point*
 evaluation for **memetic local search**: the hill-climbing / Nelder–Mead /
-simulated-annealing refiners probe one candidate at a time. The `RowFitness`
-adapter wraps a `BatchFitnessFn` into a `FitnessFn` (a one-row `evaluate_batch`
-per probe) so local search and the population loop share a single objective
-definition. Unless you are writing a memetic algorithm, you can ignore it.
+simulated-annealing refiners probe one candidate at a time. `MemeticWrapper`
+bridges the two itself, scoring each probe as a one-row `evaluate_batch`, so
+local search and the population loop share a single objective definition and you
+write only the batch one. Unless you are writing a local-search operator of your
+own, you can ignore `FitnessFn`.
 
 ### How it all reaches the strategy
 
@@ -115,10 +125,10 @@ running GA, choosing the on-ramp as we go.
 ### Step 1 — Write the objective in its most natural shape
 
 It is a pure scalar function of a point, so the natural shape is the host-side
-`Landscape` trait (`rlevo_core::fitness::Landscape`):
+`Landscape` trait (`rlevo::core::fitness::Landscape`):
 
 ```rust,no_run
-use rlevo_core::fitness::Landscape;
+use rlevo::core::fitness::Landscape;
 
 struct WeightedSphere {
     weights: Vec<f64>,
@@ -155,8 +165,8 @@ We have a self-contained `f(&[f64]) -> f64`, so the table points straight at
 adapter applies:
 
 ```rust,no_run
-use rlevo_core::objective::ObjectiveSense;
-use rlevo_evolution::fitness::FromLandscape;
+use rlevo::core::objective::ObjectiveSense;
+use rlevo::evo::fitness::FromLandscape;
 
 let objective = WeightedSphere {
     weights: vec![1.0, 4.0, 9.0],
@@ -172,19 +182,21 @@ the engine can call on a whole population."
 
 ### Step 3 — Hand it to `EvolutionaryLoop`
 
-From here it is identical to the bundled-landscape path from the guided tour's
-function-optimisation walkthrough — the objective is the only thing that
-changed:
+From here it is identical to the bundled-landscape path in
+[The Ask/Tell Contract](ask-tell-contract.md#the-same-run-with-evolutionaryloop) —
+the objective is the only thing that changed:
 
 ```rust,no_run
-use burn::backend::Flex;
-use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
-use rlevo_evolution::strategy::EvolutionaryLoop;
+use rlevo::burn::backend::Flex;
+use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
+use rlevo::evo::strategy::EvolutionaryLoop;
 
 type B = Flex;
 
 let device = Default::default();
 let strategy = GeneticAlgorithm::<B>::new();
+// `default_for` searches [-5.12, 5.12] in every dimension; set `bounds` on
+// the config for a different domain, or the optimum may lie outside the box.
 let config = GaConfig::default_for(/* pop = */ 64, /* dim = */ 3);
 
 let mut evo_loop =
@@ -195,6 +207,13 @@ while !evo_loop.is_done() {
     evo_loop.step();
 }
 println!("best = {:.3e}", evo_loop.latest_metrics().unwrap().best_fitness_ever());
+
+// The minimiser itself: the best genome so far, a `(1, genome_dim)` tensor, and
+// its cost in the objective's own direction.
+if let Some((genome, cost)) = evo_loop.best() {
+    let x: Vec<f32> = genome.into_data().into_vec().expect("f32 genome");
+    println!("x* = {x:?}, f(x*) = {cost:.3e}");
+}
 ```
 
 You name the backend `B`; the strategy's and the adapter's types are inferred,
@@ -215,9 +234,9 @@ device transfer you do not need. Then skip the adapter and implement the contrac
 directly, keeping everything on device:
 
 ```rust,no_run
-use burn::tensor::{backend::Backend, Tensor};
-use rlevo_core::objective::ObjectiveSense;
-use rlevo_evolution::fitness::BatchFitnessFn;
+use rlevo::burn::tensor::{backend::Backend, Tensor};
+use rlevo::core::objective::ObjectiveSense;
+use rlevo::evo::fitness::BatchFitnessFn;
 
 struct OnDeviceWeightedSphere<B: Backend> {
     weights: Tensor<B, 1>,   // (genome_dim,)
@@ -239,9 +258,24 @@ impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for OnDeviceWeightedSphere<B> {
 }
 ```
 
+Build it on the device the loop will use, and hand it over exactly as before:
+
+```rust,ignore
+let device = Default::default();
+let fitness_fn = OnDeviceWeightedSphere::<B> {
+    weights: Tensor::from_floats([1.0, 4.0, 9.0], &device),
+    centre: Tensor::from_floats([0.5, -0.5, 1.0], &device),
+};
+```
+
 Same objective, the same declared sense, no host round-trip — and the `pop` rows
 are scored in a single kernel sweep. The loop cannot tell the difference: it
 still just calls `evaluate_batch` and reads `sense()`.
+
+> **Precision.** Genomes and fitness are `f32` tensors throughout. `FromLandscape`
+> and `FromFitnessEvaluable` widen each gene to `f64` for your function and narrow
+> its result back to `f32`, and every metric is an `f32`. A comparison at
+> tolerances near `1e-7` relative is measuring the tensor type, not the optimiser.
 
 > **The decision in one line.** Express it on the host and wrap it
 > (`FromLandscape`) when the objective is naturally a CPU formula or a simulator;

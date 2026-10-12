@@ -5,13 +5,14 @@
 //!
 //! # Why this file runs a single test
 //!
-//! The Burn Flex backend seeds its RNG through a process-wide
-//! `Mutex<Option<FlexRng>>`. Multiple tests that race on that mutex
-//! will interleave `Tensor::random` draws and destroy bit-equality. This
-//! file therefore contains exactly one `#[test]` function so the cargo
-//! runner cannot execute anything in parallel with it — within the
-//! single test body, the two runs are strictly sequential and compare
-//! byte-for-byte.
+//! History. The file was laid out when operators drew from Burn's
+//! process-wide generator, which tests running in parallel would have raced
+//! on. Every operator now draws from the host `seed_stream`
+//! (`rlevo_evolution::rng`), nothing here touches the backend generator, and
+//! seeded runs are bit-identical even when many run at once on a thread
+//! pool (`parallel_trials_match_serial_trials` in the umbrella crate's
+//! `tests/generation_trial_seam.rs`). The single `#[test]` function is kept
+//! because splitting it would change nothing it asserts.
 
 use burn::backend::Flex;
 use burn::tensor::backend::{Backend, BackendTypes};

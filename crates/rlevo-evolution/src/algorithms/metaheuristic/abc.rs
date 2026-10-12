@@ -73,6 +73,9 @@ impl AbcConfig {
     /// The scout `limit` is set to `(pop_size * genome_dim) / 2` following
     /// Karaboga's canonical recommendation. The `tournament_size` defaults
     /// to `3` (three-way tournament for onlooker selection).
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {

@@ -85,8 +85,10 @@ pub trait BenchableAgent<Obs, Act> {
 /// Evaluates an optimizer against a fitness landscape.
 ///
 /// Used when the benchmark IS the fitness function (e.g. Rastrigin) rather
-/// than a stateful `Environment`. The `Evaluator::run_optimizer_trial` path
-/// in `rlevo-benchmarks` consumes this trait.
+/// than a stateful `Environment`. `rlevo-evolution`'s `FromFitnessEvaluable`
+/// adapter consumes this trait: it turns an implementor and its landscape
+/// into the batch fitness function an evolutionary loop scores a population
+/// with.
 pub trait FitnessEvaluable {
     /// The optimizer's candidate solution type (e.g. a parameter vector or a
     /// genome).

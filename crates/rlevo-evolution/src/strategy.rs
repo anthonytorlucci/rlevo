@@ -175,15 +175,19 @@ pub trait Strategy<B: Backend>: Send + Sync {
     ///
     /// When driven by [`EvolutionaryLoop`], the `fitness` tensor is
     /// **canonical (maximise) and sanitized** (ADR 0034): every element is finite
-    /// or `f32::NEG_INFINITY` — no `NaN`, no `$+\infty$`. A `tell` impl may therefore
-    /// build leaders / personal-best / global-best directly from it without a
-    /// finite check.
+    /// or `f32::NEG_INFINITY` — no `NaN`, no `$+\infty$`.
     ///
-    /// The guarantee is the loop's, so on a **bypass path** — a unit test or a
-    /// custom driver calling `ask`/`tell` by hand — it is the **implementor** that
-    /// owes it: a `tell` pulling `fitness` to host applies `sanitize_fitness`
-    /// **once at the pull**, after which every ordering / argmax / champion-write
-    /// site downstream *in that function* may assume it (`rules.md` §3).
+    /// An implementation must not rely on that alone. The guarantee is the
+    /// loop's, and `tell` can be called without the loop: by a unit test, or
+    /// by a driver that calls `ask` and `tell` itself. So a `tell` that pulls
+    /// `fitness` to host sanitizes it **once at the pull**: `NaN` becomes
+    /// `f32::NEG_INFINITY` and `$+\infty$` becomes `f32::MAX`. Every ordering,
+    /// argmax and champion-write site downstream *in that function* may then
+    /// assume it (`rules.md` section 3, the correctness floor; ADR 0034
+    /// Decision 3). On the loop's path that sanitize changes nothing. On a
+    /// bypass path it is what keeps a `NaN` from being crowned. Inside this
+    /// crate the rule is the `sanitize_fitness` function; a strategy written
+    /// outside it applies the same two replacements by hand.
     ///
     /// Every shipping strategy in [`algorithms::metaheuristic`] does this
     /// internally, so a direct `ask`/`tell` caller of that family need not
@@ -582,18 +586,26 @@ fn build_population_snapshot(
 ///
 /// # Determinism and parallel execution
 ///
-/// Burn backends seed their tensor RNG through process-global state —
-/// the `flex` backend uses a `Mutex<Option<FlexRng>>`, the
-/// `wgpu` backend a per-device seeded stream. When multiple loop
-/// instances run in parallel threads (e.g.
-/// `Evaluator::run_trials` with the default rayon pool), their
-/// interleaved `B::seed(...) → Tensor::random(...)` call pairs race on
-/// that shared state and destroy bit-reproducibility across runs.
+/// A run is a function of its seed. Every random number a strategy draws
+/// comes from the loop's own host RNG (see [`crate::rng`]), and none from the
+/// backend's process-global generator, so nothing outside the loop can reach
+/// its trajectory.
 ///
-/// For deterministic reproduction, pass
-/// `EvaluatorConfig::num_threads = Some(1)` or run one loop per
-/// process. The `tests/determinism.rs` and `tests/rastrigin_run_suite.rs`
-/// integration tests both enforce serial execution for this reason.
+/// - **On `Flex`**, two runs from one seed are bit-identical, and they stay
+///   bit-identical when the evaluation harness runs many loops at once on a
+///   thread pool. `tests/determinism.rs` pins the first, and
+///   `parallel_trials_match_serial_trials` in the umbrella's
+///   `tests/generation_trial_seam.rs` pins the second. No thread pinning is
+///   needed for reproducible evolution trials.
+/// - **On `Wgpu`** the same host draws are used, so a run follows the `Flex`
+///   trajectory to within floating-point differences in the GPU's
+///   arithmetic. Bit-identical repeats are not promised there: the order of
+///   a reduction belongs to the device.
+///
+/// The guarantee covers the strategy and the loop, not what you plug into
+/// them. A fitness function that draws from the backend generator
+/// (`Tensor::random`, or a Burn initialiser run per genome) brings back the
+/// dependence on thread schedule that the host-RNG convention removes.
 pub struct EvolutionaryLoop<B, S, F>
 where
     B: Backend,
@@ -756,7 +768,12 @@ where
         self.state.as_ref()
     }
 
-    /// Forward to [`Strategy::best`] when a state exists.
+    /// The best genome found so far in the run, and its fitness: not the
+    /// best of the last generation. `None` until a generation has run.
+    ///
+    /// Forwards to [`Strategy::best`]. For the tensor-genome strategies the
+    /// genome is a one-row tensor, `(1, genome_dim)`; read it to host with
+    /// `into_data().into_vec::<f32>()`.
     ///
     /// The strategy tracks the best genome in **canonical (maximise)** space;
     /// the returned fitness is mapped back to the objective's declared sense so
