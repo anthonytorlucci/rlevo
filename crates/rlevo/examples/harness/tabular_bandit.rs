@@ -1,9 +1,9 @@
 //! Benchmark: sample-average `$\epsilon$`-greedy agent on the ten-armed bandit.
 //!
 //! Demonstrates the harness path (`Suite` → `Evaluator::run_suite` →
-//! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-environments`,
-//! through the [`ten_armed_bandit_suite`] glue exposed
-//! by the `bench` feature.
+//! `BenchmarkReport`) running against [`TenArmedBandit`]. The environment is
+//! registered as itself: `Suite::with_env` takes a constructor from a seed,
+//! and `TenArmedBandit::with_seed` is one.
 //!
 //! **DQN integration is deferred.** A `FrozenDqnPolicy` adapter needs
 //! concrete backend selection and full `DiscreteAction`/`TensorConvertible`
@@ -11,16 +11,23 @@
 //! path is exercised here with a non-DL stand-in; a follow-up release
 //! will add the DQN adapter once the underlying trait impls land.
 //!
-//! [`TenArmedBandit`]: rlevo_environments::classic::TenArmedBandit
-//! [`ten_armed_bandit_suite`]: rlevo_environments::bench::suites::ten_armed_bandit_suite
+//! # Running
+//!
+//! ```text
+//! cargo run -p rlevo --example tabular_bandit
+//! ```
+//!
+//! No feature flags are required.
+//!
+//! [`TenArmedBandit`]: rlevo::envs::classic::TenArmedBandit
 
 use rand::Rng;
 use rand_distr::{Distribution, Uniform};
-use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_environments::bench::suites::ten_armed_bandit_suite;
-use rlevo_environments::classic::{TenArmedBanditAction, TenArmedBanditObservation};
+use rlevo::envs::classic::{TenArmedBandit, TenArmedBanditAction, TenArmedBanditObservation};
+use rlevo::harness::agent::BenchableAgent;
+use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo::harness::reporter::logging::LoggingReporter;
+use rlevo::harness::suite::Suite;
 
 /// `$\epsilon$`-greedy agent over a fixed Q prior.
 ///
@@ -82,7 +89,9 @@ fn main() {
         success_threshold: Some(0.0),
     };
 
-    let suite = ten_armed_bandit_suite(cfg.clone());
+    // `with_seed` routes the per-trial seed into the arm-mean RNG.
+    let suite = Suite::new("ten-armed-bandit", cfg.clone())
+        .with_env("ten-armed-bandit-default", TenArmedBandit::with_seed);
 
     let evaluator = Evaluator::new(cfg);
     let mut reporter = LoggingReporter::new();

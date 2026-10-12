@@ -17,12 +17,14 @@ rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", defaul
 rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.5.0" }
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.5.0", default-features = false }
 rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.5.0" }
+# The evaluation harness, re-exported as `rlevo::harness` (ADR 0084). At
+# its default features it links no visualization crate.
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.5.0" }
 # Re-exported as `rlevo::burn`, and the crate through which the `flex` and
 # `wgpu` features below select a backend for the whole tree (ADR 0080).
 burn = { workspace = true }
 
 [dev-dependencies]
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.5.0" }
 # Default features on, so the test targets that drive the physics
 # environments build whatever features the umbrella itself is built with.
 rlevo-environments = { path = "../rlevo-environments", version = "0.5.0" }
@@ -38,6 +40,9 @@ rand_distr = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 tempfile = "3"
+# The harness examples install a subscriber so `LoggingReporter`'s `tracing`
+# events reach the terminal.
+tracing-subscriber = { workspace = true }
 
 [features]
 default = ["box2d", "locomotion", "flex"]
@@ -180,6 +185,16 @@ path = "examples/evo/trefethen_showcase.rs"
 [[example]]
 name = "memetic_showcase"
 path = "examples/evo/memetic_showcase.rs"
+
+# Examples — the evaluation harness (`rlevo::harness`). Written the way a
+# consumer writes them: every `rlevo` path goes through the umbrella.
+[[example]]
+name = "ga_rastrigin"
+path = "examples/harness/ga_rastrigin.rs"
+
+[[example]]
+name = "tabular_bandit"
+path = "examples/harness/tabular_bandit.rs"
 
 # Random-baseline-vs-learned benches. Each prints a reward/success quality
 # comparison, then times per-step rollout throughput for both policies.

@@ -4,7 +4,7 @@
 //!
 //! 1. `FitnessEvaluable` — the "optimizer-on-landscape" trait, implemented
 //!    for a local wrapper around
-//!    `rlevo_environments::landscapes::rastrigin::Rastrigin`.
+//!    `rlevo::envs::landscapes::rastrigin::Rastrigin`.
 //! 2. `GenerationProbe` — the GA implements the drive seam directly, so
 //!    `Evaluator::run_trials` drives it as a `GenerationTrial` and produces a
 //!    `BenchmarkReport` alongside RL trials.
@@ -18,7 +18,7 @@
 //! # Running
 //!
 //! ```text
-//! cargo run -p rlevo-examples --example ga_rastrigin
+//! cargo run -p rlevo --example ga_rastrigin
 //! ```
 //!
 //! No feature flags are required.
@@ -42,14 +42,14 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal, Uniform};
-use rlevo_benchmarks::agent::FitnessEvaluable;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo_benchmarks::metrics::Metric;
-use rlevo_benchmarks::metrics::ea;
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::{Landscape, MetricsProvider};
-use rlevo_environments::landscapes::rastrigin::Rastrigin;
+use rlevo::core::evaluation::GenerationProbe;
+use rlevo::core::fitness::{Landscape, MetricsProvider};
+use rlevo::envs::landscapes::rastrigin::Rastrigin;
+use rlevo::harness::agent::FitnessEvaluable;
+use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo::harness::metrics::Metric;
+use rlevo::harness::metrics::ea;
+use rlevo::harness::reporter::logging::LoggingReporter;
 
 // --- FitnessEvaluable wiring -------------------------------------------
 

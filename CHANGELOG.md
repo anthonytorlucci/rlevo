@@ -96,6 +96,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   unchanged. A 2-D landscape now panics with `input dimension mismatch`,
   the n-D landscapes' message, when the slice is not two long.
   `Landscape::evaluate` is `#[must_use]`, as the inherent methods were.
+- **The `bench` feature of `rlevo-environments` is removed, with the three
+  preset `Suite` functions it gated** (ADR 0084):
+  `rlevo_environments::bench::suites::{cartpole_suite, pendulum_suite,
+  ten_armed_bandit_suite}`. Each was one call, and an environment has been
+  registrable as itself since ADR 0076, so write the call:
+  `Suite::new("cartpole", cfg).with_env("cartpole-default", |seed| ...)`.
+  A manifest that asks for `features = ["bench"]` no longer resolves. Drop
+  the feature if the presets were all you used; ask for `record` if you use
+  the `RecordedEnvFamily` impls, which keep their path,
+  `rlevo_environments::bench::family`. `record` no longer implies a second
+  feature and is now the only one under which `rlevo-environments` depends
+  on `rlevo-benchmarks`.
 
 ### `rlevo`
 
@@ -107,6 +119,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`rlevo::burn`**, a re-export of the Burn release `rlevo` is built
   against, so a consumer names tensors and backends without a `burn` entry
   of its own.
+- **`rlevo::harness`**, the evaluation harness (ADR 0084). `rlevo` now
+  depends on `rlevo-benchmarks` unconditionally, at its default features,
+  and re-exports it, so `cargo add rlevo` reaches `Suite`, `Evaluator`, the
+  metrics and the reporters with no second manifest entry. Until now the
+  harness was a dev-dependency of `rlevo`: its own tests reached it and a
+  consumer did not. The cost is two first-party packages in every
+  consumer's build, `rlevo-benchmarks` and `rlevo-metrics-registry` (the
+  dependency cone goes from 207 packages to 209), and no visualization
+  crate. The `viz-tui` feature, which forwards to the harness's `tui`
+  feature, now reaches a consumer; it could not while the harness was a
+  dev-dependency.
+- **Two harness examples, `ga_rastrigin` and `tabular_bandit`**, moved here
+  from `rlevo-examples` (`cargo run -p rlevo --example tabular_bandit`).
+  They spell every path through `rlevo`, as a consumer does, and
+  `tabular_bandit` builds its `Suite` inline where it called a preset.
+  Their results are unchanged.
 
 **Fixed**
 
@@ -204,6 +232,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   &mut reporter)`.
 
 ### Infrastructure
+
+**Changed**
+
+- **The `byoe-1-thermostat` probe adds one crate by hand, where it added
+  two.** `rlevo-benchmarks` leaves its manifest and its harness file names
+  `rlevo::harness` (ADR 0084). Its step 2 now reports `1 additional
+  crate(s) required by hand: rand`. `consumer-umbrella` reaches all eight
+  published crates and counts 210 packages, where it counted 208 and
+  listed two crates as unreached.
+- **An example's home is decided by what it needs** (`docs/rules.md`
+  sections 5 and 11). Using the harness no longer sends an example to
+  `rlevo-examples`; needing one of its `tui`, `record` or `report`
+  features, or an unpublished crate, does.
 
 **Added**
 

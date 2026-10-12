@@ -7,6 +7,7 @@
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay and metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP
 //! - [`hybrid`] — combined evolutionary + RL strategies
+//! - [`harness`] — the evaluation harness: `Suite`, `Evaluator`, metrics and reporters
 //!
 //! # Quick Start
 //!
@@ -44,6 +45,14 @@
 //! type TrainingBackend = Autodiff<Flex>;
 //! ```
 
+/// The evaluation harness, [`rlevo_benchmarks`]: register an environment in
+/// a [`Suite`](harness::suite::Suite) and run an agent over it with
+/// [`Evaluator::run_suite`](harness::evaluator::Evaluator::run_suite).
+///
+/// Always present. It is the harness at its default features, which link no
+/// terminal or report dependency; this crate's `viz-tui` and `viz-report`
+/// features turn those on.
+pub use rlevo_benchmarks as harness;
 pub use rlevo_core as core;
 pub use rlevo_environments as envs;
 pub use rlevo_evolution as evo;

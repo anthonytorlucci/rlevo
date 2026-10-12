@@ -1,4 +1,4 @@
-//! [`RecordedEnvFamily`](rlevo_benchmarks::record::RecordedEnvFamily) impls for the built-in environments.
+//! [`RecordedEnvFamily`] impls for the built-in environments.
 //!
 //! These tie each concrete env type to the [`EnvFamily`] its recordings
 //! belong to, so a driver can derive the family once from the env type
@@ -486,8 +486,7 @@ mod tests {
         assert_eq!(
             <TenArmedBandit as RecordedEnvFamily>::FAMILY,
             EnvFamily::Classic,
-            "the `TenArmedBandit = KArmedBandit<10>` alias resolves to the generic impl — \
-             `bench::suites::ten_armed_bandit_suite` depends on it"
+            "the `TenArmedBandit = KArmedBandit<10>` alias resolves to the generic impl"
         );
     }
 

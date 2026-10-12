@@ -85,7 +85,7 @@ pub mod landscapes {
     pub mod rosenbrock_flat;
     pub mod trefethen;
 }
-#[cfg(feature = "bench")]
+#[cfg(feature = "record")]
 pub mod bench;
 pub mod box2d;
 pub mod classic;

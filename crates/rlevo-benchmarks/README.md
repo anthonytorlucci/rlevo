@@ -214,7 +214,12 @@ When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` save
 
 ## Usage
 
-Add to your `Cargo.toml`:
+The umbrella crate carries the harness and re-exports it as
+`rlevo::harness` (ADR 0084), so a project that depends on `rlevo` needs
+no entry for this crate and writes `rlevo::harness::evaluator::Evaluator`.
+The re-export is on `main` and ships with the next release.
+
+To use the harness without the rest of `rlevo`, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -278,11 +283,11 @@ let report = Evaluator::new(cfg).run_suite(&suite, |_seed| MyAgent, &mut reporte
 
 ```bash
 # ε-greedy sample-average agent on the 10-armed bandit
-# (examples live in the rlevo-examples crate per ADR 0012)
-cargo run -p rlevo-examples --example tabular_bandit
+# (the harness examples live in the umbrella crate, ADR 0084)
+cargo run -p rlevo --example tabular_bandit
 
 # Hand-rolled genetic algorithm minimising the 10-D Rastrigin function
-cargo run -p rlevo-examples --example ga_rastrigin
+cargo run -p rlevo --example ga_rastrigin
 ```
 
 ---
