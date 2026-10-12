@@ -1,6 +1,6 @@
-//! Per-generation observer surface for [`EvolutionaryHarness`].
+//! Per-generation observer surface for [`EvolutionaryLoop`].
 //!
-//! The harness emits a scalar tracing event per generation
+//! The loop emits a scalar tracing event per generation
 //! (`best_fitness`, `mean_fitness`, …) which feeds the on-disk metric
 //! stream. Population-level reporting — the full fitness vector, the
 //! best-individual digest, parent lineage — does not fit through
@@ -13,7 +13,7 @@
 //! report-tier `PopulationSample` schema 1:1 minus the `inner_rl_returns`
 //! field, which is the hybrid driver's responsibility.
 //!
-//! [`EvolutionaryHarness`]: crate::strategy::EvolutionaryHarness
+//! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
 
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 /// Per-generation population snapshot delivered to a
 /// [`PopulationObserver`].
 ///
-/// Fields mirror the on-disk `PopulationSample` schema; the harness
+/// Fields mirror the on-disk `PopulationSample` schema; the loop
 /// emits one of these after every successful
 /// [`Strategy::tell`](crate::Strategy::tell) call when an observer is
 /// attached.
@@ -30,12 +30,12 @@ use parking_lot::Mutex;
 /// **Field semantics**:
 ///
 /// - `fitnesses` is the full per-individual fitness vector in **natural
-///   (user-sense)** space — the values are recorded before the harness
+///   (user-sense)** space — the values are recorded before the loop
 ///   canonicalises, so they read in the objective's declared
 ///   [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense) (a `Minimize`
 ///   landscape's costs, a `Maximize` objective's rewards). `best_index` points
 ///   at the best individual in that sense.
-/// - `diversity` is currently `None` — the harness has no
+/// - `diversity` is currently `None` — the loop has no
 ///   strategy-agnostic geometry over the population tensor. A future
 ///   `Strategy::diversity` extension fills it in.
 /// - `best_genome_digest` and `parents_of_best` are emitted empty /
@@ -51,7 +51,7 @@ pub struct PopulationSnapshot {
     pub parents_of_best: Vec<[u8; 16]>,
 }
 
-/// Callback the harness invokes once per generation, after
+/// Callback the loop invokes once per generation, after
 /// [`Strategy::tell`](crate::Strategy::tell) has returned and the
 /// canonical `tracing::info!` aggregate event has been emitted.
 ///
@@ -64,7 +64,7 @@ pub trait PopulationObserver: Send + 'static {
     ///
     /// Implementors should be cheap here: buffer the snapshot and do any
     /// heavy I/O (serialization, channel sends) outside this call so the
-    /// harness loop is not blocked.
+    /// generation loop is not blocked.
     fn on_population(&mut self, snapshot: PopulationSnapshot);
 }
 
@@ -93,7 +93,7 @@ mod tests {
     fn collecting_observer_records_each_call() {
         let obs = Arc::new(Mutex::new(CollectingObserver::default()));
         // Type-check that the concrete handle can be coerced to the
-        // dyn-shape the harness builder accepts.
+        // dyn-shape the loop builder accepts.
         let _shared: SharedPopulationObserver = obs.clone();
         for g in 0..3 {
             let snapshot = PopulationSnapshot {

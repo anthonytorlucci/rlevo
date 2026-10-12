@@ -103,6 +103,9 @@ impl EsConfig {
     /// Sets `bounds = (-5.12, 5.12)` (the standard Rastrigin/sphere domain), `initial_sigma = 1.0`,
     /// and `$\tau$` via the standard formula `$1 / \sqrt{2 \cdot \sqrt{D}}$` (Beyer & Schwefel
     /// 2002, eq. 12).
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(kind: EsKind, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]
@@ -673,7 +676,7 @@ fn update_best<B: Backend>(state: &mut EsState<B>, pop: &Tensor<B, 2>, fitness: 
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = Flex;
@@ -832,7 +835,7 @@ mod tests {
     }
 
     /// Canonical (maximise) fitness `$-\sum x_i^2$` read straight off a genome tensor,
-    /// so tests can drive a strategy directly without the harness.
+    /// so tests can drive a strategy directly without the loop.
     fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
         let device = pop.device();
         let [n, d] = pop.dims();
@@ -916,7 +919,7 @@ mod tests {
         let strategy = EvolutionStrategy::<TestBackend>::new();
         let params = EsConfig::default_for(kind, dim);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
             fitness_fn,
@@ -925,14 +928,11 @@ mod tests {
             generations,
         )
         .expect("valid params");
-        harness.reset();
-        loop {
-            let step = harness.step(());
-            if step.done {
-                break;
-            }
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
-        harness.latest_metrics().unwrap().best_fitness_ever()
+        evo_loop.latest_metrics().unwrap().best_fitness_ever()
     }
 
     #[test]

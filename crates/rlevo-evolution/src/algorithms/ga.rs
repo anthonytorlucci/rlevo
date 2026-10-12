@@ -2,7 +2,7 @@
 //!
 //! A canonical textbook GA over `Tensor<B, 2>` populations:
 //!
-//! 1. Evaluate the current population (done externally by the harness).
+//! 1. Evaluate the current population (done externally by the loop).
 //! 2. Select parents via [`crate::ops::selection::tournament_select`].
 //! 3. Recombine via [`crate::ops::crossover::blx_alpha`] or
 //!    [`crate::ops::crossover::uniform_crossover`].
@@ -90,6 +90,9 @@ pub struct GaConfig {
 
 impl GaConfig {
     /// Sensible defaults for small-scale continuous optimization.
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -256,8 +259,8 @@ where
     /// Propose the next offspring population.
     ///
     /// On the very first call (before any [`tell`](Self::tell)), `state.fitness`
-    /// is empty — the harness has not evaluated the seed population yet. In
-    /// that case the unchanged seed population is returned so the harness can
+    /// is empty — the loop has not evaluated the seed population yet. In
+    /// that case the unchanged seed population is returned so the loop can
     /// evaluate and pass it back to `tell`.
     ///
     /// On subsequent calls the method runs selection → crossover → mutation,
@@ -277,7 +280,7 @@ where
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, GaState<B>) {
-        // On the first call, state.fitness is empty; the harness has not
+        // On the first call, state.fitness is empty; the loop has not
         // evaluated anyone yet. Return the initial population unchanged.
         if state.fitness.is_empty() {
             return (state.population.clone(), state.clone());
@@ -436,7 +439,7 @@ fn update_best<B: Backend>(state: &mut GaState<B>, pop: &Tensor<B, 2>, fitness: 
         return;
     }
     // Sanitize (NaN → `$-\infty$`) then order with `total_cmp`: the §3 correctness floor for a
-    // direct (non-harness) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
+    // direct (non-loop) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
     // `$-\infty$` fitness is treated as the worst, not skipped.
     let sane: Vec<f32> = fitness
         .iter()
@@ -466,7 +469,7 @@ fn update_best<B: Backend>(state: &mut GaState<B>, pop: &Tensor<B, 2>, fitness: 
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
@@ -511,18 +514,15 @@ mod tests {
         };
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
 
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 42, device, 200,
         )
         .expect("valid params");
-        harness.reset();
-        loop {
-            let step = harness.step(());
-            if step.done {
-                break;
-            }
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
-        let m = harness.latest_metrics().unwrap();
+        let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever() < 1e-2,
             "expected Sphere-D2 convergence, got best_fitness_ever={}",
@@ -559,29 +559,26 @@ mod tests {
         let fitness_fn =
             FromFitnessEvaluable::with_sense(SphereFit, Sphere, ObjectiveSense::Maximize);
 
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 123, device, 40,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
 
         let mut prev: f32 = f32::NEG_INFINITY;
-        loop {
-            let step = harness.step(());
-            let cur: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
+        while !evo_loop.is_done() {
+            evo_loop.step();
+            let cur: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
             assert!(
                 cur >= prev,
                 "best_fitness_ever must be non-decreasing: {cur} >= {prev}"
             );
             prev = cur;
-            if step.done {
-                break;
-            }
         }
     }
 
     /// Direct-`tell` regression for the `update_best` scan (ADR 0034 decision 3,
-    /// `rules.md` §3). `EvolutionaryHarness::step` sanitizes fitness before
+    /// `rules.md` section 3). `EvolutionaryLoop::step` sanitizes fitness before
     /// `tell`, but a direct caller does not, so a raw `NaN` can arrive at index
     /// 0. Seeding the scan with `fitness[0]` and comparing with `>` made every
     /// comparison against that `NaN` false, so the champion write was skipped

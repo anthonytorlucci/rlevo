@@ -58,7 +58,7 @@ use rlevo_evolution::algorithms::memetic::MemeticParams;
 use rlevo_evolution::local_search::{HillClimbing, HillClimbingParams};
 use rlevo_evolution::rng::{SeedPurpose, seed_stream};
 use rlevo_evolution::{
-    CoveragePolicy, EdaParams, EdaStrategy, EvolutionaryHarness, MemeticWrapper, ModuleEvalFn,
+    CoveragePolicy, EdaParams, EdaStrategy, EvolutionaryLoop, MemeticWrapper, ModuleEvalFn,
     ModuleReshaper, Strategy, UnivariateGaussian, UnivariateGaussianParams, WeightOnly,
     WritebackPolicy,
 };
@@ -367,7 +367,7 @@ pub struct RunSummary {
     pub generations: usize,
 }
 
-/// Drive an [`EvolutionaryHarness`] to its generation budget and summarise.
+/// Drive an [`EvolutionaryLoop`] to its generation budget and summarise.
 #[allow(clippy::too_many_arguments)] // a thin example driver; bundling these into a struct adds noise
 pub fn run_strategy<B, S, M, F>(
     label: &str,
@@ -386,25 +386,22 @@ where
     M: Module<B> + Sync,
     F: Fn(&M) -> f32 + Send,
 {
-    let mut harness = EvolutionaryHarness::new(strategy, params, fitness, seed, device, max_gens)
+    let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness, seed, device, max_gens)
         .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut evals_to_solved = None;
     let mut generations = 0;
-    loop {
-        let step = harness.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         generations += 1;
         if evals_to_solved.is_none()
-            && let Some(m) = harness.latest_metrics()
+            && let Some(m) = evo_loop.latest_metrics()
             && m.best_fitness_ever() >= SOLVED
         {
             evals_to_solved = Some(generations * pop);
         }
-        if step.done {
-            break;
-        }
     }
-    let best_pellets = harness.best().map_or(0.0, |(_, f)| f);
+    let best_pellets = evo_loop.best().map_or(0.0, |(_, f)| f);
     RunSummary {
         label: label.to_string(),
         best_pellets,

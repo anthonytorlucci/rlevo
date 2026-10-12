@@ -14,7 +14,7 @@
 //! maximise convention. `best_fitness` tracks a maximum and fitness sharing
 //! assumes **non-negative** raw fitness (a NEAT-specific precondition orthogonal
 //! to objective sense); cost objectives are reconciled into canonical space by
-//! the harness/adapter chokepoint, not by hand here.
+//! the loop/adapter chokepoint, not by hand here.
 
 use rand::RngExt;
 use rand::rngs::StdRng;
@@ -212,7 +212,7 @@ pub fn compatibility_distance(
 /// Each `fitness[i]` is passed through
 /// `sanitize_fitness` before it feeds a
 /// per-species best or `adjusted_fitness_sum` reduction (ADR 0034 correctness
-/// floor). This guards direct (non-harness) callers — `NeatStrategy::tell`
+/// floor). This guards direct (non-loop) callers — `NeatStrategy::tell`
 /// sanitizes too, so the guard is idempotent on that path — and stops a single
 /// `NaN` member from poisoning offspring apportionment for the whole run.
 ///
@@ -281,7 +281,7 @@ pub fn speciate(
     // offspring apportionment for *all* species for the rest of the run. `speciate` is `pub` and
     // directly callable/tested, so it guards here itself (correctness floor, rules.md §3) rather
     // than trusting the caller; `NeatStrategy::tell` also sanitizes, which makes this idempotent on
-    // the harness-analogue path. `remove_stagnant` already sanitizes — this keeps the module
+    // the loop-analogue path. `remove_stagnant` already sanitizes — this keeps the module
     // consistent.
     for s in species.iter_mut() {
         let species_best = s

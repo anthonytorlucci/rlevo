@@ -31,7 +31,7 @@ use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::Strategy;
 
 use super::fitness::CoupledFitness;
-use super::harness::CoEAMetrics;
+use super::generation_loop::CoEAMetrics;
 use super::{CoEAState, CoEvolutionaryAlgorithm};
 
 /// Which member of the opposing population completes a partial candidate
@@ -240,13 +240,13 @@ where
     /// fitness (see the chokepoint in [`step`](Self::step) and ADR 0023 / 0034).
     /// This projection maps the four display fields back into the objective's
     /// **natural** sense via [`from_canonical`](ObjectiveSense::from_canonical),
-    /// while `binding_fitness` — the harness reward — is kept in canonical space.
+    /// while `binding_fitness` is kept in canonical space.
     /// Means are averaged over the finite members only, so a broken individual
     /// cannot emit a `NaN` mean.
     fn snapshot(&self, state: &CooperativeState<SA::State, SB::State, B>) -> CoEAMetrics {
         let sizes = self.fitness.archive_sizes();
         let sense = self.fitness.sense();
-        // `binding_fitness` (harness reward) stays in canonical space — compute
+        // `binding_fitness` stays in canonical space — compute
         // it before mapping the display fields to natural sense.
         let binding = state.base.best_a.min(state.base.best_b);
         CoEAMetrics {
@@ -350,7 +350,7 @@ where
         debug_assert_eq!(fits.len(), 2, "cooperative co-evolution is bi-population");
 
         // Canonicalise-then-sanitize chokepoint for the coupled-fitness path (ADR 0023 / 0034),
-        // mirroring `EvolutionaryHarness::step`. First map NATURAL → canonical (maximise-native:
+        // mirroring `EvolutionaryLoop::step`. First map NATURAL → canonical (maximise-native:
         // negate iff `Minimize`), THEN sanitize (`$\text{NaN} \to -\infty$` worst,
         // `$+\infty \to \text{f32::MAX}$`). The ordering is load-bearing: "NaN = worst" is only
         // well-defined in maximise space, so sanitizing before `neg()` would flip a `NaN` cost to

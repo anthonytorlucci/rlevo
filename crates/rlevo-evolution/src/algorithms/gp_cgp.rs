@@ -238,7 +238,7 @@ fn sample_input_pair(col: usize, params: &CgpConfig, rng: &mut dyn Rng) -> (i64,
     if pool.is_empty() {
         // No legal input candidates (only reachable when n_inputs == 0, which
         // CgpConfig::validate rejects). Defensive: emit a benign (0, 0) so the
-        // primitive is total for direct callers that bypass the validating harness.
+        // primitive is total for direct callers that bypass the validating loop.
         return (0, 0);
     }
     let pick = |rng: &mut dyn Rng| -> i64 {
@@ -464,7 +464,7 @@ where
             // A generation with no offspring (only reachable when lambda == 0, which
             // CgpConfig::validate rejects). Defensive: advance the counter and emit a
             // worst-case metric without touching selection, so tell is total for
-            // direct callers that bypass the validating harness.
+            // direct callers that bypass the validating loop.
             state.generation += 1;
             let m = StrategyMetrics::from_host_fitness(
                 state.generation,
@@ -540,7 +540,7 @@ fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fit
         return;
     }
     // Sanitize (NaN → `$-\infty$`) then order with `total_cmp`: the §3 correctness floor for a
-    // direct (non-harness) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
+    // direct (non-loop) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
     // `$-\infty$` fitness is treated as the worst, not skipped.
     let sane: Vec<f32> = fitness
         .iter()
@@ -568,7 +568,7 @@ fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fit
 mod tests {
     use super::*;
     use crate::fitness::BatchFitnessFn;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     type TestBackend = Flex;
 
@@ -587,7 +587,7 @@ mod tests {
     /// Defensive guard for the empty input pool. With `n_inputs == 0` and
     /// `col == 0` both the built pool and the fallback are empty, so the raw
     /// `random_range(0..0)` would panic. A direct caller bypassing the
-    /// validating harness must get a benign `(0, 0)` instead.
+    /// validating loop must get a benign `(0, 0)` instead.
     #[test]
     fn sample_input_pair_empty_pool_returns_benign_zero() {
         use rand::SeedableRng;
@@ -604,7 +604,7 @@ mod tests {
     /// Defensive guard for the empty `fitness_host`. A generation with no
     /// offspring (`lambda == 0`) makes both the bootstrap and selection paths
     /// index `fitness_host[0]` and panic. A direct caller bypassing the
-    /// validating harness must instead advance the generation counter and
+    /// validating loop must instead advance the generation counter and
     /// return without touching selection or the parent fitness.
     #[test]
     fn tell_empty_fitness_does_not_panic() {
@@ -924,7 +924,7 @@ mod tests {
                 / (landscape.ys.len() as f32)
         };
 
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             CartesianGeneticProgramming::<TestBackend>::new(),
             params,
             landscape,
@@ -933,13 +933,11 @@ mod tests {
             2000,
         )
         .expect("valid params");
-        harness.reset();
-        loop {
-            if harness.step(()).done {
-                break;
-            }
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         // CGP should substantially beat the random-genome baseline.
         assert!(
             best < initial_error,

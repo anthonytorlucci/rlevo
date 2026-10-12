@@ -17,6 +17,7 @@ patterns.
 |-----|---------|
 | [`docs/rules.md`](docs/rules.md) | Hard constraints and conventions — **read before implementing anything** |
 | [`docs/adr/`](docs/adr/) | Immutable architectural decision records ([annotated index](docs/adr/README.md)) |
+| [`docs/ask-tell-contract.md`](docs/ask-tell-contract.md) | How an evolutionary run is driven: the ask/tell protocol, `EvolutionaryLoop`, and many seeds through `rlevo::harness` |
 
 ## Constraints
 
@@ -141,6 +142,10 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 - `crates/rlevo-core/src/base.rs`: Reward, TensorConvertible, transition dynamics
 - `crates/rlevo-reinforcement-learning/src/replay/`: RL replay-strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`) — moved out of core in ADR 0003, reshaped as a strategy seam in ADR 0050
 - `crates/rlevo-reinforcement-learning/src/metrics.rs`: `AgentStats`, `PerformanceRecord` — RL-only episode tracking
+- `crates/rlevo-evolution/src/strategy.rs`: `Strategy`, the stateless ask/tell contract, and `EvolutionaryLoop`, which holds a run's state and drives one with `reset()` / `step()` / `is_done()`. `step()` returns nothing; the status is the separate predicate (ADR 0085). For a `Strategy`, the loop is where a `Minimize` objective is negated and fitness is sanitised
+- `crates/rlevo-evolution/src/fitness.rs`: `BatchFitnessFn`, which declares its `ObjectiveSense`, and the fitness-hygiene rule as two public functions, `sanitize_fitness` / `sanitize_fitness_tensor`. A `Strategy`'s `tell` and a hand-written ask/tell loop call them, on canonical values, after any negation; a run through `EvolutionaryLoop` calls neither (ADR 0086)
+- `crates/rlevo-core/src/evaluation.rs`: `GenerationProbe` (`begin` / `advance`), the seam the evaluation harness drives a generation loop through. `advance` past exhaustion returns `None` and does nothing; the harness calls it once at its `max_steps` cap to learn whether a trial was cut short, and warns if it was
+- `crates/rlevo-evolution/src/probe.rs`: the `GenerationProbe` impls for the two loops, built from the three calls above, and the recipe a new driver follows. A run is driven by hand or by the harness; the harness resets the loop itself
 
 ### Example Reference Implementations
 - `crates/rlevo-environments/src/classic/bandit/k_armed.rs`: Complete environment example with extensive tests

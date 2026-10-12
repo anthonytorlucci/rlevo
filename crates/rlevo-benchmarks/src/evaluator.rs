@@ -42,11 +42,24 @@ pub struct EvaluatorConfig {
     pub num_episodes: usize,
     /// Number of independent seeds to evaluate per environment.
     pub num_trials_per_env: usize,
-    /// Hard step ceiling per episode; an episode that has not terminated by
-    /// `max_steps` is truncated with whatever return accumulated so far.
+    /// Hard ceiling on the units of work in one run of a trial.
+    ///
+    /// For an [`EpisodicTrial`] it is steps per episode: an episode that has
+    /// not terminated by `max_steps` is truncated with whatever return
+    /// accumulated so far. For a [`GenerationTrial`] it is generations: the
+    /// probe owns the real budget, and this is a backstop that should never
+    /// be the one to end the trial. When it is, the trial says so with a
+    /// warning. Set it at least as large as the probe's budget.
     pub max_steps: usize,
-    /// Root seed from which all trial and episode seeds are derived
-    /// via [`SeedStream`].
+    /// The suite's seed: the one number every seed in the suite is derived
+    /// from, through [`SeedStream`].
+    ///
+    /// It is not the seed of any one run. [`Evaluator::run_trials`] derives a
+    /// trial seed for each (environment, trial) pair, and from that an
+    /// environment seed and an agent seed, which it hands to the closure that
+    /// builds the trial. A generation loop built there takes one of those as
+    /// its own seed. Two suites with the same `base_seed` and the same shape
+    /// run the same trials; trial 0 and trial 1 of one suite do not.
     pub base_seed: u64,
     /// Fixed rayon thread count; `None` uses the global pool.
     ///
@@ -505,6 +518,35 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// calls `begin` once, then `advance` until the probe reports exhaustion,
 /// and reports the final unit's metrics plus a generation count.
 ///
+/// # The cap
+///
+/// The trial stops when the probe returns `None` or after
+/// [`EvaluatorConfig::max_steps`] generations, whichever comes first. The cap
+/// is a backstop against a probe that never returns `None`. `max_steps`
+/// defaults to 1000, so a probe with a larger budget is cut short unless
+/// `max_steps` is raised to at least that budget. The `generations` scalar
+/// in the report is the number of generations the report covers: the
+/// probe's budget, or the cap when the cap ended the trial.
+///
+/// A trial the cap ends is not an error, but it is not the run that was asked
+/// for either, so the trial emits one `tracing::warn!` naming the
+/// environment, the trial and the cap. A budget equal to the cap is not cut
+/// short and does not warn.
+///
+/// To tell the two apart the trial has to ask the probe, and `advance` is the
+/// only question [`GenerationProbe`] has. So when the count reaches the cap,
+/// `advance` is called once more. An exhausted probe returns `None` and does
+/// no work, which the trait's contract requires. A probe with budget left
+/// runs one more generation, and that generation is dropped: it is in neither
+/// the `generations` scalar, the reported metrics nor the wall clock. A
+/// fitness function that counts its own calls sees it.
+///
+/// # What a probe must be
+///
+/// `P::Metrics` implements [`MetricsProvider`], and `P` is `Send`, because
+/// trials run on a thread pool. [`Evaluator::run_trials`] builds one trial
+/// per seed from a closure, so each trial owns its own probe.
+///
 /// # Why no episodes
 ///
 /// [`TrialReport::episodes`] is left **empty**, deliberately. A probe re-seeds
@@ -557,6 +599,26 @@ where
         }
 
         let wall = start.elapsed().as_secs_f64();
+
+        // The loop above ends at the cap exactly when `units == cfg.max_steps`:
+        // a probe that returns `None` breaks out before the count reaches it.
+        // Whether the probe had more to give is something only the probe
+        // knows, and `advance` is the one way to ask, so it is called once
+        // more and what it returns is dropped. On an exhausted probe that call
+        // does no work (the `GenerationProbe` contract), which is what keeps a
+        // budget equal to the cap silent. It comes after the wall clock is
+        // read, so the dropped generation is in no number this trial reports.
+        if units == cfg.max_steps && self.probe.advance().is_some() {
+            tracing::warn!(
+                target: "rlevo_benchmarks",
+                env = %info.env_name,
+                trial = info.key.trial_idx,
+                max_steps = cfg.max_steps,
+                "generation trial stopped at max_steps before its probe was exhausted; \
+                 set EvaluatorConfig::max_steps to at least the probe's budget"
+            );
+        }
+
         // Same provenance split as `EpisodicTrial::run`: the two scalars below
         // are this trial's own measurements, while the probe's metrics are
         // checked against the harness-owned namespace.
@@ -774,14 +836,17 @@ mod tests {
     ///
     /// `env` and `non_finite_steps` are the two fields the trial-summary
     /// `warn!` carries; `key` is the colliding metric name carried by the
-    /// displacement `warn!` in `TrialReport::absorb_metrics`. All three are
-    /// `Option` because no event carries all of them.
+    /// displacement `warn!` in `TrialReport::absorb_metrics`; `max_steps` is
+    /// the cap carried by the `warn!` a cut-short `GenerationTrial` emits,
+    /// beside `env`. All four are `Option` because no event carries all of
+    /// them.
     #[derive(Debug, Clone)]
     struct CapturedEvent {
         level: Level,
         env: Option<String>,
         non_finite_steps: Option<u64>,
         key: Option<String>,
+        max_steps: Option<u64>,
     }
 
     thread_local! {
@@ -807,6 +872,7 @@ mod tests {
                     env: None,
                     non_finite_steps: None,
                     key: None,
+                    max_steps: None,
                 };
                 event.record(&mut visitor);
                 events.push(CapturedEvent {
@@ -814,6 +880,7 @@ mod tests {
                     env: visitor.env,
                     non_finite_steps: visitor.non_finite_steps,
                     key: visitor.key,
+                    max_steps: visitor.max_steps,
                 });
             });
         }
@@ -863,7 +930,8 @@ mod tests {
 
     /// Extracts the named fields these tests assert on from one event.
     ///
-    /// `non_finite_steps` is a `u64` and arrives through `record_u64`; `env`
+    /// `non_finite_steps` is a `u64` and `max_steps` a `usize`, which
+    /// `tracing` widens to one; both arrive through `record_u64`. `env`
     /// and `key` are recorded with `%` (`tracing::field::display`), which routes
     /// through `record_debug` with a `format_args!` payload — whose `Debug` is
     /// its `Display`, so the formatted string is the value verbatim.
@@ -871,12 +939,15 @@ mod tests {
         env: Option<String>,
         non_finite_steps: Option<u64>,
         key: Option<String>,
+        max_steps: Option<u64>,
     }
 
     impl Visit for EventVisitor {
         fn record_u64(&mut self, field: &Field, value: u64) {
-            if field.name() == "non_finite_steps" {
-                self.non_finite_steps = Some(value);
+            match field.name() {
+                "non_finite_steps" => self.non_finite_steps = Some(value),
+                "max_steps" => self.max_steps = Some(value),
+                _ => {}
             }
         }
 
@@ -1502,6 +1573,164 @@ mod tests {
             report.displaced_metrics.is_empty(),
             "a silent probe contests nothing, so nothing is re-homed"
         );
+    }
+
+    /// Runs a [`GenerationTrial`](super::GenerationTrial) over a probe with
+    /// `budget` generations under a cap of `max_steps`.
+    ///
+    /// Returns the report, every `tracing` event the trial emitted, and the
+    /// number of times the trial called `advance`. The probe's metric is the
+    /// 1-based index of the generation that produced it, so a report shows
+    /// which generation it was taken from.
+    fn run_generation_trial_capturing_events(
+        budget: usize,
+        max_steps: usize,
+        env_name: &str,
+    ) -> (TrialReport, Vec<CapturedEvent>, usize) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        use rlevo_core::evaluation::GenerationProbe;
+        use rlevo_core::fitness::MetricsProvider;
+
+        use super::GenerationTrial;
+
+        #[derive(Debug, Clone, Copy)]
+        struct GenerationIndex(usize);
+
+        impl MetricsProvider for GenerationIndex {
+            fn emit(&self) -> Vec<Metric> {
+                vec![Metric::Scalar {
+                    name: "ea/generation".to_string(),
+                    #[allow(clippy::cast_precision_loss)]
+                    value: self.0 as f64,
+                }]
+            }
+        }
+
+        struct CountingProbe {
+            budget: usize,
+            done: usize,
+            advances: Rc<Cell<usize>>,
+        }
+
+        impl GenerationProbe for CountingProbe {
+            type Metrics = GenerationIndex;
+
+            fn begin(&mut self) {
+                self.done = 0;
+            }
+
+            fn advance(&mut self) -> Option<Self::Metrics> {
+                self.advances.set(self.advances.get() + 1);
+                if self.done == self.budget {
+                    return None;
+                }
+                self.done += 1;
+                Some(GenerationIndex(self.done))
+            }
+        }
+
+        let info = TrialInfo {
+            key: TrialKey {
+                env_idx: 0,
+                trial_idx: 0,
+            },
+            env_name: env_name.to_string(),
+            trial_seed: 0,
+        };
+        let (mut reporter, _) = SpyReporter::new();
+        let dyn_reporter: &mut dyn Reporter = &mut reporter;
+        let lock = Mutex::new(dyn_reporter);
+        let cfg = single_thread_cfg(1, max_steps);
+        let advances = Rc::new(Cell::new(0));
+        let trial = GenerationTrial {
+            probe: CountingProbe {
+                budget,
+                done: 0,
+                advances: Rc::clone(&advances),
+            },
+        };
+
+        let (report, events) = capturing(|| trial.run(&cfg, &info, &lock));
+        (report, events, advances.get())
+    }
+
+    /// A probe with budget left when the cap is reached is cut short, and
+    /// the trial says so: one `warn!`, naming the environment and the cap.
+    ///
+    /// The report is the capped run's, not the run that includes the one
+    /// generation the trial spends finding out. That generation shows in the
+    /// call count and nowhere else.
+    #[test]
+    fn generation_trial_warns_once_when_the_cap_cuts_its_probe_short() {
+        use crate::metrics::core::GENERATIONS;
+
+        let (report, events, advances) = run_generation_trial_capturing_events(7, 4, "capped");
+
+        let warnings: Vec<&CapturedEvent> =
+            events.iter().filter(|e| e.level == Level::WARN).collect();
+        assert_eq!(
+            warnings.len(),
+            1,
+            "a trial the cap ends early warns exactly once; got {warnings:?}"
+        );
+        assert_eq!(
+            warnings[0].env.as_deref(),
+            Some("capped"),
+            "the warning must name the unit whose trial was cut short"
+        );
+        assert_eq!(
+            warnings[0].max_steps,
+            Some(4),
+            "the warning must carry the cap that ended the trial"
+        );
+        assert!(
+            (report.scalars[GENERATIONS] - 4.0).abs() < f64::EPSILON,
+            "the trial reports the generations inside the cap, not the one it \
+             ran to find out; got {}",
+            report.scalars[GENERATIONS]
+        );
+        assert!(
+            (report.scalars["ea/generation"] - 4.0).abs() < f64::EPSILON,
+            "the reported metrics are the fourth generation's; the fifth is \
+             dropped; got {}",
+            report.scalars["ea/generation"]
+        );
+        assert_eq!(
+            advances, 5,
+            "finding out costs one call past the cap, and only one"
+        );
+    }
+
+    /// A budget the cap does not cut short is silent, including the budget
+    /// that equals the cap, which is the case a check on the count alone
+    /// gets wrong.
+    #[test]
+    fn generation_trial_is_silent_when_its_probe_ends_within_the_cap() {
+        use crate::metrics::core::GENERATIONS;
+
+        for budget in [0usize, 3, 4] {
+            let (report, events, advances) = run_generation_trial_capturing_events(budget, 4, "ok");
+
+            assert!(
+                events.iter().all(|e| e.level != Level::WARN),
+                "a budget of {budget} under a cap of 4 is not cut short and \
+                 must not warn; got {events:?}"
+            );
+            #[allow(clippy::cast_precision_loss)]
+            let expected = budget as f64;
+            assert!(
+                (report.scalars[GENERATIONS] - expected).abs() < f64::EPSILON,
+                "every generation of a budget of {budget} ran; got {}",
+                report.scalars[GENERATIONS]
+            );
+            assert_eq!(
+                advances,
+                budget + 1,
+                "one call per generation and the one that returned `None`"
+            );
+        }
     }
 
     /// One `warn!` per affected trial — not one per affected step, and not

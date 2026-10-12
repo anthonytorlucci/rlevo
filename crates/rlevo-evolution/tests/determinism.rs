@@ -1,17 +1,18 @@
 //! Determinism integration test.
 //!
-//! On the Flex backend, running a strategy twice with the same
-//! `base_seed` must produce a bit-identical fitness trajectory.
+//! On the Flex backend, running a strategy twice with the same seed
+//! must produce a bit-identical fitness trajectory.
 //!
 //! # Why this file runs a single test
 //!
-//! The Burn Flex backend seeds its RNG through a process-wide
-//! `Mutex<Option<FlexRng>>`. Multiple tests that race on that mutex
-//! will interleave `Tensor::random` draws and destroy bit-equality. This
-//! file therefore contains exactly one `#[test]` function so the cargo
-//! runner cannot execute anything in parallel with it — within the
-//! single test body, the two runs are strictly sequential and compare
-//! byte-for-byte.
+//! History. The file was laid out when operators drew from Burn's
+//! process-wide generator, which tests running in parallel would have raced
+//! on. Every operator now draws from the host `seed_stream`
+//! (`rlevo_evolution::rng`), nothing here touches the backend generator, and
+//! seeded runs are bit-identical even when many run at once on a thread
+//! pool (`parallel_trials_match_serial_trials` in the umbrella crate's
+//! `tests/generation_trial_seam.rs`). The single `#[test]` function is kept
+//! because splitting it would change nothing it asserts.
 
 use burn::backend::Flex;
 use burn::tensor::backend::{Backend, BackendTypes};
@@ -44,7 +45,7 @@ use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
 use rlevo_evolution::local_search::{
     HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
 };
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
@@ -68,7 +69,7 @@ where
     FromFitnessEvaluable<SphereFit, Sphere>: BatchFitnessFn<B, S::Genome>,
 {
     let device = Default::default();
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -77,14 +78,11 @@ where
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory = Vec::with_capacity(gens);
-    loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
     }
     trajectory
 }
@@ -130,7 +128,7 @@ fn run_binary_ga(seed: u64, gens: usize) -> Vec<f32> {
     let device = Default::default();
     let dim = 16usize;
     let params = BinaryGaConfig::default_for(32, dim);
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         BinaryGeneticAlgorithm::<B>::new(),
         params,
         OneMaxBatch { dim },
@@ -139,14 +137,11 @@ fn run_binary_ga(seed: u64, gens: usize) -> Vec<f32> {
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory = Vec::with_capacity(gens);
-    loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
     }
     trajectory
 }
@@ -219,9 +214,9 @@ fn run_firefly(seed: u64, gens: usize) -> Vec<f32> {
 /// Drive a `MemeticWrapper<DE, HillClimbing>` for `gens` generations and
 /// collect the per-generation best-fitness trajectory.
 ///
-/// Unlike [`run`], this builds the harness inline: a `MemeticWrapper` holds its
+/// Unlike [`run`], this builds the loop inline: a `MemeticWrapper` holds its
 /// *own* fitness instance (used to score local-search probes) in addition to
-/// the harness's, so it cannot go through the generic [`run`] path that supplies
+/// the loop's, so it cannot go through the generic [`run`] path that supplies
 /// a single fitness. Both instances are independent `FromFitnessEvaluable`
 /// values over the same stateless [`SphereFit`], so they never diverge.
 fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
@@ -239,7 +234,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
         writeback: WritebackPolicy::Partial(Probability::new(0.5)),
         coverage: CoveragePolicy::TopK { k: 2 },
     };
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -248,14 +243,11 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
-    loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
     }
     trajectory
 }
@@ -282,7 +274,7 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
         writeback: WritebackPolicy::Partial(Probability::new(0.5)),
         coverage: CoveragePolicy::TopK { k: 2 },
     };
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -291,14 +283,11 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
-    loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
     }
     trajectory
 }

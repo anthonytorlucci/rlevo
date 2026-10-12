@@ -3,8 +3,8 @@
 //! evolution selecting among them and co-evolving weights per variant.
 //!
 //! Mirrors the structure of `neuroevolution_supervised.rs` but drives the
-//! custom [`ArchNasStrategy`] harness directly (it is **not** a `Strategy<B>`,
-//! so the `EvolutionaryHarness` adapter does not apply). The toy task is XOR:
+//! standalone [`ArchNasStrategy`] directly (it is **not** a `Strategy<B>`,
+//! so the `EvolutionaryLoop` adapter does not apply). The toy task is XOR:
 //! three MLP variants of differing depth compete to fit the four XOR points
 //! while their weights are co-evolved.
 //!
@@ -123,7 +123,7 @@ fn arch_nas_selects_architecture_and_improves_on_xor() {
 
     // Per-variant scorers: forward the four XOR points, return `$-\text{MSE}$` — a canonical
     // maximise fitness (higher is better; arch_nas is maximise-native and this test drives the
-    // strategy directly, so no harness chokepoint reconciles direction).
+    // strategy directly, so no loop chokepoint reconciles direction).
     let (in_s, tg_s) = (inputs.clone(), targets.clone());
     let shallow_scorer = move |m: &ShallowMlp<TestBackend>| -mse(m.forward(in_s.clone()), &tg_s);
     let (in_m, tg_m) = (inputs.clone(), targets.clone());

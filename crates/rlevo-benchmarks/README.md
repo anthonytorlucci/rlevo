@@ -60,10 +60,10 @@ Suite<E>
 
 | Field | Default | Purpose |
 |-------|---------|---------|
-| `num_episodes` | — | Episodes per trial |
-| `num_trials_per_env` | — | Trials per environment |
-| `max_steps` | — | Step budget per episode |
-| `base_seed` | — | Root for `SeedStream` |
+| `num_episodes` | `100` | Episodes per trial |
+| `num_trials_per_env` | `1` | Trials per environment |
+| `max_steps` | `1000` | Step ceiling per episode; for a `GenerationTrial`, a cap on generations that warns when it ends a trial early |
+| `base_seed` | `0` | The suite's seed: the root of `SeedStream`, from which every trial's seeds are derived. Not the seed of any one run |
 | `num_threads` | `None` (Rayon default) | Thread pool size |
 | `checkpoint_dir` | `None` | Directory for checkpoint files |
 | `fail_fast` | `false` | Abort suite on first panic |

@@ -202,7 +202,7 @@ impl<B: Backend> HallOfFame<B> {
 ///
 /// Because [`CoupledFitness::evaluate_coupled`] takes `&self` but the archive
 /// must mutate per generation, the [`HallOfFame`] is held behind a
-/// `parking_lot::Mutex` (the project-standard lock, ADR-0010). Each harness
+/// `parking_lot::Mutex` (the project-standard lock, ADR-0010). Each loop
 /// runs its own wrapper instance, so the lock is effectively uncontended.
 ///
 /// # Invariants
@@ -288,7 +288,7 @@ impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B
     ///
     /// This method is logically **serial per instance**: the archive snapshot
     /// and the later `update` are two separate lock acquisitions, so a single
-    /// instance's generations must not be evaluated concurrently (each harness
+    /// instance's generations must not be evaluated concurrently (each loop
     /// owns its own wrapper instance, so this holds by construction).
     fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
         debug_assert_eq!(populations.len(), 2, "v1 hall-of-fame is bi-population");

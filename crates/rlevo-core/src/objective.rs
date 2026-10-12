@@ -10,7 +10,7 @@
 //! # Two value spaces
 //!
 //! The contract separates two spaces and confines the mapping between them to a
-//! single chokepoint (the evolutionary harness / fitness adapters):
+//! single chokepoint (the evolutionary loop / fitness adapters):
 //!
 //! - **User space** — the sense the problem declares. A cost/loss/landscape is
 //!   `Minimize`; a reward/fitness/accuracy is `Maximize`.
@@ -54,7 +54,7 @@ impl ObjectiveSense {
     ///
     /// `Maximize` passes the value through unchanged; `Minimize` negates it so a
     /// cost surface is optimised as `$-\text{cost}$` by the maximise-native engine.
-    /// Applied **once**, at the harness / fitness-adapter boundary.
+    /// Applied **once**, at the evolutionary-loop / fitness-adapter boundary.
     ///
     /// ```
     /// use rlevo_core::objective::ObjectiveSense;

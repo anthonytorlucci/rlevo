@@ -2,7 +2,7 @@
 //! historical markers NEAT crossover aligns on.
 //!
 //! A single [`InnovationRegistry`] is created per run and shared across the NEAT
-//! harness via `Arc`. It is the **only** allocator of [`InnovationId`]s and
+//! run via `Arc`. It is the **only** allocator of [`InnovationId`]s and
 //! hidden [`NodeId`]s, so two identical structural mutations occurring in
 //! different genomes *within the same run* receive the same ids — without which
 //! innovation-aligned crossover silently misclassifies genes.
@@ -40,7 +40,7 @@ pub struct NodeSplit {
     pub out_innov: InnovationId,
 }
 
-/// Per-run innovation bookkeeping, shared via `Arc` across the NEAT harness.
+/// Per-run innovation bookkeeping, shared via `Arc` across the NEAT run.
 ///
 /// Thread-safe via interior mutability behind a [`parking_lot::Mutex`]
 /// (ADR-0010). See the [module docs](self) for the determinism argument.

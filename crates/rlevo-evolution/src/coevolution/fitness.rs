@@ -18,7 +18,7 @@ use rlevo_core::objective::ObjectiveSense;
 /// hand-negation). The co-evolutionary **algorithm** is the sole
 /// canonicalisation chokepoint: it maps natural → canonical (maximise-native)
 /// space once per generation, exactly as the
-/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) does for the
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) does for the
 /// single-population path (ADR 0023).
 ///
 /// # Uniform-direction constraint
@@ -90,7 +90,7 @@ pub trait CoupledFitness<B: Backend>: Send + Sync {
     ///
     /// The returned fitness vectors **may contain `NaN` or `$\pm\infty$`** — implementors are not
     /// required to sanitize. Co-evolution is its own driver (there is no
-    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) above it), so the
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) above it), so the
     /// co-evolutionary algorithms canonicalise **and then** sanitize (`$\text{NaN} \to -\infty$`,
     /// `$+\infty \to \text{f32::MAX}$`) at their state-write chokepoint immediately after this call
     /// — sanitisation runs *after* canonicalisation because "`NaN` = worst" is only well-defined in

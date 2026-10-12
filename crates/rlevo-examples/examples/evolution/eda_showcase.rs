@@ -6,7 +6,7 @@
 //! the best individuals, (2) **fits a probability model** to them, and (3)
 //! **samples** a fresh population from that model. The model *is* the algorithm,
 //! so this example prints the model's internals as they evolve rather than
-//! hiding them behind the [`EvolutionaryHarness`]. It drives the
+//! hiding them behind the [`EvolutionaryLoop`]. It drives the
 //! [`Strategy`] `ask` → evaluate → `tell` loop by hand for exactly that reason.
 //!
 //! Three demos, each paired with the problem that actually exercises its models:
@@ -95,7 +95,7 @@ fn rosenbrock_fitness(landscape: Rosenbrock, row: &[f32]) -> f32 {
 /// scalar fitness closure and return the `(pop_size,)` fitness tensor.
 ///
 /// This mirrors what [`rlevo_evolution::fitness::FromLandscape`] does inside
-/// the harness; we inline it so the binary `OneMax` demo needs no `Landscape`
+/// the loop; we inline it so the binary `OneMax` demo needs no `Landscape`
 /// impl and both demos read identically.
 #[allow(clippy::trivially_copy_pass_by_ref)] // device is a ZST; &-passing reads clearer
 fn eval_population<F>(

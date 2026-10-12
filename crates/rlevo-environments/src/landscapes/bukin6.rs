@@ -9,7 +9,7 @@
 //!
 //! The true domain is asymmetric: `$x_1 \in [-15, -5]$`, `$x_2 \in [-3, 3]$`.
 //! [`bounds`](Bukin6::bounds) returns a single `(lo, hi)` pair applied per-coordinate (the
-//! consuming renderer and search harnesses use one box for every axis), so it returns the *square
+//! consuming renderer and search loops use one box for every axis), so it returns the *square
 //! bounding box* `(-15.0, 3.0)` of that asymmetric domain. This is the smallest square that still
 //! contains the full domain, the parabolic ridge, and the optimum `$(-10, 1)$` — a per-axis `$x_1$`
 //! range like `(-15, -5)` would exclude both the ridge
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn bounds_box_contains_optimum_on_both_axes() {
         // The single `(lo, hi)` pair is applied per-coordinate, so the optimum
-        // (-10, 1) must lie inside [lo, hi] on BOTH axes for search harnesses
+        // (-10, 1) must lie inside [lo, hi] on BOTH axes for search loops
         // to be able to reach it.
         let (lo, hi) = Bukin6::new().bounds();
         let (opt_x1, opt_x2) = (-10.0_f64, 1.0_f64);

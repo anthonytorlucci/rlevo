@@ -121,7 +121,7 @@ impl CmaEsConfig {
     /// §A); all derived weights and learning rates follow from `$(\lambda, D)$`.
     ///
     /// The `pop_size` `$\geq 2$` invariant is enforced by [`Validate::validate`] at the
-    /// harness chokepoint, not by this infallible producer.
+    /// loop chokepoint, not by this infallible producer.
     #[must_use]
     pub fn with_pop_size(pop_size: usize, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]
@@ -615,7 +615,7 @@ where
         let mu = params.mu;
 
         // Best-tracking (`update_best`, below) reads this raw fitness directly and relies on the
-        // harness-side sanitize chokepoint (ADR 0034) to have already mapped
+        // loop-side sanitize chokepoint (ADR 0034) to have already mapped
         // `$+\infty \to \text{f32::MAX}$` before `tell`; that `$+\infty$` hygiene is pre-existing
         // and out of scope here. The adaptive update below reads only the locally-sanitized `sane`
         // copy.
@@ -632,7 +632,7 @@ where
         // Rank offspring descending (canonical maximise): ranked[0] is the best (highest fitness).
         // The recombination weights `params.weights` are assigned to rank positions unchanged —
         // only the ordering of which individuals occupy those ranks inverts relative to a
-        // minimisation engine. Against a `Minimize` landscape the harness feeds the engine
+        // minimisation engine. Against a `Minimize` landscape the loop feeds the engine
         // `$-\text{cost}$`, so this descending canonical order matches the `pycma` ascending-cost
         // order point-for-point.
         let mut ranked: Vec<usize> = (0..lambda).collect();

@@ -28,7 +28,7 @@ use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
 use rlevo_evolution::fitness::FromFitnessEvaluable;
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 const DIM: usize = 10;
@@ -58,7 +58,7 @@ impl FitnessEvaluable for AckleyFit {
 /// - `num_trials_per_env: 2` — enough signal to catch systematic failures without
 ///   inflating wall-clock time.
 /// - `max_steps: MAX_GENS` (120) — matches the generation budget given to each
-///   [`EvolutionaryHarness`].
+///   [`EvolutionaryLoop`].
 /// - `num_threads: Some(1)` — forces single-threaded trial dispatch. Burn's `Flex`
 ///   backend holds a process-global RNG mutex; running trials in parallel would
 ///   cause threads to contend on that mutex and produce nondeterministic, often
@@ -79,14 +79,11 @@ fn cfg() -> EvaluatorConfig {
     }
 }
 
-/// Runs the given environment factory through the full suite evaluator and returns
-/// the mean best-fitness (per-step average) across all trials as a single `f64`.
+/// Runs the given loop factory through the evaluator as generation trials and returns the
+/// mean, across all trials, of each trial's best fitness as a single `f64`.
 ///
-/// The evaluator stores cumulative reward as `$-\text{best\_fitness}$` in `episode.return_value`
-/// (lower raw fitness is better, so the harness negates it to keep the reward signal positive). The
-/// expression `-e.return_value / steps` therefore inverts that negation and divides by the
-/// generation count to produce a per-step mean best-fitness value comparable across functions with
-/// different absolute scales.
+/// Each trial reports `ea/best_fitness_ever` in the objective's natural sense, so for these cost
+/// landscapes a lower value is better and no sign needs undoing.
 ///
 /// The return value is the arithmetic mean over trials, not a `Vec<f64>`. This differs
 /// from `rastrigin_run_suite.rs`'s `collect_best_returns`, which returns each trial's
@@ -132,11 +129,11 @@ where
 
 fn pso_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, ParticleSwarm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>>
+) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>>
 where
     ParticleSwarm<B>: Strategy<B, Params = PsoConfig>,
 {
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         ParticleSwarm::<B>::new(),
         PsoConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
@@ -153,8 +150,8 @@ where
 
 fn gwo_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, GreyWolfOptimizer<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
-    EvolutionaryHarness::new(
+) -> EvolutionaryLoop<B, GreyWolfOptimizer<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+    EvolutionaryLoop::new(
         GreyWolfOptimizer::<B>::new(),
         GwoConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
@@ -171,8 +168,8 @@ fn gwo_ra(
 
 fn woa_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, WhaleOptimization<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
-    EvolutionaryHarness::new(
+) -> EvolutionaryLoop<B, WhaleOptimization<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+    EvolutionaryLoop::new(
         WhaleOptimization::<B>::new(),
         WoaConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
@@ -189,8 +186,8 @@ fn woa_ra(
 
 fn salp_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, SalpSwarm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
-    EvolutionaryHarness::new(
+) -> EvolutionaryLoop<B, SalpSwarm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+    EvolutionaryLoop::new(
         SalpSwarm::<B>::new(),
         SalpConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
@@ -207,8 +204,8 @@ fn salp_ra(
 
 fn abc_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, ArtificialBeeColony<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
-    EvolutionaryHarness::new(
+) -> EvolutionaryLoop<B, ArtificialBeeColony<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+    EvolutionaryLoop::new(
         ArtificialBeeColony::<B>::new(),
         AbcConfig::default_for(30, DIM),
         FromFitnessEvaluable::with_sense(
@@ -225,8 +222,8 @@ fn abc_ra(
 
 fn bat_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, BatAlgorithm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
-    EvolutionaryHarness::new(
+) -> EvolutionaryLoop<B, BatAlgorithm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+    EvolutionaryLoop::new(
         BatAlgorithm::<B>::new(),
         BatConfig::default_for(30, DIM),
         FromFitnessEvaluable::with_sense(
@@ -243,8 +240,8 @@ fn bat_ra(
 
 fn aco_r_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, AntColonyReal<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
-    EvolutionaryHarness::new(
+) -> EvolutionaryLoop<B, AntColonyReal<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+    EvolutionaryLoop::new(
         AntColonyReal::<B>::new(),
         AcoRConfig::default_for(30, 15, DIM),
         FromFitnessEvaluable::with_sense(
@@ -261,10 +258,10 @@ fn aco_r_ra(
 
 fn cuckoo_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, CuckooSearch<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+) -> EvolutionaryLoop<B, CuckooSearch<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
     let mut cfg = CuckooConfig::default_for(30, DIM);
     cfg.alpha = 0.2;
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         CuckooSearch::<B>::new(),
         cfg,
         FromFitnessEvaluable::with_sense(
@@ -281,8 +278,8 @@ fn cuckoo_ra(
 
 fn firefly_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, FireflyAlgorithm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
-    EvolutionaryHarness::new(
+) -> EvolutionaryLoop<B, FireflyAlgorithm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+    EvolutionaryLoop::new(
         FireflyAlgorithm::<B>::new(),
         FireflyConfig::default_for(24, DIM),
         FromFitnessEvaluable::with_sense(
@@ -303,8 +300,8 @@ fn firefly_ra(
 
 fn pso_ak(
     seed: u64,
-) -> EvolutionaryHarness<B, ParticleSwarm<B>, FromFitnessEvaluable<AckleyFit, Ackley>> {
-    EvolutionaryHarness::new(
+) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromFitnessEvaluable<AckleyFit, Ackley>> {
+    EvolutionaryLoop::new(
         ParticleSwarm::<B>::new(),
         PsoConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
@@ -321,7 +318,7 @@ fn pso_ak(
 
 fn de_rand1_ak(
     seed: u64,
-) -> EvolutionaryHarness<
+) -> EvolutionaryLoop<
     B,
     rlevo_evolution::algorithms::de::DifferentialEvolution<B>,
     FromFitnessEvaluable<AckleyFit, Ackley>,
@@ -329,7 +326,7 @@ fn de_rand1_ak(
     use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
     let mut params = DeConfig::default_for(40, DIM);
     params.variant = DeVariant::Rand1Bin;
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         DifferentialEvolution::<B>::new(),
         params,
         FromFitnessEvaluable::with_sense(

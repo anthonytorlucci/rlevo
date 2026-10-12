@@ -51,6 +51,9 @@ pub struct AcoRConfig {
 
 impl AcoRConfig {
     /// Default configuration for a given archive size, offspring count, and dimensionality.
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(archive_size: usize, m: usize, genome_dim: usize) -> Self {
         Self {
@@ -106,7 +109,7 @@ pub struct AcoRState<B: Backend> {
 ///
 /// The `archive_size >= 2` (the `$\sigma$` computation needs at least two archive solutions to take
 /// a pairwise distance) and `m >= 1` invariants are enforced by [`Validate::validate`] at the
-/// harness chokepoint.
+/// loop chokepoint.
 ///
 /// # Example
 ///
@@ -176,7 +179,7 @@ where
     ///
     /// All random draws go through [`seed_stream`] derived from `rng` rather
     /// than `B::seed` + `Tensor::random`; this keeps draws reproducible across
-    /// thread schedules when multiple tests or harnesses share the same
+    /// thread schedules when multiple tests or loops share the same
     /// process-wide Burn RNG state.
     fn init(
         &self,
@@ -215,7 +218,7 @@ where
     /// Proposes the next population.
     ///
     /// **First call** (`state.archive_fitness.is_empty()`): returns the
-    /// initial archive as-is so the harness scores it before any generation
+    /// initial archive as-is so the loop scores it before any generation
     /// update occurs.
     ///
     /// **Subsequent calls**: draws `m` offspring by, for each dimension `d`
@@ -349,10 +352,10 @@ where
     ) -> (AcoRState<B>, StrategyMetrics) {
         // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
         // correctness floor for a caller driving `ask`/`tell` directly instead of
-        // `EvolutionaryHarness::step`, which already sanitizes (the ADR 0034 decision-3 bypass
+        // `EvolutionaryLoop::step`, which already sanitizes (the ADR 0034 decision-3 bypass
         // hole): the local `sane` derivations below only fix the *ranking*, while the stored
         // `state.archive_fitness` would still carry the raw NaN. `sanitize_fitness` is idempotent,
-        // so on the harness path this is a provable no-op — not redundant, load-bearing.
+        // so on the loop path this is a provable no-op — not redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -444,7 +447,7 @@ where
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use burn::backend::flex::FlexDevice;
     use rand::SeedableRng;
@@ -617,18 +620,20 @@ mod tests {
         let strategy = AntColonyReal::<TestBackend>::new();
         let params = AcoRConfig::default_for(30, 15, 10);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 17, device, 400,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-3, "ACO_R D10 best={best}");
     }
 
     /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
-    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()`.
+    /// canonical, exercising the ADR-0034 loop sanitize with no `neg()`.
     struct PartialNanFitness;
     impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
         fn evaluate_batch(
@@ -660,7 +665,7 @@ mod tests {
 
     // Gap (b): the first `ask` (generation 0, empty `archive_fitness`) hits the
     // early-return path and hands back the initial archive verbatim so the
-    // harness can score it before any Gaussian-kernel sampling occurs.
+    // loop can score it before any Gaussian-kernel sampling occurs.
     #[test]
     #[allow(clippy::float_cmp)] // byte-identical: `ask` clones `state.archive`
     fn first_ask_returns_archive_verbatim() {
@@ -724,14 +729,15 @@ mod tests {
         let strategy = AntColonyReal::<TestBackend>::new();
         let params = AcoRConfig::default_for(2, 4, 3);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 6, device, 6,
-        )
-        .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
+                .expect("valid params");
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         assert!(
-            harness
+            evo_loop
                 .latest_metrics()
                 .unwrap()
                 .best_fitness_ever()
@@ -742,7 +748,7 @@ mod tests {
 
     // The `genome_dim = 1` case: the `$\sigma$` reduction `diffs.sum_dim(0).squeeze_dim::<2>(0)`
     // removes only the reduced axis, so the `(1, k, 1)` intermediate correctly collapses to
-    // `(k, 1)` instead of panicking inside burn's `Squeeze` rank-check. Runs a full harness to
+    // `(k, 1)` instead of panicking inside burn's `Squeeze` rank-check. Runs a full loop to
     // completion and asserts a finite best.
     #[test]
     fn boundary_genome_dim_one_runs() {
@@ -750,14 +756,15 @@ mod tests {
         let strategy = AntColonyReal::<TestBackend>::new();
         let params = AcoRConfig::default_for(8, 4, 1);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 6, device, 6,
-        )
-        .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
+                .expect("valid params");
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         assert!(
-            harness
+            evo_loop
                 .latest_metrics()
                 .unwrap()
                 .best_fitness_ever()
@@ -766,15 +773,15 @@ mod tests {
         );
     }
 
-    // Gap (e): a partly-`NaN` objective is neutralized by the harness sanitize
+    // Gap (e): a partly-`NaN` objective is neutralized by the loop sanitize
     // chokepoint (ADR 0034) — `best_fitness_ever` stays finite and the broken
     // member is counted.
     #[test]
-    fn nan_fitness_survives_harness() {
+    fn nan_fitness_survives_loop() {
         let device: FlexDevice = Default::default();
         let strategy = AntColonyReal::<TestBackend>::new();
         let params = AcoRConfig::default_for(8, 6, 3);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
             PartialNanFitness,
@@ -783,9 +790,11 @@ mod tests {
             4,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let m = harness.latest_metrics().unwrap();
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
+        let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever().is_finite(),
             "best_fitness_ever not finite: {}",
@@ -797,10 +806,10 @@ mod tests {
     /// Cache hygiene (not a freeze): `tell` already sanitizes for the archive
     /// *ranking*, so a `NaN` sorts worst and is evicted rather than latching.
     /// What this pins is the **store** — driving `init → ask → tell` directly,
-    /// the ADR-0034 decision-3 bypass of `EvolutionaryHarness::step`, must not
+    /// the ADR-0034 decision-3 bypass of `EvolutionaryLoop::step`, must not
     /// leave a raw `NaN` in the public `archive_fitness` a caller reads back.
     #[test]
-    fn nan_fitness_does_not_latch_without_harness() {
+    fn nan_fitness_does_not_latch_without_loop() {
         let device: FlexDevice = Default::default();
         let strategy = AntColonyReal::<TestBackend>::new();
         let params = AcoRConfig::default_for(6, 4, 3);

@@ -108,6 +108,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `rlevo_environments::bench::family`. `record` no longer implies a second
   feature and is now the only one under which `rlevo-environments` depends
   on `rlevo-benchmarks`.
+- **`EvolutionaryHarness` is renamed `EvolutionaryLoop` and
+  `CoEvolutionaryHarness` is renamed `CoEvolutionaryLoop`** (ADR 0085), in
+  `rlevo-evolution` and so under `rlevo::evo`. "Harness" now names the
+  evaluation harness, `rlevo::harness`, and nothing else. No deprecated
+  alias is kept. Constructors, type parameters and every method but `step`
+  are unchanged.
+- **`step` takes no argument and returns nothing, and `is_done()` is a
+  method of its own**, on both loops and on
+  `rlevo_hybrid::PolicyNeuroevolution` (ADR 0085). `GenerationStep` is
+  removed. `while !harness.step(()).done {}` becomes
+
+  ```rust
+  while !evo_loop.is_done() {
+      evo_loop.step();
+  }
+  ```
+
+  and `if harness.step(()).done { break; }` becomes
+  `evo_loop.step(); if evo_loop.is_done() { break; }`. The loop now asks
+  before it runs, so a budget of zero runs no generation where the old
+  `while` form ran one. `step` itself does not consult the budget: called
+  when `is_done()` is `true`, it runs one more generation, as before.
+
+  The `reward` field has no replacement on the loop. On `EvolutionaryLoop`
+  it was the *canonical* best so far; `latest_metrics().best_fitness_ever()`
+  is the same quantity in the objective's declared sense, so for a
+  `Minimize` objective the old `reward` is the new value negated. On
+  `CoEvolutionaryLoop` it was `CoEAMetrics::binding_fitness`, which is
+  unchanged and still canonical.
+- **The module `rlevo_evolution::coevolution::harness` is renamed
+  `coevolution::generation_loop`.** `CoEAMetrics` and `CoEvolutionaryLoop`
+  are re-exported from `rlevo_evolution::coevolution` as before, so only a
+  path that named the module changes.
 
 ### `rlevo`
 
@@ -138,8 +171,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **The `ga_rastrigin` example's probe did not re-seed in `begin`.**
+  `GenerationProbe` requires `begin` to re-seed, so that two runs of one
+  probe produce the same metrics. The example's hand-written probe
+  resampled its population from an RNG that kept advancing, and worked only
+  because every trial builds a fresh probe. `begin` now re-seeds from a
+  stored seed, and the population is sampled there and not in `new`. The
+  example's printed results change once, because the first population is
+  now the first sample from the seed where it was the second. Its
+  documented sample output is now what it prints.
+
 - **`README.md` and the crate docs said `rlevo = "0.3"`.** They now state
   the current version, 0.5.
+
+### `rlevo-core`
+
+**Fixed**
+
+- **`FitnessEvaluable`'s docs named a consumer that does not exist**,
+  `Evaluator::run_optimizer_trial`. The consumer is `rlevo-evolution`'s
+  `FromFitnessEvaluable` adapter.
+- **`GenerationProbe`'s docs did not say who calls it or who implements
+  it.** An evaluator calls it; a user implements it only for a generation
+  loop of their own. The docs now say so, point at the recipe in
+  `rlevo_evolution::probe`, and qualify the determinism clause for backends
+  whose arithmetic is not deterministic.
 
 ### `rlevo-reinforcement-learning`
 
@@ -189,10 +245,124 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   its evaluation, in its own file, and the file of forwarding impls is
   gone. `bench` still gates the preset `Suite` factories.
 
+### `rlevo-evolution`
+
+**Added**
+
+- **`EvolutionaryLoop::is_done` and `CoEvolutionaryLoop::is_done`**: whether
+  the generation budget is spent. They replace the `done` field of the
+  removed `GenerationStep`, and `GenerationProbe::advance` is now this
+  check followed by one `step`.
+- **Documentation of how a loop is driven and why.** `EvolutionaryLoop`'s
+  type docs give the three calls, the six things one `step` does and the
+  reason `step` reports no status. `rlevo_evolution::probe` shows driving a
+  loop by hand beside handing it to `rlevo::harness`.
+- **A test that seeded trials do not depend on the thread count.**
+  `parallel_trials_match_serial_trials` (in `crates/rlevo/tests/`) runs the
+  same seeded trials on one thread, on four and on the default pool and
+  compares every scalar bit for bit. A loop made to draw from a
+  process-global generator fails it.
+- **`fitness::sanitize_fitness` and `fitness::sanitize_fitness_tensor` are
+  public** (ADR 0086, superseding one clause of ADR 0034). They are the
+  crate's rule for a fitness that is not finite: `NaN` becomes
+  `f32::NEG_INFINITY`, `+inf` becomes `f32::MAX`, everything else passes
+  through, on canonical (higher is better) values. Two kinds of code call
+  them. A `Strategy` you write maps the fitness its `tell` pulls to host
+  through `sanitize_fitness`, because `tell` can be reached without the
+  loop. A loop you write around `ask` and `tell` calls
+  `sanitize_fitness_tensor(cost.neg())` before `tell`. Negate first: a
+  `NaN` cost sanitised and then negated becomes the best member of the
+  population. A run driven by `EvolutionaryLoop` calls neither. Both had
+  the rule only in prose before. `sanitized_mean` and `sanitized_sum` stay
+  private.
+- **A test that a hand-written ask/tell loop matches `EvolutionaryLoop`.**
+  `tests/hand_written_loop.rs` defines a strategy outside the crate,
+  drives it once through the loop and once by hand with the two functions
+  above, and compares what every `tell` received, bit for bit, on a
+  fitness function that returns `NaN`, `-inf` and `+inf` costs.
+
+**Changed**
+
+- **A loop's seed is called its seed.** `EvolutionaryLoop` and
+  `CoEvolutionaryLoop` called the seed they are built from a "base seed",
+  in a private field, in their `Debug` output and in their docs. That is
+  the name of `EvaluatorConfig::base_seed`, a different number: the one a
+  suite's per-trial seeds are derived from. The loops now say `seed`
+  throughout, and `Debug` prints `seed` where it printed `base_seed`. No
+  public name changes; the docs of `new`, of `EvaluatorConfig::base_seed`
+  and the guide state how the two relate (ADR 0085, Decision 10).
+
+**Fixed**
+
+- **The documentation described a `reward` the evaluator no longer read.**
+  The loop's type docs, the crate README and the co-evolution module docs
+  said each `step` hands a reward to the benchmark evaluator. It has read
+  typed metrics through `GenerationProbe::advance` since `BenchEnv` was
+  removed. `rlevo_evolution::probe`'s module docs now show the two ways to
+  drive a loop side by side.
+- **The README's and the objective-adapter guide's examples read
+  `best_fitness_ever` as a field.** It is an accessor,
+  `best_fitness_ever()`; `StrategyMetrics`'s fields are private.
+- **The ask/tell guide said the loop stops early and evaluates in
+  parallel.** It does neither: it stops at `max_generations` and calls the
+  fitness function once per generation. The guide now lists what it does
+  add.
+- **The reproducibility notes said parallel loops race, and they do not.**
+  `EvolutionaryLoop`'s docs, the crate README and the ask/tell guide warned
+  that loops run in parallel race on Burn's process-global generator and
+  advised pinning `EvaluatorConfig::num_threads = Some(1)`. No strategy has
+  drawn from that generator since the host-RNG convention; every draw comes
+  from the loop's own RNG. Measured on `Flex` (Apple M2 Pro, 12 cores): 16
+  seeded trials of each of GA, DE, EP, PSO and CMA-ES, 60 generations on a
+  6-dimensional Rastrigin, gave bit-identical scalars on one thread, on
+  eight and on the default pool. The notes now say so. They also said the
+  `wgpu` backend takes an unrelated trajectory; it follows the `Flex` one,
+  to within `5.7e-5` in best fitness over 60 generations in one measurement
+  (GA, same problem, seed 42), with two `wgpu` runs bit-identical on that
+  machine. Bit-identical repeats on `wgpu` are still not promised.
+- **`docs/objective-adapters.md` could not be followed as written.** Its
+  `BatchFitnessFn` snippet left out the required `sense`, it named a
+  private type, `RowFitness`, as an adapter to reach for, it said the
+  backend parameter is inferred when every example names it, and it never
+  showed how its on-device objective is built. Corrected, and every example
+  in it and in the ask/tell guide now uses the `rlevo` umbrella's paths, so
+  one dependency runs them.
+- **The crate README named modules that do not exist**
+  (`algorithms::local_search` and `algorithms::coevolution`; they are
+  `local_search` and `coevolution`), listed NEAT among the `Strategy`
+  implementations, and
+  taught the roundabout on-ramp. NEAT and the bounded architecture search
+  are now listed as the standalone strategies they are, and the quick start
+  implements `Landscape` and reads the minimiser back with `best()`.
+- **`Strategy::tell`'s docs read as leave to skip sanitising.** They said a
+  `tell` "may build leaders ... without a finite check" because the loop
+  sanitises first, and two paragraphs later that an implementor owes a
+  sanitise at the host pull. ADR 0034 Decision 3 and `rules.md` section 3
+  make the second the rule; the docs now say only that, and name the
+  function a strategy written outside this crate calls to do it.
+- **Undocumented behaviour a first run meets.** Twelve `default_for`
+  constructors search `[-5.12, 5.12]` and did not say so.
+  `EvolutionaryLoop::best` returns the best genome so far, a
+  `(1, genome_dim)` tensor, and said neither. `StrategyMetrics::generation`
+  was documented as zero-based and is a count. The guides now note that
+  genomes, fitness and metrics are `f32`.
+- **The ask/tell guide's hand-written loop optimised the wrong way.** It
+  passed the Sphere cost to `Strategy::tell` without negating it, and a
+  strategy maximises, so the printed "best" rose from 121.06 to 209.72,
+  the worst corner of the domain (the guide's own configuration: a default
+  genetic algorithm, population 64, dimension 8, seed 42, 300 generations,
+  `Flex`). It also used `gen` as a variable name, which is reserved in the
+  2024 edition. The example now negates the cost and says why, and
+  descends to 0.11.
+
 ### `rlevo-hybrid`
 
 **Changed**
 
+- **`PolicyNeuroevolution::step` returns nothing, and
+  `PolicyNeuroevolution::is_done` is added** (ADR 0085), following the loop
+  it wraps. `step` used to return `bool`, `true` once the generation budget
+  was spent; ask `is_done()` instead. `run` is unchanged.
 - **`rlevo-hybrid` no longer depends on `rlevo-reinforcement-learning`.**
   No file in the crate used it: the three modules that ship
   (`RolloutFitness`, `PolicyNeuroevolution`, `StatefulPolicy`) are built on
@@ -212,6 +382,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Changed**
 
+- **A `GenerationTrial` warns when `EvaluatorConfig::max_steps` cuts it
+  short** (ADR 0085, Decision 9). The cap is a backstop, 1000 by default,
+  and it used to end a trial without a word: a loop with a budget of 1500
+  under the default config reported 1000 generations and nothing else. Now
+  the trial logs one `tracing::warn!` with the unit's name, the trial
+  index and the cap. To learn whether the probe had budget left, the trial
+  calls `advance` once more when it reaches the cap. A finished probe
+  returns `None` and nothing happens, so a budget equal to the cap stays
+  silent. An unfinished one runs one more generation, which is dropped: it
+  is in neither the `generations` scalar, the reported metrics nor the
+  wall clock, and a fitness function that counts its own calls sees it.
+  Set `max_steps` at least as large as the probe's budget and nothing
+  changes.
+
 - **`report::OpenError::ManifestParse` carries `toml` 1.1's `de::Error`**
   (was `toml` 0.8). The harness moved to `toml` 1.1 and `base64` 0.23. A
   caller that names `toml::de::Error` to inspect this variant needs `toml`
@@ -221,6 +405,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   reads back what 0.8 wrote.
 
 **Fixed**
+
+- **`GenerationTrial`'s docs did not say that `max_steps` caps it.** A
+  generation trial stops when its probe returns `None` or after
+  `EvaluatorConfig::max_steps` generations, whichever comes first, and
+  `max_steps` defaults to 1000. The cap is now documented on
+  `GenerationTrial`, on `EvaluatorConfig::max_steps`, on `GenerationProbe`,
+  in `rlevo_evolution::probe` and in the ask/tell guide, with the warning
+  described under Changed above.
+- **`EvaluatorConfig::base_seed`'s docs did not say what it seeds.** It is
+  the suite's seed, from which a seed for every trial is derived, not the
+  seed of any one run. The README's table of the config's fields also
+  showed no default for four fields that have one (`num_episodes` 100,
+  `num_trials_per_env` 1, `max_steps` 1000, `base_seed` 0).
 
 - **Two lines of the README's usage example did not compile.** The agent
   took `&mut dyn rand::RngCore`, a trait `rand` 0.10 does not have (it is

@@ -2,7 +2,7 @@
 //!
 //! Each algorithm implements the [`Strategy`](crate::Strategy) trait over
 //! tensor-backed populations so it plugs into the same
-//! [`EvolutionaryHarness`](crate::EvolutionaryHarness) pipeline as the
+//! [`EvolutionaryLoop`](crate::EvolutionaryLoop) pipeline as the
 //! classical families (GA, ES, DE, EP, CGP).
 //!
 //! # Shipping algorithms

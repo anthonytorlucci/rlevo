@@ -1,11 +1,14 @@
-//! Drive loop adapting a [`CoEvolutionaryAlgorithm`] to `GenerationProbe`.
+//! The generation loop for a [`CoEvolutionaryAlgorithm`].
 //!
-//! [`CoEvolutionaryHarness`] is to [`CoEvolutionaryAlgorithm`] what
-//! [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) is to
+//! [`CoEvolutionaryLoop`] is to [`CoEvolutionaryAlgorithm`] what
+//! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) is to
 //! [`Strategy`](crate::strategy::Strategy): it owns the joint state, the RNG,
-//! and the generation budget, and exposes the run to the `rlevo-benchmarks`
-//! evaluator through `rlevo-core::evaluation::GenerationProbe`. One
-//! [`advance`](rlevo_core::evaluation::GenerationProbe::advance) drives one
+//! and the generation budget. It is driven the same way, with
+//! [`reset`](CoEvolutionaryLoop::reset), [`step`](CoEvolutionaryLoop::step)
+//! and [`is_done`](CoEvolutionaryLoop::is_done), and it reaches the evaluation
+//! harness the same way, through `rlevo-core::evaluation::GenerationProbe`.
+//! One `step`, or one
+//! [`advance`](rlevo_core::evaluation::GenerationProbe::advance), is one
 //! simultaneous-update generation.
 
 use std::fmt::Debug;
@@ -18,7 +21,6 @@ use rand::rngs::StdRng;
 use rlevo_core::config::{ConfigError, Validate};
 
 use super::CoEvolutionaryAlgorithm;
-use crate::strategy::GenerationStep;
 
 /// Per-generation summary for a co-evolutionary run.
 ///
@@ -28,7 +30,7 @@ use crate::strategy::GenerationStep;
 /// dynamics. The four `best_fitness_*` / `mean_fitness_*` display fields are
 /// reported in the objective's **natural** declared sense (parity with
 /// single-population `StrategyMetrics`); the separate `binding_fitness` field
-/// carries the canonical (engine-space) harness reward (ADR 0023).
+/// stays canonical (engine-space) (ADR 0023).
 #[derive(Debug, Clone)]
 pub struct CoEAMetrics {
     /// Number of completed simultaneous-update generations.
@@ -47,8 +49,8 @@ pub struct CoEAMetrics {
     pub mean_fitness_b: f32,
     /// Canonical (engine-space, maximise) binding fitness `min(best_a, best_b)`
     /// — the weaker population binds. Engine-space, NOT mapped to the
-    /// objective's natural sense; used as the harness reward. All other fitness
-    /// fields are in the objective's natural sense.
+    /// objective's natural sense, so a higher value is always better. All
+    /// other fitness fields are in the objective's natural sense.
     pub binding_fitness: f32,
     /// Hall-of-fame archive size for population A (`0` if no archive).
     pub hof_size_a: usize,
@@ -56,15 +58,29 @@ pub struct CoEAMetrics {
     pub hof_size_b: usize,
 }
 
-/// Wraps a [`CoEvolutionaryAlgorithm`] into a `GenerationProbe`.
+/// Runs a [`CoEvolutionaryAlgorithm`] one generation per call, owning the
+/// joint state, the seed and the generation budget of one run.
 ///
-/// Like [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), the
-/// harness is lazily initialized: [`reset`](Self::reset) materializes the
-/// joint state on the configured device, and each
-/// [`step`](Self::step) runs one generation. The reward exposed to the
-/// benchmark harness is the **canonical** `binding_fitness = min(best_a, best_b)`
-/// (canonical maximise, no negation): the weaker population — the lower canonical
-/// fitness — is the binding constraint, and a higher binding value is better.
+/// It is driven exactly as
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) is, and for the
+/// same reasons, which that type's documentation gives:
+///
+/// ```text
+/// coevo_loop.reset();
+/// while !coevo_loop.is_done() {
+///     coevo_loop.step();
+/// }
+/// ```
+///
+/// [`reset`](Self::reset) builds the joint state on the configured device.
+/// [`step`](Self::step) runs one generation and returns nothing.
+/// [`is_done`](Self::is_done) says whether the generation budget is spent,
+/// and the loop that calls `step` is what stops there.
+///
+/// The single number that summarises a generation is the
+/// **canonical** `binding_fitness = min(best_a, best_b)` (canonical maximise,
+/// no negation): the weaker population — the lower canonical fitness — is the
+/// binding constraint, and a higher binding value is better.
 /// The per-population `best_fitness_{a,b}` / `mean_fitness_{a,b}` in
 /// [`CoEAMetrics`] are reported in the objective's **natural** sense (ADR 0023);
 /// only `binding_fitness` stays canonical.
@@ -77,13 +93,13 @@ pub struct CoEAMetrics {
 ///
 /// # Determinism
 ///
-/// Determinism follows the same backend-RNG caveats documented on
-/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness): run one
-/// harness per process, or pin `EvaluatorConfig::num_threads = Some(1)`, for
-/// bit-reproducible runs.
+/// As for [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop): a run is
+/// a function of its seed, because every draw comes from the loop's host RNG
+/// and none from the backend's process-global generator. The parallel case
+/// is measured and pinned for the single-population loop only.
 ///
 /// [`PopulationObserver`]: crate::observer::PopulationObserver
-pub struct CoEvolutionaryHarness<B, C>
+pub struct CoEvolutionaryLoop<B, C>
 where
     B: Backend,
     C: CoEvolutionaryAlgorithm<B>,
@@ -92,7 +108,7 @@ where
     params: C::Params,
     state: Option<C::State>,
     rng: StdRng,
-    base_seed: u64,
+    seed: u64,
     device: B::Device,
     generation: usize,
     max_generations: usize,
@@ -100,14 +116,14 @@ where
     _backend: PhantomData<B>,
 }
 
-impl<B, C> Debug for CoEvolutionaryHarness<B, C>
+impl<B, C> Debug for CoEvolutionaryLoop<B, C>
 where
     B: Backend,
     C: CoEvolutionaryAlgorithm<B>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CoEvolutionaryHarness")
-            .field("base_seed", &self.base_seed)
+        f.debug_struct("CoEvolutionaryLoop")
+            .field("seed", &self.seed)
             .field("generation", &self.generation)
             .field("max_generations", &self.max_generations)
             .field("latest_metrics", &self.latest_metrics)
@@ -115,18 +131,23 @@ where
     }
 }
 
-impl<B, C> CoEvolutionaryHarness<B, C>
+impl<B, C> CoEvolutionaryLoop<B, C>
 where
     B: Backend,
     C: CoEvolutionaryAlgorithm<B>,
 {
-    /// Build a new harness from an algorithm, its params, a seed, a device,
+    /// Build a new loop from an algorithm, its params, a seed, a device,
     /// and a generation budget.
     ///
-    /// The caller-supplied `params` are validated up front — this is the
-    /// co-evolutionary harness consumption chokepoint (ADR 0026).
+    /// `seed` is this loop's seed, fixed for its life;
+    /// [`reset`](Self::reset) re-seeds from it. Under the evaluation harness
+    /// it is a seed derived for one trial, not the suite-wide
+    /// `EvaluatorConfig::base_seed`.
     ///
-    /// The harness is lazily initialized — the first [`reset`](Self::reset)
+    /// The caller-supplied `params` are validated up front — this is the
+    /// co-evolutionary loop consumption chokepoint (ADR 0026).
+    ///
+    /// The loop is lazily initialized — the first [`reset`](Self::reset)
     /// call materializes the joint state on `device`.
     ///
     /// # Errors
@@ -149,7 +170,7 @@ where
             params,
             state: None,
             rng: StdRng::seed_from_u64(seed),
-            base_seed: seed,
+            seed,
             device,
             generation: 0,
             max_generations,
@@ -172,22 +193,38 @@ where
 
     /// The configured generation budget.
     ///
-    /// The harness owns this number. Drivers should read it here rather than
-    /// keeping a second copy alongside it — see [`GenerationProbe`], whose
-    /// `advance` returns `None` off this value.
-    ///
-    /// [`GenerationProbe`]: rlevo_core::evaluation::GenerationProbe
+    /// The loop owns this number. A driver should ask
+    /// [`is_done`](Self::is_done) rather than keep a second copy of the budget
+    /// and count against it.
     #[must_use]
     pub const fn max_generations(&self) -> usize {
         self.max_generations
     }
 
-    /// Reset to a fresh joint state, re-seeding the RNG.
+    /// Whether the generation budget is spent.
     ///
-    /// Infallible; [`GenerationProbe::begin`](rlevo_core::evaluation::GenerationProbe::begin)
+    /// `true` once [`generation`](Self::generation) has reached
+    /// [`max_generations`](Self::max_generations). A driving loop checks it
+    /// before each [`step`](Self::step), so a budget of zero runs no
+    /// generation. It reports the budget and nothing else, and it does not
+    /// stop `step`, which runs a generation whenever it is called.
+    ///
+    /// [`GenerationProbe::advance`](rlevo_core::evaluation::GenerationProbe::advance)
+    /// is this check followed by one `step`.
+    #[must_use]
+    pub const fn is_done(&self) -> bool {
+        self.generation >= self.max_generations
+    }
+
+    /// Start a run: re-seed the RNG, zero the generation count and build a
+    /// fresh joint state.
+    ///
+    /// Call it once before the first [`step`](Self::step); calling it again
+    /// replays the run from the same seed. Infallible;
+    /// [`GenerationProbe::begin`](rlevo_core::evaluation::GenerationProbe::begin)
     /// forwards to it.
     pub fn reset(&mut self) {
-        self.rng = StdRng::seed_from_u64(self.base_seed);
+        self.rng = StdRng::seed_from_u64(self.seed);
         self.generation = 0;
         self.latest_metrics = None;
         self.state = Some(
@@ -198,37 +235,27 @@ where
 
     /// Run one simultaneous-update generation.
     ///
-    /// Infallible, returning a [`GenerationStep`];
-    /// [`GenerationProbe::advance`](rlevo_core::evaluation::GenerationProbe::advance)
-    /// calls this and reports [`CoEAMetrics`] instead.
+    /// Returns nothing. Ask [`is_done`](Self::is_done) whether the budget is
+    /// spent, and read the generation's summary from
+    /// [`latest_metrics`](Self::latest_metrics).
+    ///
+    /// `step` does not consult the budget. Called when `is_done` is already
+    /// `true`, it runs one more generation, for the reasons given on
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) (ADR 0085).
     ///
     /// # Panics
     ///
     /// Panics if [`reset`](Self::reset) has not been called first.
-    pub fn step(&mut self, _action: ()) -> GenerationStep {
+    pub fn step(&mut self) {
         let state = self
             .state
             .take()
-            .expect("CoEvolutionaryHarness::reset must be called before step");
+            .expect("CoEvolutionaryLoop::reset must be called before step");
         let (new_state, metrics) =
             self.algorithm
                 .step(&self.params, state, &mut self.rng, &self.device);
         self.state = Some(new_state);
         self.generation += 1;
-
-        // The reward is the CANONICAL `binding_fitness` (`min(best_a, best_b)`
-        // in engine/maximise space): the weaker population (lower canonical
-        // fitness) is the binding constraint, and a higher binding value is
-        // better — no negation. It is read from the dedicated canonical field,
-        // NOT re-derived off `best_fitness_{a,b}`, which are now mapped to the
-        // objective's natural sense (ADR 0023) and would give the wrong `min`
-        // for a `Minimize` objective.
-        //
-        // Fitness hygiene (ADR 0034): `binding_fitness` is a `min` of the per-population canonical
-        // bests, each sourced from the `tell` metrics over fitness the coupled-fitness chokepoint
-        // canonicalised *and* sanitized (competitive/cooperative `step`), so it is
-        // finite-or-`$-\infty$`, never `NaN`.
-        let reward = f64::from(metrics.binding_fitness);
 
         tracing::info!(
             generation = metrics.generation,
@@ -242,8 +269,6 @@ where
         );
 
         self.latest_metrics = Some(metrics);
-        let done = self.generation >= self.max_generations;
-        GenerationStep { reward, done }
     }
 }
 
@@ -305,12 +330,12 @@ mod tests {
         }
     }
 
-    /// A `NaN` fitness from a [`CoupledFitness`] impl cannot make the harness reward `NaN`: the
+    /// A `NaN` fitness from a [`CoupledFitness`] impl cannot make `binding_fitness` `NaN`: the
     /// coupled-fitness chokepoint sanitizes before `best_a`/ `best_b` are computed, so
     /// `min(best_a, best_b)` is finite-or-`$-\infty$`. Pins this guarantee per ADR 0034's
     /// chokepoint convention.
     #[test]
-    fn harness_reward_is_never_nan_with_nan_fitness() {
+    fn binding_fitness_is_never_nan_with_nan_fitness() {
         let device = Default::default();
         let algo = CompetitiveCoEA::new(
             GeneticAlgorithm::<TB>::new(),
@@ -321,22 +346,26 @@ mod tests {
             params_a: ga_config(),
             params_b: ga_config(),
         };
-        let mut harness =
-            CoEvolutionaryHarness::<TB, _>::new(algo, params, 7, device, 3).expect("valid params");
-        harness.reset();
-        let step = harness.step(());
+        let mut evo_loop =
+            CoEvolutionaryLoop::<TB, _>::new(algo, params, 7, device, 3).expect("valid params");
+        evo_loop.reset();
+        evo_loop.step();
 
-        assert!(!step.reward.is_nan(), "harness reward must never be NaN");
+        let binding = evo_loop
+            .latest_metrics()
+            .expect("metrics after a step")
+            .binding_fitness;
+        assert!(!binding.is_nan(), "binding fitness must never be NaN");
         // The finite ramp maximum (POP - 1) binds both populations, so the
-        // reward is that finite value — the NaN row was sanitized, not crowned.
+        // binding fitness is that finite value — the NaN row was sanitized,
+        // not crowned.
         assert!(
-            step.reward.is_finite(),
-            "reward should be the finite binding value, got {}",
-            step.reward
+            binding.is_finite(),
+            "binding fitness should be the finite ramp maximum, got {binding}"
         );
         #[allow(clippy::cast_precision_loss)]
-        let expected = f64::from((POP - 1) as f32);
-        approx::assert_relative_eq!(step.reward, expected, epsilon = 1e-6);
+        let expected = (POP - 1) as f32;
+        approx::assert_relative_eq!(binding, expected, epsilon = 1e-6);
     }
 
     /// Row-wise cost `i + 1` declaring [`ObjectiveSense::Minimize`]: row 0 is best (cost `1.0`),
@@ -361,12 +390,11 @@ mod tests {
         }
     }
 
-    /// For a `Minimize` objective the harness reward is the CANONICAL `binding_fitness` (`min` of
-    /// the canonical bests), not the natural cost. Row 0's natural cost `1.0` canonicalises to
-    /// `$-1.0$`, so the binding value — and the reward — is `$-1.0$`, while the natural
-    /// `best_fitness_a` reads `1.0`.
+    /// For a `Minimize` objective `binding_fitness` is CANONICAL (`min` of the canonical bests),
+    /// not the natural cost. Row 0's natural cost `1.0` canonicalises to `$-1.0$`, so the binding
+    /// value is `$-1.0$`, while the natural `best_fitness_a` reads `1.0`.
     #[test]
-    fn minimize_harness_reward_is_canonical_binding() {
+    fn minimize_binding_fitness_is_canonical() {
         let device = Default::default();
         let algo = CompetitiveCoEA::new(
             GeneticAlgorithm::<TB>::new(),
@@ -377,17 +405,63 @@ mod tests {
             params_a: ga_config(),
             params_b: ga_config(),
         };
-        let mut harness =
-            CoEvolutionaryHarness::<TB, _>::new(algo, params, 7, device, 3).expect("valid params");
-        harness.reset();
-        let step = harness.step(());
+        let mut evo_loop =
+            CoEvolutionaryLoop::<TB, _>::new(algo, params, 7, device, 3).expect("valid params");
+        evo_loop.reset();
+        evo_loop.step();
 
-        assert!(step.reward.is_finite(), "reward must be finite");
+        let m = evo_loop.latest_metrics().expect("metrics after a step");
         // Canonical binding = `$\min(-1, -1) = -1$`.
-        approx::assert_relative_eq!(step.reward, -1.0, epsilon = 1e-6);
-        let m = harness.latest_metrics().expect("metrics after a step");
         approx::assert_relative_eq!(m.binding_fitness, -1.0, epsilon = 1e-6);
         // Natural best reads back as the low cost 1.0.
         approx::assert_relative_eq!(m.best_fitness_a, 1.0, epsilon = 1e-6);
+    }
+
+    /// `is_done` is asked before a step, so for a budget of zero it is `true`
+    /// straight after `reset` and a driving loop runs no generation. The same
+    /// contract as `EvolutionaryLoop`, pinned here because the two loops are
+    /// written separately.
+    #[test]
+    fn zero_budget_is_done_before_any_step() {
+        let device = Default::default();
+        let algo = CompetitiveCoEA::new(
+            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::<TB>::new(),
+            RowCostMin,
+        );
+        let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
+            params_a: ga_config(),
+            params_b: ga_config(),
+        };
+        let mut evo_loop =
+            CoEvolutionaryLoop::<TB, _>::new(algo, params, 7, device, 0).expect("valid params");
+        evo_loop.reset();
+        assert!(evo_loop.is_done());
+        assert!(evo_loop.latest_metrics().is_none());
+    }
+
+    /// `step` does not consult the budget: past it, a call still runs a
+    /// generation, and `is_done` stays `true`.
+    #[test]
+    fn step_past_the_budget_runs_another_generation() {
+        let device = Default::default();
+        let algo = CompetitiveCoEA::new(
+            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::<TB>::new(),
+            RowCostMin,
+        );
+        let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
+            params_a: ga_config(),
+            params_b: ga_config(),
+        };
+        let mut evo_loop =
+            CoEvolutionaryLoop::<TB, _>::new(algo, params, 7, device, 1).expect("valid params");
+        evo_loop.reset();
+        assert!(!evo_loop.is_done(), "a fresh run with a budget is not done");
+        evo_loop.step();
+        assert!(evo_loop.is_done());
+        evo_loop.step();
+        assert_eq!(evo_loop.generation(), 2, "the second call ran a generation");
+        assert!(evo_loop.is_done());
     }
 }

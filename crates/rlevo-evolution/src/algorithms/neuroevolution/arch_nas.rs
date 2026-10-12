@@ -7,13 +7,13 @@
 //! menu of concrete `Module` variants, and each population member carries a
 //! categorical **architecture id** plus a per-variant **weight vector**.
 //!
-//! # Why a custom harness, not [`Strategy`](crate::strategy::Strategy)
+//! # Why a standalone type, not [`Strategy`](crate::strategy::Strategy)
 //!
 //! [`Strategy<B>`](crate::strategy::Strategy)'s `Genome = Tensor<B, 2>` is a
 //! homogeneous float contract. An architecture selector is a *categorical
 //! integer*; encoding it as a float is fragile under mutation, and a parallel
 //! `Int` tensor breaks the `Strategy` signature. So [`ArchNasStrategy`] is a
-//! **custom harness** with its own [`NasGenome`] (a `Vec<usize>` of arch ids
+//! **standalone type** with its own [`NasGenome`] (a `Vec<usize>` of arch ids
 //! beside a zero-padded `Tensor<B, 2>` of weights) and inherent
 //! `init`/`ask`/`tell`/`best` methods mirroring the `Strategy` shape — it does
 //! **not** implement `Strategy<B>`.
@@ -299,7 +299,7 @@ impl Validate for NasParams {
 /// Evolving state for [`ArchNasStrategy`]: resident population plus best-ever
 /// tracking.
 ///
-/// Carries no PRNG state (the harness owns all stochasticity). Not `Clone`
+/// Carries no PRNG state (the caller owns all stochasticity). Not `Clone`
 /// (it holds a [`NasGenome`], which is intentionally not `Clone`); the strategy
 /// threads state by explicit reconstruction.
 #[derive(Debug)]
@@ -540,7 +540,7 @@ impl<B: Backend> ArchNasFitnessFn<B> {
     }
 }
 
-/// Custom NAS harness. Does **not** implement
+/// Standalone NAS strategy. Does **not** implement
 /// [`Strategy`](crate::strategy::Strategy) — see the module docs.
 ///
 /// The strategy is stateless; all evolving state lives in [`NasState`]. Drive
@@ -655,7 +655,7 @@ impl<B: Backend> ArchNasStrategy<B> {
         let pop = params.pop_size;
         let max = params.max_param_count;
 
-        // First call: harness has not evaluated the seed population yet.
+        // First call: the caller has not evaluated the seed population yet.
         if state.fitness.is_empty() {
             let genome = NasGenome {
                 arch_ids: state.population.arch_ids.clone(),
@@ -776,8 +776,8 @@ impl<B: Backend> ArchNasStrategy<B> {
     ///
     /// This is the `ArchNasStrategy` **driver chokepoint** (ADR 0034): the
     /// strategy is its own driver and does **not** run through
-    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), so there is
-    /// no harness above it. `tell` applies
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop), so there is
+    /// no loop above it. `tell` applies
     /// `sanitize_fitness` to the host fitness
     /// vector (`NaN` → `$-\infty$`, `$+\infty$` → `f32::MAX`, `$-\infty$` and finite pass through)
     /// **before** `update_best` and before it is stored as `state.fitness`, so

@@ -122,7 +122,7 @@ impl CmsaEsConfig {
     /// Configuration with an explicit population size `$\lambda$`.
     ///
     /// The `pop_size` `$\geq 2$` invariant is enforced by [`Validate::validate`] at the
-    /// harness chokepoint, not by this infallible producer.
+    /// loop chokepoint, not by this infallible producer.
     #[must_use]
     pub fn with_pop_size(pop_size: usize, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]

@@ -23,6 +23,19 @@
 //! evaluate on the CPU, and re-upload the results as a `Tensor<B, 1>`.
 //! Purpose-built batched-on-device landscapes should implement
 //! [`BatchFitnessFn`] directly to avoid that round-trip.
+//!
+//! # Fitness hygiene
+//!
+//! A fitness function may return `NaN` or `$\pm\infty$`; a strategy must never
+//! rank one as its best. The crate's one rule for that is
+//! [`sanitize_fitness`], with [`sanitize_fitness_tensor`] as the same rule
+//! over a whole population on the device.
+//! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) applies it before
+//! every `tell`, so a run driven by the loop needs neither. They are public
+//! for the code the loop does not cover: a
+//! [`Strategy`](crate::strategy::Strategy) written outside this crate, whose
+//! `tell` sanitizes what it pulls to host, and a hand-written ask/tell loop,
+//! which sanitizes what it hands to `tell` (ADR 0086).
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 
@@ -50,14 +63,14 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// The returned `Tensor<B, 1>` has shape `(pop_size,)` and is placed on
     /// `device`. Row order is preserved: `fitness[i]` corresponds to the
     /// individual at row `i` of `population`. Cost objectives return their
-    /// natural cost; the harness reconciles direction via [`sense`](Self::sense).
+    /// natural cost; the loop reconciles direction via [`sense`](Self::sense).
     ///
     /// The returned tensor **may contain `NaN` or `$\pm\infty$`** — implementors are not
     /// required to sanitize. The
-    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) canonicalizes
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) canonicalizes
     /// and then sanitizes (ADR 0034) before any [`Strategy::tell`](crate::strategy::Strategy::tell),
     /// so a non-finite fitness cannot poison selection or best-so-far tracking on
-    /// harness-driven runs.
+    /// loop-driven runs.
     fn evaluate_batch(
         &mut self,
         population: &G,
@@ -67,7 +80,7 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// The optimisation direction of this objective.
     ///
     /// This is the **single source of truth** the
-    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) reads to
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) reads to
     /// reconcile a cost objective into the engine's canonical (maximise) space.
     /// It is **required, with no default**, so a reward/accuracy objective
     /// cannot silently inherit the wrong direction by omission — declare it
@@ -273,13 +286,36 @@ where
 /// [`f32::NEG_INFINITY`], `$+\infty$` `$\to$` [`f32::MAX`], everything else (including `$-\infty$`)
 /// passes through.
 ///
-/// This is the crate-wide fitness-hygiene primitive and the single rule of the
-/// canonical convention (ADR 0023 / ADR 0034):
+/// This is the fitness-hygiene rule of the crate (ADR 0023, ADR 0034), as one
+/// function. It is public so that code outside the crate applies the rule
+/// the crate applies, not a copy of it (ADR 0086).
+///
+/// # When to call it
+///
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) sanitizes fitness
+/// before every [`Strategy::tell`](crate::strategy::Strategy::tell), so
+/// nothing that only runs a shipped strategy through the loop calls this.
+/// Two kinds of code do:
+///
+/// - **A `Strategy` you write.** `tell` can be reached without the loop, by
+///   a unit test or by a hand-written driver, so the loop's guarantee is not
+///   the strategy's. A `tell` that pulls fitness to host maps it through this
+///   function once, at the pull, before any sort, argmax or best-so-far
+///   write. On the loop's path the map changes nothing.
+/// - **A loop you write** around `ask` and `tell`. Use
+///   [`sanitize_fitness_tensor`], which is this rule as one device op.
+///
+/// The value must already be canonical: higher is better. For a `Minimize`
+/// objective, negate first. Sanitizing a cost and then negating it turns a
+/// `NaN` cost into `$-\infty$` and then into `$+\infty$`, the best value in the
+/// population.
+///
+/// # The rule
 ///
 /// - `NaN` `$\to -\infty$`: `$-\infty$` is the worst value under the maximise convention, so a
 ///   sanitized `NaN` can never seed or displace a finite best-so-far. Rust's
 ///   `f32::NAN` is a *positive* NaN, so `total_cmp` would otherwise rank it as
-///   the **maximum** (`rules.md` §3) — the exact inversion this prevents.
+///   the **maximum** (`rules.md` section 3) — the exact inversion this prevents.
 /// - `$+\infty$` `$\to$` `f32::MAX`: a genuinely optimal individual (a landscape hitting its
 ///   optimum, an unbounded reward) is mapped to a **finite** value, so it can be
 ///   compared, stored, and summed **at all**. Ordering is unaffected — the map
@@ -292,31 +328,57 @@ where
 ///   saturated members suffice to drive an `f32` mean to `$+\infty$`, and squaring
 ///   one suffices for an `f32` variance. What bounds a
 ///   reduction is the **accumulator width**, not this clamp; no finite sentinel
-///   could substitute. Reduce fitness with [`sanitized_mean`] or
-///   [`sanitized_sum`], which accumulate in `f64` and narrow at most once, after
-///   the reduction (ADR 0069 §Decision 1, extending ADR 0034). A reduction
-///   performed by a Burn device op cannot widen its accumulator and instead
-///   bounds its terms, as [`shaping::z_score`](crate::shaping::z_score) does
-///   (ADR 0069 §Decision 4).
+///   could substitute. A sum or a mean over sanitized fitness accumulates in
+///   `f64` and narrows at most once, after the reduction (ADR 0069, Decision
+///   1, extending ADR 0034).
+///   [`StrategyMetrics::from_host_fitness`](crate::strategy::StrategyMetrics::from_host_fitness)
+///   does so for the statistics a `tell` reports, which is the reduction a
+///   strategy written outside the crate needs. A reduction performed by a
+///   Burn device op cannot widen its accumulator and instead bounds its
+///   terms, as [`shaping::z_score`](crate::shaping::z_score) does (ADR 0069,
+///   Decision 4).
 /// - `$-\infty$` passes through: it is the worst-value sentinel *and* the
 ///   uninitialized `best_fitness_ever` seed, and it must stay non-finite so the
 ///   mean-over-finite statistic in
 ///   [`StrategyMetrics::from_host_fitness`](crate::strategy::StrategyMetrics::from_host_fitness)
 ///   can see and count it as a broken member.
 ///
-/// Applied by [`BudgetedEval::eval`](crate::local_search::BudgetedEval) (every
-/// probe, including the seeding eval), the searchers'
+/// # Where the crate applies it
+///
+/// The local searchers' budgeted evaluator (every probe, including the
+/// seeding eval), the searchers'
 /// [`refine_with_known_fitness`](crate::local_search::LocalSearch::refine_with_known_fitness)
 /// overrides, the EDA `tell` chokepoint
 /// ([`crate::algorithms::eda::EdaStrategy`]), and every NaN-safe fitness sort
 /// across the crate (selection, replacement, the ES/NEAT/ACO rankers). For the
 /// finite benchmark landscapes the searchers ship against no branch is taken, so
 /// it costs only one `is_nan` / `is_infinite` check.
-pub(crate) fn sanitize_fitness(f: f32) -> f32 {
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_evolution::fitness::sanitize_fitness;
+///
+/// assert_eq!(sanitize_fitness(f32::NAN), f32::NEG_INFINITY);
+/// assert_eq!(sanitize_fitness(f32::INFINITY), f32::MAX);
+/// assert_eq!(sanitize_fitness(f32::NEG_INFINITY), f32::NEG_INFINITY);
+/// assert_eq!(sanitize_fitness(1.5), 1.5);
+///
+/// // Rank a population best first, as a `tell` does after pulling fitness to
+/// // host. Without the map, `total_cmp` ranks the `NaN` member first.
+/// let fitness = [0.5_f32, f32::NAN, 2.0];
+/// let sane: Vec<f32> = fitness.iter().map(|&f| sanitize_fitness(f)).collect();
+/// let mut order: Vec<usize> = (0..sane.len()).collect();
+/// order.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
+/// assert_eq!(order, [2, 0, 1]);
+/// ```
+#[must_use]
+pub fn sanitize_fitness(f: f32) -> f32 {
     if f.is_nan() {
         f32::NEG_INFINITY
     } else if f.is_infinite() && f.is_sign_positive() {
-        // `f == f32::INFINITY` would trip the float-equality lint (rules §5/§8).
+        // `f == f32::INFINITY` would trip the float-equality lint (`rules.md`
+        // sections 5 and 8).
         f32::MAX
     } else {
         f
@@ -418,20 +480,57 @@ pub(crate) fn sanitized_sum(values: impl IntoIterator<Item = f32>) -> f64 {
         .sum()
 }
 
-/// Tensor-level [`sanitize_fitness`] for the driver chokepoints — a single
-/// device op over a `(pop_size,)` **canonical-space** fitness vector.
+/// [`sanitize_fitness`] over a whole `(pop_size,)` **canonical-space** fitness
+/// tensor, as a single device op.
 ///
 /// Applies the same rule (`NaN` `$\to -\infty$`, `$+\infty$` `$\to$` `f32::MAX`, `$-\infty$` pass-through) to a
 /// whole fitness tensor without a device→host→device round-trip, so the
-/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) and the
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) and the
 /// coevolution coupled-fitness path can sanitize on the hot path (ADR 0034).
 ///
-/// Order matters: the `NaN` `$\to -\infty$` `mask_fill` runs first (so no `NaN` reaches the
-/// clamp, which would propagate it), then `clamp_max(f32::MAX)` caps `$+\infty$` while
+/// # When to call it
+///
+/// In a loop you write yourself around
+/// [`Strategy::ask`](crate::strategy::Strategy::ask) and
+/// [`Strategy::tell`](crate::strategy::Strategy::tell): on the fitness
+/// tensor, after the negation that makes a `Minimize` objective canonical
+/// and before `tell`. That is the step `EvolutionaryLoop::step` takes
+/// between scoring a population and telling the strategy, and with it a
+/// hand-written loop hands `tell` what the loop would. A run driven by
+/// `EvolutionaryLoop` does not call this; the loop already has.
+///
+/// Negate before sanitizing, never after: a `NaN` cost sanitized first
+/// becomes `$-\infty$`, and the negation then makes it `$+\infty$`, the best
+/// member of the population.
+///
+/// # How it is built
+///
+/// Order matters inside too: the `NaN` `$\to -\infty$` `mask_fill` runs first, so
+/// that no `NaN` reaches the clamp, whose result for one is not the same on
+/// every Burn backend (ADR 0066). Then `clamp_max(f32::MAX)` caps `$+\infty$` while
 /// leaving `$-\infty$` and every finite value untouched. Mirrors the `is_nan` +
 /// `mask_fill` + clamp idiom already used by `EdaStrategy::tell`'s gene backstop.
+/// This ordering is the reason to call the function and not retype it.
+///
+/// # Examples
+///
+/// ```
+/// use burn::backend::Flex;
+/// use burn::tensor::Tensor;
+/// use rlevo_evolution::fitness::sanitize_fitness_tensor;
+///
+/// let device = Default::default();
+/// // Costs from a `Minimize` objective. One evaluation diverged.
+/// let cost = Tensor::<Flex, 1>::from_floats([3.0, f32::NAN, 0.5], &device);
+///
+/// // Negate, then sanitize: the broken member is now the worst.
+/// let fitness = sanitize_fitness_tensor(cost.neg());
+///
+/// let host = fitness.into_data().into_vec::<f32>().expect("f32 fitness");
+/// assert_eq!(host, [-3.0, f32::NEG_INFINITY, -0.5]);
+/// ```
 #[must_use]
-pub(crate) fn sanitize_fitness_tensor<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
+pub fn sanitize_fitness_tensor<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
     let nan_mask = fitness.clone().is_nan();
     fitness
         .mask_fill(nan_mask, f32::NEG_INFINITY)

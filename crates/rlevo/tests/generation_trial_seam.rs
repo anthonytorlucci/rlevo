@@ -1,6 +1,6 @@
 //! Cross-crate proof that the `Trial` seam is shape-agnostic.
 //!
-//! Drives an `EvolutionaryHarness` through `Evaluator::run_trials` as a
+//! Drives an `EvolutionaryLoop` through `Evaluator::run_trials` as a
 //! `GenerationTrial` — no `BenchEnv`, no `BenchableAgent`, no episode axis —
 //! and asserts it gets the same machinery the episodic path does: rayon
 //! fan-out, per-trial seeding, checkpoint-shaped `TrialReport`s, and the
@@ -9,6 +9,7 @@
 use burn::backend::Flex;
 use burn::tensor::Tensor;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo_benchmarks::metrics::core::WALL_CLOCK_SECONDS;
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
@@ -17,7 +18,7 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::fitness::BatchFitnessFn;
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 type B = Flex;
 
@@ -43,7 +44,7 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for SphereCost {
     }
 }
 
-fn harness(seed: u64) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, SphereCost> {
+fn evo_loop(seed: u64) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, SphereCost> {
     let params = GaConfig {
         pop_size: 16,
         genome_dim: 4,
@@ -55,7 +56,7 @@ fn harness(seed: u64) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, SphereCost>
         },
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     };
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         GeneticAlgorithm::<B>::new(),
         params,
         SphereCost,
@@ -91,7 +92,7 @@ fn generation_trial_runs_through_the_shared_machinery() {
         "sphere-ga",
         &["sphere-d4".to_string()],
         |_key, env_seed, _agent_seed| GenerationTrial {
-            probe: harness(env_seed),
+            probe: evo_loop(env_seed),
         },
         &mut reporter,
     );
@@ -117,13 +118,13 @@ fn generation_trial_runs_through_the_shared_machinery() {
         );
 
         // Typed EA metrics arrived, which `BenchStep`'s single f64 could not
-        // carry. The harness's own post-increment counter must agree with the
+        // carry. The loop's own post-increment counter must agree with the
         // trial's independently maintained `units` count — if these ever
         // diverge, one of the two loops is miscounting.
         assert_eq!(
             t.scalars.get("ea/generation").copied(),
             Some(GENS as f64),
-            "harness generation counter agrees with the trial's own count"
+            "the loop's generation counter agrees with the trial's own count"
         );
         assert!(t.scalars.contains_key("ea/best_fitness_ever"));
         assert!(t.scalars.contains_key("ea/population_size"));
@@ -140,7 +141,7 @@ fn distinct_trial_seeds_give_distinct_runs() {
         "sphere-ga",
         &["sphere-d4".to_string()],
         |_key, env_seed, _agent_seed| GenerationTrial {
-            probe: harness(env_seed),
+            probe: evo_loop(env_seed),
         },
         &mut reporter,
     );
@@ -157,4 +158,60 @@ fn distinct_trial_seeds_give_distinct_runs() {
         "per-trial seeds must diverge, both were {}",
         bests[0]
     );
+}
+
+/// Seeded trials give the same result whether the evaluator runs them on one
+/// thread or on a pool, scalar for scalar and bit for bit.
+///
+/// A strategy draws every random number from its loop's own host RNG and none
+/// from the backend's process-global generator, so thread scheduling cannot
+/// reach a trial's trajectory. This pins that: if a strategy or the loop ever
+/// draws from the backend generator, the pooled runs stop matching the serial
+/// one.
+#[test]
+fn parallel_trials_match_serial_trials() {
+    const TRIALS: usize = 12;
+
+    fn run(num_threads: Option<usize>) -> Vec<(usize, Vec<(String, u64)>)> {
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: TRIALS,
+            num_threads,
+            ..cfg()
+        };
+        let mut reporter = LoggingReporter::new();
+        let report = Evaluator::new(cfg).run_trials(
+            "sphere-ga",
+            &["sphere-d4".to_string()],
+            |_key, env_seed, _agent_seed| GenerationTrial {
+                probe: evo_loop(env_seed),
+            },
+            &mut reporter,
+        );
+        let mut rows: Vec<(usize, Vec<(String, u64)>)> = report
+            .trials
+            .iter()
+            .map(|t| {
+                let scalars = t
+                    .scalars
+                    .iter()
+                    // Wall-clock time is the one scalar that is not a function
+                    // of the seed.
+                    .filter(|(name, _)| name.as_str() != WALL_CLOCK_SECONDS)
+                    .map(|(name, value)| (name.clone(), value.to_bits()))
+                    .collect();
+                (t.key.trial_idx, scalars)
+            })
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    let serial = run(Some(1));
+    assert_eq!(serial.len(), TRIALS);
+    assert!(
+        serial.iter().all(|(_, scalars)| scalars.len() >= 8),
+        "every trial reports its generation count and the ea/* scalars"
+    );
+    assert_eq!(serial, run(Some(4)), "four threads must match one");
+    assert_eq!(serial, run(None), "the default pool must match one thread");
 }

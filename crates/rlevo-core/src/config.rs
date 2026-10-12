@@ -13,7 +13,8 @@
 //! A config implements [`Validate`], checking its invariants and returning the
 //! **first** violation as a [`ConfigError`] (fail-fast). The *construction
 //! chokepoint* that consumes a caller-supplied config — an environment's
-//! `with_config`, an agent's `new`, a builder's `build`, a harness's `new` —
+//! `with_config`, an agent's `new`, a builder's `build`, a generation loop's
+//! `new` —
 //! calls [`Validate`]'s `validate` before the value can reach the algorithm, and
 //! propagates the error as `Result<_, ConfigError>`.
 //!

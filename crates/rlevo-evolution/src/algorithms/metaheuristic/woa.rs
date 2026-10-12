@@ -85,6 +85,9 @@ pub struct WoaConfig {
 
 impl WoaConfig {
     /// Default configuration for a given population size and genome dimensionality.
+    ///
+    /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
+    /// on the returned config to search another one.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -186,10 +189,10 @@ impl<B: Backend> WoaState<B> {
 ///
 /// [`Strategy::ask`] panics if called a second time without an intervening
 /// [`Strategy::tell`] — specifically, if `state.best_genome` is `None` after
-/// the first generation. In normal harness-driven usage this cannot happen:
+/// the first generation. In normal loop-driven usage this cannot happen:
 /// `ask` on the first call returns the initial positions unevaluated;
 /// `tell` then sets `best_genome`; and every subsequent `ask` finds it
-/// populated. Bypassing the harness and calling `ask` twice in a row without
+/// populated. Bypassing the loop and calling `ask` twice in a row without
 /// a `tell` in between will trigger the assert.
 ///
 /// # Example
@@ -406,9 +409,9 @@ where
     ) -> (WoaState<B>, StrategyMetrics) {
         // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
         // correctness floor for a caller driving `ask`/`tell` directly instead of
-        // `EvolutionaryHarness::step`, which already sanitizes (the ADR 0034 decision-3 bypass
+        // `EvolutionaryLoop::step`, which already sanitizes (the ADR 0034 decision-3 bypass
         // hole): otherwise a raw NaN lands in the public `state.fitness` cache. `sanitize_fitness`
-        // is idempotent, so on the harness path this is a provable no-op — not redundant,
+        // is idempotent, so on the loop path this is a provable no-op — not redundant,
         // load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
@@ -451,7 +454,7 @@ where
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -460,7 +463,7 @@ mod tests {
     type TestBackend = Flex;
 
     /// Distinct finite fitness with the maximum at index 0, for direct
-    /// (non-harness) `tell` calls. Finite, so it respects ADR 0034.
+    /// (non-loop) `tell` calls. Finite, so it respects ADR 0034.
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
     fn finite_fitness(
         n: usize,
@@ -514,13 +517,15 @@ mod tests {
         let strategy = WhaleOptimization::<TestBackend>::new();
         let params = WoaConfig::default_for(32, 10);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 5, device, 600,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-4, "WOA D10 best={best}");
     }
 
@@ -615,14 +620,15 @@ mod tests {
         let strategy = WhaleOptimization::<TestBackend>::new();
         let params = WoaConfig::default_for(2, 3);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 0, device, 5,
-        )
-        .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
+                .expect("valid params");
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         assert!(
-            harness
+            evo_loop
                 .latest_metrics()
                 .unwrap()
                 .best_fitness_ever()
@@ -633,10 +639,10 @@ mod tests {
     /// Cache hygiene (not a freeze): `tell` overwrites `state.fitness`
     /// wholesale every generation, so a `NaN` can never latch here. What this
     /// pins is the **store** — driving `init → ask → tell` directly, the
-    /// ADR-0034 decision-3 bypass of `EvolutionaryHarness::step`, must not
+    /// ADR-0034 decision-3 bypass of `EvolutionaryLoop::step`, must not
     /// leave a raw `NaN` in the public fitness cache a caller can read back.
     #[test]
-    fn nan_fitness_does_not_latch_without_harness() {
+    fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = WhaleOptimization::<TestBackend>::new();
         let params = WoaConfig::default_for(6, 3);

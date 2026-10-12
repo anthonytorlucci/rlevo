@@ -1,8 +1,8 @@
-//! `CoEvolutionaryHarness` is driven by the `rlevo-benchmarks`
+//! `CoEvolutionaryLoop` is driven by the `rlevo-benchmarks`
 //! evaluator without modification.
 //!
 //! A competitive predator–prey co-evolution is wrapped in a
-//! [`CoEvolutionaryHarness`] and run through `Evaluator::run_trials` as a
+//! [`CoEvolutionaryLoop`] and run through `Evaluator::run_trials` as a
 //! `GenerationTrial`. One `GenerationProbe::advance` is one simultaneous-update
 //! generation; the test asserts the suite completes the expected number of
 //! steps per trial with no errors and a finite return.
@@ -17,7 +17,7 @@ use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
-use rlevo_evolution::CoEvolutionaryHarness;
+use rlevo_evolution::CoEvolutionaryLoop;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
@@ -94,7 +94,7 @@ fn ga_config() -> GaConfig {
 
 type Coea = CompetitiveCoEA<B, GeneticAlgorithm<B>, GeneticAlgorithm<B>, PredatorPrey>;
 
-fn coea_factory(seed: u64) -> CoEvolutionaryHarness<B, Coea> {
+fn coea_factory(seed: u64) -> CoEvolutionaryLoop<B, Coea> {
     let device = Default::default();
     let algo = CompetitiveCoEA::new(
         GeneticAlgorithm::<B>::new(),
@@ -105,11 +105,11 @@ fn coea_factory(seed: u64) -> CoEvolutionaryHarness<B, Coea> {
         params_a: ga_config(),
         params_b: ga_config(),
     };
-    CoEvolutionaryHarness::new(algo, params, seed, device, MAX_GENS).expect("valid params")
+    CoEvolutionaryLoop::new(algo, params, seed, device, MAX_GENS).expect("valid params")
 }
 
 #[test]
-fn coevolutionary_harness_runs_through_evaluator() {
+fn coevolutionary_loop_runs_through_evaluator() {
     let cfg = EvaluatorConfig {
         num_episodes: 1,
         num_trials_per_env: 2,
@@ -153,10 +153,10 @@ fn coevolutionary_harness_runs_through_evaluator() {
         assert_eq!(
             trial.scalars.get("coea/generation").copied(),
             Some(MAX_GENS as f64),
-            "harness counter agrees with the trial's own count"
+            "the loop's counter agrees with the trial's own count"
         );
 
-        // The binding fitness is the canonical reward the harness reports.
+        // The binding fitness is the canonical value the loop reports.
         let binding = trial.scalars["coea/binding_fitness"];
         assert!(
             binding.is_finite(),

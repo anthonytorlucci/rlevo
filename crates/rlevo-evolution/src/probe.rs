@@ -5,33 +5,87 @@
 //! budget twice from the same seed produces a byte-identical replay, so a
 //! second "episode" is duplicated compute carrying zero information.
 //!
-//! `GenerationProbe` is the shape that says so. Where the benchmarking
-//! `BenchEnv` surface forces a generation loop to present itself as an
-//! environment (`Observation = ()`, `Action = ()`, a scalar `reward`, a `done`
-//! flag), this trait names what the loop actually is: something that begins,
-//! then advances one generation at a time until its budget is spent, reporting
-//! typed metrics as it goes.
+//! `GenerationProbe` is the shape that says so: something that begins, then
+//! advances one generation at a time until its budget is spent, reporting
+//! typed metrics as it goes. It is the only way the evaluation harness drives
+//! [`EvolutionaryLoop`] and [`CoEvolutionaryLoop`] (ADR 0076).
 //!
-//! # Relationship to `BenchEnv`
+//! # Two ways to drive a loop
 //!
-//! This is now the **only** way the benchmark evaluator drives these harnesses.
-//! They previously also implemented `rlevo-core::evaluation::BenchEnv`, which
-//! required them to claim an observation, an action, and an episode axis that
-//! an evolutionary run does not have; those impls were removed once every
-//! caller migrated to `Evaluator::run_trials`. See ADR 0075 for why
-//! `BenchEnv`'s shape was under review and ADR 0076 for the split.
+//! | Who drives | Start | One generation | Finished when |
+//! |---|---|---|---|
+//! | your own code | `reset()` | `step()` | `is_done()` |
+//! | the evaluation harness | `begin()` | `advance()` | `advance()` returns `None` |
 //!
-//! [`EvolutionaryHarness`]: crate::strategy::EvolutionaryHarness
-//! [`CoEvolutionaryHarness`]: crate::coevolution::CoEvolutionaryHarness
+//! A run is driven by one row or the other.
+//!
+//! - **Driving it yourself** is one optimisation run, with your own logging
+//!   and your own stopping rule. This is the first row, and it is the
+//!   inherent API of the two loops.
+//! - **Giving it to the harness** is many seeded trials with a report at the
+//!   end. `Evaluator::run_trials` takes a closure and calls it once per
+//!   trial with that trial's seed; the closure builds a new loop and wraps it
+//!   in a `GenerationTrial`. The harness then makes every call, `begin`
+//!   included, so the loop needs no `reset` first. You write neither `begin`
+//!   nor `advance`; they are the harness's side of the seam.
+//!
+//! The second row is built from the first, in this file. `begin` is `reset`.
+//! `advance` is "if `is_done`, return `None`; otherwise `step`, and return a
+//! copy of `latest_metrics`". So the harness always checks the budget before
+//! it runs a generation, exactly as the hand-written
+//! `while !evo_loop.is_done() { evo_loop.step(); }` does, and neither runs
+//! one past it.
+//!
+//! The trait keeps names of its own because its caller is different. The
+//! harness is generic: it knows nothing about strategies or populations, it
+//! needs each generation's metrics by value, and it must drive any kind of
+//! generation loop through one interface, the co-evolutionary one included.
+//! `Option` gives it the stop signal and the metrics in one value. A person
+//! writing a loop by hand is better served by a call that advances and a
+//! question that reads as a question.
+//!
+//! # What the harness adds, and one thing to set
+//!
+//! A `GenerationTrial` stops when `advance` returns `None` or after
+//! `EvaluatorConfig::max_steps` generations, whichever comes first.
+//! `max_steps` defaults to 1000. Set it at least as large as the loop's
+//! budget. A trial that the cap ends with budget left logs one warning, and
+//! the `generations` scalar in its report is the cap, not the budget.
+//!
+//! To know whether budget was left, the trial calls `advance` once more when
+//! it reaches the cap. For the loops here that call returns `None` without
+//! running anything when the budget is spent, because `advance` asks
+//! `is_done` first. A driver of your own must do the same.
+//!
+//! # Writing a driver of your own
+//!
+//! A type that runs generations and should be usable both ways offers both
+//! rows, and builds the second from the first, as the two impls below do:
+//!
+//! - for a person: `new`, `reset`, `step` (returning nothing), `is_done`,
+//!   and a way to read the last generation's metrics;
+//! - for the harness: a `GenerationProbe` impl whose `begin` is `reset` and
+//!   whose `advance` is `is_done`, then `step`, then a clone of those
+//!   metrics. `begin` must re-seed, so that a second run replays the first.
+//!   The metrics type implements `MetricsProvider`, and the driver is `Send`.
+//!
+//! A driver that calls [`Strategy::ask`] and [`Strategy::tell`] itself must
+//! negate a `Minimize` objective and sanitise the fitness itself, in that
+//! order: `sanitize_fitness_tensor(cost.neg())`, with
+//! [`sanitize_fitness_tensor`](crate::fitness::sanitize_fitness_tensor). One
+//! that wraps an [`EvolutionaryLoop`] inherits both.
+//!
+//! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
+//! [`CoEvolutionaryLoop`]: crate::coevolution::CoEvolutionaryLoop
 
 use burn::tensor::backend::Backend;
 
 use rlevo_core::evaluation::GenerationProbe;
 use rlevo_core::fitness::{Metric, MetricsProvider};
 
-use crate::coevolution::{CoEAMetrics, CoEvolutionaryAlgorithm, CoEvolutionaryHarness};
+use crate::coevolution::{CoEAMetrics, CoEvolutionaryAlgorithm, CoEvolutionaryLoop};
 use crate::fitness::BatchFitnessFn;
-use crate::strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
+use crate::strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};
 
 fn scalar(name: &str, value: f64) -> Metric {
     Metric::Scalar {
@@ -82,7 +136,7 @@ impl MetricsProvider for CoEAMetrics {
     }
 }
 
-impl<B, S, F> GenerationProbe for EvolutionaryHarness<B, S, F>
+impl<B, S, F> GenerationProbe for EvolutionaryLoop<B, S, F>
 where
     B: Backend,
     S: Strategy<B>,
@@ -91,19 +145,19 @@ where
     type Metrics = StrategyMetrics;
 
     fn begin(&mut self) {
-        EvolutionaryHarness::<B, S, F>::reset(self);
+        EvolutionaryLoop::<B, S, F>::reset(self);
     }
 
     fn advance(&mut self) -> Option<Self::Metrics> {
-        if self.generation() >= self.max_generations() {
+        if self.is_done() {
             return None;
         }
-        let _ = EvolutionaryHarness::<B, S, F>::step(self, ());
+        EvolutionaryLoop::<B, S, F>::step(self);
         self.latest_metrics().cloned()
     }
 }
 
-impl<B, C> GenerationProbe for CoEvolutionaryHarness<B, C>
+impl<B, C> GenerationProbe for CoEvolutionaryLoop<B, C>
 where
     B: Backend,
     C: CoEvolutionaryAlgorithm<B>,
@@ -111,14 +165,14 @@ where
     type Metrics = CoEAMetrics;
 
     fn begin(&mut self) {
-        CoEvolutionaryHarness::<B, C>::reset(self);
+        CoEvolutionaryLoop::<B, C>::reset(self);
     }
 
     fn advance(&mut self) -> Option<Self::Metrics> {
-        if self.generation() >= self.max_generations() {
+        if self.is_done() {
             return None;
         }
-        let _ = CoEvolutionaryHarness::<B, C>::step(self, ());
+        CoEvolutionaryLoop::<B, C>::step(self);
         self.latest_metrics().cloned()
     }
 }
@@ -136,12 +190,12 @@ mod tests {
         GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
     };
     use crate::fitness::BatchFitnessFn;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
 
     type B = Flex;
 
     /// Sphere cost over the population tensor: sums squares along the genome
-    /// axis. Minimise-sense, so the harness negates into canonical space.
+    /// axis. Minimise-sense, so the loop negates into canonical space.
     struct SphereCost;
 
     impl BatchFitnessFn<B, Tensor<B, 2>> for SphereCost {
@@ -162,7 +216,7 @@ mod tests {
         }
     }
 
-    fn harness(max_generations: usize) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, SphereCost> {
+    fn evo_loop(max_generations: usize) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, SphereCost> {
         let params = GaConfig {
             pop_size: 8,
             genome_dim: 3,
@@ -174,7 +228,7 @@ mod tests {
             },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         };
-        EvolutionaryHarness::new(
+        EvolutionaryLoop::new(
             GeneticAlgorithm::<B>::new(),
             params,
             SphereCost,
@@ -207,7 +261,7 @@ mod tests {
     /// `advance` yields exactly `max_generations` metrics, then `None`.
     #[test]
     fn advance_yields_exactly_the_budget_then_none() {
-        let mut p = harness(3);
+        let mut p = evo_loop(3);
         p.begin();
 
         let seen = drain(&mut p, 3 + 4);
@@ -225,7 +279,7 @@ mod tests {
     /// without tracking a separate `done` flag.
     #[test]
     fn advance_past_exhaustion_does_not_step() {
-        let mut p = harness(2);
+        let mut p = evo_loop(2);
         p.begin();
         assert_eq!(drain(&mut p, 2 + 4).len(), 2, "budget is 2 generations");
 
@@ -243,7 +297,7 @@ mod tests {
     /// this ever fails, that reasoning needs revisiting.
     #[test]
     fn begin_replays_identically() {
-        let mut p = harness(4);
+        let mut p = evo_loop(4);
 
         p.begin();
         let first: Vec<f32> = drain(&mut p, 4 + 4)

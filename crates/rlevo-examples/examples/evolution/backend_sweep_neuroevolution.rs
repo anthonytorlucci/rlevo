@@ -75,7 +75,7 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::fitness::BatchFitnessFn;
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 /// Shared seed so both backends drive the same GA trajectory.
 const SEED: u64 = 42;
@@ -255,23 +255,21 @@ fn run<B: Backend>(cfg: &SweepConfig) -> (f32, Duration) {
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
 
-    let mut harness =
-        EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness, SEED, device, cfg.gens)
+    let mut evo_loop =
+        EvolutionaryLoop::<B, _, _>::new(strategy, config, fitness, SEED, device, cfg.gens)
             .expect("valid GA params");
-    harness.reset();
+    evo_loop.reset();
 
     let start = Instant::now();
-    loop {
+    while !evo_loop.is_done() {
         // Each step scores the population on-device and reads fitness back to
         // host for selection, so device work is synced every generation and the
         // timer reflects real completed compute.
-        if harness.step(()).done {
-            break;
-        }
+        evo_loop.step();
     }
     let elapsed = start.elapsed();
 
-    let best = harness
+    let best = evo_loop
         .latest_metrics()
         .expect("at least one generation ran")
         .best_fitness_ever();

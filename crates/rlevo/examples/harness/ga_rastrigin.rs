@@ -13,7 +13,13 @@
 //! generation and reports a typed `GaGenerationMetrics`, so the costs stay in
 //! their natural minimise sense rather than being negated into a scalar
 //! reward. This also shows a type outside `rlevo-evolution` implementing the
-//! seam — nothing here is an `EvolutionaryHarness`.
+//! seam — nothing here is an `EvolutionaryLoop`.
+//!
+//! The probe holds the two obligations the trait states. `begin` re-seeds
+//! the RNG from the stored seed and resamples the population, so a second
+//! `begin` replays the first run. `advance` checks the generation budget
+//! before it does any work, so a call past the end returns `None` and runs
+//! nothing. A probe of your own needs both.
 //!
 //! # Running
 //!
@@ -30,14 +36,16 @@
 //!
 //! ```text
 //! === rastrigin-ga ===
-//! trial=0 seed=                   7 best_fitness≈0.9712  ea_metrics=1
-//! trial=1 seed=  ...              8 best_fitness≈1.0431  ea_metrics=1
-//! trial=2 seed=  ...              9 best_fitness≈0.8803  ea_metrics=1
+//! trial=0 seed=13309476754707697221 best_fitness≈45.1843  ea_metrics=1
+//! trial=1 seed= 2736163190148115329 best_fitness≈42.1853  ea_metrics=1
+//! trial=2 seed= 2942004327743061676 best_fitness≈34.5305  ea_metrics=1
 //! ```
 //!
 //! `best_fitness` is the best (lowest) Rastrigin value reached after
-//! `MAX_GENS` generations. The value is extracted by negating the
-//! episode return, reversing the sign convention used internally.
+//! `MAX_GENS` generations, read from the `ga/best_so_far` scalar of each
+//! trial's report. A hand-rolled GA with a fixed mutation step does not get
+//! far on a 10-dimensional Rastrigin in 80 generations; the example is
+//! about the seam, not the optimiser.
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -68,7 +76,11 @@ impl FitnessEvaluable for Minimizer {
 
 struct GaEnv {
     landscape: Rastrigin,
+    /// Empty until [`GenerationProbe::begin`] samples it.
     population: Vec<Vec<f64>>,
+    pop_size: usize,
+    /// Kept so that `begin` can re-seed: a second run replays the first.
+    seed: u64,
     rng: StdRng,
     max_generations: usize,
     generation: usize,
@@ -79,12 +91,12 @@ struct GaEnv {
 impl GaEnv {
     fn new(seed: u64, dim: usize, pop_size: usize, max_generations: usize) -> Self {
         let landscape = Rastrigin::new(dim).expect("dim >= 1");
-        let mut rng = StdRng::seed_from_u64(seed);
-        let population = sample_population(&mut rng, &landscape, pop_size);
         Self {
             landscape,
-            population,
-            rng,
+            population: Vec::new(),
+            pop_size,
+            seed,
+            rng: StdRng::seed_from_u64(seed),
             max_generations,
             generation: 0,
             best_so_far: f64::INFINITY,
@@ -170,8 +182,10 @@ impl GenerationProbe for GaEnv {
     type Metrics = GaGenerationMetrics;
 
     fn begin(&mut self) {
-        let pop_size = self.population.len();
-        self.population = sample_population(&mut self.rng, &self.landscape, pop_size);
+        // Re-seed, as the contract requires: two `begin`-to-exhaustion runs of
+        // one probe produce the same metrics.
+        self.rng = StdRng::seed_from_u64(self.seed);
+        self.population = sample_population(&mut self.rng, &self.landscape, self.pop_size);
         self.best_so_far = f64::INFINITY;
         self.generation = 0;
     }
@@ -180,6 +194,10 @@ impl GenerationProbe for GaEnv {
         if self.generation >= self.max_generations {
             return None;
         }
+        assert!(
+            !self.population.is_empty(),
+            "GenerationProbe::begin must be called before advance"
+        );
         let best = self.evolve();
         self.generation += 1;
         Some(GaGenerationMetrics {

@@ -191,7 +191,7 @@ fn rows_to_tensor<B: Backend>(
 /// Fitness is canonical — *higher is better*. Each individual's selection
 /// weight is its fitness shifted so the worst finite individual sits at a
 /// small floor `$\epsilon$`, i.e. `$\text{weight} = (f - \text{min\_finite}) + \epsilon$`, so a higher
-/// fitness yields a larger weight. This is sense-agnostic: the harness has
+/// fitness yields a larger weight. This is sense-agnostic: the loop has
 /// already mapped a cost objective into canonical space, so no `mse`
 /// appears here. Non-finite fitness contributes zero weight. If the total
 /// weight is non-positive (e.g. every individual diverged), selection falls
@@ -512,7 +512,7 @@ impl<B: Backend, F: FunctionSet> BatchFitnessFn<B, Tensor<B, 2, Int>> for GepSym
 mod tests {
     use super::*;
     use crate::function_set::ArithmeticFunctionSet;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
 
     type TestBackend = Flex;
@@ -620,17 +620,15 @@ mod tests {
         let genome_len = cfg.genome_len();
         let strategy = GepStrategy::<TestBackend, _>::new(alphabet(n_vars));
         let fitness = GepSymRegression::new(alphabet(n_vars), genome_len, inputs, targets);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, cfg, fitness, seed, device, max_gens,
         )
         .expect("valid params");
-        harness.reset();
-        loop {
-            if harness.step(()).done {
-                break;
-            }
+        evo_loop.reset();
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
-        harness.latest_metrics().unwrap().best_fitness_ever()
+        evo_loop.latest_metrics().unwrap().best_fitness_ever()
     }
 
     /// Converges on `$f(x) = x^2 + x + 1$` over 20 points in [-1, 1].
