@@ -673,7 +673,7 @@ fn update_best<B: Backend>(state: &mut EsState<B>, pop: &Tensor<B, 2>, fitness: 
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = Flex;
@@ -832,7 +832,7 @@ mod tests {
     }
 
     /// Canonical (maximise) fitness `$-\sum x_i^2$` read straight off a genome tensor,
-    /// so tests can drive a strategy directly without the harness.
+    /// so tests can drive a strategy directly without the loop.
     fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
         let device = pop.device();
         let [n, d] = pop.dims();
@@ -916,7 +916,7 @@ mod tests {
         let strategy = EvolutionStrategy::<TestBackend>::new();
         let params = EsConfig::default_for(kind, dim);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
             fitness_fn,
@@ -925,14 +925,14 @@ mod tests {
             generations,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
         loop {
-            let step = harness.step(());
+            let step = evo_loop.step(());
             if step.done {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever()
+        evo_loop.latest_metrics().unwrap().best_fitness_ever()
     }
 
     #[test]

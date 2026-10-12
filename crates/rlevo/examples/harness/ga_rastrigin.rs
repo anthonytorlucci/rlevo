@@ -13,7 +13,7 @@
 //! generation and reports a typed `GaGenerationMetrics`, so the costs stay in
 //! their natural minimise sense rather than being negated into a scalar
 //! reward. This also shows a type outside `rlevo-evolution` implementing the
-//! seam — nothing here is an `EvolutionaryHarness`.
+//! seam — nothing here is an `EvolutionaryLoop`.
 //!
 //! # Running
 //!

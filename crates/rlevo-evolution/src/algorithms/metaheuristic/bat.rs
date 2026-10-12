@@ -454,13 +454,13 @@ where
     ) -> (BatState<B>, StrategyMetrics) {
         // Sanitise on the host pull, per the maximise convention (`rules.md` §3, ADR 0034):
         // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. This is the per-site
-        // correctness floor for callers that bypass `EvolutionaryHarness::step` — `Strategy` is
+        // correctness floor for callers that bypass `EvolutionaryLoop::step` — `Strategy` is
         // public and re-exported, so a hand-rolled `ask`/`tell` driver reaches this line with raw
         // values (ADR 0034 decision 3). One sanitise here covers both the bootstrap seed of
         // `state.fitness` and the accept-store below; a raw `NaN` latched into a bat's cache loses
         // every later `fitness_host[i] >= state.fitness[i]` comparison, and BA has no scout or
         // abandonment mechanism to rescue the frozen slot. `sanitize_fitness` is idempotent, so on
-        // the harness path (which pre-sanitises) this is a provable no-op — do not delete it as
+        // the loop path (which pre-sanitises) this is a provable no-op — do not delete it as
         // redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
@@ -553,7 +553,7 @@ where
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -631,13 +631,13 @@ mod tests {
         let strategy = BatAlgorithm::<TestBackend>::new();
         let params = BatConfig::default_for(40, 10);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 23, device, 800,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 0.1, "Bat D10 best={best}");
     }
 
@@ -657,13 +657,13 @@ mod tests {
         let (lo, hi): (f32, f32) = params.bounds.into();
         let span = (hi - lo).abs();
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 7, device, 100,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let velocities: Vec<f32> = harness
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let velocities: Vec<f32> = evo_loop
             .state()
             .expect("state populated after stepping")
             .velocities()
@@ -681,7 +681,7 @@ mod tests {
     }
 
     /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
-    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()`.
+    /// canonical, exercising the ADR-0034 loop sanitize with no `neg()`.
     struct PartialNanFitness;
     impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
         fn evaluate_batch(
@@ -737,7 +737,7 @@ mod tests {
     }
 
     // Gap (a): a lone bat (`pop_size = 1`) and a single-dimension genome are the
-    // degenerate extremes. Both must run a full harness loop without panicking.
+    // degenerate extremes. Both must run a full loop without panicking.
     #[test]
     fn degenerate_dims_run() {
         for (pop, d) in [(1usize, 4usize), (6, 1)] {
@@ -745,14 +745,14 @@ mod tests {
             let strategy = BatAlgorithm::<TestBackend>::new();
             let params = BatConfig::default_for(pop, d);
             let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-            let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
                 strategy, params, fitness_fn, 3, device, 8,
             )
             .expect("valid params");
-            harness.reset();
-            while !harness.step(()).done {}
+            evo_loop.reset();
+            while !evo_loop.step(()).done {}
             assert!(
-                harness
+                evo_loop
                     .latest_metrics()
                     .unwrap()
                     .best_fitness_ever()
@@ -838,14 +838,14 @@ mod tests {
         approx::assert_relative_eq!(pos[1], 0.0, epsilon = 1e-6);
     }
 
-    // Gap (d): a partly-`NaN` objective is neutralized by the harness sanitize
+    // Gap (d): a partly-`NaN` objective is neutralized by the loop sanitize
     // chokepoint (ADR 0034).
     #[test]
-    fn nan_fitness_survives_harness() {
+    fn nan_fitness_survives_loop() {
         let device = Default::default();
         let strategy = BatAlgorithm::<TestBackend>::new();
         let params = BatConfig::default_for(8, 3);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
             PartialNanFitness,
@@ -854,9 +854,9 @@ mod tests {
             4,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let m = harness.latest_metrics().unwrap();
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever().is_finite(),
             "best_fitness_ever not finite: {}",
@@ -866,7 +866,7 @@ mod tests {
     }
 
     // Regression for the per-slot fitness-cache freeze on a bypass `tell`.
-    // `nan_fitness_survives_harness` above covers the harness path; this
+    // `nan_fitness_survives_loop` above covers the loop path; this
     // covers the documented bypass hole (ADR 0034 decision 3) — a direct
     // `init` → `ask` → `tell` driver. A raw `NaN`
     // latched into `state.fitness` loses every later
@@ -874,7 +874,7 @@ mod tests {
     // permanently: BA has no scout or abandonment mechanism to rescue a dead
     // slot. The assertion is on the *cache*, not on convergence.
     #[test]
-    fn nan_fitness_does_not_latch_without_harness() {
+    fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = BatAlgorithm::<TestBackend>::new();
         let mut params = BatConfig::default_for(4, 2);

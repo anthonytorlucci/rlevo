@@ -104,7 +104,7 @@ pub trait FitnessEvaluable {
     /// accuracy returns its natural value. The objective's direction is
     /// declared once, via the [`ObjectiveSense`] carried by the
     /// `FromFitnessEvaluable` adapter (`with_sense`, defaulting to
-    /// [`ObjectiveSense::Minimize`]), and the evolutionary harness reconciles
+    /// [`ObjectiveSense::Minimize`]), and the evolutionary loop reconciles
     /// it into canonical (maximise) space at a single chokepoint. See
     /// [`crate::objective`].
     fn evaluate(&self, individual: &Self::Individual, landscape: &Self::Landscape) -> f64;
@@ -138,7 +138,7 @@ pub trait Landscape: Send + Sync {
     /// A landscape is a cost surface, so this defaults to
     /// [`ObjectiveSense::Minimize`] — the bundled landscapes need no
     /// per-type override. The `FromLandscape` adapter forwards this to the
-    /// harness, which negates a `Minimize` objective into canonical (maximise)
+    /// evolutionary loop, which negates a `Minimize` objective into canonical (maximise)
     /// space and reports `best_fitness` back in this natural sense.
     fn sense(&self) -> ObjectiveSense {
         ObjectiveSense::Minimize

@@ -1,6 +1,6 @@
 //! Interpreted NEAT, end-to-end on XOR.
 //!
-//! Drives the [`NeatStrategy`] custom harness through the manual generational
+//! Drives the standalone [`NeatStrategy`] through the manual generational
 //! loop (`init → loop{ ask → GraphFitnessFn::evaluate → tell }`) on the `Flex`
 //! backend and asserts:
 //!
@@ -478,7 +478,7 @@ fn test_dense_padded_panics_over_cap() {
 
 /// The `BatchGraphFitness` adapter drives `NeatStrategy` to the same XOR fitness
 /// the interpreted `GraphFitnessFn` produces, confirming the two evaluation
-/// seams are interchangeable behind the harness.
+/// seams are interchangeable behind the strategy.
 #[test]
 fn test_batch_graph_fitness_matches_interpreted_fitness() {
     use rlevo_evolution::BatchGraphFitness;

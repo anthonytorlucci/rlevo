@@ -19,7 +19,7 @@ use rlevo_evolution::algorithms::eda::{
     UnivariateGaussianParams,
 };
 use rlevo_evolution::fitness::FromLandscape;
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 use rlevo_evolution::{
     BayesianNetwork, CompactGenetic, DependencyChain, EdaParams, EdaStrategy, ProbabilityModel,
     UnivariateBernoulli, UnivariateGaussian,
@@ -45,7 +45,7 @@ where
         bounds,
         model: model_params,
     };
-    let mut harness = EvolutionaryHarness::<B, EdaStrategy<B, M>, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, EdaStrategy<B, M>, _>::new(
         EdaStrategy::new(model),
         params,
         FromLandscape::with_sense(
@@ -57,11 +57,11 @@ where
         GENS,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory = Vec::with_capacity(GENS);
     loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
+        let step = evo_loop.step(());
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }

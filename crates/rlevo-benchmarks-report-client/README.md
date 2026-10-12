@@ -223,7 +223,7 @@ the run):
   a11y contract.
 - **Diversity trace** — `(generation, diversity)` scalar series, one
   point per sample that carries a diversity value. Suppressed when no
-  sample provides one (M8.1 emits `None` from the harness — see
+  sample provides one (M8.1 emits `None` from the loop — see
   M8.2 deferral below).
 - **Selection-pressure indicator** — `best / median` ratio per
   generation, skipping zero-median degeneracy. Reuses the M8
@@ -235,7 +235,7 @@ the run):
 is the EA-side hook the report producer attaches to. Wiring:
 
 ```text
-EvolutionaryHarness::new(...)
+EvolutionaryLoop::new(...)
     .with_observer(reporter.clone())
                   ↓ on_population(snapshot)        (per generation,
 PopulationReporter                                  post-Strategy::tell)
@@ -246,7 +246,7 @@ Arc<Mutex<dyn RecordSink>>                          → RecordChunk::Population
 
 `PopulationReporter` is shipped from
 [`rlevo_benchmarks::record::population_reporter`](../rlevo-benchmarks/src/record/population_reporter.rs).
-The harness pays the device→host transfer of the fitness tensor only
+The loop pays the device→host transfer of the fitness tensor only
 when an observer is attached; observerless runs are unchanged.
 
 ### Umbrella example coverage
@@ -303,7 +303,7 @@ The M8.2 chart-polish items have since landed in `src/charts.rs` /
   is a skeleton). The schema field `inner_rl_returns` is in place;
   the panel renders only when non-empty.
 - **Diversity computation** — `PopulationSnapshot::diversity` is
-  emitted as `None` from `EvolutionaryHarness` because the harness has
+  emitted as `None` from `EvolutionaryLoop` because the loop has
   no strategy-agnostic geometry over the population tensor. A
   `Strategy::diversity(state) -> Option<f32>` extension is the natural
   follow-up; until it lands the diversity panel (and its threshold rule)

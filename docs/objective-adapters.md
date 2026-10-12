@@ -23,7 +23,7 @@ competing concepts — they are one trait and four on-ramps to it.**
 
 ### The one trait that matters
 
-The engine — specifically the `EvolutionaryHarness` — consumes exactly one trait:
+The engine — specifically the `EvolutionaryLoop` — consumes exactly one trait:
 
 ```rust
 pub trait BatchFitnessFn<B: Backend, G>: Send {
@@ -39,7 +39,7 @@ exotic than they look:
 
 - **`B`** is the Burn **backend** — the compute target (`Flex`, `Wgpu`, `NdArray`).
   It rides along on every tensor type; you almost never name it explicitly, because
-  the harness infers it.
+  `EvolutionaryLoop` infers it.
 - **`G`** is the **genome container** — the *shape of one population*. For the
   real-coded algorithms (GA, ES, EP, DE) it is `Tensor<B, 2>`: a `(pop_size,
   genome_dim)` block of `f32`. For discrete algorithms it is `Tensor<B, 2, Int>`.
@@ -77,7 +77,7 @@ Two things worth internalising from the table:
 ### The single-member trait, and where it fits
 
 There is a second, smaller trait — `FitnessFn<G>`, with `evaluate_one(&mut self,
-member: &G) -> f32`. **The harness never calls it.** Its job is *single-point*
+member: &G) -> f32`. **`EvolutionaryLoop` never calls it.** Its job is *single-point*
 evaluation for **memetic local search**: the hill-climbing / Nelder–Mead /
 simulated-annealing refiners probe one candidate at a time. The `RowFitness`
 adapter wraps a `BatchFitnessFn` into a `FitnessFn` (a one-row `evaluate_batch`
@@ -90,7 +90,7 @@ Worth restating, because it is the crux: **strategies never see any of these
 types.** The data flow is
 
 ```text
-harness.fitness_fn : impl BatchFitnessFn<B, G>
+evo_loop.fitness_fn : impl BatchFitnessFn<B, G>
         │
    strategy.ask ──▶ population (G) ──▶ evaluate_batch ──▶ fitness Tensor<B,1>
                                                               │
@@ -98,7 +98,7 @@ harness.fitness_fn : impl BatchFitnessFn<B, G>
 ```
 
 The strategy proposes a population and later consumes a *fitness tensor*. The
-adapter you chose lives in the harness, called once per generation between `ask`
+adapter you chose lives in the loop, called once per generation between `ask`
 and `tell`. This is why the same `GeneticAlgorithm` runs unchanged against a
 synthetic landscape, a neural-network rollout, or your custom objective — it is
 decoupled from all of them by the tensor seam.
@@ -141,11 +141,11 @@ impl Landscape for WeightedSphere {
 > **Python parallel.** This is your `def fitness(x): ...` — and nothing more. The
 > only `rlevo`-specific obligations are to return the objective's **natural** value
 > (you never hand-negate — a `Landscape` is a cost surface, so its `sense()`
-> defaults to `ObjectiveSense::Minimize` and the harness reconciles direction) and
+> defaults to `ObjectiveSense::Minimize` and the loop reconciles direction) and
 > that `x` arrives as `&[f64]`. See
 > [The Ask/Tell Contract](ask-tell-contract.md#lineage-evosax-and-where-rlevo-diverges)
 > for why the direction matters and exactly where the chokepoint lives
-> (`EvolutionaryHarness::step`, which negates a `Minimize` objective before
+> (`EvolutionaryLoop::step`, which negates a `Minimize` objective before
 > `tell` and maps metrics back to your declared sense).
 
 ### Step 2 — Choose the on-ramp
@@ -170,7 +170,7 @@ let fitness_fn = FromLandscape::with_sense(objective, ObjectiveSense::Minimize);
 That single constructor is the entire bridge from "a Rust function" to "something
 the engine can call on a whole population."
 
-### Step 3 — Hand it to the harness
+### Step 3 — Hand it to `EvolutionaryLoop`
 
 From here it is identical to the bundled-landscape path from the guided tour's
 function-optimisation walkthrough — the objective is the only thing that
@@ -179,7 +179,7 @@ changed:
 ```rust,no_run
 use burn::backend::Flex;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 type B = Flex;
 
@@ -187,15 +187,15 @@ let device = Default::default();
 let strategy = GeneticAlgorithm::<B>::new();
 let config = GaConfig::default_for(/* pop = */ 64, /* dim = */ 3);
 
-let mut harness =
-    EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, 42, device, 200).expect("valid config");
+let mut evo_loop =
+    EvolutionaryLoop::<B, _, _>::new(strategy, config, fitness_fn, 42, device, 200).expect("valid config");
 
-harness.reset();
-while !harness.step(()).done {}
-println!("best = {:.3e}", harness.latest_metrics().unwrap().best_fitness_ever);
+evo_loop.reset();
+while !evo_loop.step(()).done {}
+println!("best = {:.3e}", evo_loop.latest_metrics().unwrap().best_fitness_ever());
 ```
 
-The harness infers `B` and `G` from the strategy and the adapter, which is why the
+The loop infers `B` and `G` from the strategy and the adapter, which is why the
 turbofish is just `::<B, _, _>` — you never spell out the genome type.
 
 ### When the simple on-ramp is the wrong one
@@ -232,7 +232,7 @@ impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for OnDeviceWeightedSphere<B> {
 ```
 
 Same objective, the same declared sense, no host round-trip — and the `pop` rows
-are scored in a single kernel sweep. The harness cannot tell the difference: it
+are scored in a single kernel sweep. The loop cannot tell the difference: it
 still just calls `evaluate_batch` and reads `sense()`.
 
 > **The decision in one line.** Express it on the host and wrap it
@@ -246,7 +246,7 @@ still just calls `evaluate_batch` and reads `sense()`.
 
 ## Where this connects
 
-- [The Ask/Tell Contract](ask-tell-contract.md) — how the harness drives the
+- [The Ask/Tell Contract](ask-tell-contract.md) — how `EvolutionaryLoop` drives the
   `ask` → `evaluate_batch` → `tell` loop, how to run it by hand, and the
   maximise convention / `ObjectiveSense` contract this page assumes.
 - The genome type `G` in `BatchFitnessFn<B, G>` is the bare population

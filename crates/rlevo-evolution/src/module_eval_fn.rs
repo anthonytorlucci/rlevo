@@ -27,7 +27,7 @@ use rlevo_core::objective::ObjectiveSense;
 /// is collected into the fitness tensor in the scorer's **natural** value
 /// space. Direction is declared once via [`ObjectiveSense`] (default
 /// [`ObjectiveSense::Maximize`]; pass [`with_sense`](ModuleEvalFn::with_sense)
-/// for a cost scorer like MSE) and reconciled by the harness — no hand-negation
+/// for a cost scorer like MSE) and reconciled by the loop — no hand-negation
 /// in the scorer.
 ///
 /// # Gradient isolation

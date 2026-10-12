@@ -36,7 +36,7 @@ Also shipping, not tied to a single-population `Strategy<B>`:
 | Module | Entry point | Purpose |
 |---|---|---|
 | Local search | `algorithms::local_search::{HillClimbing, NelderMead, RandomRestart, SimulatedAnnealing}` | standalone local-search operators, also used inside `MemeticWrapper` |
-| Coevolution | `algorithms::coevolution::{CompetitiveCoEA, CooperativeCoEA, CoEvolutionaryHarness, HallOfFame}` | two-population competitive/cooperative coevolution with hall-of-fame tracking |
+| Coevolution | `algorithms::coevolution::{CompetitiveCoEA, CooperativeCoEA, CoEvolutionaryLoop, HallOfFame}` | two-population competitive/cooperative coevolution with hall-of-fame tracking |
 
 ## Swarm & metaheuristic suite
 
@@ -69,7 +69,7 @@ use burn::backend::Flex;
 use rlevo_core::fitness::FitnessEvaluable;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::fitness::FromFitnessEvaluable;
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 struct Sphere;
 struct SphereFit;
@@ -83,7 +83,7 @@ impl FitnessEvaluable for SphereFit {
 
 fn main() {
     let device = Default::default();
-    let mut harness = EvolutionaryHarness::<Flex, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<Flex, _, _>::new(
         GeneticAlgorithm::<Flex>::new(),
         GaConfig::default_for(64, 10),
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -91,15 +91,15 @@ fn main() {
         device,
         500,         // max generations
     ).expect("valid config");
-    harness.reset();
-    while !harness.step(()).done {}
-    let best = harness.latest_metrics().unwrap().best_fitness_ever;
+    evo_loop.reset();
+    while !evo_loop.step(()).done {}
+    let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
     println!("final best = {best:.3e}");
 }
 ```
 
 The quick start's `FitnessEvaluable` trait lives in `rlevo-core` (already a
-dependency — it was hoisted there per ADR 0004), and the `EvolutionaryHarness`
+dependency — it was hoisted there per ADR 0004), and the `EvolutionaryLoop`
 exposes the strategy as a `rlevo_core::evaluation::GenerationProbe`. Swap in your own
 objective by implementing `FitnessEvaluable` or `BatchFitnessFn` directly.
 
@@ -128,7 +128,7 @@ device-resident evaluator; the
 `rlevo_core::fitness::FitnessEvaluable` (host-side `Vec<f64>` in,
 `f64` out) onto a device tensor.
 
-The [`EvolutionaryHarness<B, S, F>`](src/strategy.rs) wraps a strategy
+The [`EvolutionaryLoop<B, S, F>`](src/strategy.rs) wraps a strategy
 into `rlevo_core::evaluation::GenerationProbe`, so the benchmark evaluator
 drives it identically to an RL environment — one generation per
 `step`, reward = `-best_fitness_ever`.

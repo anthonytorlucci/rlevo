@@ -26,10 +26,10 @@
 //! is empty and, if so, returns the current positions unchanged (no velocity
 //! update). `tell` detects the same condition and uses the received fitness
 //! to seed `personal_best_fitness` and `global_best` before returning.
-//! Any caller that bypasses [`EvolutionaryHarness`] must therefore call
+//! Any caller that bypasses [`EvolutionaryLoop`] must therefore call
 //! `ask` → evaluate → `tell` **twice** before the velocity update is live.
 //!
-//! [`EvolutionaryHarness`]: crate::strategy::EvolutionaryHarness
+//! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
 //!
 //! # Position and velocity clamping
 //!
@@ -338,14 +338,14 @@ where
         _rng: &mut dyn Rng,
     ) -> (PsoState<B>, StrategyMetrics) {
         // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3):
-        // the harness chokepoint already applies
+        // the loop chokepoint already applies
         // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
         // a direct `ask`/`tell` driver can hand us a raw `NaN`. PSO latches
         // fitness into the persistent `personal_best_fitness` cache and
         // compares against it next generation — an unsanitised `NaN` there
         // loses every `>` comparison and freezes that particle's personal best
         // permanently, with no reset path. `sanitize_fitness` is idempotent, so
-        // this is a provable no-op on the harness path: do not delete it as
+        // this is a provable no-op on the loop path: do not delete it as
         // redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
@@ -439,7 +439,7 @@ where
 mod tests {
     use super::*;
     use crate::fitness::{BatchFitnessFn, FromFitnessEvaluable};
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -449,7 +449,7 @@ mod tests {
     type TestBackend = Flex;
 
     /// Distinct finite fitness with the maximum at index 0, for direct
-    /// (non-harness) `tell` calls in lifecycle tests. Finite by construction,
+    /// (non-loop) `tell` calls in lifecycle tests. Finite by construction,
     /// so it never trips the ADR 0034 sanitize contract.
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
     fn finite_fitness(
@@ -462,7 +462,7 @@ mod tests {
     }
 
     /// Objective whose row 0 evaluates to `NaN` (the rest finite). `Maximize`
-    /// so natural == canonical and the harness sanitize is the only thing that
+    /// so natural == canonical and the loop sanitize is the only thing that
     /// can keep the run finite.
     struct NanFitness;
     impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NanFitness {
@@ -516,7 +516,7 @@ mod tests {
             params.c2 = 2.05;
         }
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
             fitness_fn,
@@ -525,14 +525,14 @@ mod tests {
             generations,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
         loop {
-            let step = harness.step(());
+            let step = evo_loop.step(());
             if step.done {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever()
+        evo_loop.latest_metrics().unwrap().best_fitness_ever()
     }
 
     #[test]
@@ -579,20 +579,19 @@ mod tests {
     #[test]
     fn degenerate_single_particle_single_dim_runs() {
         // pop_size = 1, genome_dim = 1: the smallest swarm the validator
-        // accepts. It must run through the harness without a panic (gbest is
+        // accepts. It must run through the loop without a panic (gbest is
         // the lone particle, so the social term is zero every step).
         let device = Default::default();
         let strategy = ParticleSwarm::<TestBackend>::new();
         let params = PsoConfig::default_for(1, 1);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 0, device, 5,
-        )
-        .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
+                .expect("valid params");
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
         assert!(
-            harness
+            evo_loop
                 .latest_metrics()
                 .unwrap()
                 .best_fitness_ever()
@@ -617,20 +616,19 @@ mod tests {
     }
 
     #[test]
-    fn nan_fitness_through_harness_stays_finite() {
-        // Row 0 evaluates to NaN every generation. The harness sanitize
+    fn nan_fitness_through_loop_stays_finite() {
+        // Row 0 evaluates to NaN every generation. The loop sanitize
         // chokepoint (ADR 0034) must keep the best-ever finite and flag the
         // broken member rather than poisoning the run.
         let device = Default::default();
         let strategy = ParticleSwarm::<TestBackend>::new();
         let params = PsoConfig::default_for(4, 3);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, NanFitness, 1, device, 3,
-        )
-        .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let m = harness.latest_metrics().unwrap();
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, NanFitness, 1, device, 3)
+                .expect("valid params");
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever().is_finite(),
             "best={}",
@@ -640,12 +638,12 @@ mod tests {
     }
 
     /// Regression for the ADR 0034 decision-3 bypass hole: a
-    /// driver calling `init → ask → tell` directly gets no harness sanitize, so
+    /// driver calling `init → ask → tell` directly gets no loop sanitize, so
     /// a raw `NaN` used to latch into `personal_best_fitness[0]` and freeze
     /// that particle's personal best permanently — `x > NaN` is false for every
     /// `x`, and PSO has no reset path for the cache.
     #[test]
-    fn nan_fitness_does_not_latch_without_harness() {
+    fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = ParticleSwarm::<TestBackend>::new();
         let params = PsoConfig::default_for(4, 3);

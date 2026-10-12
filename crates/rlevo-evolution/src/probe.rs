@@ -14,24 +14,24 @@
 //!
 //! # Relationship to `BenchEnv`
 //!
-//! This is now the **only** way the benchmark evaluator drives these harnesses.
+//! This is now the **only** way the benchmark evaluator drives these loops.
 //! They previously also implemented `rlevo-core::evaluation::BenchEnv`, which
 //! required them to claim an observation, an action, and an episode axis that
 //! an evolutionary run does not have; those impls were removed once every
 //! caller migrated to `Evaluator::run_trials`. See ADR 0075 for why
 //! `BenchEnv`'s shape was under review and ADR 0076 for the split.
 //!
-//! [`EvolutionaryHarness`]: crate::strategy::EvolutionaryHarness
-//! [`CoEvolutionaryHarness`]: crate::coevolution::CoEvolutionaryHarness
+//! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
+//! [`CoEvolutionaryLoop`]: crate::coevolution::CoEvolutionaryLoop
 
 use burn::tensor::backend::Backend;
 
 use rlevo_core::evaluation::GenerationProbe;
 use rlevo_core::fitness::{Metric, MetricsProvider};
 
-use crate::coevolution::{CoEAMetrics, CoEvolutionaryAlgorithm, CoEvolutionaryHarness};
+use crate::coevolution::{CoEAMetrics, CoEvolutionaryAlgorithm, CoEvolutionaryLoop};
 use crate::fitness::BatchFitnessFn;
-use crate::strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
+use crate::strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};
 
 fn scalar(name: &str, value: f64) -> Metric {
     Metric::Scalar {
@@ -82,7 +82,7 @@ impl MetricsProvider for CoEAMetrics {
     }
 }
 
-impl<B, S, F> GenerationProbe for EvolutionaryHarness<B, S, F>
+impl<B, S, F> GenerationProbe for EvolutionaryLoop<B, S, F>
 where
     B: Backend,
     S: Strategy<B>,
@@ -91,19 +91,19 @@ where
     type Metrics = StrategyMetrics;
 
     fn begin(&mut self) {
-        EvolutionaryHarness::<B, S, F>::reset(self);
+        EvolutionaryLoop::<B, S, F>::reset(self);
     }
 
     fn advance(&mut self) -> Option<Self::Metrics> {
         if self.generation() >= self.max_generations() {
             return None;
         }
-        let _ = EvolutionaryHarness::<B, S, F>::step(self, ());
+        let _ = EvolutionaryLoop::<B, S, F>::step(self, ());
         self.latest_metrics().cloned()
     }
 }
 
-impl<B, C> GenerationProbe for CoEvolutionaryHarness<B, C>
+impl<B, C> GenerationProbe for CoEvolutionaryLoop<B, C>
 where
     B: Backend,
     C: CoEvolutionaryAlgorithm<B>,
@@ -111,14 +111,14 @@ where
     type Metrics = CoEAMetrics;
 
     fn begin(&mut self) {
-        CoEvolutionaryHarness::<B, C>::reset(self);
+        CoEvolutionaryLoop::<B, C>::reset(self);
     }
 
     fn advance(&mut self) -> Option<Self::Metrics> {
         if self.generation() >= self.max_generations() {
             return None;
         }
-        let _ = CoEvolutionaryHarness::<B, C>::step(self, ());
+        let _ = CoEvolutionaryLoop::<B, C>::step(self, ());
         self.latest_metrics().cloned()
     }
 }
@@ -136,12 +136,12 @@ mod tests {
         GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
     };
     use crate::fitness::BatchFitnessFn;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
 
     type B = Flex;
 
     /// Sphere cost over the population tensor: sums squares along the genome
-    /// axis. Minimise-sense, so the harness negates into canonical space.
+    /// axis. Minimise-sense, so the loop negates into canonical space.
     struct SphereCost;
 
     impl BatchFitnessFn<B, Tensor<B, 2>> for SphereCost {
@@ -162,7 +162,7 @@ mod tests {
         }
     }
 
-    fn harness(max_generations: usize) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, SphereCost> {
+    fn evo_loop(max_generations: usize) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, SphereCost> {
         let params = GaConfig {
             pop_size: 8,
             genome_dim: 3,
@@ -174,7 +174,7 @@ mod tests {
             },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         };
-        EvolutionaryHarness::new(
+        EvolutionaryLoop::new(
             GeneticAlgorithm::<B>::new(),
             params,
             SphereCost,
@@ -207,7 +207,7 @@ mod tests {
     /// `advance` yields exactly `max_generations` metrics, then `None`.
     #[test]
     fn advance_yields_exactly_the_budget_then_none() {
-        let mut p = harness(3);
+        let mut p = evo_loop(3);
         p.begin();
 
         let seen = drain(&mut p, 3 + 4);
@@ -225,7 +225,7 @@ mod tests {
     /// without tracking a separate `done` flag.
     #[test]
     fn advance_past_exhaustion_does_not_step() {
-        let mut p = harness(2);
+        let mut p = evo_loop(2);
         p.begin();
         assert_eq!(drain(&mut p, 2 + 4).len(), 2, "budget is 2 generations");
 
@@ -243,7 +243,7 @@ mod tests {
     /// this ever fails, that reasoning needs revisiting.
     #[test]
     fn begin_replays_identically() {
-        let mut p = harness(4);
+        let mut p = evo_loop(4);
 
         p.begin();
         let first: Vec<f32> = drain(&mut p, 4 + 4)

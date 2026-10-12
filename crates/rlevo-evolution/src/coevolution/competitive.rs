@@ -21,7 +21,7 @@ use crate::fitness::sanitize_fitness_tensor;
 use crate::strategy::Strategy;
 
 use super::fitness::CoupledFitness;
-use super::harness::CoEAMetrics;
+use super::generation_loop::CoEAMetrics;
 use super::{CoEAState, CoEvolutionaryAlgorithm};
 
 /// Static parameters for [`CompetitiveCoEA`]: one params bundle per inner
@@ -36,7 +36,7 @@ pub struct CompetitiveCoEAParams<PA, PB> {
 
 /// Validation delegates to nothing: [`CompetitiveCoEAParams`] carries only the
 /// two inner-strategy params, each already validated at that strategy's own
-/// harness chokepoint. No `PA: Validate` / `PB: Validate` bound is imposed, so
+/// loop chokepoint. No `PA: Validate` / `PB: Validate` bound is imposed, so
 /// the params stay usable with unit-typed inner params in tests.
 impl<PA, PB> Validate for CompetitiveCoEAParams<PA, PB> {
     fn validate(&self) -> Result<(), ConfigError> {
@@ -50,7 +50,7 @@ impl<PA, PB> Validate for CompetitiveCoEAParams<PA, PB> {
 /// producing `Tensor<B, 2>` genomes), and the [`CoupledFitness`] `F` that
 /// scores them against each other. Implements
 /// [`CoEvolutionaryAlgorithm`] so it can be driven by
-/// [`CoEvolutionaryHarness`](super::CoEvolutionaryHarness).
+/// [`CoEvolutionaryLoop`](super::CoEvolutionaryLoop).
 pub struct CompetitiveCoEA<B, SA, SB, F>
 where
     B: Backend,
@@ -175,7 +175,7 @@ where
         debug_assert_eq!(fits.len(), 2, "competitive co-evolution is bi-population");
 
         // Canonicalise-then-sanitize chokepoint for the coupled-fitness path (ADR 0023 / 0034),
-        // mirroring `EvolutionaryHarness::step`. First map NATURAL → canonical (maximise-native:
+        // mirroring `EvolutionaryLoop::step`. First map NATURAL → canonical (maximise-native:
         // negate iff `Minimize`) so the maximise-native engine optimises `$-\text{cost}$`, THEN
         // sanitize (`$\text{NaN} \to -\infty$` worst, `$+\infty \to \text{f32::MAX}$`). The
         // ordering is load-bearing: "NaN = worst" is only well-defined in maximise space, so

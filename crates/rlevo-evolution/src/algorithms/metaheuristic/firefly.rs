@@ -167,7 +167,7 @@ impl<B: Backend> FireflyState<B> {
 /// Firefly Algorithm strategy.
 ///
 /// [`FireflyConfig`] enforces `pop_size <= FIREFLY_PURE_TENSOR_CAP` (= 128)
-/// through [`Validate::validate`] at the harness chokepoint, since the
+/// through [`Validate::validate`] at the loop chokepoint, since the
 /// attraction step materializes an `(N, N, D)` pairwise tensor.
 ///
 /// # Example
@@ -265,7 +265,7 @@ where
     /// ordering; the process-wide Flex RNG is never touched.
     ///
     /// The `pop_size <= FIREFLY_PURE_TENSOR_CAP` cap is enforced by
-    /// [`FireflyConfig`]'s [`Validate`] impl at the harness chokepoint.
+    /// [`FireflyConfig`]'s [`Validate`] impl at the loop chokepoint.
     fn init(
         &self,
         params: &FireflyConfig,
@@ -358,10 +358,10 @@ where
     ) -> (FireflyState<B>, StrategyMetrics) {
         // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
         // correctness floor for a caller driving `ask`/`tell` directly instead of
-        // `EvolutionaryHarness::step`, which already sanitizes (the ADR 0034 decision-3 bypass
+        // `EvolutionaryLoop::step`, which already sanitizes (the ADR 0034 decision-3 bypass
         // hole): otherwise a raw NaN lands in the public `state.fitness` cache and silently
         // disables the `fitness[j] > fitness[i]` brightness ordering in the next `ask`.
-        // `sanitize_fitness` is idempotent, so on the harness path this is a provable no-op — not
+        // `sanitize_fitness` is idempotent, so on the loop path this is a provable no-op — not
         // redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
@@ -405,7 +405,7 @@ where
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::rngs::StdRng;
     use rlevo_core::config::ConstraintKind;
@@ -463,18 +463,18 @@ mod tests {
         let strategy = FireflyAlgorithm::<TestBackend>::new();
         let params = FireflyConfig::default_for(24, 10);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 29, device, 500,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1.0, "Firefly D10 best={best}");
     }
 
     /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
-    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()`.
+    /// canonical, exercising the ADR-0034 loop sanitize with no `neg()`.
     struct PartialNanFitness;
     impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
         fn evaluate_batch(
@@ -712,14 +712,14 @@ mod tests {
         }
     }
 
-    // Gap: a partly-`NaN` objective is neutralized by the harness sanitize
+    // Gap: a partly-`NaN` objective is neutralized by the loop sanitize
     // chokepoint (ADR 0034).
     #[test]
-    fn nan_fitness_survives_harness() {
+    fn nan_fitness_survives_loop() {
         let device = Default::default();
         let strategy = FireflyAlgorithm::<TestBackend>::new();
         let params = FireflyConfig::default_for(8, 3);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
             PartialNanFitness,
@@ -728,9 +728,9 @@ mod tests {
             4,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let m = harness.latest_metrics().unwrap();
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever().is_finite(),
             "best_fitness_ever not finite: {}",
@@ -742,12 +742,12 @@ mod tests {
     /// Cache hygiene (not a freeze): `tell` overwrites `state.fitness`
     /// wholesale every generation, so a `NaN` can never latch here. What this
     /// pins is the **store** — driving `init → ask → tell` directly, the
-    /// ADR-0034 decision-3 bypass of `EvolutionaryHarness::step`, must not
+    /// ADR-0034 decision-3 bypass of `EvolutionaryLoop::step`, must not
     /// leave a raw `NaN` in the public fitness cache. `ask` feeds that cache
     /// to the brightness ordering (`fitness[j] > fitness[i]`), where a `NaN`
     /// would silently disable one firefly's attraction for a generation.
     #[test]
-    fn nan_fitness_does_not_latch_without_harness() {
+    fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = FireflyAlgorithm::<TestBackend>::new();
         let params = FireflyConfig::default_for(6, 3);
@@ -779,7 +779,7 @@ mod tests {
         );
     }
 
-    // Companion boundary test: a full `genome_dim = 1` run drives the harness
+    // Companion boundary test: a full `genome_dim = 1` run drives the loop
     // to completion without panicking and records a finite best.
     #[test]
     fn boundary_genome_dim_one_runs() {
@@ -787,14 +787,13 @@ mod tests {
         let strategy = FireflyAlgorithm::<TestBackend>::new();
         let params = FireflyConfig::default_for(8, 1);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 6, device, 6,
-        )
-        .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
+                .expect("valid params");
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
         assert!(
-            harness
+            evo_loop
                 .latest_metrics()
                 .unwrap()
                 .best_fitness_ever()

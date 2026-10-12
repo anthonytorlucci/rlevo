@@ -7,7 +7,7 @@
 //! `Strategy<B, Genome = Tensor<B, 2>>` together with any
 //! [`LocalSearch<B>`](crate::local_search::LocalSearch) and the wrapper itself
 //! implements `Strategy<B>`, so it drops straight into
-//! [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness).
+//! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop).
 //!
 //! # Lamarckian / Baldwinian / Partial refinement
 //!
@@ -35,7 +35,7 @@
 //! **This wrapper deliberately breaks that convention.** It holds a
 //! [`parking_lot::Mutex`] around its fitness function because local search needs
 //! `&mut F` (an [`FitnessFn`] is `&mut self`) while `tell` only has `&self`. The
-//! lock is wrapper-private and uncontended in the single-harness driving model
+//! lock is wrapper-private and uncontended in the single-loop driving model
 //! (one `tell` in flight at a time), so it costs an uncontended lock/unlock per
 //! generation and never blocks. A reader writing code generic over
 //! `S: Strategy<B>` should be aware that `MemeticWrapper` is *not* a pure,
@@ -117,7 +117,7 @@ impl Default for WritebackPolicy {
 /// landscape artifact, not a config to copy — re-tune per problem.
 ///
 /// The wrapper avoids the seeding-eval waste that an unaware caller would pay:
-/// it hands each searcher the fitness the harness already computed via
+/// it hands each searcher the fitness the loop already computed via
 /// [`LocalSearch::refine_with_known_fitness`], so a refined row spends its evals
 /// on probes rather than re-scoring its own input (ADR 0016 reversal criteria).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,7 +156,7 @@ pub struct MemeticParams<SP, LP> {
 }
 
 /// Validation delegates to the wrapped inner strategy's config — the memetic
-/// wrapper is the harness chokepoint for that inner config. Only `SP: Validate`
+/// wrapper is the loop chokepoint for that inner config. Only `SP: Validate`
 /// is required (the local-searcher params `LP` carry only simple step-size
 /// knobs and are left unconstrained), so `MemeticParams` stays usable with any
 /// local searcher while still rejecting an invalid inner configuration.
@@ -213,11 +213,11 @@ impl<St> MemeticState<St> {
 ///
 /// `MemeticWrapper` is itself a `Strategy<B, Genome = Tensor<B, 2>>`, so it
 /// composes with any real-valued strategy and drops into
-/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) unchanged.
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) unchanged.
 ///
 /// # The two fitness instances
 ///
-/// The harness owns *its own* fitness instance (it calls `evaluate_batch` once
+/// The loop owns *its own* fitness instance (it calls `evaluate_batch` once
 /// per generation to score the asked population); this wrapper owns a *separate*
 /// instance behind a [`Mutex`], used only to score local-search probes.
 ///
@@ -281,7 +281,7 @@ impl<St> MemeticState<St> {
 /// let mut scorer = Sphere;
 /// for _ in 0..3 {
 ///     let (pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
-///     // The harness would do this; here we score it ourselves.
+///     // The loop would do this; here we score it ourselves.
 ///     let fitness = scorer.evaluate_batch(&pop, &device);
 ///     let (next, _metrics) = strategy.tell(&params, pop, fitness, asked, &mut rng);
 ///     state = next;
@@ -311,7 +311,7 @@ where
     /// Builds a memetic wrapper from an inner strategy, a local searcher, and a
     /// fitness function used **only** for local-search probes.
     ///
-    /// The harness owns a separate fitness instance; **if `F` is stateful
+    /// The loop owns a separate fitness instance; **if `F` is stateful
     /// (counters, caches, RNG), the two instances must share that state via
     /// interior mutability (e.g. `Arc<AtomicUsize>`) — otherwise they silently
     /// diverge.** See the [type-level docs](MemeticWrapper#the-two-fitness-instances).
@@ -325,7 +325,7 @@ where
     }
 }
 
-// `F` is not `Debug`; mirror the `EvolutionaryHarness` precedent and use
+// `F` is not `Debug`; mirror the `EvolutionaryLoop` precedent and use
 // `finish_non_exhaustive()` so the `missing_debug_implementations` lint is
 // satisfied without bounding `F: Debug`.
 impl<B, S, L, F> Debug for MemeticWrapper<B, S, L, F>
@@ -336,7 +336,7 @@ where
     F: BatchFitnessFn<B, Tensor<B, 2>>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // `S`/`L`/`F` are not bounded `Debug`; mirror `EvolutionaryHarness` and
+        // `S`/`L`/`F` are not bounded `Debug`; mirror `EvolutionaryLoop` and
         // emit a non-exhaustive shell so the lint is satisfied without forcing
         // those bounds onto the public type.
         f.debug_struct("MemeticWrapper").finish_non_exhaustive()
@@ -350,7 +350,7 @@ where
 /// the host-side row, calls `evaluate_batch`, pulls the single scalar back, and
 /// maps it into canonical space via the wrapped fn's
 /// [`sense`](BatchFitnessFn::sense). Local searchers maximise, and the seed
-/// fitness the memetic wrapper hands them (the harness-canonicalised value) is
+/// fitness the memetic wrapper hands them (the loop-canonicalised value) is
 /// also canonical, so both ends agree. This is deliberately the slow path —
 /// local search re-uploads one row at a time — and is private plumbing
 /// internal to the wrapper.
@@ -436,7 +436,7 @@ where
     ///    [`TopK`](CoveragePolicy::TopK) = the `k` largest fitnesses, ties by
     ///    lower index), then process them in ascending index order so RNG
     ///    consumption is a pure function of the `(fitness, index)` ranking.
-    /// 3. Draw **exactly one** `rng.next_u64()` unconditionally (so the harness
+    /// 3. Draw **exactly one** `rng.next_u64()` unconditionally (so the loop
     ///    RNG stream position is policy-invariant) and derive two independent
     ///    sub-streams: `ls_rng` for refinement
     ///    ([`SeedPurpose::LocalSearch`]) and `mask_rng` for the writeback
@@ -490,7 +490,7 @@ where
         let mut indices: Vec<usize> = coverage_indices(&params.coverage, &refined_fit, pop_size);
         indices.sort_unstable();
 
-        // (3) Exactly one host RNG draw — unconditionally — so the harness
+        // (3) Exactly one host RNG draw — unconditionally — so the loop
         // stream position is policy- and coverage-invariant.
         let base: u64 = rng.next_u64();
         let mut ls_rng = seed_stream(base, generation, SeedPurpose::LocalSearch);
@@ -515,10 +515,10 @@ where
             for &i in &indices {
                 let start: usize = i * dim;
                 let row: Vec<f32> = flat[start..start + dim].to_vec();
-                // The harness already scored this row this generation; hand that
+                // The loop already scored this row this generation; hand that
                 // fitness to the searcher so it skips the seeding eval instead of
                 // re-scoring its own input. `refined_fit[i]` still holds the
-                // original harness value — it is overwritten only below, and each
+                // original loop value — it is overwritten only below, and each
                 // covered index `i` is distinct.
                 let known_fit: f32 = refined_fit[i];
                 let (refined, f_refined): (Vec<f32>, f32) = self.local.refine_with_known_fitness(
@@ -654,7 +654,7 @@ mod tests {
     use crate::local_search::{
         HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
     };
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use burn::tensor::backend::BackendTypes;
     use rand::SeedableRng;
@@ -963,7 +963,7 @@ mod tests {
             .into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
 
-        // Seed fitness in canonical (maximise) space: for a Minimize objective the harness hands
+        // Seed fitness in canonical (maximise) space: for a Minimize objective the loop hands
         // the strategy `$-\text{cost}$`, so mirror that here.
         let canonical: Vec<f32> = (0..pop)
             .map(|i| {
@@ -1489,7 +1489,7 @@ mod tests {
             writeback: WritebackPolicy::Lamarckian,
             coverage: CoveragePolicy::TopK { k: 3 },
         };
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
             SphereBatch,
@@ -1498,15 +1498,15 @@ mod tests {
             20,
         )
         .expect("valid params");
-        harness.reset();
-        let _ = harness.step(());
-        let first: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
+        evo_loop.reset();
+        let _ = evo_loop.step(());
+        let first: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         loop {
-            if harness.step(()).done {
+            if evo_loop.step(()).done {
                 break;
             }
         }
-        let last: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
+        let last: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(last.is_finite(), "best must stay finite");
         // Maximise objective: best_fitness_ever climbs toward the optimum 0.
         assert!(
@@ -1534,21 +1534,15 @@ mod tests {
             writeback: WritebackPolicy::default(),
             coverage: CoveragePolicy::default(),
         };
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            SphereBatch,
-            5,
-            device,
-            5,
-        )
-        .expect("valid params");
-        harness.reset();
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, SphereBatch, 5, device, 5)
+                .expect("valid params");
+        evo_loop.reset();
         for _ in 0..5 {
-            let _ = harness.step(());
+            let _ = evo_loop.step(());
         }
         assert!(
-            harness
+            evo_loop
                 .latest_metrics()
                 .unwrap()
                 .best_fitness_ever()
@@ -1557,7 +1551,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // 8. One-draw invariance: the harness RNG advances identically regardless
+    // 8. One-draw invariance: the loop RNG advances identically regardless
     //    of policy/coverage.
     // ---------------------------------------------------------------------
 

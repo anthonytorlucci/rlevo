@@ -16,7 +16,7 @@ use rlevo_core::fitness::FitnessEvaluable;
 use rlevo_evolution::algorithms::cma_es::{CmaEs, CmaEsConfig};
 use rlevo_evolution::algorithms::cmsa_es::{CmsaEs, CmsaEsConfig};
 use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
@@ -55,14 +55,14 @@ where
     F: BatchFitnessFn<B, S::Genome>,
 {
     let device = Default::default();
-    let mut harness =
-        EvolutionaryHarness::<B, _, _>::new(strategy, params, fitness_fn, seed, device, gens)
+    let mut evo_loop =
+        EvolutionaryLoop::<B, _, _>::new(strategy, params, fitness_fn, seed, device, gens)
             .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness_ever());
+        let step = evo_loop.step(());
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness_ever());
         if step.done {
             break;
         }

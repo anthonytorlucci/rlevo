@@ -4,7 +4,7 @@
 //! Wiring:
 //!
 //! ```text
-//! EvolutionaryHarness::with_observer(reporter.clone())
+//! EvolutionaryLoop::with_observer(reporter.clone())
 //!     ↓ on_population(snapshot)         (per generation, post-tell)
 //! PopulationReporter
 //!     ↓ sink.lock().on_population_sample(sample)
@@ -29,7 +29,7 @@ use super::writer::RecordSink;
 /// Forwards EA population snapshots into the on-disk recording sink.
 ///
 /// Construct one per recording run and pass via
-/// [`EvolutionaryHarness::with_observer`](rlevo_evolution::EvolutionaryHarness::with_observer).
+/// [`EvolutionaryLoop::with_observer`](rlevo_evolution::EvolutionaryLoop::with_observer).
 /// The reporter clones cheaply through the inner [`Arc`].
 #[derive(Clone)]
 pub struct PopulationReporter {

@@ -1,11 +1,11 @@
-//! NEAT — topology-evolving neuroevolution as a custom harness.
+//! NEAT — topology-evolving neuroevolution as a standalone strategy.
 //!
 //! `rlevo` implements NEAT (`NeuroEvolution` of Augmenting Topologies; Stanley &
 //! Miikkulainen, 2002). [`NeatStrategy`] grows network topology *and* weights
 //! open-endedly from a minimal seed. Like its siblings
 //! [`WeightOnly`](super::weight_only::WeightOnly) and
-//! [`ArchNasStrategy`](super::arch_nas::ArchNasStrategy), it is a **custom
-//! harness** with inherent `init`/`ask`/`tell`/`best` and does **not** implement
+//! [`ArchNasStrategy`](super::arch_nas::ArchNasStrategy), it is a **standalone
+//! strategy** with inherent `init`/`ask`/`tell`/`best` and does **not** implement
 //! [`Strategy`](crate::strategy::Strategy). Its genome is host-side graph data
 //! ([`TopologyGenome`]) with no tensor representation, so the `Strategy<B>`
 //! tensor-genome contract does not fit; the parallel [`GraphFitnessFn`] seam
@@ -19,7 +19,7 @@
 //! [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense)). Fitness sharing
 //! additionally assumes **non-negative** raw fitness — a NEAT-specific
 //! precondition orthogonal to objective sense. Cost objectives are reconciled
-//! into canonical (maximise) space by the harness/adapter chokepoint, so a
+//! into canonical (maximise) space by the loop/adapter chokepoint, so a
 //! task never hand-negates here.
 //!
 //! # Generational loop
@@ -165,7 +165,7 @@ pub struct NeatState {
     pub fitness: Vec<f32>,
     /// Current species partition over `population`.
     pub species: Vec<Species>,
-    /// Per-run innovation registry, shared across the harness.
+    /// Per-run innovation registry, shared across the run.
     pub registry: Arc<InnovationRegistry>,
     /// Completed-generation counter (number of `tell` calls).
     pub generation: u64,
@@ -177,7 +177,7 @@ pub struct NeatState {
     pub best_fitness: f32,
 }
 
-/// Custom NEAT harness. Does **not** implement
+/// Standalone NEAT strategy. Does **not** implement
 /// [`Strategy`](crate::strategy::Strategy) — see the module docs.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NeatStrategy<B: Backend> {
@@ -185,7 +185,7 @@ pub struct NeatStrategy<B: Backend> {
 }
 
 impl<B: Backend> NeatStrategy<B> {
-    /// Build a new (stateless) NEAT harness.
+    /// Build a new (stateless) NEAT strategy.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -197,7 +197,7 @@ impl<B: Backend> NeatStrategy<B> {
     /// genomes (aligned ids, per-individual random weights from one
     /// [`SeedPurpose::Init`] substream).
     ///
-    /// `device` is part of the harness signature for symmetry with the tensor
+    /// `device` is part of the signature for symmetry with the tensor
     /// strategies; NEAT genomes are host-side, so it is unused here.
     ///
     /// # Panics
@@ -316,8 +316,8 @@ impl<B: Backend> NeatStrategy<B> {
     ///
     /// This is NEAT's **driver chokepoint** (ADR 0034): NEAT is its own driver
     /// and does **not** run through
-    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), so there is
-    /// no harness above it to sanitize fitness. `tell` therefore applies
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop), so there is
+    /// no loop above it to sanitize fitness. `tell` therefore applies
     /// `sanitize_fitness` to the incoming
     /// `fitness` (`NaN` `$\to -\infty$`, `$+\infty$` `$\to$` `f32::MAX`, `$-\infty$` and finite pass through)
     /// **before** it is stored or handed to [`species::speciate`], so a
@@ -345,7 +345,7 @@ impl<B: Backend> NeatStrategy<B> {
         let mut rep_rng = seed_stream(rng.next_u64(), generation, SeedPurpose::Representative);
 
         state.population = population;
-        // Driver chokepoint (ADR 0034): sanitize before store/speciate. NEAT has no harness above
+        // Driver chokepoint (ADR 0034): sanitize before store/speciate. NEAT has no loop above
         // it, so this is the boundary that neutralizes NaN/`$\pm\infty$`.
         state.fitness = fitness
             .into_iter()
@@ -432,7 +432,7 @@ pub trait GraphFitnessFn<B: Backend>: Send + Sync {
 ///
 /// It is a drop-in alternative to an interpreted `GraphFitnessFn` in the same
 /// manual `init → ask → evaluate → tell` loop: the `builder` argument is ignored
-/// (the batched evaluator owns evaluation), so the harness stays
+/// (the batched evaluator owns evaluation), so the strategy stays
 /// evaluation-agnostic and `NeatStrategy`'s determinism is untouched.
 ///
 /// The `reducer` maps one genome's `$\text{batch} \times \text{action\_dim}$` output slab (row-major,

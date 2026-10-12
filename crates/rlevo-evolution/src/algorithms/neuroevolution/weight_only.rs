@@ -45,7 +45,7 @@ use crate::strategy::{Strategy, StrategyMetrics};
 /// let template = MyMlp::<B>::new(&device);
 /// let strategy = WeightOnly::new(GeneticAlgorithm::<B>::new(), template.clone());
 /// let params = GaConfig::default_for(64, strategy.num_params());
-/// // pair with a ModuleEvalFn over the same template in the harness
+/// // pair with a ModuleEvalFn over the same template in the loop
 /// ```
 pub struct WeightOnly<B, S, M>
 where

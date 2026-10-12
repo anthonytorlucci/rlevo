@@ -1,4 +1,4 @@
-//! Shared harness for the landscape evolution showcases.
+//! Shared runner for the landscape evolution showcases.
 //!
 //! Each `*_showcase` example wires one landscape into [`showcase`], which runs
 //! every real-valued strategy in `rlevo-evolution` (GA, the four classical ES
@@ -47,7 +47,7 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
@@ -66,16 +66,16 @@ where
     <B as burn::tensor::backend::BackendTypes>::Device: Clone + Default,
 {
     let device = Default::default();
-    let mut harness =
-        EvolutionaryHarness::<B, S, F>::new(strategy, params, fitness_fn, SEED, device, GENS)
+    let mut evo_loop =
+        EvolutionaryLoop::<B, S, F>::new(strategy, params, fitness_fn, SEED, device, GENS)
             .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     loop {
-        if harness.step(()).done {
+        if evo_loop.step(()).done {
             break;
         }
     }
-    let m = harness
+    let m = evo_loop
         .latest_metrics()
         .expect("at least one generation ran");
     // `best` = best_fitness_ever (rolling minimum across all generations);

@@ -1,10 +1,10 @@
 # The Ask/Tell Contract
 
-Every evolutionary `Strategy` in `rlevo` — and the `EvolutionaryHarness` that
+Every evolutionary `Strategy` in `rlevo` — and the `EvolutionaryLoop` that
 drives it in the guided tour's function-optimisation walkthrough (a `Landscape`
-scored by a `Strategy`, driven generation-by-generation by the harness, on the
+scored by a `Strategy`, driven generation-by-generation by that loop, on the
 sphere function) — speaks a single protocol: **ask/tell**. The guided tour uses
-the harness, which hides the protocol; this page opens it up. Reach for it when
+the loop, which hides the protocol; this page opens it up. Reach for it when
 you need to:
 
 - add custom logging or early stopping,
@@ -64,7 +64,7 @@ it only proposes and learns. That separation is what makes the rest possible:
 - **You own the candidates between `ask` and `tell`.** If your evaluation takes
   hours, that is fine; the strategy holds no lock on them.
 - **Composition is natural.** Any code that calls `init`/`ask`/`tell` can drive
-  any strategy. The harness, your custom loop, and the ERL hybrid all speak the
+  any strategy. `EvolutionaryLoop`, your own loop, and the ERL hybrid all speak the
   same language.
 
 ## Lineage: evosax, and where `rlevo` diverges
@@ -102,15 +102,15 @@ setting changes the contract rather than just the syntax:
   end-to-end (higher is better): a fitness function declares `ObjectiveSense`
   (required, no default — a reward or accuracy objective cannot be optimised
   backwards by omission), a cost objective spells out `ObjectiveSense::Minimize`
-  explicitly, and `EvolutionaryHarness::step` is the sole chokepoint that
+  explicitly, and `EvolutionaryLoop::step` is the sole chokepoint that
   negates a `Minimize` objective into the engine's maximise space before `tell`
   and maps metrics back to the declared sense for reporting. That same
   chokepoint also **sanitises** the tensor (ADR 0034): $\text{NaN} \to -\infty$ (so a broken
   individual can never masquerade as the champion — Rust's `f32::NAN` is
   positive and would otherwise rank as the maximum) and $+\infty \to \text{f32::MAX}$ (a
   genuinely optimal individual still ranks top, but stays finite). The fitness
-  a harness-driven `tell` receives is therefore always finite or $-\infty$ — never a
-  `NaN` or $+\infty$. Drive a strategy directly, bypassing the harness, and you lose
+  a `tell` driven by `EvolutionaryLoop` receives is therefore always finite or $-\infty$ — never a
+  `NaN` or $+\infty$. Drive a strategy directly, bypassing the loop, and you lose
   that guarantee — sanitise at your own comparison sites with `sanitize_fitness`
   / `sanitize_fitness_tensor` (`rlevo-evolution::fitness`).
 - **Randomness is a host stream, not a threaded key.** evosax splits and threads
@@ -139,7 +139,7 @@ setting changes the contract rather than just the syntax:
 ## Writing the loop yourself
 
 Here is the GA sphere run from the guided tour's function-optimisation
-walkthrough, rewritten without the harness. We reuse that chapter's `Sphere`
+walkthrough, rewritten without `EvolutionaryLoop`. We reuse that chapter's `Sphere`
 `Landscape`;
 `FromLandscape` adapts it into the `BatchFitnessFn` the strategy expects — a
 function that takes the whole population at once and returns a `Tensor<B, 1>` of
@@ -191,8 +191,8 @@ fn main() {
 
 A few things worth pointing out:
 
-- **`init` then `ask`/`tell` in a loop.** `init` does the work the harness's
-  `reset()` does; the body of the loop is exactly what one harness `step()` does.
+- **`init` then `ask`/`tell` in a loop.** `init` does the work `EvolutionaryLoop`'s
+  `reset()` does; the body of the loop is exactly what one `EvolutionaryLoop::step()` does.
 - **State threads through the returns.** `ask` hands you `next_state`, which you
   pass straight into `tell`; `tell` hands you `new_state`, which becomes the
   `state` for the next iteration. Nothing is stored on the strategy.
@@ -201,9 +201,9 @@ A few things worth pointing out:
   `tell` records it and primes `best_fitness_ever`. Every later `ask` runs the
   full selection → crossover → mutation pipeline.
 
-Nothing here is magic. The harness is just this loop with bookkeeping (metrics
-plumbing, early stopping, observer callbacks, parallel evaluation) wrapped
-around it.
+Nothing here is magic. `EvolutionaryLoop` is just this loop with bookkeeping
+(the direction and sanitising step, metrics, observer callbacks, a generation
+budget) wrapped around it.
 
 ## The `seed_stream` and reproducibility
 
@@ -235,42 +235,47 @@ The host-RNG convention (all randomness through `seed_stream`, never via
 > **Determinism under parallel suites.** The *strategy's* own randomness is
 > reproducible by construction — every draw comes from the host `seed_stream`. But
 > Burn *backends* seed their tensor RNG through process-global state, so running
-> several harnesses across threads (e.g. a benchmark suite on the default rayon
+> several loops across threads (e.g. a benchmark suite on the default rayon
 > pool) can still race on that shared state for any backend RNG use, breaking
 > bit-reproducibility across runs. For exact reproduction, pin execution to a single
-> thread (`EvaluatorConfig::num_threads = Some(1)`) or run one harness per process;
+> thread (`EvaluatorConfig::num_threads = Some(1)`) or run one loop per process;
 > the `tests/determinism.rs` and `tests/rastrigin_run_suite.rs` integration tests do
 > exactly this.
 
-## What the harness adds
+## What `EvolutionaryLoop` adds
 
-The `EvolutionaryHarness` wraps the above loop with:
+`EvolutionaryLoop` wraps the above loop with:
 
+- **Direction and hygiene** — the `ObjectiveSense` reconciliation and the
+  sanitising step described under the lineage section above.
 - **Observer callbacks** — emit per-generation metrics to a `PopulationObserver`
   for TUI display or structured record export.
-- **Convergence checks** — stop early if best fitness has not improved for
-  \\(N\\) generations.
+- **A generation budget** — `step()` returns `true` once `max_generations`
+  generations have run. There is no early stopping: to stop on your own
+  condition, read `latest_metrics()` after each `step()` and leave the loop.
+- **Replay** — `reset()` re-seeds from the base seed, so two runs of one loop
+  are identical.
 
-The harness calls your `BatchFitnessFn` once per generation; it does not
+`EvolutionaryLoop` calls your `BatchFitnessFn` once per generation; it does not
 parallelize the population evaluation itself (the shipped `FromLandscape` and
 `FromFitnessEvaluable` adapters evaluate a batch with a plain, serial loop —
 `Send + Sync` on your landscape is a bound the trait asks for, not a signal
 that triggers `rayon`). If you need per-individual parallelism, implement it
 inside your `BatchFitnessFn`. Rayon-based parallelism does exist in `rlevo`,
 but one layer up and orthogonal to this: `rlevo-benchmarks::Evaluator::run_suite`
-runs many independent `(env, seed)` trials — each its own harness instance —
+runs many independent `(env, seed)` trials — each its own loop instance —
 concurrently, controlled by `EvaluatorConfig::num_threads`.
 
-For most use cases, the harness is the right choice. Writing your own loop is
-the right choice when you need control the harness does not expose, or when you
+For most use cases, `EvolutionaryLoop` is the right choice. Writing your own loop is
+the right choice when you need control it does not expose, or when you
 are building a hybrid (the ERL loop in Part IV cannot be expressed as a single
-harness call).
+`EvolutionaryLoop` run).
 
 ## Where this connects
 
 - The guided tour's function-optimisation walkthrough drives this contract
-  through the harness — a `GeneticAlgorithm` searching the sphere function,
-  same shape as the hand-rolled loop above but with `EvolutionaryHarness`
+  through `EvolutionaryLoop` — a `GeneticAlgorithm` searching the sphere function,
+  same shape as the hand-rolled loop above but with `EvolutionaryLoop`
   running the `init`/`ask`/`tell` cycle for you.
 - The RL loop that trains a CartPole agent with DQN is *not* ask/tell — the
   agent acts sequentially, learning after individual steps rather than after a

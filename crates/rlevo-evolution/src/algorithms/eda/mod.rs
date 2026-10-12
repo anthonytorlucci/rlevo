@@ -4,7 +4,7 @@
 //! with an explicit probabilistic model of the promising region of search
 //! space. Each generation runs a `fit` → `sample` loop:
 //!
-//! 1. Evaluate the current population (done externally by the harness).
+//! 1. Evaluate the current population (done externally by the loop).
 //! 2. Truncation-select the best fraction of the population.
 //! 3. [`fit`](crate::ProbabilityModel::fit) the model to those survivors.
 //! 4. [`sample`](crate::ProbabilityModel::sample) a fresh population.
@@ -135,7 +135,7 @@ pub struct EdaState<B: Backend, MS> {
 /// Drives the `fit` → `sample` loop of any [`ProbabilityModel`]. The strategy
 /// itself is stateless (the model is held by value; all mutable generation
 /// state lives in the returned [`EdaState`]), so it slots straight into
-/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness).
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop).
 ///
 /// Type parameter `M` must implement [`ProbabilityModel<B>`]; in practice
 /// this is one of [`UnivariateGaussian`], [`UnivariateBernoulli`],

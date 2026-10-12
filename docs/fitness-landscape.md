@@ -78,9 +78,9 @@ and weaknesses in isolation:
   Cross-in-Tray, Bukin N.6, and Trefethen.
 
 The continuous ones implement the `Landscape` trait —
-`fn evaluate(&self, x: &[f64]) -> f64`, `Send + Sync` — that the harness's
+`fn evaluate(&self, x: &[f64]) -> f64`, `Send + Sync` — that the
 `FromLandscape` adapter wraps into a `BatchFitnessFn`, so you can drop any of
-them into the harness in place of `Sphere`.
+them into `EvolutionaryLoop` in place of `Sphere`.
 
 ## The hiker analogy
 

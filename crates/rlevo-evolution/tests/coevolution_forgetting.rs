@@ -220,7 +220,7 @@ fn tail_coverage(traj: &[f32], window: usize) -> f32 {
     tail.iter().sum::<f32>() / tail.len() as f32
 }
 
-/// Observation harness — run with:
+/// Observation-only test — run with:
 /// `cargo test -p rlevo-evolution --test coevolution_cycling -- --ignored --nocapture`
 #[test]
 #[ignore = "observation only; prints trajectory statistics"]

@@ -55,9 +55,9 @@ pub struct GwoConfig {
     /// Search-space bounds.
     pub bounds: Bounds,
     /// Budget used to schedule `$a = 2 (1 - t / \text{max\_generations})$`.
-    /// The strategy itself is memoryless with respect to the harness's
+    /// The strategy itself is memoryless with respect to the loop's
     /// stopping criterion, so this value simply paces the exploration
-    /// coefficient and need not equal the harness budget.
+    /// coefficient and need not equal the loop budget.
     pub max_generations: usize,
 }
 
@@ -220,7 +220,7 @@ where
     /// the host-RNG convention and sets the generation counter to zero.
     ///
     /// The `pop_size >= 3` invariant is enforced by [`Validate::validate`] at
-    /// the harness chokepoint.
+    /// the loop chokepoint.
     fn init(
         &self,
         params: &GwoConfig,
@@ -339,13 +339,13 @@ where
         _rng: &mut dyn Rng,
     ) -> (GwoState<B>, StrategyMetrics) {
         // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3): the
-        // harness chokepoint already applies
+        // loop chokepoint already applies
         // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
         // a direct `ask`/`tell` driver can hand us a raw `NaN`. `argtop3_max`
         // sanitises on the *read*, which keeps leader selection safe; this
         // closes the *write* half, so the `GwoState` fitness cache a caller
         // observes via `fitness()` never holds a `NaN`. `sanitize_fitness` is
-        // idempotent, so this is a provable no-op on the harness path: do not
+        // idempotent, so this is a provable no-op on the loop path: do not
         // delete it as redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
@@ -387,8 +387,8 @@ where
 /// Indices of the three largest values in `xs` — the `$\alpha$`, `$\beta$`, `$\delta$` leaders.
 ///
 /// Values are sanitised per the maximise convention (`rules.md` §3, ADR 0034) before comparison:
-/// `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. The harness chokepoint
-/// already pre-sanitises the fitness a [`Strategy`] receives, but a direct (non-harness) caller — a
+/// `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. The loop chokepoint
+/// already pre-sanitises the fitness a [`Strategy`] receives, but a direct (non-loop) caller — a
 /// unit test or a custom driver — can seed `state.fitness` with a raw `NaN`; sanitising here keeps
 /// a non-finite value from becoming a permanent leader (a `NaN` in `xs[2]` would otherwise never
 /// lose the `v > vals[2]` comparison and be pinned as `$\delta$`).
@@ -436,7 +436,7 @@ fn argtop3_max(xs: &[f32]) -> [usize; 3] {
 mod tests {
     use super::*;
     use crate::fitness::{BatchFitnessFn, FromFitnessEvaluable};
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -446,7 +446,7 @@ mod tests {
     type TestBackend = Flex;
 
     /// Objective whose row 0 evaluates to `NaN` (the rest finite). `Maximize`
-    /// so natural == canonical; only the harness sanitize keeps the run finite.
+    /// so natural == canonical; only the loop sanitize keeps the run finite.
     struct NanFitness;
     impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NanFitness {
         fn evaluate_batch(
@@ -506,7 +506,7 @@ mod tests {
         assert_eq!(top, [5, 2, 0]);
     }
 
-    // Regression for the direct-caller (non-harness) bypass path: a raw NaN in `state.fitness` must
+    // Regression for the direct-caller (non-loop) bypass path: a raw NaN in `state.fitness` must
     // sanitise to `$-\infty$` (worst) and never be pinned as a leader. Before the sanitise fix a
     // NaN in `xs[2]` was never displaced by `v > vals[2]` (NaN loses every comparison), silently
     // freezing it as `$\delta$`.
@@ -550,13 +550,13 @@ mod tests {
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
         let params = GwoConfig::default_for(32, 10);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 11, device, 600,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-3, "GWO D10 best={best}");
     }
 
@@ -591,14 +591,13 @@ mod tests {
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
         let params = GwoConfig::default_for(3, 3);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 0, device, 5,
-        )
-        .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
+                .expect("valid params");
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
         assert!(
-            harness
+            evo_loop
                 .latest_metrics()
                 .unwrap()
                 .best_fitness_ever()
@@ -609,7 +608,7 @@ mod tests {
     #[test]
     fn rejects_max_generations_zero() {
         // The validator rejects `max_generations = 0`; the `.max(1)` in `ask`
-        // is defensive-only and unreachable through the harness chokepoint.
+        // is defensive-only and unreachable through the loop chokepoint.
         let mut cfg = GwoConfig::default_for(3, 3);
         cfg.max_generations = 0;
         assert_eq!(cfg.validate().unwrap_err().field, "max_generations");
@@ -662,7 +661,7 @@ mod tests {
     }
 
     /// Regression for the ADR 0034 decision-3 bypass hole: a driver calling
-    /// `init → ask → tell` directly gets no harness sanitize, so
+    /// `init → ask → tell` directly gets no loop sanitize, so
     /// `tell` used to store a raw `NaN` into the `GwoState` fitness cache that
     /// `fitness()` hands back to callers.
     ///
@@ -671,7 +670,7 @@ mod tests {
     /// cache-hygiene assertion — the write half of the same rule — not a
     /// freeze assertion.
     #[test]
-    fn nan_fitness_does_not_latch_without_harness() {
+    fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
         let params = GwoConfig::default_for(4, 3);
@@ -719,17 +718,16 @@ mod tests {
     }
 
     #[test]
-    fn nan_fitness_through_harness_stays_finite() {
+    fn nan_fitness_through_loop_stays_finite() {
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
         let params = GwoConfig::default_for(3, 3);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, NanFitness, 1, device, 3,
-        )
-        .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let m = harness.latest_metrics().unwrap();
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, NanFitness, 1, device, 3)
+                .expect("valid params");
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever().is_finite(),
             "best={}",

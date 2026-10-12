@@ -4,7 +4,7 @@
 //! Exercises the full weight-only loop end-to-end:
 //! `WeightOnly<B, GA, Mlp>` (strategy) → `ModuleEvalFn` (fitness adapter,
 //! unflattening each genome row into an MLP and scoring MSE) →
-//! `EvolutionaryHarness`.
+//! `EvolutionaryLoop`.
 //!
 //! The assertion is deliberately **directional**: the best MSE after 50
 //! generations must be strictly better than the best MSE in generation 0. This
@@ -21,7 +21,7 @@ use rlevo_evolution::WeightOnly;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::module_eval_fn::ModuleEvalFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 type TestBackend = Flex;
 
@@ -98,7 +98,7 @@ fn weight_only_ga_fits_noisy_sine_directional() {
         mse.into_data().into_vec::<f32>().unwrap()[0]
     };
 
-    // MSE is a cost — declare Minimize so the harness reconciles direction.
+    // MSE is a cost — declare Minimize so the loop reconciles direction.
     let eval = ModuleEvalFn::with_sense(
         reshaper,
         scorer,
@@ -109,22 +109,22 @@ fn weight_only_ga_fits_noisy_sine_directional() {
     params.mutation_sigma = NonNegativeRate::new(0.3);
     let strategy = WeightOnly::new(GeneticAlgorithm::<TestBackend>::new(), template);
 
-    let mut harness =
-        EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, eval, 42, device, 50)
+    let mut evo_loop =
+        EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, eval, 42, device, 50)
             .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
 
     // Generation 0.
-    harness.step(());
-    let initial_best = harness.latest_metrics().unwrap().best_fitness_ever();
+    evo_loop.step(());
+    let initial_best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
 
     // Generations 1..50.
     loop {
-        if harness.step(()).done {
+        if evo_loop.step(()).done {
             break;
         }
     }
-    let final_best = harness.latest_metrics().unwrap().best_fitness_ever();
+    let final_best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
 
     assert!(
         final_best < initial_best,
@@ -132,5 +132,5 @@ fn weight_only_ga_fits_noisy_sine_directional() {
          should be < generation-0 best MSE {initial_best}"
     );
     // Sanity: the loop ran the full budget.
-    assert_eq!(harness.generation(), 50);
+    assert_eq!(evo_loop.generation(), 50);
 }

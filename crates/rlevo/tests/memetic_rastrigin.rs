@@ -18,12 +18,12 @@
 //!
 //! # Eval-count accounting
 //!
-//! Both the bare-DE harness and the memetic harness are driven with a
+//! Both the bare-DE loop and the memetic loop are driven with a
 //! [`CountingRastrigin`] fitness that increments a shared `Arc<AtomicUsize>` by
 //! one *per row* of every `evaluate_batch`. Every `MemeticWrapper` local-search
 //! probe routes through a `[1, D]` `evaluate_batch`, so row-counting captures
 //! refinement evaluations automatically. The memetic run shares **one** counter
-//! across both fitness instances it owns (harness + wrapper); the bare-DE run
+//! across both fitness instances it owns (loop + wrapper); the bare-DE run
 //! uses a separate counter.
 
 use std::sync::Arc;
@@ -42,7 +42,7 @@ use rlevo_evolution::algorithms::memetic::{
 };
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::local_search::{HillClimbVariant, HillClimbing, HillClimbingParams};
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 type B = Flex;
 
@@ -54,7 +54,7 @@ const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 /// Implements only [`BatchFitnessFn`] and increments `evals` by the number of
 /// rows in each `evaluate_batch`. Because every `MemeticWrapper` local-search
 /// probe is a `[1, D]` batch, refinement evaluations are counted too. Two
-/// instances that share one `Arc<AtomicUsize>` (e.g. the harness's and the
+/// instances that share one `Arc<AtomicUsize>` (e.g. the loop's and the
 /// wrapper's) report a single combined evaluation budget.
 struct CountingRastrigin {
     landscape: Rastrigin,
@@ -114,15 +114,15 @@ fn de_evals_to_target(seed: u64, de: &DeConfig, target: f32, max_gens: usize) ->
     let fitness: CountingRastrigin =
         CountingRastrigin::new(Rastrigin::new(DIM).expect("dim >= 1"), evals.clone());
     let strategy: DifferentialEvolution<B> = DifferentialEvolution::<B>::new();
-    let mut harness =
-        EvolutionaryHarness::<B, _, _>::new(strategy, de.clone(), fitness, seed, device, max_gens)
+    let mut evo_loop =
+        EvolutionaryLoop::<B, _, _>::new(strategy, de.clone(), fitness, seed, device, max_gens)
             .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
     loop {
-        let step = harness.step(());
-        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
+        let step = evo_loop.step(());
+        let best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         trajectory.push(best);
         if evals_at_target.is_none() && best < target {
             evals_at_target = Some(evals.load(Ordering::Relaxed));
@@ -149,10 +149,10 @@ fn memetic_evals_to_target(
     max_gens: usize,
 ) -> RunResult {
     let device: <B as BackendTypes>::Device = Default::default();
-    // One shared counter feeds both fitness instances: the harness's (population
+    // One shared counter feeds both fitness instances: the loop's (population
     // scoring) and the wrapper's (local-search probes).
     let evals: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
-    let harness_fitness: CountingRastrigin =
+    let loop_fitness: CountingRastrigin =
         CountingRastrigin::new(Rastrigin::new(DIM).expect("dim >= 1"), evals.clone());
     let wrapper_fitness: CountingRastrigin =
         CountingRastrigin::new(Rastrigin::new(DIM).expect("dim >= 1"), evals.clone());
@@ -168,21 +168,15 @@ fn memetic_evals_to_target(
         writeback,
         coverage,
     };
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
-        strategy,
-        params,
-        harness_fitness,
-        seed,
-        device,
-        max_gens,
-    )
-    .expect("valid params");
-    harness.reset();
+    let mut evo_loop =
+        EvolutionaryLoop::<B, _, _>::new(strategy, params, loop_fitness, seed, device, max_gens)
+            .expect("valid params");
+    evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
     loop {
-        let step = harness.step(());
-        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
+        let step = evo_loop.step(());
+        let best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         trajectory.push(best);
         if evals_at_target.is_none() && best < target {
             evals_at_target = Some(evals.load(Ordering::Relaxed));

@@ -557,7 +557,7 @@ fn update_best<B: Backend>(state: &mut DeState<B>, pop: &Tensor<B, 2>, fitness: 
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = Flex;
@@ -676,7 +676,7 @@ mod tests {
     }
 
     /// A fitness function that yields `NaN` for many genomes must not crash the run and must never
-    /// report a `NaN` (or otherwise non-finite) best. The harness sanitizes
+    /// report a `NaN` (or otherwise non-finite) best. The loop sanitizes
     /// `$\text{NaN} \to -\infty$` at the driver chokepoint, so the poisoned slots can never
     /// out-rank a finite individual or block replacement (`de` §7, NaN regression).
     #[test]
@@ -684,7 +684,7 @@ mod tests {
         let device = Default::default();
         let params = DeConfig::default_for(30, 4);
         let fitness_fn = FromFitnessEvaluable::new(NanSphereFit, NanSphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             DifferentialEvolution::<TestBackend>::new(),
             params,
             fitness_fn,
@@ -693,13 +693,13 @@ mod tests {
             40,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
         loop {
-            if harness.step(()).done {
+            if evo_loop.step(()).done {
                 break;
             }
         }
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(
             best.is_finite(),
             "NaN fitness poisoned best_fitness_ever: {best}"
@@ -721,7 +721,7 @@ mod tests {
         let mut params = DeConfig::default_for(30, dim);
         params.variant = variant;
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             DifferentialEvolution::<TestBackend>::new(),
             params,
             fitness_fn,
@@ -730,13 +730,13 @@ mod tests {
             gens,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
         loop {
-            if harness.step(()).done {
+            if evo_loop.step(()).done {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever()
+        evo_loop.latest_metrics().unwrap().best_fitness_ever()
     }
 
     /// All five DE variants converge on Sphere-D10 within budget.

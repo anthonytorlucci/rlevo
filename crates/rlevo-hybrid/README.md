@@ -18,7 +18,7 @@ Three modules ship today:
   `Environment`.
 - `policy_neuroevolution::PolicyNeuroevolution` — pairs a `WeightOnly`
   evolutionary strategy with `RolloutFitness` inside an
-  `EvolutionaryHarness`, evolving the weights of a fixed-topology policy
+  `EvolutionaryLoop`, evolving the weights of a fixed-topology policy
   network directly against environment return.
 - `policy::{StatefulPolicy, ReactivePolicy}` — the rollout contract by
   which a policy module carries per-episode (recurrent or stateless) state
@@ -40,7 +40,7 @@ ERL-style concurrent evolution + gradient RL, and CEM-RL remain future work.
 ## Design intent
 
 `PolicyNeuroevolution<B, S, M, E>` wires `rlevo-evolution`'s `WeightOnly`
-strategy and `RolloutFitness` into an `EvolutionaryHarness`, so a
+strategy and `RolloutFitness` into an `EvolutionaryLoop`, so a
 fixed-topology policy module `M` is optimized purely by black-box search
 against environment `E`'s return — no gradients. Planned strategies that
 interleave gradient-based RL with the evolutionary loop (PBT, ERL, CEM-RL)

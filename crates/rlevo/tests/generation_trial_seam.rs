@@ -1,6 +1,6 @@
 //! Cross-crate proof that the `Trial` seam is shape-agnostic.
 //!
-//! Drives an `EvolutionaryHarness` through `Evaluator::run_trials` as a
+//! Drives an `EvolutionaryLoop` through `Evaluator::run_trials` as a
 //! `GenerationTrial` — no `BenchEnv`, no `BenchableAgent`, no episode axis —
 //! and asserts it gets the same machinery the episodic path does: rayon
 //! fan-out, per-trial seeding, checkpoint-shaped `TrialReport`s, and the
@@ -17,7 +17,7 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::fitness::BatchFitnessFn;
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 type B = Flex;
 
@@ -43,7 +43,7 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for SphereCost {
     }
 }
 
-fn harness(seed: u64) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, SphereCost> {
+fn evo_loop(seed: u64) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, SphereCost> {
     let params = GaConfig {
         pop_size: 16,
         genome_dim: 4,
@@ -55,7 +55,7 @@ fn harness(seed: u64) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, SphereCost>
         },
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     };
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         GeneticAlgorithm::<B>::new(),
         params,
         SphereCost,
@@ -91,7 +91,7 @@ fn generation_trial_runs_through_the_shared_machinery() {
         "sphere-ga",
         &["sphere-d4".to_string()],
         |_key, env_seed, _agent_seed| GenerationTrial {
-            probe: harness(env_seed),
+            probe: evo_loop(env_seed),
         },
         &mut reporter,
     );
@@ -117,13 +117,13 @@ fn generation_trial_runs_through_the_shared_machinery() {
         );
 
         // Typed EA metrics arrived, which `BenchStep`'s single f64 could not
-        // carry. The harness's own post-increment counter must agree with the
+        // carry. The loop's own post-increment counter must agree with the
         // trial's independently maintained `units` count — if these ever
         // diverge, one of the two loops is miscounting.
         assert_eq!(
             t.scalars.get("ea/generation").copied(),
             Some(GENS as f64),
-            "harness generation counter agrees with the trial's own count"
+            "the loop's generation counter agrees with the trial's own count"
         );
         assert!(t.scalars.contains_key("ea/best_fitness_ever"));
         assert!(t.scalars.contains_key("ea/population_size"));
@@ -140,7 +140,7 @@ fn distinct_trial_seeds_give_distinct_runs() {
         "sphere-ga",
         &["sphere-d4".to_string()],
         |_key, env_seed, _agent_seed| GenerationTrial {
-            probe: harness(env_seed),
+            probe: evo_loop(env_seed),
         },
         &mut reporter,
     );

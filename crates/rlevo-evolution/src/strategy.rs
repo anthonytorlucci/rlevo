@@ -1,4 +1,4 @@
-//! Central [`Strategy`] trait and the [`EvolutionaryHarness`] adapter.
+//! Central [`Strategy`] trait and the [`EvolutionaryLoop`] adapter.
 //!
 //! # The ask / tell contract
 //!
@@ -12,7 +12,7 @@
 //! 3. [`tell`](Strategy::tell) — consume that population together with
 //!    its fitness and produce the next state plus a metrics snapshot.
 //!
-//! All three methods take the RNG explicitly so the harness owns all
+//! All three methods take the RNG explicitly so the loop owns all
 //! stochasticity; strategies carry *no* internal PRNG state.
 //!
 //! # Fitness convention
@@ -25,12 +25,12 @@
 //! maximum. Strategies are **sense-unaware** — they never see an
 //! [`ObjectiveSense`]. Cost
 //! objectives (e.g. the benchmark landscapes) are negated into canonical
-//! space at exactly one chokepoint, [`EvolutionaryHarness`], which also
+//! space at exactly one chokepoint, [`EvolutionaryLoop`], which also
 //! maps metrics back to the objective's declared sense for reporting.
 //!
-//! # The harness adapter
+//! # The loop adapter
 //!
-//! [`EvolutionaryHarness`] glues a strategy to any
+//! [`EvolutionaryLoop`] glues a strategy to any
 //! [`BatchFitnessFn`] and implements
 //! [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe), so the benchmark
 //! evaluator drives it as a generation loop — not as an environment, which it
@@ -93,7 +93,7 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 ///   `State`, not `Params`.
 /// - `State`: Generation-to-generation state (current population, `$\sigma$`,
 ///   best-so-far, RNG-free sub-statistics). Must be clonable so the
-///   harness can snapshot before a risky step if needed.
+///   loop can snapshot before a risky step if needed.
 /// - `Genome`: Genome container produced by `ask` and consumed by
 ///   `tell`. Typically a `Tensor<B, 2>` for real-valued strategies or a
 ///   `Tensor<B, 2, Int>` for binary/integer kinds.
@@ -141,13 +141,13 @@ pub trait Strategy<B: Backend>: Send + Sync {
     ///
     /// # Invariants
     ///
-    /// When driven by [`EvolutionaryHarness`], the `fitness` tensor is
+    /// When driven by [`EvolutionaryLoop`], the `fitness` tensor is
     /// **canonical (maximise) and sanitized** (ADR 0034): every element is finite
     /// or `f32::NEG_INFINITY` — no `NaN`, no `$+\infty$`. A `tell` impl may therefore
     /// build leaders / personal-best / global-best directly from it without a
     /// finite check.
     ///
-    /// The guarantee is the harness's, so on a **bypass path** — a unit test or a
+    /// The guarantee is the loop's, so on a **bypass path** — a unit test or a
     /// custom driver calling `ask`/`tell` by hand — it is the **implementor** that
     /// owes it: a `tell` pulling `fitness` to host applies `sanitize_fitness`
     /// **once at the pull**, after which every ordering / argmax / champion-write
@@ -175,7 +175,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
     /// Returns `None` before the first [`tell`](Self::tell) call.
     /// The tuple is `(genome, fitness)` where `fitness` is the **canonical**
     /// (maximise-convention) scalar — the largest value seen across all
-    /// completed generations. The harness maps it back to the objective's
+    /// completed generations. The loop maps it back to the objective's
     /// declared sense before surfacing it to callers.
     fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)>;
 }
@@ -185,7 +185,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
 /// All statistics refer to the generation that just finished evaluating.
 /// These values are in **canonical (maximise) space**: *higher is better*.
 /// Strategies are sense-unaware, so the metrics they emit are always
-/// canonical. [`EvolutionaryHarness::latest_metrics`] maps them back to the
+/// canonical. [`EvolutionaryLoop::latest_metrics`] maps them back to the
 /// objective's declared sense before surfacing them to callers, so a
 /// `Minimize` landscape reads as its natural cost (Sphere → 0).
 ///
@@ -228,7 +228,7 @@ pub struct StrategyMetrics {
     /// in canonical space. When mapped back to the objective's sense and
     /// printed in a benchmark showcase, it represents the best solution
     /// quality found during the entire run. For landscapes whose global
-    /// optimum is known (e.g. Ackley → 0), the harness-reported value tells
+    /// optimum is known (e.g. Ackley → 0), the loop-reported value tells
     /// you how close the algorithm got to the theoretical optimum.
     best_fitness_ever: f32,
     /// Number of individuals whose sanitized fitness was non-finite (`$-\infty$`) in
@@ -275,7 +275,7 @@ impl StrategyMetrics {
     /// # Panics
     ///
     /// Panics if `fitnesses` is empty. Callers hold a non-empty population by
-    /// construction — `pop_size` is validated non-zero at the harness
+    /// construction — `pop_size` is validated non-zero at the loop
     /// constructor (ADR 0026).
     #[must_use]
     pub fn from_host_fitness(generation: usize, fitnesses: &[f32], best_fitness_ever: f32) -> Self {
@@ -420,11 +420,11 @@ fn build_population_snapshot(
     })
 }
 
-/// Outcome of advancing an evolutionary harness by one generation.
+/// Outcome of advancing an evolutionary loop by one generation.
 ///
 /// This is the **inherent** return shape of
-/// [`EvolutionaryHarness::step`] and
-/// [`CoEvolutionaryHarness::step`](crate::coevolution::CoEvolutionaryHarness::step),
+/// [`EvolutionaryLoop::step`] and
+/// [`CoEvolutionaryLoop::step`](crate::coevolution::CoEvolutionaryLoop::step),
 /// deliberately independent of the benchmarking vocabulary: driving a
 /// generation loop directly (`rlevo-hybrid`, memetic tests, examples) must not
 /// drag a `rlevo-benchmarks`-flavoured type into a production signature.
@@ -433,7 +433,7 @@ fn build_population_snapshot(
 /// [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe) instead, which reports
 /// typed [`StrategyMetrics`] rather than this pair of scalars.
 ///
-/// There is no observation field: an evolutionary harness has nothing to
+/// There is no observation field: an evolutionary loop has nothing to
 /// observe. `reward` is the canonical (maximise-space) fitness signal for the
 /// generation just completed, and `done` reports whether the generation budget
 /// is exhausted.
@@ -441,12 +441,12 @@ fn build_population_snapshot(
 pub struct GenerationStep {
     /// Canonical (maximise-space) fitness signal for the completed generation.
     pub reward: f64,
-    /// Whether the harness has reached its configured generation budget.
+    /// Whether the loop has reached its configured generation budget.
     pub done: bool,
 }
 
 /// Wraps a [`Strategy`] into a
-/// [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe) so the benchmark harness
+/// [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe) so the evaluation harness
 /// can drive it.
 ///
 /// # Example
@@ -456,7 +456,7 @@ pub struct GenerationStep {
 /// use rlevo_core::fitness::FitnessEvaluable;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use rlevo_evolution::fitness::FromFitnessEvaluable;
-/// use rlevo_evolution::strategy::EvolutionaryHarness;
+/// use rlevo_evolution::strategy::EvolutionaryLoop;
 ///
 /// struct Sphere;
 /// struct SphereFit;
@@ -469,39 +469,39 @@ pub struct GenerationStep {
 /// }
 ///
 /// let device = Default::default();
-/// let mut harness = EvolutionaryHarness::<Flex, _, _>::new(
+/// let mut evo_loop = EvolutionaryLoop::<Flex, _, _>::new(
 ///     GeneticAlgorithm::<Flex>::new(),
 ///     GaConfig::default_for(32, 5),
 ///     FromFitnessEvaluable::new(SphereFit, Sphere),
 ///     0, device, 100,
 /// ).expect("valid params");
-/// harness.reset();
-/// while !harness.step(()).done {}
+/// evo_loop.reset();
+/// while !evo_loop.step(()).done {}
 /// ```
 ///
-/// Each [`step`](Self::step) runs one generation (ask → evaluate → tell). The harness is the sole
+/// Each [`step`](Self::step) runs one generation (ask → evaluate → tell). The loop is the sole
 /// canonicaliser: it reads the fitness fn's [`ObjectiveSense`], negates a `Minimize` objective into
 /// the engine's maximise space before `tell`, and maps the metrics back to the declared sense for
 /// reporting. The reward returned is the **canonical** `best_fitness_ever` directly (already
 /// higher-is-better — no negation), so the per-episode cumulative return (`$\sum$` step rewards)
-/// integrates the optimization trajectory. The harness only exposes episode-level returns to
+/// integrates the optimization trajectory. The loop only exposes episode-level returns to
 /// reporters, so the "best at end" signal would otherwise be lost.
 ///
 /// # Determinism and parallel execution
 ///
 /// Burn backends seed their tensor RNG through process-global state —
 /// the `flex` backend uses a `Mutex<Option<FlexRng>>`, the
-/// `wgpu` backend a per-device seeded stream. When multiple harness
+/// `wgpu` backend a per-device seeded stream. When multiple loop
 /// instances run in parallel threads (e.g.
 /// `Evaluator::run_suite` with the default rayon pool), their
 /// interleaved `B::seed(...) → Tensor::random(...)` call pairs race on
 /// that shared state and destroy bit-reproducibility across runs.
 ///
 /// For deterministic reproduction, pass
-/// `EvaluatorConfig::num_threads = Some(1)` or run one harness per
+/// `EvaluatorConfig::num_threads = Some(1)` or run one loop per
 /// process. The `tests/determinism.rs` and `tests/rastrigin_run_suite.rs`
 /// integration tests both enforce serial execution for this reason.
-pub struct EvolutionaryHarness<B, S, F>
+pub struct EvolutionaryLoop<B, S, F>
 where
     B: Backend,
     S: Strategy<B>,
@@ -521,14 +521,14 @@ where
     _backend: PhantomData<B>,
 }
 
-impl<B, S, F> Debug for EvolutionaryHarness<B, S, F>
+impl<B, S, F> Debug for EvolutionaryLoop<B, S, F>
 where
     B: Backend,
     S: Strategy<B>,
     F: BatchFitnessFn<B, S::Genome>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EvolutionaryHarness")
+        f.debug_struct("EvolutionaryLoop")
             .field("base_seed", &self.base_seed)
             .field("generation", &self.generation)
             .field("max_generations", &self.max_generations)
@@ -537,20 +537,20 @@ where
     }
 }
 
-impl<B, S, F> EvolutionaryHarness<B, S, F>
+impl<B, S, F> EvolutionaryLoop<B, S, F>
 where
     B: Backend,
     S: Strategy<B>,
     F: BatchFitnessFn<B, S::Genome>,
 {
-    /// Build a new harness from its parts.
+    /// Build a new loop from its parts.
     ///
     /// The caller-supplied `params` are validated up front — this is the
-    /// harness consumption chokepoint (ADR 0026), so an invalid configuration
+    /// loop consumption chokepoint (ADR 0026), so an invalid configuration
     /// is rejected here rather than surfacing as a panic deep inside a
     /// strategy's tensor code.
     ///
-    /// The harness is lazily initialized — the first [`reset`](Self::reset)
+    /// The loop is lazily initialized — the first [`reset`](Self::reset)
     /// call materializes the initial state on the supplied device.
     ///
     /// # Errors
@@ -618,7 +618,7 @@ where
 
     /// The configured generation budget.
     ///
-    /// The harness owns this number. Drivers should read it here rather than
+    /// The loop owns this number. Drivers should read it here rather than
     /// keeping a second copy alongside it — see [`GenerationProbe`], whose
     /// `advance` returns `None` off this value.
     ///
@@ -649,14 +649,14 @@ where
 
     /// Reset to a fresh initial state.
     ///
-    /// Inherent shape (infallible): `EvolutionaryHarness` cannot legitimately
+    /// Inherent shape (infallible): `EvolutionaryLoop` cannot legitimately
     /// fail to reset — it is a deterministic optimization driver. The
     /// [`GenerationProbe::begin`](rlevo_core::evaluation::GenerationProbe::begin)
-    /// forwards to it, so the harness is callable both directly (this method)
+    /// forwards to it, so the loop is callable both directly (this method)
     /// and through the probe surface when fed to `Evaluator::run_trials`.
     ///
-    /// Re-seeds the RNG from the harness's base seed, so two `reset`-to-budget
-    /// runs of the same harness are byte-identical replays.
+    /// Re-seeds the RNG from the loop's base seed, so two `reset`-to-budget
+    /// runs of the same loop are byte-identical replays.
     pub fn reset(&mut self) {
         self.rng = StdRng::seed_from_u64(self.base_seed);
         self.generation = 0;
@@ -683,11 +683,11 @@ where
         let state = self
             .state
             .take()
-            .expect("EvolutionaryHarness::reset must be called before step");
+            .expect("EvolutionaryLoop::reset must be called before step");
         let (population, state) =
             self.strategy
                 .ask(&self.params, &state, &mut self.rng, &self.device);
-        // The fitness function reports NATURAL values; the harness is the sole
+        // The fitness function reports NATURAL values; the loop is the sole
         // canonicaliser. `sense` is the single source of truth (read off the
         // fitness fn, so the ctor and the adapter can never disagree).
         let sense = self.fitness_fn.sense();
@@ -808,7 +808,7 @@ mod tests {
     use burn::tensor::TensorData;
     type TestBackend = Flex;
 
-    /// Trivial strategy for unit-testing the harness plumbing: it
+    /// Trivial strategy for unit-testing the loop plumbing: it
     /// ignores `ask`/`tell` semantics and always reports the same best
     /// fitness. Nothing here exercises real evolutionary dynamics.
     #[derive(Debug, Clone, Copy)]
@@ -905,7 +905,7 @@ mod tests {
         }
 
         fn sense(&self) -> ObjectiveSense {
-            // Treated as a cost so the harness reports natural 42 and reward stays the canonical
+            // Treated as a cost so the loop reports natural 42 and reward stays the canonical
             // `$-42$` the existing assertions expect.
             ObjectiveSense::Minimize
         }
@@ -913,31 +913,31 @@ mod tests {
 
     #[test]
     #[allow(clippy::float_cmp)]
-    fn harness_runs_one_generation() {
+    fn loop_runs_one_generation() {
         let device = Default::default();
         let strategy = Constant;
         let params = Params {
             pop_size: 4,
             dim: 3,
         };
-        let mut harness =
-            EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, FortyTwo, 1, device, 5)
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, FortyTwo, 1, device, 5)
                 .expect("valid params");
-        harness.reset();
-        let step = harness.step(());
+        evo_loop.reset();
+        let step = evo_loop.step(());
         assert_eq!(step.reward, -42.0);
         assert!(!step.done);
-        assert_eq!(harness.generation(), 1);
-        let m = harness.latest_metrics().unwrap();
+        assert_eq!(evo_loop.generation(), 1);
+        let m = evo_loop.latest_metrics().unwrap();
         assert_eq!(m.generation, 1);
         assert_eq!(m.population_size, 4);
         approx::assert_relative_eq!(m.best_fitness, 42.0, epsilon = 1e-6);
     }
 
     #[test]
-    fn harness_reports_done_after_budget() {
+    fn loop_reports_done_after_budget() {
         let device = Default::default();
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             Constant,
             Params {
                 pop_size: 2,
@@ -949,9 +949,9 @@ mod tests {
             2,
         )
         .expect("valid params");
-        harness.reset();
-        assert!(!harness.step(()).done);
-        assert!(harness.step(()).done);
+        evo_loop.reset();
+        assert!(!evo_loop.step(()).done);
+        assert!(evo_loop.step(()).done);
     }
 
     #[test]
@@ -1054,7 +1054,7 @@ mod tests {
         }
     }
 
-    /// A strategy that **trusts the harness guarantee** (ADR 0034): its `tell`
+    /// A strategy that **trusts the loop guarantee** (ADR 0034): its `tell`
     /// stores the fitness tensor it receives verbatim, *without* re-sanitizing.
     /// This is the whole point of the chokepoint — a `tell` impl should be able
     /// to build best/leaders directly from `fitness`. `received` lets the test
@@ -1112,7 +1112,7 @@ mod tests {
             mut state: TrustingState,
             _: &mut dyn Rng,
         ) -> (TrustingState, StrategyMetrics) {
-            // Deliberately NOT sanitized here — the harness must have done it.
+            // Deliberately NOT sanitized here — the loop must have done it.
             let values: Vec<f32> = fitness
                 .into_data()
                 .into_vec::<f32>()
@@ -1130,17 +1130,17 @@ mod tests {
         }
     }
 
-    /// End-to-end proof that the `EvolutionaryHarness::step` chokepoint (ADR
+    /// End-to-end proof that the `EvolutionaryLoop::step` chokepoint (ADR
     /// 0034) sanitizes a non-finite fitness **before** it reaches a real
     /// `Strategy::tell`. This is the widest-blast-radius line in the design
     /// (it covers every `Strategy` impl), so it gets a direct test rather than
     /// relying on `StrategyMetrics::from_host_fitness`'s own sanitize: the
     /// `TrustingStrategy` captures the raw tensor it was handed, so deleting or
-    /// mis-ordering the harness sanitize (relative to `neg()`) fails here.
+    /// mis-ordering the loop sanitize (relative to `neg()`) fails here.
     #[test]
-    fn harness_sanitizes_non_finite_fitness_before_tell() {
+    fn loop_sanitizes_non_finite_fitness_before_tell() {
         let device = Default::default();
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             TrustingStrategy,
             Params {
                 pop_size: 4,
@@ -1152,21 +1152,21 @@ mod tests {
             1,
         )
         .expect("valid params");
-        harness.reset();
-        harness.step(());
+        evo_loop.reset();
+        evo_loop.step(());
 
-        let received = &harness.state().expect("state after step").received;
+        let received = &evo_loop.state().expect("state after step").received;
         assert_eq!(received.len(), 4);
         // The chokepoint guarantee: what `tell` saw is finite-or-`$-\infty$`.
         assert!(
             received.iter().all(|f| !f.is_nan()),
-            "harness must strip NaN before tell; got {received:?}"
+            "the loop must strip NaN before tell; got {received:?}"
         );
         assert!(
             received
                 .iter()
                 .all(|f| !(f.is_infinite() && f.is_sign_positive())),
-            "harness must clamp +∞ before tell; got {received:?}"
+            "the loop must clamp +∞ before tell; got {received:?}"
         );
         // Row 0 was NaN → `$-\infty$` (worst); row 1 was `$+\infty$` → f32::MAX (finite best).
         assert!(
@@ -1176,7 +1176,7 @@ mod tests {
         approx::assert_relative_eq!(received[1], f32::MAX);
 
         // Metrics stay honest: best is finite (the f32::MAX row), one broken member.
-        let m = harness.latest_metrics().expect("metrics after step");
+        let m = evo_loop.latest_metrics().expect("metrics after step");
         assert!(
             m.best_fitness().is_finite(),
             "best must be finite, got {}",
@@ -1243,13 +1243,13 @@ mod tests {
     }
 
     #[test]
-    fn harness_fires_observer_per_generation() {
+    fn loop_fires_observer_per_generation() {
         use std::sync::Arc;
 
         use parking_lot::Mutex;
         let device = Default::default();
         let observer = Arc::new(Mutex::new(CountingObserver::default()));
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             Constant,
             Params {
                 pop_size: 5,
@@ -1262,9 +1262,9 @@ mod tests {
         )
         .expect("valid params")
         .with_observer(observer.clone() as SharedPopulationObserver);
-        harness.reset();
+        evo_loop.reset();
         for _ in 0..3 {
-            harness.step(());
+            evo_loop.step(());
         }
         let guard = observer.lock();
         assert_eq!(guard.snapshots.len(), 3);
@@ -1283,7 +1283,7 @@ mod tests {
         );
     }
 
-    /// Observer whose callback always panics — used to prove the harness
+    /// Observer whose callback always panics — used to prove the loop
     /// isolates a misbehaving sink instead of aborting the run.
     #[derive(Debug, Default)]
     struct PanicObserver;
@@ -1295,13 +1295,13 @@ mod tests {
     }
 
     #[test]
-    fn harness_survives_panicking_observer() {
+    fn loop_survives_panicking_observer() {
         use std::sync::Arc;
 
         use parking_lot::Mutex;
         let device = Default::default();
         let observer = Arc::new(Mutex::new(PanicObserver));
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             Constant,
             Params {
                 pop_size: 4,
@@ -1314,21 +1314,21 @@ mod tests {
         )
         .expect("valid params")
         .with_observer(observer.clone() as SharedPopulationObserver);
-        harness.reset();
-        // Each step's observer dispatch panics; the harness must swallow it and
+        evo_loop.reset();
+        // Each step's observer dispatch panics; the loop must swallow it and
         // keep advancing generations to completion.
-        assert!(!harness.step(()).done);
-        assert!(harness.step(()).done);
-        assert_eq!(harness.generation(), 2);
+        assert!(!evo_loop.step(()).done);
+        assert!(evo_loop.step(()).done);
+        assert_eq!(evo_loop.generation(), 2);
     }
 
     #[test]
-    fn harness_without_observer_skips_host_transfer() {
+    fn loop_without_observer_skips_host_transfer() {
         // Smoke: no observer attached → step() still works, no panic,
         // no transfer cost. Observability is verified above; here we
         // just want the no-observer path to remain functional.
         let device = Default::default();
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             Constant,
             Params {
                 pop_size: 3,
@@ -1340,8 +1340,8 @@ mod tests {
             1,
         )
         .expect("valid params");
-        harness.reset();
-        let step = harness.step(());
+        evo_loop.reset();
+        let step = evo_loop.step(());
         assert!(step.done);
     }
 

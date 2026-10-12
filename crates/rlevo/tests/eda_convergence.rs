@@ -35,7 +35,7 @@ use rlevo_evolution::algorithms::eda::{
     UnivariateGaussianParams,
 };
 use rlevo_evolution::fitness::FromLandscape;
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 use rlevo_evolution::{
     BayesianNetwork, CompactGenetic, DependencyChain, EdaParams, EdaStrategy, ProbabilityModel,
     UnivariateBernoulli, UnivariateGaussian,
@@ -76,7 +76,7 @@ where
 
 /// Fully-parameterised runner: the trap gate needs a larger population
 /// and a shorter budget than the file-level Sphere/Rosenbrock constants.
-#[allow(clippy::too_many_arguments)] // mirrors the EdaParams + harness knobs 1:1
+#[allow(clippy::too_many_arguments)] // mirrors the EdaParams + evo_loop knobs 1:1
 fn run_config<M, L>(
     model: M,
     model_params: M::Params,
@@ -98,7 +98,7 @@ where
         bounds,
         model: model_params,
     };
-    let mut harness = EvolutionaryHarness::<B, EdaStrategy<B, M>, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, EdaStrategy<B, M>, _>::new(
         EdaStrategy::new(model),
         params,
         FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
@@ -107,13 +107,13 @@ where
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     loop {
-        if harness.step(()).done {
+        if evo_loop.step(()).done {
             break;
         }
     }
-    harness.latest_metrics().unwrap().best_fitness_ever()
+    evo_loop.latest_metrics().unwrap().best_fitness_ever()
 }
 
 /// Median of a small sample; NaN-free by construction (fitness is

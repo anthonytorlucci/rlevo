@@ -3,8 +3,8 @@
 //! This module holds the building blocks shared by NEAT: the graph genome
 //! ([`topology`]), the per-run innovation registry ([`innovation`]), speciation
 //! ([`species`]), and the phenotype builders ([`phenotype`]). The
-//! [`NeatStrategy`](crate::algorithms::neuroevolution::neat::NeatStrategy) custom
-//! harness that drives them lives in [`crate::algorithms::neuroevolution::neat`].
+//! [`NeatStrategy`](crate::algorithms::neuroevolution::neat::NeatStrategy)
+//! that drives them lives in [`crate::algorithms::neuroevolution::neat`].
 //!
 //! These types are *graphs*, not tensors: unlike the
 //! [`Strategy`](crate::strategy::Strategy) genomes elsewhere in the crate,
@@ -19,7 +19,7 @@
 //! maximise convention. [`Species`] best/stagnation tracking, fitness sharing,
 //! and the [`GraphFitnessFn`](crate::algorithms::neuroevolution::neat::GraphFitnessFn)
 //! seam all treat higher as better; a cost objective is reconciled into
-//! canonical space by the harness/adapter chokepoint, not by hand here.
+//! canonical space by the loop/adapter chokepoint, not by hand here.
 
 pub mod innovation;
 pub mod phenotype;

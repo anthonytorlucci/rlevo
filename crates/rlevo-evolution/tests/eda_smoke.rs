@@ -1,7 +1,7 @@
 //! Smoke integration tests for the estimation-of-distribution strategies.
 //!
 //! Each test drives an [`EdaStrategy`] over one [`ProbabilityModel`] through
-//! the [`EvolutionaryHarness`] for a handful of generations and asserts the
+//! the [`EvolutionaryLoop`] for a handful of generations and asserts the
 //! plumbing holds: no panic, metrics and best-so-far become available, and the
 //! best fitness stays finite. These are not convergence tests — they only
 //! exercise the full ask → evaluate → tell loop end to end.
@@ -17,7 +17,7 @@ use rlevo_evolution::algorithms::eda::{
 };
 use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
 use rlevo_evolution::probability_model::ProbabilityModel;
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
@@ -45,7 +45,7 @@ where
 {
     let device = Default::default();
     let strategy = EdaStrategy::<B, M>::new(model);
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -54,20 +54,20 @@ where
         10,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     loop {
-        let step = harness.step(());
+        let step = evo_loop.step(());
         if step.done {
             break;
         }
     }
-    let metrics = harness.latest_metrics();
+    let metrics = evo_loop.latest_metrics();
     assert!(metrics.is_some(), "latest_metrics must be Some after a run");
     assert!(
         metrics.unwrap().best_fitness_ever().is_finite(),
         "best fitness must be finite"
     );
-    let best = harness.best();
+    let best = evo_loop.best();
     assert!(best.is_some(), "best() must be Some after the first tell");
     assert!(
         best.unwrap().1.is_finite(),

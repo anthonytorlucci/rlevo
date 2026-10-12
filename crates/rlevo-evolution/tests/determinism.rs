@@ -44,7 +44,7 @@ use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
 use rlevo_evolution::local_search::{
     HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
 };
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
@@ -68,7 +68,7 @@ where
     FromFitnessEvaluable<SphereFit, Sphere>: BatchFitnessFn<B, S::Genome>,
 {
     let device = Default::default();
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -77,11 +77,11 @@ where
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory = Vec::with_capacity(gens);
     loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
+        let step = evo_loop.step(());
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }
@@ -130,7 +130,7 @@ fn run_binary_ga(seed: u64, gens: usize) -> Vec<f32> {
     let device = Default::default();
     let dim = 16usize;
     let params = BinaryGaConfig::default_for(32, dim);
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         BinaryGeneticAlgorithm::<B>::new(),
         params,
         OneMaxBatch { dim },
@@ -139,11 +139,11 @@ fn run_binary_ga(seed: u64, gens: usize) -> Vec<f32> {
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory = Vec::with_capacity(gens);
     loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
+        let step = evo_loop.step(());
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }
@@ -219,9 +219,9 @@ fn run_firefly(seed: u64, gens: usize) -> Vec<f32> {
 /// Drive a `MemeticWrapper<DE, HillClimbing>` for `gens` generations and
 /// collect the per-generation best-fitness trajectory.
 ///
-/// Unlike [`run`], this builds the harness inline: a `MemeticWrapper` holds its
+/// Unlike [`run`], this builds the loop inline: a `MemeticWrapper` holds its
 /// *own* fitness instance (used to score local-search probes) in addition to
-/// the harness's, so it cannot go through the generic [`run`] path that supplies
+/// the loop's, so it cannot go through the generic [`run`] path that supplies
 /// a single fitness. Both instances are independent `FromFitnessEvaluable`
 /// values over the same stateless [`SphereFit`], so they never diverge.
 fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
@@ -239,7 +239,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
         writeback: WritebackPolicy::Partial(Probability::new(0.5)),
         coverage: CoveragePolicy::TopK { k: 2 },
     };
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -248,11 +248,11 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
+        let step = evo_loop.step(());
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }
@@ -282,7 +282,7 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
         writeback: WritebackPolicy::Partial(Probability::new(0.5)),
         coverage: CoveragePolicy::TopK { k: 2 },
     };
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -291,11 +291,11 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {
-        let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
+        let step = evo_loop.step(());
+        trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }

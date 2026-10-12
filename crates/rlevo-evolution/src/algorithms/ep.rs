@@ -451,7 +451,7 @@ fn update_best<B: Backend>(state: &mut EpState<B>, pop: &Tensor<B, 2>, fitness: 
         return;
     }
     // Sanitize (NaN → `$-\infty$`) then order with `total_cmp`: the §3 correctness floor for a
-    // direct (non-harness) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
+    // direct (non-loop) caller. `best_fitness` seeds at `$-\infty$`, so a legitimately sanitized
     // `$-\infty$` fitness is treated as the worst, not skipped.
     let sane: Vec<f32> = fitness
         .iter()
@@ -479,7 +479,7 @@ fn update_best<B: Backend>(state: &mut EpState<B>, pop: &Tensor<B, 2>, fitness: 
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = Flex;
@@ -536,7 +536,7 @@ mod tests {
     }
 
     /// Canonical (maximise) fitness `$-\sum x_i^2$` read straight off a genome tensor,
-    /// so tests can drive a strategy directly without the harness.
+    /// so tests can drive a strategy directly without the loop.
     fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
         let device = pop.device();
         let [n, d] = pop.dims();
@@ -642,7 +642,7 @@ mod tests {
     }
 
     /// A `NaN`-producing fitness must not crash EP nor become the reported best.
-    /// The harness sanitizes `NaN` `$\to -\infty$` before the pool ever reaches
+    /// The loop sanitizes `NaN` `$\to -\infty$` before the pool ever reaches
     /// q-tournament selection, so a poisoned member always loses its bouts and
     /// the tiebreak `sanitize_fitness` keeps it out of the survivor set
     /// (`ep` §7, NaN regression).
@@ -651,7 +651,7 @@ mod tests {
         let device = Default::default();
         let params = EpConfig::default_for(20, 4);
         let fitness_fn = FromFitnessEvaluable::new(NanSphereFit, NanSphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             EvolutionaryProgramming::<TestBackend>::new(),
             params,
             fitness_fn,
@@ -660,13 +660,13 @@ mod tests {
             40,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
         loop {
-            if harness.step(()).done {
+            if evo_loop.step(()).done {
                 break;
             }
         }
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(
             best.is_finite(),
             "NaN fitness poisoned best_fitness_ever: {best}"
@@ -674,8 +674,8 @@ mod tests {
     }
 
     /// Direct-`tell` companion to `nan_fitness_never_becomes_best`, which drives
-    /// the *harness* path (ADR 0034 decision 3, `rules.md` §3).
-    /// `EvolutionaryHarness::step` sanitizes fitness before `tell`, but a direct
+    /// the *loop* path (ADR 0034 decision 3, `rules.md` §3).
+    /// `EvolutionaryLoop::step` sanitizes fitness before `tell`, but a direct
     /// caller does not, so a raw `NaN` can arrive at index 0. Seeding the
     /// `update_best` scan with `fitness[0]` and comparing with `>` made every
     /// comparison against that `NaN` false, so the champion write was skipped
@@ -828,7 +828,7 @@ mod tests {
         let device = Default::default();
         let params = EpConfig::default_for(10, 2);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             EvolutionaryProgramming::<TestBackend>::new(),
             params,
             fitness_fn,
@@ -837,13 +837,13 @@ mod tests {
             300,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
         loop {
-            if harness.step(()).done {
+            if evo_loop.step(()).done {
                 break;
             }
         }
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-2, "EP Sphere-D2 best={best}");
     }
 
@@ -852,7 +852,7 @@ mod tests {
         let device = Default::default();
         let params = EpConfig::default_for(20, 10);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             EvolutionaryProgramming::<TestBackend>::new(),
             params,
             fitness_fn,
@@ -861,13 +861,13 @@ mod tests {
             2000,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
         loop {
-            if harness.step(()).done {
+            if evo_loop.step(()).done {
                 break;
             }
         }
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-4, "EP Sphere-D10 best={best}");
     }
 }

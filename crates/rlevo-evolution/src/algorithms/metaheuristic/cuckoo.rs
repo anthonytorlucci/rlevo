@@ -382,13 +382,13 @@ where
     ) -> (CuckooState<B>, StrategyMetrics) {
         // Sanitise on the host pull, per the maximise convention (`rules.md` §3, ADR 0034):
         // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. This is the per-site
-        // correctness floor for callers that bypass `EvolutionaryHarness::step` — `Strategy` is
+        // correctness floor for callers that bypass `EvolutionaryLoop::step` — `Strategy` is
         // public and re-exported, so a hand-rolled `ask`/`tell` driver reaches this line with raw
         // values (ADR 0034 decision 3). One sanitise here covers both the bootstrap seed of
         // `state.fitness` and the accept-store below; a raw `NaN` latched into a nest's cache loses
         // every later `fitness_host[i] >= state.fitness[i]` comparison, and `p_a = 0` is a valid
         // config that disables the abandonment eviction which would otherwise clear it.
-        // `sanitize_fitness` is idempotent, so on the harness path (which pre-sanitises) this is a
+        // `sanitize_fitness` is idempotent, so on the loop path (which pre-sanitises) this is a
         // provable no-op — do not delete it as redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
@@ -521,7 +521,7 @@ where
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -590,13 +590,13 @@ mod tests {
         let mut params = CuckooConfig::default_for(30, 10);
         params.alpha = 0.2;
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 19, device, 800,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 20.0, "Cuckoo D10 best={best}");
     }
 
@@ -638,7 +638,7 @@ mod tests {
     }
 
     /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
-    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()`.
+    /// canonical, exercising the ADR-0034 loop sanitize with no `neg()`.
     struct PartialNanFitness;
     impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
         fn evaluate_batch(
@@ -752,7 +752,7 @@ mod tests {
         assert_eq!(after, nest_vals);
     }
 
-    // Gap (e): best-so-far is monotone. Across a harness run on Sphere
+    // Gap (e): best-so-far is monotone. Across a loop run on Sphere
     // (Minimize), the reported `best_fitness_ever` (natural cost) never worsens
     // generation to generation.
     #[test]
@@ -761,15 +761,15 @@ mod tests {
         let strategy = CuckooSearch::<TestBackend>::new();
         let params = CuckooConfig::default_for(20, 6);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 11, device, 40,
         )
         .expect("valid params");
-        harness.reset();
+        evo_loop.reset();
         let mut prev = f32::INFINITY;
         loop {
-            let done = harness.step(()).done;
-            let cur = harness.latest_metrics().unwrap().best_fitness_ever();
+            let done = evo_loop.step(()).done;
+            let cur = evo_loop.latest_metrics().unwrap().best_fitness_ever();
             assert!(
                 cur <= prev + 1e-6,
                 "best_fitness_ever worsened: {cur} > {prev}"
@@ -781,14 +781,14 @@ mod tests {
         }
     }
 
-    // Gap (f): a partly-`NaN` objective is neutralized by the harness sanitize
+    // Gap (f): a partly-`NaN` objective is neutralized by the loop sanitize
     // chokepoint (ADR 0034).
     #[test]
-    fn nan_fitness_survives_harness() {
+    fn nan_fitness_survives_loop() {
         let device = Default::default();
         let strategy = CuckooSearch::<TestBackend>::new();
         let params = CuckooConfig::default_for(8, 3);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
             PartialNanFitness,
@@ -797,9 +797,9 @@ mod tests {
             4,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let m = harness.latest_metrics().unwrap();
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever().is_finite(),
             "best_fitness_ever not finite: {}",
@@ -809,7 +809,7 @@ mod tests {
     }
 
     // Regression for a per-slot fitness-cache freeze on a bypass `tell`
-    // driver. `nan_fitness_survives_harness` above covers the harness path;
+    // driver. `nan_fitness_survives_loop` above covers the loop path;
     // this covers the documented bypass hole (ADR 0034 decision 3) — a
     // direct `init` → `ask` → `tell` driver. A raw `NaN`
     // latched into `state.fitness` loses every later
@@ -818,7 +818,7 @@ mod tests {
     // evict such a nest, but `p_a = 0` is a valid config that disables it —
     // hence `p_a = 0` here, and an assertion on the *cache*, not convergence.
     #[test]
-    fn nan_fitness_does_not_latch_without_harness() {
+    fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = CuckooSearch::<TestBackend>::new();
         let mut params = CuckooConfig::default_for(4, 2);

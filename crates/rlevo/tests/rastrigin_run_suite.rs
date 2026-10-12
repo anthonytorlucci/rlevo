@@ -1,4 +1,4 @@
-//! Rastrigin-D10 convergence via the benchmark harness.
+//! Rastrigin-D10 convergence via the evaluation harness.
 //!
 //! This test verifies that each real-valued strategy plugs into
 //! `rlevo_benchmarks::Evaluator::run_suite` end-to-end. We assert that
@@ -26,7 +26,7 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::fitness::FromFitnessEvaluable;
-use rlevo_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 type B = Flex;
 
@@ -42,11 +42,11 @@ impl FitnessEvaluable for Minimizer {
     }
 }
 
-/// Creates a GA harness on Rastrigin-D10 with tournament selection, BLX-`$\alpha$` crossover, and
+/// Creates a GA loop on Rastrigin-D10 with tournament selection, BLX-`$\alpha$` crossover, and
 /// elitist replacement.
 fn ga_factory(
     seed: u64,
-) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
     let device = Default::default();
     let params = GaConfig {
         pop_size: 64,
@@ -59,7 +59,7 @@ fn ga_factory(
         },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         GeneticAlgorithm::<B>::new(),
         params,
         FromFitnessEvaluable::with_sense(
@@ -74,13 +74,13 @@ fn ga_factory(
     .expect("valid params")
 }
 
-/// Creates a (5+30)-ES harness on Rastrigin-D10 with self-adaptive step sizes.
+/// Creates a (5+30)-ES loop on Rastrigin-D10 with self-adaptive step sizes.
 fn es_factory(
     seed: u64,
-) -> EvolutionaryHarness<B, EvolutionStrategy<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+) -> EvolutionaryLoop<B, EvolutionStrategy<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
     let device = Default::default();
     let params = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 30 }, DIM);
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         EvolutionStrategy::<B>::new(),
         params,
         FromFitnessEvaluable::with_sense(
@@ -95,14 +95,13 @@ fn es_factory(
     .expect("valid params")
 }
 
-/// Creates an EP harness on Rastrigin-D10 with population size 30.
+/// Creates an EP loop on Rastrigin-D10 with population size 30.
 fn ep_factory(
     seed: u64,
-) -> EvolutionaryHarness<B, EvolutionaryProgramming<B>, FromFitnessEvaluable<Minimizer, Rastrigin>>
-{
+) -> EvolutionaryLoop<B, EvolutionaryProgramming<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
     let device = Default::default();
     let params = EpConfig::default_for(30, DIM);
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         EvolutionaryProgramming::<B>::new(),
         params,
         FromFitnessEvaluable::with_sense(
@@ -117,16 +116,16 @@ fn ep_factory(
     .expect("valid params")
 }
 
-/// Creates a DE/Rand/1/bin harness on Rastrigin-D10 with F=0.5 and CR=0.9.
+/// Creates a DE/Rand/1/bin loop on Rastrigin-D10 with F=0.5 and CR=0.9.
 fn de_factory(
     seed: u64,
-) -> EvolutionaryHarness<B, DifferentialEvolution<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+) -> EvolutionaryLoop<B, DifferentialEvolution<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
     let device = Default::default();
     let mut params = DeConfig::default_for(40, DIM);
     params.variant = DeVariant::Rand1Bin;
     params.f = 0.5;
     params.cr = 0.9;
-    EvolutionaryHarness::new(
+    EvolutionaryLoop::new(
         DifferentialEvolution::<B>::new(),
         params,
         FromFitnessEvaluable::with_sense(
@@ -242,11 +241,11 @@ fn all_strategies_improve_on_rastrigin_via_run_suite() {
     }
 }
 
-/// Sanity: the harness satisfies every bound `run_trials` needs, and is
+/// Sanity: the loop satisfies every bound `run_trials` needs, and is
 /// `Send` so rayon can own one per worker. Doubles as a compile-time check
 /// that the `GenerationProbe` / `MetricsProvider` bounds line up.
 #[test]
-fn harness_is_send_and_satisfies_the_probe_bounds() {
+fn loop_is_send_and_satisfies_the_probe_bounds() {
     fn assert_drivable<P>(_: &P)
     where
         P: GenerationProbe + Send,
@@ -255,11 +254,11 @@ fn harness_is_send_and_satisfies_the_probe_bounds() {
     }
 
     let _send_check = AtomicU32::new(0);
-    let mut harness = ga_factory(0);
-    assert_drivable(&harness);
+    let mut evo_loop = ga_factory(0);
+    assert_drivable(&evo_loop);
 
     // One generation runs without panicking, and reports metrics.
-    harness.begin();
-    let m = harness.advance().expect("first generation yields metrics");
+    evo_loop.begin();
+    let m = evo_loop.advance().expect("first generation yields metrics");
     assert!(!m.emit().is_empty(), "metrics provider emits scalars");
 }

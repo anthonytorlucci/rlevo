@@ -12,7 +12,7 @@
 //! counter per row of every `evaluate_batch`. Each `MemeticWrapper`
 //! local-search probe routes through a `[1, D]` batch, so refinement
 //! evaluations are captured automatically; the memetic runs share one counter
-//! across both fitness instances they own (harness + wrapper).
+//! across both fitness instances they own (loop + wrapper).
 //!
 //! # Reading the output
 //!
@@ -65,7 +65,7 @@ use rlevo::evo::algorithms::memetic::{
 };
 use rlevo::evo::fitness::BatchFitnessFn;
 use rlevo::evo::local_search::{HillClimbVariant, HillClimbing, HillClimbingParams};
-use rlevo::evo::strategy::{EvolutionaryHarness, Strategy};
+use rlevo::evo::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
@@ -132,15 +132,15 @@ where
         landscape: Rastrigin::new(DIM).expect("dim >= 1"),
         evals: evals.clone(),
     };
-    let mut harness = EvolutionaryHarness::<B, S, CountingRastrigin>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, S, CountingRastrigin>::new(
         strategy, params, fitness, SEED, device, MAX_GENS,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     let mut crossings: [Option<usize>; TARGETS.len()] = [None; TARGETS.len()];
     loop {
-        let step = harness.step(());
-        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
+        let step = evo_loop.step(());
+        let best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         for (slot, &target) in crossings.iter_mut().zip(TARGETS.iter()) {
             if slot.is_none() && best < target {
                 *slot = Some(evals.load(Ordering::Relaxed));
@@ -150,7 +150,7 @@ where
             break;
         }
     }
-    let final_best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
+    let final_best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
     let cells: String = TARGETS
         .iter()
         .zip(crossings.iter())
@@ -165,7 +165,7 @@ where
 
 /// One memetic row: wraps a fresh DE in `MemeticWrapper` with the given
 /// hill-climbing params and policies. The wrapper's fitness instance shares
-/// the row's eval counter, so harness scorings and local-search probes land
+/// the row's eval counter, so loop scorings and local-search probes land
 /// in one budget.
 fn run_memetic_row(
     label: &str,

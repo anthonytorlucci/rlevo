@@ -40,7 +40,7 @@ use rlevo_evolution::algorithms::ga::{
 };
 use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::fitness::FromFitnessEvaluable;
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 struct Sphere;
 struct SphereFit;
@@ -74,7 +74,7 @@ where
         },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         GeneticAlgorithm::<B>::new(),
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -83,13 +83,13 @@ where
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     loop {
-        if harness.step(()).done {
+        if evo_loop.step(()).done {
             break;
         }
     }
-    harness.latest_metrics().unwrap().best_fitness_ever()
+    evo_loop.latest_metrics().unwrap().best_fitness_ever()
 }
 
 fn run_sphere_pso<B>(seed: u64, gens: usize, device: B::Device) -> f32
@@ -104,7 +104,7 @@ where
         >,
 {
     let params = PsoConfig::default_for(32, 10);
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         ParticleSwarm::<B>::new(),
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
@@ -113,13 +113,13 @@ where
         gens,
     )
     .expect("valid params");
-    harness.reset();
+    evo_loop.reset();
     loop {
-        if harness.step(()).done {
+        if evo_loop.step(()).done {
             break;
         }
     }
-    harness.latest_metrics().unwrap().best_fitness_ever()
+    evo_loop.latest_metrics().unwrap().best_fitness_ever()
 }
 
 #[test]

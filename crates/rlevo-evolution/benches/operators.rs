@@ -16,7 +16,7 @@ use rand::rngs::StdRng;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::ops::selection::tournament_select;
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
@@ -65,11 +65,11 @@ fn bench_de_generation(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(pop_size), &pop_size, |b, _n| {
             b.iter_batched(
                 || {
-                    // Fresh harness per iteration so the bench
+                    // Fresh loop per iteration so the bench
                     // measures a full `ask → evaluate → tell`
                     // cycle on a warm population (no one-time init).
                     let strategy = DifferentialEvolution::<B>::new();
-                    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+                    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
                         strategy,
                         params.clone(),
                         ZeroFitness,
@@ -78,15 +78,15 @@ fn bench_de_generation(c: &mut Criterion) {
                         1_000,
                     )
                     .expect("valid params");
-                    harness.reset();
+                    evo_loop.reset();
                     // Warm up: run one generation so init costs are
                     // outside the measurement window.
-                    let _ = harness.step(());
-                    harness
+                    let _ = evo_loop.step(());
+                    evo_loop
                 },
-                |mut harness| {
-                    let _ = harness.step(());
-                    harness
+                |mut evo_loop| {
+                    let _ = evo_loop.step(());
+                    evo_loop
                 },
                 criterion::BatchSize::SmallInput,
             );

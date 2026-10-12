@@ -16,9 +16,9 @@
 //! fitness vector, but co-evolutionary fitness is inherently paired — each
 //! population receives a vector computed relative to the other. Rather than
 //! distort that contract, co-evolution gets its own [`CoEvolutionaryAlgorithm`]
-//! trait and a dedicated [`CoEvolutionaryHarness`] that adapts to the existing
+//! trait and a dedicated [`CoEvolutionaryLoop`] that adapts to the existing
 //! `rlevo-core::evaluation::GenerationProbe` surface, exactly as
-//! [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) does. Both
+//! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) does. Both
 //! co-evolutionary algorithms are built from ordinary inner
 //! [`Strategy`](crate::strategy::Strategy) instances, so every phase-1/2/3a/3b
 //! algorithm composes in unchanged.
@@ -33,7 +33,7 @@
 //! # Coupling shape
 //!
 //! [`CoupledFitness`] takes a slice of populations and is N-population-ready;
-//! v1 algorithms always pass exactly two. The harness exposes
+//! v1 algorithms always pass exactly two. The loop exposes
 //! `min(best_a, best_b)` (canonical maximise) as the benchmark reward (the
 //! weaker population — lower canonical fitness — is the binding constraint).
 //!
@@ -56,7 +56,7 @@
 pub mod competitive;
 pub mod cooperative;
 pub mod fitness;
-pub mod harness;
+pub mod generation_loop;
 pub mod hof;
 
 pub use competitive::{CompetitiveCoEA, CompetitiveCoEAParams};
@@ -64,7 +64,7 @@ pub use cooperative::{
     CooperativeCoEA, CooperativeCoEAParams, CooperativeState, RepresentativePolicy,
 };
 pub use fitness::CoupledFitness;
-pub use harness::{CoEAMetrics, CoEvolutionaryHarness};
+pub use generation_loop::{CoEAMetrics, CoEvolutionaryLoop};
 pub use hof::{HallOfFame, HallOfFameFitness};
 
 use std::fmt::Debug;

@@ -2,7 +2,7 @@
 //! refactor (ADR 0023).
 //!
 //! These assertions read **user-space** `best_fitness_ever` directly from
-//! `EvolutionaryHarness::latest_metrics()` and are written to survive the
+//! `EvolutionaryLoop::latest_metrics()` and are written to survive the
 //! engine flip from minimise-native to maximise-native **unchanged**. A
 //! `Minimize` landscape must still report its natural cost (Sphere → 0)
 //! regardless of the engine's internal direction, so this file is the
@@ -14,7 +14,7 @@
 //! ObjectiveSense::Minimize)`); the convergence bounds below do not.
 //!
 //! Determinism: the Flex backend seeds through a process-global mutex, so
-//! these tests are single-threaded by construction (one harness per test,
+//! these tests are single-threaded by construction (one loop per test,
 //! driven serially) — no cross-thread seeding race.
 
 use burn::backend::Flex;
@@ -31,7 +31,7 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::fitness::FromLandscape;
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
@@ -39,18 +39,18 @@ const DIM: usize = 10;
 const MAX_GENS: usize = 120;
 const SEED: u64 = 17;
 
-/// Drives a harness to completion and returns the final user-space
+/// Drives a loop to completion and returns the final user-space
 /// `best_fitness_ever` (the natural cost for a `Minimize` landscape).
 fn run_to_best<S, L>(strategy: S, params: S::Params, landscape: L) -> f32
 where
     S: Strategy<B>,
     S::Params: rlevo_core::config::Validate,
     L: rlevo_core::fitness::Landscape + 'static,
-    EvolutionaryHarness<B, S, FromLandscape<L>>: Sized,
+    EvolutionaryLoop<B, S, FromLandscape<L>>: Sized,
     FromLandscape<L>: rlevo_evolution::fitness::BatchFitnessFn<B, S::Genome>,
 {
     let device = Default::default();
-    let mut harness = EvolutionaryHarness::<B, S, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<B, S, _>::new(
         strategy,
         params,
         FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
@@ -59,9 +59,9 @@ where
         MAX_GENS,
     )
     .expect("valid params");
-    harness.reset();
-    while !harness.step(()).done {}
-    harness
+    evo_loop.reset();
+    while !evo_loop.step(()).done {}
+    evo_loop
         .latest_metrics()
         .expect("at least one generation ran")
         .best_fitness_ever()

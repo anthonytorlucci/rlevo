@@ -105,7 +105,7 @@ pub struct SalpState<B: Backend> {
 ///
 /// [`Strategy::ask`] panics if called a second time without an intervening
 /// [`Strategy::tell`] — `state.best_genome` is `None` until the first
-/// `tell` populates it. Normal harness-driven usage prevents this: the
+/// `tell` populates it. Normal loop-driven usage prevents this: the
 /// first `ask` returns initial positions unevaluated, `tell` sets
 /// `best_genome`, and every subsequent `ask` finds it populated.
 ///
@@ -146,7 +146,7 @@ where
     /// using the host-RNG convention and sets the generation counter to zero.
     ///
     /// The `pop_size >= 2` invariant is enforced by [`Validate::validate`] at
-    /// the harness chokepoint.
+    /// the loop chokepoint.
     fn init(
         &self,
         params: &SalpConfig,
@@ -286,9 +286,9 @@ where
     ) -> (SalpState<B>, StrategyMetrics) {
         // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
         // correctness floor for a caller driving `ask`/`tell` directly instead of
-        // `EvolutionaryHarness::step`, which already sanitizes (the ADR 0034 decision-3 bypass
+        // `EvolutionaryLoop::step`, which already sanitizes (the ADR 0034 decision-3 bypass
         // hole): otherwise a raw NaN lands in the public `state.fitness` cache. `sanitize_fitness`
-        // is idempotent, so on the harness path this is a provable no-op — not redundant,
+        // is idempotent, so on the loop path this is a provable no-op — not redundant,
         // load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
@@ -331,7 +331,7 @@ where
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
-    use crate::strategy::EvolutionaryHarness;
+    use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -340,7 +340,7 @@ mod tests {
     type TestBackend = Flex;
 
     /// Distinct finite fitness with the maximum at index 0, for direct
-    /// (non-harness) `tell` calls. Finite, so it respects ADR 0034.
+    /// (non-loop) `tell` calls. Finite, so it respects ADR 0034.
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
     fn finite_fitness(
         n: usize,
@@ -383,13 +383,13 @@ mod tests {
         let strategy = SalpSwarm::<TestBackend>::new();
         let params = SalpConfig::default_for(40, 10);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 3, device, 600,
         )
         .expect("valid params");
-        harness.reset();
-        while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        evo_loop.reset();
+        while !evo_loop.step(()).done {}
+        let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-2, "SSA D10 best={best}");
     }
 
@@ -437,14 +437,14 @@ mod tests {
             let strategy = SalpSwarm::<TestBackend>::new();
             let params = SalpConfig::default_for(pop, 3);
             let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-            let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
                 strategy, params, fitness_fn, 0, device, 5,
             )
             .expect("valid params");
-            harness.reset();
-            while !harness.step(()).done {}
+            evo_loop.reset();
+            while !evo_loop.step(()).done {}
             assert!(
-                harness
+                evo_loop
                     .latest_metrics()
                     .unwrap()
                     .best_fitness_ever()
@@ -480,29 +480,28 @@ mod tests {
     }
 
     #[test]
-    fn zero_budget_harness_produces_no_metrics() {
-        // The harness *budget* (distinct from SalpConfig::max_generations) is
+    fn zero_budget_loop_produces_no_metrics() {
+        // The loop *budget* (distinct from SalpConfig::max_generations) is
         // zero: a well-behaved driver takes no step, so `latest_metrics` stays
         // None after `reset`.
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
         let params = SalpConfig::default_for(4, 3);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 0, device, 0,
-        )
-        .expect("valid params");
-        harness.reset();
-        assert!(harness.latest_metrics().is_none());
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 0)
+                .expect("valid params");
+        evo_loop.reset();
+        assert!(evo_loop.latest_metrics().is_none());
     }
 
     /// Cache hygiene (not a freeze): `tell` overwrites `state.fitness`
     /// wholesale every generation, so a `NaN` can never latch here. What this
     /// pins is the **store** — driving `init → ask → tell` directly, the
-    /// ADR-0034 decision-3 bypass of `EvolutionaryHarness::step`, must not
+    /// ADR-0034 decision-3 bypass of `EvolutionaryLoop::step`, must not
     /// leave a raw `NaN` in the public fitness cache a caller can read back.
     #[test]
-    fn nan_fitness_does_not_latch_without_harness() {
+    fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
         let params = SalpConfig::default_for(6, 3);
@@ -535,18 +534,17 @@ mod tests {
     }
 
     #[test]
-    fn unit_budget_harness_runs_exactly_one_generation() {
+    fn unit_budget_loop_runs_exactly_one_generation() {
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
         let params = SalpConfig::default_for(4, 3);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 0, device, 1,
-        )
-        .expect("valid params");
-        harness.reset();
-        assert!(harness.step(()).done);
-        assert_eq!(harness.generation(), 1);
-        assert!(harness.latest_metrics().is_some());
+        let mut evo_loop =
+            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 1)
+                .expect("valid params");
+        evo_loop.reset();
+        assert!(evo_loop.step(()).done);
+        assert_eq!(evo_loop.generation(), 1);
+        assert!(evo_loop.latest_metrics().is_some());
     }
 }

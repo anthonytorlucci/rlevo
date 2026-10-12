@@ -50,14 +50,14 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// The returned `Tensor<B, 1>` has shape `(pop_size,)` and is placed on
     /// `device`. Row order is preserved: `fitness[i]` corresponds to the
     /// individual at row `i` of `population`. Cost objectives return their
-    /// natural cost; the harness reconciles direction via [`sense`](Self::sense).
+    /// natural cost; the loop reconciles direction via [`sense`](Self::sense).
     ///
     /// The returned tensor **may contain `NaN` or `$\pm\infty$`** — implementors are not
     /// required to sanitize. The
-    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) canonicalizes
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) canonicalizes
     /// and then sanitizes (ADR 0034) before any [`Strategy::tell`](crate::strategy::Strategy::tell),
     /// so a non-finite fitness cannot poison selection or best-so-far tracking on
-    /// harness-driven runs.
+    /// loop-driven runs.
     fn evaluate_batch(
         &mut self,
         population: &G,
@@ -67,7 +67,7 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// The optimisation direction of this objective.
     ///
     /// This is the **single source of truth** the
-    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) reads to
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) reads to
     /// reconcile a cost objective into the engine's canonical (maximise) space.
     /// It is **required, with no default**, so a reward/accuracy objective
     /// cannot silently inherit the wrong direction by omission — declare it
@@ -423,7 +423,7 @@ pub(crate) fn sanitized_sum(values: impl IntoIterator<Item = f32>) -> f64 {
 ///
 /// Applies the same rule (`NaN` `$\to -\infty$`, `$+\infty$` `$\to$` `f32::MAX`, `$-\infty$` pass-through) to a
 /// whole fitness tensor without a device→host→device round-trip, so the
-/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) and the
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) and the
 /// coevolution coupled-fitness path can sanitize on the hot path (ADR 0034).
 ///
 /// Order matters: the `NaN` `$\to -\infty$` `mask_fill` runs first (so no `NaN` reaches the

@@ -3,7 +3,7 @@
 //!
 //! Pairs a [`WeightOnly`] strategy (any phase-1 `Strategy` evolving the
 //! weights of a Burn `Module`) with a [`RolloutFitness`] (environment-rollout
-//! scoring) inside an [`EvolutionaryHarness`], and exposes a small drive
+//! scoring) inside an [`EvolutionaryLoop`], and exposes a small drive
 //! surface (`reset` / `step` / `run` / `best`).
 
 use burn::module::Module;
@@ -12,7 +12,7 @@ use burn::tensor::{Tensor, backend::Backend};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::Environment;
 use rlevo_evolution::WeightOnly;
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};
 
 use crate::policy::StatefulPolicy;
 use crate::rollout_fitness::RolloutFitness;
@@ -33,7 +33,7 @@ where
     M: Module<B> + Sync + StatefulPolicy<B, E>,
     E: Environment<1, 1, 1> + Send,
 {
-    harness: EvolutionaryHarness<B, WeightOnly<B, S, M>, RolloutFitness<B, M, E>>,
+    evo_loop: EvolutionaryLoop<B, WeightOnly<B, S, M>, RolloutFitness<B, M, E>>,
 }
 
 impl<B, S, M, E> std::fmt::Debug for PolicyNeuroevolution<B, S, M, E>
@@ -45,7 +45,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PolicyNeuroevolution")
-            .field("harness", &self.harness)
+            .field("evo_loop", &self.evo_loop)
             .finish()
     }
 }
@@ -67,7 +67,7 @@ where
     /// # Errors
     ///
     /// Returns a [`ConfigError`] when `params` fails [`Validate::validate`] at
-    /// the underlying [`EvolutionaryHarness`] chokepoint.
+    /// the underlying [`EvolutionaryLoop`] chokepoint.
     pub fn new(
         inner: S,
         params: S::Params,
@@ -88,14 +88,14 @@ where
         // mismatch would surface as the documented width-mismatch panic in
         // `evaluate_batch`.
         let strategy = WeightOnly::new(inner, template);
-        let harness =
-            EvolutionaryHarness::new(strategy, params, fitness, seed, device, max_generations)?;
-        Ok(Self { harness })
+        let evo_loop =
+            EvolutionaryLoop::new(strategy, params, fitness, seed, device, max_generations)?;
+        Ok(Self { evo_loop })
     }
 
     /// Reset to a fresh initial population.
     pub fn reset(&mut self) {
-        self.harness.reset();
+        self.evo_loop.reset();
     }
 
     /// Run one generation (ask → rollout-evaluate → tell). Returns `true` when
@@ -105,30 +105,30 @@ where
     ///
     /// Panics if [`reset`](Self::reset) has not been called first.
     pub fn step(&mut self) -> bool {
-        self.harness.step(()).done
+        self.evo_loop.step(()).done
     }
 
     /// Reset and run to the configured generation budget.
     pub fn run(&mut self) {
-        self.harness.reset();
-        while !self.harness.step(()).done {}
+        self.evo_loop.reset();
+        while !self.evo_loop.step(()).done {}
     }
 
     /// Best `(genome, fitness)` found so far, if any.
     #[must_use]
     pub fn best(&self) -> Option<(Tensor<B, 2>, f32)> {
-        self.harness.best()
+        self.evo_loop.best()
     }
 
     /// Metrics for the most recent generation.
     #[must_use]
     pub fn latest_metrics(&self) -> Option<&StrategyMetrics> {
-        self.harness.latest_metrics()
+        self.evo_loop.latest_metrics()
     }
 
     /// Completed-generation count.
     #[must_use]
     pub fn generation(&self) -> usize {
-        self.harness.generation()
+        self.evo_loop.generation()
     }
 }

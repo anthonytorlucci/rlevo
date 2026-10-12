@@ -9,7 +9,7 @@
 //! # Surface area
 //!
 //! - [`strategy`] — the central [`Strategy`] trait and
-//!   the [`EvolutionaryHarness`] adapter that
+//!   the [`EvolutionaryLoop`] adapter that
 //!   wraps any strategy into `rlevo-core::evaluation::GenerationProbe`.
 //! - [`function_set`] — the shared [`FunctionSet`] opcode contract (and the
 //!   default [`ArithmeticFunctionSet`]) used by both Cartesian GP and Gene
@@ -41,7 +41,7 @@
 //! - [`coevolution`] — competitive / cooperative co-evolution
 //!   ([`CompetitiveCoEA`], [`CooperativeCoEA`]), the [`CoupledFitness`] trait,
 //!   the [`HallOfFameFitness`] cycling mitigation, and the
-//!   [`CoEvolutionaryHarness`] `GenerationProbe` adapter.
+//!   [`CoEvolutionaryLoop`] `GenerationProbe` adapter.
 //! - [`algorithms`] — concrete strategies.
 
 pub mod algorithms;
@@ -75,7 +75,7 @@ pub use algorithms::neuroevolution::{
     VariantEvaluator, WeightOnly,
 };
 pub use coevolution::{
-    CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryHarness, CompetitiveCoEA,
+    CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryLoop, CompetitiveCoEA,
     CompetitiveCoEAParams, CooperativeCoEA, CooperativeCoEAParams, CooperativeState,
     CoupledFitness, HallOfFame, HallOfFameFitness, RepresentativePolicy,
 };
@@ -93,4 +93,4 @@ pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;
 pub use rlevo_core::evaluation::GenerationProbe;
 pub use shaping::ShapingError;
-pub use strategy::{EvolutionaryHarness, GenerationStep, Strategy, StrategyMetrics};
+pub use strategy::{EvolutionaryLoop, GenerationStep, Strategy, StrategyMetrics};
