@@ -8,9 +8,12 @@
 //!
 //! # Surface area
 //!
-//! - [`strategy`] — the central [`Strategy`] trait and
-//!   the [`EvolutionaryLoop`] adapter that
-//!   wraps any strategy into `rlevo-core::evaluation::GenerationProbe`.
+//! - [`strategy`] — the central [`Strategy`] trait, and
+//!   [`EvolutionaryLoop`], which holds a run's state and drives a strategy
+//!   with `reset`, `step` and `is_done`.
+//! - [`probe`] — how the evaluation harness drives a loop, through
+//!   `rlevo-core::evaluation::GenerationProbe`, and how that is built from
+//!   the three calls above.
 //! - [`function_set`] — the shared [`FunctionSet`] opcode contract (and the
 //!   default [`ArithmeticFunctionSet`]) used by both Cartesian GP and Gene
 //!   Expression Programming.
@@ -40,8 +43,9 @@
 //!   estimation-of-distribution (EDA) strategies.
 //! - [`coevolution`] — competitive / cooperative co-evolution
 //!   ([`CompetitiveCoEA`], [`CooperativeCoEA`]), the [`CoupledFitness`] trait,
-//!   the [`HallOfFameFitness`] cycling mitigation, and the
-//!   [`CoEvolutionaryLoop`] `GenerationProbe` adapter.
+//!   the [`HallOfFameFitness`] cycling mitigation, and
+//!   [`CoEvolutionaryLoop`], which drives one as [`EvolutionaryLoop`] drives
+//!   a strategy.
 //! - [`algorithms`] — concrete strategies.
 
 pub mod algorithms;
@@ -93,4 +97,4 @@ pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;
 pub use rlevo_core::evaluation::GenerationProbe;
 pub use shaping::ShapingError;
-pub use strategy::{EvolutionaryLoop, GenerationStep, Strategy, StrategyMetrics};
+pub use strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};

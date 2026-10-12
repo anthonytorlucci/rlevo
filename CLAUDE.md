@@ -17,6 +17,7 @@ patterns.
 |-----|---------|
 | [`docs/rules.md`](docs/rules.md) | Hard constraints and conventions — **read before implementing anything** |
 | [`docs/adr/`](docs/adr/) | Immutable architectural decision records ([annotated index](docs/adr/README.md)) |
+| [`docs/ask-tell-contract.md`](docs/ask-tell-contract.md) | How an evolutionary run is driven: the ask/tell protocol, `EvolutionaryLoop`, and many seeds through `rlevo::harness` |
 
 ## Constraints
 
@@ -141,6 +142,9 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 - `crates/rlevo-core/src/base.rs`: Reward, TensorConvertible, transition dynamics
 - `crates/rlevo-reinforcement-learning/src/replay/`: RL replay-strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`) — moved out of core in ADR 0003, reshaped as a strategy seam in ADR 0050
 - `crates/rlevo-reinforcement-learning/src/metrics.rs`: `AgentStats`, `PerformanceRecord` — RL-only episode tracking
+- `crates/rlevo-evolution/src/strategy.rs`: `Strategy`, the stateless ask/tell contract, and `EvolutionaryLoop`, which holds a run's state and drives one with `reset()` / `step()` / `is_done()`. `step()` returns nothing; the status is the separate predicate (ADR 0085). For a `Strategy`, the loop is where a `Minimize` objective is negated and fitness is sanitised
+- `crates/rlevo-core/src/evaluation.rs`: `GenerationProbe` (`begin` / `advance`), the seam the evaluation harness drives a generation loop through
+- `crates/rlevo-evolution/src/probe.rs`: the `GenerationProbe` impls for the two loops, built from the three calls above, and the recipe a new driver follows. A run is driven by hand or by the harness; the harness resets the loop itself
 
 ### Example Reference Implementations
 - `crates/rlevo-environments/src/classic/bandit/k_armed.rs`: Complete environment example with extensive tests

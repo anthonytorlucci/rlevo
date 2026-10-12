@@ -926,11 +926,8 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        loop {
-            let step = evo_loop.step(());
-            if step.done {
-                break;
-            }
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
         evo_loop.latest_metrics().unwrap().best_fitness_ever()
     }

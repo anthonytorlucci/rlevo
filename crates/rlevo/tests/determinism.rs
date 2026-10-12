@@ -59,12 +59,9 @@ where
     .expect("valid params");
     evo_loop.reset();
     let mut trajectory = Vec::with_capacity(GENS);
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
     }
     trajectory
 }

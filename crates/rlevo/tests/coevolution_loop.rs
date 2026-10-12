@@ -156,7 +156,7 @@ fn coevolutionary_loop_runs_through_evaluator() {
             "the loop's counter agrees with the trial's own count"
         );
 
-        // The binding fitness is the canonical reward the loop reports.
+        // The binding fitness is the canonical value the loop reports.
         let binding = trial.scalars["coea/binding_fitness"];
         assert!(
             binding.is_finite(),

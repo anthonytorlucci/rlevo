@@ -31,7 +31,7 @@
 //!
 //! That box is asymmetric. [`bounds`](Trefethen::bounds) returns a single
 //! `(lo, hi)` pair applied per-coordinate (the consuming renderer and search
-//! harnesses use one box for every axis), so it returns the *square hull*
+//! loops use one box for every axis), so it returns the *square hull*
 //! `(-6.5, 6.5)` of that box — the smallest symmetric square containing the full
 //! benchmark domain and the optimum `$(-0.024403, 0.210612)$` on both axes.
 //! The evaluator never clamps.
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn bounds_box_contains_optimum_on_both_axes() {
         // The single `(lo, hi)` pair is applied per-coordinate, so the optimum
-        // must lie inside [lo, hi] on BOTH axes for search harnesses to be able
+        // must lie inside [lo, hi] on BOTH axes for search loops to be able
         // to reach it (obligation O1 — reachability).
         let (lo, hi) = Trefethen::new().bounds();
         assert!(lo <= X_OPT.0 && X_OPT.0 <= hi, "x1 optimum outside bounds");

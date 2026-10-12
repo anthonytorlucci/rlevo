@@ -12,7 +12,7 @@
 //!
 //! The published domain is asymmetric: `$x_1 \in [-5, 10]$`, `$x_2 \in [0, 15]$`.
 //! [`bounds`](Branin::bounds) returns a single `(lo, hi)` pair applied
-//! per-coordinate (the consuming renderer and every search harness hold one
+//! per-coordinate (the consuming renderer and every search loop hold one
 //! scalar box and apply it to every axis), so it returns the *square hull*
 //! `(-5.0, 15.0)` of that asymmetric domain — the smallest square containing
 //! both `[-5, 10]` and `[0, 15]`.
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn bounds_box_contains_all_optima_on_both_axes() {
         // O1 — reachability. The single `(lo, hi)` pair is applied per-coordinate, so EVERY
-        // certified minimum must lie inside [lo, hi] on BOTH axes for a search harness to be able
+        // certified minimum must lie inside [lo, hi] on BOTH axes for a search loop to be able
         // to reach it. The historical `(-5.0, 10.0)` box failed here: `$(-\pi, 12.275)$` has
         // `$x_2 = 12.275 > 10$`.
         let (lo, hi) = Branin::new().bounds();

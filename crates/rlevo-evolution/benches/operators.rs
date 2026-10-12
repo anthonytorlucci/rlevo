@@ -81,11 +81,11 @@ fn bench_de_generation(c: &mut Criterion) {
                     evo_loop.reset();
                     // Warm up: run one generation so init costs are
                     // outside the measurement window.
-                    let _ = evo_loop.step(());
+                    evo_loop.step();
                     evo_loop
                 },
                 |mut evo_loop| {
-                    let _ = evo_loop.step(());
+                    evo_loop.step();
                     evo_loop
                 },
                 criterion::BatchSize::SmallInput,

@@ -661,10 +661,8 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        loop {
-            if evo_loop.step(()).done {
-                break;
-            }
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
         let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(
@@ -674,7 +672,7 @@ mod tests {
     }
 
     /// Direct-`tell` companion to `nan_fitness_never_becomes_best`, which drives
-    /// the *loop* path (ADR 0034 decision 3, `rules.md` §3).
+    /// the *loop* path (ADR 0034 decision 3, `rules.md` section 3).
     /// `EvolutionaryLoop::step` sanitizes fitness before `tell`, but a direct
     /// caller does not, so a raw `NaN` can arrive at index 0. Seeding the
     /// `update_best` scan with `fitness[0]` and comparing with `>` made every
@@ -838,10 +836,8 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        loop {
-            if evo_loop.step(()).done {
-                break;
-            }
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
         let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-2, "EP Sphere-D2 best={best}");
@@ -862,10 +858,8 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        loop {
-            if evo_loop.step(()).done {
-                break;
-            }
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
         let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-4, "EP Sphere-D10 best={best}");

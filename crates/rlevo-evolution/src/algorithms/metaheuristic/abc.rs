@@ -682,7 +682,9 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        while !evo_loop.step(()).done {}
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-4, "ABC D10 best={best}");
     }
@@ -751,7 +753,9 @@ mod tests {
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 5, device, 8)
                 .expect("valid params");
         evo_loop.reset();
-        while !evo_loop.step(()).done {}
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         assert!(
             evo_loop
                 .latest_metrics()
@@ -774,7 +778,9 @@ mod tests {
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 8, device, 8)
                 .expect("valid params");
         evo_loop.reset();
-        while !evo_loop.step(()).done {}
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         assert!(
             evo_loop
                 .latest_metrics()
@@ -852,7 +858,9 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        while !evo_loop.step(()).done {}
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever().is_finite(),

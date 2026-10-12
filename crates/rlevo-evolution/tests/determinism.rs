@@ -79,12 +79,9 @@ where
     .expect("valid params");
     evo_loop.reset();
     let mut trajectory = Vec::with_capacity(gens);
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
     }
     trajectory
 }
@@ -141,12 +138,9 @@ fn run_binary_ga(seed: u64, gens: usize) -> Vec<f32> {
     .expect("valid params");
     evo_loop.reset();
     let mut trajectory = Vec::with_capacity(gens);
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
     }
     trajectory
 }
@@ -250,12 +244,9 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
     .expect("valid params");
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
     }
     trajectory
 }
@@ -293,12 +284,9 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
     .expect("valid params");
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         trajectory.push(evo_loop.latest_metrics().unwrap().best_fitness());
-        if step.done {
-            break;
-        }
     }
     trajectory
 }

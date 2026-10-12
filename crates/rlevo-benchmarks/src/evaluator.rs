@@ -505,6 +505,22 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// calls `begin` once, then `advance` until the probe reports exhaustion,
 /// and reports the final unit's metrics plus a generation count.
 ///
+/// # The cap
+///
+/// The trial stops when the probe returns `None` or after
+/// [`EvaluatorConfig::max_steps`] calls to `advance`, whichever comes first.
+/// The cap is a backstop against a probe that never returns `None`, and it
+/// ends the trial without an error or a warning. `max_steps` defaults to
+/// 1000, so a probe with a larger budget is cut short unless `max_steps` is
+/// raised to at least that budget. The `generations` scalar in the report is
+/// the number of generations that ran.
+///
+/// # What a probe must be
+///
+/// `P::Metrics` implements [`MetricsProvider`], and `P` is `Send`, because
+/// trials run on a thread pool. [`Evaluator::run_trials`] builds one trial
+/// per seed from a closure, so each trial owns its own probe.
+///
 /// # Why no episodes
 ///
 /// [`TrialReport::episodes`] is left **empty**, deliberately. A probe re-seeds

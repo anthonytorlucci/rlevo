@@ -240,13 +240,13 @@ where
     /// fitness (see the chokepoint in [`step`](Self::step) and ADR 0023 / 0034).
     /// This projection maps the four display fields back into the objective's
     /// **natural** sense via [`from_canonical`](ObjectiveSense::from_canonical),
-    /// while `binding_fitness` — the harness reward — is kept in canonical space.
+    /// while `binding_fitness` is kept in canonical space.
     /// Means are averaged over the finite members only, so a broken individual
     /// cannot emit a `NaN` mean.
     fn snapshot(&self, state: &CooperativeState<SA::State, SB::State, B>) -> CoEAMetrics {
         let sizes = self.fitness.archive_sizes();
         let sense = self.fitness.sense();
-        // `binding_fitness` (harness reward) stays in canonical space — compute
+        // `binding_fitness` stays in canonical space — compute
         // it before mapping the display fields to natural sense.
         let binding = state.base.best_a.min(state.base.best_b);
         CoEAMetrics {

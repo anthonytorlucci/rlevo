@@ -41,9 +41,32 @@
 /// The budget lives in the probe, which already owns it. A separate `done`
 /// boolean invites a second, unenforced copy of the same number in the
 /// driver's configuration — which is exactly what `rlevo-benchmarks`'
-/// `EvaluatorConfig::max_steps` is today, hand-synced against the harness's
+/// `EvaluatorConfig::max_steps` is today, hand-synced against the loop's
 /// own `max_generations` at every call site. `Option` makes the exhausted
 /// state unrepresentable as anything else.
+///
+/// An implementor may still answer the question itself. The evolutionary
+/// loops in `rlevo-evolution` have an inherent `is_done()` beside their
+/// `step()`, for a caller who drives one by hand, and their `advance` is that
+/// check followed by one step. What this trait avoids is a flag the *driver*
+/// must keep in step with the probe: the consumer needs no copy of the
+/// budget to know when to stop.
+///
+/// (The evaluator still holds `max_steps` as a backstop against a probe that
+/// never returns `None`, and stops there without a warning. Set it at least
+/// as large as the probe's budget.)
+///
+/// # Who calls this, and who implements it
+///
+/// An evaluator calls it, not a person. A user who wants one run drives the
+/// loop's own methods; a user who wants many seeded trials and a report gives
+/// an evaluator a loop per trial, and the evaluator calls `begin` and
+/// `advance` for them.
+///
+/// Implement it for a generation loop of your own that an evaluator should
+/// run. `rlevo-evolution`'s `probe` module has the recipe and two worked
+/// impls: `begin` is the loop's reset, and `advance` is its budget check,
+/// then one step, then that step's metrics.
 pub trait GenerationProbe {
     /// Typed per-unit metrics this probe reports.
     type Metrics;

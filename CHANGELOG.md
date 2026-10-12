@@ -108,6 +108,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `rlevo_environments::bench::family`. `record` no longer implies a second
   feature and is now the only one under which `rlevo-environments` depends
   on `rlevo-benchmarks`.
+- **`EvolutionaryHarness` is renamed `EvolutionaryLoop` and
+  `CoEvolutionaryHarness` is renamed `CoEvolutionaryLoop`** (ADR 0085), in
+  `rlevo-evolution` and so under `rlevo::evo`. "Harness" now names the
+  evaluation harness, `rlevo::harness`, and nothing else. No deprecated
+  alias is kept. Constructors, type parameters and every method but `step`
+  are unchanged.
+- **`step` takes no argument and returns nothing, and `is_done()` is a
+  method of its own**, on both loops and on
+  `rlevo_hybrid::PolicyNeuroevolution` (ADR 0085). `GenerationStep` is
+  removed. `while !harness.step(()).done {}` becomes
+
+  ```rust
+  while !evo_loop.is_done() {
+      evo_loop.step();
+  }
+  ```
+
+  and `if harness.step(()).done { break; }` becomes
+  `evo_loop.step(); if evo_loop.is_done() { break; }`. The loop now asks
+  before it runs, so a budget of zero runs no generation where the old
+  `while` form ran one. `step` itself does not consult the budget: called
+  when `is_done()` is `true`, it runs one more generation, as before.
+
+  The `reward` field has no replacement on the loop. On `EvolutionaryLoop`
+  it was the *canonical* best so far; `latest_metrics().best_fitness_ever()`
+  is the same quantity in the objective's declared sense, so for a
+  `Minimize` objective the old `reward` is the new value negated. On
+  `CoEvolutionaryLoop` it was `CoEAMetrics::binding_fitness`, which is
+  unchanged and still canonical.
+- **The module `rlevo_evolution::coevolution::harness` is renamed
+  `coevolution::generation_loop`.** `CoEAMetrics` and `CoEvolutionaryLoop`
+  are re-exported from `rlevo_evolution::coevolution` as before, so only a
+  path that named the module changes.
 
 ### `rlevo`
 
@@ -189,10 +222,51 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   its evaluation, in its own file, and the file of forwarding impls is
   gone. `bench` still gates the preset `Suite` factories.
 
+### `rlevo-evolution`
+
+**Added**
+
+- **`EvolutionaryLoop::is_done` and `CoEvolutionaryLoop::is_done`**: whether
+  the generation budget is spent. They replace the `done` field of the
+  removed `GenerationStep`, and `GenerationProbe::advance` is now this
+  check followed by one `step`.
+- **Documentation of how a loop is driven and why.** `EvolutionaryLoop`'s
+  type docs give the three calls, the six things one `step` does and the
+  reason `step` reports no status. `rlevo_evolution::probe` shows driving a
+  loop by hand beside handing it to `rlevo::harness`.
+
+**Fixed**
+
+- **The documentation described a `reward` the evaluator no longer read.**
+  The loop's type docs, the crate README and the co-evolution module docs
+  said each `step` hands a reward to the benchmark evaluator. It has read
+  typed metrics through `GenerationProbe::advance` since `BenchEnv` was
+  removed. `rlevo_evolution::probe`'s module docs now show the two ways to
+  drive a loop side by side.
+- **The README's and the objective-adapter guide's examples read
+  `best_fitness_ever` as a field.** It is an accessor,
+  `best_fitness_ever()`; `StrategyMetrics`'s fields are private.
+- **The ask/tell guide said the loop stops early and evaluates in
+  parallel.** It does neither: it stops at `max_generations` and calls the
+  fitness function once per generation. The guide now lists what it does
+  add.
+- **The ask/tell guide's hand-written loop optimised the wrong way.** It
+  passed the Sphere cost to `Strategy::tell` without negating it, and a
+  strategy maximises, so the printed "best" rose from 121.06 to 209.72,
+  the worst corner of the domain (the guide's own configuration: a default
+  genetic algorithm, population 64, dimension 8, seed 42, 300 generations,
+  `Flex`). It also used `gen` as a variable name, which is reserved in the
+  2024 edition. The example now negates the cost and says why, and
+  descends to 0.11.
+
 ### `rlevo-hybrid`
 
 **Changed**
 
+- **`PolicyNeuroevolution::step` returns nothing, and
+  `PolicyNeuroevolution::is_done` is added** (ADR 0085), following the loop
+  it wraps. `step` used to return `bool`, `true` once the generation budget
+  was spent; ask `is_done()` instead. `run` is unchanged.
 - **`rlevo-hybrid` no longer depends on `rlevo-reinforcement-learning`.**
   No file in the crate used it: the three modules that ship
   (`RolloutFitness`, `PolicyNeuroevolution`, `StatefulPolicy`) are built on

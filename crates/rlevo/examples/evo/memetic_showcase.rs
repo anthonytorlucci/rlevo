@@ -138,16 +138,13 @@ where
     .expect("valid params");
     evo_loop.reset();
     let mut crossings: [Option<usize>; TARGETS.len()] = [None; TARGETS.len()];
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         let best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         for (slot, &target) in crossings.iter_mut().zip(TARGETS.iter()) {
             if slot.is_none() && best < target {
                 *slot = Some(evals.load(Ordering::Relaxed));
             }
-        }
-        if step.done {
-            break;
         }
     }
     let final_best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();

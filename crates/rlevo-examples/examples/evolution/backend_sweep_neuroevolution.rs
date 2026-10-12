@@ -261,13 +261,11 @@ fn run<B: Backend>(cfg: &SweepConfig) -> (f32, Duration) {
     evo_loop.reset();
 
     let start = Instant::now();
-    loop {
+    while !evo_loop.is_done() {
         // Each step scores the population on-device and reads fitness back to
         // host for selection, so device work is synced every generation and the
         // timer reflects real completed compute.
-        if evo_loop.step(()).done {
-            break;
-        }
+        evo_loop.step();
     }
     let elapsed = start.elapsed();
 

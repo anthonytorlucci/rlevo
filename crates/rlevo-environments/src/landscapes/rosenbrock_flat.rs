@@ -223,7 +223,7 @@ mod tests {
     fn bounds_box_contains_optimum() {
         // O1 — reachability. The single `(lo, hi)` pair is applied per-coordinate,
         // so the optimum (1,…,1) must lie inside [lo, hi] on EVERY axis, or no
-        // search harness could reach it. The cited reduced range [-30, 30] holds
+        // search loop could reach it. The cited reduced range [-30, 30] holds
         // it with room to spare.
         let r = RosenbrockFlat::new(6).expect("dim >= 2");
         let (lo, hi) = r.bounds();

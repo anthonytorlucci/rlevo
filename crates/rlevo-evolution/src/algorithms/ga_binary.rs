@@ -516,10 +516,8 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        loop {
-            if evo_loop.step(()).done {
-                break;
-            }
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
         let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         // OneMax optimum: all ones → fitness == D.
@@ -636,7 +634,7 @@ mod tests {
     }
 
     /// Direct-`tell` regression for the `update_best` scan (ADR 0034 decision 3,
-    /// `rules.md` §3). `EvolutionaryLoop::step` sanitizes fitness before
+    /// `rules.md` section 3). `EvolutionaryLoop::step` sanitizes fitness before
     /// `tell`, but a direct caller does not, so a raw `NaN` can arrive at index
     /// 0. Seeding the scan with `fitness[0]` and comparing with `>` made every
     /// comparison against that `NaN` false, so the champion write was skipped

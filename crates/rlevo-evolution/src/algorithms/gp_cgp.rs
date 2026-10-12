@@ -934,10 +934,8 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        loop {
-            if evo_loop.step(()).done {
-                break;
-            }
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
         let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         // CGP should substantially beat the random-genome baseline.

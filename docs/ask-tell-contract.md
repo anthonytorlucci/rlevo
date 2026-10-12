@@ -1,14 +1,15 @@
 # The Ask/Tell Contract
 
-Every evolutionary `Strategy` in `rlevo` — and the `EvolutionaryLoop` that
-drives it in the guided tour's function-optimisation walkthrough (a `Landscape`
-scored by a `Strategy`, driven generation-by-generation by that loop, on the
-sphere function) — speaks a single protocol: **ask/tell**. The guided tour uses
-the loop, which hides the protocol; this page opens it up. Reach for it when
-you need to:
+Every evolutionary `Strategy` in `rlevo` speaks a single protocol:
+**ask/tell**. Most programs never write it out, because `EvolutionaryLoop`
+drives it for them. This page opens the protocol up, then shows the same run
+through `EvolutionaryLoop` and through the evaluation harness, and says when
+each is the right tool. Read it when you need to:
 
-- add custom logging or early stopping,
-- combine evolution with RL (where the loop is more complex), or
+- understand what one generation is, and what `EvolutionaryLoop` does on your
+  behalf,
+- write the loop yourself, because your evaluation cannot run inside one
+  synchronous call or because you are combining evolution with RL, or
 - understand exactly why a run is — or isn't — reproducible.
 
 ## The contract
@@ -111,8 +112,10 @@ setting changes the contract rather than just the syntax:
   genuinely optimal individual still ranks top, but stays finite). The fitness
   a `tell` driven by `EvolutionaryLoop` receives is therefore always finite or $-\infty$ — never a
   `NaN` or $+\infty$. Drive a strategy directly, bypassing the loop, and you lose
-  that guarantee — sanitise at your own comparison sites with `sanitize_fitness`
-  / `sanitize_fitness_tensor` (`rlevo-evolution::fitness`).
+  that guarantee. You then do both jobs yourself before `tell`, in this order:
+  negate a `Minimize` objective, then replace `NaN` with `f32::NEG_INFINITY`
+  and $+\infty$ with `f32::MAX`. The order matters: sanitise first and negate
+  second, and a `NaN` cost becomes the best individual in the population.
 - **Randomness is a host stream, not a threaded key.** evosax splits and threads
   explicit JAX `PRNGKey`s. `rlevo` passes `&mut dyn Rng` and derives every draw
   from a single host `seed_stream` (below) — different plumbing for the same
@@ -121,29 +124,34 @@ setting changes the contract rather than just the syntax:
 ## Sequence diagram
 
 ```text
-   your code          Strategy              Landscape / Env
-       │                  │                       │
-       │──── ask() ──────►│                       │
-       │◄── population ───│                       │
-       │                  │                       │
-       │──── evaluate(x) ─────────────────────────►│
-       │◄──── f(x) ────────────────────────────────│
-       │  (for each x)                             │
-       │                  │                       │
-       │──── tell(pop, fitnesses) ────────────────►│  (no-op on env)
-       │                  │◄── update internal ───│
-       │                  │    state              │
-       │  (repeat)        │                       │
+   your code                          Strategy                 fitness function
+       │                                  │                           │
+       │── init(params, rng) ────────────►│                           │
+       │◄── state ────────────────────────│                           │
+       │                                  │                           │
+       │── ask(params, &state, rng) ─────►│                           │  ┐
+       │◄── population, state ────────────│                           │  │
+       │                                                              │  │ one
+       │── evaluate_batch(&population) ──────────────────────────────►│  │ generation
+       │◄── fitness ──────────────────────────────────────────────────│  │
+       │                                  │                           │  │
+       │── tell(params, population, ─────►│                           │  │
+       │        fitness, state, rng)      │                           │  │
+       │◄── state, metrics ───────────────│                           │  ┘
+       │
+       │  (repeat from ask)
 ```
+
+The state travels in the arguments and the returns. Nothing is kept on the
+strategy between calls, which is why something else has to hold it: your own
+loop in the next section, or `EvolutionaryLoop` in the one after.
 
 ## Writing the loop yourself
 
-Here is the GA sphere run from the guided tour's function-optimisation
-walkthrough, rewritten without `EvolutionaryLoop`. We reuse that chapter's `Sphere`
-`Landscape`;
-`FromLandscape` adapts it into the `BatchFitnessFn` the strategy expects — a
-function that takes the whole population at once and returns a `Tensor<B, 1>` of
-per-individual costs:
+Here is a genetic algorithm minimising the Sphere function, written without
+`EvolutionaryLoop`. `Sphere` is a shipped `Landscape`; `FromLandscape` adapts it
+into the `BatchFitnessFn` the strategy expects — a function that takes the
+whole population at once and returns a `Tensor<B, 1>` of per-individual costs:
 
 ```rust,no_run
 use burn::backend::Flex;
@@ -165,20 +173,27 @@ fn main() {
     // init builds the first state and samples the initial population.
     let mut state = strategy.init(&params, &mut rng, &device);
 
-    for gen in 0..300 {
+    for generation in 0..300 {
         // 1. Ask: propose the next population and the state that goes with it.
         let (population, next_state) = strategy.ask(&params, &state, &mut rng, &device);
 
-        // 2. Evaluate — this is your code. Returns a Tensor<B, 1> of (pop_size,).
-        let fitness = fitness_fn.evaluate_batch(&population, &device);
+        // 2. Evaluate — this is your code. Returns a Tensor<B, 1> of (pop_size,):
+        //    here, each individual's Sphere cost.
+        let cost = fitness_fn.evaluate_batch(&population, &device);
 
-        // 3. Tell: hand back the same population and its fitness; get the next
+        // 3. Canonicalise. A strategy maximises, and Sphere is a cost, so negate
+        //    it. Leave this out and the GA climbs to the worst corner of the
+        //    domain instead of descending to the origin.
+        let fitness = cost.neg();
+
+        // 4. Tell: hand back the same population and its fitness; get the next
         //    state plus a metrics snapshot for this generation.
         let (new_state, metrics) = strategy.tell(&params, population, fitness, next_state, &mut rng);
         state = new_state;
 
-        if gen % 25 == 0 {
-            println!("gen {:>4}   best = {:.3e}", gen, metrics.best_fitness_ever());
+        if generation % 25 == 0 {
+            // `metrics` is in the space `tell` saw, so negate again to read a cost.
+            println!("gen {:>4}   best cost = {:.3e}", generation, -metrics.best_fitness_ever());
         }
     }
 }
@@ -192,7 +207,13 @@ fn main() {
 A few things worth pointing out:
 
 - **`init` then `ask`/`tell` in a loop.** `init` does the work `EvolutionaryLoop`'s
-  `reset()` does; the body of the loop is exactly what one `EvolutionaryLoop::step()` does.
+  `reset()` does, and the body of the loop is what one `EvolutionaryLoop::step()`
+  does.
+- **The direction is yours here.** Step 3 is the line a hand-written loop most
+  easily forgets, and nothing fails when it is missing: the run completes and
+  optimises the wrong way. `EvolutionaryLoop` reads the direction from the
+  fitness function and does it for you. It also sanitises non-finite fitness,
+  which this example leaves out because Sphere returns none.
 - **State threads through the returns.** `ask` hands you `next_state`, which you
   pass straight into `tell`; `tell` hands you `new_state`, which becomes the
   `state` for the next iteration. Nothing is stored on the strategy.
@@ -242,41 +263,210 @@ The host-RNG convention (all randomness through `seed_stream`, never via
 > the `tests/determinism.rs` and `tests/rastrigin_run_suite.rs` integration tests do
 > exactly this.
 
-## What `EvolutionaryLoop` adds
+## The same run with `EvolutionaryLoop`
 
-`EvolutionaryLoop` wraps the above loop with:
+The hand-written loop above keeps four things alive between calls: the
+strategy's state, the RNG, the fitness function and the generation count.
+`EvolutionaryLoop` owns all four and reduces the run to three calls:
+
+```rust,no_run
+use burn::backend::Flex;
+use rlevo::envs::landscapes::sphere::Sphere;
+use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
+use rlevo::evo::fitness::FromLandscape;
+use rlevo::evo::strategy::EvolutionaryLoop;
+
+type B = Flex;
+
+let device = Default::default();
+let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
+    GeneticAlgorithm::<B>::new(),
+    GaConfig::default_for(/* pop = */ 64, /* dim = */ 8),
+    FromLandscape::new(Sphere::new(8).expect("dim >= 1")),
+    /* seed = */ 42,
+    device,
+    /* max_generations = */ 300,
+)
+.expect("valid config");
+
+evo_loop.reset();
+while !evo_loop.is_done() {
+    evo_loop.step();
+}
+let metrics = evo_loop.latest_metrics().expect("a generation has run");
+println!("best = {:.3e}", metrics.best_fitness_ever());
+```
+
+From the same seed this follows the same trajectory as the hand-written loop
+above, generation for generation. It is the same sequence of calls:
+
+| Call | What it does | In the hand-written loop |
+|---|---|---|
+| `reset()` | seeds the RNG, zeroes the generation count, builds the first state | `StdRng::seed_from_u64(42)` and `strategy.init(..)` |
+| `step()` | one generation: ask, score, negate the cost, sanitise, tell | the body of the `for` loop |
+| `is_done()` | whether `max_generations` generations have run | the `0..300` range |
+
+**Why `step()` returns nothing.** Advancing a run and asking whether it is over
+are two calls on purpose. A `step()` that returned a flag would be written
+`while !evo_loop.step() {}`, and the reader would have to remember which way the
+flag points. With the question separate, the loop reads as what it does, and it
+asks *before* it runs, so a budget of zero runs no generation. `is_done()` is
+also the word `rlevo` uses to end an episode (`Snapshot::is_done()`), so both
+kinds of run stop on the same question.
+
+**The budget is advisory to `step()`.** `is_done()` turns `true` when the budget
+is spent; it is your loop that stops there. `step()` runs a generation every
+time it is called. That is deliberate. A `step()` that refused would have to
+either do nothing, which hides a mistake behind a run that looks complete, or
+panic, which forbids carrying a run on a little longer when you mean to.
+`is_done()` reports the budget and nothing else: it does not say the search has
+converged.
+
+**`reset()` is a call of its own.** `new` only checks the configuration and
+stores the parts. `reset()` builds the first state, and it is also how a run is
+replayed: call it again and the same seed produces the same run. Skip it and the
+first `step()` panics. The seed is fixed at `new`, so a different seed means a
+new loop, not another `reset()`.
+
+**Stopping on your own condition.** The loop stops on nothing but the budget.
+There is no early stopping built in. Read the metrics after a step and leave:
+
+```rust,ignore
+while !evo_loop.is_done() {
+    evo_loop.step();
+    let metrics = evo_loop.latest_metrics().expect("a generation has run");
+    if metrics.best_fitness_ever() < 1e-6 {
+        break;
+    }
+}
+```
+
+### What it adds to the hand-written loop
 
 - **Direction and hygiene** — the `ObjectiveSense` reconciliation and the
-  sanitising step described under the lineage section above.
-- **Observer callbacks** — emit per-generation metrics to a `PopulationObserver`
-  for TUI display or structured record export.
-- **A generation budget** — `step()` returns `true` once `max_generations`
-  generations have run. There is no early stopping: to stop on your own
-  condition, read `latest_metrics()` after each `step()` and leave the loop.
+  sanitising step described under the lineage section above. They happen in
+  `step()` and nowhere else, which is why a strategy never sees a `NaN` and you
+  never negate a cost.
+- **Validation** — `new` checks the strategy's configuration and returns an
+  error for an invalid one, before any tensor is built.
 - **Replay** — `reset()` re-seeds from the base seed, so two runs of one loop
   are identical.
+- **Metrics and observers** — `latest_metrics()` after every step, a `tracing`
+  event per generation, and an optional `PopulationObserver` for per-individual
+  fitness.
 
 `EvolutionaryLoop` calls your `BatchFitnessFn` once per generation; it does not
 parallelize the population evaluation itself (the shipped `FromLandscape` and
 `FromFitnessEvaluable` adapters evaluate a batch with a plain, serial loop —
 `Send + Sync` on your landscape is a bound the trait asks for, not a signal
 that triggers `rayon`). If you need per-individual parallelism, implement it
-inside your `BatchFitnessFn`. Rayon-based parallelism does exist in `rlevo`,
-but one layer up and orthogonal to this: `rlevo-benchmarks::Evaluator::run_suite`
-runs many independent `(env, seed)` trials — each its own loop instance —
-concurrently, controlled by `EvaluatorConfig::num_threads`.
+inside your `BatchFitnessFn`.
 
-For most use cases, `EvolutionaryLoop` is the right choice. Writing your own loop is
-the right choice when you need control it does not expose, or when you
-are building a hybrid (the ERL loop in Part IV cannot be expressed as a single
-`EvolutionaryLoop` run).
+### Many runs: give the evaluation harness a loop per trial
+
+One run is `reset`, `step`, `is_done`. For many seeded runs with a report at
+the end, do not write that loop at all. The evaluation harness, `rlevo::harness`,
+runs the trials for you. You give it a closure that builds one loop from the
+seed it is handed; the harness calls the closure once per trial and drives each
+loop to its budget.
+
+```rust,no_run
+use burn::backend::Flex;
+use rlevo::envs::landscapes::sphere::Sphere;
+use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
+use rlevo::evo::fitness::FromLandscape;
+use rlevo::evo::strategy::EvolutionaryLoop;
+use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo::harness::reporter::logging::LoggingReporter;
+
+type B = Flex;
+const GENERATIONS: usize = 300;
+
+let config = EvaluatorConfig {
+    num_trials_per_env: 10,  // ten seeds
+    max_steps: GENERATIONS,  // must be at least the loop's budget; see below
+    ..EvaluatorConfig::default()
+};
+let mut reporter = LoggingReporter::new();
+let report = Evaluator::new(config).run_trials(
+    "sphere-ga",
+    &["sphere-d8".to_string()],
+    // Called once per trial with that trial's seed: build a new loop each time.
+    |_key, seed, _agent_seed| GenerationTrial {
+        probe: EvolutionaryLoop::<B, _, _>::new(
+            GeneticAlgorithm::<B>::new(),
+            GaConfig::default_for(/* pop = */ 64, /* dim = */ 8),
+            FromLandscape::new(Sphere::new(8).expect("dim >= 1")),
+            seed,
+            Default::default(),
+            GENERATIONS,
+        )
+        .expect("valid config"),
+    },
+    &mut reporter,
+);
+
+for trial in &report.trials {
+    // The last generation's metrics, in the objective's own direction.
+    println!(
+        "trial {:>2}: best cost {:.3e} after {} generations",
+        trial.key.trial_idx,
+        trial.scalars["ea/best_fitness_ever"],
+        trial.scalars["generations"],
+    );
+}
+```
+
+Three things decide whether such a run is the one you meant:
+
+- **One loop per trial.** A loop's seed is fixed when it is built, so the
+  closure builds a new loop from the seed it receives. Resetting one loop ten
+  times would replay the same run ten times.
+- **`max_steps` caps a generation trial.** The harness stops a trial at the
+  loop's `max_generations` or at `EvaluatorConfig::max_steps`, whichever comes
+  first, and `max_steps` defaults to 1000. It does not warn when its own cap is
+  the one that ends the trial. Set `max_steps` at least as large as the loop's
+  budget; the `generations` scalar in each trial's report says how many ran.
+- **Threads.** Trials run concurrently unless you set
+  `EvaluatorConfig::num_threads = Some(1)`. Read the determinism note above
+  before comparing results across thread counts.
+
+The harness drives each loop through a trait, `GenerationProbe`, whose two
+methods are built from the three calls above: `begin` is `reset`, and `advance`
+is "if `is_done`, stop; otherwise `step` and hand back the metrics". You never
+call `begin` or `advance` yourself. They are the harness's side of the seam, and
+`EvolutionaryLoop` already implements them. You would implement `GenerationProbe`
+only for a generation loop of your own that the harness should run.
+
+| Who drives | Start | One generation | Finished when |
+|---|---|---|---|
+| your own code | `reset()` | `step()` | `is_done()` |
+| `rlevo::harness` | `begin()` | `advance()` | `advance()` returns `None` |
+
+The harness has no early stopping: a trial runs to the budget. To stop each of
+several seeds on a condition of your own, drive a loop per seed yourself.
+
+### Which to use
+
+- **`EvolutionaryLoop`** for almost everything: one optimisation run, with your
+  own logging and your own stopping rule.
+- **The harness** when you want several seeds and a comparison.
+- **Your own `init`/`ask`/`tell` loop** when evaluation cannot happen inside one
+  synchronous `evaluate_batch` call (a cluster job, a human, an evaluation that
+  takes hours), or when one loop has to drive several strategies or populations
+  at once, as a hybrid of evolution and RL does. You then own everything the
+  loop did for you: the RNG and its seed, the generation count, the direction
+  (negate a cost), the sanitising of non-finite fitness, the validation of the
+  configuration, and turning the metrics back into your objective's own
+  direction when you read them. To let the harness run a loop of your own,
+  implement `GenerationProbe` for it: `begin` re-seeds and starts over, and
+  `advance` checks your budget, runs one generation and returns its metrics,
+  or `None` once the budget is spent.
 
 ## Where this connects
 
-- The guided tour's function-optimisation walkthrough drives this contract
-  through `EvolutionaryLoop` — a `GeneticAlgorithm` searching the sphere function,
-  same shape as the hand-rolled loop above but with `EvolutionaryLoop`
-  running the `init`/`ask`/`tell` cycle for you.
+- [Objective Adapters](objective-adapters.md) shows how to wire a function of
+  your own into the `BatchFitnessFn` that every example on this page takes.
 - The RL loop that trains a CartPole agent with DQN is *not* ask/tell — the
   agent acts sequentially, learning after individual steps rather than after a
   full population evaluation. The vocabulary returns when evolution and RL

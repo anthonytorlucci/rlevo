@@ -84,10 +84,8 @@ where
     )
     .expect("valid params");
     evo_loop.reset();
-    loop {
-        if evo_loop.step(()).done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
     }
     evo_loop.latest_metrics().unwrap().best_fitness_ever()
 }
@@ -114,10 +112,8 @@ where
     )
     .expect("valid params");
     evo_loop.reset();
-    loop {
-        if evo_loop.step(()).done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
     }
     evo_loop.latest_metrics().unwrap().best_fitness_ever()
 }

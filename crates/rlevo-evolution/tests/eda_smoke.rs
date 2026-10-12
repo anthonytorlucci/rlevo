@@ -55,11 +55,8 @@ where
     )
     .expect("valid params");
     evo_loop.reset();
-    loop {
-        let step = evo_loop.step(());
-        if step.done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
     }
     let metrics = evo_loop.latest_metrics();
     assert!(metrics.is_some(), "latest_metrics must be Some after a run");

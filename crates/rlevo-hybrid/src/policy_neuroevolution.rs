@@ -3,8 +3,9 @@
 //!
 //! Pairs a [`WeightOnly`] strategy (any phase-1 `Strategy` evolving the
 //! weights of a Burn `Module`) with a [`RolloutFitness`] (environment-rollout
-//! scoring) inside an [`EvolutionaryLoop`], and exposes a small drive
-//! surface (`reset` / `step` / `run` / `best`).
+//! scoring) inside an [`EvolutionaryLoop`], and exposes the loop's drive
+//! surface (`reset` / `step` / `is_done` / `best`) plus `run`, which resets
+//! and steps to the budget.
 
 use burn::module::Module;
 use burn::tensor::{Tensor, backend::Backend};
@@ -19,6 +20,12 @@ use crate::rollout_fitness::RolloutFitness;
 
 /// Drives weight-only neuroevolution of a policy network against an
 /// environment.
+///
+/// It wraps an [`EvolutionaryLoop`] and is driven the same way: `reset`,
+/// then `step` until `is_done`, or [`run`](Self::run) for both. It does not
+/// implement `GenerationProbe`, so the evaluation harness cannot run it;
+/// to run a policy search through the harness, build the inner
+/// `EvolutionaryLoop` yourself and give the harness that.
 ///
 /// # Type Parameters
 ///
@@ -98,20 +105,33 @@ where
         self.evo_loop.reset();
     }
 
-    /// Run one generation (ask → rollout-evaluate → tell). Returns `true` when
-    /// the generation budget is exhausted.
+    /// Run one generation (ask → rollout-evaluate → tell).
+    ///
+    /// Returns nothing, as [`EvolutionaryLoop::step`] does. Ask
+    /// [`is_done`](Self::is_done) whether the generation budget is spent.
+    /// Like the loop's, this `step` does not consult the budget: called past
+    /// it, it runs one more generation.
     ///
     /// # Panics
     ///
     /// Panics if [`reset`](Self::reset) has not been called first.
-    pub fn step(&mut self) -> bool {
-        self.evo_loop.step(()).done
+    pub fn step(&mut self) {
+        self.evo_loop.step();
+    }
+
+    /// Whether the generation budget is spent. See
+    /// [`EvolutionaryLoop::is_done`].
+    #[must_use]
+    pub const fn is_done(&self) -> bool {
+        self.evo_loop.is_done()
     }
 
     /// Reset and run to the configured generation budget.
     pub fn run(&mut self) {
         self.evo_loop.reset();
-        while !self.evo_loop.step(()).done {}
+        while !self.evo_loop.is_done() {
+            self.evo_loop.step();
+        }
     }
 
     /// Best `(genome, fitness)` found so far, if any.

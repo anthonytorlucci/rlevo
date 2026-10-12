@@ -1,6 +1,6 @@
 # Wiring an Objective: Adapters and Evaluators
 
-This page a map of *every* way to get an objective into `rlevo`, why there is more than one,
+This page is a map of *every* way to get an objective into `rlevo`, why there is more than one,
 and a worked example that takes a brand-new objective from nothing to a running
 optimisation.
 
@@ -191,12 +191,20 @@ let mut evo_loop =
     EvolutionaryLoop::<B, _, _>::new(strategy, config, fitness_fn, 42, device, 200).expect("valid config");
 
 evo_loop.reset();
-while !evo_loop.step(()).done {}
+while !evo_loop.is_done() {
+    evo_loop.step();
+}
 println!("best = {:.3e}", evo_loop.latest_metrics().unwrap().best_fitness_ever());
 ```
 
-The loop infers `B` and `G` from the strategy and the adapter, which is why the
-turbofish is just `::<B, _, _>` — you never spell out the genome type.
+You name the backend `B`; the strategy's and the adapter's types are inferred,
+which is why the turbofish is just `::<B, _, _>` — you never spell out the
+genome type.
+
+`reset()` starts the run, `step()` runs one generation and `is_done()` says
+whether the 200-generation budget is spent.
+[The Ask/Tell Contract](ask-tell-contract.md#the-same-run-with-evolutionaryloop)
+explains the three calls and why they are separate.
 
 ### When the simple on-ramp is the wrong one
 

@@ -52,6 +52,7 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - Error types: `PascalCase` enum or struct ending in `Error` (e.g., `StateError`, `EnvironmentError`, `TensorConversionError`).
 - Config types: `PascalCase` ending in `Config` (e.g., `FrozenLakeConfig`).
 - Builder types: `PascalCase` ending in `Builder` (e.g., `DqnTrainingConfigBuilder`).
+- **In `rlevo-evolution` and `rlevo-hybrid`, "harness" means the evaluation harness** (`rlevo-benchmarks`, which `rlevo` re-exports as `rlevo::harness`). A type that runs a strategy's generations is a loop: `EvolutionaryLoop`, `CoEvolutionaryLoop` (ADR 0085). Do not name a public type, module or function `harness` outside the evaluation harness, and in those two crates do not call a generation loop a harness in documentation, test names or local variable names. A search of them for the word finds the evaluator, cargo's `harness = false` key, and nothing else.
 
 ### Functions and Methods
 - All functions and methods: `snake_case`.
@@ -60,6 +61,7 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - Predicate methods: `is_valid()`, `is_done()`, `is_terminated()`, `is_truncated()`.
 - Dimension methods: `shape()`, `numel()`.
 - Mutation methods: `update()`, `reset()`, `step()`, `add()`, `record()`.
+- **A generation loop that a person drives has `step()`, which returns nothing, and `is_done()`, which is asked before each call** (ADR 0085): `while !evo_loop.is_done() { evo_loop.step(); }`. A `step()` that returns a bare `bool` makes the caller remember which way it points, and a loop written on it checks the budget after the work instead of before. This is not a rule for every method that advances something. `Environment::step` returns a `Snapshot` that carries its status, and `GenerationProbe::advance` returns `None` once the budget is spent: each is called by a generic evaluator and returns more than a flag. A new driver offers the pair for people and a `GenerationProbe` impl for the evaluator, and builds the second from the first (`begin` is `reset`; `advance` is `is_done`, then `step`, then the metrics).
 - Builder chain methods: `.with_*()` (fluent), `.build()` (finalize).
 - Identity/utility methods: `zero()`, `enumerate()`, `aggregate()`, `encode()`, `decode()`.
 
@@ -437,6 +439,13 @@ generation-to-generation) diversity the caller relies on.
   Genuinely deterministic environments (e.g. `AdversarialBandit`, whose reward is
   a pure function of the step index) have no per-episode randomness and simply
   preserve their fixed schedule — they still must not re-seed on reset.
+- **Generation loops are the one exception.** `EvolutionaryLoop::reset` and
+  `CoEvolutionaryLoop::reset` re-seed from the loop's base seed on purpose
+  (ADR 0085). A run of a loop is the whole unit: `reset` starts a new run, and
+  re-seeding there is what makes a second run replay the first and what
+  `GenerationProbe::begin` requires. The rule above still holds *inside* a run:
+  `step` never re-seeds, and the strategy draws from the stream the loop hands
+  it.
 - **Host sampling (evolution / RL).** Draw randomness on the host via
   `rlevo_evolution::rng::seed_stream(base, generation, SeedPurpose::_)` (or an
   `rlevo_core::util::seed::SeedStream`), fill a `Vec`, then build the tensor with

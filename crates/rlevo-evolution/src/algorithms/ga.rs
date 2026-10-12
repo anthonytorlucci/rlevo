@@ -516,11 +516,8 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        loop {
-            let step = evo_loop.step(());
-            if step.done {
-                break;
-            }
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
         let m = evo_loop.latest_metrics().unwrap();
         assert!(
@@ -566,22 +563,19 @@ mod tests {
         evo_loop.reset();
 
         let mut prev: f32 = f32::NEG_INFINITY;
-        loop {
-            let step = evo_loop.step(());
+        while !evo_loop.is_done() {
+            evo_loop.step();
             let cur: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
             assert!(
                 cur >= prev,
                 "best_fitness_ever must be non-decreasing: {cur} >= {prev}"
             );
             prev = cur;
-            if step.done {
-                break;
-            }
         }
     }
 
     /// Direct-`tell` regression for the `update_best` scan (ADR 0034 decision 3,
-    /// `rules.md` §3). `EvolutionaryLoop::step` sanitizes fitness before
+    /// `rules.md` section 3). `EvolutionaryLoop::step` sanitizes fitness before
     /// `tell`, but a direct caller does not, so a raw `NaN` can arrive at index
     /// 0. Seeding the scan with `fitness[0]` and comparing with `>` made every
     /// comparison against that `NaN` false, so the champion write was skipped

@@ -468,7 +468,9 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        while !evo_loop.step(()).done {}
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1.0, "Firefly D10 best={best}");
     }
@@ -729,7 +731,9 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        while !evo_loop.step(()).done {}
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         let m = evo_loop.latest_metrics().unwrap();
         assert!(
             m.best_fitness_ever().is_finite(),
@@ -791,7 +795,9 @@ mod tests {
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
                 .expect("valid params");
         evo_loop.reset();
-        while !evo_loop.step(()).done {}
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
         assert!(
             evo_loop
                 .latest_metrics()

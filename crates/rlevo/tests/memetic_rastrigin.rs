@@ -120,15 +120,12 @@ fn de_evals_to_target(seed: u64, de: &DeConfig, target: f32, max_gens: usize) ->
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         let best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         trajectory.push(best);
         if evals_at_target.is_none() && best < target {
             evals_at_target = Some(evals.load(Ordering::Relaxed));
-        }
-        if step.done {
-            break;
         }
     }
     RunResult {
@@ -174,15 +171,12 @@ fn memetic_evals_to_target(
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         let best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         trajectory.push(best);
         if evals_at_target.is_none() && best < target {
             evals_at_target = Some(evals.load(Ordering::Relaxed));
-        }
-        if step.done {
-            break;
         }
     }
     RunResult {

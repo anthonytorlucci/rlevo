@@ -102,15 +102,15 @@ where
     /// [`step`](Self::step) and ADR 0023 / 0034). This projection maps the four
     /// display fields back into the objective's **natural** sense via
     /// [`from_canonical`](ObjectiveSense::from_canonical) (mirroring
-    /// single-population `StrategyMetrics`), while `binding_fitness` — the
-    /// harness reward — is kept in canonical space. No non-finite value can reach
+    /// single-population `StrategyMetrics`), while `binding_fitness` is kept in
+    /// canonical space. No non-finite value can reach
     /// here as a `NaN`: means are averaged over the finite members only
     /// (`StrategyMetrics::from_host_fitness`), so a broken individual cannot blank
     /// a mean.
     fn snapshot(&self, state: &CoEAState<SA::State, SB::State>) -> CoEAMetrics {
         let sizes = self.fitness.archive_sizes();
         let sense = self.fitness.sense();
-        // `binding_fitness` is the harness reward and stays in CANONICAL
+        // `binding_fitness` stays in CANONICAL
         // (engine, maximise) space — the weaker population (lower canonical
         // fitness) binds — so compute it *before* mapping the display fields
         // back to the objective's natural sense.

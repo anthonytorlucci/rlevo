@@ -1499,12 +1499,10 @@ mod tests {
         )
         .expect("valid params");
         evo_loop.reset();
-        let _ = evo_loop.step(());
+        evo_loop.step();
         let first: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
-        loop {
-            if evo_loop.step(()).done {
-                break;
-            }
+        while !evo_loop.is_done() {
+            evo_loop.step();
         }
         let last: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         assert!(last.is_finite(), "best must stay finite");
@@ -1539,7 +1537,7 @@ mod tests {
                 .expect("valid params");
         evo_loop.reset();
         for _ in 0..5 {
-            let _ = evo_loop.step(());
+            evo_loop.step();
         }
         assert!(
             evo_loop

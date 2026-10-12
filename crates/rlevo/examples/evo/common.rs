@@ -70,10 +70,8 @@ where
         EvolutionaryLoop::<B, S, F>::new(strategy, params, fitness_fn, SEED, device, GENS)
             .expect("valid params");
     evo_loop.reset();
-    loop {
-        if evo_loop.step(()).done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
     }
     let m = evo_loop
         .latest_metrics()

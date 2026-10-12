@@ -115,14 +115,12 @@ fn weight_only_ga_fits_noisy_sine_directional() {
     evo_loop.reset();
 
     // Generation 0.
-    evo_loop.step(());
+    evo_loop.step();
     let initial_best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
 
     // Generations 1..50.
-    loop {
-        if evo_loop.step(()).done {
-            break;
-        }
+    while !evo_loop.is_done() {
+        evo_loop.step();
     }
     let final_best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
 

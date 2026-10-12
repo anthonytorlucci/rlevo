@@ -92,30 +92,35 @@ fn main() {
         500,         // max generations
     ).expect("valid config");
     evo_loop.reset();
-    while !evo_loop.step(()).done {}
+    while !evo_loop.is_done() {
+        evo_loop.step();
+    }
     let best = evo_loop.latest_metrics().unwrap().best_fitness_ever();
     println!("final best = {best:.3e}");
 }
 ```
 
-The quick start's `FitnessEvaluable` trait lives in `rlevo-core` (already a
-dependency — it was hoisted there per ADR 0004), and the `EvolutionaryLoop`
-exposes the strategy as a `rlevo_core::evaluation::GenerationProbe`. Swap in your own
-objective by implementing `FitnessEvaluable` or `BatchFitnessFn` directly.
+The quick start's `FitnessEvaluable` trait lives in `rlevo-core` (it was
+hoisted there per ADR 0004). Swap in your own objective by implementing
+`FitnessEvaluable` or `BatchFitnessFn` directly;
+[Objective Adapters](../../docs/objective-adapters.md) says which on-ramp fits
+which kind of function. [The Ask/Tell Contract](../../docs/ask-tell-contract.md)
+covers the protocol the loop drives, what the loop does on your behalf, and how
+to run many seeds through the evaluation harness.
 
 This crate ships no examples of its own; runnable demos live in the
 umbrella `rlevo` and in `rlevo-examples`, e.g.:
 
 ```bash
-cargo run --release -p rlevo --example ga_rastrigin
+cargo run --release -p rlevo --example rastrigin_showcase
 cargo run --release -p rlevo-examples --example cooperative_ccga_rastrigin
 ```
 
 ## Design
 
 The central abstraction is the pure [`Strategy<B>`](src/strategy.rs)
-trait: `init`, `ask`, `tell`, and `best` all take `&self` and an
-explicit RNG, returning a new `State` rather than mutating. This lets
+trait: `init`, `ask` and `tell` take `&self` and an explicit RNG and
+return a new `State` rather than mutating, and `best` reads one. This lets
 many strategy instances run concurrently without interior mutability
 and keeps checkpointing trivial (just `Clone` the state).
 
@@ -128,10 +133,34 @@ device-resident evaluator; the
 `rlevo_core::fitness::FitnessEvaluable` (host-side `Vec<f64>` in,
 `f64` out) onto a device tensor.
 
-The [`EvolutionaryLoop<B, S, F>`](src/strategy.rs) wraps a strategy
-into `rlevo_core::evaluation::GenerationProbe`, so the benchmark evaluator
-drives it identically to an RL environment — one generation per
-`step`, reward = `-best_fitness_ever`.
+A strategy holds nothing between calls, so
+[`EvolutionaryLoop<B, S, F>`](src/strategy.rs) holds it: the state, the RNG,
+the fitness function and the generation count. It is driven with three calls.
+`reset()` starts a run, `step()` runs one generation and returns nothing, and
+`is_done()` says whether the generation budget is spent:
+
+```rust,ignore
+evo_loop.reset();
+while !evo_loop.is_done() {
+    evo_loop.step();
+}
+```
+
+Advancing the run (`step`) and checking whether the budget is spent
+(`is_done`) are separate calls on purpose: the loop then reads as what it
+does, and it checks before it runs, so a budget of zero runs nothing. `step()`
+is also where a `Minimize` objective is negated and non-finite fitness is
+sanitised, once, so a strategy only ever maximises a clean tensor. Call
+`reset()` first; it builds the first state, and calling it again replays the
+run from the same seed.
+
+For many seeded runs with a report, do not drive the loop yourself. The
+evaluation harness (`rlevo-benchmarks`, which `rlevo` re-exports as
+`rlevo::harness`) takes a closure that builds one loop per trial and drives
+each through `rlevo_core::evaluation::GenerationProbe`, which the loop
+implements. [The Ask/Tell Contract](../../docs/ask-tell-contract.md#many-runs-give-the-evaluation-harness-a-loop-per-trial)
+has a worked example, and [`src/probe.rs`](src/probe.rs) sets the two ways of
+driving a loop side by side.
 
 ## Reproducibility
 

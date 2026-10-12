@@ -391,17 +391,14 @@ where
     evo_loop.reset();
     let mut evals_to_solved = None;
     let mut generations = 0;
-    loop {
-        let step = evo_loop.step(());
+    while !evo_loop.is_done() {
+        evo_loop.step();
         generations += 1;
         if evals_to_solved.is_none()
             && let Some(m) = evo_loop.latest_metrics()
             && m.best_fitness_ever() >= SOLVED
         {
             evals_to_solved = Some(generations * pop);
-        }
-        if step.done {
-            break;
         }
     }
     let best_pellets = evo_loop.best().map_or(0.0, |(_, f)| f);
