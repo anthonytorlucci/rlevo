@@ -1,0 +1,11 @@
+[package]
+name = "consumer-umbrella"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Any consumer: `cargo add rlevo`, default features.
+[dependencies]
+rlevo = "{{rlevo_version}}"
+
+[workspace]

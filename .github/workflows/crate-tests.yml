@@ -94,6 +94,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       crates: ${{ steps.enumerate.outputs.crates }}
+      probes: ${{ steps.enumerate.outputs.probes }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -104,12 +105,17 @@ jobs:
 
       # `--list` runs no tests; it asserts the tier is total and prints a JSON
       # array on stdout (xtask logs to stderr, so the capture stays clean).
+      # The probe table is enumerated the same way and checked against
+      # `xtask/probes/`, so a template no probe runs fails here.
       - name: Enumerate the tier
         id: enumerate
         run: |
           crates=$(cargo xtask test-fast --list)
           echo "fast tier: $crates"
           echo "crates=$crates" >> "$GITHUB_OUTPUT"
+          probes=$(cargo xtask probe --list)
+          echo "probes: $probes"
+          echo "probes=$probes" >> "$GITHUB_OUTPUT"
 
   # `[workspace.lints.rustdoc] broken_intra_doc_links = "deny"` sets the lint's
   # *level*, but nothing in the pull-request gate invoked rustdoc's link pass,
@@ -259,3 +265,40 @@ jobs:
 
       - name: Test ${{ matrix.crate }}
         run: cargo xtask test-fast ${{ matrix.crate }}
+
+  # ── Outside-in probes ────────────────────────────────────────────────────────
+  #
+  # Every job above builds inside the workspace: siblings resolve by path,
+  # `publish = false` crates are reachable as dev-dependencies, and
+  # `required-features` are satisfied for the test. None of that holds for a
+  # consumer. A probe packages the workspace, extracts the crates and builds a
+  # small crate against them from a directory outside the checkout, so a file
+  # missing from a package or an item that is not public fails here, before a
+  # release, and nowhere else. It is also the only job that compiles the
+  # packaged crates against each other.
+  #
+  # The matrix comes from `PROBES` in `xtask/src/commands/probe/mod.rs`. A walk
+  # is red when a fatal step fails, and its summary names the step. A
+  # measurement is red only when its crate does not resolve or build; its
+  # numbers go to the summary and gate nothing.
+  probe:
+    name: probe (${{ matrix.probe }})
+    needs: tier
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        probe: ${{ fromJSON(needs.tier.outputs.probes) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Caches `xtask`'s own build. A probe builds in its run directory,
+      # outside the checkout, and that build is cold on purpose.
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: crate-tests-probe
+
+      - name: Probe ${{ matrix.probe }}
+        run: cargo xtask probe ${{ matrix.probe }}

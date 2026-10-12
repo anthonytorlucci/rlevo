@@ -254,7 +254,7 @@ impl Environment<1, 1, 1> for MyEnv {
 // 2. Wrap your agent as BenchableAgent
 struct MyAgent;
 impl BenchableAgent<MyObs, MyAction> for MyAgent {
-    fn act(&mut self, _obs: &MyObs, _rng: &mut dyn rand::RngCore) -> MyAction { MyAction }
+    fn act(&mut self, _obs: &MyObs, _rng: &mut dyn rand::Rng) -> MyAction { MyAction }
 }
 
 // 3. Build and run
@@ -269,12 +269,7 @@ let suite: Suite<MyEnv> = Suite::new("my-suite", cfg.clone())
     .with_env("env-a", |_seed| MyEnv { /* ... */ });
 
 let mut reporter = LoggingReporter::default();
-let report = Evaluator::new(cfg)
-    .run_suite::<_, MyAgent, _, _>(
-        &suite,
-        |_seed| MyAgent,
-        &mut reporter,
-    );
+let report = Evaluator::new(cfg).run_suite(&suite, |_seed| MyAgent, &mut reporter);
 ```
 
 ---

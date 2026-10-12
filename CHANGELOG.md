@@ -192,10 +192,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `RunManifest`, `toml` 1.1 writes the same `run.toml` bytes as 0.8 and
   reads back what 0.8 wrote.
 
+**Fixed**
+
+- **Two lines of the README's usage example did not compile.** The agent
+  took `&mut dyn rand::RngCore`, a trait `rand` 0.10 does not have (it is
+  `rand::Rng`), and the call was `run_suite::<_, MyAgent, _, _>(..)`, four
+  generic arguments to a method that takes seven, under a comment that
+  promised no turbofish. Nothing compiles a README, so nothing said so; the
+  `byoe-1-thermostat` probe did, with each line tried as an outside author
+  would write it. The example now reads `run_suite(&suite, |_seed| MyAgent,
+  &mut reporter)`.
+
 ### Infrastructure
 
 **Added**
 
+- **`cargo xtask probe <name>`: outside-in probes.** A probe packages the
+  workspace, extracts the crates into a scratch directory outside the
+  checkout, and builds a small consumer crate against them through a
+  `[patch.crates-io]` table, so it sees what a `cargo add rlevo` user sees:
+  packaged files and public API, with no path dependency and no unpublished
+  crate. It fails unless every `rlevo` crate in the probe's resolved graph
+  came from that stage. Four probes land with it. `byoe-1-thermostat` walks
+  an environment author's path in six steps, from an empty crate to a run
+  through `Evaluator::run_suite`, and names the step that fails;
+  `consumer-core` builds that author's environment file against `rlevo-core`
+  alone; `consumer-umbrella` and `consumer-ppo` measure a dependency list's
+  package count, Burn package count and cold build. The first run found two
+  crates an environment author must add by hand beside `rlevo`:
+  `rlevo-benchmarks`, because the harness is not reachable through the
+  umbrella, and `rand`, because `BenchableAgent::act` takes `&mut dyn
+  rand::Rng`. `crate-tests.yml` runs every probe on each pull request, which
+  is also the only build of the packaged crates against each other. `xtask`
+  joins the fast tier with the runner's unit tests. Set
+  `RLEVO_PROBE_SCRATCH` to choose where runs are staged.
 - **`tools/public-surface.sh <crate>`** lists a crate's public surface from
   rustdoc's JSON output, one item per line: items, inherent methods, public
   fields and re-exports. The diff of two listings is a change's surface

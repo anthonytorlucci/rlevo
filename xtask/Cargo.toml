@@ -15,6 +15,8 @@ publish = false
 # `tracel_xtask::group!` / `endgroup!` expand to `log::` calls at the call site,
 # so `log` must be a direct dependency of every crate that uses them.
 log = "0.4"
+# Reads `cargo metadata` and `cargo build --message-format=json` for the probes.
+serde_json = "1"
 strum = { version = "0.27.1", features = ["derive"] }
 tracel-xtask = { version = "5", features = ["build", "check", "fix", "test"] }
 

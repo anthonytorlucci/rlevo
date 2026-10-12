@@ -67,6 +67,22 @@ a crate or a heavy test target is a one-line change in `xtask/src/commands/`, no
 a YAML edit. `test-gpu` aborts rather than fails on a host with no adapter, which
 is why no workflow calls it.
 
+The tiers build inside the workspace, where siblings resolve by path. An
+**outside-in probe** builds a small crate against the workspace *as packaged*,
+from a directory outside the checkout, so it sees what a `cargo add rlevo`
+user sees. `cargo xtask probe <name>` runs one; `--list` prints them, and
+`crate-tests.yml` runs each on every pull request. The table is `PROBES` in
+`xtask/src/commands/probe/mod.rs`, and each probe's template is
+`xtask/probes/<name>/`. A change to the API a template uses changes the
+template in the same pull request: its diff is the measure of what an outside
+author stops or starts writing.
+
+| Probe | What it is |
+|-------|------------|
+| `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy, run it through `Evaluator::run_suite` |
+| `consumer-core` | that author's environment file built against `rlevo-core` alone, with its package count, its Burn package count and a cold build time |
+| `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning` |
+
 A change to a crate's public surface reports its **surface delta** (ADR 0081):
 `tools/public-surface.sh <crate>` lists the public items, one per line, and
 the delta is the diff of the listing at the base commit and on the branch. A
