@@ -281,6 +281,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   above, and compares what every `tell` received, bit for bit, on a
   fitness function that returns `NaN`, `-inf` and `+inf` costs.
 
+**Changed**
+
+- **A loop's seed is called its seed.** `EvolutionaryLoop` and
+  `CoEvolutionaryLoop` called the seed they are built from a "base seed",
+  in a private field, in their `Debug` output and in their docs. That is
+  the name of `EvaluatorConfig::base_seed`, a different number: the one a
+  suite's per-trial seeds are derived from. The loops now say `seed`
+  throughout, and `Debug` prints `seed` where it printed `base_seed`. No
+  public name changes; the docs of `new`, of `EvaluatorConfig::base_seed`
+  and the guide state how the two relate (ADR 0085, Decision 10).
+
 **Fixed**
 
 - **The documentation described a `reward` the evaluator no longer read.**
@@ -402,6 +413,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `GenerationTrial`, on `EvaluatorConfig::max_steps`, on `GenerationProbe`,
   in `rlevo_evolution::probe` and in the ask/tell guide, with the warning
   described under Changed above.
+- **`EvaluatorConfig::base_seed`'s docs did not say what it seeds.** It is
+  the suite's seed, from which a seed for every trial is derived, not the
+  seed of any one run. The README's table of the config's fields also
+  showed no default for four fields that have one (`num_episodes` 100,
+  `num_trials_per_env` 1, `max_steps` 1000, `base_seed` 0).
 
 - **Two lines of the README's usage example did not compile.** The agent
   took `&mut dyn rand::RngCore`, a trait `rand` 0.10 does not have (it is

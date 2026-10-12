@@ -53,6 +53,7 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - Config types: `PascalCase` ending in `Config` (e.g., `FrozenLakeConfig`).
 - Builder types: `PascalCase` ending in `Builder` (e.g., `DqnTrainingConfigBuilder`).
 - **In `rlevo-evolution` and `rlevo-hybrid`, "harness" means the evaluation harness** (`rlevo-benchmarks`, which `rlevo` re-exports as `rlevo::harness`). A type that runs a strategy's generations is a loop: `EvolutionaryLoop`, `CoEvolutionaryLoop` (ADR 0085). Do not name a public type, module or function `harness` outside the evaluation harness, and in those two crates do not call a generation loop a harness in documentation, test names or local variable names. A search of them for the word finds the evaluator, cargo's `harness = false` key, and nothing else.
+- **A suite has a base seed; a run has a seed** (ADR 0085). `EvaluatorConfig::base_seed` is the one number a whole suite is derived from: `SeedStream` turns it into a trial seed for each (environment, trial) pair, and that into an environment seed and an agent seed. A generation loop has a `seed`, the argument of `EvolutionaryLoop::new`, and under the harness it is one of those derived seeds. Do not call a loop's seed its "base seed", in a field name or in prose: the two numbers differ, and a reader who takes one for the other expects every trial to replay the same run. (`seed_stream`'s first argument is named `base` and keeps the name. It is a number a strategy draws once a generation to root that generation's operator streams, and neither of the two above.)
 
 ### Functions and Methods
 - All functions and methods: `snake_case`.
@@ -440,7 +441,7 @@ generation-to-generation) diversity the caller relies on.
   a pure function of the step index) have no per-episode randomness and simply
   preserve their fixed schedule — they still must not re-seed on reset.
 - **Generation loops are the one exception.** `EvolutionaryLoop::reset` and
-  `CoEvolutionaryLoop::reset` re-seed from the loop's base seed on purpose
+  `CoEvolutionaryLoop::reset` re-seed from the loop's seed on purpose
   (ADR 0085). A run of a loop is the whole unit: `reset` starts a new run, and
   re-seeding there is what makes a second run replay the first and what
   `GenerationProbe::begin` requires. The rule above still holds *inside* a run:

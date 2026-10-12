@@ -51,8 +51,15 @@ pub struct EvaluatorConfig {
     /// be the one to end the trial. When it is, the trial says so with a
     /// warning. Set it at least as large as the probe's budget.
     pub max_steps: usize,
-    /// Root seed from which all trial and episode seeds are derived
-    /// via [`SeedStream`].
+    /// The suite's seed: the one number every seed in the suite is derived
+    /// from, through [`SeedStream`].
+    ///
+    /// It is not the seed of any one run. [`Evaluator::run_trials`] derives a
+    /// trial seed for each (environment, trial) pair, and from that an
+    /// environment seed and an agent seed, which it hands to the closure that
+    /// builds the trial. A generation loop built there takes one of those as
+    /// its own seed. Two suites with the same `base_seed` and the same shape
+    /// run the same trials; trial 0 and trial 1 of one suite do not.
     pub base_seed: u64,
     /// Fixed rayon thread count; `None` uses the global pool.
     ///

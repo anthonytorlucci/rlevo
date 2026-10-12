@@ -239,11 +239,11 @@ budget) wrapped around it.
 The `rng` you pass to `ask` is the only source of randomness in the entire
 evolutionary run. `rlevo` derives every stochastic draw — initial population,
 selection, crossover, mutation — from this single stream via a `seed_stream`
-helper that produces independent, non-overlapping sub-streams from a root seed.
+helper that produces independent, non-overlapping sub-streams from one seed.
 
 This means:
 
-- Given the same root seed, two runs produce identical trajectories regardless
+- Given the same seed, two runs produce identical trajectories regardless
   of how many threads evaluated the population in between.
 - Parallel population evaluation does not affect the trajectory, because
   evaluation results are deterministic given the genome (for a deterministic
@@ -359,7 +359,7 @@ while !evo_loop.is_done() {
   never negate a cost.
 - **Validation** — `new` checks the strategy's configuration and returns an
   error for an invalid one, before any tensor is built.
-- **Replay** — `reset()` re-seeds from the base seed, so two runs of one loop
+- **Replay** — `reset()` re-seeds from the loop's seed, so two runs of one loop
   are identical.
 - **Metrics and observers** — `latest_metrics()` after every step, a `tracing`
   event per generation, and an optional `PopulationObserver` for per-individual
@@ -393,7 +393,8 @@ type B = Flex;
 const GENERATIONS: usize = 300;
 
 let config = EvaluatorConfig {
-    num_trials_per_env: 10,  // ten seeds
+    base_seed: 2026,         // the suite's seed; each trial's is derived from it
+    num_trials_per_env: 10,  // ten trials, so ten different loop seeds
     max_steps: GENERATIONS,  // must be at least the loop's budget; see below
     ..EvaluatorConfig::default()
 };
@@ -401,7 +402,8 @@ let mut reporter = LoggingReporter::new();
 let report = Evaluator::new(config).run_trials(
     "sphere-ga",
     &["sphere-d8".to_string()],
-    // Called once per trial with that trial's seed: build a new loop each time.
+    // Called once per trial with the seeds the harness derived for that trial.
+    // The first is the one a loop takes: build a new loop from it each time.
     |_key, seed, _agent_seed| GenerationTrial {
         probe: EvolutionaryLoop::<B, _, _>::new(
             GeneticAlgorithm::<B>::new(),
@@ -429,9 +431,14 @@ for trial in &report.trials {
 
 Three things decide whether such a run is the one you meant:
 
-- **One loop per trial.** A loop's seed is fixed when it is built, so the
-  closure builds a new loop from the seed it receives. Resetting one loop ten
-  times would replay the same run ten times.
+- **One loop per trial, each with its own seed.** There are two numbers here
+  and they are not the same one. `EvaluatorConfig::base_seed` is the suite's:
+  one number, from which the harness derives a different seed for every trial.
+  The `seed` the closure receives is one of those derived seeds, and it becomes
+  the loop's seed. Give ten trials one `base_seed` and they are ten different
+  runs; give the suite the same `base_seed` again and it repeats all ten. A
+  loop's seed is fixed when it is built, so the closure builds a new loop each
+  time. Resetting one loop ten times would replay the same run ten times.
 - **`max_steps` caps a generation trial.** The harness stops a trial at the
   loop's `max_generations` or at `EvaluatorConfig::max_steps`, whichever comes
   first, and `max_steps` defaults to 1000. Set `max_steps` at least as large as

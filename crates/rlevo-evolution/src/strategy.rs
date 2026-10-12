@@ -619,7 +619,7 @@ where
     fitness_fn: F,
     state: Option<S::State>,
     rng: StdRng,
-    base_seed: u64,
+    seed: u64,
     device: B::Device,
     generation: usize,
     max_generations: usize,
@@ -636,7 +636,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EvolutionaryLoop")
-            .field("base_seed", &self.base_seed)
+            .field("seed", &self.seed)
             .field("generation", &self.generation)
             .field("max_generations", &self.max_generations)
             .field("latest_metrics", &self.latest_metrics)
@@ -652,8 +652,11 @@ where
 {
     /// Build a new loop from its parts.
     ///
-    /// `seed` seeds the run's RNG and is fixed for the life of the loop;
-    /// [`reset`](Self::reset) re-seeds from it. `device` is where the
+    /// `seed` is this loop's seed: it seeds the run's RNG and is fixed for the
+    /// life of the loop; [`reset`](Self::reset) re-seeds from it. Under the
+    /// evaluation harness it is a seed the harness derived for one trial and
+    /// handed to the closure that builds the loop, not the suite-wide
+    /// `EvaluatorConfig::base_seed` those are derived from. `device` is where the
     /// population tensors are built. `max_generations` is the generation
     /// budget, the point at which [`is_done`](Self::is_done) turns `true`.
     ///
@@ -687,7 +690,7 @@ where
             fitness_fn,
             state: None,
             rng: StdRng::seed_from_u64(seed),
-            base_seed: seed,
+            seed,
             device,
             generation: 0,
             max_generations,
@@ -792,7 +795,7 @@ where
     /// strategy's first state with [`Strategy::init`].
     ///
     /// Call it once before the first [`step`](Self::step). Calling it again
-    /// starts over: the RNG is re-seeded from the loop's base seed, so two
+    /// starts over: the RNG is re-seeded from the loop's seed, so two
     /// `reset`-to-budget runs of the same loop are byte-identical replays.
     ///
     /// Infallible: the configuration was validated in [`new`](Self::new), and
@@ -800,7 +803,7 @@ where
     /// [`GenerationProbe::begin`](rlevo_core::evaluation::GenerationProbe::begin)
     /// forwards to it.
     pub fn reset(&mut self) {
-        self.rng = StdRng::seed_from_u64(self.base_seed);
+        self.rng = StdRng::seed_from_u64(self.seed);
         self.generation = 0;
         self.latest_metrics = None;
         self.state = Some(

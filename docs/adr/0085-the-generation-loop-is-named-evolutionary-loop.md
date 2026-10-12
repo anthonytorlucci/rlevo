@@ -224,6 +224,27 @@ before a how-to for strategy authors is written.
    `None` without doing work, and both loops' `advance` asks `is_done`
    first. The cost falls only on a trial that is cut short, which runs one
    generation it does not report.
+10. **A suite has a base seed; a loop has a seed.**
+    `EvaluatorConfig::base_seed` is the one number a suite's `SeedStream`
+    is built on. The evaluator derives a trial seed for each (environment,
+    trial) pair, and from that an environment seed and an agent seed, which
+    it hands to the closure that builds the trial. A loop built there takes
+    one of those as the `seed` argument of `new`. The two numbers differ,
+    and the loops called theirs a base seed as well: in a private field,
+    in their `Debug` output and in prose. A reader who takes one for the
+    other expects ten trials of a suite to be the same run.
+
+    The loops stop using the word. Their private field is `seed`, their
+    `Debug` output prints `seed`, and their documentation, the guide and
+    `docs/rules.md` say "the loop's seed". No public name changes:
+    `EvaluatorConfig::base_seed` and `BenchmarkReport::base_seed` keep
+    theirs, and the parameter of `new` was `seed` already. The
+    documentation of `base_seed`, of both constructors and of the guide's
+    harness example now states the relation, and `rules.md` section 2
+    states the two words. `rlevo_evolution::rng::seed_stream` names its
+    first parameter `base` and keeps the name: it is a number a strategy
+    draws once a generation to root that generation's operator streams,
+    and neither of the two seeds above.
 
 ## Consequences
 
@@ -241,6 +262,8 @@ before a how-to for strategy authors is written.
 - An evolutionary run and an episode stop on the same word.
 - A suite whose cap is below a loop's budget says so, once per affected
   trial, where it reported a shorter run and nothing else.
+- "Base seed" names one number. A loop's documentation no longer suggests
+  that the seed it is built from is the suite's.
 - The documentation says what the loop does, and why. The loops' own
   documentation gives the six things one `step` does and the reason `step`
   reports no status; `rlevo_evolution::probe` sets the two ways of driving
@@ -292,6 +315,8 @@ before a how-to for strategy authors is written.
 - The warning is a `tracing` event, seen only where a subscriber is
   installed. The report carries the shorter `generations` scalar and no
   other mark.
+- `Debug` output of the two loops prints `seed` where it printed
+  `base_seed`.
 - The two loops are still one shape written twice. `CoEvolutionaryLoop`'s
   ten fields and seven public methods each have a counterpart in
   `EvolutionaryLoop`. Merging them needs a per-generation step trait on the
@@ -307,6 +332,9 @@ before a how-to for strategy authors is written.
   not.
 - What a generation trial reports, cut short or not: the same
   `generations` scalar, the same metrics and the same report shape.
+- Every seed. `EvaluatorConfig::base_seed`, the seeds derived from it and
+  the seed a loop is built from are the numbers they were, under the
+  public names they had.
 - The `tracing` events and their field names, which the live dashboard
   reads.
 
@@ -402,6 +430,14 @@ already required to be free.
 **Make a cut-short trial an errored one.** Rejected. Its numbers are true
 of the generations it reports, an errored trial discards them, and under
 `fail_fast` a cap set too low would abort the suite.
+
+**Rename `EvaluatorConfig::base_seed`,** to `suite_seed` for instance.
+Not done. The public names already differ: `base_seed` on the
+configuration, `seed` on the loop. What collided was a private field and
+prose. Renaming the public field would change every configuration literal
+that sets it and the `base_seed` key of every report and checkpoint
+already written, for a meaning "base" carries once the loops stop
+borrowing the word.
 
 ## References
 

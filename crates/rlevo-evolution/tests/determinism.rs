@@ -1,7 +1,7 @@
 //! Determinism integration test.
 //!
-//! On the Flex backend, running a strategy twice with the same
-//! `base_seed` must produce a bit-identical fitness trajectory.
+//! On the Flex backend, running a strategy twice with the same seed
+//! must produce a bit-identical fitness trajectory.
 //!
 //! # Why this file runs a single test
 //!

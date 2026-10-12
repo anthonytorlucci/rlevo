@@ -108,7 +108,7 @@ where
     params: C::Params,
     state: Option<C::State>,
     rng: StdRng,
-    base_seed: u64,
+    seed: u64,
     device: B::Device,
     generation: usize,
     max_generations: usize,
@@ -123,7 +123,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CoEvolutionaryLoop")
-            .field("base_seed", &self.base_seed)
+            .field("seed", &self.seed)
             .field("generation", &self.generation)
             .field("max_generations", &self.max_generations)
             .field("latest_metrics", &self.latest_metrics)
@@ -138,6 +138,11 @@ where
 {
     /// Build a new loop from an algorithm, its params, a seed, a device,
     /// and a generation budget.
+    ///
+    /// `seed` is this loop's seed, fixed for its life;
+    /// [`reset`](Self::reset) re-seeds from it. Under the evaluation harness
+    /// it is a seed derived for one trial, not the suite-wide
+    /// `EvaluatorConfig::base_seed`.
     ///
     /// The caller-supplied `params` are validated up front — this is the
     /// co-evolutionary loop consumption chokepoint (ADR 0026).
@@ -165,7 +170,7 @@ where
             params,
             state: None,
             rng: StdRng::seed_from_u64(seed),
-            base_seed: seed,
+            seed,
             device,
             generation: 0,
             max_generations,
@@ -219,7 +224,7 @@ where
     /// [`GenerationProbe::begin`](rlevo_core::evaluation::GenerationProbe::begin)
     /// forwards to it.
     pub fn reset(&mut self) {
-        self.rng = StdRng::seed_from_u64(self.base_seed);
+        self.rng = StdRng::seed_from_u64(self.seed);
         self.generation = 0;
         self.latest_metrics = None;
         self.state = Some(
