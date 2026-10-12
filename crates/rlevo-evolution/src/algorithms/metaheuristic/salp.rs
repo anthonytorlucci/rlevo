@@ -13,6 +13,21 @@
 //!
 //!   `$X_i \leftarrow (X_i + X_{i-1}) / 2$`.
 //!
+//! # The schedule's horizon
+//!
+//! In `$c_1$`, `$t$` counts generations and `$T$` is
+//! [`SalpConfig::max_generations`]. `$c_1$` falls from 2 at the start to
+//! about `$2 \cdot 10^{-7}$` at `$t = T$`, and stays there. The algorithm is
+//! defined over a run of known length, so `$T$` has no default:
+//! [`SalpConfig::default_for`] takes it, and the usual value is the
+//! generation budget given to
+//! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). The strategy
+//! cannot read that budget itself, which is why the number is written
+//! twice. The field's documentation says what a loop that is shorter or
+//! longer than `$T$` gets.
+//!
+//! # Implementation
+//!
 //! The follower rule is realized as a parallel stencil — the shifted copy is
 //! `$\text{concat}([\text{last\_leader}, \text{followers}[..-1]])$` — rather than a host-side
 //! Python-style loop. That keeps the update GPU-friendly and deterministic.
@@ -54,22 +69,55 @@ pub struct SalpConfig {
     /// Search-space bounds. The leader update pulls from a scaled
     /// uniform over this range.
     pub bounds: Bounds,
-    /// Budget pacing the `c1` decay.
+    /// The number of generations the decay of `$c_1$` is spread over:
+    /// `$c_1 = 2 \exp(-(4t/\text{max\_generations})^2)$`, held at its final
+    /// value from there on.
+    ///
+    /// Normally this is the generation budget given to
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). A strategy
+    /// never sees the loop's budget, so the two are separate numbers, and
+    /// when they differ the run is not the one the algorithm describes:
+    ///
+    /// - **A loop that stops before this many generations** ends with
+    ///   `$c_1$` still large: the leaders are still thrown a good part of
+    ///   the domain's width from the food source every generation, and the
+    ///   swarm has not started to converge.
+    /// - **A loop that runs for more** keeps refining around the food
+    ///   source with `$c_1$` at its floor.
+    ///
+    /// There is no default, because no one value is right for two loops of
+    /// different lengths.
     pub max_generations: usize,
 }
 
 impl SalpConfig {
-    /// Default configuration for a given population size and genome dimensionality.
+    /// Default configuration for a swarm of `pop_size` salps over
+    /// `genome_dim` dimensions, with the decay of `$c_1$` spread over
+    /// `max_generations` generations.
     ///
+    /// Pass the generation budget you give the loop as `max_generations`;
+    /// the [field](Self::max_generations) says what any other value does.
     /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
     /// on the returned config to search another one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_evolution::algorithms::metaheuristic::salp::SalpConfig;
+    ///
+    /// // One number, given to the config here and to the loop as its budget.
+    /// const GENERATIONS: usize = 300;
+    ///
+    /// let config = SalpConfig::default_for(32, 10, GENERATIONS);
+    /// assert_eq!(config.max_generations, GENERATIONS);
+    /// ```
     #[must_use]
-    pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
+    pub fn default_for(pop_size: usize, genome_dim: usize, max_generations: usize) -> Self {
         Self {
             pop_size,
             genome_dim,
             bounds: Bounds::new(-5.12, 5.12),
-            max_generations: 500,
+            max_generations,
         }
     }
 }
@@ -119,7 +167,8 @@ pub struct SalpState<B: Backend> {
 /// use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 ///
 /// let strategy = SalpSwarm::<Flex>::new();
-/// let params = SalpConfig::default_for(32, 10);
+/// // The decay runs over 300 generations; give the loop the same budget.
+/// let params = SalpConfig::default_for(32, 10, 300);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
@@ -342,6 +391,10 @@ mod tests {
 
     type TestBackend = Flex;
 
+    /// A schedule horizon for the tests that drive no loop, or drive one
+    /// too briefly for the schedule to matter.
+    const HORIZON: usize = 200;
+
     /// Distinct finite fitness with the maximum at index 0, for direct
     /// (non-loop) `tell` calls. Finite, so it respects ADR 0034.
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
@@ -356,12 +409,12 @@ mod tests {
 
     #[test]
     fn default_config_validates() {
-        assert!(SalpConfig::default_for(30, 10).validate().is_ok());
+        assert!(SalpConfig::default_for(30, 10, HORIZON).validate().is_ok());
     }
 
     #[test]
     fn rejects_pop_size_below_two() {
-        let mut cfg = SalpConfig::default_for(30, 10);
+        let mut cfg = SalpConfig::default_for(30, 10, HORIZON);
         cfg.pop_size = 1;
         assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
     }
@@ -384,7 +437,7 @@ mod tests {
         // DE premature-convergence test pattern.
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
-        let params = SalpConfig::default_for(40, 10);
+        let params = SalpConfig::default_for(40, 10, 600);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 3, device, 600,
@@ -402,7 +455,7 @@ mod tests {
     fn best_is_none_until_first_tell() {
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
-        let params = SalpConfig::default_for(4, 3);
+        let params = SalpConfig::default_for(4, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(0);
         let state = strategy.init(&params, &mut rng, &device);
         assert!(strategy.best(&state).is_none());
@@ -418,7 +471,7 @@ mod tests {
         // and hands back the untouched initial swarm.
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
-        let params = SalpConfig::default_for(6, 4);
+        let params = SalpConfig::default_for(6, 4, HORIZON);
         let mut rng = StdRng::seed_from_u64(3);
         let state = strategy.init(&params, &mut rng, &device);
         let expected = state
@@ -440,7 +493,7 @@ mod tests {
         for pop in [2usize, 3] {
             let device = Default::default();
             let strategy = SalpSwarm::<TestBackend>::new();
-            let params = SalpConfig::default_for(pop, 3);
+            let params = SalpConfig::default_for(pop, 3, 5);
             let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
             let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
                 strategy, params, fitness_fn, 0, device, 5,
@@ -467,7 +520,7 @@ mod tests {
         // follower stencil) is clamped to bounds; verify across seeds.
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
-        let params = SalpConfig::default_for(6, 4);
+        let params = SalpConfig::default_for(6, 4, HORIZON);
         let (lo, hi): (f32, f32) = params.bounds.into();
         for seed in 0..32 {
             let mut rng = StdRng::seed_from_u64(seed);
@@ -490,10 +543,11 @@ mod tests {
     fn zero_budget_loop_produces_no_metrics() {
         // The loop *budget* (distinct from SalpConfig::max_generations) is
         // zero: a well-behaved driver takes no step, so `latest_metrics` stays
-        // None after `reset`.
+        // None after `reset`. The schedule's horizon cannot follow the budget
+        // down: a horizon of zero does not validate.
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
-        let params = SalpConfig::default_for(4, 3);
+        let params = SalpConfig::default_for(4, 3, HORIZON);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 0)
@@ -511,7 +565,7 @@ mod tests {
     fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
-        let params = SalpConfig::default_for(6, 3);
+        let params = SalpConfig::default_for(6, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(7);
         let state = strategy.init(&params, &mut rng, &device);
         let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
@@ -544,7 +598,7 @@ mod tests {
     fn unit_budget_loop_runs_exactly_one_generation() {
         let device = Default::default();
         let strategy = SalpSwarm::<TestBackend>::new();
-        let params = SalpConfig::default_for(4, 3);
+        let params = SalpConfig::default_for(4, 3, 1);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 1)

@@ -172,17 +172,17 @@ fn run_pso(seed: u64, gens: usize) -> Vec<f32> {
 }
 
 fn run_gwo(seed: u64, gens: usize) -> Vec<f32> {
-    let params = GwoConfig::default_for(16, 5);
+    let params = GwoConfig::default_for(16, 5, gens);
     run(GreyWolfOptimizer::<B>::new(), params, seed, gens)
 }
 
 fn run_woa(seed: u64, gens: usize) -> Vec<f32> {
-    let params = WoaConfig::default_for(16, 5);
+    let params = WoaConfig::default_for(16, 5, gens);
     run(WhaleOptimization::<B>::new(), params, seed, gens)
 }
 
 fn run_salp(seed: u64, gens: usize) -> Vec<f32> {
-    let params = SalpConfig::default_for(16, 5);
+    let params = SalpConfig::default_for(16, 5, gens);
     run(SalpSwarm::<B>::new(), params, seed, gens)
 }
 
