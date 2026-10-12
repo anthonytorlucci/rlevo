@@ -6,6 +6,17 @@
 //! coefficient `$a \in [2, 0]$` drives the exploration-to-exploitation
 //! transition.
 //!
+//! # The schedule's horizon
+//!
+//! `$a = 2 (1 - t / T)$`, where `$t$` counts generations and `$T$` is
+//! [`GwoConfig::max_generations`]. The algorithm is defined over a run of
+//! known length, so `$T$` has no default: [`GwoConfig::default_for`] takes
+//! it, and the usual value is the generation budget given to
+//! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). The strategy
+//! cannot read that budget itself, which is why the number is written
+//! twice. The field's documentation says what a loop that is shorter or
+//! longer than `$T$` gets.
+//!
 //! # Update rule
 //!
 //! For each wolf `i` and each leader `$k \in \{\alpha, \beta, \delta\}$`:
@@ -54,25 +65,55 @@ pub struct GwoConfig {
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: Bounds,
-    /// Budget used to schedule `$a = 2 (1 - t / \text{max\_generations})$`.
-    /// The strategy itself is memoryless with respect to the loop's
-    /// stopping criterion, so this value simply paces the exploration
-    /// coefficient and need not equal the loop budget.
+    /// The number of generations the schedule of `$a$` is spread over:
+    /// `$a = 2 (1 - t / \text{max\_generations})$`, held at 0 from there on.
+    ///
+    /// Normally this is the generation budget given to
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). A strategy
+    /// never sees the loop's budget, so the two are separate numbers, and
+    /// when they differ the run is not the one the algorithm describes:
+    ///
+    /// - **A loop that stops before this many generations** ends with `$a$`
+    ///   still high and the pack still exploring. It has not started to
+    ///   converge.
+    /// - **A loop that runs for more** gains nothing from the rest. At
+    ///   `$a = 0$` every wolf moves to the mean of the three leaders, the pack
+    ///   is one point, and it does not move again.
+    ///
+    /// A value other than the budget is still a legitimate setting: a longer
+    /// one keeps the pack exploring for the whole run. There is no default,
+    /// because no one value is right for two loops of different lengths.
     pub max_generations: usize,
 }
 
 impl GwoConfig {
-    /// Default configuration for a given population size and genome dimensionality.
+    /// Default configuration for a pack of `pop_size` wolves over
+    /// `genome_dim` dimensions, with the schedule of `$a$` spread over
+    /// `max_generations` generations.
     ///
+    /// Pass the generation budget you give the loop as `max_generations`;
+    /// the [field](Self::max_generations) says what any other value does.
     /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
     /// on the returned config to search another one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_evolution::algorithms::metaheuristic::gwo::GwoConfig;
+    ///
+    /// // One number, given to the config here and to the loop as its budget.
+    /// const GENERATIONS: usize = 300;
+    ///
+    /// let config = GwoConfig::default_for(32, 10, GENERATIONS);
+    /// assert_eq!(config.max_generations, GENERATIONS);
+    /// ```
     #[must_use]
-    pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
+    pub fn default_for(pop_size: usize, genome_dim: usize, max_generations: usize) -> Self {
         Self {
             pop_size,
             genome_dim,
             bounds: Bounds::new(-5.12, 5.12),
-            max_generations: 500,
+            max_generations,
         }
     }
 }
@@ -173,7 +214,8 @@ impl<B: Backend> GwoState<B> {
 /// use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConfig};
 ///
 /// let strategy = GreyWolfOptimizer::<Flex>::new();
-/// let params = GwoConfig::default_for(32, 10);
+/// // The schedule runs over 300 generations; give the loop the same budget.
+/// let params = GwoConfig::default_for(32, 10, 300);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
@@ -448,6 +490,10 @@ mod tests {
 
     type TestBackend = Flex;
 
+    /// A schedule horizon for the tests that drive no loop, or drive one
+    /// too briefly for the schedule to matter.
+    const HORIZON: usize = 200;
+
     /// Objective whose row 0 evaluates to `NaN` (the rest finite). `Maximize`
     /// so natural == canonical; only the loop sanitize keeps the run finite.
     struct NanFitness;
@@ -481,12 +527,12 @@ mod tests {
 
     #[test]
     fn default_config_validates() {
-        assert!(GwoConfig::default_for(30, 10).validate().is_ok());
+        assert!(GwoConfig::default_for(30, 10, HORIZON).validate().is_ok());
     }
 
     #[test]
     fn rejects_pop_size_below_three() {
-        let mut cfg = GwoConfig::default_for(30, 10);
+        let mut cfg = GwoConfig::default_for(30, 10, HORIZON);
         cfg.pop_size = 2;
         assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
     }
@@ -551,7 +597,7 @@ mod tests {
         // classical baselines).
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
-        let params = GwoConfig::default_for(32, 10);
+        let params = GwoConfig::default_for(32, 10, 600);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 11, device, 600,
@@ -594,7 +640,7 @@ mod tests {
         // leader.
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
-        let params = GwoConfig::default_for(3, 3);
+        let params = GwoConfig::default_for(3, 3, 5);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
@@ -616,8 +662,7 @@ mod tests {
     fn rejects_max_generations_zero() {
         // The validator rejects `max_generations = 0`; the `.max(1)` in `ask`
         // is defensive-only and unreachable through the loop chokepoint.
-        let mut cfg = GwoConfig::default_for(3, 3);
-        cfg.max_generations = 0;
+        let cfg = GwoConfig::default_for(3, 3, 0);
         assert_eq!(cfg.validate().unwrap_err().field, "max_generations");
     }
 
@@ -630,8 +675,7 @@ mod tests {
         // divide-by-zero and yield a finite, in-bounds pack.
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
-        let mut cfg = GwoConfig::default_for(3, 3);
-        cfg.max_generations = 0;
+        let cfg = GwoConfig::default_for(3, 3, 0);
         let (lo, hi): (f32, f32) = cfg.bounds.into();
         let pack = Tensor::<TestBackend, 2>::zeros([3, 3], &device);
         let best = pack.clone().slice([0..1, 0..3]);
@@ -658,7 +702,7 @@ mod tests {
     fn first_ask_returns_initial_pack_unchanged() {
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
-        let params = GwoConfig::default_for(4, 3);
+        let params = GwoConfig::default_for(4, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(2);
         let state = strategy.init(&params, &mut rng, &device);
         let expected = state.pack().clone().into_data().into_vec::<f32>().unwrap();
@@ -680,7 +724,7 @@ mod tests {
     fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
-        let params = GwoConfig::default_for(4, 3);
+        let params = GwoConfig::default_for(4, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(131);
         let state = strategy.init(&params, &mut rng, &device);
 
@@ -728,7 +772,7 @@ mod tests {
     fn nan_fitness_through_loop_stays_finite() {
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
-        let params = GwoConfig::default_for(3, 3);
+        let params = GwoConfig::default_for(3, 3, 3);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, NanFitness, 1, device, 3)
                 .expect("valid params");

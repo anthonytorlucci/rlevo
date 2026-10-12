@@ -58,7 +58,8 @@ impl FitnessEvaluable for AckleyFit {
 /// - `num_trials_per_env: 2` — enough signal to catch systematic failures without
 ///   inflating wall-clock time.
 /// - `max_steps: MAX_GENS` (120) — matches the generation budget given to each
-///   [`EvolutionaryLoop`].
+///   [`EvolutionaryLoop`]. The same constant is the schedule horizon of the
+///   three strategies that have one (GWO, WOA, SSA).
 /// - `num_threads: Some(1)` — forces single-threaded trial dispatch. Burn's `Flex`
 ///   backend holds a process-global RNG mutex; running trials in parallel would
 ///   cause threads to contend on that mutex and produce nondeterministic, often
@@ -153,7 +154,7 @@ fn gwo_ra(
 ) -> EvolutionaryLoop<B, GreyWolfOptimizer<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
     EvolutionaryLoop::new(
         GreyWolfOptimizer::<B>::new(),
-        GwoConfig::default_for(32, DIM),
+        GwoConfig::default_for(32, DIM, MAX_GENS),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
             Rastrigin::new(DIM).expect("dim >= 1"),
@@ -171,7 +172,7 @@ fn woa_ra(
 ) -> EvolutionaryLoop<B, WhaleOptimization<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
     EvolutionaryLoop::new(
         WhaleOptimization::<B>::new(),
-        WoaConfig::default_for(32, DIM),
+        WoaConfig::default_for(32, DIM, MAX_GENS),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
             Rastrigin::new(DIM).expect("dim >= 1"),
@@ -189,7 +190,7 @@ fn salp_ra(
 ) -> EvolutionaryLoop<B, SalpSwarm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
     EvolutionaryLoop::new(
         SalpSwarm::<B>::new(),
-        SalpConfig::default_for(32, DIM),
+        SalpConfig::default_for(32, DIM, MAX_GENS),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
             Rastrigin::new(DIM).expect("dim >= 1"),
@@ -349,9 +350,16 @@ fn swarm_strategies_reduce_on_rastrigin_and_ackley() {
     // strictly lower, which left the Ackley ceiling of 18.0 vacuous against
     // observed values near 0.02.
     //
-    // Measured with `base_seed: 17`. Rastrigin-D10 averages: GWO 0.0,
-    // WOA ~5e-9, ABC 1.2, PSO 13.2, Firefly 19.0, ACO_R 33.4, SSA 42.1,
+    // Measured with this file's `cfg()`. Rastrigin-D10 averages: WOA ~3e-14,
+    // ABC 1.2, GWO 2.2, SSA 11.9, PSO 13.2, Firefly 19.0, ACO_R 33.4,
     // Bat 69.7, Cuckoo 72.5. Ackley-D10: DE 0.022, PSO 0.010.
+    //
+    // GWO, WOA and SSA pace a schedule over a horizon of their own, and are
+    // given `MAX_GENS` for it, the loop's budget. Their constructors once
+    // filled in 500, so the 120 generations here covered a quarter of the
+    // schedule: SSA scored 42.1 and GWO exactly 0.0. The 0.0 was not search.
+    // GWO is drawn to the origin, where this Rastrigin has its optimum, and
+    // on a long schedule it is still being drawn there when the run ends.
     //
     // Bars are set to catch "stopped optimizing" without flaking: 100.0 on
     // Rastrigin leaves the worst (Cuckoo, 72.5) ~38% headroom, and 1.0 on

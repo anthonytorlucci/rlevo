@@ -12,7 +12,18 @@
 //!   `b = 1` (canonical).
 //!
 //! `$A = 2ar - a$`, `$C = 2r$`, with `$a$` linearly decreased from 2 to 0
-//! over the budget.
+//! over the run.
+//!
+//! # The schedule's horizon
+//!
+//! `$a = 2 (1 - t / T)$`, where `$t$` counts generations and `$T$` is
+//! [`WoaConfig::max_generations`]. The algorithm is defined over a run of
+//! known length, so `$T$` has no default: [`WoaConfig::default_for`] takes
+//! it, and the usual value is the generation budget given to
+//! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). The strategy
+//! cannot read that budget itself, which is why the number is written
+//! twice. The field's documentation says what a loop that is shorter or
+//! longer than `$T$` gets.
 //!
 //! The branches are realized as two boolean masks and three tensor
 //! candidates — no divergent kernel paths.
@@ -77,24 +88,58 @@ pub struct WoaConfig {
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: Bounds,
-    /// Budget pacing `$a = 2(1 - t/\text{max\_generations})$`.
+    /// The number of generations the schedule of `$a$` is spread over:
+    /// `$a = 2(1 - t/\text{max\_generations})$`, held at 0 from there on.
+    ///
+    /// Normally this is the generation budget given to
+    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). A strategy
+    /// never sees the loop's budget, so the two are separate numbers, and
+    /// when they differ the run is not the one the algorithm describes:
+    ///
+    /// - **A loop that stops before this many generations** ends with `$a$`
+    ///   still high, and most encircling moves still aimed at a random
+    ///   whale, not at the best one.
+    /// - **A loop that runs for more** gains little from the rest. At
+    ///   `$a = 0$` an encircling move places a whale on the best position,
+    ///   and only the spiral branch still searches.
+    ///
+    /// A value other than the budget is still a legitimate setting: a longer
+    /// one keeps the swarm exploring for the whole run, which can suit a
+    /// short budget. There is no default, because no one value is right for
+    /// two loops of different lengths.
     pub max_generations: usize,
     /// Spiral shape constant (Mirjalili's canonical `b = 1`).
     pub b: f32,
 }
 
 impl WoaConfig {
-    /// Default configuration for a given population size and genome dimensionality.
+    /// Default configuration for `pop_size` whales over `genome_dim`
+    /// dimensions, with the schedule of `$a$` spread over `max_generations`
+    /// generations.
     ///
+    /// Pass the generation budget you give the loop as `max_generations`;
+    /// the [field](Self::max_generations) says what any other value does.
     /// The search domain is `[-5.12, 5.12]` in every dimension. Set `bounds`
     /// on the returned config to search another one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_evolution::algorithms::metaheuristic::woa::WoaConfig;
+    ///
+    /// // One number, given to the config here and to the loop as its budget.
+    /// const GENERATIONS: usize = 300;
+    ///
+    /// let config = WoaConfig::default_for(32, 10, GENERATIONS);
+    /// assert_eq!(config.max_generations, GENERATIONS);
+    /// ```
     #[must_use]
-    pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
+    pub fn default_for(pop_size: usize, genome_dim: usize, max_generations: usize) -> Self {
         Self {
             pop_size,
             genome_dim,
             bounds: Bounds::new(-5.12, 5.12),
-            max_generations: 500,
+            max_generations,
             b: 1.0,
         }
     }
@@ -202,7 +247,8 @@ impl<B: Backend> WoaState<B> {
 /// use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
 ///
 /// let strategy = WhaleOptimization::<Flex>::new();
-/// let params = WoaConfig::default_for(32, 10);
+/// // The schedule runs over 300 generations; give the loop the same budget.
+/// let params = WoaConfig::default_for(32, 10, 300);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
@@ -462,6 +508,10 @@ mod tests {
 
     type TestBackend = Flex;
 
+    /// A schedule horizon for the tests that drive no loop, or drive one
+    /// too briefly for the schedule to matter.
+    const HORIZON: usize = 200;
+
     /// Distinct finite fitness with the maximum at index 0, for direct
     /// (non-loop) `tell` calls. Finite, so it respects ADR 0034.
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
@@ -487,12 +537,12 @@ mod tests {
 
     #[test]
     fn default_config_validates() {
-        assert!(WoaConfig::default_for(30, 10).validate().is_ok());
+        assert!(WoaConfig::default_for(30, 10, HORIZON).validate().is_ok());
     }
 
     #[test]
     fn rejects_nonpositive_b() {
-        let mut cfg = WoaConfig::default_for(30, 10);
+        let mut cfg = WoaConfig::default_for(30, 10, HORIZON);
         cfg.b = 0.0;
         assert_eq!(cfg.validate().unwrap_err().field, "b");
     }
@@ -515,7 +565,7 @@ mod tests {
         // spiral/encircle composition functions correctly.
         let device = Default::default();
         let strategy = WhaleOptimization::<TestBackend>::new();
-        let params = WoaConfig::default_for(32, 10);
+        let params = WoaConfig::default_for(32, 10, 600);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 5, device, 600,
@@ -577,7 +627,7 @@ mod tests {
     fn best_is_none_until_first_tell() {
         let device = Default::default();
         let strategy = WhaleOptimization::<TestBackend>::new();
-        let params = WoaConfig::default_for(4, 3);
+        let params = WoaConfig::default_for(4, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(0);
         let state = strategy.init(&params, &mut rng, &device);
         assert!(strategy.best(&state).is_none());
@@ -593,7 +643,7 @@ mod tests {
         // clamped to bounds; verify across seeds.
         let device = Default::default();
         let strategy = WhaleOptimization::<TestBackend>::new();
-        let params = WoaConfig::default_for(6, 4);
+        let params = WoaConfig::default_for(6, 4, HORIZON);
         let (lo, hi): (f32, f32) = params.bounds.into();
         for seed in 0..32 {
             let mut rng = StdRng::seed_from_u64(seed);
@@ -618,7 +668,7 @@ mod tests {
         // whale" branch has a distinct target to pick.
         let device = Default::default();
         let strategy = WhaleOptimization::<TestBackend>::new();
-        let params = WoaConfig::default_for(2, 3);
+        let params = WoaConfig::default_for(2, 3, 5);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
@@ -645,7 +695,7 @@ mod tests {
     fn nan_fitness_does_not_latch_without_loop() {
         let device = Default::default();
         let strategy = WhaleOptimization::<TestBackend>::new();
-        let params = WoaConfig::default_for(6, 3);
+        let params = WoaConfig::default_for(6, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(7);
         let state = strategy.init(&params, &mut rng, &device);
         let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);

@@ -141,6 +141,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `coevolution::generation_loop`.** `CoEAMetrics` and `CoEvolutionaryLoop`
   are re-exported from `rlevo_evolution::coevolution` as before, so only a
   path that named the module changes.
+- **`GwoConfig`, `WoaConfig` and `SalpConfig` no longer default their
+  schedule horizon** (ADR 0087). `default_for(pop_size, genome_dim)` is
+  `default_for(pop_size, genome_dim, max_generations)` on all three. These
+  strategies pace a coefficient over `max_generations` generations, as the
+  algorithms are published, and a strategy never sees the loop's budget,
+  so the constructors used to fill in 500. That was the right schedule
+  only for a loop that ran 500 generations. **Pass the generation budget
+  you give `EvolutionaryLoop::new`:**
+
+  ```rust
+  const GENERATIONS: usize = 300;
+  let params = GwoConfig::default_for(32, 10, GENERATIONS);
+  let evo_loop = EvolutionaryLoop::new(strategy, params, fitness, seed, device, GENERATIONS)?;
+  ```
+
+  A loop shorter than the horizon ends with the swarm still exploring. On
+  a Sphere with its optimum moved to 1.7 in every dimension (twelve seeds,
+  population 32, dimension 10, 120 generations, `Flex`, Apple M2 Pro), GWO
+  reached a mean cost of 5.5e-1 at the old horizon of 500 and 3.0e-4 at a
+  horizon of 120; the Salp swarm, 4.5 and 5.5e-7. A loop longer than the
+  horizon wastes the rest on GWO, whose pack becomes one point when its
+  schedule ends. To keep a run exactly as it was, pass 500. The field
+  itself is unchanged, and so is any code that set it by hand.
 
 ### `rlevo`
 
@@ -280,6 +303,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   drives it once through the loop and once by hand with the two functions
   above, and compares what every `tell` received, bit for bit, on a
   fitness function that returns `NaN`, `-inf` and `+inf` costs.
+- **A test of what the swarm schedule horizon does.**
+  `tests/swarm_horizon.rs` runs GWO and the Salp swarm for 120 generations
+  on a Sphere with its optimum away from the origin, once with the horizon
+  at the budget and once at 500, on three seeds. Both converge in the
+  first case and are still exploring in the second. A constructor that
+  ignores its `max_generations` argument fails it.
 
 **Changed**
 
@@ -294,6 +323,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Every in-tree run of GWO, WOA and the Salp swarm used the wrong
+  schedule.** None set `max_generations`, so all ran on the constructors'
+  500 whatever the loop's budget: the determinism test at 30 generations,
+  the swarm suite at 120 and the three `*_converges_on_sphere_d10` tests
+  at 600. Each now passes its own budget. Two numbers the swarm suite
+  records change with it, on a 10-dimensional Rastrigin with its optimum
+  at the origin: the Salp swarm's average goes from 42.1 to 11.9, and
+  GWO's from exactly 0.0 to 2.2. The 0.0 came from GWO's pull toward the
+  origin, which a schedule that never finishes leaves at full strength; on
+  the same function moved to 1.7, GWO at 120 generations averages 36.5 on
+  the old default and 15.2 with the horizon at the budget.
 - **The documentation described a `reward` the evaluator no longer read.**
   The loop's type docs, the crate README and the co-evolution module docs
   said each `step` hands a reward to the benchmark evaluator. It has read
