@@ -117,9 +117,10 @@ setting changes the contract rather than just the syntax:
   a `tell` driven by `EvolutionaryLoop` receives is therefore always finite or $-\infty$ — never a
   `NaN` or $+\infty$. Drive a strategy directly, bypassing the loop, and you lose
   that guarantee. You then do both jobs yourself before `tell`, in this order:
-  negate a `Minimize` objective, then replace `NaN` with `f32::NEG_INFINITY`
-  and $+\infty$ with `f32::MAX`. The order matters: sanitise first and negate
-  second, and a `NaN` cost becomes the best individual in the population.
+  negate a `Minimize` objective, then sanitise with
+  `rlevo::evo::fitness::sanitize_fitness_tensor`, the function the loop itself
+  calls. Keep that order. Sanitise before negating, and a `NaN` cost becomes
+  the best individual in the population.
 - **Randomness is a host stream, not a threaded key.** evosax splits and threads
   explicit JAX `PRNGKey`s. `rlevo` passes `&mut dyn Rng` and derives every draw
   from a single host `seed_stream` (below) — different plumbing for the same
@@ -162,7 +163,7 @@ use rlevo::burn::backend::Flex;
 use rand::{SeedableRng, rngs::StdRng};
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
-use rlevo::evo::fitness::{BatchFitnessFn, FromLandscape};
+use rlevo::evo::fitness::{BatchFitnessFn, FromLandscape, sanitize_fitness_tensor};
 use rlevo::evo::strategy::Strategy;
 
 type B = Flex;
@@ -188,8 +189,9 @@ fn main() {
 
         // 3. Canonicalise. A strategy maximises, and Sphere is a cost, so negate
         //    it. Leave this out and the GA climbs to the worst corner of the
-        //    domain instead of descending to the origin.
-        let fitness = cost.neg();
+        //    domain instead of descending to the origin. Then sanitise, so that
+        //    a `NaN` or infinite score can never be ranked best. Negate first.
+        let fitness = sanitize_fitness_tensor(cost.neg());
 
         // 4. Tell: hand back the same population and its fitness; get the next
         //    state plus a metrics snapshot for this generation.
@@ -217,8 +219,9 @@ A few things worth pointing out:
 - **The direction is yours here.** Step 3 is the line a hand-written loop most
   easily forgets, and nothing fails when it is missing: the run completes and
   optimises the wrong way. `EvolutionaryLoop` reads the direction from the
-  fitness function and does it for you. It also sanitises non-finite fitness,
-  which this example leaves out because Sphere returns none.
+  fitness function and does it for you. The sanitising on the same line is
+  the loop's other job: Sphere never returns a `NaN`, so it changes nothing
+  here, and it is what a fitness function that can diverge needs.
 - **State threads through the returns.** `ask` hands you `next_state`, which you
   pass straight into `tell`; `tell` hands you `new_state`, which becomes the
   `state` for the next iteration. Nothing is stored on the strategy.
@@ -463,7 +466,8 @@ several seeds on a condition of your own, drive a loop per seed yourself.
   takes hours), or when one loop has to drive several strategies or populations
   at once, as a hybrid of evolution and RL does. You then own everything the
   loop did for you: the RNG and its seed, the generation count, the direction
-  (negate a cost), the sanitising of non-finite fitness, the validation of the
+  (negate a cost), the sanitising of non-finite fitness
+  (`sanitize_fitness_tensor`, after the negation), the validation of the
   configuration, and turning the metrics back into your objective's own
   direction when you read them. To let the harness run a loop of your own,
   implement `GenerationProbe` for it: `begin` re-seeds and starts over, and

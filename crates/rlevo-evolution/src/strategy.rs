@@ -185,9 +185,11 @@ pub trait Strategy<B: Backend>: Send + Sync {
     /// argmax and champion-write site downstream *in that function* may then
     /// assume it (`rules.md` section 3, the correctness floor; ADR 0034
     /// Decision 3). On the loop's path that sanitize changes nothing. On a
-    /// bypass path it is what keeps a `NaN` from being crowned. Inside this
-    /// crate the rule is the `sanitize_fitness` function; a strategy written
-    /// outside it applies the same two replacements by hand.
+    /// bypass path it is what keeps a `NaN` from being crowned. The rule is
+    /// one function, [`sanitize_fitness`](crate::fitness::sanitize_fitness),
+    /// and a strategy written outside this crate calls the same one:
+    /// `fitness.iter().map(|&f| sanitize_fitness(f))` on the `Vec<f32>` the
+    /// pull produced.
     ///
     /// Every shipping strategy in [`algorithms::metaheuristic`] does this
     /// internally, so a direct `ask`/`tell` caller of that family need not

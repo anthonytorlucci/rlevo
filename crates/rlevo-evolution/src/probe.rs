@@ -66,7 +66,9 @@
 //!
 //! A driver that calls [`Strategy::ask`] and [`Strategy::tell`] itself must
 //! negate a `Minimize` objective and sanitise the fitness itself, in that
-//! order. One that wraps an [`EvolutionaryLoop`] inherits both.
+//! order: `sanitize_fitness_tensor(cost.neg())`, with
+//! [`sanitize_fitness_tensor`](crate::fitness::sanitize_fitness_tensor). One
+//! that wraps an [`EvolutionaryLoop`] inherits both.
 //!
 //! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
 //! [`CoEvolutionaryLoop`]: crate::coevolution::CoEvolutionaryLoop

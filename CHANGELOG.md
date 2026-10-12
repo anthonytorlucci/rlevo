@@ -262,6 +262,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   same seeded trials on one thread, on four and on the default pool and
   compares every scalar bit for bit. A loop made to draw from a
   process-global generator fails it.
+- **`fitness::sanitize_fitness` and `fitness::sanitize_fitness_tensor` are
+  public** (ADR 0086, superseding one clause of ADR 0034). They are the
+  crate's rule for a fitness that is not finite: `NaN` becomes
+  `f32::NEG_INFINITY`, `+inf` becomes `f32::MAX`, everything else passes
+  through, on canonical (higher is better) values. Two kinds of code call
+  them. A `Strategy` you write maps the fitness its `tell` pulls to host
+  through `sanitize_fitness`, because `tell` can be reached without the
+  loop. A loop you write around `ask` and `tell` calls
+  `sanitize_fitness_tensor(cost.neg())` before `tell`. Negate first: a
+  `NaN` cost sanitised and then negated becomes the best member of the
+  population. A run driven by `EvolutionaryLoop` calls neither. Both had
+  the rule only in prose before. `sanitized_mean` and `sanitized_sum` stay
+  private.
+- **A test that a hand-written ask/tell loop matches `EvolutionaryLoop`.**
+  `tests/hand_written_loop.rs` defines a strategy outside the crate,
+  drives it once through the loop and once by hand with the two functions
+  above, and compares what every `tell` received, bit for bit, on a
+  fitness function that returns `NaN`, `-inf` and `+inf` costs.
 
 **Fixed**
 
@@ -309,8 +327,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `tell` "may build leaders ... without a finite check" because the loop
   sanitises first, and two paragraphs later that an implementor owes a
   sanitise at the host pull. ADR 0034 Decision 3 and `rules.md` section 3
-  make the second the rule; the docs now say only that, with the two
-  replacements spelled out for a strategy written outside this crate.
+  make the second the rule; the docs now say only that, and name the
+  function a strategy written outside this crate calls to do it.
 - **Undocumented behaviour a first run meets.** Twelve `default_for`
   constructors search `[-5.12, 5.12]` and did not say so.
   `EvolutionaryLoop::best` returns the best genome so far, a
