@@ -101,7 +101,7 @@ exits zero:
 
 ```text
 BYOE-STEP 1 PASS scaffold :: probe created at <run>/probe (outside the workspace)
-BYOE-STEP 2 FAIL add-deps :: rlevo alone is insufficient; 2 additional crate(s) required by hand: rand, rlevo-benchmarks
+BYOE-STEP 2 FAIL add-deps :: rlevo alone is insufficient; 1 additional crate(s) required by hand: rand
 BYOE-STEP 3 PASS implement-environment :: Environment implemented against public API only; the file names nothing outside rlevo::core
 BYOE-STEP 4 PASS post-terminal :: a step after the end returns StepAfterEpisodeEnd carrying Terminated and changes nothing; guard from rlevo::core
 BYOE-STEP 5 PASS implement-agent :: the policy implements BenchableAgent with act alone
@@ -113,12 +113,13 @@ Between step 6 and the verdict it also prints the `rlevo` crates the probe
 resolved, the toolchain, and a note on what the walk does not cover.
 
 Step 2 is the one step that is not fatal. Its `FAIL` is a known finding on a
-path that works, and it is written down as the two `FINDING:` lines in
-`Cargo.toml.template`: `rlevo-benchmarks`, because the harness is not
-reachable through `rlevo`, and `rand`, because `BenchableAgent::act` takes a
-`&mut dyn rand::Rng` and `rlevo` does not re-export `rand`. Each line leaves
-the manifest in the pull request that makes it unnecessary. When both are
-gone, the last line reads `BYOE-1/thermostat passes.`, which is the target.
+path that works, and it is written down as the `FINDING:` line in
+`Cargo.toml.template`: `rand`, because `BenchableAgent::act` takes a
+`&mut dyn rand::Rng` and `rlevo` does not re-export `rand`. A finding leaves
+the manifest in the pull request that makes it unnecessary: the harness was
+one until `rlevo` began to re-export it as `rlevo::harness`. When `rand`
+is gone too, the last line reads `BYOE-1/thermostat passes.`, which is the
+target.
 
 The last line is one of four:
 

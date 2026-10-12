@@ -22,8 +22,8 @@ Hard constraints and conventions that apply to every contribution. Read this bef
   - `rlevo-benchmarks` — paradigm-neutral evaluation harness (light-touch dep on `rlevo-core`). Has optional `tui` (ratatui live dashboard), `report` (static-HTML Leptos viewer), and `record` (EpisodeRecord file writer) features; this is the **only** production crate permitted to carry viz deps, and only behind those feature gates.
   - `rlevo-benchmarks-report-client` — WASM report client; mirrors `rlevo-benchmarks`'s wire types for browser-side rendering. **Not in `default-members`**. Depends on `rlevo-metrics-registry`.
   - `rlevo-metrics-registry` — `#![no_std]`, zero-dependency leaf crate holding the typed `MetricDescriptor` table (name, kind, cadence, title, unit). Shared by `rlevo-benchmarks` and `rlevo-benchmarks-report-client` as a single source of truth; eliminates the forked-metric-list footgun.
-  - `rlevo` — public API re-export aggregator; includes `rlevo-core`, `rlevo-reinforcement-learning`, `rlevo-evolution`, and `rlevo-hybrid`. Re-exports Burn as `rlevo::burn` and is where a Burn backend is selected, through its `flex` (default) and `wgpu` features (ADR 0080).
-  - `rlevo-examples` — heavyweight example programs that import `rlevo-benchmarks` or any viz/record/report feature dep. **Not in `default-members`** — opt in with `-p rlevo-examples`. Has no public library surface of its own. (ADR 0012)
+  - `rlevo` — public API re-export aggregator; includes `rlevo-core`, `rlevo-environments`, `rlevo-reinforcement-learning`, `rlevo-evolution`, `rlevo-hybrid`, and the evaluation harness `rlevo-benchmarks`, re-exported as `rlevo::harness` at its default features (ADR 0084). Re-exports Burn as `rlevo::burn` and is where a Burn backend is selected, through its `flex` (default) and `wgpu` features (ADR 0080).
+  - `rlevo-examples` — heavyweight example programs that need one of the harness's `tui` / `record` / `report` features, or a crate that is not published. **Not in `default-members`** — opt in with `-p rlevo-examples`. Has no public library surface of its own. (ADRs 0012, 0084)
   - `rlevo-test-support` — `publish = false`, dev-only crate holding shared cross-crate test scaffolding (`LinearEnv`, Flex backend helpers, seeded baseline runners, assertion macros). Never a prod dep of any shipped crate. **Not in `default-members`**. (ADR 0024)
 - `rlevo-core` is a contract crate: no algorithm or environment implementations land in it (as its bullet above states), and `util` remains its only shared-helper module. This is not a ban on executable code: a contract type enforces its own invariants, so validation and invariant-enforcement logic owned by a type defined here, and the bodies of provided trait methods, are part of the contract rather than exceptions to it (e.g. `probability.rs`, `rate.rs`, `bounds.rs`, `episode.rs`'s `EpisodeGuard`, `config.rs`'s constraint combinators). `util` holds exactly two tenants: the `combinations` / `checked_combinations` binomial helpers folded in, and `util::seed`'s deterministic seed-derivation primitives relocated from `rlevo-benchmarks`.
 - All shared dependencies must be declared in the root `Cargo.toml` `[workspace.dependencies]` table. Crates inherit via `{ workspace = true }`.
@@ -247,8 +247,8 @@ If one file does two of these (e.g. an example that also asserts), **split it** 
 | Integration test | **$\geq 2$ crates** together                                      | `crates/rlevo/tests/` (flat)                   | `cargo test -p rlevo`                          |
 | Bench            | **one crate's** hot path                                    | `<crate>/benches/` + `[[bench]]` in that crate | `cargo bench -p <crate>`                       |
 | Bench            | **cross-crate** throughput (env + agent + record sink)      | `crates/rlevo/benches/`                        | `cargo bench -p rlevo`                         |
-| Example          | imports **only the 5 library crates**                       | `crates/rlevo/examples/`                       | `cargo run -p rlevo --example <name>`          |
-| Example          | imports `rlevo-benchmarks` or any **tui/record/report** dep | `crates/rlevo-examples/examples/`              | `cargo run -p rlevo-examples --example <name>` |
+| Example          | everything it uses is reachable **through `rlevo`** at default features | `crates/rlevo/examples/`           | `cargo run -p rlevo --example <name>`          |
+| Example          | needs a harness **tui/record/report** feature, or an unpublished crate | `crates/rlevo-examples/examples/`   | `cargo run -p rlevo-examples --example <name>` |
 
 The single rule that unifies the table: **single-crate scope stays in that crate;
 multi-crate scope moves up to the umbrella `crates/rlevo/`** — except heavy examples,
@@ -259,9 +259,11 @@ which move *sideways* to `crates/rlevo-examples/` (see §11 for the exact dep te
 1. **Purpose** — assert correctness → *test*; measure performance → *bench*; demonstrate
    usage → *example*. Pick exactly one.
 2. **Scope** — does it exercise one crate or several? One → owning crate. Several → umbrella.
-3. **Heaviness (examples only)** — does it import `rlevo-benchmarks` or any
-   viz/record/report feature dep? Yes → `crates/rlevo-examples/`; No → `crates/rlevo/examples/`.
-   This test is dependency-based, not scope-based.
+3. **Heaviness (examples only)** — does it need one of the harness's
+   `tui` / `record` / `report` features, or a crate that is not published?
+   Yes → `crates/rlevo-examples/`; No → `crates/rlevo/examples/`.
+   This test is dependency-based, not scope-based. Using the harness itself
+   (`rlevo::harness`) does not make an example heavy (ADR 0084).
 
 ### Three-tier test placement rule
 
@@ -281,7 +283,7 @@ Supplementary rules:
 - **Scope of `benches` (cargo bench).** A `[[bench]]` target exists to **micro-benchmark core logic** and must **strictly measure execution time or resource allocation** (CPU time, throughput, allocations/peak memory) under `criterion`. It is not a correctness test, not a demo, and not an evaluation run of an agent against an environment (that is `rlevo-benchmarks`). If a "bench" asserts a result or prints a story instead of producing timing/allocation numbers, it is misfiled — move it to a test or an example.
 - **`[[bench]]` entries stay in their owning crate** when measuring a single-crate hot path; declare `criterion` as a `dev-dependency` there.
 - **Cross-crate throughput benches** (those that drive an env + agent + record sink together) live in `crates/rlevo/benches/`.
-- A bench that needs `rlevo-benchmarks` evaluation-harness machinery is **not** a `[[bench]]` target — it is either a `rlevo-examples` program or a harness-internal helper. Do not smuggle it into a `benches/` dir.
+- A bench that needs `rlevo-benchmarks` evaluation-harness machinery is **not** a `[[bench]]` target — it is either an example or a harness-internal helper. Do not smuggle it into a `benches/` dir.
 - `harness = true` (libtest) benches are forbidden; all benches use the `criterion` harness (`harness = false`).
 
 ### Unit tests live inside `/src`
@@ -482,6 +484,7 @@ generation-to-generation) diversity the caller relies on.
 - **`AsciiRenderable` is demoted to an optional debug helper.** It is no longer a library-level rendering contract: env families are **not** required to implement it, and there is no `Visualize` supertrait of `Environment`. Implement it only as an ad-hoc debugging aid.
 - **The render type vocabulary lives in `rlevo-core::render`.** `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, `palette` and `AsciiRenderable` are all defined there. `rlevo-environments::render` is a re-export shim only — do not define new render types in `rlevo-environments`.
 - **No production crate depends on viz deps.** `rlevo-core`, `rlevo-environments`, `rlevo-reinforcement-learning`, `rlevo-evolution`, and `rlevo-hybrid` must not depend (production *or* dev) on `ratatui`, `crossterm`, `leptos`, `axum`, `wasm-bindgen`, or any chart crate. `rlevo-benchmarks` is the sole exception, and only behind its `tui` / `report` / `record` feature gates.
+- **Who may depend on the harness.** The umbrella `rlevo` carries `rlevo-benchmarks` unconditionally, at the harness's default features, which link no viz dep (ADR 0084); its `viz-tui` and `viz-report` features are the only way the umbrella turns a gated one on. No other production crate depends on the harness, with one named exception: `rlevo-environments` under its off-by-default `record` feature, for the `RecordedEnvFamily` impls. Do not add a second.
 - **Audit dependencies on the resolved graph, not the manifests.** The check for the rule above is `cargo tree -p <crate> -e normal | grep -c ratatui`, which must print 0 for every production crate. A manifest audit cannot see a crate pulled in through a feature of an approved dependency: until ADR 0080, Burn's `train` feature put `ratatui` and `crossterm` into every production crate's graph while no manifest named them. `Cargo.lock` is no evidence either way; it lists every optional package of every dependency, enabled or not.
 - **`parking_lot::Mutex` is the workspace-standard lock for viz/observer shared state.** `SharedPopulationObserver` is `Arc<parking_lot::Mutex<dyn PopulationObserver>>`. Do not mix `std::sync::Mutex` into observer or record-sink types — a split lock type across sibling subsystems is a footgun (see ADR 0010). (ADR 0010)
 
@@ -489,19 +492,20 @@ generation-to-generation) diversity the caller relies on.
 
 ## 11. Example Scope Boundary
 
-An example belongs in `crates/rlevo/examples/` **if and only if** it imports exclusively from the five library sub-crates:
+An example belongs in `crates/rlevo/examples/` **if and only if** everything it uses is reachable through `rlevo` at default features (ADR 0084, which amends ADR 0012's rule):
 
-| Crate                                 | Allowed in `rlevo/examples/`? |
-| ------------------------------------- | ----------------------------- |
-| `rlevo-core`                          | Yes                           |
-| `rlevo-environments`                  | Yes                           |
-| `rlevo-evolution`                     | Yes                           |
-| `rlevo-reinforcement-learning`        | Yes                           |
-| `rlevo-hybrid`                        | Yes                           |
-| `rlevo-benchmarks`                    | **No → `rlevo-examples`**     |
-| Any tui / record / report feature dep | **No → `rlevo-examples`**     |
+| It uses                                                             | Allowed in `rlevo/examples/`? |
+| ------------------------------------------------------------------- | ----------------------------- |
+| `rlevo-core`                                                        | Yes                           |
+| `rlevo-environments`                                                | Yes                           |
+| `rlevo-evolution`                                                   | Yes                           |
+| `rlevo-reinforcement-learning`                                      | Yes                           |
+| `rlevo-hybrid`                                                      | Yes                           |
+| `rlevo-benchmarks` at default features (`Suite`, `Evaluator`, metrics, reporters) | Yes                |
+| A harness `tui` / `record` / `report` feature                       | **No → `rlevo-examples`**     |
+| A crate that is not published (`rlevo-test-support`, the report client) | **No → `rlevo-examples`** |
 
-If an example imports from `rlevo-benchmarks` for any reason — harness invocation, suite construction, recording, or reporting — it belongs in `crates/rlevo-examples/examples/`, not in the umbrella.
+An example that only builds a `Suite` and runs an `Evaluator` lives in the umbrella, under `examples/harness/`. A new example there spells every `rlevo` path through the umbrella (`rlevo::core`, `rlevo::envs`, `rlevo::harness`), the way a consumer who ran `cargo add rlevo` writes it.
 
 `crates/rlevo-examples` is not in `default-members`. Developers opt in with `cargo run -p rlevo-examples --example <name>`.
 

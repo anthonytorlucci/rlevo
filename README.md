@@ -149,6 +149,16 @@ own: `rlevo::burn::backend::Flex`, `rlevo::burn::backend::Wgpu`. The
 individual `rlevo-*` crates select no backend; if you depend on one of
 them directly, add `burn` with the backend feature you want.
 
+### Evaluation harness
+
+The harness that runs an agent over a suite of environments and reports
+the result is part of `rlevo`, as `rlevo::harness`: `Suite`, `Evaluator`,
+the metrics and the reporters. Two examples show it,
+`cargo run -p rlevo --example tabular_bandit` and
+`cargo run -p rlevo --example ga_rastrigin`. Like the backend features, the
+re-export is on `main` and ships with the next release; with the published
+0.5.0, add `rlevo-benchmarks` yourself.
+
 ```bash
 # Build the workspace
 cargo build

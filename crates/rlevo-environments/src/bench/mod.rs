@@ -1,24 +1,22 @@
-//! Glue between [`rlevo_core::environment::Environment`] and the
-//! [`rlevo_benchmarks`] harness.
+//! Glue between the built-in environments and the [`rlevo_benchmarks`]
+//! harness's recording tier.
 //!
-//! Enabled by the `bench` cargo feature. Disabled by default so the base
-//! envs dep cone (rapier, nalgebra) is not bundled with the harness's
-//! (rayon, tracing, `serde_json`) for users who only want one of the two.
+//! Enabled by the `record` cargo feature, the one feature under which this
+//! crate depends on the harness. It is off by default, so a build that only
+//! wants environments does not link the harness.
 //!
 //! # Contents
 //!
-//! - [`suites`] — preset [`Suite`] factories for the canonical envs in
-//!   this crate, ready to feed [`Evaluator::run_suite`].
+//! - [`family`] — the [`RecordedEnvFamily`] impl that ties each built-in
+//!   environment to the family its recordings are drawn as.
 //!
-//! There is no adapter type: [`Evaluator::run_suite`] binds directly on
-//! [`Environment`], so envs are registered as themselves (ADR 0076).
+//! Running an environment through the harness needs nothing from here:
+//! [`Evaluator::run_suite`] binds directly on [`Environment`], so an
+//! environment is registered as itself with [`Suite::with_env`] (ADR 0076).
 //!
 //! [`Environment`]: rlevo_core::environment::Environment
-//! [`Suite`]: rlevo_benchmarks::suite::Suite
+//! [`RecordedEnvFamily`]: rlevo_benchmarks::record::RecordedEnvFamily
+//! [`Suite::with_env`]: rlevo_benchmarks::suite::Suite::with_env
 //! [`Evaluator::run_suite`]: rlevo_benchmarks::evaluator::Evaluator::run_suite
 
-/// [`RecordedEnvFamily`](rlevo_benchmarks::record::RecordedEnvFamily) impls
-/// for the built-in environments (feature `record`).
-#[cfg(feature = "record")]
 pub mod family;
-pub mod suites;

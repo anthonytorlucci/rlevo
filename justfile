@@ -17,7 +17,7 @@ list-examples:
     @echo "---"
     @echo "run examples using cargo run -p {WORKSPACE} --example {EXAMPLE_NAME}"
 
-# ── rlevo-examples (heavy: benchmarks + viz/record/report features) ──────────
+# ── rlevo-examples (heavy: viz/record/report features) ───────────────────────
 # Not in default-members; each recipe supplies the required feature flags.
 
 # competitive co-evolution predator–prey arms race on a separable quadratic.

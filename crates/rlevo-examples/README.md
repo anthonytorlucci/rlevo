@@ -2,20 +2,24 @@
 
 ![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
-Runnable, application-tier examples for the [`rlevo`](../rlevo/) library:
-benchmarking-harness demos, a live training dashboard, and post-run HTML
-reports with interactive environment playback.
+Runnable, application-tier examples for the [`rlevo`](../rlevo/) library: a
+live training dashboard, post-run HTML reports with interactive environment
+playback, and the heavier evolution showcases.
 
 This is a **leaf crate** — nothing in the `rlevo` library depends on it. It
-exists so heavyweight examples that pull in the benchmarking/visualisation
-stack live in one place, isolated from the lean library crates (ADR 0012).
+exists so heavyweight examples that pull in the visualisation stack live in
+one place, isolated from the lean library crates (ADR 0012).
 
 ## What belongs here vs. in `rlevo/examples/`
 
 | Example uses…                                                                 | Lives in                  |
 | ----------------------------------------------------------------------------- | ------------------------- |
-| `rlevo-benchmarks` (harness, suites, recording, reporting, TUI)               | **`rlevo-examples`** (here) |
-| only the library crates (`rlevo-core`, `-environments`, `-evolution`, `-reinforcement-learning`, `-hybrid`) | [`rlevo/examples/`](../rlevo/examples/) |
+| the harness's `tui`, `record` or `report` features (the live dashboard, recording, the HTML report) | **`rlevo-examples`** (here) |
+| the library crates and the harness at its default features, all reached through `rlevo` | [`rlevo/examples/`](../rlevo/examples/) |
+
+The harness itself is part of the umbrella since ADR 0084, re-exported as
+`rlevo::harness`, so an example that only builds a `Suite` and runs an
+`Evaluator` lives in `rlevo/examples/harness/`.
 
 ## Running examples
 
@@ -33,16 +37,15 @@ and which report/TUI panels it lights up — read it alongside the entry below.
 
 ## Example catalog
 
-### Benchmarking harness — no features required
+### Benchmarking harness
 
-These drive `Evaluator` to a `BenchmarkReport` and print results to stdout —
-`run_suite` for the episodic path, `run_trials` for the generation path. The
-quickest way to see the harness in action.
+The two harness demos, `tabular_bandit` and `ga_rastrigin`, moved to the
+umbrella with ADR 0084:
 
-| Example          | What it demonstrates                                                                                          | Run                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| `tabular_bandit` | An $\epsilon$-greedy sample-average agent on `TenArmedBandit`; prints per-trial `return/mean` across the seed sweep.   | `cargo run -p rlevo-examples --example tabular_bandit` |
-| `ga_rastrigin`   | A hand-rolled GA on the Rastrigin landscape; exercises the `FitnessEvaluable` + `GenerationProbe` harness contracts, driven as a `GenerationTrial`. | `cargo run -p rlevo-examples --example ga_rastrigin`   |
+```bash
+cargo run -p rlevo --example tabular_bandit
+cargo run -p rlevo --example ga_rastrigin
+```
 
 ### Evolutionary algorithms — no features required
 
@@ -134,7 +137,6 @@ cargo run -p rlevo-examples --example report_lunar_lander_with_client \
 ```
 examples/
   common/       shared PPO-on-CartPole model/config, included by the cartpole examples
-  harness/      benchmarking-harness demos      (tabular_bandit, ga_rastrigin)
   book/         user-book chapter examples      (ch00_grid_agent, ch00_state_constraints, ch01_sphere_ga, ch03_dqn_cartpole)
   classic/      PPO on CartPole                 (tui_ppo_cartpole, report_ppo_cartpole_with_client)
   evolution/    landscape report + standalone algorithm demos

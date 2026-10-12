@@ -103,11 +103,11 @@ dependency — it was hoisted there per ADR 0004), and the `EvolutionaryHarness`
 exposes the strategy as a `rlevo_core::evaluation::GenerationProbe`. Swap in your own
 objective by implementing `FitnessEvaluable` or `BatchFitnessFn` directly.
 
-This crate ships no examples of its own; runnable demos live in
-`rlevo-examples`, e.g.:
+This crate ships no examples of its own; runnable demos live in the
+umbrella `rlevo` and in `rlevo-examples`, e.g.:
 
 ```bash
-cargo run --release -p rlevo-examples --example ga_rastrigin
+cargo run --release -p rlevo --example ga_rastrigin
 cargo run --release -p rlevo-examples --example cooperative_ccga_rastrigin
 ```
 

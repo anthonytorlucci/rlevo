@@ -433,11 +433,8 @@ mod tests {
 
     #[test]
     fn test_each_offending_path_is_reported_once() {
-        let source = "rlevo::burn::Tensor; rlevo::burn::Tensor; rlevo::benchmarks::Suite;";
-        assert_eq!(
-            outside_contract(source),
-            ["rlevo::burn", "rlevo::benchmarks"]
-        );
+        let source = "rlevo::burn::Tensor; rlevo::burn::Tensor; rlevo::harness::Suite;";
+        assert_eq!(outside_contract(source), ["rlevo::burn", "rlevo::harness"]);
     }
 
     #[test]

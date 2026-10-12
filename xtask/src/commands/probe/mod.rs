@@ -34,7 +34,7 @@
 //!
 //! ```text
 //! BYOE-STEP 1 PASS scaffold :: probe created at /scratch/.../probe (outside the workspace)
-//! BYOE-STEP 2 FAIL add-deps :: rlevo alone is insufficient; 2 additional crate(s) required by hand: rand, rlevo-benchmarks
+//! BYOE-STEP 2 FAIL add-deps :: rlevo alone is insufficient; 1 additional crate(s) required by hand: rand
 //! ...
 //! BYOE-1/thermostat passes; discoverability fails at step 2.
 //! ```

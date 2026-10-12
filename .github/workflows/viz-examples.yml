@@ -1,7 +1,7 @@
-# Regression net for the visualisation/recording/reporting/harness examples.
+# Regression net for the visualisation/recording/reporting examples.
 #
-# These examples live in `crates/rlevo-examples/` (ADR 0012). They are all
-# `required-features`-gated or depend on `rlevo-benchmarks`, so a plain
+# These examples live in `crates/rlevo-examples/` (ADR 0012), a crate outside
+# `default-members`, and most are `required-features`-gated, so a plain
 # `cargo build` / `cargo test` never compiles them — that is how ~10 examples
 # once shipped non-compiling (the `std` vs `parking_lot` Mutex split, ADR 0010)
 # without anyone noticing.

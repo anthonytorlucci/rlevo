@@ -14,9 +14,8 @@
 //!
 //! The 10-armed Sutton & Barto §2 testbed is exposed as the
 //! [`TenArmedBandit`] type alias for the canonical instance — existing
-//! consumers (the `tabular_bandit` benchmark example, the
-//! `ten_armed_bandit_training` example, the `bench::suites` factory) are
-//! unaffected by the generalisation.
+//! consumers (the `tabular_bandit` harness example) are unaffected by the
+//! generalisation.
 
 pub mod adversarial;
 pub mod contextual;

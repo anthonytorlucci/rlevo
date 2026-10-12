@@ -1,10 +1,10 @@
 //! The harness run: the thermostat, registered as itself, driven through
 //! `Evaluator::run_suite` against the bang-bang policy.
 
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
-use rlevo_benchmarks::metrics::core::RETURN_MEAN;
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_benchmarks::suite::Suite;
+use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo::harness::metrics::core::RETURN_MEAN;
+use rlevo::harness::reporter::logging::LoggingReporter;
+use rlevo::harness::suite::Suite;
 
 use crate::policy::BangBang;
 use crate::thermostat::{ENV_ID, HORIZON, Thermostat};
