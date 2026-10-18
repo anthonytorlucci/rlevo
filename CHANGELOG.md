@@ -531,6 +531,19 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Added**
 
+- **A second environment author's walk, `byoe-1-tank-farm`.** Two tanks in
+  series, written from scratch against `rlevo::core`, walked through the
+  same six steps as `byoe-1-thermostat` over what that probe does not cover:
+  a rank-2 observation over a rank-1 state, a bounded continuous action
+  (`ContinuousAction` and `BoundedAction`) whose out-of-range and `NaN`
+  commands must be rejected without changing anything, and an episode that
+  an overflow terminates or the shipped `TimeLimit` wrapper truncates. Step
+  4 checks a step after each ending against the guard that owns it, the
+  farm's for the overflow and the wrapper's for the truncation; step 6 runs
+  the farm through `TimeLimit` under `Evaluator::run_suite` and requires
+  every episode to end at the wrapper's 60 steps, not the evaluator's cap.
+  Its step 2 records the thermostat's finding, `rand`. `crate-tests.yml`
+  runs it on every pull request as `probe (byoe-1-tank-farm)`.
 - **`cargo xtask probe <name>`: outside-in probes.** A probe packages the
   workspace, extracts the crates into a scratch directory outside the
   checkout, and builds a small consumer crate against them through a

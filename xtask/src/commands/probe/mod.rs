@@ -127,6 +127,10 @@ struct ContractFile {
     file: &'static str,
 }
 
+/// What a green BYOE-1 walk does not yet show.
+const BYOE1_NOTE: &str = "BYOE-1 does not end at the harness run: recording the run and \
+                          rendering a report are not walked yet";
+
 /// The probes. Keep in step with `xtask/probes/`:
 /// `assert_probes_are_registered` enforces it.
 const PROBES: &[Probe] = &[
@@ -136,10 +140,18 @@ const PROBES: &[Probe] = &[
         kind: Kind::Byoe1 {
             environment: "src/thermostat.rs",
         },
-        note: Some(
-            "BYOE-1 does not end at the harness run: recording the run and rendering a report \
-             are not walked yet",
-        ),
+        note: Some(BYOE1_NOTE),
+    },
+    // The same walk over what the thermostat does not cover: a rank-2
+    // observation over a rank-1 state, a bounded continuous action, and an
+    // episode that an overflow terminates or `TimeLimit` truncates.
+    Probe {
+        name: "byoe-1-tank-farm",
+        title: "BYOE-1/tank-farm",
+        kind: Kind::Byoe1 {
+            environment: "src/tank_farm.rs",
+        },
+        note: Some(BYOE1_NOTE),
     },
     // An environment author with no learner. An empty crate depending on
     // `rlevo-core` would compile whatever the contract asks of an
