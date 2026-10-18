@@ -91,6 +91,7 @@ author stops or starts writing.
 | Probe | What it is |
 |-------|------------|
 | `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy, run it through `Evaluator::run_suite` |
+| `byoe-1-tank-farm` | the same walk over a rank-2 observation and a rank-1 state, a bounded continuous action that can be invalid, and an episode that an overflow terminates or `TimeLimit` truncates; the harness runs it through the wrapper |
 | `consumer-core` | that author's environment file built against `rlevo-core` alone, with its package count, its Burn package count and a cold build time |
 | `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning` |
 
@@ -160,6 +161,7 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 - `crates/rlevo-environments/src/classic/bandit/k_armed.rs`: Complete environment example with extensive tests
 - `crates/rlevo-environments/src/pixel_grid.rs`: `Observable<OR>` modality-changing env (ADR 0020)
 - `xtask/probes/byoe-1-thermostat/src/thermostat.rs`: State/Action/Observation implementation patterns, as an outside author writes them; its probe builds it on every pull request
+- `xtask/probes/byoe-1-tank-farm/src/tank_farm.rs`: the same for a `ContinuousAction` + `BoundedAction` command, a rank-2 observation and an environment with no horizon of its own
 - `crates/rlevo-core/src/environment.rs`: MockEnvironment in test module demonstrates trait usage
 
 ## Testing Philosophy
