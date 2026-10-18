@@ -246,8 +246,6 @@ impl HostRow<3> for F32Image {
     }
 }
 
-impl<B: Backend> TensorConvertible<3, B> for F32Image {}
-
 // ---------------------------------------------------------------------------
 // Bench-local discrete action for the image-shaped agents
 // ---------------------------------------------------------------------------

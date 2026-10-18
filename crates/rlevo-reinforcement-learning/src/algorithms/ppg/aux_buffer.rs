@@ -207,8 +207,6 @@ mod tests {
         }
     }
 
-    impl<BK: burn::tensor::backend::Backend> TensorConvertible<1, BK> for TestObs {}
-
     // Test fixture data: the loop counter and element count are bounded by small
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.

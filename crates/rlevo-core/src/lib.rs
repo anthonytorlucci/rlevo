@@ -9,7 +9,7 @@
 //!
 //! | Module | What it provides |
 //! |---|---|
-//! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`], [`TensorConvertible`] — the primitive trait vocabulary |
+//! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`] — the primitive trait vocabulary; `TensorConvertible` with the `burn` feature |
 //! | [`action`] | [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`] — layered action-space extensions |
 //! | [`state`] | [`BeliefState`], [`StateAggregation`], [`Observable`] — POMDP belief, state aggregation and the state-to-observation projection |
 //! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
@@ -25,6 +25,12 @@
 //! | [`render`] | [`AsciiRenderable`], styled/palette/payload sub-modules — optional debug and TUI visualization layer |
 //! | [`agent`] | Reserved; empty while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
+//!
+//! # Features
+//!
+//! | Feature | Default | What it adds |
+//! |---|---|---|
+//! | `burn` | off | `base::TensorConvertible`, implemented for every [`HostRow`] type, which uploads the row as a Burn tensor. Without it the crate does not depend on Burn |
 //!
 //! # Const-generic `RANK`
 //!
@@ -63,7 +69,6 @@
 //! [`State`]: crate::base::State
 //! [`Action`]: crate::base::Action
 //! [`HostRow`]: crate::base::HostRow
-//! [`TensorConvertible`]: crate::base::TensorConvertible
 //! [`DiscreteAction`]: crate::action::DiscreteAction
 //! [`MultiDiscreteAction`]: crate::action::MultiDiscreteAction
 //! [`ContinuousAction`]: crate::action::ContinuousAction
@@ -95,7 +100,8 @@
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
 
 /// Primitive trait vocabulary: [`Reward`], [`Observation`], [`State`],
-/// [`Action`], [`HostRow`], and [`TensorConvertible`].
+/// [`Action`] and [`HostRow`], plus `TensorConvertible` under the `burn`
+/// feature.
 ///
 /// All other modules in this crate depend on the types defined here.
 ///
@@ -104,7 +110,6 @@
 /// [`State`]: crate::base::State
 /// [`Action`]: crate::base::Action
 /// [`HostRow`]: crate::base::HostRow
-/// [`TensorConvertible`]: crate::base::TensorConvertible
 pub mod base;
 
 /// Layered action-space traits: [`DiscreteAction`], [`MultiDiscreteAction`],

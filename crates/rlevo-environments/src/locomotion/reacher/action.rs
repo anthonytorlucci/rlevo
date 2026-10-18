@@ -5,9 +5,8 @@
 //! multiplying by the gear ratio (default `[200, 200]`) and applying the
 //! resulting torques to the Rapier rigid bodies.
 
-use burn::prelude::Backend;
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, HostRow, TensorConvertible};
+use rlevo_core::base::{Action, HostRow};
 use serde::{Deserialize, Serialize};
 
 /// 2D continuous action — `[shoulder, elbow]` torque targets in
@@ -114,8 +113,6 @@ impl HostRow<1> for ReacherAction {
         buf.extend_from_slice(&self.0);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for ReacherAction {}
 
 #[cfg(test)]
 mod tests {

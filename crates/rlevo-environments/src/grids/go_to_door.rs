@@ -85,10 +85,9 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use burn::tensor::backend::Backend;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use rlevo_core::base::{HostRow, Observation, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _, SnapshotBase,
@@ -372,8 +371,6 @@ impl HostRow<3> for GoToDoorObservation {
         true
     }
 }
-
-impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {}
 
 /// Configuration for [`GoToDoorEnv`].
 ///

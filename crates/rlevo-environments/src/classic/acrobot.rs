@@ -147,7 +147,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State, TensorConvertible},
+    base::{Action, HostRow, Observation, State},
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
@@ -886,7 +886,7 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
 }
 
 // ---------------------------------------------------------------------------
-// TensorConvertible
+// Host rows
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for AcrobotObservation {
@@ -899,8 +899,6 @@ impl HostRow<1> for AcrobotObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotObservation {}
-
 impl HostRow<1> for AcrobotAction {
     fn row_shape() -> [usize; 1] {
         [3]
@@ -912,8 +910,6 @@ impl HostRow<1> for AcrobotAction {
         buf.extend_from_slice(&one_hot);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotAction {}
 
 // ---------------------------------------------------------------------------
 // ASCII renderer

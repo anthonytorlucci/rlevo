@@ -98,7 +98,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, HostRow, Observation, State, TensorConvertible},
+    base::{Action, HostRow, Observation, State},
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
@@ -584,7 +584,7 @@ fn style_pendulum_line(line: &str) -> crate::render::StyledLine {
 }
 
 // ---------------------------------------------------------------------------
-// TensorConvertible
+// Host rows
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for PendulumObservation {
@@ -597,8 +597,6 @@ impl HostRow<1> for PendulumObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObservation {}
-
 impl HostRow<1> for PendulumAction {
     fn row_shape() -> [usize; 1] {
         [1]
@@ -608,8 +606,6 @@ impl HostRow<1> for PendulumAction {
         buf.push(self.0);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumAction {}
 
 impl rlevo_core::render::payload::Classic2DPayloadSource for Pendulum {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {

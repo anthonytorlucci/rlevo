@@ -1071,8 +1071,6 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<1, B> for TestObs {}
-
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct TestAction(usize);
 

@@ -5,7 +5,7 @@
 //! 10 lidar range readings swept from `$-90^\circ$` to `$+90^\circ$` relative to the hull,
 //! normalised to `[0, 1]` by `lidar_range`.
 
-use rlevo_core::base::{HostRow, Observation, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 24-dimensional observation for `BipedalWalker`.
@@ -71,8 +71,6 @@ impl HostRow<1> for BipedalWalkerObservation {
         buf.extend_from_slice(&self.values);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for BipedalWalkerObservation {}
 
 #[cfg(test)]
 mod tests {

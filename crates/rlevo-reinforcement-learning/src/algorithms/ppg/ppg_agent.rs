@@ -1268,8 +1268,6 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<1, B> for TestObs {}
-
     /// Builds an agent whose `config.ppo.clip_grad` is exactly `clip_grad`,
     /// leaving every other knob at its default.
     fn agent_with_clip_grad(clip_grad: Option<GradientClippingConfig>) -> TestAgent {

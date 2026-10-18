@@ -11,8 +11,7 @@
 
 use super::entity::Entity;
 use crate::direction::Direction;
-use burn::tensor::backend::Backend;
-use rlevo_core::base::{HostRow, Observation, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// Side length (height and width) of the agent's local view window in cells.
@@ -236,8 +235,6 @@ impl HostRow<3> for GridObservation {
         true
     }
 }
-
-impl<B: Backend> TensorConvertible<3, B> for GridObservation {}
 
 #[cfg(test)]
 mod tests {

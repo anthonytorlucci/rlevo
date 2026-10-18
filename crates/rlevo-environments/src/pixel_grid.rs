@@ -69,7 +69,7 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::base::{HostRow, Observation, State, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
@@ -78,8 +78,6 @@ use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::{Observable, StateError};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-
-use burn::tensor::backend::Backend;
 
 use rlevo_core::episode::EpisodeGuard;
 
@@ -420,8 +418,6 @@ impl HostRow<3> for PixelObservation {
         true
     }
 }
-
-impl<B: Backend> TensorConvertible<3, B> for PixelObservation {}
 
 // ---------------------------------------------------------------------------
 // Action

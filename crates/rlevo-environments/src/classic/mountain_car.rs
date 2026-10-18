@@ -86,7 +86,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State, TensorConvertible},
+    base::{Action, HostRow, Observation, State},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
@@ -545,7 +545,7 @@ fn style_mountain_car_line(line: &str) -> crate::render::StyledLine {
 }
 
 // ---------------------------------------------------------------------------
-// TensorConvertible
+// Host rows
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for MountainCarObservation {
@@ -558,8 +558,6 @@ impl HostRow<1> for MountainCarObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarObservation {}
-
 impl HostRow<1> for MountainCarAction {
     fn row_shape() -> [usize; 1] {
         [3]
@@ -571,8 +569,6 @@ impl HostRow<1> for MountainCarAction {
         buf.extend_from_slice(&one_hot);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarAction {}
 
 impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCar {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {

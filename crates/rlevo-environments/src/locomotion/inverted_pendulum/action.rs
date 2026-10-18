@@ -1,8 +1,7 @@
 //! Action type for [`super::InvertedPendulum`].
 
-use burn::prelude::Backend;
 use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, HostRow, TensorConvertible};
+use rlevo_core::base::{Action, HostRow};
 use serde::{Deserialize, Serialize};
 
 /// 1D continuous action — horizontal force target on the cart, in Gymnasium's
@@ -67,5 +66,3 @@ impl HostRow<1> for InvertedPendulumAction {
         buf.extend_from_slice(&self.0);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for InvertedPendulumAction {}

@@ -104,7 +104,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, HostRow, Observation, State, TensorConvertible},
+    base::{Action, HostRow, Observation, State},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
@@ -552,7 +552,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
 }
 
 // ---------------------------------------------------------------------------
-// TensorConvertible
+// Host rows
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for MountainCarContinuousObservation {
@@ -565,11 +565,6 @@ impl HostRow<1> for MountainCarContinuousObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B>
-    for MountainCarContinuousObservation
-{
-}
-
 impl HostRow<1> for MountainCarContinuousAction {
     fn row_shape() -> [usize; 1] {
         [1]
@@ -579,8 +574,6 @@ impl HostRow<1> for MountainCarContinuousAction {
         buf.push(self.0);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarContinuousAction {}
 
 // ---------------------------------------------------------------------------
 // ASCII renderer

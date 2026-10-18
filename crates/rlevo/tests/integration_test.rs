@@ -10,7 +10,7 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
 use rlevo_core::environment::{
     Environment, EnvironmentError, EpisodeStatus, Sensor, Snapshot, SnapshotBase,
 };
@@ -48,8 +48,6 @@ impl HostRow<1> for WalkObservation {
         buf.push(self.position as f32);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {}
 
 /// Full internal state for `RandomWalkEnv`: position on the 1-D lattice `[0, 6]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,11 +110,9 @@ impl HostRow<1> for WalkAction {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {}
-
 /// Local scalar reward newtype. Mirrors `rlevo_core::reward::ScalarReward`
-/// but is defined in this crate so we can implement the foreign
-/// `TensorConvertible` trait on it without tripping the orphan rule.
+/// but is defined in this crate so we can implement the foreign `HostRow`
+/// trait on it without tripping the orphan rule.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 struct WalkReward(f32);
 
@@ -147,8 +143,6 @@ impl HostRow<1> for WalkReward {
         buf.push(self.0);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {}
 
 /// Toy 1-D random-walk environment used across all integration tests.
 ///

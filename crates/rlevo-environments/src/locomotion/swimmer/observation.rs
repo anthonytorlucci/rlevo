@@ -1,7 +1,6 @@
 //! Observation type for [`super::Swimmer`].
 
-use burn::prelude::Backend;
-use rlevo_core::base::{HostRow, Observation, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 8-dim observation. Layout matches Gymnasium's `qpos[2:5]` + `qvel`:
@@ -97,5 +96,3 @@ impl HostRow<1> for SwimmerObservation {
         buf.extend_from_slice(&self.0);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for SwimmerObservation {}

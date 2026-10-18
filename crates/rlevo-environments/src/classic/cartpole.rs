@@ -144,7 +144,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State, TensorConvertible},
+    base::{Action, HostRow, Observation, State},
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
@@ -844,7 +844,7 @@ impl CartPole {
 }
 
 // ---------------------------------------------------------------------------
-// TensorConvertible
+// Host rows
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for CartPoleObservation {
@@ -857,8 +857,6 @@ impl HostRow<1> for CartPoleObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for CartPoleObservation {}
-
 impl HostRow<1> for CartPoleAction {
     fn row_shape() -> [usize; 1] {
         [2]
@@ -870,8 +868,6 @@ impl HostRow<1> for CartPoleAction {
         buf.extend_from_slice(&one_hot);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for CartPoleAction {}
 
 // helper for divergence test
 #[cfg(test)]

@@ -1063,8 +1063,6 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<1, B> for TestObs {}
-
     /// Binary discrete action.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct TestAction(usize);

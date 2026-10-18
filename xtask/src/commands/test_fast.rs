@@ -44,9 +44,12 @@ struct FastCrate {
 /// The tier. Keep total over the workspace members — `assert_tier_is_total`
 /// enforces it.
 const FAST_CRATES: &[FastCrate] = &[
+    // The `to_tensor` tests and the `TensorConvertible` doctest sit behind
+    // `burn`, which is not among this crate's defaults. Every other test runs
+    // the same with the feature on.
     FastCrate {
         name: "rlevo-core",
-        features: &[],
+        features: &["burn"],
     },
     // `tests/wire_format_compat.rs` (native `EpisodeRecord` vs. browser-client
     // wire-format mirror parity) is `#![cfg(feature = "record")]`, and `record`

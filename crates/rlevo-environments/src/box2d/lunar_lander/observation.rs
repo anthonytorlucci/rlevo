@@ -1,6 +1,6 @@
 //! Observation type for `LunarLander`.
 
-use rlevo_core::base::{HostRow, Observation, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 8-dimensional observation for `LunarLander`.
@@ -103,8 +103,6 @@ impl HostRow<1> for LunarLanderObservation {
         buf.extend_from_slice(&self.values);
     }
 }
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for LunarLanderObservation {}
 
 #[cfg(test)]
 mod tests {

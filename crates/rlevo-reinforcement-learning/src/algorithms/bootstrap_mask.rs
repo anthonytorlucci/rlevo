@@ -26,7 +26,7 @@ use burn::tensor::{Tensor, activation};
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
-use rlevo_core::base::{Action, HostRow, Observation, State, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation, State};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
@@ -90,8 +90,6 @@ impl HostRow<1> for MaskObservation {
         buf.extend_from_slice(&self.values);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for MaskObservation {}
 
 /// Binary discrete action; the env dynamics ignore it entirely.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

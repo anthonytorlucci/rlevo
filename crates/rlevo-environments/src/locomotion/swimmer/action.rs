@@ -4,9 +4,8 @@
 //! joint, in the range `[-1.0, 1.0]`. The environment multiplies each by the
 //! configured `gear` scalar before applying the torque to the physics body.
 
-use burn::prelude::Backend;
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, HostRow, TensorConvertible};
+use rlevo_core::base::{Action, HostRow};
 use serde::{Deserialize, Serialize};
 
 /// 2D continuous action — `[joint1, joint2]` torque targets in pre-gear
@@ -112,8 +111,6 @@ impl HostRow<1> for SwimmerAction {
         buf.extend_from_slice(&self.0);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for SwimmerAction {}
 
 #[cfg(test)]
 mod tests {

@@ -30,12 +30,11 @@
 //! assert!(!snap.is_done());
 //! ```
 
-use burn::tensor::backend::Backend;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
-use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
@@ -234,8 +233,6 @@ impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
         buf.extend_from_slice(&one_hot);
     }
 }
-
-impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObservation<C> {}
 
 // ---------------------------------------------------------------------------
 // Config

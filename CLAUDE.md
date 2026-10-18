@@ -39,6 +39,9 @@ library code is generic over `B: Backend` and never names `Flex`, `Wgpu` or
 (default) and `wgpu` features for a consumer, `[dev-dependencies]` for a
 crate's own tests, benches and doctests. A workspace-wide build hides a
 violation, so check a library alone: `cargo check -p <crate> --lib`.
+`rlevo-core` goes further and depends on Burn only under its `burn` feature
+(ADR 0089): an environment author implements `HostRow` and writes no Burn
+code, and `TensorConvertible` comes with the feature, for every `HostRow`.
 
 ## Architectural Decisions
 
@@ -145,7 +148,7 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 - `crates/rlevo-core/src/state.rs`: State, Observation, and POMDP seams (`Observable`, `BeliefState`, ...)
 - `crates/rlevo-core/src/action.rs`: Action trait hierarchy
 - `crates/rlevo-core/src/environment.rs`: Environment and Snapshot traits
-- `crates/rlevo-core/src/base.rs`: Reward, TensorConvertible, transition dynamics
+- `crates/rlevo-core/src/base.rs`: Reward, `HostRow` (the row a tensor is built from), `TensorConvertible` (behind the `burn` feature), transition dynamics
 - `crates/rlevo-reinforcement-learning/src/replay/`: RL replay-strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`) — moved out of core in ADR 0003, reshaped as a strategy seam in ADR 0050
 - `crates/rlevo-reinforcement-learning/src/metrics.rs`: `AgentStats`, `PerformanceRecord` — RL-only episode tracking
 - `crates/rlevo-evolution/src/strategy.rs`: `Strategy`, the stateless ask/tell contract, and `EvolutionaryLoop`, which holds a run's state and drives one with `reset()` / `step()` / `is_done()`. `step()` returns nothing; the status is the separate predicate (ADR 0085). For a `Strategy`, the loop is where a `Minimize` objective is negated and fitness is sanitised

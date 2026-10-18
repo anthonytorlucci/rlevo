@@ -10,13 +10,12 @@
 //! The fixture intentionally avoids any physics simulator so `cargo test` stays
 //! tractable: tiny networks and modest step budgets converge in seconds.
 
-use burn::tensor::backend::Backend;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, HostRow, Observation, State, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation, State};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
@@ -86,8 +85,6 @@ impl HostRow<1> for LinearObservation {
         buf.push(self.x);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for LinearObservation {}
 
 /// A single continuous action in `[-1, 1]`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

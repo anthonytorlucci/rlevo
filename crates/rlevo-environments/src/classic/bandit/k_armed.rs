@@ -27,12 +27,11 @@
 //! assert!(!snap.is_done());
 //! ```
 
-use burn::tensor::backend::Backend;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
@@ -102,8 +101,6 @@ impl HostRow<1> for KArmedBanditState {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {}
-
 // ---------------------------------------------------------------------------
 // Action
 // ---------------------------------------------------------------------------
@@ -123,8 +120,8 @@ impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {}
 /// - [`Action<1>`]: validity check + shape reporting (`[K]`).
 /// - [`DiscreteAction<1>`]: `ACTION_COUNT = K`, plus `from_index` /
 ///   `to_index` / `random` / `enumerate` (the last three via trait defaults).
-/// - [`TensorConvertible<1, B>`]: one-hot encoding of length `K` for
-///   neural-network integration.
+/// - [`HostRow<1>`]: one-hot encoding of length `K` for neural-network
+///   integration.
 /// - [`Display`]: renders as `"KArmedBanditAction<K>(arm=N)"`.
 ///
 /// # Examples
@@ -237,8 +234,6 @@ impl<const K: usize> HostRow<1> for KArmedBanditAction<K> {
         buf.extend_from_slice(&one_hot);
     }
 }
-
-impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<K> {}
 
 // ---------------------------------------------------------------------------
 // Config

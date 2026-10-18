@@ -78,7 +78,7 @@
 //! - No pawns on the first or last rank
 //! - Total piece count per side does not exceed 16
 //!
-//! Until the `State` and `TensorConvertible` trait impls are activated (see the
+//! Until the `State` and `Observation` trait impls are activated (see the
 //! commented-out blocks below), callers can inspect individual bitboards directly
 //! via `BoardSnapshot` fields, but no top-level `is_valid()` method is available.
 //!
@@ -119,8 +119,6 @@
 
 use crate::games::chess::board::{CastlingRights, Color, PieceType, Square};
 // Required once the commented-out `impl State` and `impl Observation` blocks are activated.
-#[allow(unused_imports)]
-use burn::prelude::*;
 #[allow(unused_imports)]
 use rlevo_core::base::{Observation, State};
 use std::collections::HashMap;
@@ -449,9 +447,6 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-    use burn::backend::Flex;
-
-    type TestBackend = Flex;
 
     #[test]
     fn test_state_creation() {
@@ -467,27 +462,6 @@ mod tests {
         let _state = ChessState::new();
         // assert_eq!(_state.shape(), vec![8, 8, 119]);
         // assert_eq!(state.numel(), 8 * 8 * 119);
-    }
-
-    #[test]
-    fn test_tensor_conversion() {
-        let _state = ChessState::new();
-        // let device = Default::default();
-        // let tensor = _state.to_tensor::<TestBackend>(&device);
-
-        // let shape = tensor.shape();
-        // assert_eq!(shape.dims, [8, 8, 119]);
-    }
-
-    #[test]
-    fn test_tensor_roundtrip() {
-        let _state = ChessState::new();
-        // let device = Default::default();
-        // let tensor = state.to_tensor::<TestBackend>(&device);
-
-        // let reconstructed = ChessState::from_tensor(&tensor).unwrap();
-        // assert!(reconstructed.is_valid());
-        // assert_eq!(reconstructed.to_move(), state.to_move());
     }
 
     #[test]

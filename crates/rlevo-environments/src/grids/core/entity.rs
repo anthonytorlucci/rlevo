@@ -172,12 +172,11 @@ impl Entity {
     ///   all, because it invites a reader to assume an equivalence that is not
     ///   there.
     /// - **Zero means unknown.** With `0` reserved, an all-zero observation
-    ///   tensor decodes as *every cell unseen* — the correct reading of a
-    ///   zero-padded or attention-masked sequence, and what the `TensorConvertible`
-    ///   no-fabrication clause requires. Were `Empty` still `0`, the same tensor
-    ///   would decode as *every cell confirmed empty floor*: a materially
-    ///   different and false claim, in exactly the recurrent-POMDP workload these
-    ///   environments exist to train.
+    ///   row reads as *every cell unseen* — the correct reading of a
+    ///   zero-padded or attention-masked sequence. Were `Empty` still `0`, the
+    ///   same row would read as *every cell confirmed empty floor*: a
+    ///   materially different and false claim, in exactly the recurrent-POMDP
+    ///   workload these environments exist to train.
     ///
     /// # Examples
     ///

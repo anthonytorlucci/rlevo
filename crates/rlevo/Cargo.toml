@@ -12,7 +12,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-rlevo-core = { path = "../rlevo-core", version = "0.5.0" }
+# `burn` turns on `TensorConvertible`, which the prelude re-exports; named
+# here rather than reached through the RL crate's request for it.
+rlevo-core = { path = "../rlevo-core", version = "0.5.0", features = ["burn"] }
 rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", default-features = false }
 rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.5.0" }
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.5.0", default-features = false }

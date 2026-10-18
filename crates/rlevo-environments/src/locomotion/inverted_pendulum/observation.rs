@@ -1,7 +1,6 @@
 //! Observation type for [`super::InvertedPendulum`].
 
-use burn::prelude::Backend;
-use rlevo_core::base::{HostRow, Observation, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 4-dim observation: `[cart_x, pole_angle, cart_vx, pole_angvel_y]`.
@@ -67,5 +66,3 @@ impl HostRow<1> for InvertedPendulumObservation {
         buf.extend_from_slice(&self.0);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for InvertedPendulumObservation {}

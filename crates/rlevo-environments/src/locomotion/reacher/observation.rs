@@ -4,8 +4,7 @@
 //! provided for each logical group so callers do not need to know the raw
 //! index layout. The full layout is documented on the struct itself.
 
-use burn::prelude::Backend;
-use rlevo_core::base::{HostRow, Observation, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 10-dim observation. Layout:
@@ -100,5 +99,3 @@ impl HostRow<1> for ReacherObservation {
         buf.extend_from_slice(&self.0);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for ReacherObservation {}

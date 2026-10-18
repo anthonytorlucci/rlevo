@@ -39,9 +39,8 @@
 //! assert_eq!(f32::from(*snap.reward()), 1.0);
 //! ```
 
-use burn::tensor::backend::Backend;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, HostRow, Observation, State, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
@@ -135,8 +134,6 @@ impl HostRow<1> for SantaFeAntAction {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for SantaFeAntAction {}
-
 // ---------------------------------------------------------------------------
 // Observation
 // ---------------------------------------------------------------------------
@@ -166,8 +163,6 @@ impl HostRow<1> for SantaFeAntObservation {
         buf.push(value);
     }
 }
-
-impl<B: Backend> TensorConvertible<1, B> for SantaFeAntObservation {}
 
 // ---------------------------------------------------------------------------
 // State

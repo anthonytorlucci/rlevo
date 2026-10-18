@@ -19,9 +19,7 @@
 
 use std::sync::Arc;
 
-use rlevo_core::base::{HostRow, Observation, TensorConvertible};
-
-use burn::tensor::backend::Backend;
+use rlevo_core::base::{HostRow, Observation};
 
 use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 
@@ -177,8 +175,6 @@ impl HostRow<3> for CarRacingObservation {
         true
     }
 }
-
-impl<B: Backend> TensorConvertible<3, B> for CarRacingObservation {}
 
 #[cfg(test)]
 mod tests {
