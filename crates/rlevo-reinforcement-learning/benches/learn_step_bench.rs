@@ -212,6 +212,7 @@ where
     B: AutodiffBackend,
     O: TensorConvertible<DO, B::InnerBackend>,
 {
+    debug_assert_eq!(DB, DO + 1, "batched rank DB must equal row rank DO + 1");
     let row_shape = O::shape();
     let row_len: usize = row_shape.iter().product();
     let mut obs_flat: Vec<f32> = Vec::with_capacity(batch.len() * row_len);

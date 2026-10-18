@@ -29,10 +29,11 @@ The primitive building blocks of the RL abstraction.
 | `Observation<R>` | What the agent perceives (may be a partial view of state) |
 | `Action<R>` | Base action constraint (`is_valid()`) |
 | `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
-| `TensorConvertible<R, B>` | Bidirectional conversion between domain types and Burn tensors |
+| `HostRow<R>` | An observation's flat `f32` row (`write_host_row`), in the shape `shape()` reports |
+| `TensorConvertible<R, B>` | With the `burn` feature: uploads a `HostRow` as a Burn tensor; implemented for every `HostRow` |
 | `TransitionDynamics<SR, AR, S, A>` | Deterministic state-transition function |
 
-`TensorConvertible` is the integration point with Burn: implement it on your state/action types to enable neural-network-based agents.
+To feed an observation to a neural-network agent, implement `HostRow` on it. `TensorConvertible` comes with the `burn` feature, which `rlevo-reinforcement-learning` turns on, and needs no impl of its own. Without the feature the crate does not depend on Burn.
 
 ### `action` — Action Spaces
 
@@ -174,7 +175,7 @@ Add to your `Cargo.toml`:
 rlevo-core = "0.5"
 ```
 
-The example below uses `EpisodeGuard`, which is on `main` and ships with the next release; the published 0.5.0 has no `episode` module.
+The example below uses `EpisodeGuard`, which is on `main` and ships with the next release; the published 0.5.0 has no `episode` module. On `main` the crate also depends on Burn only under its `burn` feature; the published 0.5.0 always depends on it.
 
 ### Minimal Environment
 
