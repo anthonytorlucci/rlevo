@@ -186,7 +186,7 @@ mod tests {
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
     use super::*;
-    use rlevo_core::base::{HostRow, TensorConversionError};
+    use rlevo_core::base::HostRow;
     type TestBackend = burn::backend::Flex;
 
     #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -199,17 +199,8 @@ mod tests {
     }
 
     impl HostRow<1> for TestObs {
-        fn row_shape() -> [usize; 1] {
-            [2]
-        }
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
-        }
-    }
-
-    impl<BK: burn::tensor::backend::Backend> TensorConvertible<1, BK> for TestObs {
-        fn from_tensor(_t: Tensor<BK, 1>) -> Result<Self, TensorConversionError> {
-            unimplemented!("not exercised by this test")
         }
     }
 

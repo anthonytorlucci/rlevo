@@ -5,11 +5,11 @@
 //! registered as itself: `Suite::with_env` takes a constructor from a seed,
 //! and `TenArmedBandit::with_seed` is one.
 //!
-//! **DQN integration is deferred.** A `FrozenDqnPolicy` adapter needs
-//! concrete backend selection and full `DiscreteAction`/`TensorConvertible`
-//! wiring for `TenArmedBandit`, neither of which exists yet. The harness
-//! path is exercised here with a non-DL stand-in; a follow-up release
-//! will add the DQN adapter once the underlying trait impls land.
+//! **DQN integration is deferred.** A `FrozenDqnPolicy` adapter needs a
+//! `HostRow` impl on `TenArmedBandit`'s observation, the row a DQN reads,
+//! and the observation has none yet. The harness path is exercised here
+//! with a non-DL stand-in; a follow-up release will add the DQN adapter once
+//! that impl lands.
 //!
 //! # Running
 //!

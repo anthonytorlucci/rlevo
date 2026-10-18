@@ -4,8 +4,7 @@
 //! provided for each logical group so callers do not need to know the raw
 //! index layout. The full layout is documented on the struct itself.
 
-use burn::prelude::{Backend, Tensor};
-use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 10-dim observation. Layout:
@@ -92,28 +91,7 @@ impl Observation<1> for ReacherObservation {
 }
 
 impl HostRow<1> for ReacherObservation {
-    fn row_shape() -> [usize; 1] {
-        [10]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for ReacherObservation {
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 observation tensor: {e:?}"),
-        })?;
-        if slice.len() != 10 {
-            return Err(TensorConversionError {
-                message: format!("expected 10 observation elements, got {}", slice.len()),
-            });
-        }
-        let mut arr = [0.0f32; 10];
-        arr.copy_from_slice(slice);
-        Ok(Self(arr))
     }
 }

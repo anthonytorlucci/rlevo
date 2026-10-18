@@ -65,11 +65,10 @@ use crate::utils::{PolyakError, compute_target_q_values};
 /// one the same function just built from its own actor. Making that path
 /// fallible is an explicitly deferred breaking change.
 ///
-/// If that path becomes fallible, the variant would return as
-/// `#[from]` [`rlevo_core::base::TensorConversionError`] — not as a `String`.
-/// That section prefers structured variants over string-based errors and names
-/// that type as the tensor-op error domain, so re-introducing a `String`
-/// payload would rebuild the discarded variant in a merely-live form.
+/// If that path becomes fallible, the variant would return carrying a
+/// structured payload — not a `String`. That section prefers structured
+/// variants over string-based errors, so re-introducing a `String` payload
+/// would rebuild the discarded variant in a merely-live form.
 ///
 /// # Why there is no buffer or I/O variant
 ///
@@ -1355,14 +1354,10 @@ mod tests {
         }
     }
 
-    /// Builds a `MaskObservation` from two feature values, via its
-    /// `TensorConvertible` seam (its fields are private to `bootstrap_mask`).
+    /// Builds a `MaskObservation` from two feature values (its fields are
+    /// private to `bootstrap_mask`).
     fn make_obs(a: f32, b: f32) -> MaskObservation {
-        let device = Default::default();
-        let t =
-            Tensor::<TestAdBackend, 1>::from_data(TensorData::new(vec![a, b], vec![2]), &device);
-        <MaskObservation as TensorConvertible<1, TestAdBackend>>::from_tensor(t)
-            .expect("obs from tensor")
+        MaskObservation::new([a, b])
     }
 
     /// Evaluates critic-2 on a fixed (obs, action) pair and reads the scalar

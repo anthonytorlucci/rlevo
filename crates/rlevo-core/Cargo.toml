@@ -11,7 +11,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-burn = { workspace = true }
+# Only `TensorConvertible` names Burn, and only under the `burn` feature: the
+# contract an environment author implements compiles without it (ADR 0089).
+burn = { workspace = true, optional = true }
 rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
@@ -30,6 +32,7 @@ burn = { workspace = true, features = ["default", "flex"] }
 # from the packaged tarball, which cannot contain files outside the crate
 # root, so a `../../` path here silently works locally but 404s on docs.rs.
 [package.metadata.docs.rs]
+features = ["burn"]
 rustdoc-args = ["--html-in-header", "katex-header.html"]
 
 [lints]

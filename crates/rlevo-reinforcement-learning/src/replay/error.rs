@@ -45,8 +45,7 @@
 /// error at all, so no conforming implementation has a tensor conversion or a
 /// batch assembly available to fail at.
 ///
-/// Carrying the failure as a typed payload —
-/// `#[from] rlevo_core::base::TensorConversionError` instead of a `String` — was
+/// Carrying the failure as a typed payload instead of a `String` was
 /// considered and rejected. It would hand out-of-crate implementors `?`
 /// ergonomics for exactly the boundary ADR 0050 §3 forbids, advertising the
 /// crossing as a supported thing to do.

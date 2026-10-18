@@ -122,7 +122,7 @@ where
     B: Backend,
 {
     debug_assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
-    let row_shape = T::row_shape();
+    let row_shape = T::shape();
     let row_len: usize = row_shape.iter().product();
     let mut flat: Vec<f32> = Vec::with_capacity(items.len() * row_len);
     for item in items {
@@ -149,7 +149,7 @@ where
     B: Backend,
 {
     debug_assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
-    let row_shape = T::row_shape();
+    let row_shape = T::shape();
     let row_len: usize = row_shape.iter().product();
     let mut flat: Vec<f32> = Vec::with_capacity(items.len() * row_len);
     for item in items {

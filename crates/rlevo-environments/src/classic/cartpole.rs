@@ -144,7 +144,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State, TensorConversionError, TensorConvertible},
+    base::{Action, HostRow, Observation, State},
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
@@ -844,70 +844,12 @@ impl CartPole {
 }
 
 // ---------------------------------------------------------------------------
-// TensorConvertible
+// Host rows
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for CartPoleObservation {
-    fn row_shape() -> [usize; 1] {
-        [4]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
-    }
-}
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for CartPoleObservation {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [4] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [4], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        Ok(Self {
-            cart_pos: v[0],
-            cart_vel: v[1],
-            pole_angle: v[2],
-            pole_ang_vel: v[3],
-        })
-    }
-}
-
-impl HostRow<1> for CartPoleAction {
-    fn row_shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        let mut one_hot = [0.0_f32; 2];
-        one_hot[self.to_index()] = 1.0;
-        buf.extend_from_slice(&one_hot);
-    }
-}
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for CartPoleAction {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [2] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [2], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        let idx = crate::tensor_decode::argmax(&v);
-        Ok(Self::from_index(idx))
     }
 }
 
@@ -1077,19 +1019,6 @@ mod tests {
         assert_eq!(CartPoleAction::from_index(1), CartPoleAction::Right);
         assert_eq!(CartPoleAction::Left.to_index(), 0);
         assert_eq!(CartPoleAction::Right.to_index(), 1);
-    }
-
-    #[test]
-    fn action_from_tensor_is_nan_safe() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        type TestBackend = burn::backend::Flex;
-        let device = Default::default();
-        // An all-NaN logit vector must not panic; falls back to index 0.
-        let data = TD::new(vec![f32::NAN, f32::NAN], [2]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let back = <CartPoleAction as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect("all-NaN decodes to fallback");
-        assert_eq!(back, CartPoleAction::from_index(0));
     }
 
     #[test]

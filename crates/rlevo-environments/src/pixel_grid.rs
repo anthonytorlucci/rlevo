@@ -69,7 +69,7 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::base::{HostRow, Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
@@ -78,8 +78,6 @@ use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::{Observable, StateError};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-
-use burn::tensor::{Tensor, backend::Backend};
 
 use rlevo_core::episode::EpisodeGuard;
 
@@ -394,10 +392,6 @@ impl Observation<3> for PixelObservation {
 }
 
 impl HostRow<3> for PixelObservation {
-    fn row_shape() -> [usize; 3] {
-        [IMG_SIDE, IMG_SIDE, CHANNELS]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
         buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));
@@ -418,48 +412,6 @@ impl HostRow<3> for PixelObservation {
         // `u8 -> f32` (and a divide by a finite non-zero constant) is total: no element of this row
         // can be `NaN` or `$\pm\infty$`.
         true
-    }
-}
-
-impl<B: Backend> TensorConvertible<3, B> for PixelObservation {
-    /// Reconstructs the image from a normalized `[IMG_SIDE, IMG_SIDE, CHANNELS]`
-    /// tensor by scaling back to `0..=255` and rounding.
-    ///
-    /// Round-trips exactly for any `u8` payload: `b / 255.0 * 255.0` rounds back
-    /// to `b`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not
-    /// `[IMG_SIDE, IMG_SIDE, CHANNELS]`, the backend fails to materialize its
-    /// data, or any value lies outside `[0, 1]` after scaling to the `u8` range.
-    fn from_tensor(tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [IMG_SIDE, IMG_SIDE, CHANNELS] {
-            return Err(TensorConversionError {
-                message: format!(
-                    "expected shape [{IMG_SIDE}, {IMG_SIDE}, {CHANNELS}], got {dims:?}"
-                ),
-            });
-        }
-        let flat = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: format!("failed to read tensor data: {e:?}"),
-            })?;
-        let mut pixels = Vec::with_capacity(PIXEL_COUNT);
-        for (idx, &value) in flat.iter().enumerate() {
-            let scaled = value * 255.0;
-            if !scaled.is_finite() || scaled < -0.5 || scaled > f32::from(u8::MAX) + 0.5 {
-                return Err(TensorConversionError {
-                    message: format!("value at index {idx} out of u8 range: {value}"),
-                });
-            }
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            pixels.push(scaled.round() as u8);
-        }
-        Ok(Self { pixels })
     }
 }
 
@@ -1443,37 +1395,24 @@ mod tests {
         let _ = PixelGridAction::from_index(4);
     }
 
+    /// The row is the HWC pixel buffer in order, `PIXEL_COUNT` long, each byte
+    /// divided by 255.
     #[test]
-    fn pixel_observation_round_trips_through_tensor() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
+    fn pixel_observation_host_row_normalises_each_byte_in_order() {
         let obs = PixelGridState::new(3, 21)
             .expect("valid cell indices")
             .project();
-        let tensor =
-            <PixelObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
-        let round_tripped =
-            <PixelObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor).unwrap();
-        assert_eq!(round_tripped, obs);
-    }
+        let mut row = Vec::new();
+        obs.write_host_row(&mut row);
 
-    #[test]
-    fn from_tensor_rejects_wrong_shape() {
-        use burn::backend::Flex;
-        use burn::tensor::TensorData;
-        type TestBackend = Flex;
-        let device = Default::default();
-
-        let data = TensorData::new(
-            vec![0.0f32; IMG_SIDE * IMG_SIDE * 2],
-            [IMG_SIDE, IMG_SIDE, 2],
+        assert_eq!(
+            row.len(),
+            PixelObservation::shape().iter().product::<usize>()
         );
-        let tensor = Tensor::<TestBackend, 3>::from_data(data, &device);
-        let err = <PixelObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-            .unwrap_err();
-        assert!(err.message.contains("expected shape"));
+        assert_eq!(row.len(), PIXEL_COUNT);
+        for (i, (&value, &byte)) in row.iter().zip(obs.pixels()).enumerate() {
+            assert_eq!(value, f32::from(byte) / 255.0, "element {i}");
+        }
     }
 
     #[test]

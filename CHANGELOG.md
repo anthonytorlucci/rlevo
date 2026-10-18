@@ -190,6 +190,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   schedule ends. To keep a run exactly as it was, pass 500. The field
   itself is unchanged, and so is any code that set it by hand.
 
+- **`rlevo-core` depends on Burn only under a new `burn` feature**
+  (ADR 0089), and the decode half of tensor conversion is gone. An
+  environment crate that depends on `rlevo-core` alone now builds 24
+  packages, none from Burn, where it built 108; `rlevo-environments` no
+  longer depends on Burn at all. If you depend on `rlevo`, nothing changes:
+  it turns the feature on. If you depend on `rlevo-core` directly:
+  - `TensorConvertible::from_tensor`, `TensorConversionError` and
+    `stack_to_tensor` are removed. Nothing in the workspace called them;
+    decode a host value with `DiscreteAction::from_index` or
+    `ContinuousAction::from_slice`.
+  - `TensorConvertible` needs the `burn` feature, and is implemented for
+    every `HostRow` type. Delete your own `TensorConvertible` impl: it now
+    conflicts with the blanket one.
+  - `HostRow<R>` requires `Observation<R>`, and `HostRow::row_shape` is
+    removed: the row's shape is `Observation::shape()`. Delete `row_shape`
+    from your impls. A `HostRow` impl on an action, a state or any other
+    non-observation no longer compiles; nothing converted those to tensors.
+
 ### `rlevo`
 
 **Added**

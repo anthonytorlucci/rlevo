@@ -4,17 +4,14 @@
 //! the top. Every visible cell is encoded into three bytes — entity type,
 //! color, and door state — laid out as a `[VIEW_SIZE][VIEW_SIZE][OBS_CHANNELS]`
 //! array. The agent's facing is carried *beside* the view as an
-//! `Option<`[`Direction`]`>` and is deliberately **not** encoded into the
-//! tensor — the view is already rotated into the agent's own frame, so the
-//! absolute heading is redundant for a policy. Decoding a tensor therefore
-//! yields `None` rather than a fabricated facing (see
-//! [`GridObservation::agent_direction`] and
-//! [`TensorConvertible::from_tensor`]).
+//! `Option<`[`Direction`]`>` and is deliberately **not** written into the host
+//! row — the view is already rotated into the agent's own frame, so the
+//! absolute heading is redundant for a policy (see
+//! [`GridObservation::agent_direction`]).
 
 use super::entity::Entity;
 use crate::direction::Direction;
-use burn::tensor::{Tensor, backend::Backend};
-use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// Side length (height and width) of the agent's local view window in cells.
@@ -56,10 +53,9 @@ pub const OBS_CHANNELS: usize = 3;
 /// observation was byte-identical to the unoccluded one. It no longer is; see
 /// `memory::tests::test_memory_env_masked_empty_cells_are_encoded_as_unseen`.
 ///
-/// It also buys the [`TensorConvertible`] no-fabrication clause a stronger
-/// reading at the tensor level: an all-zero tensor decodes as "every cell
-/// unseen", which is what a zero-padded or attention-masked sequence actually
-/// means, rather than as "every cell is confirmed empty floor".
+/// It also gives the host row the right reading at zero: an all-zero row means
+/// "every cell unseen", which is what a zero-padded or attention-masked
+/// sequence actually means, rather than "every cell is confirmed empty floor".
 ///
 /// **Do not "fix" a future collision by picking a different value here.** `0` is
 /// the canonical unseen index; it is `type_u8` that must stay clear of it.
@@ -109,10 +105,10 @@ pub struct GridObservation {
     /// no `from_u8` to decode one back. [`Direction::to_u8`] still yields
     /// the canonical Minigrid byte order for callers that want it.
     ///
-    /// # Why it is not in the tensor
+    /// # Why it is not in the row
     ///
-    /// The facing is deliberately **absent** from the tensor produced by
-    /// [`TensorConvertible::to_tensor`]. [`view`](Self::view) is already
+    /// The facing is deliberately **absent** from the host row
+    /// ([`HostRow::write_host_row`]). [`view`](Self::view) is already
     /// rotated into the agent's own frame, so an absolute heading is
     /// decision-vestigial for a policy: canonical Minigrid ships `direction`
     /// as a separate entry of the observation dict and never inside the
@@ -121,10 +117,12 @@ pub struct GridObservation {
     ///
     /// # What `None` means
     ///
-    /// `None` means *this observation was decoded from a tensor, so its facing
-    /// is genuinely unknown* — **not** "the agent faces some default". A value
-    /// produced by [`from_entity_view`](Self::from_entity_view) — i.e. by any
-    /// environment's `project()` — is always `Some`. When the true facing is
+    /// `None` means *the facing is genuinely unknown* — **not** "the agent
+    /// faces some default". A value produced by
+    /// [`from_entity_view`](Self::from_entity_view) or
+    /// [`from_masked_view`](Self::from_masked_view) — i.e. by every
+    /// environment — is always `Some`; `None` arrives only from a caller that
+    /// builds or deserializes an observation without one. When the true facing is
     /// needed, read it from the full state
     /// ([`GridState::agent`](super::state::GridState::agent)), which is where
     /// the allocentric heading lives.
@@ -162,7 +160,7 @@ impl GridObservation {
     ///
     /// * `view` — the rotated view window, `None` where the agent's sight is
     ///   blocked.
-    /// * `direction` — the agent's absolute facing, carried beside the tensor
+    /// * `direction` — the agent's absolute facing, carried beside the view
     ///   (see [`agent_direction`](Self::agent_direction)).
     #[must_use]
     pub fn from_masked_view(
@@ -204,10 +202,6 @@ impl Observation<3> for GridObservation {
 }
 
 impl HostRow<3> for GridObservation {
-    fn row_shape() -> [usize; 3] {
-        [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         for row in &self.view {
             for cell in row {
@@ -235,68 +229,6 @@ impl HostRow<3> for GridObservation {
         // `u8 -> f32` is total: no element of this row can be `NaN` or `$\pm\infty$`.
         // `agent_direction` is not written into the row at all.
         true
-    }
-}
-
-impl<B: Backend> TensorConvertible<3, B> for GridObservation {
-    /// Reconstructs the `$7 \times 7 \times 3$` view from a tensor.
-    ///
-    /// The tensor carries only the view channels, because the view is already
-    /// rotated into the agent's frame and the absolute facing adds nothing a
-    /// policy consumes (see [`agent_direction`](GridObservation::agent_direction)).
-    /// The decoded observation therefore reports
-    /// `agent_direction == None` — the facing is *unknown*, and this method
-    /// will never invent a plausible one. Callers needing the true facing must
-    /// carry it out-of-band, from [`GridState`](super::state::GridState).
-    ///
-    /// This satisfies the [`TensorConvertible`] contract's two clauses:
-    /// decode-then-re-encode reproduces the tensor exactly, and the one field
-    /// the tensor omits decodes to an explicit absence.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape does not equal
-    /// `[VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]` or the backend fails to
-    /// materialize its data.
-    fn from_tensor(tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS] {
-            return Err(TensorConversionError {
-                message: format!(
-                    "expected shape [{VIEW_SIZE}, {VIEW_SIZE}, {OBS_CHANNELS}], got {dims:?}"
-                ),
-            });
-        }
-        let flat = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: format!("failed to read tensor data: {e:?}"),
-            })?;
-        let mut view = [[[0u8; OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE];
-        let mut idx = 0;
-        for row in &mut view {
-            for cell in row {
-                for channel in cell {
-                    let value = flat[idx];
-                    if !value.is_finite() || value < 0.0 || value > f32::from(u8::MAX) {
-                        return Err(TensorConversionError {
-                            message: format!("value at index {idx} out of u8 range: {value}"),
-                        });
-                    }
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    {
-                        *channel = value as u8;
-                    }
-                    idx += 1;
-                }
-            }
-        }
-        Ok(Self {
-            view,
-            // The tensor carries no facing, so a decode must not invent one.
-            agent_direction: None,
-        })
     }
 }
 
@@ -369,80 +301,67 @@ mod tests {
         );
     }
 
+    /// The row is the view in `[row][col][channel]` order, one `f32` per byte.
     #[test]
-    fn view_round_trips_through_tensor() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
+    fn host_row_is_the_view_in_row_column_channel_order() {
         let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
         view[0][0] = Entity::Wall;
         view[3][3] = Entity::Door(Color::Blue, DoorState::Locked);
         view[6][3] = Entity::Goal;
         let obs = GridObservation::from_entity_view(view, Direction::East);
 
-        let tensor =
-            <GridObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
-        let round_tripped =
-            <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor).unwrap();
+        let mut row = Vec::new();
+        obs.write_host_row(&mut row);
 
-        assert_eq!(round_tripped.view, obs.view);
-        // The tensor carries no facing, so a decode must report the facing as
-        // unknown rather than inventing a plausible one.
         assert_eq!(
-            round_tripped.agent_direction, None,
-            "a decoded observation must not fabricate a facing"
+            row.len(),
+            GridObservation::shape().iter().product::<usize>()
+        );
+        for r in 0..VIEW_SIZE {
+            for c in 0..VIEW_SIZE {
+                for ch in 0..OBS_CHANNELS {
+                    assert_eq!(
+                        row[(r * VIEW_SIZE + c) * OBS_CHANNELS + ch],
+                        f32::from(obs.view[r][c][ch]),
+                        "cell ({r}, {c}), channel {ch}"
+                    );
+                }
+            }
+        }
+        // Literals pin the stride: the wall's type byte opens the row, and the
+        // door's color sits at cell (3, 3), channel 1.
+        assert_eq!(row[0], 2.0);
+        assert_eq!(
+            row[(3 * VIEW_SIZE + 3) * OBS_CHANNELS + 1],
+            f32::from(Color::Blue.to_u8())
         );
     }
 
+    /// The facing is not in the row: every facing, and none, writes the same
+    /// row.
     #[test]
-    fn decoded_observation_re_encodes_to_the_same_tensor() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
+    fn host_row_ignores_agent_direction() {
         let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
         view[0][0] = Entity::Wall;
         view[3][3] = Entity::Door(Color::Blue, DoorState::Locked);
-        view[6][3] = Entity::Goal;
-        let obs = GridObservation::from_entity_view(view, Direction::West);
+        let obs = GridObservation::from_entity_view(view, Direction::North);
+        let mut expected = Vec::new();
+        obs.write_host_row(&mut expected);
 
-        let tensor =
-            <GridObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
-        let decoded =
-            <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor.clone())
-                .expect("decode of a self-produced tensor must succeed");
-
-        // Clause 2 of the TensorConvertible contract: an unwritten field
-        // decodes to an explicit absence, never to a plausible value.
-        assert_eq!(
-            decoded.agent_direction, None,
-            "the facing is absent from the tensor, so it must decode as unknown"
-        );
-
-        // Clause 1: decode-then-re-encode is a no-op on the tensor.
-        let re_encoded =
-            <GridObservation as TensorConvertible<3, TestBackend>>::to_tensor(&decoded, &device);
-        assert_eq!(
-            re_encoded.to_data().to_vec::<f32>().unwrap(),
-            tensor.to_data().to_vec::<f32>().unwrap(),
-            "re-encoding a decoded observation must reproduce the same tensor row"
-        );
-    }
-
-    #[test]
-    fn from_tensor_rejects_wrong_shape() {
-        use burn::backend::Flex;
-        use burn::tensor::TensorData as TD;
-        type TestBackend = Flex;
-        let device = Default::default();
-
-        let flat = vec![0.0f32; VIEW_SIZE * VIEW_SIZE * 2];
-        let data = TD::new(flat, [VIEW_SIZE, VIEW_SIZE, 2]);
-        let tensor = burn::tensor::Tensor::<TestBackend, 3>::from_data(data, &device);
-        let err = <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-            .unwrap_err();
-        assert!(err.message.contains("expected shape"));
+        for agent_direction in [
+            Some(Direction::East),
+            Some(Direction::South),
+            Some(Direction::West),
+            None,
+        ] {
+            let mut row = Vec::new();
+            GridObservation {
+                agent_direction,
+                ..obs
+            }
+            .write_host_row(&mut row);
+            assert_eq!(row, expected, "facing {agent_direction:?}");
+        }
     }
 
     #[test]
@@ -510,13 +429,9 @@ mod tests {
     }
 
     #[test]
-    fn every_entity_survives_a_tensor_round_trip_and_a_mask_decodes_to_absence() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
-        // Every variant in one view, plus a masked cell, so the round trip and
-        // the absence reading are checked against the same tensor.
+    fn every_entity_and_a_masked_cell_reach_the_row() {
+        // Every variant in one view, plus a masked cell, so the entity bytes
+        // and the absence reading are checked against the same row.
         let entities = [
             Entity::Empty,
             Entity::Wall,
@@ -545,62 +460,55 @@ mod tests {
         view[masked_cell.0][masked_cell.1] = None;
 
         let obs = GridObservation::from_masked_view(view, Direction::North);
-        let tensor =
-            <GridObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
-        let decoded = <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-            .expect("decode of a self-produced tensor must succeed");
+        let mut row = Vec::new();
+        obs.write_host_row(&mut row);
+        let cell = |r: usize, c: usize| {
+            let at = (r * VIEW_SIZE + c) * OBS_CHANNELS;
+            [row[at], row[at + 1], row[at + 2]]
+        };
 
         for (i, &e) in entities.iter().enumerate() {
             let (r, c) = cell_of(i);
             assert_eq!(
-                decoded.view[r][c],
-                [e.type_u8(), e.color_u8(), e.state_u8()],
-                "{e:?} must survive encode -> tensor -> decode unchanged"
+                cell(r, c),
+                [
+                    f32::from(e.type_u8()),
+                    f32::from(e.color_u8()),
+                    f32::from(e.state_u8())
+                ],
+                "{e:?} must reach the row unchanged"
             );
         }
         let (mr, mc) = masked_cell;
         assert_eq!(
-            decoded.view[mr][mc],
-            [UNSEEN_TYPE, 0, 0],
-            "a masked cell must decode to absence, not to a plausible entity"
+            cell(mr, mc),
+            [f32::from(UNSEEN_TYPE), 0.0, 0.0],
+            "a masked cell writes absence, not a plausible entity"
         );
         assert_ne!(
-            decoded.view[mr][mc][0],
-            Entity::Empty.type_u8(),
-            "a masked cell must not read back as confirmed-empty floor"
+            cell(mr, mc)[0],
+            f32::from(Entity::Empty.type_u8()),
+            "a masked cell must not read as confirmed-empty floor"
         );
     }
 
     #[test]
-    fn an_all_zero_tensor_decodes_as_every_cell_unseen() {
-        use burn::backend::Flex;
-        use burn::tensor::TensorData as TD;
-        type TestBackend = Flex;
-        let device = Default::default();
-
+    fn an_all_masked_view_writes_an_all_zero_row() {
         // The reason the renumbering is load-bearing rather than cosmetic:
         // these environments train recurrent POMDP policies, so zero-padded and
-        // attention-masked rows are the normal case. Such a row must read as
-        // "nothing known", not as a fabricated board of empty floor.
-        let flat = vec![0.0f32; VIEW_SIZE * VIEW_SIZE * OBS_CHANNELS];
-        let data = TD::new(flat, [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]);
-        let tensor = burn::tensor::Tensor::<TestBackend, 3>::from_data(data, &device);
+        // attention-masked rows are the normal case. A zero row must be what
+        // "nothing known" writes, and a seen-but-empty board must not write it.
+        let mut row = Vec::new();
+        GridObservation::from_masked_view([[None; VIEW_SIZE]; VIEW_SIZE], Direction::East)
+            .write_host_row(&mut row);
+        assert_eq!(row, vec![0.0_f32; VIEW_SIZE * VIEW_SIZE * OBS_CHANNELS]);
 
-        let decoded = <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-            .expect("an in-range zero tensor must decode");
-
-        for row in &decoded.view {
-            for cell in row {
-                assert_eq!(
-                    cell[0], UNSEEN_TYPE,
-                    "a zero channel-0 byte must mean unseen, never a real entity"
-                );
-            }
+        let mut empty_row = Vec::new();
+        GridObservation::from_entity_view([[Entity::Empty; VIEW_SIZE]; VIEW_SIZE], Direction::East)
+            .write_host_row(&mut empty_row);
+        for channel_0 in empty_row.iter().step_by(OBS_CHANNELS) {
+            assert_eq!(*channel_0, 1.0, "a seen-but-empty cell writes `empty` = 1");
         }
-        assert_eq!(
-            decoded.agent_direction, None,
-            "the facing is absent from the tensor, so it must decode as unknown"
-        );
     }
 
     #[test]

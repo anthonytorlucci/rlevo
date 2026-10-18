@@ -147,7 +147,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State, TensorConversionError, TensorConvertible},
+    base::{Action, HostRow, Observation, State},
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
@@ -886,72 +886,12 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
 }
 
 // ---------------------------------------------------------------------------
-// TensorConvertible
+// Host rows
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for AcrobotObservation {
-    fn row_shape() -> [usize; 1] {
-        [6]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
-    }
-}
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotObservation {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [6] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [6], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        Ok(Self {
-            cos_theta1: v[0],
-            sin_theta1: v[1],
-            cos_theta2: v[2],
-            sin_theta2: v[3],
-            theta1_dot: v[4],
-            theta2_dot: v[5],
-        })
-    }
-}
-
-impl HostRow<1> for AcrobotAction {
-    fn row_shape() -> [usize; 1] {
-        [3]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        let mut one_hot = [0.0_f32; 3];
-        one_hot[self.to_index()] = 1.0;
-        buf.extend_from_slice(&one_hot);
-    }
-}
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotAction {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [3] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [3], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        let idx = crate::tensor_decode::argmax(&v);
-        Ok(Self::from_index(idx))
     }
 }
 
@@ -1122,19 +1062,6 @@ mod tests {
         assert_eq!(AcrobotAction::ACTION_COUNT, 3);
         assert_eq!(AcrobotAction::from_index(0), AcrobotAction::TorqueNeg);
         assert_eq!(AcrobotAction::from_index(2), AcrobotAction::TorquePos);
-    }
-
-    #[test]
-    fn action_from_tensor_is_nan_safe() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        type TestBackend = burn::backend::Flex;
-        let device = Default::default();
-        // An all-NaN logit vector must not panic; falls back to index 0.
-        let data = TD::new(vec![f32::NAN, f32::NAN, f32::NAN], [3]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let back = <AcrobotAction as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect("all-NaN decodes to fallback");
-        assert_eq!(back, AcrobotAction::from_index(0));
     }
 
     #[test]

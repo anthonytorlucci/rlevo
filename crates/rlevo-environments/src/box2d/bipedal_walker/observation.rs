@@ -5,7 +5,7 @@
 //! 10 lidar range readings swept from `$-90^\circ$` to `$+90^\circ$` relative to the hull,
 //! normalised to `[0, 1]` by `lidar_range`.
 
-use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 24-dimensional observation for `BipedalWalker`.
@@ -63,32 +63,8 @@ impl Observation<1> for BipedalWalkerObservation {
 }
 
 impl HostRow<1> for BipedalWalkerObservation {
-    fn row_shape() -> [usize; 1] {
-        [24]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.values);
-    }
-}
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for BipedalWalkerObservation {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [24] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [24], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        let mut values = [0.0_f32; 24];
-        values.copy_from_slice(&v);
-        Ok(Self { values })
     }
 }
 
@@ -106,36 +82,22 @@ mod tests {
         assert!(BipedalWalkerObservation::default().is_finite());
     }
 
+    /// The row is the 24 stored values in order, leg-contact flags at 8 and 13
+    /// included.
     #[test]
-    fn round_trips_through_tensor() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
+    fn host_row_is_the_stored_values() {
+        let values = [
+            0.01, -0.02, 0.03, -0.04, 0.05, -0.06, 0.07, -0.08, 1.0, -0.10, 0.11, -0.12, 0.13, 0.0,
+            0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24,
+        ];
+        let obs = BipedalWalkerObservation::new(values);
+        let mut row = Vec::new();
+        obs.write_host_row(&mut row);
 
-        let obs = BipedalWalkerObservation::new([
-            0.01, -0.02, 0.03, -0.04, 0.05, -0.06, 0.07, -0.08, 0.09, -0.10, 0.11, -0.12, 0.13,
-            -0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24,
-        ]);
-        let tensor = <BipedalWalkerObservation as TensorConvertible<1, TestBackend>>::to_tensor(
-            &obs, &device,
+        assert_eq!(
+            row.len(),
+            BipedalWalkerObservation::shape().iter().product::<usize>()
         );
-        let round_tripped =
-            <BipedalWalkerObservation as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-                .unwrap();
-
-        assert_eq!(round_tripped, obs);
-    }
-
-    #[test]
-    fn from_tensor_rejects_wrong_shape() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
-        let tensor = burn::tensor::Tensor::<TestBackend, 1>::from_floats([0.0, 1.0, 2.0], &device);
-        let err =
-            <BipedalWalkerObservation as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-                .unwrap_err();
-        assert!(err.message.contains("expected shape [24]"));
+        assert_eq!(row, values);
     }
 }

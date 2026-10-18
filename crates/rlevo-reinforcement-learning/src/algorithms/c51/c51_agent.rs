@@ -59,10 +59,9 @@ use crate::utils::PolyakError;
 /// Making action selection fallible is a breaking change, deferred until
 /// `act`/`act_greedy`/`act_greedy_with` themselves return `Result` — a
 /// signature break across every call site, not something to front-run here.
-/// When it lands, the variant that returns must carry
-/// [`rlevo_core::base::TensorConversionError`] as a `#[from]` payload, not a
-/// `String`: §4 prefers structured error types over string-based ones, and
-/// names `TensorConversionError` as the domain type for tensor ops.
+/// When it lands, the variant that returns must carry a structured payload,
+/// not a `String`: the Error Handling section of `docs/rules.md` prefers
+/// structured error types over string-based ones.
 ///
 /// # Why there is no buffer or I/O variant
 ///
@@ -1038,7 +1037,7 @@ mod tests {
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
-    use rlevo_core::base::{Action as ActionTrait, HostRow, TensorConversionError};
+    use rlevo_core::base::{Action as ActionTrait, HostRow};
 
     type TestBackend = Autodiff<Flex>;
 
@@ -1056,24 +1055,8 @@ mod tests {
     }
 
     impl HostRow<1> for TestObs {
-        fn row_shape() -> [usize; 1] {
-            [2]
-        }
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
-        }
-    }
-
-    impl<B: Backend> TensorConvertible<1, B> for TestObs {
-        fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-            let v = tensor
-                .into_data()
-                .convert::<f32>()
-                .to_vec::<f32>()
-                .map_err(|e| TensorConversionError {
-                    message: format!("host read failed: {e:?}"),
-                })?;
-            Ok(Self([v[0], v[1]]))
         }
     }
 

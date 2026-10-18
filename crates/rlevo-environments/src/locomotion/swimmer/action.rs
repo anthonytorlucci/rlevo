@@ -4,9 +4,8 @@
 //! joint, in the range `[-1.0, 1.0]`. The environment multiplies each by the
 //! configured `gear` scalar before applying the torque to the physics body.
 
-use burn::prelude::{Backend, Tensor};
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, HostRow, TensorConversionError, TensorConvertible};
+use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
 /// 2D continuous action — `[joint1, joint2]` torque targets in pre-gear
@@ -100,31 +99,6 @@ impl BoundedAction<1> for SwimmerAction {
 
     fn high() -> &'static [f32] {
         &[1.0, 1.0]
-    }
-}
-
-impl HostRow<1> for SwimmerAction {
-    fn row_shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.extend_from_slice(&self.0);
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for SwimmerAction {
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 action tensor: {e:?}"),
-        })?;
-        if slice.len() != 2 {
-            return Err(TensorConversionError {
-                message: format!("expected 2 action elements, got {}", slice.len()),
-            });
-        }
-        Ok(Self([slice[0], slice[1]]))
     }
 }
 

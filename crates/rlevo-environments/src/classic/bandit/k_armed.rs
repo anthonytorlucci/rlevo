@@ -27,15 +27,11 @@
 //! assert!(!snap.is_done());
 //! ```
 
-use burn::tensor::Tensor;
-use burn::tensor::backend::Backend;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{
-    Action, HostRow, Observation, Reward, State, TensorConversionError, TensorConvertible,
-};
+use rlevo_core::base::{Action, Observation, Reward, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
@@ -62,8 +58,8 @@ pub struct KArmedBanditState;
 /// Observation for the k-armed bandit.
 ///
 /// Empty for the same reason as [`KArmedBanditState`]. The [`Observation`]
-/// impl reports `shape() = [1]` so tensor-based policies can still convert
-/// through [`TensorConvertible`].
+/// impl reports `shape() = [1]`. It writes no host row, so a tensor-based
+/// policy cannot consume it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct KArmedBanditObservation;
 
@@ -93,36 +89,6 @@ impl Display for KArmedBanditState {
     }
 }
 
-impl HostRow<1> for KArmedBanditState {
-    /// Row shape of the stateless bandit state: `[1]`.
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-
-    /// Encodes the stateless bandit state as a single `0.0` element.
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.push(0.0_f32);
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
-    /// Accepts any rank-1 tensor of shape `[1]`; contents are ignored because
-    /// the state carries no data.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not `[1]`.
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [1] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [1], got {dims:?}"),
-            });
-        }
-        Ok(Self)
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Action
 // ---------------------------------------------------------------------------
@@ -142,8 +108,6 @@ impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
 /// - [`Action<1>`]: validity check + shape reporting (`[K]`).
 /// - [`DiscreteAction<1>`]: `ACTION_COUNT = K`, plus `from_index` /
 ///   `to_index` / `random` / `enumerate` (the last three via trait defaults).
-/// - [`TensorConvertible<1, B>`]: one-hot encoding of length `K` for
-///   neural-network integration.
 /// - [`Display`]: renders as `"KArmedBanditAction<K>(arm=N)"`.
 ///
 /// # Examples
@@ -240,50 +204,6 @@ impl<const K: usize> DiscreteAction<1> for KArmedBanditAction<K> {
 
     fn to_index(&self) -> usize {
         self.selected_arm
-    }
-}
-
-impl<const K: usize> HostRow<1> for KArmedBanditAction<K> {
-    /// Row shape of the one-hot arm encoding: `[K]`.
-    fn row_shape() -> [usize; 1] {
-        [K]
-    }
-
-    /// One-hot encoding of the selected arm, length `K`.
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        let mut one_hot = [0.0_f32; K];
-        one_hot[self.selected_arm] = 1.0;
-        buf.extend_from_slice(&one_hot);
-    }
-}
-
-impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<K> {
-    /// Reconstructs an action from a one-hot tensor by argmax.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not `[K]` or
-    /// the argmax falls outside the valid arm range.
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [K] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [{K}], got {dims:?}"),
-            });
-        }
-        let data = tensor.into_data();
-        let values: Vec<f32> = data.to_vec().map_err(|e| TensorConversionError {
-            message: format!("failed to extract tensor data: {e:?}"),
-        })?;
-        let (argmax, _) = values.iter().enumerate().fold(
-            (0_usize, f32::NEG_INFINITY),
-            |(i_best, v_best), (i, &v)| {
-                if v > v_best { (i, v) } else { (i_best, v_best) }
-            },
-        );
-        KArmedBanditAction::<K>::new(argmax).map_err(|e| TensorConversionError {
-            message: format!("invalid one-hot argmax: {e}"),
-        })
     }
 }
 
@@ -728,30 +648,7 @@ mod tests {
         assert!(KArmedBandit::<3>::with_config(bad).is_err());
     }
 
-    type TestBackend = burn::backend::Flex;
     const K: usize = 10;
-
-    #[test]
-    fn state_round_trips_through_tensor() {
-        let device = Default::default();
-        let state = KArmedBanditState;
-        let tensor =
-            <KArmedBanditState as TensorConvertible<1, TestBackend>>::to_tensor(&state, &device);
-        let back = <KArmedBanditState as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect("round-trip should succeed for valid shape");
-        assert_eq!(back, state);
-    }
-
-    #[test]
-    fn state_from_tensor_rejects_wrong_shape() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        let device = Default::default();
-        let data = TD::new(vec![0.0_f32, 0.0_f32], [2]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let err = <KArmedBanditState as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect_err("shape [2] should be rejected");
-        assert!(err.message.contains("expected shape [1]"));
-    }
 
     #[test]
     fn action_from_index_round_trips() {
@@ -781,31 +678,6 @@ mod tests {
         for (i, a) in all.iter().enumerate() {
             assert_eq!(a.to_index(), i);
         }
-    }
-
-    #[test]
-    fn action_one_hot_round_trips_through_tensor() {
-        let device = Default::default();
-        for i in 0..K {
-            let a = KArmedBanditAction::<K>::from_index(i);
-            let t = <KArmedBanditAction<K> as TensorConvertible<1, TestBackend>>::to_tensor(
-                &a, &device,
-            );
-            let back = <KArmedBanditAction<K> as TensorConvertible<1, TestBackend>>::from_tensor(t)
-                .expect("valid one-hot");
-            assert_eq!(back, a);
-        }
-    }
-
-    #[test]
-    fn action_from_tensor_rejects_wrong_shape() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        let device = Default::default();
-        let data = TD::new(vec![0.0_f32, 1.0_f32], [2]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let err = <KArmedBanditAction<K> as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect_err("shape [2] should be rejected");
-        assert!(err.message.contains("expected shape"));
     }
 
     #[test]

@@ -158,7 +158,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
-use rlevo_core::base::{Action, HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
 use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_environments::box2d::car_racing::{
     CarRacing, CarRacingAction, CarRacingConfig, CarRacingObservation,
@@ -237,31 +237,8 @@ impl Observation<3> for F32Image {
 }
 
 impl HostRow<3> for F32Image {
-    fn row_shape() -> [usize; 3] {
-        [FRAME, FRAME, 3]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.px);
-    }
-}
-
-impl<B: Backend> TensorConvertible<3, B> for F32Image {
-    fn from_tensor(tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [FRAME, FRAME, 3] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [{FRAME}, {FRAME}, 3], got {dims:?}"),
-            });
-        }
-        let flat: Vec<f32> =
-            tensor
-                .into_data()
-                .into_vec::<f32>()
-                .map_err(|e| TensorConversionError {
-                    message: format!("failed to read tensor data: {e:?}"),
-                })?;
-        Ok(Self { px: Arc::new(flat) })
     }
 }
 
@@ -489,7 +466,7 @@ fn check_finite_reused<const R: usize, T: HostRow<R>>(
 /// The prototype guard, fresh-allocation form -- identical work plus one
 /// `Vec` allocation and one deallocation per call.
 fn check_finite_fresh<const R: usize, T: HostRow<R>>(obs: &T, next_obs: &T) -> bool {
-    let row_len: usize = T::row_shape().iter().product();
+    let row_len: usize = T::shape().iter().product();
     let mut scratch: Vec<f32> = Vec::with_capacity(2 * row_len);
     obs.write_host_row(&mut scratch);
     next_obs.write_host_row(&mut scratch);
@@ -689,7 +666,7 @@ fn bench_stage<const R: usize, T>(
     T: HostRow<R>,
 {
     let mut rng = StdRng::seed_from_u64(1043);
-    let row_len: usize = T::row_shape().iter().product();
+    let row_len: usize = T::shape().iter().product();
     let mut group = c.benchmark_group(group_name);
 
     for &batch in batches {
@@ -810,7 +787,7 @@ fn bench_ingest<B, M, O, const DO: usize, const DB: usize>(
     O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
 {
     let mut rng = StdRng::seed_from_u64(1043);
-    let row_len: usize = <O as HostRow<DO>>::row_shape().iter().product();
+    let row_len: usize = <O as Observation<DO>>::shape().iter().product();
 
     let clean: Vec<O> = (0..POOL).map(|_| make(&mut rng, false)).collect();
     let poisoned: Vec<O> = if poisonable {

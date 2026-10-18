@@ -1,7 +1,6 @@
 //! Observation type for [`super::InvertedDoublePendulum`].
 
-use burn::prelude::{Backend, Tensor};
-use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 9-dim observation:
@@ -83,28 +82,7 @@ impl Observation<1> for InvertedDoublePendulumObservation {
 }
 
 impl HostRow<1> for InvertedDoublePendulumObservation {
-    fn row_shape() -> [usize; 1] {
-        [9]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for InvertedDoublePendulumObservation {
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 observation tensor: {e:?}"),
-        })?;
-        if slice.len() != 9 {
-            return Err(TensorConversionError {
-                message: format!("expected 9 observation elements, got {}", slice.len()),
-            });
-        }
-        let mut out = [0.0f32; 9];
-        out.copy_from_slice(slice);
-        Ok(Self(out))
     }
 }

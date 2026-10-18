@@ -30,15 +30,11 @@
 //! assert!(!snap.is_done());
 //! ```
 
-use burn::tensor::Tensor;
-use burn::tensor::backend::Backend;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
-use rlevo_core::base::{
-    Action, HostRow, Observation, Reward, State, TensorConversionError, TensorConvertible,
-};
+use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
@@ -79,15 +75,15 @@ impl<const C: usize> Display for ContextualBanditState<C> {
 /// Observation for the contextual bandit — the index of the context revealed
 /// to the agent before it acts.
 ///
-/// The raw struct holds the context index as a `usize`. When converted via
-/// [`TensorConvertible::to_tensor`], the index is encoded as a one-hot vector
-/// of length `C` for use with neural-network policies.
+/// The raw struct holds the context index as a `usize`. Its host row
+/// ([`HostRow::write_host_row`]) encodes the index as a one-hot vector of
+/// length `C` for use with neural-network policies.
 ///
 /// # Invariants
 ///
 /// `context < C` always. The field is private and every construction path
-/// reachable from outside this module — [`ContextualBanditObservation::new`],
-/// [`TensorConvertible::from_tensor`], and `Deserialize` — validates the index
+/// reachable from outside this module — [`ContextualBanditObservation::new`]
+/// and `Deserialize` — validates the index
 /// against `C`, so an observation that would index past the end of its own
 /// one-hot encoding is unrepresentable. The type deliberately does **not**
 /// implement `Default`: a defaulted `context: 0` is the one index that cannot
@@ -205,11 +201,6 @@ impl<const C: usize> State<1> for ContextualBanditState<C> {
 }
 
 impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
-    /// Row shape of the one-hot context encoding: `[C]`.
-    fn row_shape() -> [usize; 1] {
-        [C]
-    }
-
     /// One-hot encoding of the current context, length `C`.
     ///
     /// The write goes through `get_mut` rather than `[]`, so the encoder is
@@ -235,37 +226,6 @@ impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
             *slot = 1.0;
         }
         buf.extend_from_slice(&one_hot);
-    }
-}
-
-impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObservation<C> {
-    /// Reconstructs an observation from a one-hot tensor by argmax.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not `[C]`, if
-    /// the host read of the tensor fails, or if the decoded index is not a
-    /// valid context.
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [C] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [{C}], got {dims:?}"),
-            });
-        }
-        let data = tensor.into_data();
-        let values: Vec<f32> = data.to_vec().map_err(|e| TensorConversionError {
-            message: format!("failed to extract tensor data: {e:?}"),
-        })?;
-        let (argmax, _) = values.iter().enumerate().fold(
-            (0_usize, f32::NEG_INFINITY),
-            |(i_best, v_best), (i, &v)| {
-                if v > v_best { (i, v) } else { (i_best, v_best) }
-            },
-        );
-        Self::new(argmax).map_err(|e| TensorConversionError {
-            message: format!("failed to decode context: {e}"),
-        })
     }
 }
 
@@ -612,25 +572,24 @@ mod tests {
         assert!(ContextualBandit::<4, 10>::with_config(bad).is_err());
     }
 
-    type TestBackend = burn::backend::Flex;
     const C: usize = 4;
     const K: usize = 10;
 
+    /// The row is one-hot at the context, for every context.
     #[test]
-    fn observation_round_trips_through_tensor() {
-        let device = Default::default();
+    fn observation_row_is_one_hot_at_the_context() {
         for ctx in 0..C {
             let obs = ContextualBanditObservation::<C>::new(ctx).expect("ctx < C");
-            let tensor =
-                <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::to_tensor(
-                    &obs, &device,
-                );
-            let back =
-                <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::from_tensor(
-                    tensor,
-                )
-                .expect("round-trip should succeed");
-            assert_eq!(back.context(), ctx, "round-trip must preserve the context");
+            let mut row = Vec::new();
+            obs.write_host_row(&mut row);
+            assert_eq!(
+                row.len(),
+                ContextualBanditObservation::<C>::shape()
+                    .iter()
+                    .product::<usize>()
+            );
+            let expected: Vec<f32> = (0..C).map(|i| if i == ctx { 1.0 } else { 0.0 }).collect();
+            assert_eq!(row, expected, "context {ctx}");
         }
     }
 
@@ -665,7 +624,6 @@ mod tests {
     #[test]
     fn single_context_observation_works_end_to_end() {
         // C = 1: the degenerate-but-supported single-context bandit.
-        let device = Default::default();
         let obs = ContextualBanditObservation::<1>::new(0).expect("0 < 1");
         assert_eq!(obs.context(), 0);
         assert!(
@@ -673,24 +631,13 @@ mod tests {
             "context 1 is out of range for C=1"
         );
 
-        let tensor =
-            <ContextualBanditObservation<1> as TensorConvertible<1, TestBackend>>::to_tensor(
-                &obs, &device,
-            );
-        assert_eq!(tensor.dims(), [1], "one-hot row for C=1 has length 1");
-        let values: Vec<f32> = tensor
-            .clone()
-            .into_data()
-            .to_vec()
-            .expect("host read of a tensor we just built");
-        assert_eq!(values, vec![1.0_f32], "the single context is the hot index");
-
-        let back =
-            <ContextualBanditObservation<1> as TensorConvertible<1, TestBackend>>::from_tensor(
-                tensor,
-            )
-            .expect("round-trip should succeed");
-        assert_eq!(back, obs);
+        let mut row = Vec::new();
+        obs.write_host_row(&mut row);
+        assert_eq!(
+            row,
+            vec![1.0_f32],
+            "one-hot row for C=1 is the single hot index"
+        );
     }
 
     #[test]
@@ -725,20 +672,6 @@ mod tests {
         let raw =
             bincode::serde::encode_to_vec(RawObservation { context: 2 }, cfg).expect("encode");
         assert_eq!(bytes, raw, "wire format must stay a single `context` field");
-    }
-
-    #[test]
-    fn observation_from_tensor_rejects_wrong_shape() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        let device = Default::default();
-        let data = TD::new(vec![0.0_f32; 2], [2]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let err =
-            <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::from_tensor(
-                tensor,
-            )
-            .expect_err("shape [2] should be rejected");
-        assert!(err.message.contains("expected shape"));
     }
 
     #[test]

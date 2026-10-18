@@ -1,6 +1,6 @@
 //! Observation type for `LunarLander`.
 
-use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use serde::{Deserialize, Serialize};
 
 /// 8-dimensional observation for `LunarLander`.
@@ -95,32 +95,8 @@ impl Observation<1> for LunarLanderObservation {
 }
 
 impl HostRow<1> for LunarLanderObservation {
-    fn row_shape() -> [usize; 1] {
-        [8]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.values);
-    }
-}
-
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for LunarLanderObservation {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [8] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [8], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        let mut values = [0.0_f32; 8];
-        values.copy_from_slice(&v);
-        Ok(Self { values })
     }
 }
 
@@ -138,32 +114,19 @@ mod tests {
         assert!(LunarLanderObservation::default().is_finite());
     }
 
+    /// The row is the 8 stored values in order, leg-contact flags at 6 and 7
+    /// included.
     #[test]
-    fn round_trips_through_tensor() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
+    fn host_row_is_the_stored_values() {
+        let values = [0.1, -0.2, 0.3, -0.4, 0.5, -0.6, 1.0, 0.0];
+        let obs = LunarLanderObservation::new(values);
+        let mut row = Vec::new();
+        obs.write_host_row(&mut row);
 
-        let obs = LunarLanderObservation::new([0.1, -0.2, 0.3, -0.4, 0.5, -0.6, 1.0, 0.0]);
-        let tensor =
-            <LunarLanderObservation as TensorConvertible<1, TestBackend>>::to_tensor(&obs, &device);
-        let round_tripped =
-            <LunarLanderObservation as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-                .unwrap();
-
-        assert_eq!(round_tripped, obs);
-    }
-
-    #[test]
-    fn from_tensor_rejects_wrong_shape() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
-        let tensor = burn::tensor::Tensor::<TestBackend, 1>::from_floats([0.0, 1.0, 2.0], &device);
-        let err =
-            <LunarLanderObservation as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-                .unwrap_err();
-        assert!(err.message.contains("expected shape [8]"));
+        assert_eq!(
+            row.len(),
+            LunarLanderObservation::shape().iter().product::<usize>()
+        );
+        assert_eq!(row, values);
     }
 }

@@ -54,10 +54,9 @@ use crate::utils::{PolyakError, compute_target_quantiles};
 /// same function just built)".
 ///
 /// Making action selection fallible is a breaking change, deferred and
-/// tracked separately. When it lands, the variant that returns must carry
-/// [`rlevo_core::base::TensorConversionError`] as a `#[from]` payload, not a
-/// `String`: that section prefers structured error types over string-based
-/// ones, and names `TensorConversionError` as the domain type for tensor ops.
+/// tracked separately. When it lands, the variant that returns must carry a
+/// structured payload, not a `String`: that section prefers structured error
+/// types over string-based ones.
 ///
 /// # Why there is no buffer or I/O variant
 ///

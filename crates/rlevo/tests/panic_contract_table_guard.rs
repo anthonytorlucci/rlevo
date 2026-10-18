@@ -250,9 +250,9 @@ struct UnresolvableSite {
 /// The one contract in the table that no single item owns.
 static UNRESOLVABLE_SITES: &[UnresolvableSite] = &[UnresolvableSite {
     site: "Batch rank assertion",
-    why: "a const-generic *relation* (`BD == D + 1`), asserted at every batching call \
-          site rather than owned by one function. There is no item to name; naming any \
-          one of the call sites would make the row wrong at all the others",
+    why: "a const-generic *relation* (`BD == D + 1`) that no rlevo function asserts: \
+          Burn checks it at upload, wherever a batch is staged. There is no item to name; \
+          naming one of the staging sites would make the row wrong at all the others",
 }];
 
 // ---------------------------------------------------------------------------

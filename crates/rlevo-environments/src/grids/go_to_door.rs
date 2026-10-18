@@ -85,10 +85,9 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use burn::tensor::{Tensor, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _, SnapshotBase,
@@ -226,26 +225,28 @@ pub struct GoToDoorObservation {
     /// ever emits `0..=3` (ADR 0061). [`Direction::to_u8`] still yields the
     /// canonical Minigrid byte order for callers that want it.
     ///
-    /// # Why it is not in the tensor
+    /// # Why it is not in the row
     ///
     /// As on [`GridObservation`](super::core::GridObservation), the facing is
-    /// deliberately **absent** from the tensor produced by
-    /// [`TensorConvertible::to_tensor`]. [`view`](Self::view) is already
+    /// deliberately **absent** from the host row
+    /// ([`HostRow::write_host_row`]). [`view`](Self::view) is already
     /// rotated into the agent's own frame, so an absolute heading is
     /// decision-vestigial for a policy: canonical Minigrid ships `direction`
     /// as a separate entry of the observation dict and never inside the image,
     /// and every published baseline (`ImgObsWrapper`, `rl-starter-files`,
     /// RIDE) discards it before the network. The mission is the one piece of
-    /// out-of-image information this env *does* fold into the tensor, via
+    /// out-of-image information this env *does* fold into the row, via
     /// [`MISSION_CHANNEL`] (ADR 0043).
     ///
     /// # What `None` means
     ///
-    /// `None` means *this observation was decoded from a tensor, so its facing
-    /// is genuinely unknown* — **not** "the agent faces some default". A value
-    /// produced by [`from_entity_view`](Self::from_entity_view) — i.e. by
-    /// `GoToDoorEnv`'s own projection — is always `Some`. When the true facing
-    /// is needed, read it from the full state
+    /// `None` means *the facing is genuinely unknown* — **not** "the agent
+    /// faces some default". A value produced by
+    /// [`from_entity_view`](Self::from_entity_view) or
+    /// [`from_masked_view`](Self::from_masked_view) — i.e. by `GoToDoorEnv`'s
+    /// own projection — is always `Some`; `None` arrives only from a caller
+    /// that builds or deserializes an observation without one. When the true
+    /// facing is needed, read it from the full state
     /// ([`GridState::agent`](super::core::GridState::agent)), which is where
     /// the allocentric heading lives.
     pub agent_direction: Option<Direction>,
@@ -337,10 +338,6 @@ impl Observation<3> for GoToDoorObservation {
 }
 
 impl HostRow<3> for GoToDoorObservation {
-    fn row_shape() -> [usize; 3] {
-        [VIEW_SIZE, VIEW_SIZE, GO_TO_DOOR_OBS_CHANNELS]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         for row in &self.view {
             for cell in row {
@@ -368,69 +365,6 @@ impl HostRow<3> for GoToDoorObservation {
         // `u8 -> f32` is total: no element of this row can be `NaN` or `$\pm\infty$`.
         // `agent_direction` is not written into the row at all.
         true
-    }
-}
-
-impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
-    /// Reconstructs the `$7 \times 7 \times 4$` view from a tensor.
-    ///
-    /// The tensor carries only the view channels — including the mission
-    /// channel — because the view is already rotated into the agent's frame
-    /// and the absolute facing adds nothing a policy consumes (see
-    /// [`agent_direction`](GoToDoorObservation::agent_direction)). The decoded
-    /// observation therefore reports `agent_direction == None` — the facing is
-    /// *unknown*, and this method will never invent a plausible one. Callers
-    /// needing the true facing must carry it out-of-band, from
-    /// [`GridState`].
-    ///
-    /// This satisfies the [`TensorConvertible`] contract's two clauses:
-    /// decode-then-re-encode reproduces the tensor exactly, and the one field
-    /// the tensor omits decodes to an explicit absence.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape does not equal
-    /// `[VIEW_SIZE, VIEW_SIZE, GO_TO_DOOR_OBS_CHANNELS]`, if the backend fails to
-    /// materialize its data, or if any value is outside the `u8` range.
-    fn from_tensor(tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [VIEW_SIZE, VIEW_SIZE, GO_TO_DOOR_OBS_CHANNELS] {
-            return Err(TensorConversionError {
-                message: format!(
-                    "expected shape [{VIEW_SIZE}, {VIEW_SIZE}, {GO_TO_DOOR_OBS_CHANNELS}], got {dims:?}"
-                ),
-            });
-        }
-        let flat = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: format!("failed to read tensor data: {e:?}"),
-            })?;
-        let mut view = [[[0u8; GO_TO_DOOR_OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE];
-        let mut idx = 0;
-        for row in &mut view {
-            for cell in row {
-                for channel in cell {
-                    let value = flat[idx];
-                    if !value.is_finite() || value < 0.0 || value > f32::from(u8::MAX) {
-                        return Err(TensorConversionError {
-                            message: format!("value at index {idx} out of u8 range: {value}"),
-                        });
-                    }
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    {
-                        *channel = value as u8;
-                    }
-                    idx += 1;
-                }
-            }
-        }
-        Ok(Self {
-            view,
-            // The tensor carries no facing, so a decode must not invent one.
-            agent_direction: None,
-        })
     }
 }
 
@@ -1371,89 +1305,63 @@ mod tests {
         );
     }
 
+    /// The row is the four-channel view in `[row][col][channel]` order, and the
+    /// mission byte sits at channel 3 of every one of the 49 cells.
     #[test]
-    fn test_observation_round_trips_through_tensor() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
+    fn test_observation_host_row_carries_the_mission_in_every_cell() {
         let env = env_6x6(4);
         let obs = env.observe_reset(env.state());
+        let mut row = Vec::new();
+        obs.write_host_row(&mut row);
 
-        let tensor =
-            <GoToDoorObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
-        let back = <GoToDoorObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-            .expect("round-trip must succeed");
-
-        assert_eq!(back.view, obs.view, "all four channels must round-trip");
         assert_eq!(
-            back.mission_color_u8(),
-            env.mission().target_color.to_u8(),
-            "the mission byte must survive the tensor round-trip"
+            row.len(),
+            GoToDoorObservation::shape().iter().product::<usize>()
         );
-        // The tensor carries no facing, so a decode must report the facing as
-        // unknown rather than inventing a plausible one.
-        assert_eq!(
-            back.agent_direction, None,
-            "a decoded observation must not fabricate a facing"
-        );
+        let mission = f32::from(env.mission().target_color.to_u8());
+        for r in 0..VIEW_SIZE {
+            for c in 0..VIEW_SIZE {
+                let at = (r * VIEW_SIZE + c) * GO_TO_DOOR_OBS_CHANNELS;
+                for ch in 0..GO_TO_DOOR_OBS_CHANNELS {
+                    assert_eq!(
+                        row[at + ch],
+                        f32::from(obs.view[r][c][ch]),
+                        "cell ({r}, {c}), channel {ch}"
+                    );
+                }
+                assert_eq!(
+                    row[at + MISSION_CHANNEL],
+                    mission,
+                    "cell ({r}, {c}) must carry the mission byte"
+                );
+            }
+        }
     }
 
+    /// The facing is not in the row: every facing, and none, writes the same
+    /// row.
     #[test]
-    fn test_decoded_observation_re_encodes_to_the_same_tensor() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
+    fn test_observation_host_row_ignores_agent_direction() {
         let env = env_6x6(9);
         let obs = env.observe_reset(env.state());
+        let mut expected = Vec::new();
+        obs.write_host_row(&mut expected);
 
-        let tensor =
-            <GoToDoorObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
-        let decoded =
-            <GoToDoorObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor.clone())
-                .expect("decode of a self-produced tensor must succeed");
-
-        // Clause 2 of the TensorConvertible contract: an unwritten field
-        // decodes to an explicit absence, never to a plausible value.
-        assert_eq!(
-            decoded.agent_direction, None,
-            "the facing is absent from the tensor, so it must decode as unknown"
-        );
-        assert_eq!(
-            decoded.mission_color_u8(),
-            obs.mission_color_u8(),
-            "the mission channel is written, so it must survive the decode"
-        );
-
-        // Clause 1: decode-then-re-encode is a no-op on the tensor.
-        let re_encoded = <GoToDoorObservation as TensorConvertible<3, TestBackend>>::to_tensor(
-            &decoded, &device,
-        );
-        assert_eq!(
-            re_encoded.to_data().to_vec::<f32>().unwrap(),
-            tensor.to_data().to_vec::<f32>().unwrap(),
-            "re-encoding a decoded observation must reproduce the same tensor row"
-        );
-    }
-
-    #[test]
-    fn test_observation_from_tensor_rejects_wrong_shape() {
-        use burn::backend::Flex;
-        use burn::tensor::TensorData;
-        type TestBackend = Flex;
-        let device = Default::default();
-
-        let flat = vec![0.0f32; VIEW_SIZE * VIEW_SIZE * 3];
-        let data = TensorData::new(flat, [VIEW_SIZE, VIEW_SIZE, 3]);
-        let tensor = Tensor::<TestBackend, 3>::from_data(data, &device);
-        let err = <GoToDoorObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-            .expect_err("a 3-channel tensor must be rejected");
-        assert!(
-            err.message.contains("expected shape"),
-            "error must name the expected shape, got: {}",
-            err.message
-        );
+        for agent_direction in [
+            Some(Direction::North),
+            Some(Direction::East),
+            Some(Direction::South),
+            Some(Direction::West),
+            None,
+        ] {
+            let mut row = Vec::new();
+            GoToDoorObservation {
+                agent_direction,
+                ..obs
+            }
+            .write_host_row(&mut row);
+            assert_eq!(row, expected, "facing {agent_direction:?}");
+        }
     }
 
     // ------------------------------------------------------------------- rng
