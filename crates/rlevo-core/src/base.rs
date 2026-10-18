@@ -81,7 +81,7 @@ pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
 /// A consumer that genuinely needs to persist a domain type declares the bound at
 /// **its own** seam, where the requirement actually arises. `RecordingTap`'s
 /// `where E::ActionType: Serialize` is the reference shape (see
-/// `crates/rlevo-benchmarks/src/record/env_tap.rs`, lines 300 and 322). Do not
+/// `crates/rlevo-harness/src/record/env_tap.rs`, lines 300 and 322). Do not
 /// reinstate a universal serde bound here to save a downstream `where` clause.
 ///
 /// Concrete observation types are still expected to derive `Serialize` /

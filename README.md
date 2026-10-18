@@ -157,7 +157,7 @@ the metrics and the reporters. Two examples show it,
 `cargo run -p rlevo --example tabular_bandit` and
 `cargo run -p rlevo --example ga_rastrigin`. Like the backend features, the
 re-export is on `main` and ships with the next release; with the published
-0.5.0, add `rlevo-benchmarks` yourself.
+0.5.0, add `rlevo-harness` yourself.
 
 ```bash
 # Build the workspace

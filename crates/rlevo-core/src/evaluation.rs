@@ -41,7 +41,7 @@
 ///
 /// The budget lives in the probe, which already owns it. A separate `done`
 /// boolean invites a second, unenforced copy of the same number in the
-/// driver's configuration — which is exactly what `rlevo-benchmarks`'
+/// driver's configuration — which is exactly what `rlevo-harness`'
 /// `EvaluatorConfig::max_steps` is today, hand-synced against the loop's
 /// own `max_generations` at every call site. `Option` makes the exhausted
 /// state unrepresentable as anything else.

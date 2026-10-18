@@ -9,8 +9,8 @@
 //! # Examples
 //!
 //! ```no_run
-//! use rlevo_benchmarks::metrics::core::{core_metrics, RETURN_MEAN};
-//! use rlevo_benchmarks::metrics::Metric;
+//! use rlevo_harness::metrics::core::{core_metrics, RETURN_MEAN};
+//! use rlevo_harness::metrics::Metric;
 //!
 //! let returns = [10.0_f64, 20.0, 30.0];
 //! let lengths  = [5_usize, 5, 5];
@@ -118,7 +118,7 @@ const RESERVED_PREFIXES: &[&str] = &["return/", "episode_length/", "throughput/"
 /// # Examples
 ///
 /// ```
-/// use rlevo_benchmarks::metrics::core::{is_harness_reserved, RETURN_MEAN};
+/// use rlevo_harness::metrics::core::{is_harness_reserved, RETURN_MEAN};
 ///
 /// assert!(is_harness_reserved(RETURN_MEAN));
 /// assert!(is_harness_reserved("wall_clock_seconds"));
@@ -145,7 +145,7 @@ pub fn is_harness_reserved(name: &str) -> bool {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_benchmarks::metrics::core::mean;
+/// # use rlevo_harness::metrics::core::mean;
 /// assert_eq!(mean(&[1.0, 2.0, 3.0, 4.0, 5.0]), 3.0);
 /// assert_eq!(mean(&[]), 0.0);
 /// ```
@@ -167,7 +167,7 @@ pub fn mean(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_benchmarks::metrics::core::median;
+/// # use rlevo_harness::metrics::core::median;
 /// assert_eq!(median(&[3.0, 1.0, 2.0]), 2.0);       // odd length
 /// assert_eq!(median(&[1.0, 2.0, 3.0, 4.0]), 2.5);  // even length — average of midpoints
 /// assert_eq!(median(&[]), 0.0);
@@ -196,7 +196,7 @@ pub fn median(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_benchmarks::metrics::core::std_dev;
+/// # use rlevo_harness::metrics::core::std_dev;
 /// use approx::assert_relative_eq;
 /// // [1, 2, 3]: mean=2, sum-of-sq-dev=2, sample var=2/(3-1)=1, std_dev=1
 /// assert_relative_eq!(std_dev(&[1.0, 2.0, 3.0]), 1.0);
@@ -222,7 +222,7 @@ pub fn std_dev(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_benchmarks::metrics::core::min;
+/// # use rlevo_harness::metrics::core::min;
 /// assert_eq!(min(&[3.0, 1.0, 4.0, 1.0, 5.0]), 1.0);
 /// assert_eq!(min(&[]), f64::INFINITY);
 /// ```
@@ -240,7 +240,7 @@ pub fn min(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_benchmarks::metrics::core::max;
+/// # use rlevo_harness::metrics::core::max;
 /// assert_eq!(max(&[3.0, 1.0, 4.0, 1.0, 5.0]), 5.0);
 /// assert_eq!(max(&[]), f64::NEG_INFINITY);
 /// ```
@@ -291,8 +291,8 @@ pub fn max(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// use rlevo_benchmarks::metrics::core::{core_metrics, RETURN_MEAN, SUCCESS_RATE};
-/// use rlevo_benchmarks::metrics::Metric;
+/// use rlevo_harness::metrics::core::{core_metrics, RETURN_MEAN, SUCCESS_RATE};
+/// use rlevo_harness::metrics::Metric;
 ///
 /// let returns = [8.0_f64, 12.0, 20.0];
 /// let lengths  = [10_usize, 8, 15];

@@ -154,7 +154,7 @@ where
 }
 
 /// Forward [`AsciiRenderable`] through to the wrapped env so wrappers that
-/// require it (e.g. `rlevo_benchmarks::env_wrappers::TuiEnvTap`) can compose
+/// require it (e.g. `rlevo_harness::env_wrappers::TuiEnvTap`) can compose
 /// with `TimeLimit<E>` whenever `E` is itself renderable.
 impl<E> AsciiRenderable for TimeLimit<E>
 where

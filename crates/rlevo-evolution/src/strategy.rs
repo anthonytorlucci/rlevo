@@ -577,7 +577,7 @@ fn build_population_snapshot(
 ///
 /// The loop also implements
 /// [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe). That is how
-/// the evaluation harness (`rlevo-benchmarks`, which `rlevo` re-exports as
+/// the evaluation harness (`rlevo-harness`, which `rlevo` re-exports as
 /// `rlevo::harness`) runs it: many seeded trials, a report at the end. You
 /// give `Evaluator::run_trials` a closure that builds one loop per trial from
 /// the seed the closure is handed, wrapped in a `GenerationTrial`, and you
@@ -894,7 +894,7 @@ where
         };
         // Structured per-generation event. Picked up by the
         // canonical-metric registry in
-        // `rlevo-benchmarks::tui::log_layer::CANONICAL_METRICS` so the
+        // `rlevo-harness::tui::log_layer::CANONICAL_METRICS` so the
         // live TUI's fitness sparkline lights up without coupling this
         // crate to the dashboard. Field names match the registry
         // verbatim; renaming any of them requires a paired update on

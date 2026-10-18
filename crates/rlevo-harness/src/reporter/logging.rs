@@ -1,7 +1,7 @@
 //! Tracing-backed [`Reporter`] with no additional dependencies.
 //!
 //! [`LoggingReporter`] emits one `INFO`-level tracing event per lifecycle
-//! callback under the `rlevo_benchmarks` target. It is always compiled; no
+//! callback under the `rlevo_harness` target. It is always compiled; no
 //! feature flag is required.
 //!
 //! [`Reporter`]: crate::reporter::Reporter
@@ -14,7 +14,7 @@ use crate::suite::{SuiteInfo, TrialInfo};
 
 /// [`Reporter`] that emits a structured `INFO` tracing event at each lifecycle boundary.
 ///
-/// Events are tagged with `target: "rlevo_benchmarks"` so they can be
+/// Events are tagged with `target: "rlevo_harness"` so they can be
 /// filtered independently of other `rlevo` spans. The struct carries no
 /// state; it is cheaply cloneable via its [`Default`] derivation.
 ///
@@ -33,7 +33,7 @@ impl LoggingReporter {
 impl Reporter for LoggingReporter {
     fn on_suite_start(&mut self, suite: &SuiteInfo) {
         info!(
-            target: "rlevo_benchmarks",
+            target: "rlevo_harness",
             suite = %suite.name,
             num_envs = suite.env_names.len(),
             trials_per_env = suite.num_trials_per_env,
@@ -43,7 +43,7 @@ impl Reporter for LoggingReporter {
 
     fn on_trial_start(&mut self, trial: &TrialInfo) {
         info!(
-            target: "rlevo_benchmarks",
+            target: "rlevo_harness",
             env = %trial.env_name,
             env_idx = trial.key.env_idx,
             trial_idx = trial.key.trial_idx,
@@ -54,7 +54,7 @@ impl Reporter for LoggingReporter {
 
     fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
         info!(
-            target: "rlevo_benchmarks",
+            target: "rlevo_harness",
             env = %trial.env_name,
             trial_idx = trial.key.trial_idx,
             episode = ep.episode_idx,
@@ -66,7 +66,7 @@ impl Reporter for LoggingReporter {
 
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
         info!(
-            target: "rlevo_benchmarks",
+            target: "rlevo_harness",
             env = %trial.env_name,
             trial_idx = trial.key.trial_idx,
             episodes = report.episodes.len(),
@@ -78,7 +78,7 @@ impl Reporter for LoggingReporter {
 
     fn on_suite_end(&mut self, report: &BenchmarkReport) {
         info!(
-            target: "rlevo_benchmarks",
+            target: "rlevo_harness",
             suite = %report.suite_name,
             trials = report.trials.len(),
             "suite end"

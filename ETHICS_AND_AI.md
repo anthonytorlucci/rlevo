@@ -15,7 +15,7 @@ As contributors to and maintainers of `rlevo`, we recognize that Reinforcement L
 The most consequential design decision in any RL or evolutionary system is the **reward function** or **fitness function**. It is the encoded definition of "good behavior," and it shapes everything the agent learns.
 
 - **Documentation:** Contributors are expected to document the rationale behind reward and fitness function designs — not just what they optimize, but *why* and what assumptions they encode about desired behavior.
-- **Benchmark Validity:** Environments in `rlevo-environments` and benchmarks in `rlevo-benchmarks` carry implicit assumptions about what constitutes desirable agent performance. These assumptions should be explicit in documentation and revisited when the library is applied to new domains.
+- **Benchmark Validity:** Environments in `rlevo-environments` and benchmarks in `rlevo-harness` carry implicit assumptions about what constitutes desirable agent performance. These assumptions should be explicit in documentation and revisited when the library is applied to new domains.
 - **Explainability:** Where possible, we prefer objective designs that make agent behavior interpretable. A reward signal that produces a visibly sensible policy is preferable to one that achieves the same score through opaque means.
 
 ### 2.2 Reward Hacking, Benchmark Overfitting, and Goodhart's Law

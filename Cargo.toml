@@ -2,7 +2,7 @@
 resolver = "3"
 members = [
     "crates/rlevo",
-    "crates/rlevo-benchmarks",
+    "crates/rlevo-harness",
     "crates/rlevo-benchmarks-report-client",
     "crates/rlevo-core",
     "crates/rlevo-environments",
@@ -17,7 +17,7 @@ members = [
 
 default-members = [
     "crates/rlevo",
-    "crates/rlevo-benchmarks",
+    "crates/rlevo-harness",
     "crates/rlevo-core",
     "crates/rlevo-environments",
     "crates/rlevo-evolution",

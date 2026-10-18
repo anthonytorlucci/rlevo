@@ -1,4 +1,4 @@
-# rlevo-benchmarks
+# rlevo-harness
 
 ![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
@@ -45,7 +45,7 @@ Suite<E>
 | `EpisodicTrial<E, A, D, SD, AD>` | Rolls an `Environment` out against a `BenchableAgent` for `num_episodes` episodes |
 | `GenerationTrial<P>` | Drives a `GenerationProbe` to its budget; reports no episodes |
 
-`BenchEnv`/`BenchStep`/`BenchError` and the `rlevo_benchmarks::env` alias module were **removed** by ADR 0077, once the `Trial` seam left them with no implementors. ADR 0075 had already retired their stated rationale: the trait was object-safe, but its erasure removed only the const-generic ranks while `Observation` and `Action` survived it — and those are exactly what differ between environments, so it could never have carried the heterogeneous suite it was justified by.
+`BenchEnv`/`BenchStep`/`BenchError` and the `rlevo_harness::env` alias module were **removed** by ADR 0077, once the `Trial` seam left them with no implementors. ADR 0075 had already retired their stated rationale: the trait was object-safe, but its erasure removed only the const-generic ranks while `Observation` and `Action` survived it — and those are exactly what differ between environments, so it could never have carried the heterogeneous suite it was justified by.
 
 ### `agent` — Agent Interface
 
@@ -162,7 +162,7 @@ runs/<run_id>/index.html
 | `RecordedRun::open(dir)` | Loads `run.toml` + every `episode_*.rec`. Synthesises a manifest if missing; surfaces truncation as `OpenWarning`s. |
 | `EpisodeIndex` | Per-episode summary: number, source path, frame count, episode reward, length, decoded frames + metric samples. |
 | `emit_static_html(&run, &out, &cfg)` | Writes the single-file report atomically (tmp + fsync + rename). Returns episode count, bytes written, and a `size_warning` flag. |
-| `export-report` (binary) | CLI front-end: `cargo run -p rlevo-benchmarks --features report --bin export-report -- <run-dir> <out.html>`. |
+| `export-report` (binary) | CLI front-end: `cargo run -p rlevo-harness --features report --bin export-report -- <run-dir> <out.html>`. |
 
 M5 ships the **data-transport skeleton**: per-family playback adapters and convergence plots land in subsequent milestones. The data contract — the four `<script>` block ids above — is keyed to the record `FORMAT_VERSION` (currently `7`, per ADR 0014); the loader rejects inlined payloads stamped with any other version.
 
@@ -173,7 +173,7 @@ The [`rlevo-benchmarks-report-client`](../rlevo-benchmarks-report-client/) sibli
 When the client artefacts are available, pass them through `EmitConfig`:
 
 ```rust
-use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
+use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 
 let run = RecordedRun::open("runs/<run_id>")?;
 let assets = ClientAssets::from_trunk_dist(
@@ -223,13 +223,13 @@ To use the harness without the rest of `rlevo`, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rlevo-benchmarks = { path = "../rlevo-benchmarks" }
+rlevo-harness = { path = "../rlevo-harness" }
 ```
 
 ### Minimal example — $\epsilon$-greedy bandit
 
 ```rust
-use rlevo_benchmarks::{
+use rlevo_harness::{
     agent::BenchableAgent,
     evaluator::{Evaluator, EvaluatorConfig},
     reporter::logging::LoggingReporter,

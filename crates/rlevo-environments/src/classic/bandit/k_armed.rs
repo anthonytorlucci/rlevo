@@ -440,7 +440,7 @@ impl<const K: usize> KArmedBandit<K> {
     ///
     /// Sets `config.seed = seed` and samples `arm_means` once from `N(0, 1)`.
     /// The arm means are fixed for the lifetime of the bandit — [`reset`] does
-    /// not redraw them — so `rlevo-benchmarks` gets a reproducible problem per
+    /// not redraw them — so `rlevo-harness` gets a reproducible problem per
     /// trial by constructing with a fixed seed. Keeps other config fields at
     /// their defaults.
     ///
@@ -489,7 +489,7 @@ impl<const K: usize> KArmedBandit<K> {
     /// `docs/rules.md` §8). For a reproducible problem, construct a fresh bandit
     /// with the same seed.
     ///
-    /// This is the bespoke entry point used by `rlevo-benchmarks`; it
+    /// This is the bespoke entry point used by `rlevo-harness`; it
     /// discards the snapshot return value. Prefer the
     /// [`Environment::reset`] trait method for new code — it returns a
     /// [`SnapshotBase`] for composition with wrappers.
@@ -513,7 +513,7 @@ impl<const K: usize> KArmedBandit<K> {
     ///
     /// Unlike [`Environment::step`], `pull` is **infallible and unguarded on
     /// entry**: it does not reject a post-terminal call. It is a bespoke
-    /// non-trait entry point kept for `rlevo-benchmarks`, and making it
+    /// non-trait entry point kept for `rlevo-harness`, and making it
     /// fallible would be an unrelated API break. Callers that need the
     /// post-terminal contract of ADR 0044 must use [`Environment::step`].
     ///

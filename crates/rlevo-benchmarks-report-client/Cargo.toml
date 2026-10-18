@@ -2,7 +2,7 @@
 name = "rlevo-benchmarks-report-client"
 version.workspace = true
 authors.workspace = true
-description = "Leptos/WASM client for the rlevo-benchmarks static-HTML report (Milestone 5.1)"
+description = "Leptos/WASM client for the rlevo-harness static-HTML report (Milestone 5.1)"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -29,7 +29,7 @@ thiserror = { workspace = true }
 # The client mirrors the rlevo-core::render::styled types in wire.rs
 # rather than depending on rlevo-core directly. rlevo-core pulls in burn
 # (→ rand → getrandom) which doesn't WASM-build without extra feature
-# gating. The cross-crate compat test in rlevo-benchmarks guards drift.
+# gating. The cross-crate compat test in rlevo-harness guards drift.
 
 # wasm32 target needs the `wasm_js` backend for getrandom, transitively
 # pulled in via leptos's uuid dep.

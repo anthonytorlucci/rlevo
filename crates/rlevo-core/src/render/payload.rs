@@ -20,7 +20,7 @@
 //!    not an environment, so no recording tap wraps one (ADR 0081).
 //!
 //! Wire-format conversion (snapshot → `FamilyPayload`) lives in
-//! `rlevo-benchmarks::record` so the wire layer stays owned by the
+//! `rlevo-harness::record` so the wire layer stays owned by the
 //! benchmarks crate. `rlevo-core` knows nothing about bincode.
 //!
 //! [`AsciiRenderable`]: super::AsciiRenderable

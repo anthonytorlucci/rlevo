@@ -56,10 +56,10 @@ use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
 use burn::tensor::backend::{AutodiffBackend, Backend};
 
-use rlevo_benchmarks::record::{
+use rlevo_harness::record::{
     RecordSink, RecordWriter, RecordingConfig, RecordingLayer, RecordingTap,
 };
-use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
+use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 
 use rlevo_core::environment::Environment;
 use rlevo_core::reward::ScalarReward;
@@ -328,7 +328,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // v6 manifest provenance: declare the algorithm + backend so the report
     // tier picks PPO loss panels, the success threshold behind `success_rate`,
     // and build/platform reproducibility metadata (git/rustc/burn, all from
-    // `rlevo-benchmarks`' build.rs — `None` outside a checkout).
+    // `rlevo-harness`' build.rs — `None` outside a checkout).
     let manifest = writer
         .manifest_template()
         .with_algorithm("ppo")

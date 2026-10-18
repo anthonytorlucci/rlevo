@@ -13,7 +13,7 @@ rlevo-core = { path = "../rlevo-core", version = "0.5.0" }
 rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", default-features = false }
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.5.0", default-features = false }
 rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.5.0" }
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.5.0", default-features = false }
+rlevo-harness = { path = "../rlevo-harness", version = "0.5.0", default-features = false }
 # Every example here runs a backend, so this crate selects one (ADR 0080).
 burn = { workspace = true, features = ["default", "flex", "autodiff"] }
 parking_lot = { workspace = true }
@@ -27,12 +27,12 @@ default = []
 box2d = ["rlevo-environments/box2d"]
 locomotion = ["rlevo-environments/locomotion"]
 # Live metrics TUI product (ADR-0013).
-viz-tui = ["rlevo-benchmarks/tui"]
+viz-tui = ["rlevo-harness/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
-# `record` transitively in rlevo-benchmarks; `rlevo-environments/record` adds
+# `record` transitively in rlevo-harness; `rlevo-environments/record` adds
 # the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
 # umbrella forwards only the two products (ADR-0013 §5).
-viz-report = ["rlevo-benchmarks/report", "rlevo-environments/record"]
+viz-report = ["rlevo-harness/report", "rlevo-environments/record"]
 
 [lints]
 workspace = true

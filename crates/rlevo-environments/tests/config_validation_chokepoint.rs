@@ -65,11 +65,11 @@
 //! # Scope: `rlevo-environments` only, by decision
 //!
 //! Configs in `rlevo-evolution`, `rlevo-reinforcement-learning`, and
-//! `rlevo-benchmarks` are deliberately **out of scope for this file** — evolution
+//! `rlevo-harness` are deliberately **out of scope for this file** — evolution
 //! validates through a single generic bound at
 //! `crates/rlevo-evolution/src/strategy.rs:505-517` (one chokepoint, not 30, so a
 //! per-config sweep would assert the same line repeatedly), RL validates
-//! per-agent inside each `new`, and `rlevo-benchmarks` has no [`Validate`] impl
+//! per-agent inside each `new`, and `rlevo-harness` has no [`Validate`] impl
 //! at all. Those crates need their own conformance pins; a single-crate
 //! integration test cannot reach them (`rules.md` §5 — cross-crate tests live in
 //! `crates/rlevo/tests/`).

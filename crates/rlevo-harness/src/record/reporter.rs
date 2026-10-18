@@ -125,7 +125,7 @@ impl RecordingReporter {
 
     /// Stamps build-time + platform provenance onto the manifest.
     /// Delegates to [`RunManifest::with_build_provenance`] (the build-time
-    /// `option_env!` reads resolve in the `rlevo-benchmarks` crate, where
+    /// `option_env!` reads resolve in the `rlevo-harness` crate, where
     /// `build.rs` lives).
     #[must_use]
     pub fn with_build_provenance(mut self) -> Self {

@@ -38,8 +38,8 @@ use crate::reporter::tui::TuiHandle;
 /// # Examples
 ///
 /// ```no_run
-/// # use rlevo_benchmarks::env_wrappers::tui_env_tap::TuiEnvTap;
-/// # use rlevo_benchmarks::reporter::tui::TuiHandle;
+/// # use rlevo_harness::env_wrappers::tui_env_tap::TuiEnvTap;
+/// # use rlevo_harness::reporter::tui::TuiHandle;
 /// # use rlevo_core::environment::Environment;
 /// # fn demo<E: Environment<1, 1, 1>>(env: E) {
 /// let (handle, _rx) = TuiHandle::channel();

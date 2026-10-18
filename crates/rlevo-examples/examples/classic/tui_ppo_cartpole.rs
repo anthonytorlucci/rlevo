@@ -31,7 +31,7 @@
 //!   500-step ceiling rather than hovering at the ~20-step random floor.
 //! - **`policy_loss` / `entropy` / `approx_kl` panels** — PPO emits these
 //!   as structured fields at every `log_every` interval; the
-//!   canonical-metric registry in `rlevo-benchmarks::tui::log_layer`
+//!   canonical-metric registry in `rlevo-harness::tui::log_layer`
 //!   routes them into the dashboard. Here each gets its own bordered
 //!   panel ([`MetricsLayout::Separate`]).
 //! - **Log panel** — every PPO "training progress" line scrolls in,
@@ -50,7 +50,7 @@
 //! speed. After training completes the dashboard stays open; press any
 //! key to exit.
 //!
-//! [`TuiEnvTap`]: rlevo_benchmarks::env_wrappers::TuiEnvTap
+//! [`TuiEnvTap`]: rlevo_harness::env_wrappers::TuiEnvTap
 
 use rand::Rng;
 use rand::SeedableRng;
@@ -66,8 +66,8 @@ use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
 use burn::tensor::backend::{AutodiffBackend, Backend};
 
-use rlevo_benchmarks::env_wrappers::TuiEnvTap;
-use rlevo_benchmarks::tui::{MetricsLayout, TuiCaptureLayer, TuiConfig, TuiRunner};
+use rlevo_harness::env_wrappers::TuiEnvTap;
+use rlevo_harness::tui::{MetricsLayout, TuiCaptureLayer, TuiConfig, TuiRunner};
 
 use rlevo_core::environment::Environment;
 use rlevo_core::reward::ScalarReward;

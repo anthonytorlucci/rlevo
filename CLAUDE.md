@@ -24,9 +24,9 @@ patterns.
 See [`docs/rules.md`](docs/rules.md) for the full constraint list. Read it before
 making implementation decisions. The single most important rule: **production
 crates must not depend on any visualization crate** (`ratatui`, `leptos`, chart
-crates, ...); `rlevo-benchmarks` is the sole exception, and only behind its
+crates, ...); `rlevo-harness` is the sole exception, and only behind its
 `tui` / `report` / `record` feature gates. The umbrella `rlevo` carries
-`rlevo-benchmarks` at its default features, which link no visualization
+`rlevo-harness` at its default features, which link no visualization
 crate, and re-exports it as `rlevo::harness` (ADR 0084). No other
 production crate depends on it, except `rlevo-environments` under its
 off-by-default `record` feature. The benchmark/viz layer consumes production

@@ -170,7 +170,7 @@ sanitised, once, so a strategy only ever maximises a clean tensor. Call
 run from the same seed.
 
 For many seeded runs with a report, do not drive the loop yourself. The
-evaluation harness (`rlevo-benchmarks`, which `rlevo` re-exports as
+evaluation harness (`rlevo-harness`, which `rlevo` re-exports as
 `rlevo::harness`) takes a closure that builds one loop per trial and drives
 each through `rlevo_core::evaluation::GenerationProbe`, which the loop
 implements. [The Ask/Tell Contract](../../docs/ask-tell-contract.md#many-runs-give-the-evaluation-harness-a-loop-per-trial)

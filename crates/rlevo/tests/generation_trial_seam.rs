@@ -8,9 +8,6 @@
 
 use burn::backend::Flex;
 use burn::tensor::Tensor;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo_benchmarks::metrics::core::WALL_CLOCK_SECONDS;
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
@@ -19,6 +16,9 @@ use rlevo_evolution::algorithms::ga::{
 };
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::strategy::EvolutionaryLoop;
+use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo_harness::metrics::core::WALL_CLOCK_SECONDS;
+use rlevo_harness::reporter::logging::LoggingReporter;
 
 type B = Flex;
 

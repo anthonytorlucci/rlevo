@@ -45,17 +45,17 @@
 //! type TrainingBackend = Autodiff<Flex>;
 //! ```
 
-/// The evaluation harness, [`rlevo_benchmarks`]: register an environment in
+pub use rlevo_core as core;
+pub use rlevo_environments as envs;
+pub use rlevo_evolution as evo;
+/// The evaluation harness, [`rlevo_harness`]: register an environment in
 /// a [`Suite`](harness::suite::Suite) and run an agent over it with
 /// [`Evaluator::run_suite`](harness::evaluator::Evaluator::run_suite).
 ///
 /// Always present. It is the harness at its default features, which link no
 /// terminal or report dependency; this crate's `viz-tui` and `viz-report`
 /// features turn those on.
-pub use rlevo_benchmarks as harness;
-pub use rlevo_core as core;
-pub use rlevo_environments as envs;
-pub use rlevo_evolution as evo;
+pub use rlevo_harness as harness;
 pub use rlevo_hybrid as hybrid;
 pub use rlevo_reinforcement_learning as rl;
 

@@ -1,7 +1,7 @@
 //! Single source of truth for the canonical training-metric registry.
 //!
 //! Both the live-TUI capture layer and the on-disk recording layer in
-//! `rlevo-benchmarks`, *and* the WASM report client
+//! `rlevo-harness`, *and* the WASM report client
 //! (`rlevo-benchmarks-report-client`), classify metric field names against the
 //! same table. Before ADR-0015 this list was a flat `&[&str]` that was
 //! hand-copied into the report client with no compile-time or test-time guard,
@@ -13,7 +13,7 @@
 //! # Why a leaf crate
 //!
 //! The report client compiles to `wasm32` and cannot depend on
-//! `rlevo-benchmarks` (which transitively pulls in `burn` → `rand` →
+//! `rlevo-harness` (which transitively pulls in `burn` → `rand` →
 //! `getrandom`). This crate is `#![no_std]` with no dependencies, so it builds
 //! everywhere and lets both consumers share one definition instead of mirroring
 //! it. See ADR-0015.

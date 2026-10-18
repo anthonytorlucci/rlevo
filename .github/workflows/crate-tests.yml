@@ -128,7 +128,7 @@ jobs:
   # paper and ran on nothing.
   #
   # Both feature configurations are checked. Default features miss every
-  # `rlevo-benchmarks` doc behind `tui` / `report` / `record` — 13 broken links
+  # `rlevo-harness` doc behind `tui` / `report` / `record` — 13 broken links
   # were hiding there — and `--all-features` alone would stop covering any doc
   # that a feature turns *off*.
   docs:
@@ -243,7 +243,7 @@ jobs:
   # table, not here: a bare `cargo test -p <crate>` *skips* a target whose
   # `required-features` are unmet and compiles a `#![cfg(feature = ...)]` file to
   # nothing — both silently, with a zero exit code. `rlevo` needs `viz-report`
-  # and `rlevo-benchmarks` needs `record` for exactly that reason.
+  # and `rlevo-harness` needs `record` for exactly that reason.
   #
   # The heavy `#[ignore]`d tests are not run here; they are `weekly-tests.yml`'s
   # `cargo xtask test-heavy` tier.

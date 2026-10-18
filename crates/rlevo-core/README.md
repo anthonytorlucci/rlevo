@@ -76,9 +76,9 @@ Extensions to `State<R>` for partial observability and hierarchy:
 
 ### `evaluation` — Drive Seam for Self-Paced Work
 
-The seam a benchmark harness drives when the work is *not* an episodic agent/environment interaction. Episodic work needs nothing here: `rlevo-benchmarks` binds on `Environment` directly and infers its rank parameters from the suite (ADR 0076).
+The seam a benchmark harness drives when the work is *not* an episodic agent/environment interaction. Episodic work needs nothing here: `rlevo-harness` binds on `Environment` directly and infers its rank parameters from the suite (ADR 0076).
 
-Lives in core so `rlevo-evolution` (which implements it) and `rlevo-benchmarks` (which drives it) can share it without a cross-crate dependency — the same argument ADR 0004 made for the `BenchEnv` surface that used to live here, and that ADR 0077 removed.
+Lives in core so `rlevo-evolution` (which implements it) and `rlevo-harness` (which drives it) can share it without a cross-crate dependency — the same argument ADR 0004 made for the `BenchEnv` surface that used to live here, and that ADR 0077 removed.
 
 | Item | Description |
 |---|---|
@@ -122,7 +122,7 @@ Placeholder module reserved for a future unified agent trait hierarchy (`act` / 
 
 ### `render` — Rendering Abstractions
 
-The rendering surface feeds the two visualisation products (ADR 0013): a live metrics-only `ratatui` TUI and a post-run static-HTML report that replays env state from structured payloads. `rlevo-core` ships zero terminal-side dependencies — the conversions into `ratatui`/HTML live downstream in `rlevo-benchmarks`.
+The rendering surface feeds the two visualisation products (ADR 0013): a live metrics-only `ratatui` TUI and a post-run static-HTML report that replays env state from structured payloads. `rlevo-core` ships zero terminal-side dependencies — the conversions into `ratatui`/HTML live downstream in `rlevo-harness`.
 
 **`ascii` — optional text rendering**
 

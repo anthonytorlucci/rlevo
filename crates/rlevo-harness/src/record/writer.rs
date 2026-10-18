@@ -318,7 +318,7 @@ impl RecordWriter {
     /// Keeps today's `tracing::warn!` live visibility while making the
     /// failure recoverable after the run via [`RecordSink::take_error`].
     fn record_error(&mut self, error: RecordError) {
-        tracing::warn!(target: "rlevo_benchmarks::record", error = %error, "recording error");
+        tracing::warn!(target: "rlevo_harness::record", error = %error, "recording error");
         if self.first_error.is_none() {
             self.first_error = Some(error);
         }

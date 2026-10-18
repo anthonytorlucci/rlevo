@@ -6,7 +6,7 @@
 //! the wasm, the printed number is guaranteed equal to the version baked
 //! into the bundle — that is the whole point of stamping it rather than
 //! hand-typing or grepping it. The native emitter
-//! (`rlevo_benchmarks::report::ClientAssets::from_trunk_dist`) reads the
+//! (`rlevo_harness::report::ClientAssets::from_trunk_dist`) reads the
 //! stamp and refuses a stale bundle before writing any report HTML.
 //!
 //! [`FORMAT_VERSION`]: rlevo_benchmarks_report_client::wire::FORMAT_VERSION

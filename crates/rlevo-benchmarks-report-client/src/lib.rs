@@ -3,7 +3,7 @@
 //! This crate is the browser-side half of the two-product visualisation
 //! described in ADR 0013.  It is compiled to `wasm32-unknown-unknown` and
 //! bundled into a single self-contained `index.html` by
-//! `rlevo-benchmarks::report::html`.  It has no runtime server dependency —
+//! `rlevo-harness::report::html`.  It has no runtime server dependency —
 //! all data is read from `<script>` blocks that the emitter inlines at build
 //! time.
 //!

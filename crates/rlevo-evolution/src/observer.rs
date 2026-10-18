@@ -6,7 +6,7 @@
 //! best-individual digest, parent lineage — does not fit through
 //! `tracing::info!` cleanly: events are string-keyed and scalar-valued.
 //! [`PopulationObserver`] is the structured callback the EA-population
-//! recorder (`rlevo_benchmarks::record::PopulationReporter`) attaches
+//! recorder (`rlevo_harness::record::PopulationReporter`) attaches
 //! to to capture that shape.
 //!
 //! The trait is intentionally narrow — the snapshot fields mirror the
@@ -58,7 +58,7 @@ pub struct PopulationSnapshot {
 /// `Send + 'static` so observers can sit behind
 /// [`Arc<Mutex<dyn PopulationObserver>>`](SharedPopulationObserver) and
 /// be shared across rayon worker threads — same shape as the
-/// `RecordSink` trait in `rlevo-benchmarks`.
+/// `RecordSink` trait in `rlevo-harness`.
 pub trait PopulationObserver: Send + 'static {
     /// Receives one [`PopulationSnapshot`] per completed generation.
     ///
@@ -70,7 +70,7 @@ pub trait PopulationObserver: Send + 'static {
 
 /// Shared handle to a [`PopulationObserver`]. Backed by
 /// [`parking_lot::Mutex`] so the observer handle and the recording-tier
-/// sinks in `rlevo-benchmarks` share one lock type (ADR 0010); aliased so
+/// sinks in `rlevo-harness` share one lock type (ADR 0010); aliased so
 /// call sites do not have to spell out the `Arc<Mutex<…>>` shape every time.
 pub type SharedPopulationObserver = Arc<Mutex<dyn PopulationObserver>>;
 

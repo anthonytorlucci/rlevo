@@ -12,7 +12,7 @@ assignees: ''
 - [ ] New RL algorithm (`rlevo-reinforcement-learning`)
 - [ ] New evolutionary algorithm (`rlevo-evolution`)
 - [ ] Core trait / API change (`rlevo-core`)
-- [ ] Benchmarking / evaluation (`rlevo-benchmarks`)
+- [ ] Benchmarking / evaluation (`rlevo-harness`)
 - [ ] Visualization / reporting
 - [ ] Tooling / CI / docs
 - [ ] Other

@@ -5,7 +5,7 @@
 //! - Rastrigin-D10: `best_fitness < 1.0` within 2000 generations.
 //! - Identical seeds reproduce identical trajectories.
 //!
-//! Landscapes are defined inline via [`FitnessEvaluable`] (no `rlevo-benchmarks`
+//! Landscapes are defined inline via [`FitnessEvaluable`] (no `rlevo-harness`
 //! dependency — production-crate purity, CLAUDE.md). Both strategies sample
 //! host-side through `seed_stream` rather than the backend's process-global RNG,
 //! so these tests are reproducible regardless of the cargo runner's threading.

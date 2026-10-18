@@ -2,7 +2,7 @@
 //!
 //! `rlevo-core` defines the shared vocabulary used across the entire `rlevo`
 //! workspace. Every other crate — `rlevo-reinforcement-learning`,
-//! `rlevo-evolution`, `rlevo-environments`, `rlevo-benchmarks` — depends on
+//! `rlevo-evolution`, `rlevo-environments`, `rlevo-harness` — depends on
 //! these primitives. No concrete algorithms or environments live here.
 //!
 //! # Module map

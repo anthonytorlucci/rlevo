@@ -1,5 +1,5 @@
 //! Every shipping swarm strategy drives
-//! `rlevo_benchmarks::Evaluator::run_suite` end-to-end on Rastrigin-D10
+//! `rlevo_harness::Evaluator::run_suite` end-to-end on Rastrigin-D10
 //! and Ackley-D10.
 //!
 //! Mirrors the `rastrigin_run_suite.rs` pattern: assert each strategy
@@ -9,11 +9,11 @@
 //! its module is a `todo!()` stub.
 
 use burn::backend::Flex;
-use rlevo_benchmarks::agent::FitnessEvaluable;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_core::evaluation::GenerationProbe;
 use rlevo_core::fitness::{Landscape, MetricsProvider};
+use rlevo_harness::agent::FitnessEvaluable;
+use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo_harness::reporter::logging::LoggingReporter;
 
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_environments::landscapes::ackley::Ackley;

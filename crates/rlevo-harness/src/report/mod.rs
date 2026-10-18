@@ -200,7 +200,7 @@ impl TrialReport {
             };
             if let Some(name) = displaced {
                 tracing::warn!(
-                    target: "rlevo_benchmarks",
+                    target: "rlevo_harness",
                     key = %name,
                     renamed_to = %format!("agent/{name}"),
                     "agent metric renamed: this key is harness-owned and its \

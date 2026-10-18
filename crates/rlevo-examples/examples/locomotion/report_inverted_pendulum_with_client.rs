@@ -33,9 +33,9 @@ use parking_lot::Mutex;
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-use rlevo_benchmarks::record::{RecordSink, RecordWriter, RecordingConfig, RecordingTap};
-use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_harness::record::{RecordSink, RecordWriter, RecordingConfig, RecordingTap};
+use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 
 use rlevo_environments::locomotion::inverted_pendulum::{
     InvertedPendulumAction, InvertedPendulumConfig, InvertedPendulumRapier,

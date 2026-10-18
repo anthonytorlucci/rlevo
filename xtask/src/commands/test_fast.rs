@@ -52,7 +52,7 @@ const FAST_CRATES: &[FastCrate] = &[
     // is not among this crate's defaults (`json` only). Without the override
     // the file compiles to nothing and the test never runs.
     FastCrate {
-        name: "rlevo-benchmarks",
+        name: "rlevo-harness",
         features: &["record"],
     },
     FastCrate {

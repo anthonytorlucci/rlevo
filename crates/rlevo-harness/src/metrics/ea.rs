@@ -12,8 +12,8 @@
 //! # Examples
 //!
 //! ```no_run
-//! use rlevo_benchmarks::metrics::ea::{ea_metrics, BEST_FITNESS};
-//! use rlevo_benchmarks::metrics::Metric;
+//! use rlevo_harness::metrics::ea::{ea_metrics, BEST_FITNESS};
+//! use rlevo_harness::metrics::Metric;
 //!
 //! let population = vec![vec![0.0, 1.0], vec![1.0, 0.0], vec![0.5, 0.5]];
 //! let metrics = ea_metrics(Some(42.0), Some(&population), None);
@@ -43,7 +43,7 @@ pub const FITNESS_VARIANCE: &str = "ea/fitness_variance";
 /// # Examples
 ///
 /// ```
-/// # use rlevo_benchmarks::metrics::ea::population_diversity;
+/// # use rlevo_harness::metrics::ea::population_diversity;
 /// use approx::assert_relative_eq;
 /// assert_relative_eq!(population_diversity(&[vec![0.0, 0.0], vec![3.0, 4.0]]), 5.0);
 /// assert_eq!(population_diversity(&[vec![1.0, 2.0]]), 0.0);  // single individual
@@ -83,7 +83,7 @@ pub fn population_diversity(population: &[Vec<f64>]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_benchmarks::metrics::ea::fitness_variance;
+/// # use rlevo_harness::metrics::ea::fitness_variance;
 /// use approx::assert_relative_eq;
 /// assert_relative_eq!(fitness_variance(&[1.0, 2.0, 3.0, 4.0, 5.0]), 2.5, epsilon = 1e-12);
 /// assert_eq!(fitness_variance(&[42.0]), 0.0);  // single evaluation — undefined, returns 0
@@ -130,8 +130,8 @@ pub fn fitness_variance(evaluations: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// use rlevo_benchmarks::metrics::ea::{ea_metrics, BEST_FITNESS, POPULATION_DIVERSITY};
-/// use rlevo_benchmarks::metrics::Metric;
+/// use rlevo_harness::metrics::ea::{ea_metrics, BEST_FITNESS, POPULATION_DIVERSITY};
+/// use rlevo_harness::metrics::Metric;
 /// use approx::assert_relative_eq;
 ///
 /// let pop = vec![vec![0.0, 0.0], vec![3.0, 4.0]];

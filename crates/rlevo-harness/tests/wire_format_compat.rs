@@ -2,7 +2,7 @@
 //!
 //! `rlevo-benchmarks-report-client/src/wire.rs` redeclares the bincode
 //! record types so the client can decode `.rec` payloads in the
-//! browser without depending on `rlevo-benchmarks` (which has native-only
+//! browser without depending on `rlevo-harness` (which has native-only
 //! transitive deps). This test exercises both sides on the same
 //! populated `EpisodeRecord` and asserts they round-trip identically.
 //!
@@ -12,7 +12,15 @@
 
 #![cfg(feature = "record")]
 
-use rlevo_benchmarks::record::{
+use rlevo_benchmarks_report_client::wire as client;
+use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
+use rlevo_core::render::{
+    BodyKind, CardTable, Classic2DBody, Classic2DRole, Classic2DSnapshot, Color, GridAgentMarker,
+    GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
+    StyledSpan, TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
+    TabularSnapshot,
+};
+use rlevo_harness::record::{
     Box2dPayload as NativeBox2dPayload, CheckpointFormat as NativeCheckpointFormat,
     CheckpointKind as NativeCheckpointKind, CheckpointRef as NativeCheckpointRef,
     Classic2DPayload as NativeClassic2DPayload, EnvFamily as NativeFamily,
@@ -23,14 +31,6 @@ use rlevo_benchmarks::record::{
     MetricSample as NativeMetric, PopulationSample as NativePopulationSample, RunId as NativeRunId,
     RunManifest as NativeManifest, TabularPayload as NativeTabularPayload,
     TrialRef as NativeTrialRef, bincode_config,
-};
-use rlevo_benchmarks_report_client::wire as client;
-use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
-use rlevo_core::render::{
-    BodyKind, CardTable, Classic2DBody, Classic2DRole, Classic2DSnapshot, Color, GridAgentMarker,
-    GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
-    StyledSpan, TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
-    TabularSnapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -252,7 +252,7 @@ const _: () = assert!(
     "FORMAT_VERSION mismatch: bump wire.rs to match schema.rs (or vice-versa)",
 );
 const _: () = assert!(
-    rlevo_benchmarks::record::MIN_SUPPORTED_VERSION == client::MIN_SUPPORTED_VERSION,
+    rlevo_harness::record::MIN_SUPPORTED_VERSION == client::MIN_SUPPORTED_VERSION,
     "MIN_SUPPORTED_VERSION mismatch: bump wire.rs to match schema.rs (or vice-versa)",
 );
 

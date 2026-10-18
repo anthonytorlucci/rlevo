@@ -19,7 +19,7 @@ rlevo-evolution = { path = "../rlevo-evolution", version = "0.5.0", default-feat
 rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.5.0" }
 # The evaluation harness, re-exported as `rlevo::harness` (ADR 0084). At
 # its default features it links no visualization crate.
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.5.0" }
+rlevo-harness = { path = "../rlevo-harness", version = "0.5.0" }
 # Re-exported as `rlevo::burn`, and the crate through which the `flex` and
 # `wgpu` features below select a backend for the whole tree (ADR 0080).
 burn = { workspace = true }
@@ -59,12 +59,12 @@ box2d = ["rlevo-environments/box2d"]
 # MuJoCo-inspired locomotion environments via Rapier3D
 locomotion = ["rlevo-environments/locomotion"]
 # Live metrics TUI product (ADR-0013).
-viz-tui = ["rlevo-benchmarks/tui"]
+viz-tui = ["rlevo-harness/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
-# `record` transitively in rlevo-benchmarks; `rlevo-environments/record` adds
+# `record` transitively in rlevo-harness; `rlevo-environments/record` adds
 # the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
 # umbrella forwards only the two products (ADR-0013 §5).
-viz-report = ["rlevo-benchmarks/report", "rlevo-environments/record"]
+viz-report = ["rlevo-harness/report", "rlevo-environments/record"]
 
 [lints]
 workspace = true

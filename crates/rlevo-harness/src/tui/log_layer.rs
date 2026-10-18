@@ -296,11 +296,7 @@ mod tests {
         assert_eq!(line.0, tracing::Level::WARN);
         // tracing module path lands in `target` — sufficient to assert
         // it's non-empty and contains the crate name.
-        assert!(
-            line.1.contains("rlevo_benchmarks"),
-            "target was {:?}",
-            line.1
-        );
+        assert!(line.1.contains("rlevo_harness"), "target was {:?}", line.1);
         assert!(
             line.2.contains("careful now"),
             "message body was {:?}",

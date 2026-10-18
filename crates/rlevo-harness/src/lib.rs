@@ -47,7 +47,7 @@ pub mod seed {
 
 /// Flat crate-root re-export of the drive seam for self-paced work.
 ///
-/// Lets callers write `rlevo_benchmarks::GenerationProbe` without navigating
+/// Lets callers write `rlevo_harness::GenerationProbe` without navigating
 /// to `rlevo_core::evaluation`. Episodic work needs no such re-export: it is
 /// driven through `rlevo_core::environment::Environment` directly.
 pub use rlevo_core::evaluation::GenerationProbe;

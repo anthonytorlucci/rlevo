@@ -15,14 +15,14 @@ on, together with each metric's paradigm, sampling cadence, and display title.
 
 Two consumers need the *same* metric vocabulary:
 
-- **`rlevo-benchmarks`** — the live-TUI capture layer and the on-disk recording
+- **`rlevo-harness`** — the live-TUI capture layer and the on-disk recording
   layer classify `tracing` field names against the table to decide what to
   sparkline and what to persist.
 - **`rlevo-benchmarks-report-client`** — the WASM report client groups panels
   (RL vs EO), decides per-metric smoothing, and renders human-readable titles.
 
 The report client compiles to `wasm32` and **cannot** depend on
-`rlevo-benchmarks`, which transitively pulls in `burn` → `rand` → `getrandom`.
+`rlevo-harness`, which transitively pulls in `burn` → `rand` → `getrandom`.
 Before ADR-0015 the metric list was a flat `&[&str]` hand-copied into the client
 with no compile-time guard, and metric *semantics* (RL-vs-EO grouping,
 per-update vs per-generation cadence, titles) were re-derived in three
