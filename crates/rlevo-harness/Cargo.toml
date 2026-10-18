@@ -1,8 +1,8 @@
 [package]
-name = "rlevo-benchmarks"
+name = "rlevo-harness"
 version.workspace = true
 authors.workspace = true
-description = "Benchmarking harness for rlevo (internal crate — use `rlevo` for the full API)"
+description = "Evaluation harness for rlevo (internal crate — use `rlevo` for the full API)"
 license.workspace = true
 edition.workspace = true
 readme = "README.md"

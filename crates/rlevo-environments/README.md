@@ -206,7 +206,7 @@ while !snap.is_done() {
 |---|---|---|
 | `box2d` | yes | Box2D-style physics environments via `rapier2d` |
 | `locomotion` | yes | Locomotion environments via `rapier3d` + `nalgebra` |
-| `record` | no | `RecordedEnvFamily` impls tying each env to its recording family. The one feature that links the `rlevo-benchmarks` harness |
+| `record` | no | `RecordedEnvFamily` impls tying each env to its recording family. The one feature that links `rlevo-harness` |
 
 Disable physics environments to shrink compile time:
 

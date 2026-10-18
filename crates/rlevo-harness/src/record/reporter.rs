@@ -1,7 +1,7 @@
 //! [`RecordingReporter`] — harness-driven producer for the record
 //! surface.
 //!
-//! The benchmarks harness (`Suite` + `Evaluator`) drives the
+//! The evaluation harness (`Suite` + `Evaluator`) drives the
 //! [`Reporter`](crate::reporter::Reporter) trait; [`RecordingReporter`] turns those lifecycle
 //! events into [`RecordSink`] calls so that harness runs land
 //! per-episode files even when the env is not wrapped in
@@ -125,7 +125,7 @@ impl RecordingReporter {
 
     /// Stamps build-time + platform provenance onto the manifest.
     /// Delegates to [`RunManifest::with_build_provenance`] (the build-time
-    /// `option_env!` reads resolve in the `rlevo-benchmarks` crate, where
+    /// `option_env!` reads resolve in the `rlevo-harness` crate, where
     /// `build.rs` lives).
     #[must_use]
     pub fn with_build_provenance(mut self) -> Self {

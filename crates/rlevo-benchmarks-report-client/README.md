@@ -2,17 +2,17 @@
 
 ![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
-Leptos/WASM client for the [rlevo-benchmarks](../rlevo-benchmarks/) static-HTML
+Leptos/WASM client for the [rlevo-harness](../rlevo-harness/) static-HTML
 report (Milestone 5.1).
 
 This crate is **not** a build-time or runtime dependency of any production
 `rlevo` crate. It produces a WASM blob + JS shim + CSS bundle that the
-`rlevo-benchmarks::report::html::emit_static_html` function optionally
+`rlevo-harness::report::html::emit_static_html` function optionally
 inlines into a single self-contained `index.html`.
 
 ## Build
 
-The build is **out-of-band** — `cargo build -p rlevo-benchmarks` does not
+The build is **out-of-band** — `cargo build -p rlevo-harness` does not
 invoke trunk. Run trunk explicitly when you change the client:
 
 ```bash
@@ -50,7 +50,7 @@ inlines into every report:
 | `rlevo-episode-NNNNNN` | `application/octet-stream` | Base64-encoded raw `.rec` bytes (16-byte preamble + bincode header + length-prefixed `RecordChunk`s) |
 
 `src/wire.rs` is a **bincode-compatible mirror** of
-`rlevo-benchmarks::record::schema`. The cross-crate test
+`rlevo-harness::record::schema`. The cross-crate test
 `tests/wire_format_compat.rs` in the host crate round-trips a populated
 record through both sides on every `cargo test`, so any field-order or
 field-type drift fails the host test suite.
@@ -199,7 +199,7 @@ exercises every RL canonical metric in `CANONICAL_METRICS`.
 M8.1 closes the EA-side half of the M8 spec row: a new **Population**
 section lands between the M8 Convergence section and the per-episode
 playback pane. Wire format bumps to **`FORMAT_VERSION = 3`** to carry a
-new [`PopulationSample`](../rlevo-benchmarks/src/record/schema.rs) chunk
+new [`PopulationSample`](../rlevo-harness/src/record/schema.rs) chunk
 (bincode tag 2). v1 and v2 records continue to decode through the v3
 loader because the new chunk tag never appears in older streams.
 
@@ -245,7 +245,7 @@ Arc<Mutex<dyn RecordSink>>                          → RecordChunk::Population
 ```
 
 `PopulationReporter` is shipped from
-[`rlevo_benchmarks::record::population_reporter`](../rlevo-benchmarks/src/record/population_reporter.rs).
+[`rlevo_harness::record::population_reporter`](../rlevo-harness/src/record/population_reporter.rs).
 The loop pays the device→host transfer of the fitness tensor only
 when an observer is attached; observerless runs are unchanged.
 

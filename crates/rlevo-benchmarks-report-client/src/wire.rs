@@ -1,15 +1,15 @@
-//! Bincode-compatible mirror of `rlevo_benchmarks::record::schema`.
+//! Bincode-compatible mirror of `rlevo_harness::record::schema`.
 //!
 //! The native record schema is gated behind `feature = "record"` in
-//! `rlevo-benchmarks`, which itself doesn't compile to `wasm32` because
+//! `rlevo-harness`, which itself doesn't compile to `wasm32` because
 //! `rand`/`getrandom` need the `js` feature there. Rather than restructure
 //! the workspace, the client redeclares the wire types here. The
-//! cross-crate compatibility test in `rlevo-benchmarks` round-trips a
+//! cross-crate compatibility test in `rlevo-harness` round-trips a
 //! populated `EpisodeRecord` between the two representations on every
 //! `cargo test` to guarantee they stay byte-identical.
 //!
 //! **Sync contract:** these struct/enum definitions MUST stay in
-//! lockstep with `rlevo-benchmarks/src/record/schema.rs`. Field order,
+//! lockstep with `rlevo-harness/src/record/schema.rs`. Field order,
 //! field types, and `#[non_exhaustive]` markers all participate in the
 //! bincode wire format. Bumping `FORMAT_VERSION` is the canonical
 //! escape hatch when the contract changes.
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 // ---- Mirror of rlevo_core::render::styled (kept thin; the cross-crate
-// compat test in rlevo-benchmarks guards every field). -----------------
+// compat test in rlevo-harness guards every field). -----------------
 
 /// Wire mirror of `rlevo_core::render::StyledFrame` — one complete rendered frame.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -244,7 +244,7 @@ pub struct GridAgentMarker {
 }
 
 /// Structured tile grid for `grids` envs (mirror of
-/// `rlevo-benchmarks::record::GridPayload`). `tiles` is row-major,
+/// `rlevo-harness::record::GridPayload`). `tiles` is row-major,
 /// `len == width * height`; cell `(x, y)` is `tiles[y * width + x]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GridPayload {
@@ -330,7 +330,7 @@ pub enum TabularLayout {
     Cards(CardTable),
 }
 
-/// Structured toy-text layout (mirror of `rlevo-benchmarks::record::TabularPayload`).
+/// Structured toy-text layout (mirror of `rlevo-harness::record::TabularPayload`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabularPayload {
     /// Discriminated layout: either a tile grid or a card table.
@@ -363,7 +363,7 @@ pub struct Classic2DBody {
 }
 
 /// Structured 2-D line-art for classic-control envs (mirror of
-/// `rlevo-benchmarks::record::Classic2DPayload`).
+/// `rlevo-harness::record::Classic2DPayload`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Classic2DPayload {
     /// All bodies (track, cart, pole, …) that make up the scene.
@@ -387,14 +387,14 @@ pub struct Classic2DPayload {
 /// | 5 | Added [`FamilyPayload::Grid`], [`FamilyPayload::TabularText`], [`FamilyPayload::Classic2D`] rich payloads. |
 /// | 6 | Added [`EpisodeKind`] to [`EpisodeRecordHeader`]; added run-provenance fields (`algorithm`, `rlevo_version`, `rustc_version`, `burn_version`, `platform`, `git_commit`, `git_dirty`, `device`, `num_seeds`, `success_threshold`) and `checkpoints` ([`CheckpointRef`]) to [`RunManifest`]. Defined by ADR 0014. |
 /// | 7 | Added [`ObjectiveSense`] and the `objective_sense` field to [`RunManifest`]; orients best/worst report transforms. |
-// Mirror of `rlevo-benchmarks::record::FORMAT_VERSION`.  Keep in sync;
-// the const assertions in rlevo-benchmarks/tests/wire_format_compat.rs
+// Mirror of `rlevo-harness::record::FORMAT_VERSION`.  Keep in sync;
+// the const assertions in rlevo-harness/tests/wire_format_compat.rs
 // catch drift at compile time.
 pub const FORMAT_VERSION: u16 = 7;
 
 /// Oldest on-disk version this client accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility before first release.
-// Mirror of `rlevo-benchmarks::record::MIN_SUPPORTED_VERSION`.
+// Mirror of `rlevo-harness::record::MIN_SUPPORTED_VERSION`.
 pub const MIN_SUPPORTED_VERSION: u16 = 7;
 
 /// Returns the standard bincode configuration used for all record encode/decode operations.
@@ -469,7 +469,7 @@ pub enum ObjectiveSense {
 }
 
 /// Trial provenance. Mirror of
-/// `rlevo_benchmarks::record::schema::TrialRef`.
+/// `rlevo_harness::record::schema::TrialRef`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrialRef {
     /// Zero-based environment index within the suite.
@@ -480,7 +480,7 @@ pub struct TrialRef {
 
 /// Whether an episode was a training or evaluation rollout. Added in
 /// `FORMAT_VERSION = 6`.
-// Mirror of `rlevo-benchmarks::record::EpisodeKind`.
+// Mirror of `rlevo-harness::record::EpisodeKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EpisodeKind {
@@ -492,7 +492,7 @@ pub enum EpisodeKind {
 }
 
 /// Why a [`CheckpointRef`] was written. Added in `FORMAT_VERSION = 6`.
-// Mirror of `rlevo-benchmarks::record::CheckpointKind`.
+// Mirror of `rlevo-harness::record::CheckpointKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum CheckpointKind {
@@ -506,7 +506,7 @@ pub enum CheckpointKind {
 
 /// Burn recorder format of a saved learner checkpoint. Added in
 /// `FORMAT_VERSION = 6`.
-// Mirror of `rlevo-benchmarks::record::CheckpointFormat`.
+// Mirror of `rlevo-harness::record::CheckpointFormat`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum CheckpointFormat {
@@ -524,7 +524,7 @@ pub enum CheckpointFormat {
 
 /// Reference to one Burn-saved learner checkpoint; the record references
 /// the file and never embeds weights. Added in `FORMAT_VERSION = 6`.
-// Mirror of `rlevo-benchmarks::record::CheckpointRef`.
+// Mirror of `rlevo-harness::record::CheckpointRef`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CheckpointRef {
     /// Global training step at which the checkpoint was written.
@@ -592,7 +592,7 @@ pub struct MetricSample {
 
 /// One per-generation snapshot of an EA population, stored as [`RecordChunk::Population`].
 ///
-/// Mirror of `rlevo_benchmarks::record::PopulationSample`; present in v3+ records.
+/// Mirror of `rlevo_harness::record::PopulationSample`; present in v3+ records.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PopulationSample {
     /// EA generation index; used as the x-axis in population panels.

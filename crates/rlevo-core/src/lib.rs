@@ -2,7 +2,7 @@
 //!
 //! `rlevo-core` defines the shared vocabulary used across the entire `rlevo`
 //! workspace. Every other crate — `rlevo-reinforcement-learning`,
-//! `rlevo-evolution`, `rlevo-environments`, `rlevo-benchmarks` — depends on
+//! `rlevo-evolution`, `rlevo-environments`, `rlevo-harness` — depends on
 //! these primitives. No concrete algorithms or environments live here.
 //!
 //! # Module map
@@ -175,7 +175,7 @@ pub mod episode;
 
 /// Drive seam for work that paces itself.
 ///
-/// [`GenerationProbe`] is what a benchmarking harness drives when the work is
+/// [`GenerationProbe`] is what an evaluation harness drives when the work is
 /// not an episodic agent/environment interaction — an evolutionary generation
 /// loop, concretely. Episodic work is driven through [`Environment`] directly
 /// (ADR 0076).

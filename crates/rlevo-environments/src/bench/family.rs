@@ -7,7 +7,7 @@
 //!
 //! Gated by the `record` feature — it is the env-side half of the harness's
 //! `record` tier and, like the rest of [`crate::bench`], an opt-in coupling
-//! to `rlevo-benchmarks` rather than a property of [`Environment`] itself
+//! to `rlevo-harness` rather than a property of [`Environment`] itself
 //! (ADR 0007).
 //!
 //! # `FAMILY` is a *render* family, not a module
@@ -33,13 +33,13 @@
 //! inventing an env wrapper for it.
 //!
 //! [`Environment`]: rlevo_core::environment::Environment
-//! [`EnvFamily`]: rlevo_benchmarks::record::EnvFamily
-//! [`EnvFamily::Grids`]: rlevo_benchmarks::record::EnvFamily::Grids
-//! [`EnvFamily::Landscapes`]: rlevo_benchmarks::record::EnvFamily::Landscapes
-//! [`FamilyPayload`]: rlevo_benchmarks::record::FamilyPayload
+//! [`EnvFamily`]: rlevo_harness::record::EnvFamily
+//! [`EnvFamily::Grids`]: rlevo_harness::record::EnvFamily::Grids
+//! [`EnvFamily::Landscapes`]: rlevo_harness::record::EnvFamily::Landscapes
+//! [`FamilyPayload`]: rlevo_harness::record::FamilyPayload
 //! [`SantaFeAnt`]: crate::classic::SantaFeAnt
 
-use rlevo_benchmarks::record::{EnvFamily, RecordedEnvFamily};
+use rlevo_harness::record::{EnvFamily, RecordedEnvFamily};
 
 use crate::classic::acrobot::{Acrobot, AcrobotDynamicsFn};
 use crate::classic::bandit::{
@@ -268,11 +268,11 @@ impl<E: RecordedEnvFamily> RecordedEnvFamily for TimeLimit<E> {
 
 #[cfg(test)]
 mod tests {
-    use rlevo_benchmarks::record::{Classic2DPayload, FamilyPayload, GridPayload, TabularPayload};
     use rlevo_core::environment::ConstructableEnv;
     use rlevo_core::render::payload::{
         Classic2DPayloadSource, GridPayloadSource, TabularPayloadSource,
     };
+    use rlevo_harness::record::{Classic2DPayload, FamilyPayload, GridPayload, TabularPayload};
 
     use super::{
         Acrobot, AdversarialBandit, Blackjack, CartPole, CliffWalking, ContextualBandit,
@@ -347,7 +347,7 @@ mod tests {
     where
         E: ConstructableEnv + rlevo_core::render::payload::Box2dPayloadSource + RecordedEnvFamily,
     {
-        use rlevo_benchmarks::record::Box2dPayload;
+        use rlevo_harness::record::Box2dPayload;
 
         let env = E::new(false);
         let emitted = FamilyPayload::Box2dBodies(Box2dPayload::from(env.box2d_snapshot()));
@@ -361,7 +361,7 @@ mod tests {
             + rlevo_core::render::payload::Locomotion2DPayloadSource
             + RecordedEnvFamily,
     {
-        use rlevo_benchmarks::record::Locomotion2DPayload;
+        use rlevo_harness::record::Locomotion2DPayload;
 
         let env = E::new(false);
         let emitted =

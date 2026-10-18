@@ -23,8 +23,8 @@
 
 use rand::Rng;
 use rand_distr::{Distribution, Uniform};
+use rlevo::core::fitness::BenchableAgent;
 use rlevo::envs::classic::{TenArmedBandit, TenArmedBanditAction, TenArmedBanditObservation};
-use rlevo::harness::agent::BenchableAgent;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo::harness::reporter::logging::LoggingReporter;
 use rlevo::harness::suite::Suite;

@@ -4,7 +4,7 @@
 //! [`TuiEnvTap`] wraps a raw
 //! [`Environment`](rlevo_core::environment::Environment) — the trait every RL/EA
 //! algorithm crate drives directly. It is used by training loops that bypass
-//! the benchmarks harness (PPO's
+//! the evaluation harness (PPO's
 //! [`train_discrete`](https://docs.rs/rlevo-reinforcement-learning), future
 //! evolutionary loops). Since no `Reporter` is involved, the wrapper itself
 //! accumulates per-episode reward + step count and emits a
@@ -38,8 +38,8 @@ use crate::reporter::tui::TuiHandle;
 /// # Examples
 ///
 /// ```no_run
-/// # use rlevo_benchmarks::env_wrappers::tui_env_tap::TuiEnvTap;
-/// # use rlevo_benchmarks::reporter::tui::TuiHandle;
+/// # use rlevo_harness::env_wrappers::tui_env_tap::TuiEnvTap;
+/// # use rlevo_harness::reporter::tui::TuiHandle;
 /// # use rlevo_core::environment::Environment;
 /// # fn demo<E: Environment<1, 1, 1>>(env: E) {
 /// let (handle, _rx) = TuiHandle::channel();

@@ -37,7 +37,7 @@ and which report/TUI panels it lights up — read it alongside the entry below.
 
 ## Example catalog
 
-### Benchmarking harness
+### Evaluation harness
 
 The two harness demos, `tabular_bandit` and `ga_rastrigin`, moved to the
 umbrella with ADR 0084:
@@ -159,8 +159,8 @@ scaffolding pulled in by `santa_fe_ant_deterministic` and
 
 | Feature      | Enables                                                                                                              |
 | ------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `viz-tui`    | Live metrics TUI dashboard (`rlevo-benchmarks/tui`).                                                                 |
-| `viz-report` | Post-run recording + static-HTML report (`rlevo-benchmarks/report`, which pulls `record` transitively, plus `rlevo-environments/record` for the per-family `RecordedEnvFamily` impls). |
+| `viz-tui`    | Live metrics TUI dashboard (`rlevo-harness/tui`).                                                                    |
+| `viz-report` | Post-run recording + static-HTML report (`rlevo-harness/report`, which pulls `record` transitively, plus `rlevo-environments/record` for the per-family `RecordedEnvFamily` impls). |
 | `locomotion` | Rapier3D locomotion environments (`rlevo-environments/locomotion`).                                                  |
 | `box2d`      | Rapier2D Box2D-style environments (`rlevo-environments/box2d`).                                                      |
 

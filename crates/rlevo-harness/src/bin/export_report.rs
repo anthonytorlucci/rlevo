@@ -1,4 +1,4 @@
-//! CLI front-end for [`rlevo_benchmarks::report::emit_static_html`].
+//! CLI front-end for [`rlevo_harness::report::emit_static_html`].
 //!
 //! Reads a previously recorded benchmark run from `<run-dir>` and emits a
 //! self-contained static HTML file at `<out.html>` that renders per-episode
@@ -6,7 +6,7 @@
 //!
 //! Requires the `report` feature:
 //! ```text
-//! cargo run -p rlevo-benchmarks --features report --bin export-report -- <run-dir> <out.html>
+//! cargo run -p rlevo-harness --features report --bin export-report -- <run-dir> <out.html>
 //! ```
 //!
 //! # Arguments
@@ -26,7 +26,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use rlevo_benchmarks::report::{EmitConfig, RecordedRun, emit_static_html};
+use rlevo_harness::report::{EmitConfig, RecordedRun, emit_static_html};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();

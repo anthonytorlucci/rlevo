@@ -1,7 +1,7 @@
 //! Rastrigin-D10 convergence via the evaluation harness.
 //!
 //! This test verifies that each real-valued strategy plugs into
-//! `rlevo_benchmarks::Evaluator::run_suite` end-to-end. We assert that
+//! `rlevo_harness::Evaluator::run_suite` end-to-end. We assert that
 //! the final best-fitness across trials is well below a random-search
 //! baseline; precise convergence targets belong to per-strategy tests
 //! in the `algorithms` module.
@@ -9,11 +9,10 @@
 use std::sync::atomic::AtomicU32;
 
 use burn::backend::Flex;
-use rlevo_benchmarks::agent::FitnessEvaluable;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::{Landscape, MetricsProvider};
+use rlevo_core::fitness::{FitnessEvaluable, Landscape, MetricsProvider};
+use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo_harness::reporter::logging::LoggingReporter;
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;

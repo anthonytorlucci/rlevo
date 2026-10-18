@@ -29,7 +29,7 @@
 //! this level:
 //!
 //! ```no_run
-//! # use rlevo_benchmarks::tui::{TuiConfig, TuiRunner};
+//! # use rlevo_harness::tui::{TuiConfig, TuiRunner};
 //! let runner = TuiRunner::start(TuiConfig::default()).unwrap();
 //! let handle = runner.handle();
 //! // pass `handle.as_reporter()` to the Evaluator and `handle.clone()` to

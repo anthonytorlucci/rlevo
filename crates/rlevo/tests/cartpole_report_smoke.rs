@@ -20,10 +20,8 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap,
-};
-use rlevo_benchmarks::report::{EmitConfig, RecordedRun, emit_static_html};
+use rlevo_harness::record::{EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap};
+use rlevo_harness::report::{EmitConfig, RecordedRun, emit_static_html};
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::environment::{Environment, Snapshot};

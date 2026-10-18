@@ -7,7 +7,7 @@
 //! The type set is intentionally a small subset of the ratatui vocabulary so
 //! that `rlevo-core` ships zero terminal-side dependencies — the
 //! `From<StyledFrame>` conversion into ratatui types lives in
-//! `rlevo-benchmarks::tui` (behind the `tui` feature), and the report tier
+//! `rlevo-harness::tui` (behind the `tui` feature), and the report tier
 //! deserialises [`StyledFrame`] from `EpisodeRecord`.
 //!
 //! No truecolor: stick to the 16-colour ANSI palette plus indexed 256-colour.

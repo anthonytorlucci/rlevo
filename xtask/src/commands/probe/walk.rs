@@ -507,10 +507,10 @@ mod tests {
     #[test]
     fn test_every_hand_added_crate_is_listed() {
         assert_eq!(
-            hand_added(&resolved(&["rlevo", "rlevo-benchmarks", "rand"])),
+            hand_added(&resolved(&["rlevo", "rlevo-harness", "rand"])),
             Outcome::Fail(
                 "rlevo alone is insufficient; 2 additional crate(s) required by hand: \
-                 rand, rlevo-benchmarks"
+                 rand, rlevo-harness"
                     .to_string()
             )
         );

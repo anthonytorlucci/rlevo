@@ -52,11 +52,9 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::utils::PolyakError;
 
-use rlevo_benchmarks::record::schema::FamilyPayload;
-use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap,
-};
-use rlevo_benchmarks::report::RecordedRun;
+use rlevo_harness::record::schema::FamilyPayload;
+use rlevo_harness::record::{EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap};
+use rlevo_harness::report::RecordedRun;
 
 // ---------------------------------------------------------------------------
 // Deterministic fixed-length environment.

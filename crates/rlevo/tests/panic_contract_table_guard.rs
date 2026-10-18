@@ -95,7 +95,7 @@
 //! item's `fn` in the declaring file — widening to any file whose production
 //! source carries an `impl … T` or a bare `for T` line. The second alternative
 //! is not redundant: `EpisodicTrial`'s impl headers **wrap**, and
-//! `rlevo-benchmarks/src/evaluator.rs` reads `impl<…> Trial` /
+//! `rlevo-harness/src/evaluator.rs` reads `impl<…> Trial` /
 //! `for EpisodicTrial<E, A, D, SD, AD>` / `where`. Any owner parse that assumes
 //! one impl per line drops it.
 //!
@@ -224,7 +224,7 @@ const MINIMUM_SPECS: usize = 30;
 /// here is a real defect — the contract is unreachable from anything a user
 /// depends on. It is a **failure**, not a skip. Zero rows hit this today.
 const NON_PRODUCTION_CRATES: &[&str] = &[
-    "rlevo-benchmarks",
+    "rlevo-harness",
     "rlevo-benchmarks-report-client",
     "rlevo-examples",
     "rlevo-test-support",
@@ -1004,7 +1004,7 @@ fn how_to_fix() -> String {
     "\nFix the **table**, not this test:\n\
      - the item was renamed  -> update the Site cell;\n\
      - the panic was removed -> delete the row;\n\
-     - the code moved into `rlevo-benchmarks` / `rlevo-examples` / \
+     - the code moved into `rlevo-harness` / `rlevo-examples` / \
      `rlevo-test-support` -> that is a `docs/rules.md` §1 dependency-direction \
      problem, not a docs problem: a documented panic contract must live in a \
      crate users depend on.\n\n\
@@ -1048,7 +1048,7 @@ fn non_production_message(row: &TableRow, spec: &Spec, resolution: &Resolution) 
          names `{}`, which resolves **only** inside {} — a benchmark / example / \
          test-support crate.\n\nMatched: {}\n\n\
          `docs/rules.md` §1 fixes the dependency direction: production crates must not \
-         depend on `rlevo-benchmarks` or the visualization layer, so a panic contract \
+         depend on `rlevo-harness` or the visualization layer, so a panic contract \
          that lives there is unreachable from anything a user of the library depends on. \
          This is a §1 violation, not a documentation nit.\n{}",
         row.line,
@@ -1306,7 +1306,7 @@ fn no_exempted_row_names_an_identifier() {
 /// Pins type-tier **step C**'s wrapped-impl-header handling, which no row in
 /// today's table exercises.
 ///
-/// `crates/rlevo-benchmarks/src/evaluator.rs` is the workspace's live example:
+/// `crates/rlevo-harness/src/evaluator.rs` is the workspace's live example:
 /// **both** impl headers of `EpisodicTrial` wrap, so `impl<…> std::fmt::Debug`
 /// and `impl<…> Trial` each sit on a line that does not contain `EpisodicTrial`
 /// at all, and the type name appears only on the continuation line
@@ -1324,15 +1324,15 @@ fn no_exempted_row_names_an_identifier() {
 fn the_wrapped_impl_header_is_recognized() {
     let evaluator = workspace()
         .iter()
-        .find(|file| file.display == "crates/rlevo-benchmarks/src/evaluator.rs")
+        .find(|file| file.display == "crates/rlevo-harness/src/evaluator.rs")
         .expect(
-            "crates/rlevo-benchmarks/src/evaluator.rs should exist; it holds \
+            "crates/rlevo-harness/src/evaluator.rs should exist; it holds \
              `EpisodicTrial`, whose impl headers all wrap",
         );
 
     assert!(
         evaluator.mentions_impl_of("EpisodicTrial"),
-        "type-tier step C no longer recognises `crates/rlevo-benchmarks/src/evaluator.rs` \
+        "type-tier step C no longer recognises `crates/rlevo-harness/src/evaluator.rs` \
          as carrying an impl of `EpisodicTrial`. Its impl headers **wrap** — the type \
          name is on the `for EpisodicTrial<E, A, D, SD, AD>` continuation line, not on \
          the `impl` line — so the `for T` alternative in `mentions_impl_of` is load \

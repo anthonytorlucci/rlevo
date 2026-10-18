@@ -273,7 +273,7 @@ impl Evaluator {
                     let path = checkpoint::checkpoint_path(dir, suite_name);
                     if let Err(e) = checkpoint::save(&path, &rep) {
                         tracing::warn!(
-                            target: "rlevo_benchmarks",
+                            target: "rlevo_harness",
                             path = %path.display(),
                             error = %e,
                             "checkpoint save failed"
@@ -299,7 +299,7 @@ impl Evaluator {
             let path = checkpoint::checkpoint_path(dir, suite_name);
             if let Err(e) = checkpoint::save(&path, &report) {
                 tracing::warn!(
-                    target: "rlevo_benchmarks",
+                    target: "rlevo_harness",
                     path = %path.display(),
                     error = %e,
                     "checkpoint save failed"
@@ -476,7 +476,7 @@ where
         // strictly noisier than a single total.
         if non_finite_steps > 0 {
             tracing::warn!(
-                target: "rlevo_benchmarks",
+                target: "rlevo_harness",
                 env = %info.env_name,
                 non_finite_steps,
                 "environment produced non-finite rewards; episode returns are poisoned"
@@ -610,7 +610,7 @@ where
         // read, so the dropped generation is in no number this trial reports.
         if units == cfg.max_steps && self.probe.advance().is_some() {
             tracing::warn!(
-                target: "rlevo_benchmarks",
+                target: "rlevo_harness",
                 env = %info.env_name,
                 trial = info.key.trial_idx,
                 max_steps = cfg.max_steps,

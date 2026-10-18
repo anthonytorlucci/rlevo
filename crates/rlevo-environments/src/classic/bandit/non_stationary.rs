@@ -59,9 +59,12 @@ use rlevo_core::episode::EpisodeGuard;
 pub struct NonStationaryBanditConfig {
     /// Maximum number of steps before the episode terminates.
     pub max_steps: usize,
-    /// RNG seed. [`Environment::reset`] re-seeds from this value and
-    /// re-draws initial arm means, so `(config, action sequence)` fully
-    /// determines the trajectory. Default: `42`.
+    /// RNG seed, used once, at construction: the initial arm means and then
+    /// every reward and drift step are drawn from one generator seeded with
+    /// it. [`Environment::reset`] restores the arm means to those initial
+    /// values but neither re-draws them nor re-seeds the generator, so a fresh
+    /// bandit built from the same config and given the same sequence of resets
+    /// and actions reproduces the trajectory. Default: `42`.
     pub seed: u64,
     /// Standard deviation of the per-step Gaussian random walk applied to
     /// every arm mean. Sutton & Barto §2.5 uses `0.01`. Setting this to `0.0`

@@ -1,4 +1,4 @@
-//! `CoEvolutionaryLoop` is driven by the `rlevo-benchmarks`
+//! `CoEvolutionaryLoop` is driven by the `rlevo-harness`
 //! evaluator without modification.
 //!
 //! A competitive predator–prey co-evolution is wrapped in a
@@ -12,8 +12,6 @@
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData};
 
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
@@ -22,6 +20,8 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::coevolution::{CompetitiveCoEA, CompetitiveCoEAParams, CoupledFitness};
+use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo_harness::reporter::logging::LoggingReporter;
 
 type B = Flex;
 

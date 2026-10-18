@@ -6673,42 +6673,15 @@ dependencies = [
  "rand 0.10.3",
  "rand_distr 0.6.0",
  "rayon",
- "rlevo-benchmarks",
  "rlevo-core",
  "rlevo-environments",
  "rlevo-evolution",
+ "rlevo-harness",
  "rlevo-hybrid",
  "rlevo-reinforcement-learning",
  "rlevo-test-support",
  "serde",
  "tempfile",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "rlevo-benchmarks"
-version = "0.5.0"
-dependencies = [
- "approx",
- "base64 0.23.1",
- "bincode",
- "crossterm",
- "parking_lot",
- "rand 0.10.3",
- "rand_distr 0.6.0",
- "ratatui",
- "rayon",
- "rlevo-benchmarks-report-client",
- "rlevo-core",
- "rlevo-evolution",
- "rlevo-metrics-registry",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "time",
- "toml",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -6754,8 +6727,8 @@ dependencies = [
  "rand_distr 0.6.0",
  "rapier2d",
  "rapier3d",
- "rlevo-benchmarks",
  "rlevo-core",
+ "rlevo-harness",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -6787,13 +6760,40 @@ dependencies = [
  "rand 0.10.3",
  "rand_distr 0.6.0",
  "rayon",
- "rlevo-benchmarks",
  "rlevo-core",
  "rlevo-environments",
  "rlevo-evolution",
+ "rlevo-harness",
  "rlevo-reinforcement-learning",
  "rlevo-test-support",
  "serde",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "rlevo-harness"
+version = "0.5.0"
+dependencies = [
+ "approx",
+ "base64 0.23.1",
+ "bincode",
+ "crossterm",
+ "parking_lot",
+ "rand 0.10.3",
+ "rand_distr 0.6.0",
+ "ratatui",
+ "rayon",
+ "rlevo-benchmarks-report-client",
+ "rlevo-core",
+ "rlevo-evolution",
+ "rlevo-metrics-registry",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "toml",
+ "tracing",
  "tracing-subscriber",
 ]
 

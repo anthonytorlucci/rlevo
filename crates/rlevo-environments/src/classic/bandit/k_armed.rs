@@ -2,9 +2,10 @@
 //!
 //! Stateless k-armed bandit generic over the number of arms `K`. On each step
 //! the agent selects an arm `$a \in \{0, \ldots, K-1\}$` and receives a reward sampled
-//! from `N(q*(a), 1)` where the true means `q*(a)` are themselves drawn from
-//! `N(0, 1)` at construction (and re-drawn from the same seed on
-//! [`Environment::reset`]).
+//! from `N(q*(a), 1)` where the true means `q*(a)` are themselves drawn once
+//! from `N(0, 1)` at construction, from the config's seed. They are kept
+//! across [`Environment::reset`]: a reset starts a new episode on the same
+//! problem, with fresh reward noise.
 //!
 //! The canonical 10-armed instance is exposed as the type alias
 //! [`TenArmedBandit`](crate::classic::TenArmedBandit) for the classic
@@ -298,8 +299,11 @@ impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<
 pub struct KArmedBanditConfig {
     /// Maximum number of steps before the episode terminates.
     pub max_steps: usize,
-    /// RNG seed. [`Environment::reset`] re-draws arm means from this seed so
-    /// `(config, action sequence)` fully determines the trajectory. Default:
+    /// RNG seed, used once, at construction: the arm means and then every
+    /// reward are drawn from one generator seeded with it.
+    /// [`Environment::reset`] neither re-draws the means nor re-seeds the
+    /// generator, so a fresh bandit built from the same config and given the
+    /// same sequence of resets and actions reproduces the trajectory. Default:
     /// `42` (Sutton & Barto convention).
     pub seed: u64,
 }
@@ -440,9 +444,11 @@ impl<const K: usize> KArmedBandit<K> {
     ///
     /// Sets `config.seed = seed` and samples `arm_means` once from `N(0, 1)`.
     /// The arm means are fixed for the lifetime of the bandit — [`reset`] does
-    /// not redraw them — so `rlevo-benchmarks` gets a reproducible problem per
-    /// trial by constructing with a fixed seed. Keeps other config fields at
-    /// their defaults.
+    /// not redraw them — so a reproducible problem is a bandit constructed
+    /// with a fixed seed. The signature is the seed-to-environment factory
+    /// that `Suite::with_env` in `rlevo-harness` takes, so passing
+    /// `KArmedBandit::<K>::with_seed` there builds one problem per trial from
+    /// the trial's seed. Keeps other config fields at their defaults.
     ///
     /// [`reset`]: Environment::reset
     ///
@@ -489,10 +495,10 @@ impl<const K: usize> KArmedBandit<K> {
     /// `docs/rules.md` §8). For a reproducible problem, construct a fresh bandit
     /// with the same seed.
     ///
-    /// This is the bespoke entry point used by `rlevo-benchmarks`; it
-    /// discards the snapshot return value. Prefer the
+    /// It is a non-trait entry point and returns no snapshot. Prefer the
     /// [`Environment::reset`] trait method for new code — it returns a
-    /// [`SnapshotBase`] for composition with wrappers.
+    /// [`SnapshotBase`] for composition with wrappers, and it is the method
+    /// generic code, the evaluation harness included, calls.
     ///
     /// The episode guard is re-opened here, so both reset lanes (this one and
     /// [`Environment::reset`], which delegates to it) agree.
@@ -512,10 +518,12 @@ impl<const K: usize> KArmedBandit<K> {
     /// step budget closes the episode for the trait `step` too.
     ///
     /// Unlike [`Environment::step`], `pull` is **infallible and unguarded on
-    /// entry**: it does not reject a post-terminal call. It is a bespoke
-    /// non-trait entry point kept for `rlevo-benchmarks`, and making it
+    /// entry**: it does not reject a post-terminal call. It is a non-trait
+    /// convenience for code that holds a concrete bandit and wants a bare
+    /// reward per arm index, such as a hand-written bandit loop; making it
     /// fallible would be an unrelated API break. Callers that need the
-    /// post-terminal contract of ADR 0044 must use [`Environment::step`].
+    /// post-terminal contract of ADR 0044 must use [`Environment::step`], as
+    /// generic code, the evaluation harness included, does.
     ///
     /// # Panics
     ///
@@ -996,8 +1004,8 @@ mod tests {
 
     #[test]
     fn inherent_reset_reopens_a_terminated_episode() {
-        // `KArmedBandit::reset` is the bespoke benchmark lane; it must clear the
-        // guard too, or the two reset paths disagree.
+        // `KArmedBandit::reset` is the inherent, non-trait reset; it must clear
+        // the guard too, or the two reset paths disagree.
         let mut env = guard_env();
         drive_to_termination(&mut env);
 

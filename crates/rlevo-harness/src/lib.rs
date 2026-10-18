@@ -1,4 +1,7 @@
-//! Reproducible benchmarking harness for `rlevo`.
+//! Reproducible evaluation harness for `rlevo`.
+//!
+//! The umbrella re-exports this crate as `rlevo::harness`. Through 0.5.0 it
+//! was named `rlevo-benchmarks` (ADR 0088).
 //!
 //! The shared trait surface (`Environment`, `GenerationProbe`,
 //! `BenchableAgent`, `FitnessEvaluable`, `Landscape`, `SeedStream`) lives in
@@ -35,19 +38,9 @@ pub mod suite;
 #[cfg(feature = "tui")]
 pub mod tui;
 
-/// Backward-compatible alias for the relocated agent / fitness traits.
-pub mod agent {
-    pub use rlevo_core::fitness::{BenchableAgent, FitnessEvaluable, Landscape};
-}
-
-/// Backward-compatible alias for the relocated seed-derivation utility.
-pub mod seed {
-    pub use rlevo_core::util::seed::SeedStream;
-}
-
 /// Flat crate-root re-export of the drive seam for self-paced work.
 ///
-/// Lets callers write `rlevo_benchmarks::GenerationProbe` without navigating
+/// Lets callers write `rlevo_harness::GenerationProbe` without navigating
 /// to `rlevo_core::evaluation`. Episodic work needs no such re-export: it is
 /// driven through `rlevo_core::environment::Environment` directly.
 pub use rlevo_core::evaluation::GenerationProbe;

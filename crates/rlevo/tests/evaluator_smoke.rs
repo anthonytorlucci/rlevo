@@ -1,13 +1,13 @@
 //! Smoke tests for the evaluator run loop (suite → trial → report path).
 
 use rand::Rng;
-use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
-use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_benchmarks::suite::Suite;
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::fitness::BenchableAgent;
 use rlevo_core::reward::ScalarReward;
+use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo_harness::reporter::logging::LoggingReporter;
+use rlevo_harness::suite::Suite;
 
 /// Deterministic toy env: reward = action + offset, terminates after 3 steps.
 /// The observation carries no payload — no assertion reads it. Seed influences a constant reward offset so we can

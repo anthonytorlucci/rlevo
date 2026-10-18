@@ -330,7 +330,7 @@ fn write_client_mount(out: &mut String) {
     out.push_str("<div id=\"rlevo-app\">\n");
     out.push_str("<noscript><p>This report requires JavaScript to render the\n");
     out.push_str("rlevo client. Without JS the data is still inlined below in\n");
-    out.push_str("script blocks — see the rlevo-benchmarks `report` docs.</p></noscript>\n");
+    out.push_str("script blocks — see the rlevo-harness `report` docs.</p></noscript>\n");
     out.push_str("</div>\n");
 }
 
@@ -402,7 +402,7 @@ fn write_html_head(out: &mut String, run: &RecordedRun, config: &EmitConfig) {
     out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     out.push_str("<meta charset=\"utf-8\">\n");
     out.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-    out.push_str("<meta name=\"generator\" content=\"rlevo-benchmarks/report\">\n");
+    out.push_str("<meta name=\"generator\" content=\"rlevo-harness/report\">\n");
     let _ = writeln!(out, "<title>rlevo report — {escaped_title}</title>");
     out.push_str("<style>\n");
     out.push_str(EMBEDDED_CSS);

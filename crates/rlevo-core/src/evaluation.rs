@@ -1,6 +1,6 @@
 //! Drive seams consumed by external evaluators.
 //!
-//! [`GenerationProbe`] is the seam a benchmarking harness uses to run work that
+//! [`GenerationProbe`] is the seam an evaluation harness uses to run work that
 //! paces itself — an evolutionary generation loop, most concretely — rather
 //! than an episodic agent/environment interaction. Episodic work is driven
 //! through [`Environment`] and [`Snapshot`] directly; the evaluator binds on
@@ -41,7 +41,7 @@
 ///
 /// The budget lives in the probe, which already owns it. A separate `done`
 /// boolean invites a second, unenforced copy of the same number in the
-/// driver's configuration — which is exactly what `rlevo-benchmarks`'
+/// driver's configuration — which is exactly what `rlevo-harness`'
 /// `EvaluatorConfig::max_steps` is today, hand-synced against the loop's
 /// own `max_generations` at every call site. `Option` makes the exhausted
 /// state unrepresentable as anything else.

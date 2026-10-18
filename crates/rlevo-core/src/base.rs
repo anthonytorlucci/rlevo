@@ -35,7 +35,7 @@ use std::fmt::Debug;
 ///   This is intentional: a non-finite return is a true statement about a run
 ///   whose environment emitted a non-finite reward, and hiding it would make the
 ///   bug harder to find, not rarer. (ADR 0065 and ADR 0070.)
-/// - **Counted and reported by the benchmarks harness.** The evaluator
+/// - **Counted and reported by the evaluation harness.** The evaluator
 ///   accumulates raw (matching the above), logs a warning, and records a
 ///   `return/non_finite_steps` counter on the trial report. (ADR 0078.)
 ///
@@ -81,8 +81,10 @@ pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
 /// A consumer that genuinely needs to persist a domain type declares the bound at
 /// **its own** seam, where the requirement actually arises. `RecordingTap`'s
 /// `where E::ActionType: Serialize` is the reference shape (see
-/// `crates/rlevo-benchmarks/src/record/env_tap.rs`, lines 300 and 322). Do not
-/// reinstate a universal serde bound here to save a downstream `where` clause.
+/// `rlevo_harness::record::env_tap`: the bound sits on `RecordingTap`'s
+/// `Environment` impl and on the inherent impl that holds its private
+/// `capture_frame`). Do not reinstate a universal serde bound here to save a
+/// downstream `where` clause.
 ///
 /// Concrete observation types are still expected to derive `Serialize` /
 /// `Deserialize` (`docs/rules.md` §8) — this removes a universal *obligation*,

@@ -156,8 +156,9 @@ the result is part of `rlevo`, as `rlevo::harness`: `Suite`, `Evaluator`,
 the metrics and the reporters. Two examples show it,
 `cargo run -p rlevo --example tabular_bandit` and
 `cargo run -p rlevo --example ga_rastrigin`. Like the backend features, the
-re-export is on `main` and ships with the next release; with the published
-0.5.0, add `rlevo-benchmarks` yourself.
+re-export is on `main` and ships with the next release. The published
+0.5.0 does not carry the harness: add the crate yourself, under the name
+it has in that release, `rlevo-benchmarks`.
 
 ```bash
 # Build the workspace
@@ -180,7 +181,7 @@ cargo doc --workspace --no-deps --open
 | Environments (13+) | Active |
 | Deep RL algorithms (8) | Active |
 | Evolutionary & swarm algorithms | Active |
-| Benchmarking harness | Active |
+| Evaluation harness | Active |
 | Hybrid RL + evolution | Active (evolution-guided policy init shipped; PBT/ERL/CEM-RL planned) |
 
 ## Dependencies

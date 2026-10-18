@@ -10,7 +10,7 @@
 //! writing a structured payload adapter.
 //!
 //! The trait lives in `rlevo-core` (rather than `rlevo-environments`) so that
-//! `rlevo-benchmarks` can still bound on it without a circular package dep.
+//! `rlevo-harness` can still bound on it without a circular package dep.
 //! It is not a supertrait of `Environment`.
 
 use super::StyledFrame;

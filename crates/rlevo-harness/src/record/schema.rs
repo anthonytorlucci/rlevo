@@ -190,7 +190,7 @@ pub enum FamilyPayload {
 //
 // These are bincode-stable mirrors of the snapshot types in
 // `rlevo_core::render::payload` plus serde derives. They live here so
-// the wire layer stays owned by `rlevo-benchmarks`; the core crate has
+// the wire layer stays owned by `rlevo-harness`; the core crate has
 // no bincode dependency.
 // ---------------------------------------------------------------------------
 

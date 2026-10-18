@@ -32,7 +32,7 @@ use crate::wire::{
 
 /// Summary metadata produced by the emitter alongside the raw `.rec` payloads.
 ///
-/// Matches the `EpisodeMeta` struct in `rlevo-benchmarks/src/report/html.rs`
+/// Matches the `EpisodeMeta` struct in `rlevo-harness/src/report/html.rs`
 /// and is decoded from the `rlevo-episode-index` JSON block.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct EpisodeMeta {
@@ -62,7 +62,7 @@ fn default_kind() -> String {
 /// JSON wire form for an `OpenWarning` emitted into `rlevo-warnings`.
 ///
 /// Field names match the emitter side
-/// (`rlevo-benchmarks::report::html::warnings_to_json`).
+/// (`rlevo-harness::report::html::warnings_to_json`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct WarningEntry {
     /// Human-readable warning category (e.g. `"episode_count_mismatch"`).
@@ -235,7 +235,7 @@ mod tests {
     use super::EpisodeMeta;
 
     /// Guards the JSON contract against the host emitter's `EpisodeMeta` in
-    /// `rlevo-benchmarks/src/report/html.rs`, which has no compile-time link to
+    /// `rlevo-harness/src/report/html.rs`, which has no compile-time link to
     /// this struct (architecture review finding R6). The field names and the
     /// `kind` string values ("training"/"evaluation") must match.
     #[test]
