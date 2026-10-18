@@ -107,7 +107,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the `RecordedEnvFamily` impls, which keep their path,
   `rlevo_environments::bench::family`. `record` no longer implies a second
   feature and is now the only one under which `rlevo-environments` depends
-  on `rlevo-benchmarks`.
+  on `rlevo-harness`.
+- **`rlevo-benchmarks` is renamed `rlevo-harness`** (ADR 0088), library
+  `rlevo_harness`. The crate is the evaluation harness and is now named
+  for it; the old name read as cargo's `[[bench]]`. **If you depend on
+  `rlevo`, nothing changes:** the harness is `rlevo::harness`. **If you
+  depend on the crate directly,** change the dependency line to
+  `rlevo-harness`, every feature entry that names `rlevo-benchmarks/...`
+  or `dep:rlevo-benchmarks` to the new name, and the first segment of each
+  path to `rlevo_harness`. The harness ships no alias under the old name.
+  To keep your paths for now, use Cargo's `package` key:
+  `rlevo-benchmarks = { package = "rlevo-harness", version = "..." }` in
+  your own manifest keeps the dependency's local name, so
+  `rlevo_benchmarks::` paths and `rlevo-benchmarks/<feature>` feature
+  entries go on working, except the paths through the modules `agent` and
+  `seed`. Those two were aliases, kept since ADR 0004 moved their items to
+  `rlevo-core`, and they are removed with the old name: import
+  `BenchableAgent`, `FitnessEvaluable` and `Landscape` from
+  `rlevo_core::fitness`, and `SeedStream` from `rlevo_core::util::seed`
+  (`rlevo::core::...` through the umbrella). Strings the harness emits
+  follow the name and change with no compile error. The `tracing` target
+  of the harness's events is `rlevo_harness` (was `rlevo_benchmarks`), so
+  a log filter on the old target matches nothing. In the static report,
+  the generator tag is `rlevo-harness/report` and the `<noscript>` note of
+  a report with a client names `rlevo-harness`. The record format is
+  unchanged. On crates.io, `rlevo-benchmarks` 0.5.0 stays as it is and the
+  name gets one last release that points to `rlevo-harness`.
 - **`EvolutionaryHarness` is renamed `EvolutionaryLoop` and
   `CoEvolutionaryHarness` is renamed `CoEvolutionaryLoop`** (ADR 0085), in
   `rlevo-evolution` and so under `rlevo::evo`. "Harness" now names the
@@ -176,12 +201,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   against, so a consumer names tensors and backends without a `burn` entry
   of its own.
 - **`rlevo::harness`**, the evaluation harness (ADR 0084). `rlevo` now
-  depends on `rlevo-benchmarks` unconditionally, at its default features,
+  depends on `rlevo-harness` unconditionally, at its default features,
   and re-exports it, so `cargo add rlevo` reaches `Suite`, `Evaluator`, the
   metrics and the reporters with no second manifest entry. Until now the
   harness was a dev-dependency of `rlevo`: its own tests reached it and a
   consumer did not. The cost is two first-party packages in every
-  consumer's build, `rlevo-benchmarks` and `rlevo-metrics-registry` (the
+  consumer's build, `rlevo-harness` and `rlevo-metrics-registry` (the
   dependency cone goes from 207 packages to 209), and no visualization
   crate. The `viz-tui` feature, which forwards to the harness's `tui`
   feature, now reaches a consumer; it could not while the harness was a
@@ -261,12 +286,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 **Changed**
 
 - **The 23 landscapes implement `rlevo_core::fitness::Landscape` with no
-  cargo feature.** The impls sat behind `bench`, which pulls in the
-  `rlevo-benchmarks` harness, although they use nothing from it: evaluating
+  cargo feature.** The impls sat behind `bench`, which pulled in the
+  evaluation harness, although they use nothing from it: evaluating
   Rastrigin as a fitness function meant linking the harness. They are now
   compiled in every configuration. Each landscape's `impl Landscape` is
   its evaluation, in its own file, and the file of forwarding impls is
-  gone. `bench` still gates the preset `Suite` factories.
+  gone. The `bench` feature itself is removed, with the preset `Suite`
+  factories it gated; see Breaking changes.
 
 ### `rlevo-evolution`
 
@@ -418,7 +444,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `rlevo-core`.** It does. What it never does is name an `Environment`,
   and that is the boundary this crate marks.
 
-### `rlevo-benchmarks`
+### `rlevo-harness`
+
+Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Changed**
 
@@ -473,7 +501,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 **Changed**
 
 - **The `byoe-1-thermostat` probe adds one crate by hand, where it added
-  two.** `rlevo-benchmarks` leaves its manifest and its harness file names
+  two.** The harness crate leaves its manifest and its harness file names
   `rlevo::harness` (ADR 0084). Its step 2 now reports `1 additional
   crate(s) required by hand: rand`. `consumer-umbrella` reaches all eight
   published crates and counts 210 packages, where it counted 208 and
@@ -497,8 +525,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `consumer-core` builds that author's environment file against `rlevo-core`
   alone; `consumer-umbrella` and `consumer-ppo` measure a dependency list's
   package count, Burn package count and cold build. The first run found two
-  crates an environment author must add by hand beside `rlevo`:
-  `rlevo-benchmarks`, because the harness is not reachable through the
+  crates an environment author must add by hand beside `rlevo`: the
+  harness crate, because the harness is not reachable through the
   umbrella, and `rand`, because `BenchableAgent::act` takes `&mut dyn
   rand::Rng`. `crate-tests.yml` runs every probe on each pull request, which
   is also the only build of the packaged crates against each other. `xtask`

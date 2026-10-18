@@ -41,7 +41,7 @@ pub enum TuiEvent {
         /// Final episode record (return, length, index).
         episode: EpisodeSummary,
     },
-    /// Episode terminated outside the benchmarks harness. Carries only the
+    /// Episode terminated outside the evaluation harness. Carries only the
     /// return and length — no `TrialInfo`, no `EpisodeSummary`. Emitted by
     /// non-harness env wrappers (e.g.,
     /// [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap)) so a raw

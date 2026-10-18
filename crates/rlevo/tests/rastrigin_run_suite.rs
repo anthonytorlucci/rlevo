@@ -10,8 +10,7 @@ use std::sync::atomic::AtomicU32;
 
 use burn::backend::Flex;
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::{Landscape, MetricsProvider};
-use rlevo_harness::agent::FitnessEvaluable;
+use rlevo_core::fitness::{FitnessEvaluable, Landscape, MetricsProvider};
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_harness::reporter::logging::LoggingReporter;
 

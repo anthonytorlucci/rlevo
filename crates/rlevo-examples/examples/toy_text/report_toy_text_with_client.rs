@@ -30,7 +30,6 @@ use parking_lot::Mutex;
 use rand::Rng;
 use rand_distr::{Distribution, Uniform};
 
-use rlevo_harness::agent::BenchableAgent;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_harness::record::{
     RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
@@ -39,6 +38,7 @@ use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_h
 use rlevo_harness::suite::Suite;
 
 use rlevo_core::action::DiscreteAction;
+use rlevo_core::fitness::BenchableAgent;
 
 use rlevo_environments::toy_text::frozen_lake::{
     FrozenLake, FrozenLakeAction, FrozenLakeConfig, FrozenLakeObservation, FrozenMapSpec,

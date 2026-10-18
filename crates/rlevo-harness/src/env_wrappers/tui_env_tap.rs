@@ -4,7 +4,7 @@
 //! [`TuiEnvTap`] wraps a raw
 //! [`Environment`](rlevo_core::environment::Environment) — the trait every RL/EA
 //! algorithm crate drives directly. It is used by training loops that bypass
-//! the benchmarks harness (PPO's
+//! the evaluation harness (PPO's
 //! [`train_discrete`](https://docs.rs/rlevo-reinforcement-learning), future
 //! evolutionary loops). Since no `Reporter` is involved, the wrapper itself
 //! accumulates per-episode reward + step count and emits a

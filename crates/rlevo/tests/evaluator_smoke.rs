@@ -3,8 +3,8 @@
 use rand::Rng;
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::fitness::BenchableAgent;
 use rlevo_core::reward::ScalarReward;
-use rlevo_harness::agent::BenchableAgent;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_harness::reporter::logging::LoggingReporter;
 use rlevo_harness::suite::Suite;

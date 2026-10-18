@@ -48,6 +48,11 @@ Immutable architectural decision records live in [`docs/adr/`](docs/adr/); the
 decision, add a new numbered ADR there — do not edit an accepted one; supersede
 it.
 
+An accepted ADR keeps the names of its day. Two renames to carry when reading
+one: the harness crate was `rlevo-benchmarks` before ADR 0088 and is
+`rlevo-harness`, and the generation loop was `EvolutionaryHarness` before ADR
+0085 and is `EvolutionaryLoop`.
+
 ## Development Commands
 
 Standard cargo invocations. Formatting is enforced in CI (`cargo fmt --all --check`,

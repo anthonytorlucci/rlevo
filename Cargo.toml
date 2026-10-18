@@ -2,12 +2,12 @@
 resolver = "3"
 members = [
     "crates/rlevo",
-    "crates/rlevo-harness",
     "crates/rlevo-benchmarks-report-client",
     "crates/rlevo-core",
     "crates/rlevo-environments",
     "crates/rlevo-evolution",
     "crates/rlevo-examples",
+    "crates/rlevo-harness",
     "crates/rlevo-hybrid",
     "crates/rlevo-metrics-registry",
     "crates/rlevo-reinforcement-learning",
@@ -17,10 +17,10 @@ members = [
 
 default-members = [
     "crates/rlevo",
-    "crates/rlevo-harness",
     "crates/rlevo-core",
     "crates/rlevo-environments",
     "crates/rlevo-evolution",
+    "crates/rlevo-harness",
     "crates/rlevo-hybrid",
     "crates/rlevo-reinforcement-learning",
 ]

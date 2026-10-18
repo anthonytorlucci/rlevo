@@ -1,7 +1,7 @@
 //! [`RecordingReporter`] — harness-driven producer for the record
 //! surface.
 //!
-//! The benchmarks harness (`Suite` + `Evaluator`) drives the
+//! The evaluation harness (`Suite` + `Evaluator`) drives the
 //! [`Reporter`](crate::reporter::Reporter) trait; [`RecordingReporter`] turns those lifecycle
 //! events into [`RecordSink`] calls so that harness runs land
 //! per-episode files even when the env is not wrapped in

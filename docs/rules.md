@@ -19,13 +19,13 @@ Hard constraints and conventions that apply to every contribution. Read this bef
   - `rlevo-reinforcement-learning` — gradient-based RL algorithms + the RL-only `replay` strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`, `ReplayKind`) and `metrics` (`AgentStats`) modules. Depends on `rlevo-core`. `rlevo-environments` is a dev-dep only (used by examples / benches / integration tests).
   - `rlevo-evolution` — evolutionary strategy algorithms. Depends on `rlevo-core` (for `GenerationProbe`, `FitnessEvaluable`, `Landscape`, `SeedStream`). Depends on `parking_lot` for `SharedPopulationObserver`.
   - `rlevo-hybrid` — hybrid RL + EA approaches. Hosts `StatefulPolicy` / `ReactivePolicy` (the rollout-policy contract), `RolloutFitness`, and `PolicyNeuroevolution`. Depends on `rlevo-core` and `rlevo-evolution`. It does not depend on `rlevo-reinforcement-learning`: nothing in it trains a gradient learner yet, and a dependency arrives with the code that uses it.
-  - `rlevo-harness` — paradigm-neutral evaluation harness (light-touch dep on `rlevo-core`). Has optional `tui` (ratatui live dashboard), `report` (static-HTML Leptos viewer), and `record` (EpisodeRecord file writer) features; this is the **only** production crate permitted to carry viz deps, and only behind those feature gates.
+  - `rlevo-harness` — paradigm-neutral evaluation harness (light-touch dep on `rlevo-core`), named `rlevo-benchmarks` through 0.5.0 (ADR 0088). Has optional `tui` (ratatui live dashboard), `report` (static-HTML Leptos viewer), and `record` (EpisodeRecord file writer) features; this is the **only** production crate permitted to carry viz deps, and only behind those feature gates.
   - `rlevo-benchmarks-report-client` — WASM report client; mirrors `rlevo-harness`'s wire types for browser-side rendering. **Not in `default-members`**. Depends on `rlevo-metrics-registry`.
   - `rlevo-metrics-registry` — `#![no_std]`, zero-dependency leaf crate holding the typed `MetricDescriptor` table (name, kind, cadence, title, unit). Shared by `rlevo-harness` and `rlevo-benchmarks-report-client` as a single source of truth; eliminates the forked-metric-list footgun.
   - `rlevo` — public API re-export aggregator; includes `rlevo-core`, `rlevo-environments`, `rlevo-reinforcement-learning`, `rlevo-evolution`, `rlevo-hybrid`, and the evaluation harness `rlevo-harness`, re-exported as `rlevo::harness` at its default features (ADR 0084). Re-exports Burn as `rlevo::burn` and is where a Burn backend is selected, through its `flex` (default) and `wgpu` features (ADR 0080).
   - `rlevo-examples` — heavyweight example programs that need one of the harness's `tui` / `record` / `report` features, or a crate that is not published. **Not in `default-members`** — opt in with `-p rlevo-examples`. Has no public library surface of its own. (ADRs 0012, 0084)
   - `rlevo-test-support` — `publish = false`, dev-only crate holding shared cross-crate test scaffolding (`LinearEnv`, Flex backend helpers, seeded baseline runners, assertion macros). Never a prod dep of any shipped crate. **Not in `default-members`**. (ADR 0024)
-- `rlevo-core` is a contract crate: no algorithm or environment implementations land in it (as its bullet above states), and `util` remains its only shared-helper module. This is not a ban on executable code: a contract type enforces its own invariants, so validation and invariant-enforcement logic owned by a type defined here, and the bodies of provided trait methods, are part of the contract rather than exceptions to it (e.g. `probability.rs`, `rate.rs`, `bounds.rs`, `episode.rs`'s `EpisodeGuard`, `config.rs`'s constraint combinators). `util` holds exactly two tenants: the `combinations` / `checked_combinations` binomial helpers folded in, and `util::seed`'s deterministic seed-derivation primitives relocated from `rlevo-harness`.
+- `rlevo-core` is a contract crate: no algorithm or environment implementations land in it (as its bullet above states), and `util` remains its only shared-helper module. This is not a ban on executable code: a contract type enforces its own invariants, so validation and invariant-enforcement logic owned by a type defined here, and the bodies of provided trait methods, are part of the contract rather than exceptions to it (e.g. `probability.rs`, `rate.rs`, `bounds.rs`, `episode.rs`'s `EpisodeGuard`, `config.rs`'s constraint combinators). `util` holds exactly two tenants: the `combinations` / `checked_combinations` binomial helpers folded in, and `util::seed`'s deterministic seed-derivation primitives relocated from the harness crate (then `rlevo-benchmarks`) under ADR 0004.
 - All shared dependencies must be declared in the root `Cargo.toml` `[workspace.dependencies]` table. Crates inherit via `{ workspace = true }`.
 - Workspace resolver must remain `resolver = "3"`.
 - All crates share a single version and license `MIT OR Apache-2.0` via workspace inheritance (`[workspace.package]` in the root `Cargo.toml`).
@@ -233,15 +233,6 @@ This section is the **single decision authority** for where any test, bench, or 
 
 If one file does two of these (e.g. an example that also asserts), **split it** — an example is not a test, and a bench is not an example with timing prints.
 
-> **Terminology trap — "benchmark" means two different things in this workspace:**
-> - **`rlevo-harness`** (the *crate*) is the paradigm-neutral **evaluation harness** —
->   it runs agents against environments and reports fitness / performance / metrics. It is
->   **not** a home for `cargo bench` targets.
-> - **benches** (`benches/` dirs, `[[bench]]` targets, `criterion`) are **performance**
->   micro/throughput benchmarks and may live in any crate.
->
-> Never add a `[[bench]]` target to `rlevo-harness` "to match the name", and never put evaluation-harness logic in a `benches/` dir.
-
 ### Step 2 — Classify by scope, then place
 
 | Artifact         | Scope (what it touches)                                     | Lives in                                       | Run with                                       |
@@ -409,10 +400,10 @@ pattern-replace.** Leave alone:
 | `rand` | `rand::rng()` for thread-local RNG; `rng.random_range(0..n)` | `rand::thread_rng()` (deprecated) |
 | `rand_distr` | Advanced sampling distributions | Inline manual rejection sampling when a distribution exists |
 | `serde` | Derive `Serialize + Deserialize` on **concrete** domain types; declare a serde requirement at the consuming seam as a `where` clause (`env_tap.rs`: `where E::ActionType: Serialize + Clone`) | A serde **supertrait** on a domain trait (`Observation`, `Action`, `Reward`); manual `impl Serialize` unless unavoidable |
-| `tracing` | Structured logging in training loops and benchmarks | `println!` / `eprintln!` in library code |
+| `tracing` | Structured logging in training loops and the evaluation harness | `println!` / `eprintln!` in library code |
 | `approx` | Float comparisons in tests only | Float `==` comparisons anywhere |
 | `rapier2d` / `rapier3d` | Physics-based environment simulation | Direct FFI to Box2D or MuJoCo C libraries |
-| `criterion` | Micro-benchmarks as `dev-dependencies` in any crate; integration benchmark suites in `rlevo-harness` | Production dependencies; `harness = true` benches |
+| `criterion` | Micro-benchmarks as `dev-dependencies` in any crate; cross-crate throughput benches in `crates/rlevo/benches/` | Production dependencies; `harness = true` benches |
 | `parking_lot` | Shared observer/sink state in `rlevo-evolution` and `rlevo-harness`; `SharedPopulationObserver = Arc<parking_lot::Mutex<dyn PopulationObserver>>` | `std::sync::Mutex` for observer or record-sink types (lock-type split is a known footgun) |
 | `ratatui` + `crossterm` | Live **metrics-only** TUI dashboard (no env panel) in `rlevo-harness` behind the `tui` feature | Any crate other than `rlevo-harness`; ungated imports; rendering env state in the live TUI |
 | `leptos` | Static-HTML report tier in `rlevo-harness` behind the `report` feature (compiled to WASM, no runtime server) | Embedded live server; any production crate without the feature gate |
@@ -512,7 +503,7 @@ An example belongs in `crates/rlevo/examples/` **if and only if** everything it 
 | `rlevo-evolution`                                                   | Yes                           |
 | `rlevo-reinforcement-learning`                                      | Yes                           |
 | `rlevo-hybrid`                                                      | Yes                           |
-| `rlevo-harness` at default features (`Suite`, `Evaluator`, metrics, reporters) | Yes                |
+| `rlevo-harness` at default features (`Suite`, `Evaluator`, metrics, reporters)    | Yes                |
 | A harness `tui` / `record` / `report` feature                       | **No → `rlevo-examples`**     |
 | A crate that is not published (`rlevo-test-support`, the report client) | **No → `rlevo-examples`** |
 

@@ -2,7 +2,8 @@
 
 ![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
-Reproducible benchmarking harness for the `rlevo` workspace.
+Reproducible evaluation harness for the `rlevo` workspace, reached from the
+umbrella as `rlevo::harness`. Through 0.5.0 this crate was named `rlevo-benchmarks`.
 
 This crate provides a deterministic, parallelisable evaluation framework for testing reinforcement-learning and evolutionary-optimisation agents across one or more environments. A single `base_seed` fans out to per-trial seeds via splitmix64 so results are reproducible regardless of thread scheduling. Completed trials can be checkpointed and resumed without recomputation.
 
@@ -45,9 +46,11 @@ Suite<E>
 | `EpisodicTrial<E, A, D, SD, AD>` | Rolls an `Environment` out against a `BenchableAgent` for `num_episodes` episodes |
 | `GenerationTrial<P>` | Drives a `GenerationProbe` to its budget; reports no episodes |
 
-`BenchEnv`/`BenchStep`/`BenchError` and the `rlevo_harness::env` alias module were **removed** by ADR 0077, once the `Trial` seam left them with no implementors. ADR 0075 had already retired their stated rationale: the trait was object-safe, but its erasure removed only the const-generic ranks while `Observation` and `Action` survived it — and those are exactly what differ between environments, so it could never have carried the heterogeneous suite it was justified by.
+`BenchEnv`/`BenchStep`/`BenchError` and this crate's `env` alias module were **removed** by ADR 0077, once the `Trial` seam left them with no implementors. ADR 0075 had already retired their stated rationale: the trait was object-safe, but its erasure removed only the const-generic ranks while `Observation` and `Action` survived it — and those are exactly what differ between environments, so it could never have carried the heterogeneous suite it was justified by.
 
-### `agent` — Agent Interface
+### Agent and fitness traits
+
+The traits a trial drives are part of the contract, so they live in `rlevo-core`, in `rlevo_core::fitness` (`rlevo::core::fitness` through the umbrella). This crate has no module of its own for them.
 
 | Trait | Description |
 |-------|-------------|
@@ -77,9 +80,9 @@ Suite<E>
 | `EnvFactory<E>` | `Arc`-wrapped `Fn(u64) -> E` — constructs a fresh env from a seed |
 | `TrialKey` | `(env_idx, trial_idx)` — uniquely identifies a trial |
 
-### `seed` — Deterministic Seeding
+### Deterministic seeding
 
-`SeedStream` derives independent seeds for every trial, environment, and agent from a single `base_seed` using the splitmix64 finaliser. Because each derivation is a pure function of `(base_seed, env_idx, trial_idx)`, outputs are identical regardless of thread scheduling.
+`SeedStream`, in `rlevo_core::util::seed`, derives independent seeds for every trial, environment, and agent from a single `base_seed` using the splitmix64 finaliser. Because each derivation is a pure function of `(base_seed, env_idx, trial_idx)`, outputs are identical regardless of thread scheduling.
 
 | Method | Returns |
 |--------|---------|
@@ -115,7 +118,7 @@ The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_star
 
 | Reporter | Feature gate | Behaviour |
 |----------|-------------|-----------|
-| `LoggingReporter` | always | Emits structured `tracing::info!` events |
+| `LoggingReporter` | always | Emits structured `tracing::info!` events under the target `rlevo_harness` |
 | `JsonReporter` | `json` | Buffers events; writes a single JSON document atomically at suite end |
 | `TuiReporter` | `tui` | Sends `TuiEvent` values over an mpsc channel for terminal-UI consumption |
 | `RecordingReporter` | `record` | Drives the on-disk `EpisodeRecord` writer; pairs with `RecordingTap` + `RecordingLayer` |
@@ -226,16 +229,27 @@ To use the harness without the rest of `rlevo`, add to your `Cargo.toml`:
 rlevo-harness = { path = "../rlevo-harness" }
 ```
 
+### Moving from `rlevo-benchmarks`
+
+Through 0.5.0 this crate was published as `rlevo-benchmarks` (ADR 0088). A project that depends on it directly changes three things: the dependency line, every feature that names the crate (`rlevo-benchmarks/tui`, `rlevo-benchmarks/record`, `dep:rlevo-benchmarks`), and the first segment of its paths, from `rlevo_benchmarks::` to `rlevo_harness::`. Cargo's `package` key keeps the old local name, so the paths and feature entries go on working until they are changed, except the paths through `agent` and `seed`: those two modules were aliases for traits and a type that moved to `rlevo-core` under ADR 0004, and the rename removed them (ADR 0088). Import `BenchableAgent`, `FitnessEvaluable` and `Landscape` from `rlevo_core::fitness`, and `SeedStream` from `rlevo_core::util::seed`.
+
+```toml
+[dependencies]
+rlevo-benchmarks = { package = "rlevo-harness", path = "../rlevo-harness" }
+```
+
+The harness's `tracing` events carry the target `rlevo_harness` where they carried `rlevo_benchmarks`. A log filter on the old target matches nothing and no build fails, so change it with the rest.
+
 ### Minimal example — $\epsilon$-greedy bandit
 
 ```rust
 use rlevo_harness::{
-    agent::BenchableAgent,
     evaluator::{Evaluator, EvaluatorConfig},
     reporter::logging::LoggingReporter,
     suite::Suite,
 };
 use rlevo_core::environment::Environment;
+use rlevo_core::fitness::BenchableAgent;
 
 // 1. Implement `rlevo_core::environment::Environment` for your env, with
 //    `RewardType = ScalarReward`. The evaluator infers the rank parameters

@@ -1,6 +1,6 @@
 //! Drive seams consumed by external evaluators.
 //!
-//! [`GenerationProbe`] is the seam a benchmarking harness uses to run work that
+//! [`GenerationProbe`] is the seam an evaluation harness uses to run work that
 //! paces itself — an evolutionary generation loop, most concretely — rather
 //! than an episodic agent/environment interaction. Episodic work is driven
 //! through [`Environment`] and [`Snapshot`] directly; the evaluator binds on

@@ -20,8 +20,8 @@
 //!    not an environment, so no recording tap wraps one (ADR 0081).
 //!
 //! Wire-format conversion (snapshot → `FamilyPayload`) lives in
-//! `rlevo-harness::record` so the wire layer stays owned by the
-//! benchmarks crate. `rlevo-core` knows nothing about bincode.
+//! `rlevo_harness::record` so the wire layer stays owned by the
+//! harness crate. `rlevo-core` knows nothing about bincode.
 //!
 //! [`AsciiRenderable`]: super::AsciiRenderable
 
@@ -123,7 +123,7 @@ pub struct Box2dSnapshot {
 }
 
 /// Producer-side trait. A box2d env implements this when it wants its
-/// recording to ship a `FamilyPayload::Box2D` instead of `Ascii`.
+/// recording to ship a `FamilyPayload::Box2dBodies` instead of `Ascii`.
 pub trait Box2dPayloadSource {
     /// Returns a [`Box2dSnapshot`] capturing the current frame.
     fn box2d_snapshot(&self) -> Box2dSnapshot;
