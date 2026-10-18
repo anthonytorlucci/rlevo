@@ -15,21 +15,22 @@
 //! | [`gwo`] | Grey Wolf Optimizer | Real | Legacy comparator |
 //! | [`woa`] | Whale Optimization Algorithm | Real | Legacy comparator |
 //! | [`cuckoo`] | Cuckoo Search | Real | Lévy flights + random walk |
-//! | [`firefly`] | Firefly Algorithm | Real | Useful for multimodal |
+//! | [`firefly`] | Firefly Algorithm | Real | Legacy comparator |
 //! | [`bat`] | Bat Algorithm | Real | Legacy comparator |
 //! | [`salp`] | Salp Swarm Algorithm | Real | Legacy comparator |
 //!
 //! # Calibration
 //!
 //! Not every algorithm in this module is competitive on serious
-//! benchmarks. Several (GWO, WOA, BA, SSA) are flagged as
-//! "legacy comparator" in their module docs: GWO and BA per Camacho
+//! benchmarks. Several (GWO, WOA, FA, BA, SSA) are flagged as
+//! "legacy comparator" in the table above: GWO, FA and BA per Camacho
 //! Villalón et al. (2020), WOA per Camacho Villalón et al. (2023) — the
 //! 2020 paper covers only GWO/FA/BA, not WOA — and SSA per Sörensen
 //! (2015)'s general metaphor critique plus Castelli et al. (2022), since
 //! neither Camacho Villalón paper analyzes SSA. The library ships them
 //! because they are widely cited; users asking "which one should I pick?"
-//! should start with [`pso`] and move to CMA-ES or LSHADE once those land.
+//! should start with [`pso`] and move to
+//! [`cma_es`](crate::algorithms::cma_es) if PSO is not enough.
 //!
 //! See `README.md` in this module's source directory for the full
 //! calibration table and prose guidance.

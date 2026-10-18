@@ -63,7 +63,7 @@ viz-tui = ["rlevo-harness/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
 # `record` transitively in rlevo-harness; `rlevo-environments/record` adds
 # the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
-# umbrella forwards only the two products (ADR-0013 §5).
+# umbrella forwards only the two products (ADR-0013, Decision 5).
 viz-report = ["rlevo-harness/report", "rlevo-environments/record"]
 
 [lints]

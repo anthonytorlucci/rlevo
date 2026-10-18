@@ -1,12 +1,15 @@
 //! Bincode-compatible mirror of `rlevo_harness::record::schema`.
 //!
 //! The native record schema is gated behind `feature = "record"` in
-//! `rlevo-harness`, which itself doesn't compile to `wasm32` because
-//! `rand`/`getrandom` need the `js` feature there. Rather than restructure
-//! the workspace, the client redeclares the wire types here. The
-//! cross-crate compatibility test in `rlevo-harness` round-trips a
-//! populated `EpisodeRecord` between the two representations on every
-//! `cargo test` to guarantee they stay byte-identical.
+//! `rlevo-harness`, which itself doesn't compile to `wasm32-unknown-unknown`
+//! because `rand` pulls in `getrandom`, which needs its `wasm_js` feature
+//! there. Rather than restructure the workspace, the client redeclares the
+//! wire types here. The cross-crate compatibility test in `rlevo-harness`
+//! (`tests/wire_format_compat.rs`) round-trips a populated
+//! `EpisodeRecord` between the two representations to guarantee they
+//! stay byte-identical. The test compiles only under the harness's
+//! `record` feature, which is not a default: `cargo xtask test-fast`
+//! enables it, and a plain `cargo test` does not run the test.
 //!
 //! **Sync contract:** these struct/enum definitions MUST stay in
 //! lockstep with `rlevo-harness/src/record/schema.rs`. Field order,

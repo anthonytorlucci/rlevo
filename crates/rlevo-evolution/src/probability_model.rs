@@ -6,8 +6,8 @@
 //! generation fits a model to the selected individuals and then samples a
 //! fresh population from it. This module defines the seam between the
 //! generic [`crate::algorithms::eda::EdaStrategy`] driver and the concrete
-//! model implementations (univariate Gaussian, Bernoulli, compact-GA, and a
-//! dependency-chain MIMIC model).
+//! model implementations (univariate Gaussian, Bernoulli, compact-GA, a
+//! dependency-chain MIMIC model, and a BIC-scored Bayesian network).
 
 use std::fmt::Debug;
 
@@ -26,13 +26,17 @@ use rand::Rng;
 /// ([`Params`](Self::Params), e.g. learning rates, initial means) from the
 /// *evolving* fitted statistics ([`State`](Self::State), e.g. per-dimension
 /// means and variances). [`State`](Self::State) is deliberately `Sync` (a
-/// stronger bound than the `Send`-only [`crate::Strategy::State`]) so a future
-/// covariance-carrying CMA-ES state can be shared across threads; the same
-/// `fit`/`sample` shape is intended to host that model unchanged.
+/// stronger bound than the `Send`-only [`crate::Strategy::State`]) so the state
+/// of a future covariance-carrying model, such as a full-covariance Gaussian
+/// EDA (EMNA), can be shared across threads; the same `fit`/`sample` shape is
+/// intended to host that model unchanged. CMA-ES is a self-contained `Strategy`
+/// and does not implement this trait (ADR 0021).
 ///
 /// The `fitness` tensor is passed to [`fit`](Self::fit) so models that weight or rank the selected
-/// individuals (rank-`$\mu$` updates, weighted MLE) can use it. The univariate models shipped here
-/// perform an unweighted maximum-likelihood fit and ignore it.
+/// individuals (rank-`$\mu$` updates, weighted MLE) can use it. None of the models shipped here
+/// weights its fit: PBIL (`UnivariateBernoulli`) and cGA (`CompactGenetic`) read it only to find
+/// the best and worst selected row, and UMDA (`UnivariateGaussian`), MIMIC (`DependencyChain`) and
+/// BOA (`BayesianNetwork`) ignore it.
 ///
 /// # Invariants
 ///
@@ -49,14 +53,14 @@ use rand::Rng;
 ///   with `Tensor::from_data`.
 /// - **Selection order.** The population rows handed to [`fit`](Self::fit) by
 ///   [`EdaStrategy`](crate::algorithms::eda::EdaStrategy)'s `tell` arrive in
-///   *ascending-fitness*
-///   order (best first), deterministically. Models that need the best or worst
-///   row (e.g. PBIL, cGA) must still compute argmin/argmax themselves rather
-///   than assume a fixed index — the ascending order is a convenience, not a
-///   contract a model may hard-code against.
+///   *descending-fitness* order (best first), deterministically. Models that
+///   need the best or worst row (e.g. PBIL, cGA) must still compute
+///   argmin/argmax themselves rather than assume a fixed index — the
+///   descending order is a convenience, not a contract a model may hard-code
+///   against.
 /// - **`Sync` state.** [`State`](Self::State) requires `Sync`, deliberately
 ///   exceeding [`crate::Strategy::State`]'s `Send`-only bound, to leave room for
-///   a future thread-shared CMA-ES state.
+///   a future thread-shared full-covariance (EMNA) state.
 /// - **Sanitized input assumed.** [`fit`](Self::fit) and
 ///   [`sample`](Self::sample) are infallible by design. The
 ///   [`EdaStrategy`](crate::algorithms::eda::EdaStrategy) driver sanitizes
@@ -107,9 +111,9 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
     /// When `prev = None` the returned state is a prior derived purely from
     /// `params` (see the trait [`Invariants`](Self#invariants)); `population`
     /// and `fitness` are ignored on that path. Otherwise the model is refit to
-    /// the supplied selected rows (ascending fitness order). `fitness` is
-    /// available for weighted or rank-based updates; unweighted models ignore
-    /// it.
+    /// the supplied selected rows (descending fitness order, best first).
+    /// `fitness` is available for weighted or rank-based updates; a model that
+    /// makes neither may ignore it.
     fn fit(
         &self,
         params: &Self::Params,

@@ -24,7 +24,7 @@ Key components:
 |------|---------|
 | `dqn_config.rs` | `DqnTrainingConfig` + `DqnTrainingConfigBuilder` |
 | `dqn_model.rs` | `DqnModel` Burn `Module` trait |
-| `dqn_agent.rs` | `DqnAgent` — act / remember / learn |
+| `dqn_agent.rs` | `DqnAgent` — `act` / `remember` / `learn_step` |
 | `exploration.rs` | `EpsilonGreedy` schedule (shared with C51, QR-DQN) |
 | `train.rs` | End-to-end training loop |
 
@@ -62,7 +62,7 @@ Key components:
 |------|---------|
 | `c51_config.rs` | `C51TrainingConfig` + `C51TrainingConfigBuilder` |
 | `c51_model.rs` | `C51Model` Burn `Module` trait |
-| `c51_agent.rs` | `C51Agent` — act / remember / learn |
+| `c51_agent.rs` | `C51Agent` — `act` / `remember` / `learn_step` |
 | `projection.rs` | `project_distribution` — Bellman projection onto atom support |
 | `loss.rs` | `categorical_cross_entropy_per_sample` loss |
 | `train.rs` | End-to-end training loop |
@@ -96,7 +96,7 @@ Key components:
 |------|---------|
 | `qrdqn_config.rs` | `QrDqnTrainingConfig` + `QrDqnTrainingConfigBuilder` |
 | `qrdqn_model.rs` | `QrDqnModel` Burn `Module` trait |
-| `qrdqn_agent.rs` | `QrDqnAgent` — act / remember / learn |
+| `qrdqn_agent.rs` | `QrDqnAgent` — `act` / `remember` / `learn_step` |
 | `quantile_loss.rs` | `quantile_huber_loss_per_sample` |
 | `train.rs` | End-to-end training loop |
 
@@ -128,7 +128,7 @@ formula that is not implemented here; it is not reachable by setting
 
 **Module:** `algorithms::ppo`
 
-Schulman et al.'s on-policy policy-gradient algorithm with a clipped surrogate objective. Supports both discrete and continuous action spaces through two built-in policy heads: `CategoricalPolicyHead` (softmax over logits) and `TanhGaussianPolicyHead` (state-independent `log_std` with $\text{scale} \cdot \tanh(z)$ squashing). The rollout buffer computes GAE advantages; the update step runs `update_epochs` passes over `num_minibatches`-sized minibatches with an optional early-stop on `approx_kl`. Implementation details follow Huang et al. 2022.
+Schulman et al.'s on-policy policy-gradient algorithm with a clipped surrogate objective. Supports both discrete and continuous action spaces through two built-in policy heads: `CategoricalPolicyHead` (softmax over logits) and `TanhGaussianPolicyHead` (state-independent `log_std` with $\text{scale} \cdot \tanh(z)$ squashing). The rollout buffer computes GAE advantages; the update step runs `update_epochs` passes over the shuffled rollout in minibatches of `minibatch_size()` transitions (rollout length divided by the `num_minibatches` count), with an optional early-stop on `approx_kl`. Implementation details follow Huang et al. 2022.
 
 Key components:
 
@@ -170,7 +170,8 @@ training-config fields — they live on `TanhGaussianPolicyHeadConfig`, the conf
 consumed to build the head and where the $\text{scale} \cdot \tanh(z)$ squash is applied
 (ADR 0049). Build the head with `try_init`, which validates the config first;
 there is deliberately no infallible `init`, since that would reopen the same
-bypass — a config with `log_std_min == log_std_max` reaching a built head.
+bypass — a config with a zero-width `log_std` range (`lo == hi`) reaching a
+built head.
 
 `clip_grad` is the only gradient-clipping knob and is **off by default**. Burn's
 `GradientClippingConfig::Norm` clips per tensor, not across the global flattened
@@ -201,10 +202,10 @@ Key components:
 | File | Purpose |
 |------|---------|
 | `ppg_config.rs` | `PpgConfig` + `PpgConfigBuilder` (wraps `PpoTrainingConfig`) |
-| `ppg_policy.rs` | `PpgPolicy` trait with auxiliary-value head accessor |
+| `ppg_policy.rs` | `PpgAuxValueHead` trait — `aux_value` head + raw `logits` for the distillation KL |
 | `policies/categorical.rs` | `PpgCategoricalPolicyHead` (currently discrete-only) |
-| `aux_buffer.rs` | `AuxBuffer` accumulating rollouts between auxiliary phases |
-| `losses.rs` | Auxiliary-phase losses (value, behavioural cloning / KL) |
+| `aux_buffer.rs` | `AuxRolloutBuffer` accumulating rollouts between auxiliary phases |
+| `losses.rs` | `policy_kl_categorical` — behavioural-cloning / KL distillation loss (the value losses are PPO's) |
 | `ppg_agent.rs` | `PpgAgent` — policy-phase + auxiliary-phase updates |
 | `train.rs` | End-to-end training loop |
 
@@ -237,7 +238,7 @@ Key components:
 | `ddpg_config.rs` | `DdpgTrainingConfig` + `DdpgTrainingConfigBuilder` |
 | `ddpg_model.rs` | `DeterministicPolicy` actor trait + `ContinuousQ` critic trait |
 | `exploration.rs` | `GaussianNoise` (shared with TD3) |
-| `ddpg_agent.rs` | `DdpgAgent` — act / remember / learn |
+| `ddpg_agent.rs` | `DdpgAgent` — `act` / `remember` / `learn_step` |
 | `train.rs` | End-to-end collect-learn loop with warm-up |
 
 Default hyperparameters follow CleanRL:
@@ -272,8 +273,8 @@ Key components:
 | File | Purpose |
 |------|---------|
 | `td3_config.rs` | `Td3TrainingConfig` + `Td3TrainingConfigBuilder` |
-| `td3_model.rs` | Re-exports / aliases atop `ddpg::ddpg_model` for twin-critic setups |
-| `target_smoothing.rs` | `smooth_target_actions` — clipped Gaussian noise on target actor |
+| `td3_model.rs` | Re-exports `DeterministicPolicy` + `ContinuousQ` from `ddpg::ddpg_model` |
+| `target_smoothing.rs` | `smoothed_target_action` — clipped Gaussian noise on target actor |
 | `td3_agent.rs` | `Td3Agent` — twin critics + delayed actor update |
 | `train.rs` | End-to-end collect-learn loop |
 
@@ -303,7 +304,7 @@ Key components:
 | File | Purpose |
 |------|---------|
 | `sac_config.rs` | `SacTrainingConfig` + `SacTrainingConfigBuilder` |
-| `sac_model.rs` | `ContinuousQ` critic trait (SAC uses twin critics) |
+| `sac_model.rs` | `SquashedGaussianPolicy` actor trait + `SampleOutput`; re-exports the `ContinuousQ` critic trait (SAC uses twin critics) |
 | `sac_policy.rs` | `SquashedGaussianPolicyHead` stochastic actor |
 | `sac_alpha.rs` | `LogAlpha` — learnable log-temperature with auto-tuning toward `target_entropy` |
 | `sac_agent.rs` | `SacAgent` — twin-critic updates + entropy-regularised actor loss |
@@ -331,8 +332,8 @@ The squashed-Gaussian head's $\log \sigma$ clamp range (`log_std: Bounds::new(-5
 `SquashedGaussianPolicyHeadConfig`, the config consumed to build the head and
 where the clamp is applied. Build the head with `try_init`, which validates the
 config first; there is deliberately no infallible `init`, since that would
-reopen the same bypass — a config with `log_std_min == log_std_max` reaching
-a built head.
+reopen the same bypass — a config with a zero-width `log_std` range
+(`lo == hi`) reaching a built head.
 
 **References**
 
@@ -344,13 +345,13 @@ a built head.
 
 ## Planned / Deferred Algorithms
 
-The following algorithms are deferred stubs — scope is parked until prerequisites land.
+The following algorithms are planned but not implemented; this crate has no code for them yet.
 
 | Algorithm | Family | Action space | Status |
 |-----------|--------|-------------|--------|
-| Rainbow | Distributional value | Discrete | Deferred stub |
-| RND | Exploration | Discrete | Deferred stub |
-| QDagger | Distillation | Discrete | Deferred stub |
+| Rainbow | Distributional value | Discrete | Not implemented |
+| RND | Exploration | Discrete | Not implemented |
+| QDagger | Distillation | Discrete | Not implemented |
 
 ---
 
@@ -366,9 +367,9 @@ Every agent holds its trainable networks in a `Slot<M>`. Burn's `Optimizer::step
 
 ### Utilities (`utils`)
 
-`compute_target_q_values` — Bellman target computation shared by DQN variants.
+`compute_target_q_values` — one-step Bellman target computation, called by DQN, DDPG, TD3, and SAC. QR-DQN uses its quantile-vector sibling `compute_target_quantiles`; C51 projects a distribution instead (`project_distribution`).
 
-`polyak_update` — soft target-network update ($\theta_{target} \leftarrow \tau\theta + (1-\tau)\theta_{target}$) shared by DDPG, TD3, and SAC.
+`polyak_update` — soft target-network update ($\theta_{target} \leftarrow \tau\theta + (1-\tau)\theta_{target}$) for model implementors. No agent calls it directly: the agents call their model trait's `soft_update` (`DqnModel`, `C51Model`, `QrDqnModel`, `DeterministicPolicy`, `ContinuousQ`), and an implementation of `soft_update` typically delegates to `polyak_update`.
 
 ### Experience Replay (`replay`)
 
@@ -411,7 +412,7 @@ Episode-level outcome tracking for training loops. Moved here from `rlevo-core` 
 |------|-------------|
 | `PerformanceRecord` | Per-episode outcome: `score() -> f32`, `duration() -> usize` |
 | `AgentStats<T>` | Running counters (`total_episodes`, `total_steps`, `best_score`) with a configurable sliding-window average (`avg_score`) |
-| `AgentStats::finite_avg_score` | The same window average over its **finite** entries only, paired with `non_finite_recent_len` (the count of what was excluded). `avg_score` deliberately transits a `NaN`/$\pm\infty$ score as a detection channel (ADR 0065 §Decision 4); reach for this pair when *reporting* a curve rather than *detecting* a problem (ADR 0070) |
+| `AgentStats::finite_avg_score` | The same window average over its **finite** entries only, paired with `non_finite_recent_len` (the count of what was excluded). `avg_score` deliberately transits a `NaN`/$\pm\infty$ score as a detection channel (ADR 0065, Decision 4); reach for this pair when *reporting* a curve rather than *detecting* a problem (ADR 0070) |
 | `AgentStats::finite_best_score` | The **lifetime** best score over `is_finite()` episodes only (`None` until something finite is recorded), paired with `non_finite_episodes` — a **monotone lifetime** count that never heals, deliberately unlike the windowed, self-healing `non_finite_recent_len`. `best_score` latches a $+\infty$ score **permanently** by decision: `f32::max` discards a `NaN` operand but propagates $+\infty$, and the best is never evicted by the window. It is left that way because $+\infty$ *is* the true maximum observed — filtering under that name would report a number the run contradicts (ADR 0061, ADR 0071) |
 
 ---
@@ -424,21 +425,23 @@ Every algorithm follows the same config pattern:
 // Default config (CleanRL reference values)
 let cfg = DqnTrainingConfig::default();
 
-// Builder for custom overrides
+// Builder for custom overrides; `build()` validates the config and returns
+// `Result<DqnTrainingConfig, ConfigError>`
 let cfg = DqnTrainingConfigBuilder::new()
     .learning_rate(0.0005)
     .batch_size(64)
     .double_q(true)
-    .build();
+    .build()
+    .expect("valid config");
 ```
 
-All config structs are `Clone + Debug`. Serde support is planned.
+All config structs are `Clone + Debug`. The replay configs (`UniformReplayConfig`, `PrioritizedReplayConfig`) and `PrioritizedReplaySettings` also derive `Serialize` / `Deserialize`; the training configs and the policy-head configs do not.
 
 ---
 
 ## Reproducibility
 
-- Every stochastic entry point (`act`, `learn`, `sample`) takes an explicit `rng` — no thread-locals or module-owned RNG.
+- Every stochastic entry point (`act`, `learn_step`, `sample`) takes an explicit `rng` — no thread-locals or module-owned RNG.
 - `flex` backend is bit-deterministic; `wgpu` is within `1e-5` relative tolerance.
 - Unit tests that assert exact equality run on `flex`.
 

@@ -5,7 +5,7 @@
 //! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, `TensorConvertible`
 //! - [`envs`] — benchmark environments: classic control, gridworlds, `Box2D` physics, locomotion
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay and metrics modules they consume)
-//! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP
+//! - [`evo`] — evolutionary algorithms: GA, ES, CMA-ES, DE, EP, GP, swarm metaheuristics, EDAs, memetic, neuroevolution, co-evolution
 //! - [`hybrid`] — combined evolutionary + RL strategies
 //! - [`harness`] — the evaluation harness: `Suite`, `Evaluator`, metrics and reporters
 //!

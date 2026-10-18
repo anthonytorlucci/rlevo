@@ -3,7 +3,7 @@
 ![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
 Leptos/WASM client for the [rlevo-harness](../rlevo-harness/) static-HTML
-report (Milestone 5.1).
+report.
 
 This crate is **not** a build-time or runtime dependency of any production
 `rlevo` crate. It produces a WASM blob + JS shim + CSS bundle that the
@@ -39,7 +39,7 @@ The host-side emitter loads these via `ClientAssets::from_trunk_dist(&dir)`.
 
 ## Architecture
 
-The client decodes the four stable `<script>` block ids the M5 emitter
+The client decodes the four stable `<script>` block ids the emitter
 inlines into every report:
 
 | Script id | Type | Content |
@@ -52,8 +52,12 @@ inlines into every report:
 `src/wire.rs` is a **bincode-compatible mirror** of
 `rlevo-harness::record::schema`. The cross-crate test
 `tests/wire_format_compat.rs` in the host crate round-trips a populated
-record through both sides on every `cargo test`, so any field-order or
-field-type drift fails the host test suite.
+record through both sides, so any field-order or field-type drift fails
+the host test suite. The test compiles only with the host crate's
+`record` feature, which is off by default: `cargo xtask test-fast`
+enables it, and a plain `cargo test` does not run the test. The client
+decodes only records whose format version equals its own
+`FORMAT_VERSION`.
 
 `src/inline_data.rs` is the DOM glue — `read_manifest()` /
 `read_episode_index()` / `read_warnings()` / `read_episode_record(id)`.
@@ -61,10 +65,9 @@ field-type drift fails the host test suite.
 `src/app.rs` is the Leptos app: manifest header + warnings banner +
 interactive episode table + per-episode detail pane.
 
-## M6 — per-family playback adapters
+## Per-family playback adapters
 
-M5.1 shipped a static frame dump; **M6** turns the per-episode detail
-pane into a true playback surface:
+The per-episode detail pane is a playback surface:
 
 - **Timeline scrubber** (`<input type="range">`) drives a `frame_idx`
   Leptos signal across `record.frames`.
@@ -82,7 +85,7 @@ pane into a true playback surface:
   - `Classic` (CartPole / MountainCar / Pendulum / Acrobot).
   - `Grids` (Minigrid-style envs — agent heading glyphs, walls, goals, hazards).
   - `ToyText` (FrozenLake, CliffWalking, Taxi, Blackjack — tile grid + agent).
-  - Box2d / Landscapes / Locomotion ship M7 SVG adapters — see below.
+  - Box2d / Landscapes / Locomotion — see below.
   - Any future family hits the generic fallback adapter until a
     dedicated one lands.
 
@@ -91,12 +94,10 @@ The umbrella crate ships one combined example per covered family —
 `report_toy_text_with_client` — each of which records a run and wraps it
 into a single-file HTML report in one binary (see `rlevo-examples`).
 
-## M7 — per-family SVG adapters for box2d, landscapes, locomotion
+## Per-family SVG adapters for box2d, landscapes, locomotion
 
-M7 lights up the report tier for the three remaining 2D families. The
-wire format bumps to **`FORMAT_VERSION = 2`** — M6 records (version 1)
-still decode through the same loader because `FamilyPayload::Ascii`
-stays at bincode tag 0, so the v1 tag layout is preserved.
+Box2d, landscapes and locomotion each carry a `FamilyPayload` variant
+that the family's SVG adapter draws:
 
 - **`Landscape2D`** payload — search-domain bounds, current candidate,
   best-so-far, capped trail, landscape label. The
@@ -131,30 +132,26 @@ Envs become payload sources by implementing one of:
 `with_box2d_payload(env, sink)` / `with_locomotion_payload(env, sink)` —
 that wire the snapshot into every captured frame. A landscape is not an
 environment, so it has no source trait and no constructor; a
-`Landscape2D` payload is built by the caller. Locomotion routes through a new
+`Landscape2D` payload is built by the caller. Locomotion routes through the
 `RecordingTap::new_headless` constructor that drops the
 `AsciiRenderable` bound; ASCII / styled fields ship as `None` and the
-M7 SVG is the only rendering pathway.
+SVG adapter is the only rendering pathway.
 
-The umbrella crate ships one combined M7 example per family:
+The umbrella crate ships one combined example per family:
 
 - `report_sphere_landscape_with_client` (writes via `RecordSink` directly
   — landscapes are pure fitness functions, not Environments).
 - `report_inverted_pendulum_with_client`.
 - `report_lunar_lander_with_client`.
 
-## M8 — convergence plots
+## Convergence plots
 
-M8 lights up the report tier's training-diagnostic surface: a new
-**Convergence** section between the episode table and the per-episode
-playback pane renders per-run scalar charts as hand-rolled pure-Rust
-SVG (`src/charts.rs` / `src/series.rs`) — no JS interop and no charting
-dependency, per umbrella spec §3 constraint #6. (`leptos-chartistry`
-was evaluated but dropped: its 0.2 `Line`/`Bar` primitives don't cover
-the box-plot and $\pm$std-band panels, so the whole chart layer is
-hand-rolled — it appears nowhere in `Cargo.toml`.) Wire format is
-unchanged — every panel below consumes data already in the M4-era
-record (`MetricSample` stream, per-frame rewards).
+The **Convergence** section, between the episode table and the
+per-episode playback pane, renders per-run scalar charts. Every chart in
+the report is hand-rolled pure-Rust SVG (`src/charts.rs` /
+`src/series.rs`), with no JS interop and no charting dependency. The
+panels below are computed from the record's frames and its
+`MetricSample` stream.
 
 Panel inventory (default visible):
 
@@ -186,48 +183,38 @@ block referenced by the index on first call and caches the result in a
 failures are skipped so a single malformed episode does not blank the
 panel grid.
 
-### New umbrella example
+### Umbrella example
 
 `report_ppo_cartpole_with_client` runs a headless 12 k-step PPO
 training cycle on CartPole, wiring `RecordingTap` for frames and
 `RecordingLayer` for the canonical metric stream, then emits the
-single-file report in one shot — the natural M8 demo because it
-exercises every RL canonical metric in `CANONICAL_METRICS`.
+single-file report in one shot — the natural demo for these panels
+because it exercises every RL canonical metric in `CANONICAL_METRICS`.
 
-## M8.1 — population panels
+## Population panels
 
-M8.1 closes the EA-side half of the M8 spec row: a new **Population**
-section lands between the M8 Convergence section and the per-episode
-playback pane. Wire format bumps to **`FORMAT_VERSION = 3`** to carry a
-new [`PopulationSample`](../rlevo-harness/src/record/schema.rs) chunk
-(bincode tag 2). v1 and v2 records continue to decode through the v3
-loader because the new chunk tag never appears in older streams.
-
-> The record format has since advanced to **`FORMAT_VERSION = 7`** (ADR
-> 0014 — typed run-provenance fields, expanded canonical metrics,
-> checkpoint refs, `EpisodeKind { Training, Evaluation }`). `src/wire.rs`
-> mirrors the current schema, and the host crate's
-> `tests/wire_format_compat.rs` round-trip fails on any field drift.
+The **Population** section sits between the Convergence section and the
+per-episode playback pane. It draws the
+[`PopulationSample`](../rlevo-harness/src/record/schema.rs) chunks
+(bincode tag 2) an EA run records once per generation.
 
 Panel inventory (rendered when `population_samples` is non-empty in
 the run):
 
-- **Fitness distribution per generation** — hand-rolled SVG box plot
-  (no charting dependency — see the M8 note; the box-plot, whisker, and
-  outlier primitives have no off-the-shelf equivalent). Per generation: filled
-  `[Q1, Q3]` rectangle, horizontal median tick, vertical whiskers
-  clipped at the Tukey $1.5\times$IQR fence, outliers as small open circles.
-  Three overlay polylines (best / median / worst) pair colour with
-  distinct dash patterns (`solid` / `4 2` / `1 3`) so the trio is
-  distinguishable in a B/W screenshot — the project's hue-redundant
-  a11y contract.
+- **Fitness distribution per generation** — hand-rolled SVG box plot.
+  Per generation: filled `[Q1, Q3]` rectangle, horizontal median tick,
+  vertical whiskers clipped at the Tukey $1.5\times$IQR fence, outliers
+  as small open circles. Three overlay polylines (best / median / worst)
+  pair colour with distinct dash patterns (`solid` / `4 2` / `1 3`) so
+  the trio is distinguishable in a B/W screenshot — the project's
+  hue-redundant a11y contract.
 - **Diversity trace** — `(generation, diversity)` scalar series, one
   point per sample that carries a diversity value. Suppressed when no
-  sample provides one (M8.1 emits `None` from the loop — see
-  M8.2 deferral below).
+  sample provides one (`EvolutionaryLoop` emits `None` — see
+  *Diversity computation* under Still deferred below).
 - **Selection-pressure indicator** — `best / median` ratio per
-  generation, skipping zero-median degeneracy. Reuses the M8
-  `interactive_line_view`.
+  generation, skipping zero-median degeneracy. Reuses the Convergence
+  section's `interactive_line_view`.
 
 ### Producer surface
 
@@ -253,7 +240,7 @@ when an observer is attached; observerless runs are unchanged.
 
 No shipping example currently wires `PopulationReporter` end-to-end into
 a report-client HTML report; `report_sphere_landscape_with_client`
-exercises the M7 landscape playback surface but does not attach a
+exercises the landscape playback surface but does not attach a
 population observer, so its reports have no Population section. Wiring
 a GA-on-Sphere example with `.with_observer(reporter.clone())` plus
 `RecordingLayer` for the canonical EA metrics (`best_fitness` /
@@ -267,10 +254,9 @@ record's `population_samples` vector behind its own `OnceLock`. RL-only
 runs return an empty slice and the Population section `view!`'s out to
 an empty span — non-EA reports add nothing to the rendered tree.
 
-## Shipped since M8.1
+## Chart features
 
-The M8.2 chart-polish items have since landed in `src/charts.rs` /
-`src/series.rs`:
+Beyond the panels above, `src/charts.rs` / `src/series.rs` provide:
 
 - **Hover crosshair** with an exact raw-sample readout, accurate even on
   a decimated path (`interactive_line_view`).
@@ -292,16 +278,15 @@ The M8.2 chart-polish items have since landed in `src/charts.rs` /
 
 ## Still deferred
 
-- **Lineage DAG** ([`evolution-population`](../../docs/specs.md) §3.3) —
-  requires per-Strategy parent tracking. `Strategy::tell` returns
-  `(State, StrategyMetrics)` with no parent map; threading parent
-  indices through GA + CMA-ES + replacement strategies is its own
-  multi-step effort. The schema field `parents_of_best` is already in
-  place; the panel renders only when non-empty across generations.
-- **Hybrid scatter** ([`evolution-population`](../../docs/specs.md) §4.1) —
-  depends on a production `rlevo-hybrid` driver (`crates/rlevo-hybrid/src/lib.rs`
-  is a skeleton). The schema field `inner_rl_returns` is in place;
-  the panel renders only when non-empty.
+- **Lineage DAG** — requires per-Strategy parent tracking.
+  `Strategy::tell` returns `(State, StrategyMetrics)` with no parent
+  map; threading parent indices through GA + CMA-ES + replacement
+  strategies is its own multi-step effort. The schema field
+  `parents_of_best` is already in place; the panel renders only when
+  non-empty across generations.
+- **Hybrid scatter** — depends on a production `rlevo-hybrid` driver
+  (`crates/rlevo-hybrid/src/lib.rs` is a skeleton). The schema field
+  `inner_rl_returns` is in place; the panel renders only when non-empty.
 - **Diversity computation** — `PopulationSnapshot::diversity` is
   emitted as `None` from `EvolutionaryLoop` because the loop has
   no strategy-agnostic geometry over the population tensor. A

@@ -1,14 +1,19 @@
-//! Styled-output primitives consumed by the live TUI and report tiers.
+//! Styled-output primitives for the report tier's text frames and the live
+//! TUI's styles.
 //!
 //! These types form the second projection of [`super::AsciiRenderable`]: the
 //! plain method returns a `String` for logs, snapshot tests, and
-//! `EpisodeRecord.ascii`, while the styled method returns a [`StyledFrame`]
+//! `FrameRecord.ascii`, while the styled method returns a [`StyledFrame`]
 //! carrying foreground/background colour and modifier hints.
 //! The type set is intentionally a small subset of the ratatui vocabulary so
-//! that `rlevo-core` ships zero terminal-side dependencies — the
-//! `From<StyledFrame>` conversion into ratatui types lives in
-//! `rlevo-harness::tui` (behind the `tui` feature), and the report tier
-//! deserialises [`StyledFrame`] from `EpisodeRecord`.
+//! that `rlevo-core` ships zero terminal-side dependencies. The live TUI
+//! draws no env frames: `rlevo-harness::tui::convert` (behind the `tui`
+//! feature) maps [`Color`], [`Modifier`] and [`SpanStyle`] onto ratatui
+//! styles for its metric panels and theme. [`StyledFrame`] goes to the
+//! report instead: `rlevo-harness`'s `RecordingTap` (behind the `record`
+//! feature) stores it in each `FrameRecord`, and
+//! `rlevo-benchmarks-report-client` renders it as `<pre>` text for frames
+//! without a structured family payload.
 //!
 //! No truecolor: stick to the 16-colour ANSI palette plus indexed 256-colour.
 //! See [`super::palette`] for the project-wide semantic constants every
@@ -219,9 +224,9 @@ impl SpanStyle {
 
 /// 16-colour ANSI palette plus indexed 256-colour escape.
 ///
-/// Truecolor (24-bit RGB) is intentionally absent — the spec restricts the
-/// library tier to the portable ANSI subset so that any compliant terminal
-/// renders the live TUI identically.
+/// Truecolor (24-bit RGB) is intentionally absent — the library tier keeps
+/// to the portable ANSI subset so that any compliant terminal renders the
+/// live TUI identically.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Color {

@@ -15,8 +15,7 @@
 //! `run.toml` at suite end via [`RunManifest::write_atomic`]. For testing
 //! without touching the filesystem, use [`InMemoryRecordSink`].
 //!
-//! See the project spec (§8 wire format, §10 writer state machine) for the
-//! full binary layout.
+//! The [`writer`] module documents the binary layout of an episode file.
 //!
 //! [`RecordWriter`]: crate::record::writer::RecordWriter
 //! [`InMemoryRecordSink`]: crate::record::writer::InMemoryRecordSink

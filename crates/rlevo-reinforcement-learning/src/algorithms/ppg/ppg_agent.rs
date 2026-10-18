@@ -7,12 +7,14 @@
 //!
 //! 1. [`PpgAgent::act`] / [`PpgAgent::record_step`] — collect a rollout.
 //! 2. [`PpgAgent::finalize_rollout`] — compute GAE (shared with PPO).
-//! 3. [`PpgAgent::snapshot_into_aux_buffer`] — snapshot observations, target
-//!    returns, and pre-aux-phase logits into the auxiliary buffer.
+//! 3. [`PpgAgent::snapshot_into_aux_buffer`] — snapshot observations and
+//!    target returns into the auxiliary buffer.
 //! 4. [`PpgAgent::policy_phase_update`] — PPO policy-phase update (clipped
 //!    surrogate + value loss), identical to [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update).
 //! 5. [`PpgAgent::maybe_aux_phase`] — if the auxiliary buffer holds
-//!    `n_iteration` rollouts, run `e_aux` epochs of auxiliary updates
+//!    `n_iteration` rollouts, compute the `$\pi_{old}$` logits once, by running the
+//!    current (post-policy-phase) policy over every buffered observation, then
+//!    run `e_aux` epochs of auxiliary updates
 //!    (main-value MSE + aux-value MSE + `$\beta \cdot KL(\pi_{old} \Vert \pi_{new})$`) and drain
 //!    the buffer.
 //!
@@ -65,20 +67,20 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// error channel by signature: [`PpgAgent::act`] returns a bare [`ActOutcome`]
 /// and [`PpgAgent::act_greedy`] / [`PpgAgent::act_greedy_env_row_with`] return
 /// `Vec<f32>`. None is a `Result`, so a failing host-read has nowhere to go.
-/// Those reads use the `.expect("<named invariant>")` form that
-/// `docs/rules.md` §4 sanctions for a host-read that cannot fail by
-/// construction — the tensor being read is one the same function just built on
-/// the same device.
+/// Those reads use the `.expect("<named invariant>")` form that the Error
+/// Handling section of `docs/rules.md` sanctions for a host-read that cannot
+/// fail by construction — the tensor being read is one the same function just
+/// built on the same device.
 ///
 /// Making those signatures fallible is tracked separately (see ADR 0057,
 /// which resolved the off-policy half and left `act` and the on-policy agents
 /// panic-based as the explicit residual). When that lands, the variant returns
 /// carrying [`rlevo_core::base::TensorConversionError`] via `#[from]` — a
-/// structured payload, **not** a `String`. `docs/rules.md` §4 prefers
-/// structured variants over string-based errors and names
-/// [`TensorConversionError`](rlevo_core::base::TensorConversionError) as the
-/// domain type for tensor ops, so re-adding a `String` payload would reintroduce
-/// the smell along with the variant.
+/// structured payload, **not** a `String`. The Error Handling section of
+/// `docs/rules.md` prefers structured variants over string-based errors and
+/// names [`TensorConversionError`](rlevo_core::base::TensorConversionError) as
+/// the domain type for tensor ops, so re-adding a `String` payload would
+/// reintroduce the smell along with the variant.
 ///
 /// # Why there is no config variant
 ///
@@ -97,14 +99,15 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// This enum previously carried `Io(#[from] std::io::Error)` for "saving or
 /// loading model weights". No such code exists: nothing under
 /// [`crate::algorithms`] defines a `save`, a `load`, a `Recorder`, or touches
-/// `std::fs`. ADR 0014 defers checkpointing and resume-from-checkpoint to
-/// Tier D. The variant returns with the feature that needs it, not before.
+/// `std::fs`. ADR 0014 defers checkpointing and resume-from-checkpoint. The
+/// variant returns with the feature that needs it, not before.
 ///
 /// # Known limitation: the `Environment` payload is a `String`
 ///
 /// The surviving variant carries a `String` where
 /// [`rlevo_core::environment::EnvironmentError`] is the domain type;
-/// `docs/rules.md` §4 would prefer `Environment(#[from] EnvironmentError)`.
+/// the Error Handling section of `docs/rules.md` would prefer
+/// `Environment(#[from] EnvironmentError)`.
 /// `train.rs` currently calls `err.to_string()`, discarding the structured
 /// error and its [`source`](std::error::Error::source) chain. This is **known
 /// and tracked**, scoped as the same fix across all eight
@@ -203,7 +206,7 @@ pub struct AuxPhaseStats {
 /// - `V` — Main value network implementing `PpoValue<B, BOR>`.
 /// - `O` — Observation type; must be convertible to a rank-`OR` tensor.
 /// - `OR` — Rank of the observation tensor (e.g. `1` for flat vectors).
-/// - `BOR` — Rank of the batched observation tensor (`R + 1`; e.g. `2` for a
+/// - `BOR` — Rank of the batched observation tensor (`OR + 1`; e.g. `2` for a
 ///   batch of flat vectors).
 ///
 /// # Usage
@@ -261,7 +264,7 @@ where
     aux_main_value_guard: FiniteLossGuard,
     /// Non-finite-loss guard for the auxiliary-phase combined loss
     /// (`$\text{aux\_v\_loss} + \beta \cdot KL$`); its input is host-*derived* from the two summands
-    /// already read, adding no sync (ADR 0056 §5).
+    /// already read, adding no sync (ADR 0056, Decision 5).
     aux_total_guard: FiniteLossGuard,
 }
 
@@ -499,9 +502,9 @@ where
     /// This site's guard input is host-*derived* —
     /// `total_val = aux_v_loss_val + kl_val * beta_clone`, rebuilt on the host
     /// from two scalars already read, rather than a third tensor read back (ADR
-    /// 0056 §5). It gates a single optimizer step that owns *both* the aux-value
-    /// loss and the KL term, so on a skip **both** are excluded together. That
-    /// is why [`AuxPhaseStats::aux_value_loss`] and
+    /// 0056, Decision 5). It gates a single optimizer step that owns *both* the
+    /// aux-value loss and the KL term, so on a skip **both** are excluded
+    /// together. That is why [`AuxPhaseStats::aux_value_loss`] and
     /// [`AuxPhaseStats::policy_kl`] share the one `aux_total_healthy`
     /// denominator, and why four guards do not imply four independent counts
     /// over four independent quantities: three losses are individually gated,
@@ -513,8 +516,8 @@ where
     }
 
     /// Total gradient updates skipped for a non-finite loss across **all four**
-    /// of PPG's loss sites — the canonical `skipped_updates` metric (ADR 0072
-    /// §2, §3).
+    /// of PPG's loss sites — the canonical `skipped_updates` metric (ADR 0072,
+    /// Decisions 2 and 3).
     ///
     /// PPG has more loss sites than any other agent in the crate, so this
     /// aggregate — not any single per-site accessor — is what the training loop
@@ -833,7 +836,7 @@ where
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
         // Denominators for the two gated means: only minibatches whose loss was
-        // finite and applied (ADR 0056 §3). `mb_count` still denominates
+        // finite and applied (ADR 0056, Decision 3). `mb_count` still denominates
         // the ungated diagnostics.
         let mut policy_healthy = 0_usize;
         let mut value_healthy = 0_usize;
@@ -926,7 +929,8 @@ where
                 // separately from the policy site — its own per-site total
                 // (`skipped_value_updates`) and its own decade `warn!` schedule,
                 // and, like the policy site, its skip fires on every non-finite
-                // minibatch rather than only the first (ADR 0056 §3, ADR 0072).
+                // minibatch rather than only the first (ADR 0056, Decision 3;
+                // ADR 0072).
                 if self.value_loss_guard.check(v_loss_val) {
                     let grads = v_loss_scaled.backward();
                     let grads_params = GradientsParams::from_grads(grads, self.value());
@@ -961,7 +965,7 @@ where
         // inherit its log_std bound and its one-shot-per-bound clamp warnings
         // here — the ceiling half included, which is why `max_log_std` is wired
         // now alongside the minimum rather than left for that head to add
-        // later (ADR 0049 §4).
+        // later (ADR 0049, Decision 4).
         let min_log_std = self.policy().min_log_std();
         let max_log_std = self.policy().max_log_std();
 
@@ -970,7 +974,7 @@ where
 
         // The two gated losses divide by their own healthy counts (`0.0`, not
         // NaN, when every minibatch skipped); the ungated diagnostics keep the
-        // total minibatch denominator (ADR 0056 §3).
+        // total minibatch denominator (ADR 0056, Decision 3).
         let denom = mb_count.max(1) as f32;
         PpoUpdateStats {
             policy_loss: if policy_healthy == 0 {
@@ -1058,7 +1062,7 @@ where
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
         // Healthy-minibatch denominators for the two gated aux losses
-        // (ADR 0056 §3). The main-value site feeds `main_v_acc`; the combined
+        // (ADR 0056, Decision 3). The main-value site feeds `main_v_acc`; the combined
         // aux site feeds both `aux_v_acc` and `kl_acc`, so they share a count.
         let mut main_v_healthy = 0_usize;
         let mut aux_total_healthy = 0_usize;
@@ -1134,7 +1138,7 @@ where
 
         // Each gated loss divides by its own healthy count (`0.0`, not NaN,
         // when every minibatch skipped); `minibatches` still reports the total
-        // count attempted (ADR 0056 §3).
+        // count attempted (ADR 0056, Decision 3).
         let stats = AuxPhaseStats {
             main_value_loss: if main_v_healthy == 0 {
                 0.0
@@ -1501,12 +1505,13 @@ mod tests {
     }
 
     /// Auxiliary-phase site: the aux-total guard fires on the host-*derived*
-    /// `$\text{aux\_v\_loss\_val} + \text{kl\_val} \cdot \beta$` input (ADR 0056 §5). Diverging the policy net
-    /// makes both the aux-value prediction and the distillation logits NaN, so
-    /// the combined loss is non-finite; the guard must fire and skip only the
-    /// policy step, while the independent main-value site still learns. Both
-    /// `aux_value_loss` and `policy_kl` report `0.0` (they share the skipped
-    /// aux-total site's healthy denominator).
+    /// `$\text{aux\_v\_loss\_val} + \text{kl\_val} \cdot \beta$` input (ADR 0056, Decision 5).
+    /// Diverging the policy net makes both the aux-value prediction and the
+    /// distillation logits NaN, so the combined loss is non-finite; the guard
+    /// must fire and skip only the policy step, while the independent
+    /// main-value site still learns. Both `aux_value_loss` and `policy_kl`
+    /// report `0.0` (they share the skipped aux-total site's healthy
+    /// denominator).
     #[test]
     #[allow(clippy::float_cmp)]
     fn test_ppg_agent_aux_phase_nonfinite_total_loss_skips_and_warns() {
@@ -1613,7 +1618,7 @@ mod tests {
         agent
     }
 
-    /// The skip counter is a *counter*, not a latch (ADR 0072 §2): PPG's guards
+    /// The skip counter is a *counter*, not a latch (ADR 0072, Decision 2): PPG's guards
     /// are consulted once per minibatch, so a phase in which every minibatch is
     /// non-finite must record one skip per minibatch, not one per phase.
     ///

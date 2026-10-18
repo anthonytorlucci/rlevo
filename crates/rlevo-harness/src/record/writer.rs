@@ -1,6 +1,6 @@
-//! Streaming writer for per-episode record files plus a slim decoder
-//! sufficient for round-trip tests. The full report-tier loader lives
-//! in [`report::replay`](crate::report::replay).
+//! Streaming writer for per-episode record files plus
+//! [`read_episode_record`], the decoder for one file. The report-tier
+//! loader, `report::replay` (feature `report`), is built on that decoder.
 //!
 //! Wire layout per `episode_<N>.rec`:
 //!
@@ -77,8 +77,9 @@ impl RecordingConfig {
     }
 }
 
-/// Sink the three producers (env wrapper, harness reporter, tracing
-/// layer) all push into. Implementations buffer / write as they like.
+/// Sink the four producers (env wrapper, harness reporter, population
+/// reporter, tracing layer) all push into. Implementations buffer /
+/// write as they like.
 ///
 /// `Send + 'static` so producers can hold the sink behind
 /// `Arc<parking_lot::Mutex<dyn RecordSink>>` across rayon worker threads.
@@ -605,8 +606,9 @@ impl RecordSink for RecordWriter {
     }
 }
 
-/// Slim decoder used by tests and the in-process round-trip path. The
-/// full random-access loader lives in [`super::super::report::replay`].
+/// Decodes one `episode_<N>.rec` file. Used by tests and the in-process
+/// round-trip path; the random-access loader `report::replay::RecordedRun`
+/// (feature `report`) decodes every episode file through it.
 ///
 /// # Errors
 ///

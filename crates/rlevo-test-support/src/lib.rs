@@ -12,8 +12,8 @@
 //!
 //! The crate is **dev-only** — it is consumed exclusively through
 //! `[dev-dependencies]` and is never published (`publish = false`). It depends
-//! only on `rlevo-core`, so it imposes no constraints on the production
-//! algorithm crates.
+//! only on `rlevo-core` and `rlevo-environments`, neither of them an algorithm
+//! crate, so it imposes no constraints on the production algorithm crates.
 //!
 //! # Modules
 //!

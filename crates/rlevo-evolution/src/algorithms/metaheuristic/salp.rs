@@ -38,7 +38,7 @@
 //! random walk toward the best; the follower chain is a stencil average
 //! of old positions. Neither mechanism introduces a novel search
 //! dynamic not already present in PSO or DE. Ship it for API coverage;
-//! prefer CMA-ES or LSHADE when available.
+//! prefer [CMA-ES](crate::algorithms::cma_es) for serious work.
 //!
 //! # References
 //!

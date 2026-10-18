@@ -30,16 +30,15 @@ use serde::Serialize;
 
 use super::replay::{EpisodeIndex, OpenWarning, RecordedRun};
 
-/// Tunables for the emitter. Defaults match the umbrella spec's "single
-/// self-contained file" output (§9): no external assets, every payload
-/// inlined.
+/// Tunables for the emitter. Under any settings the output is a single
+/// self-contained file: no external assets, every payload inlined.
 #[derive(Debug, Clone, Default)]
 pub struct EmitConfig {
     /// Soft upper bound on the emitted file size in bytes. Emission
     /// still completes if exceeded, but the outcome carries a
     /// `size_warning` flag so the caller can surface a downsample hint.
-    /// Default mirrors `rollout-and-replay` §5: 10 MB. `0` means
-    /// "use the built-in default".
+    /// The built-in default is 10 MiB. `0` means "use the built-in
+    /// default".
     pub size_warn_bytes: u64,
     /// Optional title rendered in the placeholder header. `None`
     /// defaults to the manifest's `run_id`.

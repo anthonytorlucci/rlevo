@@ -41,7 +41,8 @@ struct FastCrate {
     features: &'static [&'static str],
 }
 
-/// The tier. Keep total over `crates/*/` — `assert_tier_is_total` enforces it.
+/// The tier. Keep total over the workspace members — `assert_tier_is_total`
+/// enforces it.
 const FAST_CRATES: &[FastCrate] = &[
     FastCrate {
         name: "rlevo-core",
@@ -227,10 +228,11 @@ fn run_fast_test(entry: &FastCrate, args: &TestFastCmdArgs) -> Result<()> {
     }
     cmd_args.extend(["--".to_string(), "--color=always".to_string()]);
 
-    // `ignore_log` is deliberately `None`. The base `test` command tolerates
-    // "no library targets found" so that a bin-only member does not fail the
-    // run; in this tier every member has a library and that message would mean
-    // the crate stopped being tested.
+    // `ignore_log` is deliberately `None`. The base `test` command passes
+    // `--lib` and tolerates "no library targets found" so that a bin-only
+    // member does not fail the run. This tier passes no target filter, so a
+    // bin-only member (`xtask`) is tested through its binary and the message
+    // never arises; nothing is tolerated, and any non-zero exit fails the run.
     run_process_for_package(
         "cargo",
         &entry.name.to_string(),

@@ -21,8 +21,8 @@
 //! PSO variant toward the global best; the probabilistic acceptance
 //! adds simulated-annealing-style noise. Camacho Villalón et al. (2020)
 //! discuss the lack of search mechanisms not already present in
-//! simpler algorithms. Ship it for API coverage; prefer CMA-ES or
-//! LSHADE when available.
+//! simpler algorithms. Ship it for API coverage; prefer
+//! [CMA-ES](crate::algorithms::cma_es) for serious work.
 //!
 //! # References
 //!
@@ -455,11 +455,12 @@ where
         mut state: BatState<B>,
         _rng: &mut dyn Rng,
     ) -> (BatState<B>, StrategyMetrics) {
-        // Sanitise on the host pull, per the maximise convention (`rules.md` §3, ADR 0034):
-        // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. This is the per-site
-        // correctness floor for callers that bypass `EvolutionaryLoop::step` — `Strategy` is
-        // public and re-exported, so a hand-rolled `ask`/`tell` driver reaches this line with raw
-        // values (ADR 0034 decision 3). One sanitise here covers both the bootstrap seed of
+        // Sanitise on the host pull, per the maximise convention (the Optimisation direction
+        // section of `docs/rules.md`, ADR 0034): `$\text{NaN} \to -\infty$` (worst),
+        // `$+\infty \to \text{f32::MAX}$`. This is the per-site correctness floor for callers
+        // that bypass `EvolutionaryLoop::step` — `Strategy` is public and re-exported, so a
+        // hand-rolled `ask`/`tell` driver reaches this line with raw values (ADR 0034
+        // decision 3). One sanitise here covers both the bootstrap seed of
         // `state.fitness` and the accept-store below; a raw `NaN` latched into a bat's cache loses
         // every later `fitness_host[i] >= state.fitness[i]` comparison, and BA has no scout or
         // abandonment mechanism to rescue the frozen slot. `sanitize_fitness` is idempotent, so on

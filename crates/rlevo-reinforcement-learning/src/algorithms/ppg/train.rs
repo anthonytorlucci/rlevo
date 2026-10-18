@@ -4,10 +4,12 @@
 //!
 //! 1. Collect `num_steps` env steps into the rollout buffer.
 //! 2. Finalise GAE.
-//! 3. Snapshot `(obs, returns, old_logits)` into the auxiliary buffer.
+//! 3. Snapshot `(obs, returns)` into the auxiliary buffer.
 //! 4. Run the PPO policy-phase update (clears the rollout buffer).
-//! 5. If the auxiliary buffer has accumulated `n_iteration` rollouts, run
-//!    `e_aux` epochs of auxiliary updates and drain it.
+//! 5. If the auxiliary buffer has accumulated `n_iteration` rollouts, compute
+//!    the distillation's `$\pi_{old}$` logits from the current policy over every
+//!    buffered observation, run `e_aux` epochs of auxiliary updates, and drain
+//!    it.
 //!
 //! v1 is discrete-only; a continuous variant will land alongside a
 //! tanh-Gaussian PPG head.
@@ -70,7 +72,7 @@ use crate::algorithms::shared::LogWatermark;
 /// - `Rew` — Scalar reward implementing `Reward + Copy`.
 /// - `OR` — Observation tensor rank.
 /// - `SR` — State tensor rank (consumed by the environment bound only).
-/// - `BOR` — Batched observation tensor rank (`R + 1`).
+/// - `BOR` — Batched observation tensor rank (`OR + 1`).
 // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
 // f32. This is the intended narrowing point, and the values are hyperparameters
 // (rates, discounts, epsilons) where f32 has far more precision than the
@@ -136,7 +138,7 @@ where
             // non-finite value. Do not "fix" this to skip a NaN: a poisoned
             // episode return is a true statement about a run whose environment
             // emitted NaN, and `AgentStats::avg_score` transits it as a
-            // surfacing channel on purpose (ADR 0065 §Decision 4; ADR 0070).
+            // surfacing channel on purpose (ADR 0065, Decision 4; ADR 0070).
             // Unlike the off-policy agents, nothing was dropped
             // upstream: ADR 0065 scopes only those six, so this path has no
             // `FiniteRewardGuard` at all, and the same reward also
@@ -257,11 +259,11 @@ fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
         entropy = stats.entropy,
         approx_kl = stats.approx_kl,
         clip_frac = stats.clip_frac,
-        // The ADR 0049 §4 metric channel. Both read `None` for every PPG run today — PPG is
-        // discrete-only in v1 — and are emitted anyway so that a future Gaussian PPG head is
-        // observable the moment it lands, rather than shipping a silent trap door. `?` (Debug)
-        // renders the `Option` honestly instead of fabricating a `0.0` for a policy with no
-        // `$\sigma$`.
+        // The metric channel of ADR 0049, Decision 4. Both read `None` for every PPG run
+        // today — PPG is discrete-only in v1 — and are emitted anyway so that a future Gaussian
+        // PPG head is observable the moment it lands, rather than shipping a silent trap door.
+        // `?` (Debug) renders the `Option` honestly instead of fabricating a `0.0` for a policy
+        // with no `$\sigma$`.
         min_log_std = ?stats.min_log_std,
         max_log_std = ?stats.max_log_std,
         // Canonical `skipped_updates` (Rl / PerUpdate / cumulative, ADR 0072).

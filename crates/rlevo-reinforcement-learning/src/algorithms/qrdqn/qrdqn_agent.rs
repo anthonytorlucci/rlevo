@@ -49,14 +49,15 @@ use crate::utils::{PolyakError, compute_target_quantiles};
 /// [`act_greedy_with`](QrDqnAgent::act_greedy_with), all of which return a bare
 /// `A` rather than a `Result`. With no error channel in the signature there is
 /// nowhere for the variant to be returned from, so those reads use the
-/// infallible form that `docs/rules.md` §4 sanctions for a read that "cannot
-/// fail by construction (e.g. a tensor the same function just built)".
+/// infallible form that the Error Handling section of `docs/rules.md`
+/// sanctions for a read that "cannot fail by construction (e.g. a tensor the
+/// same function just built)".
 ///
 /// Making action selection fallible is a breaking change, deferred and
 /// tracked separately. When it lands, the variant that returns must carry
 /// [`rlevo_core::base::TensorConversionError`] as a `#[from]` payload, not a
-/// `String`: §4 prefers structured error types over string-based ones, and
-/// names `TensorConversionError` as the domain type for tensor ops.
+/// `String`: that section prefers structured error types over string-based
+/// ones, and names `TensorConversionError` as the domain type for tensor ops.
 ///
 /// # Why there is no buffer or I/O variant
 ///
@@ -71,8 +72,8 @@ use crate::utils::{PolyakError, compute_target_quantiles};
 ///
 /// `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
 /// there is no `save`, no `load`, no `Recorder` and no `std::fs` anywhere under
-/// `algorithms/`, and ADR 0014 §6 defers checkpointing producer wiring to
-/// Tier D.
+/// `algorithms/`, and ADR 0014, Decision 6, defers checkpointing producer
+/// wiring.
 ///
 /// The enum is `#[non_exhaustive]`, so adding a variant later is not a breaking
 /// change — checkpointing is the shape that would plausibly need one. The bar
@@ -138,7 +139,7 @@ pub struct LearnOutcome {
 ///
 /// - `OR` — rank of a single observation tensor (e.g. `1` for vector
 ///   observations of shape `[features]`).
-/// - `BOR` — rank of a batched observation tensor (= `R + 1`).
+/// - `BOR` — rank of a batched observation tensor (= `OR + 1`).
 ///
 /// # Field notes
 ///
@@ -174,8 +175,8 @@ where
     stats: AgentStats<QrDqnMetrics>,
     /// Non-finite-loss guard for the quantile-Huber loss site (ADR 0056).
     /// Skips the update on every occurrence; the `warn!` escalates by decades —
-    /// skips 1, 10, 100, … — each carrying the running total (ADR 0072 §1),
-    /// readable via [`Self::skipped_updates`].
+    /// skips 1, 10, 100, … — each carrying the running total (ADR 0072,
+    /// Decision 1), readable via [`Self::skipped_updates`].
     loss_guard: FiniteLossGuard,
     /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065).
     /// Drops the transition on every occurrence; the `warn!` escalates
@@ -188,7 +189,7 @@ where
     /// [`dropped_observations`](Self::dropped_observations).
     obs_guard: FiniteObsGuard,
     /// Non-finite-observation guard for the three action-selection sites (ADR
-    /// 0067 §Decision 4). **Detect and report only**: it counts and warns, and
+    /// 0067, Decision 4). **Detect and report only**: it counts and warns, and
     /// the action is returned unchanged. See
     /// [`degenerate_action_selections`](Self::degenerate_action_selections).
     act_obs_guard: FiniteObsGuard,
@@ -310,9 +311,9 @@ where
     /// read against (ADR 0059), and it is *not* [`step`](Self::step) — the two
     /// differ by `train_frequency` and by the `learning_starts` warm-up. It
     /// advances once per [`learn_step`] that gets as far as computing a loss,
-    /// **including** one the non-finite-loss guard then skips (ADR 0056 §3):
-    /// counting only applied updates would make the target cadence a function
-    /// of run health, stretching it exactly when a run is diverging.
+    /// **including** one the non-finite-loss guard then skips (ADR 0056,
+    /// Decision 3): counting only applied updates would make the target cadence
+    /// a function of run health, stretching it exactly when a run is diverging.
     ///
     /// Because it counts *attempts*, it is an upper bound on the updates that
     /// actually reached the optimizer:
@@ -329,17 +330,18 @@ where
     ///
     /// QR-DQN has a single loss site (the quantile-Huber loss), so this
     /// per-site count *is* the agent's aggregate contribution to the canonical
-    /// `skipped_updates` metric (ADR 0072 §2). A non-zero count means those
-    /// attempted updates never reached `backward()` or the optimizer step: the
-    /// guard kept the poison out of the weights (ADR 0056 §3), and what the run
-    /// lost instead is throughput. Watch it to size that loss — one skip in a
-    /// long run is a blip; a steadily rising count means the run's nominal step
-    /// budget bought materially less learning than it appears to have.
+    /// `skipped_updates` metric (ADR 0072, Decision 2). A non-zero count means
+    /// those attempted updates never reached `backward()` or the optimizer step:
+    /// the guard kept the poison out of the weights (ADR 0056, Decision 3), and
+    /// what the run lost instead is throughput. Watch it to size that loss —
+    /// one skip in a long run is a blip; a steadily rising count means the
+    /// run's nominal step budget bought materially less learning than it
+    /// appears to have.
     ///
     /// # Relationship to [`gradient_updates`](Self::gradient_updates)
     ///
     /// [`gradient_updates`](Self::gradient_updates) counts **attempts** and
-    /// advances unconditionally, *including* on a skip (ADR 0059 §Decision 4).
+    /// advances unconditionally, *including* on a skip (ADR 0059, Decision 4).
     /// This counter is the skipped **subset** of those attempts (ADR 0056, ADR
     /// 0072), so the two compose exactly:
     ///
@@ -421,7 +423,7 @@ where
     /// # Non-finite observations
     ///
     /// A `NaN`/`$\pm\infty$` observation is **counted and warned about; the action is returned
-    /// unchanged** (ADR 0067 §Decision 4). Do not "improve" this into a substitution or a fallback
+    /// unchanged** (ADR 0067, Decision 4). Do not "improve" this into a substitution or a fallback
     /// action, and do not delete the check as redundant — it is the *only* thing in the system that
     /// can observe this failure, for two reasons that are both counter-intuitive:
     ///
@@ -460,7 +462,7 @@ where
         // observations (<= 24 elements anywhere in this workspace): the four
         // integer-backed image observation types override `row_is_finite` and
         // never touch `scratch`, so for them this `Vec` is never allocated into
-        // (ADR 0067 §Decision 2).
+        // (ADR 0067, Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
         let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
@@ -586,7 +588,7 @@ where
     /// observation increments only this counter. Every dropped transition
     /// increments exactly one of the two, so their sum is the total — but they
     /// will legitimately disagree, and neither can be read as the other's
-    /// superset (ADR 0067 §Consequences).
+    /// superset (the Consequences section of ADR 0067).
     #[must_use]
     pub const fn dropped_transitions(&self) -> u64 {
         self.reward_guard.dropped()
@@ -625,7 +627,7 @@ where
     /// The counterpart to [`dropped_observations`](Self::dropped_observations)
     /// on the [`act`](Self::act) / [`act_greedy`](Self::act_greedy) /
     /// [`act_greedy_with`](Self::act_greedy_with) path, and **not** a drop
-    /// count: per ADR 0067 §Decision 4 the action was computed, returned to the
+    /// count: per ADR 0067, Decision 4, the action was computed, returned to the
     /// caller, and left unchanged. Substituting a plausible in-domain action
     /// would be the same class of failure this counter exists to surface.
     ///
@@ -714,9 +716,9 @@ where
     /// 0056) and [`skipped_updates`](Self::skipped_updates) advances, so
     /// the caller keeps its last healthy reported metrics rather than folding a
     /// NaN into them. The accompanying `warn!` fires on a decade schedule —
-    /// skips 1, 10, 100, … — each line carrying the running total (ADR 0072
-    /// §1), so a run discarding 1% of its updates is distinguishable from one
-    /// discarding 40%. The
+    /// skips 1, 10, 100, … — each line carrying the running total (ADR 0072,
+    /// Decision 1), so a run discarding 1% of its updates is distinguishable
+    /// from one discarding 40%. The
     /// gradient-update counter advances even then, so the target cadence does
     /// not drift on a diverging run. Returns
     /// [`Some(LearnOutcome)`](LearnOutcome) with the loss and diagnostic values
@@ -864,7 +866,7 @@ where
 
         let taus: Tensor<B, 1> = self.config.quantile_taus::<B>(&device);
         // Per-sample `[batch]` quantile Huber loss, scaled by importance weights
-        // before the mean (ADR 0050 §14). Kept for the priority writeback below.
+        // before the mean (ADR 0050, Decision 14). Kept for the priority writeback below.
         let per_sample_qh = quantile_huber_loss_per_sample(
             &pred_quantiles,
             &target_autodiff,
@@ -875,11 +877,11 @@ where
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         // An optimizer step is now attempted, so the cadence counter advances —
-        // unconditionally, BEFORE the non-finite-loss guard below (ADR 0059 §4,
-        // matching SAC/DDPG/TD3). Counting only *applied* updates would make
-        // the target-update rhythm a function of run health: a diverging run
-        // emitting non-finite losses would advance the cadence more slowly
-        // exactly when stability matters most.
+        // unconditionally, BEFORE the non-finite-loss guard below (ADR 0059,
+        // Decision 4, matching SAC/DDPG/TD3). Counting only *applied* updates
+        // would make the target-update rhythm a function of run health: a
+        // diverging run emitting non-finite losses would advance the cadence
+        // more slowly exactly when stability matters most.
         self.gradient_updates += 1;
 
         // ADR 0056: `loss_value` is already host-resident, so the
@@ -1419,7 +1421,7 @@ mod tests {
     ///
     /// The paired counters over the all-poisoned prefix —
     /// `gradient_updates == skipped_updates == 3` — are the executable statement of "every attempt
-    /// advanced, none was applied" (ADR 0059 §Decision 4 ∧ ADR 0072): neither counter alone can
+    /// advanced, none was applied" (ADR 0059, Decision 4 ∧ ADR 0072): neither counter alone can
     /// express it, and `$\text{applied} = \text{attempts} - \text{skipped}$` is only meaningful if
     /// both move on the same events.
     #[test]

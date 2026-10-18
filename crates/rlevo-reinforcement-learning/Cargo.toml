@@ -28,11 +28,11 @@ approx = { workspace = true }
 # tests and the benches that sweep both backends.
 burn = { workspace = true, features = ["default", "flex", "autodiff", "wgpu"] }
 criterion = { workspace = true }
-# `box2d` is on for the dev cone only: `benches/obs_guard_bench.rs` (issue
-# #1043) measures the observation-finiteness guard against the two shapes the
-# issue names -- `LunarLanderObservation` (8 floats) and `CarRacingObservation`
-# (96x96x3) -- and both live behind that feature. No production dependency of
-# this crate changes.
+# `box2d` is on for the dev cone only: `benches/obs_guard_bench.rs` measures
+# the observation-finiteness guard (ADR 0067) against two observation shapes
+# -- `LunarLanderObservation` (8 floats) and `CarRacingObservation` (96x96x3)
+# -- and both live behind that feature. No production dependency of this
+# crate changes.
 rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", default-features = false, features = [
     "box2d",
 ] }

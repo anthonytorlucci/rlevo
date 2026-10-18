@@ -127,10 +127,11 @@ If you encounter dimension mismatch errors, verify:
 
 ### Mathematical Notation in Docs
 
-Every crate ships a hand-synced `katex-header.html`
-(`crates/<crate>/katex-header.html`, wired via
+Five crates (`rlevo-core`, `rlevo-environments`, `rlevo-evolution`,
+`rlevo-harness`, `rlevo-reinforcement-learning`) ship a hand-synced
+`katex-header.html` (`crates/<crate>/katex-header.html`, wired via
 `[package.metadata.docs.rs] rustdoc-args`) that renders KaTeX in `cargo doc`
-output. Rustdoc and ADR/markdown docs need **different** math syntax — see
+output; the five copies stay byte-identical. Rustdoc and ADR/markdown docs need **different** math syntax — see
 [`docs/rules.md`](docs/rules.md)'s Documentation section ("Mathematical
 notation" subsection) before writing or editing either. Short version: rustdoc
 math is backtick-wrapped (`` `$...$` `` inline, ` ```math ` fenced for
@@ -155,7 +156,7 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 ### Example Reference Implementations
 - `crates/rlevo-environments/src/classic/bandit/k_armed.rs`: Complete environment example with extensive tests
 - `crates/rlevo-environments/src/pixel_grid.rs`: `Observable<OR>` modality-changing env (ADR 0020)
-- `crates/rlevo-core/examples/grid_position.rs`: State/Action implementation patterns
+- `xtask/probes/byoe-1-thermostat/src/thermostat.rs`: State/Action/Observation implementation patterns, as an outside author writes them; its probe builds it on every pull request
 - `crates/rlevo-core/src/environment.rs`: MockEnvironment in test module demonstrates trait usage
 
 ## Testing Philosophy

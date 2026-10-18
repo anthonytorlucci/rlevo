@@ -2,10 +2,10 @@
 //! wrapper that drives the
 //! [`RecordSink`] surface from a raw env trajectory.
 //!
-//! Sibling of [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap). The two
-//! differ in the sink they feed:
+//! Sibling of `env_wrappers::TuiEnvTap` (feature `tui`). The two differ
+//! in the sink they feed:
 //!
-//! - [`TuiEnvTap`] pushes through a `TuiHandle` channel for the live
+//! - `TuiEnvTap` pushes through a `TuiHandle` channel for the live
 //!   TUI panels (best-effort, lossy on a slow render thread).
 //! - [`RecordingTap`] pushes through an
 //!   [`Arc<Mutex<dyn RecordSink>>`](RecordSink), which the
@@ -16,8 +16,6 @@
 //! The two taps compose: `RecordingTap::new(TuiEnvTap::new(env, ...))`
 //! drives the live TUI and the on-disk record from one env without
 //! double-stepping the inner.
-//!
-//! [`TuiEnvTap`]: crate::env_wrappers::TuiEnvTap
 
 use std::sync::Arc;
 
@@ -63,7 +61,8 @@ pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Syn
 /// Action encoding requires `Environment::ActionType: Serialize`. Most
 /// env action types either already derive [`Serialize`] or only need a
 /// one-line `#[derive(...)]` addition to opt in to recording — see the
-/// example wired in `crates/rlevo/examples/viz/record_ppo_cartpole.rs`.
+/// example wired in
+/// `crates/rlevo-examples/examples/classic/report_ppo_cartpole_with_client.rs`.
 pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     inner: E,
     sink: Arc<Mutex<dyn RecordSink>>,

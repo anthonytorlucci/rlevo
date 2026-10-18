@@ -60,16 +60,16 @@ use crate::utils::{PolyakError, compute_target_q_values};
 /// the `as_slice::<f32>()` call in [`act`](SacAgent::act), and that method
 /// returns a bare `A` rather than a `Result` — there is no error channel for a
 /// variant to travel down. The read is an `.expect` on a named invariant, which
-/// is precisely the form `docs/rules.md` §4 sanctions for a host-read that
-/// "cannot fail by construction": the tensor is one the same function just
-/// built from its own actor. Making that path fallible is an explicitly
-/// deferred breaking change.
+/// is precisely the form the Error Handling section of `docs/rules.md`
+/// sanctions for a host-read that "cannot fail by construction": the tensor is
+/// one the same function just built from its own actor. Making that path
+/// fallible is an explicitly deferred breaking change.
 ///
 /// If that path becomes fallible, the variant would return as
 /// `#[from]` [`rlevo_core::base::TensorConversionError`] — not as a `String`.
-/// §4 prefers structured variants over string-based errors and names that type
-/// as the tensor-op error domain, so re-introducing a `String` payload would
-/// rebuild the discarded variant in a merely-live form.
+/// That section prefers structured variants over string-based errors and names
+/// that type as the tensor-op error domain, so re-introducing a `String`
+/// payload would rebuild the discarded variant in a merely-live form.
 ///
 /// # Why there is no buffer or I/O variant
 ///
@@ -84,7 +84,7 @@ use crate::utils::{PolyakError, compute_target_q_values};
 ///
 /// `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
 /// there is no `save`, `load`, `Recorder`, or `std::fs` use anywhere under
-/// `algorithms/`, and ADR 0014 §6 defers the checkpoint write path to Tier D.
+/// `algorithms/`, and ADR 0014, Decision 6, defers the checkpoint write path.
 ///
 /// Because the enum is `#[non_exhaustive]`, adding a variant when either of
 /// those lands is not a breaking change. The bar for adding one is an actual
@@ -183,7 +183,7 @@ pub(crate) fn compute_sac_target<BK: Backend>(
 ///
 /// Same layout as [`Td3Agent`](crate::algorithms::td3::td3_agent::Td3Agent):
 /// - `OR` — rank of a single observation tensor.
-/// - `BOR` — rank of a batched observation tensor (= `R + 1`).
+/// - `BOR` — rank of a batched observation tensor (= `OR + 1`).
 /// - `AR` — rank of a single action tensor.
 /// - `BAR` — rank of a batched action tensor (= `AR + 1`).
 ///
@@ -251,10 +251,10 @@ pub struct SacAgent<
     /// Most recent *applied* critic-2 loss (see [`Self::last_qf1_loss`]).
     last_qf2_loss: f32,
     /// Non-finite-loss guard for the critic-1 loss site (ADR 0056). The
-    /// **skip** fires on every occurrence (ADR 0056 §3, reaffirmed by ADR 0072
-    /// §1); the **`warn!`** follows a decade schedule — at the 1st, 10th, 100th,
-    /// … skip, each line carrying the running total (ADR 0072). The count itself
-    /// is per-site and readable via
+    /// **skip** fires on every occurrence (ADR 0056, Decision 3, reaffirmed by
+    /// ADR 0072, Decision 1); the **`warn!`** follows a decade schedule — at the
+    /// 1st, 10th, 100th, … skip, each line carrying the running total (ADR
+    /// 0072). The count itself is per-site and readable via
     /// [`skipped_critic_1_updates`](Self::skipped_critic_1_updates).
     critic_1_guard: FiniteLossGuard,
     /// Non-finite-loss guard for the critic-2 loss site. Independent counter and
@@ -277,8 +277,8 @@ pub struct SacAgent<
     obs_guard: FiniteObsGuard,
     /// Non-finite-observation guard for the action-selection site
     /// ([`act`](Self::act) — SAC has no `act_with`). Detect-and-report only: it
-    /// counts and warns, and the action is returned unchanged (ADR 0067
-    /// §Decision 4).
+    /// counts and warns, and the action is returned unchanged (ADR 0067,
+    /// Decision 4).
     act_obs_guard: FiniteObsGuard,
     /// Reusable host staging buffer for the ingestion-side row-finiteness
     /// check. `remember` takes `&mut self`, so it can own one buffer and
@@ -446,7 +446,7 @@ where
     /// Number of critic updates **attempted** so far.
     ///
     /// Advances unconditionally, including on a step whose loss was non-finite and therefore
-    /// skipped (ADR 0059 §Decision 4) — it is the cadence counter that drives the actor /
+    /// skipped (ADR 0059, Decision 4) — it is the cadence counter that drives the actor /
     /// `$\alpha$` schedule, so it must not stall on a skip.
     /// [`skipped_updates`](Self::skipped_updates) and its per-site siblings count the subset that
     /// never reached an optimizer, so `applied = critic_updates() - skipped_*` for the
@@ -501,7 +501,7 @@ where
     /// Total gradient updates skipped for a non-finite loss across **all three**
     /// of this agent's loss sites — critic-1, critic-2 and the actor.
     ///
-    /// This is the canonical `skipped_updates` metric (ADR 0072 §2). It is the
+    /// This is the canonical `skipped_updates` metric (ADR 0072, Decision 2). It is the
     /// aggregate, not a per-site read, precisely so that a future fourth loss
     /// site cannot be added without appearing here: callers and the training
     /// loop consume this one accessor, and the sum is the single place that has
@@ -511,7 +511,7 @@ where
     /// # Does NOT include `$\alpha$`-update skips
     ///
     /// The temperature (`$\alpha$`) update carries its own, separate non-finite guard on
-    /// [`LogAlpha`] (ADR 0056 §5), which was deliberately kept distinct from the shared
+    /// [`LogAlpha`] (ADR 0056, Decision 5), which was deliberately kept distinct from the shared
     /// `FiniteLossGuard` — it guards a closed-form Adam step driven by the batch-mean log-prob, not
     /// a `backward()` over a loss tensor. Its skips are **not** summed here. This accessor is
     /// therefore "all non-finite *gradient* skips", not "all non-finite events in the agent"; do
@@ -520,7 +520,7 @@ where
     /// # Relationship to [`critic_updates`](Self::critic_updates)
     ///
     /// [`critic_updates`](Self::critic_updates) counts **attempts** and advances
-    /// unconditionally, including on a skip (ADR 0059 §Decision 4); the
+    /// unconditionally, including on a skip (ADR 0059, Decision 4); the
     /// `skipped_*` family counts the **subset of attempts that was skipped** for
     /// a non-finite loss (ADR 0056, ADR 0072). So, per site,
     ///
@@ -582,8 +582,8 @@ where
     ///
     /// The observation row is checked for finiteness before it reaches the actor. A `NaN` /
     /// `$\pm\infty$` row is **counted and warned about, and the action is returned unchanged** —
-    /// nothing is substituted, no fallback is returned, and the clamping is not altered (ADR 0067
-    /// §Decision 4). Read the count with
+    /// nothing is substituted, no fallback is returned, and the clamping is not altered (ADR 0067,
+    /// Decision 4). Read the count with
     /// [`degenerate_action_selections`](Self::degenerate_action_selections).
     ///
     /// The warm-up branch is deliberately outside the check: it never reads
@@ -635,9 +635,9 @@ where
     /// [`learn_step`](Self::learn_step) unwound *inside* the actor's optimizer
     /// step. The agent cannot recover and must be rebuilt; see [`Slot`]. Also
     /// panics if the actor's output tensor is not `f32`: that host-read is an
-    /// `.expect` on a named invariant, the form `docs/rules.md` §4 sanctions
-    /// here because `act` returns a bare action and so has no error channel to
-    /// report the failure through.
+    /// `.expect` on a named invariant, the form the Error Handling section of
+    /// `docs/rules.md` sanctions here because `act` returns a bare action and so
+    /// has no error channel to report the failure through.
     pub fn act(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::COMPONENTS)
@@ -651,7 +651,7 @@ where
         // of the deliberate alternative: one `Vec<f32>` allocation per call, and only for f32
         // feature-vector observations (`$\leq 24$` elements in this workspace). The four
         // integer-backed observation types override `row_is_finite` without touching `scratch`, so
-        // this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
+        // this `Vec` is never allocated into for them (ADR 0067, Decision 2).
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
@@ -760,8 +760,8 @@ where
     /// returns early, so a transition carrying both a non-finite reward and a
     /// non-finite observation increments **only this** counter. The two will
     /// legitimately disagree; neither is the total number of dropped
-    /// transitions on its own, and their **sum** is that total (ADR 0067
-    /// §Consequences).
+    /// transitions on its own, and their **sum** is that total (the
+    /// Consequences section of ADR 0067).
     #[must_use]
     pub const fn dropped_transitions(&self) -> u64 {
         self.reward_guard.dropped()
@@ -790,8 +790,8 @@ where
     /// is bad in both ways increments only `dropped_transitions` and **not**
     /// this counter. Expect the two to disagree; each drop increments exactly
     /// one of them, so their **sum** is the total number of dropped
-    /// transitions and neither is that total on its own (ADR 0067
-    /// §Consequences).
+    /// transitions and neither is that total on its own (the Consequences
+    /// section of ADR 0067).
     #[must_use]
     pub fn dropped_observations(&self) -> u64 {
         self.obs_guard.count()
@@ -800,7 +800,7 @@ where
     /// Number of actions [`act`](Self::act) returned from a **non-finite
     /// observation**.
     ///
-    /// This is not a drop count: per ADR 0067 §Decision 4 the action was
+    /// This is not a drop count: per ADR 0067, Decision 4, the action was
     /// sampled, clamped, and returned to the caller unchanged. Every step it
     /// counts is unattributable — on the CPU backend the network erased the
     /// observation and returned a finite, in-bounds, `is_valid() == true`
@@ -1059,7 +1059,8 @@ where
         // already host-resident (read via `.inner()` above), so the check costs no extra sync. A
         // skipped critic's value is excluded from the reported metric: `last_qf{1,2}_loss` carries
         // its last *applied* value forward rather than folding in a NaN. `critic_updates` (the
-        // actor/`$\alpha$` cadence counter) still advances unconditionally, per ADR 0056 §3.
+        // actor/`$\alpha$` cadence counter) still advances unconditionally, per ADR 0056,
+        // Decision 3.
         if self.critic_1_guard.check(loss_1) {
             let grads_1 = loss_1_tensor.backward();
             let grads_1_params = GradientsParams::from_grads(grads_1, self.critic_1.get());
@@ -1173,7 +1174,7 @@ where
         Ok(Some(LearnOutcome {
             // Report the most recent *applied* critic losses, so a skipped
             // (non-finite) step carries its last healthy value forward rather
-            // than poisoning the metric with a NaN (ADR 0056 §3).
+            // than poisoning the metric with a NaN (ADR 0056, Decision 3).
             critic_loss: self.last_qf1_loss + self.last_qf2_loss,
             qf1_loss: self.last_qf1_loss,
             qf2_loss: self.last_qf2_loss,
@@ -1559,7 +1560,7 @@ mod tests {
     }
 
     /// The skip counter accumulates across repeated non-finite losses — it is a
-    /// running total, not a "has it ever happened" flag (ADR 0072 §2).
+    /// running total, not a "has it ever happened" flag (ADR 0072, Decision 2).
     ///
     /// Three poisoned steps, not one: a `1` would also be produced by a
     /// bool-to-counter mistranslation (a latch that sets the count to `1` and
@@ -1613,7 +1614,7 @@ mod tests {
     }
 
     /// The aggregate sums three *different* per-site counts — it does not read
-    /// one guard three times, and it does not drop one (ADR 0072 §3).
+    /// one guard three times, and it does not drop one (ADR 0072, Decision 3).
     ///
     /// The distribution is **critic-1 = 5, critic-2 = 2, actor = 1,
     /// aggregate = 8**: three *nonzero, pairwise distinct* terms. Both
@@ -2044,7 +2045,7 @@ mod tests {
         );
     }
 
-    /// ADR 0067 §Consequences: the reward guard runs first and returns early,
+    /// The Consequences section of ADR 0067: the reward guard runs first and returns early,
     /// so a transition that is bad in *both* ways increments only
     /// `dropped_transitions`. This test pins that ordering — it is the reason
     /// the two counters legitimately disagree, and both accessors document it.
@@ -2074,7 +2075,7 @@ mod tests {
         );
     }
 
-    /// ADR 0067 §Decision 4: `act` detects and reports, and **returns the
+    /// ADR 0067, Decision 4: `act` detects and reports, and **returns the
     /// action anyway**. Not substituting is the decision under test, so the
     /// assertion that an action comes back is as load-bearing as the counter.
     #[test]

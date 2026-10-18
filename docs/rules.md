@@ -19,9 +19,9 @@ Hard constraints and conventions that apply to every contribution. Read this bef
   - `rlevo-reinforcement-learning` — gradient-based RL algorithms + the RL-only `replay` strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`, `ReplayKind`) and `metrics` (`AgentStats`) modules. Depends on `rlevo-core`. `rlevo-environments` is a dev-dep only (used by examples / benches / integration tests).
   - `rlevo-evolution` — evolutionary strategy algorithms. Depends on `rlevo-core` (for `GenerationProbe`, `FitnessEvaluable`, `Landscape`, `SeedStream`). Depends on `parking_lot` for `SharedPopulationObserver`.
   - `rlevo-hybrid` — hybrid RL + EA approaches. Hosts `StatefulPolicy` / `ReactivePolicy` (the rollout-policy contract), `RolloutFitness`, and `PolicyNeuroevolution`. Depends on `rlevo-core` and `rlevo-evolution`. It does not depend on `rlevo-reinforcement-learning`: nothing in it trains a gradient learner yet, and a dependency arrives with the code that uses it.
-  - `rlevo-harness` — paradigm-neutral evaluation harness (light-touch dep on `rlevo-core`), named `rlevo-benchmarks` through 0.5.0 (ADR 0088). Has optional `tui` (ratatui live dashboard), `report` (static-HTML Leptos viewer), and `record` (EpisodeRecord file writer) features; this is the **only** production crate permitted to carry viz deps, and only behind those feature gates.
+  - `rlevo-harness` — paradigm-neutral evaluation harness (light-touch dep on `rlevo-core`), named `rlevo-benchmarks` through 0.5.0 (ADR 0088). Has optional `tui` (ratatui live dashboard), `report` (static-HTML report emitter, which can inline the prebuilt Leptos/WASM bundle of `rlevo-benchmarks-report-client`), and `record` (EpisodeRecord file writer) features; this is the **only** production crate permitted to carry viz deps, and only behind those feature gates.
   - `rlevo-benchmarks-report-client` — WASM report client; mirrors `rlevo-harness`'s wire types for browser-side rendering. **Not in `default-members`**. Depends on `rlevo-metrics-registry`.
-  - `rlevo-metrics-registry` — `#![no_std]`, zero-dependency leaf crate holding the typed `MetricDescriptor` table (name, kind, cadence, title, unit). Shared by `rlevo-harness` and `rlevo-benchmarks-report-client` as a single source of truth; eliminates the forked-metric-list footgun.
+  - `rlevo-metrics-registry` — `#![no_std]`, zero-dependency leaf crate holding the typed `MetricDescriptor` table (name, kind, cadence, title, unit, trend, hint). Shared by `rlevo-harness` and `rlevo-benchmarks-report-client` as a single source of truth; eliminates the forked-metric-list footgun.
   - `rlevo` — public API re-export aggregator; includes `rlevo-core`, `rlevo-environments`, `rlevo-reinforcement-learning`, `rlevo-evolution`, `rlevo-hybrid`, and the evaluation harness `rlevo-harness`, re-exported as `rlevo::harness` at its default features (ADR 0084). Re-exports Burn as `rlevo::burn` and is where a Burn backend is selected, through its `flex` (default) and `wgpu` features (ADR 0080).
   - `rlevo-examples` — heavyweight example programs that need one of the harness's `tui` / `record` / `report` features, or a crate that is not published. **Not in `default-members`** — opt in with `-p rlevo-examples`. Has no public library surface of its own. (ADRs 0012, 0084)
   - `rlevo-test-support` — `publish = false`, dev-only crate holding shared cross-crate test scaffolding (`LinearEnv`, Flex backend helpers, seeded baseline runners, assertion macros). Never a prod dep of any shipped crate. **Not in `default-members`**. (ADR 0024)
@@ -45,7 +45,7 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - `snake_case`, **$\leq 24$ characters**, no abbreviations that drop letters (`constraints`, never `contraints`).
 - Lead with the **subject**, not a filler verb: `state_constraints.rs`, not `continuous_state_with_constraints.rs`; `grid_agent.rs`, not `egocentric_grid_agent_demo.rs`. Drop `_demo` / `_example` / `_showcase` suffixes — the `examples/` directory already says it is one. *(Pre-existing longer names are grandfathered; apply this to new examples.)*
 - For heavy `rlevo-examples` targets, prefix by product tier so the required feature is obvious from the name: `tui_<subject>` (needs `viz-tui`), `report_<subject>` (needs `viz-report`).
-- Each example is owned by the crate whose `examples/` dir holds it; run it with that crate's `-p` (see §11). Prefer the `justfile` recipe over typing the full `-p … --example …` line.
+- Each example is owned by the crate whose `examples/` dir holds it; run it with that crate's `-p` (see the Example Scope Boundary section). Prefer the `justfile` recipe over typing the full `-p … --example …` line.
 
 ### Types and Traits
 - Types and traits: `PascalCase` (e.g., `ScalarReward`, `SnapshotBase`, `DiscreteAction`).
@@ -82,7 +82,7 @@ applies is decided by the *kind* of struct, not case by case:
 ### Constants and Associated Constants
 - Constants: `UPPER_SNAKE_CASE` (e.g., `ACTION_COUNT`, `MAX_STEPS`, `GOAL_STATE`).
 - Const generic parameters: `OR` (observation rank), `SR` (state rank), `AR` (action rank) — never overlap.
-- Batch ranks are always `BOR = R + 1`, `BAR = AR + 1`, `BSR = SR + 1` — never any other offset.
+- Batch ranks are always `BOR = OR + 1`, `BAR = AR + 1`, `BSR = SR + 1` — never any other offset.
 - Reified const generic: `const RANK: usize = R` for `Snapshot`/`TensorConvertible`/`HostRow`; `const RANK: usize = OR` for `Observation`; `const RANK: usize = SR` for `State`; `const RANK: usize = AR` for action traits. Inside a trait body the reified name is always `RANK`, never the parameter letter (so `RANK` as a self-citing name reads correctly regardless of the parameter letter at the impl site).
 
 ### Generic Parameters
@@ -184,7 +184,7 @@ Non-fitness float comparisons (geometry, eigenvalues, argmax over logits) use pl
 | `HillClimbingParams::with_max_iters` | `max_iters == 0` |
 | `HillClimbingParams::with_step_size` | `step_size` not finite or not `> 0` |
 | `HillClimbingParams::with_step_decay` | `step_decay` not finite, `<= 0`, or `> 1` |
-| Batch rank assertion | `BOR != OR + 1`, `BAR != AR + 1`, or `BSR != SR + 1` |
+| Batch rank assertion | `BOR != OR + 1`, `BAR != AR + 1`, or `BSR != SR + 1`. Only `stack_to_tensor` asserts the relation (`BR != R + 1`). An agent that stages its own batch leaves it to Burn: `Tensor::from_data` panics when the staged shape's rank is not the tensor's, while `unsqueeze` rejects only a target rank smaller than the source |
 | `ops::selection::tournament_*` | `fitness.is_empty()` or `tournament_size < 2` |
 | `ops::selection::truncation_*` | `fitness.is_empty()` or `top_k > fitness.len()` |
 | `ops::selection::{tournament_select, truncation_select}` | `population.dims()[0] != fitness.len()` |
@@ -247,7 +247,7 @@ If one file does two of these (e.g. an example that also asserts), **split it** 
 
 The single rule that unifies the table: **single-crate scope stays in that crate;
 multi-crate scope moves up to the umbrella `crates/rlevo/`** — except heavy examples,
-which move *sideways* to `crates/rlevo-examples/` (see §11 for the exact dep test).
+which move *sideways* to `crates/rlevo-examples/` (see the Example Scope Boundary section for the exact dep test).
 
 ### Step 3 — Decision procedure (apply in order)
 
@@ -385,7 +385,7 @@ pattern-replace.** Leave alone:
 ## 7. Const Generics and Type-Level Constraints
 
 - The const generic `OR` is the **observation rank** (a *tensor* rank, not an element count) — `SR` is the **state rank** (tensor rank, not the number of elements) — and `AR` is the **action rank** (role varies by action trait: tensor rank on `Action`, tensor rank on `BoundedAction`, but *not* the component count on `ContinuousAction`/`BoundedAction`, which is `COMPONENTS`). The three are independent: `Environment<OR, SR, AR>` permits `OR != SR` (e.g., for modality-changing POMDPs; `Sensor<OR, AR, SR>` is the later shaping).
-- Batch ranks `BOR`, `BAR`, and `BSR` must be validated at the call site with `assert_eq!` when the caller supplies them, not silently inferred. `HostRow<R>` supertrait controls the `BOR = R + 1` chokepoint for `TensorConvertible`-derived batches.
+- Batch ranks `BOR`, `BAR`, and `BSR` must be validated at the call site with `assert_eq!` when the caller supplies them, not silently inferred. `stack_to_tensor`, bound on the `HostRow<R>` supertrait, is the single `BR = R + 1` chokepoint for batches staged from host rows: it asserts the batched rank before it builds the shape.
 - Never use `OR`, `SR`, or `AR` for the number of elements; use `numel()` or `shape().iter().product()` for that. The element count is *always* reachable from the rank plus a `shape()` — and where `shape()` is not faithful to storage, use the trait-declared constant (`COMPONENTS` for `ContinuousAction`/`BoundedAction`).
 - Associated type bounds cascade: if `Environment<OR, SR, AR>` is parameterised, all four associated types (`StateType: State<SR>`, `ObservationType: Observation<OR>`, `ActionType: Action<AR>`, `SnapshotType: Snapshot<OR, …>`) must each carry the corresponding rank through its bound. The fifth type (`RewardType`) is rank-independent.
 - `PhantomData<(O, A, Rew)>` is the approved pattern to carry erased generic parameters in builder/wrapper types — `Rew: Reward`, not `R` to avoid name collision.
@@ -406,7 +406,7 @@ pattern-replace.** Leave alone:
 | `criterion` | Micro-benchmarks as `dev-dependencies` in any crate; cross-crate throughput benches in `crates/rlevo/benches/` | Production dependencies; `harness = true` benches |
 | `parking_lot` | Shared observer/sink state in `rlevo-evolution` and `rlevo-harness`; `SharedPopulationObserver = Arc<parking_lot::Mutex<dyn PopulationObserver>>` | `std::sync::Mutex` for observer or record-sink types (lock-type split is a known footgun) |
 | `ratatui` + `crossterm` | Live **metrics-only** TUI dashboard (no env panel) in `rlevo-harness` behind the `tui` feature | Any crate other than `rlevo-harness`; ungated imports; rendering env state in the live TUI |
-| `leptos` | Static-HTML report tier in `rlevo-harness` behind the `report` feature (compiled to WASM, no runtime server) | Embedded live server; any production crate without the feature gate |
+| `leptos` | The static-HTML report's client, `rlevo-benchmarks-report-client` (unpublished; compiled to WASM with `trunk`, no runtime server), whose prebuilt bundle `rlevo-harness`'s `report` feature inlines into the report without linking `leptos` | Embedded live server; a dependency of any production crate outside `rlevo-harness`'s feature gates |
 
 - All crate features must be enabled at the workspace level; individual crates must not re-declare features unless they are crate-local. The one exception is Burn's backend features: the workspace `burn` entry is `default-features = false, features = ["std"]`, and a crate adds `flex`, `wgpu`, `autodiff` or `default` only where the row above allows (ADR 0080).
 - **A library crate must build alone.** `cargo check -p <crate> --lib` compiles a crate with only the features its own `[dependencies]` request, which is what an external consumer and docs.rs get. A workspace-wide build unifies features across members and so hides a library that names a backend its manifest does not enable. Run the per-crate check for any change that touches Burn imports or a `burn` manifest entry.
@@ -445,7 +445,7 @@ generation-to-generation) diversity the caller relies on.
   `Tensor::from_data`. **Never** `B::seed(..)` + `Tensor::random(..)` in a
   production path: Burn's process-wide RNG mutex makes results depend on thread
   schedule (→ core count) rather than the seed, which races the parallel test
-  runner. `rlevo-evolution` is the reference implementation. (ADR 0016, 0017)
+  runner. `rlevo-evolution` is the reference implementation. (ADR 0029)
 - **RNG trait bounds.** Functions that need randomness take `rng: &mut R` with
   `R: rand::Rng + ?Sized`. Use `&mut dyn Rng` only where a call site genuinely
   requires dynamic dispatch (an object-safe trait method); document any such
@@ -468,7 +468,7 @@ generation-to-generation) diversity the caller relies on.
   1. The lint is a false positive in that specific context, **and**
   2. A comment directly above the attribute explains why.
 - Global `#![allow(...)]` in any crate is forbidden.
-- `#[allow(dead_code)]` is only permitted on stubs explicitly planned for future implementation; add a `// TODO:` comment with the tracking issue (see §12 — the issue must exist *before* the stub lands).
+- `#[allow(dead_code)]` is only permitted on stubs explicitly planned for future implementation; add a `// TODO:` comment with the tracking issue (see the Deferred Work Gets a GitHub Issue section — the issue must exist *before* the stub lands).
 - `unsafe` blocks require a `// SAFETY:` comment explaining the invariant maintained.
 
 ---

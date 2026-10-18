@@ -1,9 +1,9 @@
-//! Convergence-plot panels built on `leptos-chartistry`.
+//! Convergence-plot panels, hand-rolled as SVG with no charting dependency.
 //!
-//! Pure-Rust SVG line charts per umbrella spec §3 constraint #6 (no JS
-//! interop). Each panel pairs a thin raw line with a thicker smoothed
-//! line; the width difference is the hue-redundant signal so a B/W
-//! screenshot still distinguishes the two per the project a11y contract.
+//! Pure-Rust SVG line charts with no JS interop. Each panel pairs a thin
+//! raw line with a thicker smoothed line; the width difference is the
+//! hue-redundant signal so a B/W screenshot still distinguishes the two
+//! per the project a11y contract.
 
 use leptos::prelude::*;
 use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_for};
@@ -34,9 +34,9 @@ const METRIC_WINDOW: usize = 20;
 /// curves, per-step RL/EA metrics, and the selection-pressure trace all flow
 /// through it. `decimated` drives the drawn path (kept light for long runs);
 /// `raw_full` is the full-resolution series used only for the tooltip lookup,
-/// so the readout is exact even when the path is decimated (M8.2 accuracy
-/// requirement). An optional `smoothed` overlay is drawn at greater width for
-/// B/W legibility. `x_title` / `y_title` label the axes; pass `x_as_int = true`
+/// so the readout is exact even when the path is decimated. An optional
+/// `smoothed` overlay is drawn at greater width for B/W legibility.
+/// `x_title` / `y_title` label the axes; pass `x_as_int = true`
 /// for discrete x axes (episode / generation / step) and `false` for
 /// continuous ones (wall-clock seconds).
 #[must_use]
@@ -214,9 +214,9 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
     let mut shared_panels: Vec<AnyView> = Vec::new();
 
     // Remaining metrics split into RL diagnostics and EO diagnostics by the
-    // shared registry's `MetricKind` (ADR-0015 / [[2026-06-05-rl-vs-eo-learning]]),
-    // so the report distinguishes gradient-based RL signals (losses, KL,
-    // explained variance) from population-based EO signals (fitness, diversity).
+    // shared registry's `MetricKind` (ADR-0015), so the report distinguishes
+    // gradient-based RL signals (losses, KL, explained variance) from
+    // population-based EO signals (fitness, diversity).
     let mut rl_panels: Vec<AnyView> = Vec::new();
     let mut eo_panels: Vec<AnyView> = Vec::new();
     for name in available_metric_names(records) {
@@ -407,9 +407,9 @@ fn multi_seed_section(records: &[EpisodeRecord]) -> AnyView {
 
 /// Hand-rolled SVG mean`$\pm$`std band panel.
 ///
-/// `leptos-chartistry` 0.2 has no area primitive, so the `$\pm$`std envelope is a filled
-/// `<polygon>` (upper edge left→right, lower edge right→left) under a solid mean `<polyline>`. The
-/// fill/line pairing keeps the band legible in B/W per the a11y contract.
+/// The `$\pm$`std envelope is a filled `<polygon>` (upper edge left→right, lower edge
+/// right→left) under a solid mean `<polyline>`. The fill/line pairing keeps the band legible in
+/// B/W per the a11y contract.
 #[must_use]
 pub fn band_chart_view(title: String, y_title: &str, band: &[BandPoint]) -> AnyView {
     use std::fmt::Write as _;
@@ -522,11 +522,10 @@ fn group_section(heading: &str, class: &str, panels: Vec<AnyView>) -> AnyView {
 // ---------------------------------------------------------------------------
 // EA Population panel (box plot + diversity trace + selection pressure).
 //
-// `leptos-chartistry` 0.2.3 ships `Line` and `Bar` only — no box plot, no
-// scatter, no area-band primitive. The box plot is hand-rolled SVG so the
-// project a11y contract (distinct dash patterns on the best/median/worst
-// overlay lines) survives a B/W screenshot. The diversity trace and
-// selection-pressure indicator reuse `line_chart_view`.
+// Every panel is hand-rolled SVG. The box plot gives the best/median/worst
+// overlay lines distinct dash patterns so the project a11y contract survives
+// a B/W screenshot. The diversity trace is `diversity_panel_view`; the
+// selection-pressure indicator reuses `interactive_line_view`.
 // ---------------------------------------------------------------------------
 
 /// SVG viewBox width shared by every hand-rolled panel, in user units.
@@ -719,7 +718,7 @@ fn axis_layer(
 ///
 /// The click handler is DOM-generic: it walks up to `.rlevo-chart-card` and
 /// serializes the contained `<svg>`, so the same button works for every panel
-/// type — hand-rolled or `leptos-chartistry`.
+/// type.
 fn export_button(filename: &'static str) -> AnyView {
     let on_click = move |ev: leptos::ev::MouseEvent| export_panel_svg(&ev, filename);
     view! {

@@ -1,15 +1,14 @@
 # `rlevo-evolution::algorithms::metaheuristic`
 
 Nine swarm-intelligence and nature-inspired metaheuristics plugged into
-the existing `Strategy<B>` trait, plus one stubbed permutation-domain
-module reserved for future work.
+the existing `Strategy<B>` trait.
 
 ## Which one should I pick?
 
 **Start with [pso](pso.rs).** It is the best-studied, best-behaved
 member of this family. If PSO isn't good enough, the next honest step
-is to wait for (or contribute) CMA-ES or LSHADE — not to try every
-algorithm in this directory hoping one of them wins.
+is CMA-ES ([cma_es.rs](../cma_es.rs)), or contributing LSHADE — not to
+try every algorithm in this directory hoping one of them wins.
 
 ## Calibration
 
@@ -40,5 +39,4 @@ Three reasons:
 2. These algorithms are widely cited in applied literature; users will
    reach for them expecting to find them.
 3. They exercise the `Strategy<B>` trait across a wider design space,
-   surfacing abstraction leaks before more serious algorithms (CMA-ES,
-   LSHADE) land.
+   surfacing abstraction leaks.

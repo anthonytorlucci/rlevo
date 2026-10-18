@@ -1,9 +1,11 @@
-//! Micro and macro benchmarks for the DQN agent.
+//! Micro benchmarks for the DQN agent.
 //!
-//! Only the micro benches run by default (`cargo bench -p rlevo-reinforcement-learning --bench
-//! dqn_bench`). The `CartPole` reward-curve reproduction macro bench is gated
-//! behind the `macro` env var and is compared against
-//! `tests/baselines/dqn_cartpole.csv`.
+//! Measures `act` on a single `CartPole` observation and full `learn_step`
+//! wall-clock at batch size 64 on a replay buffer primed with 2 000 `CartPole`
+//! steps (`cargo bench -p rlevo-reinforcement-learning --bench dqn_bench`).
+//! The agent keeps the default `epsilon_start = 1.0` and never decays it, so
+//! every timed `act` call takes the exploring branch and does not run the
+//! Q-network.
 
 use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module};

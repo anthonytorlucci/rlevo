@@ -1,10 +1,11 @@
 //! Fitness shaping transforms.
 //!
 //! Strategies occasionally benefit from monotone transforms of raw
-//! fitness values: centered-rank mapping flattens outliers, z-scoring
-//! normalizes scale across generations, and weight decay penalizes
-//! large-norm genomes (common in neuroevolution). These helpers work
-//! directly on device tensors and are pure functions (RNG-free).
+//! fitness values: centered-rank mapping flattens outliers and z-scoring
+//! normalizes scale across generations. Both helpers take and return
+//! tensors and are pure functions (RNG-free). `z_score` reduces on the
+//! device and reads back only scalars; `centered_rank` reads the whole
+//! fitness vector back to the host to sort it.
 
 use burn::prelude::ElementConversion;
 use burn::tensor::{Tensor, backend::Backend};
@@ -40,7 +41,7 @@ const STD_FLOOR: f32 = 1e-8;
 /// `std` to `$+\infty$` and collapses *every* output element to `$\pm 0.0$`: a finite,
 /// plausible, silent zero gradient for the ES update this transform feeds.
 ///
-/// ADR 0069 §Decision 1's remedy — accumulate in `f64` — is not reachable
+/// The remedy of ADR 0069, Decision 1 — accumulate in `f64` — is not reachable
 /// through a Burn tensor, whose accumulator width is `B::FloatElem` and fixed by
 /// the backend. The equivalent guarantee is obtained here by **bounding the
 /// terms instead of widening the accumulator**: the population is divided by its
@@ -55,10 +56,11 @@ const STD_FLOOR: f32 = 1e-8;
 /// division perturbs ordinary inputs by at most a few ULP), and the `1e-8` floor
 /// is divided by the same scale so it keeps its raw-fitness meaning.
 ///
-/// `fitness::sanitized_mean` / `sanitized_sum` (ADR 0069 §Decision 2) are
+/// `fitness::sanitized_mean` / `sanitized_sum` (ADR 0069, Decision 2) are
 /// deliberately *not* used here: they reduce a host `f32` iterator, and reaching
 /// for them would mean pulling the whole population off the device — the
-/// round-trip `sanitize_fitness_tensor` exists to avoid (`rules.md` §3).
+/// round-trip `sanitize_fitness_tensor` exists to avoid (the Optimisation
+/// direction section of `docs/rules.md`).
 ///
 /// # Non-finite inputs
 ///
@@ -221,7 +223,7 @@ mod tests {
             .expect("shaped tensor host-read of a tensor this test just built")
     }
 
-    /// Control (ADR 0069 §Context): nine zeros and one merely-large-but-safe
+    /// Control (ADR 0069, Context): nine zeros and one merely-large-but-safe
     /// top member. The z-score of `[0; 9] ++ [M]` is `[-1/3; 9] ++ [3.0]` for
     /// **any** `M > 0`, because z-scoring is scale-invariant. This test pins the
     /// ordinary-input behaviour that the saturated cases below must match.
@@ -242,7 +244,7 @@ mod tests {
     /// identically to the control above — `powf_scalar(2.0)` overflows that one
     /// member's squared term to `$+\infty$` before any accumulation, so the `f32`
     /// formula collapses the whole vector to `$\pm 0.0$` at `N = 1` saturated member.
-    /// A silent zero gradient, not a `NaN`. (ADR 0069 §Decision 4.)
+    /// A silent zero gradient, not a `NaN`. (ADR 0069, Decision 4.)
     #[test]
     fn z_score_single_saturated_member_matches_control() {
         let device = Default::default();
@@ -354,7 +356,8 @@ mod tests {
     /// member itself centres to `NaN`. This test records that pre-existing
     /// behaviour verbatim so the saturation fix is visibly *not* changing it —
     /// deciding what a `$-\infty$` member should shape to is a separate, still-open
-    /// policy question (`rules.md` §12). When it's settled, this test flips
+    /// policy question, filed as a GitHub issue per the Deferred Work section of
+    /// `docs/rules.md`. When it's settled, this test flips
     /// from pinning `$[+\infty, +\infty, \text{NaN}]$` to asserting the chosen semantics.
     #[test]
     fn z_score_negative_infinity_member_is_unchanged_by_the_saturation_fix() {
@@ -425,7 +428,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // ADR 0069 §Decision 5 — behavioural rescale-invariance property.
+    // ADR 0069, Decision 5 — behavioural rescale-invariance property.
     // ------------------------------------------------------------------
 
     use proptest::collection::vec as prop_vec;
@@ -450,20 +453,20 @@ mod tests {
     proptest! {
         // Each case runs three `z_score` calls on a `Flex` tensor of at most 16
         // elements. Device-touching but not backend-*heavy* (no strategy step),
-        // so this sits between ADR 0036 §5's two tiers; `max_shrink_iters` is
-        // capped per that section's backend-heavy guidance.
+        // so this sits between the two tiers of ADR 0036, Decision 5;
+        // `max_shrink_iters` is capped per that decision's backend-heavy guidance.
         #![proptest_config(ProptestConfig {
             cases: 32,
             max_shrink_iters: 256,
             ..ProptestConfig::default()
         })]
 
-        /// **ADR 0069 §Decision 5, property 3.** `z_score` is invariant to a
+        /// **ADR 0069, Decision 5, property 3.** `z_score` is invariant to a
         /// positive affine rescale `$x \mapsto c \cdot (x + d)$` of its input — **bounded in
         /// `c`**, for the reason derived below.
         ///
-        /// This is a **device** reduction, so §Decision 4 applies rather than
-        /// §Decision 1: the accumulator width belongs to `B::FloatElem`, and the
+        /// This is a **device** reduction, so Decision 4 applies rather than
+        /// Decision 1: the accumulator width belongs to `B::FloatElem`, and the
         /// guarantee comes from bounding the terms — dividing by the population's
         /// max-abs magnitude before centering. The property is what checks that
         /// bounding step, and it needs real `Tensor` ops to do so.
@@ -502,7 +505,7 @@ mod tests {
         ///
         /// The transform is written `$c \cdot (x + d)$`, not `$c \cdot x + d$`, and the
         /// difference is not cosmetic — the second form has a **bound of its
-        /// own**, which ADR 0069 §Decision 5 does not mention and which this
+        /// own**, which ADR 0069's Decision 5 does not mention and which this
         /// property discovered while being written. An offset applied *after* the
         /// scale annihilates the population's spread in `f32` once
         /// `$c \cdot \sigma \lesssim \text{f32::EPSILON} \cdot |d|$`: at `c = 2^-24`, `d = 1`, `x = [0, 1]`, both

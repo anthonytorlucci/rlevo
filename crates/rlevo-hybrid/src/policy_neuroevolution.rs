@@ -90,10 +90,10 @@ where
         // single-source: `fitness` already owns a reshaper (built by the caller
         // from the same `template`), so the wrapper's reshaper and the
         // evaluator's cannot be collapsed here today.
-        // TODO(#229): collapse via the paired `with_eval_fn` constructor once
-        // added. Both derive from one `template`, so their widths still agree; a
-        // mismatch would surface as the documented width-mismatch panic in
-        // `evaluate_batch`.
+        // TODO: collapse them through a constructor that builds the strategy and
+        // its fitness from one template; `WeightOnly` has none. Both derive from
+        // one `template`, so their widths still agree; a mismatch would surface
+        // as the documented width-mismatch panic in `evaluate_batch`.
         let strategy = WeightOnly::new(inner, template);
         let evo_loop =
             EvolutionaryLoop::new(strategy, params, fitness, seed, device, max_generations)?;

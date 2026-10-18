@@ -32,8 +32,8 @@
 //! demonstrate that GWO is algorithmically equivalent to a weighted
 //! PSO-like update; it has no novel search mechanism over Kennedy &
 //! Eberhart (1995). Ship it for API completeness — users who expect a
-//! GWO implementation will find one — but prefer CMA-ES or LSHADE for
-//! serious work when those are available.
+//! GWO implementation will find one — but prefer
+//! [CMA-ES](crate::algorithms::cma_es) for serious work.
 //!
 //! # References
 //!
@@ -383,8 +383,8 @@ where
         mut state: GwoState<B>,
         _rng: &mut dyn Rng,
     ) -> (GwoState<B>, StrategyMetrics) {
-        // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3): the
-        // loop chokepoint already applies
+        // Sanitise on the host pull (the Optimisation direction section of
+        // `docs/rules.md`; ADR 0034 decision 3): the loop chokepoint already applies
         // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
         // a direct `ask`/`tell` driver can hand us a raw `NaN`. `argtop3_max`
         // sanitises on the *read*, which keeps leader selection safe; this
@@ -431,12 +431,13 @@ where
 
 /// Indices of the three largest values in `xs` — the `$\alpha$`, `$\beta$`, `$\delta$` leaders.
 ///
-/// Values are sanitised per the maximise convention (`rules.md` §3, ADR 0034) before comparison:
-/// `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. The loop chokepoint
-/// already pre-sanitises the fitness a [`Strategy`] receives, but a direct (non-loop) caller — a
-/// unit test or a custom driver — can seed `state.fitness` with a raw `NaN`; sanitising here keeps
-/// a non-finite value from becoming a permanent leader (a `NaN` in `xs[2]` would otherwise never
-/// lose the `v > vals[2]` comparison and be pinned as `$\delta$`).
+/// Values are sanitised per the maximise convention (the Optimisation direction section of
+/// `docs/rules.md`, ADR 0034) before comparison: `$\text{NaN} \to -\infty$` (worst),
+/// `$+\infty \to \text{f32::MAX}$`. The loop chokepoint already pre-sanitises the fitness a
+/// [`Strategy`] receives, but a direct (non-loop) caller — a unit test or a custom driver — can
+/// seed `state.fitness` with a raw `NaN`; sanitising here keeps a non-finite value from becoming
+/// a permanent leader (a `NaN` in `xs[2]` would otherwise never lose the `v > vals[2]`
+/// comparison and be pinned as `$\delta$`).
 ///
 /// # Panics
 ///

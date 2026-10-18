@@ -1,8 +1,8 @@
 //! Pure-Rust series-extraction helpers for the RL convergence panel.
 //!
 //! These transform decoded [`EpisodeRecord`]s into `(x, y)` arrays that
-//! the [`crate::charts`] module feeds into `leptos-chartistry`. No DOM,
-//! no Leptos — every function here is testable as a native unit test.
+//! the [`crate::charts`] module draws as hand-rolled SVG. No DOM, no
+//! Leptos — every function here is testable as a native unit test.
 //!
 //! The canonical metric table is the shared [`rlevo_metrics_registry`] crate
 //! (ADR-0015) — there is no client-side copy to keep in sync.
@@ -309,7 +309,7 @@ pub fn ensure_svg_header(svg: &str) -> String {
 ///
 /// Returns `None` when there are no finite diversity values. A trace dipping
 /// below this line signals the population is collapsing toward premature
-/// convergence (see `research/2026-06-05-rl-vs-eo-learning.md` §4.3).
+/// convergence.
 #[must_use]
 pub fn low_diversity_threshold(diversity: &[(u32, f64)]) -> Option<f64> {
     let take = diversity.len().min(10);
@@ -671,6 +671,10 @@ pub fn selection_pressure_series(
         .collect()
 }
 
+/// The `(best, median, worst)` per-generation fitness overlays returned by
+/// [`fitness_range_series`]; each element is a `(generation, value)` series.
+pub type FitnessRangeSeries = (Vec<(u32, f64)>, Vec<(u32, f64)>, Vec<(u32, f64)>);
+
 /// `(best, median, worst)` overlay traces for the box-plot reference
 /// lines. One tuple of three series, all sharing the same x-axis
 /// (generation). Samples with no finite fitness produce no point.
@@ -683,10 +687,6 @@ pub fn selection_pressure_series(
 /// [`ObjectiveSense::Maximize`] best is the largest value and worst the
 /// smallest; for [`ObjectiveSense::Minimize`] the ends swap. Callers pass
 /// the run's declared sense (treating `None` as `Maximize`).
-/// The `(best, median, worst)` per-generation fitness overlays returned by
-/// [`fitness_range_series`]; each element is a `(generation, value)` series.
-pub type FitnessRangeSeries = (Vec<(u32, f64)>, Vec<(u32, f64)>, Vec<(u32, f64)>);
-
 #[must_use]
 pub fn fitness_range_series(
     samples: &[PopulationSample],
@@ -1252,7 +1252,7 @@ mod tests {
         assert_eq!(out, vec![(0, 1.0), (1, 2.0), (2, 3.0)]);
     }
 
-    // ---- M8.1: population-panel series extraction ---------------------
+    // ---- Population-panel series extraction ---------------------------
 
     fn pop_sample(
         generation: u32,

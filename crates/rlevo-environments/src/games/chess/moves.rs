@@ -1,90 +1,88 @@
 //! Chess move representation and action encoding modeled after `AlphaZero` Chess.
 //!
-//! This module defines the core data structures and traits for representing chess moves
-//! in a way suitable for reinforcement learning agents. It provides a dense, efficient
-//! encoding scheme that maps moves to discrete action indices for use with neural networks.
+//! This module defines the core data structures for representing chess moves in a way
+//! suitable for reinforcement learning agents. It describes a dense, efficient encoding
+//! scheme that maps moves to discrete action indices for use with neural networks.
 //!
-//! `AlphaZero` represents the action space of chess as an $8 \times 8 \times 73$ tensor,
+//! `AlphaZero` represents the action space of chess as an `$8 \times 8 \times 73$` tensor,
 //! totaling 4,672 possible move slots.
 //!
 //! Because a neural network requires a fixed-size output, `AlphaZero` must provide a value
-//! for every possible move a piece could technically make on an $8 \times 8$ board, even
+//! for every possible move a piece could technically make on an `$8 \times 8$` board, even
 //! if that move is illegal in the current position.
 //!
-//! # The Action Space ($8 \times 8 \times 73$)
-//! The output is structured such that the first two dimensions ($8 \times 8$) represent the
+//! # The Action Space (`$8 \times 8 \times 73$`)
+//! The output is structured such that the first two dimensions (`$8 \times 8$`) represent the
 //! square from which a piece is moved. The third dimension (73 planes) represents the type of
 //! move being made.
 //!
 //! **The 73 "Move Type" Planes**:
-//! - **56 Queen-like Moves**: These covers moves in 8 directions (N, NE, E, SE, S, SW, W, NW).
+//! - **56 Queen-like Moves**: These cover moves in 8 directions (N, NE, E, SE, S, SW, W, NW).
 //!   For each direction, there are 7 possible distances (1 to 7 squares).
 //!   - _Note_: If a pawn moves to the black rank and promotes to a Queen, it is represented in
 //!     these planes.
 //! - **8 Knight Moves**: These represent the 8 "L" shapes a knight can jump.
 //! - **9 Underpromotion Planes**: When a pawn reaches the 8th rank, it can promote to a Knight,
-//!   Bishop, or Rook. These 9 planes cover the 3 possible piece types $\times 3$ possible "exit"
+//!   Bishop, or Rook. These 9 planes cover the 3 possible piece types `$\times$` 3 possible "exit"
 //!   directions (capture left, move straight, capture right).
 //!
-//! **How illegal moves are handled**: The network outputs probabilites for all 4,672 moves.
+//! **How illegal moves are handled**: The network outputs probabilities for all 4,672 moves.
 //! However, before the move is actually selected, `AlphaZero` applies a mask. It sets the
 //! probability of all illegal moves to zero and renormalizes the remaining legal moves so they
 //! sum to 1.
 //!
 //! # How the Network Evaluates a Position
-//! `AlphaZero` uses a "dual-head" architecture. After the input (the $8 \times 8 \times 119$
+//! `AlphaZero` uses a "dual-head" architecture. After the input (the `$8 \times 8 \times 119$`
 //! tensor) passes through the main body of the residual layers, the network splits into two
 //! distinct output heads:
 //!
-//! **The Policy Head ($\pi$)**
-//! The policy head outputs the $8 \times 8 \times 73$ tensor described above. This is a
+//! **The Policy Head (`$\pi$`)**
+//! The policy head outputs the `$8 \times 8 \times 73$` tensor described above. This is a
 //! probability distribution over all possible moves.
 //! - **Purpose**: It acts as the "intuition". It tells the system which moves look the most
 //!   promising to investigate further.
 //! - **Training**: It is trained to match the move distributions found by the search tree during
 //!   self-play.
 //!
-//! **The Value Head ($v$)**
+//! **The Value Head (`$v$`)**
 //! The value head outputs a single scalar value between -1 and 1.
 //! - **Interpretation**:
-//!   - $+1$: High confidence of a win.
-//!   - $0$: Prediction of a draw.
-//!   - $-1$: High confidence of a loss.
+//!   - `$+1$`: High confidence of a win.
+//!   - `$0$`: Prediction of a draw.
+//!   - `$-1$`: High confidence of a loss.
 //! - **Purpose**: It replaces the traditional "evaluation function" (which might count points for
-//!   pieces). Instead of calculating a score like $+1.5$, it predicts the expected outcome of the
+//!   pieces). Instead of calculating a score like `$+1.5$`, it predicts the expected outcome of the
 //!   game from the current position.
 //!
 //! # The Synergy: Evaluation + Search
 //! The magic of `AlphaZero` is how these two outputs work together inside the Monte Carlo Tree
 //! Search (MCTS):
-//! 1. **Prioritization**: When MCTS explores a new branch, it uses the Policy ($\pi$) to decide
+//! 1. **Prioritization**: When MCTS explores a new branch, it uses the Policy (`$\pi$`) to decide
 //!   which moves to try first. This prevents the engine from wasting time on "human-obvious"
 //!   blunders.
 //! 2. **Leaf Evaluation**: In old-school MCTS, you would play "random games" until the end to see
 //!   who won. `AlphaZero` doesn't do that. As soon as it hits a new position in its search tree, it
-//!   asks the Value Head ($v$) for an estimate.
+//!   asks the Value Head (`$v$`) for an estimate.
 //! 3. **Backpropagation**: This value estimate is "rippled" back up the tree, updating the
 //!   quality score of every move that led to that position.
 //!
 //!
 //! # Action Space Structure
 //!
-//! The `ChessMove` struct implements both the `Action`, `MultiDiscreteAction`, and
-//! `ActionTensorConvertible`  traits, enabling integration with the rlevo-core framework:
+//! The `ChessMove` struct implements no `rlevo-core` trait yet; its only impls are the
+//! derived `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq` and `Hash`. What the module provides:
 //!
-//! - **Validation**: Moves are validated by ensuring both source and destination squares
-//!   are valid (0-63). Legal move validation is delegated to the environment.
-//! - **Discretization**: Each move can be converted to/from the indicies in (8,8,73), enabling
-//!   efficient neural network output layers and policy representations.
+//! - **Validation**: none. Neither `ChessMove` nor `Square` checks that a square lies in
+//!   0-63; that check and legal move validation are left to the environment.
+//! - **Discretization**: the private `compute_move_plane` / `decode_move_plane` pair maps
+//!   a move to its move-type plane (0-72) in (8,8,73) and back, given the source square.
 //!
 //! # Usage Notes
 //!
 //! `ChessMove` stores the source square, destination square, and an optional
-//! promotion piece. The `to_indices` / `from_indices` conversion methods that
-//! map a move into the `(8, 8, 73)` action tensor are scaffolded but not yet
-//! wired to the `Action` trait — see `compute_move_plane` and
-//! `decode_move_plane` for the encoding logic that will back those methods once
-//! the `Environment` impl lands.
+//! promotion piece. No method maps a move to or from its full `(8, 8, 73)`
+//! action index yet: `from_rank` / `from_file` give the first two indices, and
+//! the private `compute_move_plane` the third.
 //!
 //! # Implementation Notes
 //!

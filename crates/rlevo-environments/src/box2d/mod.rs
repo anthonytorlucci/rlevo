@@ -7,10 +7,10 @@
 //!
 //! | Environment | Action | Obs dim | Terminated by |
 //! |---|---|---|---|
-//! | [`bipedal_walker`] | Continuous(4) | 24 | hull contact / reward < -100 |
-//! | [`lunar_lander`] `LunarLanderDiscrete` | Discrete(4) | 8 | crash / out of bounds |
-//! | [`lunar_lander`] `LunarLanderContinuous` | Continuous(2) | 8 | crash / out of bounds |
-//! | [`car_racing`] | Continuous(3) | `$96 \times 96 \times 3$` | lap complete |
+//! | `bipedal_walker` | Continuous(4) | 24 | hull contact / reward < -100 |
+//! | `lunar_lander` `LunarLanderDiscrete` | Discrete(4) | 8 | crash / out of bounds |
+//! | `lunar_lander` `LunarLanderContinuous` | Continuous(2) | 8 | crash / out of bounds |
+//! | `car_racing` | Continuous(3) | `$96 \times 96 \times 3$` | lap complete |
 
 #[cfg(feature = "box2d")]
 pub mod bipedal_walker;
