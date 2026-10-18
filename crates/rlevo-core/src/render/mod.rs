@@ -5,7 +5,7 @@
 //! | Submodule          | What it provides                                                    |
 //! |--------------------|---------------------------------------------------------------------|
 //! | [`ascii`]          | [`AsciiRenderable`] trait — optional text dump helper (ADR-0013). |
-//! | [`styled`]         | [`StyledFrame`] / [`StyledLine`] / [`StyledSpan`] / [`SpanStyle`] / [`Color`] / [`Modifier`] — colour-aware projection consumed by the `ratatui` TUI and the static-HTML report tier. |
+//! | [`styled`]         | [`StyledFrame`] / [`StyledLine`] / [`StyledSpan`] / [`SpanStyle`] / [`Color`] / [`Modifier`] — colour-aware text projection. The static-HTML report tier renders recorded [`StyledFrame`]s; the `ratatui` TUI maps only [`SpanStyle`] / [`Color`] / [`Modifier`] onto its own styles. |
 //! | [`palette`]        | Project-wide semantic colour constants (`AGENT_FG`, `GOAL_FG`, `HAZARD_FG`, …). Every styled-output implementor should reach for these rather than raw [`Color`] values to satisfy the accessibility contract. |
 //! | [`payload`]        | Per-family structured snapshot types ([`Landscape2DSnapshot`], [`Box2dSnapshot`], [`Locomotion2DSnapshot`], …) and the corresponding opt-in payload-source traits consumed by the report tier. |
 //!

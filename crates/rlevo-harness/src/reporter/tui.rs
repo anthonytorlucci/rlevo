@@ -30,8 +30,8 @@ use crate::suite::{SuiteInfo, TrialInfo};
 pub enum TuiEvent {
     /// Suite-level start, carrying the full [`SuiteInfo`].
     SuiteStart(SuiteInfo),
-    /// Trial-level start. The render thread typically clears the env
-    /// panel and updates the status line on this.
+    /// Trial-level start. The render thread writes the trial's env name
+    /// to the status line on this.
     TrialStart(TrialInfo),
     /// Episode terminated. The render thread pushes the return into the
     /// reward ring.
@@ -52,8 +52,8 @@ pub enum TuiEvent {
     EpisodeReturn {
         /// Sum of per-step rewards across the just-terminated episode.
         return_value: f64,
-        /// Step count of the just-terminated episode. Unused by the live
-        /// tier today; carried for Milestone-4's `EpisodeRecord` writer.
+        /// Step count of the just-terminated episode. The render thread
+        /// does not read it; only the return reaches the reward ring.
         length: u32,
     },
     /// Trial terminated. Carries the aggregated [`TrialReport`].
@@ -170,7 +170,7 @@ impl TuiHandle {
 ///
 /// Construct via [`TuiHandle::as_reporter`] for new code; the legacy
 /// [`TuiReporter::channel`] convenience is preserved for callers that only
-/// need the reporter and never tap frames.
+/// need the reporter and no [`TuiHandle`].
 #[derive(Debug)]
 pub struct TuiReporter {
     tx: Sender<TuiEvent>,
@@ -179,7 +179,7 @@ pub struct TuiReporter {
 impl TuiReporter {
     /// Construct a reporter plus a receiver. Backwards-compatible shortcut
     /// for callers that want only the harness event stream and don't need
-    /// per-step frame capture.
+    /// a [`TuiHandle`] for metric, log, or episode-return pushes.
     #[must_use]
     pub fn channel() -> (Self, Receiver<TuiEvent>) {
         let (handle, rx) = TuiHandle::channel();

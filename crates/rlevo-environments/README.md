@@ -22,7 +22,7 @@ Ports of the canonical Gymnasium control tasks implemented in pure Rust.
 | `MountainCarContinuous` | `classic::MountainCarContinuous` | 2-D continuous | Continuous(1) | Dense reward variant |
 | `Pendulum` | `classic::Pendulum` | 3-D continuous | Continuous(1) | Underactuated swing-up |
 | `SantaFeAnt` | `classic::santa_fe_ant` | 1-D | Discrete(3) | POMDP food-foraging trail; the one-bit percept is not Markov |
-| `TenArmedBandit` | `classic::bandit::k_armed` | 1-D | Discrete(K) | Sutton & Barto §2 k-armed testbed |
+| `TenArmedBandit` | `classic::bandit::k_armed` | 1-D | Discrete(K) | k-armed testbed from Sutton & Barto, Chapter 2 |
 | `KArmedBandit` | `classic::bandit::k_armed` | 1-D | Discrete(K) | Generalized k-armed variant |
 | `ContextualBandit` | `classic::bandit::contextual` | C-D | Discrete(K) | Per-episode context vector determines reward distribution |
 | `NonStationaryBandit` | `classic::bandit::non_stationary` | 1-D | Discrete(K) | Reward distribution drifts over the episode |
@@ -66,7 +66,7 @@ Eleven of the twelve encode that view as the shared 3-channel `GridObservation` 
 
 Observations are **occluded** for eight of the twelve grid environments, matching canonical Minigrid per-environment: `MiniGridEnv.__init__` defaults `see_through_walls=False`, and only `EmptyEnv`, `DistShiftEnv`, `DynamicObstaclesEnv`, and `GoToDoorEnv` opt out. Each environment states its own value as an inherent `const VISIBILITY`, so `grep -rn "const VISIBILITY"` audits the whole family against upstream; ADR 0063 holds the table and the reasoning.
 
-`MemoryEnv`'s minimum size of 11 is not arbitrary — and, contrary to what ADR 0043 §3 predicted, occlusion does **not** relax it to 7. `MemoryEnv` runs the canonical shadow cast, and an executed sweep at sizes 7 and 9 finds the cue visible from the decision region in exactly the same poses with occlusion as without: `Grid.process_vis` is a forward flood fill, so light entering the start room through the corridor mouth spreads sideways and relights the cue. Only *distance* keeps the cue out of sight from the fork, and `size >= 11` is exactly the distance required (Invariant M, ADR 0043; refutation recorded in ADR 0063 Decision 6). Lowering it re-opens the bug that made the task solvable without memory.
+`MemoryEnv`'s minimum size of 11 is not arbitrary — and, contrary to what ADR 0043's Decision 3 predicted, occlusion does **not** relax it to 7. `MemoryEnv` runs the canonical shadow cast, and an executed sweep at sizes 7 and 9 finds the cue visible from the decision region in exactly the same poses with occlusion as without: `Grid.process_vis` is a forward flood fill, so light entering the start room through the corridor mouth spreads sideways and relights the cue. Only *distance* keeps the cue out of sight from the fork, and `size >= 11` is exactly the distance required (Invariant M, ADR 0043; refutation recorded in ADR 0063 Decision 6). Lowering it re-opens the bug that made the task solvable without memory.
 
 Be precise about what that buys, though. The cue is **not** hidden everywhere — because the view reaches 6 cells backward from the cue's fixed column (`x = 1`), an agent standing anywhere in the corridor at `x <= 7` can turn to face West and re-read it. That leak zone is fixed by the view geometry, does not depend on `size`, and (measurably) survives occlusion unchanged. What Invariant M guarantees is that the cue is unobservable **at the fork**, and that no single observation ever contains the cue *and* a fork object (they are more than a view-width apart) — which is what makes a memoryless policy unable to beat chance.
 
@@ -205,7 +205,7 @@ while !snap.is_done() {
 | Feature | Default | Description |
 |---|---|---|
 | `box2d` | yes | Box2D-style physics environments via `rapier2d` |
-| `locomotion` | yes | Locomotion environments via `rapier3d` + `nalgebra` |
+| `locomotion` | yes | Locomotion environments via `rapier3d` |
 | `record` | no | `RecordedEnvFamily` impls tying each env to its recording family. The one feature that links `rlevo-harness` |
 
 Disable physics environments to shrink compile time:
@@ -238,7 +238,7 @@ let env = CartPole::with_config(
 
 Stochastic environments seed a **persistent** RNG once at construction from `config.seed` and let it advance across resets (ADR 0029). A fixed seed therefore reproduces a fixed *sequence* of episodes, not one episode over and over — successive `reset()` calls sample independent episodes, which is what makes an env like `MemoryEnv` or `GoToDoorEnv` a learning problem at all. Pass different seeds across parallel workers to get independent rollouts.
 
-To replay one specific episode bit-for-bit, use the inherent `reset_with_seed(seed)` on the environments that expose it (`MemoryEnv`, `GoToDoorEnv`).
+To replay one specific episode bit-for-bit, call the inherent `reset_with_seed(seed)`: it re-seeds that RNG, then resets. The environments that expose it are the classic-control tasks `CartPole`, `Acrobot`, `MountainCar`, `MountainCarContinuous` and `Pendulum`; all four locomotion tasks; `PixelGridEnv`; and the grid environments `DoorKeyEnv`, `LavaGapEnv`, `FourRoomsEnv`, `UnlockPickupEnv`, `MemoryEnv`, `CrossingEnv`, `DynamicObstaclesEnv` and `GoToDoorEnv`.
 
 ### Wrappers
 
@@ -256,7 +256,7 @@ A `step` after `Terminated` or `Truncated` returns `EnvironmentError::StepAfterE
 
 ### Const Generics
 
-State and observation dimensions are encoded as const generics (`State<D>`, `Observation<D>`). Mismatched dimensions produce a compile-time error rather than a runtime panic.
+Tensor ranks (the number of axes, not their sizes) are encoded as const generics: `State<R>`, `Observation<R>` and `Action<R>`, with an environment declaring all three as `Environment<R, SR, AR>` (observation, state and action rank). A rank mismatch produces a compile-time error rather than a runtime panic; the size of each axis is a runtime value, returned by `shape()`.
 
 ---
 

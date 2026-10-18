@@ -54,17 +54,17 @@ use crate::utils::{PolyakError, compute_target_q_values};
 /// `as_slice::<f32>()` calls in [`act`](DdpgAgent::act) and
 /// [`act_with`](DdpgAgent::act_with), and both methods return a bare `A` rather
 /// than a `Result` — there is no error channel for a variant to travel down. The
-/// read is an `.expect` on a named invariant, which is precisely the form
-/// `docs/rules.md` §4 sanctions for a host-read that "cannot fail by
-/// construction": the tensor is one the same function just built from its own
-/// actor. Making that path fallible is a breaking change, deferred and
-/// tracked separately.
+/// read is an `.expect` on a named invariant, which is precisely the form the
+/// Error Handling section of `docs/rules.md` sanctions for a host-read that
+/// "cannot fail by construction": the tensor is one the same function just
+/// built from its own actor. Making that path fallible is a breaking change,
+/// deferred and tracked separately.
 ///
 /// When it lands, the variant returns as
 /// `#[from]` [`rlevo_core::base::TensorConversionError`] — not as a `String`.
-/// §4 prefers structured variants over string-based errors and names that type
-/// as the tensor-op error domain, so re-introducing a `String` payload would
-/// rebuild the discarded variant in a merely-live form.
+/// That section prefers structured variants over string-based errors and names
+/// that type as the tensor-op error domain, so re-introducing a `String`
+/// payload would rebuild the discarded variant in a merely-live form.
 ///
 /// # Why there is no buffer or I/O variant
 ///
@@ -79,7 +79,7 @@ use crate::utils::{PolyakError, compute_target_q_values};
 ///
 /// `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
 /// there is no `save`, `load`, `Recorder`, or `std::fs` use anywhere under
-/// `algorithms/`, and ADR 0014 §6 defers the checkpoint write path to Tier D.
+/// `algorithms/`, and ADR 0014, Decision 6, defers the checkpoint write path.
 ///
 /// Because the enum is `#[non_exhaustive]`, adding a variant when either of
 /// those lands is not a breaking change. The bar for adding one is an actual
@@ -169,8 +169,8 @@ pub struct LearnOutcome {
 ///
 /// - `OR` — rank of a single observation tensor (`1` for vector observations
 ///   of shape `[features]`).
-/// - `BOR` — rank of a batched observation tensor (= `R + 1`). Rust cannot
-///   express `R + 1` in generic position on stable, so both are supplied.
+/// - `BOR` — rank of a batched observation tensor (= `OR + 1`). Rust cannot
+///   express `OR + 1` in generic position on stable, so both are supplied.
 /// - `AR` — rank of a single action tensor (`1` for vector actions of shape
 ///   `[action_dim]`).
 /// - `BAR` — rank of a batched action tensor (= `AR + 1`).
@@ -212,12 +212,12 @@ pub struct DdpgAgent<
     stats: AgentStats<DdpgMetrics>,
     last_actor_loss: f32,
     /// Most recent *applied* critic loss — carried forward across a non-finite
-    /// skip so the reported metric never folds in a NaN (ADR 0056 §3).
+    /// skip so the reported metric never folds in a NaN (ADR 0056, Decision 3).
     last_critic_loss: f32,
     /// Non-finite-loss guard for the critic loss site (ADR 0056). Skips
     /// the update on every occurrence; the `warn!` escalates by decades — skips
-    /// 1, 10, 100, … — each carrying the running total (ADR 0072 §1), readable
-    /// via [`Self::skipped_critic_updates`].
+    /// 1, 10, 100, … — each carrying the running total (ADR 0072, Decision 1),
+    /// readable via [`Self::skipped_critic_updates`].
     critic_guard: FiniteLossGuard,
     /// Non-finite-loss guard for the actor loss site, counting and escalating
     /// independently of [`Self::critic_guard`]. See
@@ -236,7 +236,7 @@ pub struct DdpgAgent<
     /// Non-finite-observation guard for the action-selection sites
     /// ([`act`](Self::act), [`act_with`](Self::act_with)). Detect-and-report
     /// only: it counts and warns, and the action is returned unchanged (ADR
-    /// 0067 §Decision 4).
+    /// 0067, Decision 4).
     act_obs_guard: FiniteObsGuard,
     /// Reusable host staging buffer for the ingestion-side row-finiteness
     /// check. `remember` takes `&mut self`, so it can own one buffer and
@@ -387,7 +387,7 @@ where
     ///
     /// This is an *attempt* count, not an *applied* count: it advances
     /// unconditionally at the end of every learn step, including one whose
-    /// critic loss was non-finite and therefore skipped (ADR 0059 §Decision 4).
+    /// critic loss was non-finite and therefore skipped (ADR 0059, Decision 4).
     /// Keeping it unconditional is what makes the two cadences immune to a
     /// transient `NaN` — a skip must not silently retime the actor and target
     /// updates. Subtract
@@ -408,7 +408,7 @@ where
     /// # Relationship to [`critic_updates`](Self::critic_updates)
     ///
     /// [`critic_updates`](Self::critic_updates) counts **attempts** and
-    /// advances unconditionally, including on a skip (ADR 0059 §Decision 4);
+    /// advances unconditionally, including on a skip (ADR 0059, Decision 4);
     /// this counts the **subset of those attempts that was skipped**, so
     ///
     /// ```text
@@ -455,7 +455,7 @@ where
 
     /// Total gradient updates skipped for a non-finite loss, across **both**
     /// loss sites — the canonical `skipped_updates` metric this agent reports
-    /// (ADR 0072 §2, §3).
+    /// (ADR 0072, Decisions 2 and 3).
     ///
     /// The sum of [`skipped_critic_updates`](Self::skipped_critic_updates) and
     /// [`skipped_actor_updates`](Self::skipped_actor_updates), saturating at
@@ -488,8 +488,8 @@ where
     ///
     /// The observation row is checked for finiteness before it reaches the actor. A `NaN` /
     /// `$\pm\infty$` row is **counted and warned about, and the action is returned unchanged** —
-    /// nothing is substituted, no fallback is returned, and the clamping is not altered (ADR 0067
-    /// §Decision 4). Read the count with
+    /// nothing is substituted, no fallback is returned, and the clamping is not altered (ADR 0067,
+    /// Decision 4). Read the count with
     /// [`degenerate_action_selections`](Self::degenerate_action_selections).
     ///
     /// The warm-up branch is deliberately outside the check: it never reads
@@ -538,10 +538,10 @@ where
     /// a prior panic *inside* the actor's optimizer step; a panic anywhere else
     /// in [`learn_step`](Self::learn_step) leaves this method working. Also
     /// panics if the actor's output tensor is not `f32`: that host-read is an
-    /// `.expect` on a named invariant, the form `docs/rules.md` §4 sanctions
-    /// here because `act` returns a bare action and so has no error channel to
-    /// report the failure through — making the path fallible is a breaking
-    /// change, deferred and tracked separately.
+    /// `.expect` on a named invariant, the form the Error Handling section of
+    /// `docs/rules.md` sanctions here because `act` returns a bare action and so
+    /// has no error channel to report the failure through — making the path
+    /// fallible is a breaking change, deferred and tracked separately.
     pub fn act(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::COMPONENTS)
@@ -555,7 +555,7 @@ where
         // of the deliberate alternative: one `Vec<f32>` allocation per call, and only for f32
         // feature-vector observations (`$\leq 24$` elements in this workspace). The four
         // integer-backed observation types override `row_is_finite` without touching `scratch`, so
-        // this `Vec` is never allocated into for them (ADR 0067 §Decision 2).
+        // this `Vec` is never allocated into for them (ADR 0067, Decision 2).
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
@@ -702,8 +702,8 @@ where
     /// returns early, so a transition carrying both a non-finite reward and a
     /// non-finite observation increments **only this** counter. The two will
     /// legitimately disagree; neither is the total number of dropped
-    /// transitions on its own, and their **sum** is that total (ADR 0067
-    /// §Consequences).
+    /// transitions on its own, and their **sum** is that total (the
+    /// Consequences section of ADR 0067).
     #[must_use]
     pub const fn dropped_transitions(&self) -> u64 {
         self.reward_guard.dropped()
@@ -732,8 +732,8 @@ where
     /// is bad in both ways increments only `dropped_transitions` and **not**
     /// this counter. Expect the two to disagree; each drop increments exactly
     /// one of them, so their **sum** is the total number of dropped
-    /// transitions and neither is that total on its own (ADR 0067
-    /// §Consequences).
+    /// transitions and neither is that total on its own (the Consequences
+    /// section of ADR 0067).
     #[must_use]
     pub fn dropped_observations(&self) -> u64 {
         self.obs_guard.count()
@@ -959,7 +959,7 @@ where
         // into the weights silently); the value is excluded from the reported
         // metric (`last_critic_loss` carries its last applied value forward).
         // `critic_updates` (the actor cadence counter) still advances
-        // unconditionally, per ADR 0056 §3.
+        // unconditionally, per ADR 0056, Decision 3.
         if self.critic_guard.check(critic_loss) {
             let grads = critic_loss_tensor.backward();
             let grads = GradientsParams::from_grads(grads, self.critic.get());
@@ -1011,7 +1011,7 @@ where
         // actor step must precede this block, or the target would track a stale
         // actor for one cadence period.
         //
-        // Target Polyak updates: cadence-driven (per ADR 0056 §3), so they
+        // Target Polyak updates: cadence-driven (per ADR 0056, Decision 3), so they
         // run whether or not the actor step was skipped — the healthy
         // networks keep being tracked by their targets. That invariant survives
         // the move unchanged: this block never consults the actor guard, and a
@@ -1031,7 +1031,7 @@ where
         Ok(Some(LearnOutcome {
             // Report the most recent *applied* critic loss so a skipped
             // (non-finite) step carries its last healthy value forward rather
-            // than poisoning the metric with a NaN (ADR 0056 §3).
+            // than poisoning the metric with a NaN (ADR 0056, Decision 3).
             critic_loss: self.last_critic_loss,
             actor_loss: actor_loss_opt,
             q_mean,
@@ -1246,7 +1246,7 @@ mod tests {
     }
 
     /// The skip counter is a **counter**, not a latch: three consecutive
-    /// poisoned critic steps must read exactly `3` (ADR 0072 §1). A count of
+    /// poisoned critic steps must read exactly `3` (ADR 0072, Decision 1). A count of
     /// `1` here would mean the counter was mistranslated from the old
     /// one-shot `warning_fired` boolean.
     #[test]
@@ -1664,7 +1664,7 @@ mod tests {
         );
     }
 
-    /// ADR 0067 §Consequences: the reward guard runs first and returns early,
+    /// The Consequences section of ADR 0067: the reward guard runs first and returns early,
     /// so a transition that is bad in *both* ways increments only
     /// `dropped_transitions`. This test pins that ordering — it is the reason
     /// the two counters legitimately disagree, and both accessors document it.
@@ -1694,7 +1694,7 @@ mod tests {
         );
     }
 
-    /// ADR 0067 §Decision 4: `act` detects and reports, and **returns the
+    /// ADR 0067, Decision 4: `act` detects and reports, and **returns the
     /// action anyway**. Not substituting is the decision under test, so the
     /// assertion that an action comes back is as load-bearing as the counter.
     #[test]
@@ -1730,7 +1730,7 @@ mod tests {
     /// without this test, deleting the guard line from `act_with` is invisible.
     ///
     /// Same decision under test as [`act`]: count, warn, and **return the
-    /// action anyway** (ADR 0067 §Decision 4).
+    /// action anyway** (ADR 0067, Decision 4).
     #[test]
     fn test_ddpg_agent_act_with_counts_a_nonfinite_obs_and_still_returns_an_action() {
         let agent = obs_guard_agent();

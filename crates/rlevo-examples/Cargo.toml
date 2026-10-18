@@ -31,7 +31,7 @@ viz-tui = ["rlevo-harness/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
 # `record` transitively in rlevo-harness; `rlevo-environments/record` adds
 # the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
-# umbrella forwards only the two products (ADR-0013 §5).
+# umbrella forwards only the two products (ADR-0013, Decision 5).
 viz-report = ["rlevo-harness/report", "rlevo-environments/record"]
 
 [lints]
@@ -92,7 +92,7 @@ path = "examples/evolution/competitive_predator_prey.rs"
 name = "cooperative_ccga_rastrigin"
 path = "examples/evolution/cooperative_ccga_rastrigin.rs"
 
-# Examples — evolution (neuroevolution: recurrent memory policy on the Santa Fe Trail, #69)
+# Examples — evolution (neuroevolution: recurrent memory policy on the Santa Fe Trail)
 [[example]]
 name = "santa_fe_ant_deterministic"
 path = "examples/evolution/santa_fe_ant_deterministic.rs"

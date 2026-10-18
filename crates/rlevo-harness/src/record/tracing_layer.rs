@@ -1,7 +1,7 @@
 //! [`RecordingLayer`] — a `tracing` Layer that pushes
 //! [`MetricSample`]s into a [`RecordSink`].
 //!
-//! Counterpart to [`TuiCaptureLayer`](crate::tui::log_layer::TuiCaptureLayer)
+//! Counterpart to `tui::log_layer::TuiCaptureLayer` (feature `tui`)
 //! but writes to the record-side sink instead of the TUI channel.
 //! Both layers share the [`crate::metrics_registry::CANONICAL_METRICS`]
 //! registry so a single algorithm `tracing::info!(...)` call lights up
@@ -47,7 +47,7 @@ impl fmt::Debug for RecordingLayer {
 impl RecordingLayer {
     /// Constructs the layer wrapped around a shared sink. The same
     /// `sink` should also be held by the env-tap / reporter producers
-    /// in the same run so all three write to the same files.
+    /// in the same run so they all write to the same files.
     #[must_use]
     pub fn new(sink: Arc<Mutex<dyn RecordSink>>) -> Self {
         Self {

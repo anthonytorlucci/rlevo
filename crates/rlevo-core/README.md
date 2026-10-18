@@ -15,7 +15,7 @@ Environment ──reset/step──► Snapshot ──observation──► Agent 
                                    └──reward──────────────────────────────────────┘
 ```
 
-All dimensions (state, observation, action) are enforced at compile time via const generics, so shape mismatches become type errors rather than runtime panics.
+The rank (number of tensor axes) of every state, observation and action is enforced at compile time via const generics, so rank mismatches become type errors rather than runtime panics.
 
 ## Modules
 
@@ -25,7 +25,7 @@ The primitive building blocks of the RL abstraction.
 
 | Trait | Description |
 |---|---|
-| `State<R>` | Full MDP state; produces an `Observation<R>` via `observe()` |
+| `State<R>` | Full MDP state (`shape()`, `is_valid()`, `numel()`); the environment's `Sensor` produces the observation |
 | `Observation<R>` | What the agent perceives (may be a partial view of state) |
 | `Action<R>` | Base action constraint (`is_valid()`) |
 | `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
@@ -41,9 +41,9 @@ Three orthogonal action abstractions cover the standard taxonomy:
 | Trait | Use Case |
 |---|---|
 | `DiscreteAction<R>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index`, `to_index`, `enumerate`, `random`. |
-| `MultiDiscreteAction<R>` | Multiple independent discrete dimensions (e.g., direction $\times$ attack). Combinatorial enumeration and weighted random sampling. |
-| `ContinuousAction<R>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[$-$1, 1\]). |
-| `BoundedAction<R>` | Extends `ContinuousAction<D>` with per-component `low()` / `high()` bounds. |
+| `MultiDiscreteAction<R>` | Multiple independent discrete dimensions (e.g., direction $\times$ attack). Combinatorial enumeration and uniform random sampling. |
+| `ContinuousAction<R>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[$-$1, 1)). |
+| `BoundedAction<R>` | Extends `ContinuousAction<R>` with per-component `low()` / `high()` bounds. |
 
 ### `state` — Advanced State Abstractions
 
@@ -51,19 +51,20 @@ Extensions to `State<R>` for partial observability and hierarchy:
 
 | Trait | Purpose |
 |---|---|
-| `Observable<OR>` | Modality-changing state→observation projection for `OR != SR` (ADR 0019) |
-| `BeliefState<SR, AR, S, A>` | POMDP belief distribution over latent states, updated by action `A` |
+| `Observable<OR>` | Optional pure state→observation projection (`project()`) that a `Sensor` may delegate to (ADR 0047); `OR` is independent of `SR` (`OR == SR` included), so it can also change modality, e.g. RAM bytes viewed as pixels (ADR 0019) |
+| `BeliefState<OR, SR, AR, S, A>` | POMDP belief distribution over latent states, updated from action `A` and an `Observation<OR>` |
 | `StateAggregation<SR, S>` | Maps concrete states to abstract representatives for hierarchical RL |
 
 ### `environment` — Environment Protocol
 
 | Item | Description |
 |---|---|
-| `Environment<D, SD, AD>` | Core trait: `reset()`, `step(action)` |
+| `Environment<R, SR, AR>` | Core trait: `reset()`, `step(action)` |
+| `Sensor<OR, AR, SR>` | Env-side emission model $O(a, s')$: `observe(action, next_state)` and `observe_reset(state)` produce the agent's observation (ADR 0047) |
 | `ConstructableEnv` | Default-construction factory (`new(render)`), lifted off `Environment` per ADR 0011 |
-| `Snapshot<D>` | Per-step result: `observation()`, `reward()`, `status()` |
+| `Snapshot<R>` | Per-step result: `observation()`, `reward()`, `status()` |
 | `EpisodeStatus` | `Running \| Terminated \| Truncated` — distinguishes natural episode ends from step-limit truncations (important for value bootstrapping) |
-| `SnapshotBase<D, O, R>` | Default `Snapshot` implementation with named constructors: `running()`, `terminated()`, `truncated()` |
+| `SnapshotBase<R, ObservationType, RewardType>` | Default `Snapshot` implementation with named constructors: `running()`, `terminated()`, `truncated()` |
 | `SnapshotMetadata` | Builder for named reward components and 3-D positions (visualization / debugging) |
 
 ### `episode` — Episode-Lifecycle Guard
@@ -105,12 +106,12 @@ The agent/landscape side of the benchmark harness, also hoisted into core per AD
 
 ### `bounds`, `config`, `objective`, `probability`, `rate` — Validated Value Types
 
-Small, dependency-free newtypes and helpers shared across config validation in environments and algorithms:
+Small validated newtypes and helpers shared across config validation in environments and algorithms. Their only external dependencies are `serde` (the newtypes and `ObjectiveSense` derive `Serialize` / `Deserialize`, and deserialising a newtype validates it) and `thiserror` (the error types):
 
 | Item | Description |
 |---|---|
 | `Bounds` / `BoundsError` | Validated `[low, high]` interval type |
-| `Validate` | Trait for config structs to self-check via `Violations` |
+| `Validate` | Trait for config structs to self-check: `validate()` returns the first `ConfigError`, `validate_all()` every one (collected with `Violations`) |
 | `ConfigError` / `ConstraintKind` / `Violations` | Structured config-validation error reporting, plus helper checks (`positive`, `in_range`, `ordered`, `distinct`, `nonzero`, `at_least`, `at_most`) |
 | `ObjectiveSense` | `Minimize \| Maximize`, used to disambiguate landscape/fitness direction |
 | `Probability` / `ProbabilityError` | Validated `[0, 1]` newtype |
@@ -122,7 +123,7 @@ Placeholder module reserved for a future unified agent trait hierarchy (`act` / 
 
 ### `render` — Rendering Abstractions
 
-The rendering surface feeds the two visualisation products (ADR 0013): a live metrics-only `ratatui` TUI and a post-run static-HTML report that replays env state from structured payloads. `rlevo-core` ships zero terminal-side dependencies — the conversions into `ratatui`/HTML live downstream in `rlevo-harness`.
+The rendering surface feeds the two visualisation products (ADR 0013): a live metrics-only `ratatui` TUI and a post-run static-HTML report that replays env state from structured payloads. `rlevo-core` ships zero terminal-side dependencies — the conversion into `ratatui` styles lives downstream in `rlevo-harness`, and the rendering of frames and payloads into HTML in `rlevo-benchmarks-report-client`.
 
 **`ascii` — optional text rendering**
 
@@ -130,16 +131,16 @@ The rendering surface feeds the two visualisation products (ADR 0013): a live me
 |---|---|
 | `AsciiRenderable` | Optional debug helper (not a library invariant, per ADR 0013): a grep-friendly text dump for logs, snapshot tests, and the report's legacy `<pre>` fallback |
 
-**`styled` — colour-aware projection** (consumed by the live TUI and report tiers)
+**`styled` — colour-aware projection** (the report tier renders `StyledFrame`s; the live TUI uses only the `SpanStyle` / `Color` / `Modifier` styles)
 
 | Item | Description |
 |---|---|
 | `StyledFrame` / `StyledLine` / `StyledSpan` | A small, ratatui-shaped vocabulary for styled text output |
 | `SpanStyle` | Foreground/background `Color` plus a `Modifier` set |
-| `Color` | Semantic colour enum |
+| `Color` | ANSI colour enum: the 16-colour palette plus `Indexed(u8)` 256-colour entries |
 | `Modifier` | Bitset of `BOLD` / `REVERSED` / `UNDERLINED` / … hints |
 
-**`palette` — semantic colours.** Project-wide named colour constants, each paired with a `*_MODIFIER` companion so meaning is never carried by hue alone (accessibility contract — see ADR/feedback on hue-redundant signalling).
+**`palette` — semantic colours.** Project-wide named colour constants, each paired with a `*_MODIFIER` companion so meaning is never carried by hue alone (accessibility contract — see the `palette` module docs on hue-redundant signalling).
 
 **`payload` — per-family structured snapshots** (the report tier's rich view). Pure-data snapshot types plus an opt-in `*PayloadSource` trait per family; envs that don't implement one fall back to the ASCII payload.
 
@@ -154,7 +155,7 @@ The rendering surface feeds the two visualisation products (ADR 0013): a live me
 
 ## Design Principles
 
-**Const generics for shapes.** Every trait is parameterised by a const `D` (or `SD`, `AD`) so that dimension mismatches fail at compile time, not at runtime.
+**Const generics for ranks.** `State`, `Observation` and `Action`, and the traits built on them, carry a const rank `R` (`SR`, `AR`, `OR` where several meet) so that rank mismatches fail at compile time, not at runtime.
 
 **Separation of state and observation.** `State<R>` represents the true MDP state; `Observation<R>` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
 
@@ -162,7 +163,7 @@ The rendering surface feeds the two visualisation products (ADR 0013): a live me
 
 **Trait-based composition.** No inheritance. New action spaces, state types, and genome kinds are added by implementing the appropriate trait.
 
-**Zero-cost abstractions.** `Copy` reward/state types and const-generic shapes incur no runtime cost.
+**Zero-cost abstractions.** `Copy` reward/state types and const-generic ranks incur no runtime cost.
 
 ## Usage
 
@@ -170,8 +171,10 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rlevo-core = { path = "../rlevo-core" }  # or version once published
+rlevo-core = "0.5"
 ```
+
+The example below uses `EpisodeGuard`, which is on `main` and ships with the next release; the published 0.5.0 has no `episode` module.
 
 ### Minimal Environment
 

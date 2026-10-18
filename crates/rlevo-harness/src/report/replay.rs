@@ -3,8 +3,7 @@
 //! `RecordedRun::open(dir)` reads a `runs/<run_id>/` directory:
 //!
 //! * the `run.toml` manifest if present (synthesised from the first
-//!   episode header when missing — incomplete-run tolerance per
-//!   `rollout-and-replay` §2),
+//!   episode header when missing, so an incomplete run still loads),
 //! * every `episode_*.rec` file in numeric order, decoded via the
 //!   [`read_episode_record`] helper (truncation-tolerant: a partially
 //!   written trailing episode contributes whatever whole frames it
@@ -211,8 +210,7 @@ impl RecordedRun {
     }
 
     /// Find the frame whose recorded `step` is the largest value `<= step`
-    /// inside `episode`. Useful for timeline scrubbing UIs (per
-    /// `rollout-and-replay` §3).
+    /// inside `episode`. Useful for timeline scrubbing UIs.
     ///
     /// Frames are not held in memory after load, so this re-reads the
     /// episode's `.rec` file on demand and returns an owned frame. Returns

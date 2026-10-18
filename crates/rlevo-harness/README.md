@@ -26,9 +26,11 @@ Suite<E>
         │         │
         │    EpisodeSummary (return, length)
         │         │
-        │    TrialReport  ◄── core_metrics / ea_metrics / agent emit_metrics
+        │    TrialReport  ◄── core_metrics + agent emit_metrics     (episodic)
+        │                 ◄── generations + wall clock
+        │                     + probe MetricsProvider::emit         (generation)
         │
-        ├── Checkpoint::save  (atomic JSON write)
+        ├── checkpoint::save  (atomic JSON write)
         └── Reporter events  (LoggingReporter / JsonReporter / TuiReporter)
 ```
 
@@ -36,17 +38,15 @@ Suite<E>
 
 ## Modules
 
-### `env` — Environment Interface
+### Environments and trials
 
-`Evaluator::run_suite` binds directly on `rlevo_core::environment::Environment`, inferring its rank parameters from the `Suite<E>` it is given, so environments are registered as themselves with no adapter (ADR 0076). Evolutionary generation loops, which are not `Environment`s, go through `GenerationProbe` and `GenerationTrial` instead.
+`Evaluator::run_suite` binds directly on `rlevo_core::environment::Environment`, inferring its rank parameters from the `Suite<E>` it is given, so environments are registered as themselves with no adapter (ADR 0077). Evolutionary generation loops, which are not `Environment`s, go through `GenerationProbe` and `GenerationTrial` instead. This crate has no environment module of its own; the trial types live in `evaluator`.
 
 | Item | Description |
 |------|-------------|
 | `Trial` | `run(self, cfg, info, reporter) → TrialReport` — the seam that lets one machinery drive several trial shapes |
 | `EpisodicTrial<E, A, D, SD, AD>` | Rolls an `Environment` out against a `BenchableAgent` for `num_episodes` episodes |
 | `GenerationTrial<P>` | Drives a `GenerationProbe` to its budget; reports no episodes |
-
-`BenchEnv`/`BenchStep`/`BenchError` and this crate's `env` alias module were **removed** by ADR 0077, once the `Trial` seam left them with no implementors. ADR 0075 had already retired their stated rationale: the trait was object-safe, but its erasure removed only the const-generic ranks while `Observation` and `Action` survived it — and those are exactly what differ between environments, so it could never have carried the heterogeneous suite it was justified by.
 
 ### Agent and fitness traits
 
@@ -124,7 +124,7 @@ The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_star
 | `RecordingReporter` | `record` | Drives the on-disk `EpisodeRecord` writer; pairs with `RecordingTap` + `RecordingLayer` |
 | `MultiReporter` | always | Fans the event stream out to a `Vec<Box<dyn Reporter>>` in insertion order |
 
-### `record` — On-Disk Per-Episode Recording (Milestone 4)
+### `record` — On-Disk Per-Episode Recording
 
 The `record` module emits per-episode files plus a run manifest under `runs/<run_id>/`:
 
@@ -136,17 +136,18 @@ runs/<run_id>/
   └── run.toml             ← RunManifest (seed, env_family, hyperparameters, …)
 ```
 
-Three producers share one `Arc<Mutex<dyn RecordSink>>`:
+Four producers share one `Arc<Mutex<dyn RecordSink>>`:
 
 | Producer | Role |
 |----------|------|
 | `RecordingTap<E>` | Wraps `Environment`; emits per-step `FrameRecord` (subject to `frame_stride`) + closes the episode on `Snapshot::is_done` |
 | `RecordingReporter` | Drives the suite lifecycle; finalises `run.toml` at `on_suite_end`. Two modes: with or without per-episode signals |
+| `PopulationReporter` | `PopulationObserver` attached with `EvolutionaryLoop::with_observer`; writes one `PopulationSample` (fitnesses, diversity, best) per generation |
 | `RecordingLayer` | `tracing_subscriber::Layer` that captures canonical metric fields (matches the `tui::log_layer` registry) |
 
 Encoding: bincode 2.x with `bincode::config::standard()`. `FORMAT_VERSION` is stamped into every `EpisodeRecordHeader`; loaders refuse mismatched versions.
 
-### `report` — Static-HTML Report Emitter (Milestone 5)
+### `report` — Static-HTML Report Emitter
 
 The `report` module loads a recording emitted by `record` and serialises it into a single self-contained `index.html`:
 
@@ -162,16 +163,16 @@ runs/<run_id>/index.html
 
 | Item | Role |
 |------|------|
-| `RecordedRun::open(dir)` | Loads `run.toml` + every `episode_*.rec`. Synthesises a manifest if missing; surfaces truncation as `OpenWarning`s. |
-| `EpisodeIndex` | Per-episode summary: number, source path, frame count, episode reward, length, decoded frames + metric samples. |
+| `RecordedRun::open(dir)` | Loads `run.toml` + every `episode_*.rec`. Synthesises a manifest if missing. Its `OpenWarning`s flag a synthesised manifest and an episode count that disagrees with the manifest; a truncated episode file loads its whole frames with no warning. |
+| `EpisodeIndex` | Per-episode summary: number, source path, frame count, episode reward, length, metric samples. Frames are not kept after load; `RecordedRun::frame_at_or_before` re-reads them from the source `.rec` file. |
 | `emit_static_html(&run, &out, &cfg)` | Writes the single-file report atomically (tmp + fsync + rename). Returns episode count, bytes written, and a `size_warning` flag. |
 | `export-report` (binary) | CLI front-end: `cargo run -p rlevo-harness --features report --bin export-report -- <run-dir> <out.html>`. |
 
-M5 ships the **data-transport skeleton**: per-family playback adapters and convergence plots land in subsequent milestones. The data contract — the four `<script>` block ids above — is keyed to the record `FORMAT_VERSION` (currently `7`, per ADR 0014); the loader rejects inlined payloads stamped with any other version.
+Without client assets the emitter writes the **data payloads** under a static placeholder body (manifest header and episode table); playback and charts come from the report client below, which reads those payloads. The data contract — the four `<script>` block ids above — is keyed to the record `FORMAT_VERSION` (currently `7`, per ADR 0023); the loader rejects inlined payloads stamped with any other version.
 
-### Optional Leptos/WASM client (Milestone 5.1)
+### Optional Leptos/WASM client
 
-The [`rlevo-benchmarks-report-client`](../rlevo-benchmarks-report-client/) sibling crate compiles to a Leptos/WASM client that decodes the inlined payloads and renders an interactive manifest header + episode table. Building it requires the `wasm32-unknown-unknown` rustup target and the `trunk` CLI; see the sibling crate's README for the build flow.
+The [`rlevo-benchmarks-report-client`](../rlevo-benchmarks-report-client/) sibling crate compiles to a Leptos/WASM client that decodes the inlined payloads and renders the manifest, load warnings and episode table, convergence and population charts, and per-episode playback (a scrubber with play/pause and speed, through a per-family adapter). Building it requires the `wasm32-unknown-unknown` rustup target and the `trunk` CLI; see the sibling crate's README for the build flow.
 
 When the client artefacts are available, pass them through `EmitConfig`:
 
@@ -192,7 +193,7 @@ emit_static_html(
 )?;
 ```
 
-The emitter replaces the M5 placeholder body with a `<div id="rlevo-app">` mount point and inlines the WASM blob + JS shim + bundled CSS. When `client_assets` is `None`, the M5 placeholder body ships unchanged.
+The emitter replaces the placeholder body with a `<div id="rlevo-app">` mount point and inlines the WASM blob + JS shim + bundled CSS. When `client_assets` is `None`, the placeholder body ships unchanged.
 
 ### `env_wrappers` — Live-TUI Env Taps (feature `tui`)
 
@@ -211,7 +212,7 @@ When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` save
 | `json` | yes | `JsonReporter`, checkpoint load/save (`serde` + `serde_json`) |
 | `tui` | no | `TuiReporter`, `TuiEvent` (`ratatui` + `crossterm`), `tracing_subscriber` integration |
 | `record` | no | `record` module: per-episode files + `RunManifest` (`bincode` + `toml` + `time`) |
-| `report` | no | `report` module: random-access loader + static-HTML emitter (`base64` + `serde_json`). Implies `record`. |
+| `report` | no | Random-access loader + static-HTML emitter in the `report` module (`base64` + `serde_json`). Implies `record`. |
 
 ---
 

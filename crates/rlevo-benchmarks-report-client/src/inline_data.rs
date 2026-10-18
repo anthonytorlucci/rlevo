@@ -8,7 +8,7 @@
 //! | `rlevo-manifest` | JSON | [`RunManifest`] |
 //! | `rlevo-warnings` | JSON | `Vec<`[`WarningEntry`]`>` |
 //! | `rlevo-episode-index` | JSON | `Vec<`[`EpisodeMeta`]`>` |
-//! | `rlevo-ep-<script_id>` | base64 bincode | [`EpisodeRecord`] |
+//! | `rlevo-episode-NNNNNN` | base64 bincode | [`EpisodeRecord`] |
 //!
 //! [`read_manifest`], [`read_warnings`], [`read_episode_index`], and
 //! [`read_episode_record`] each read one block.  [`read_all_episode_records`]
@@ -236,8 +236,8 @@ mod tests {
 
     /// Guards the JSON contract against the host emitter's `EpisodeMeta` in
     /// `rlevo-harness/src/report/html.rs`, which has no compile-time link to
-    /// this struct (architecture review finding R6). The field names and the
-    /// `kind` string values ("training"/"evaluation") must match.
+    /// this struct. The field names and the `kind` string values
+    /// ("training"/"evaluation") must match.
     #[test]
     fn episode_meta_decodes_emitter_json_with_kind() {
         let json = r#"{

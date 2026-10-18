@@ -1,10 +1,13 @@
-//! Tensor-native classical evolutionary algorithms for `rlevo`.
+//! Tensor-native evolutionary algorithms for `rlevo`.
 //!
 //! This crate ships the classical EA families — Genetic Algorithm (GA),
-//! Evolution Strategy (ES), Evolutionary Programming (EP), Differential
-//! Evolution (DE), and Cartesian Genetic Programming (CGP) — on top of the
-//! Burn tensor abstraction. Every operator is composed from Burn tensor
-//! primitives, so a strategy runs on whichever backend the caller selects.
+//! Evolution Strategy (ES, with CMA-ES and CMSA-ES), Evolutionary
+//! Programming (EP), Differential Evolution (DE), and Cartesian and Gene
+//! Expression Programming (CGP, GEP) — alongside swarm metaheuristics,
+//! estimation-of-distribution algorithms (EDAs), memetic algorithms,
+//! neuroevolution and co-evolution, on top of the Burn tensor abstraction.
+//! Every operator is composed from Burn tensor primitives, so a strategy
+//! runs on whichever backend the caller selects.
 //!
 //! # Surface area
 //!

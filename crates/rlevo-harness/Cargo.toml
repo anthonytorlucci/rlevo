@@ -57,9 +57,9 @@ default = ["json"]
 json = ["dep:serde", "dep:serde_json"]
 tui = ["dep:ratatui", "dep:crossterm", "dep:tracing-subscriber"]
 record = ["dep:bincode", "dep:parking_lot", "dep:toml", "dep:time", "dep:serde", "dep:tracing-subscriber", "dep:rlevo-evolution"]
-# Static-HTML report emitter: random-access loader + single-file inliner
-# (Milestone 5). Builds on `record`; adds `base64` for payload inlining
-# and `serde_json` for the manifest JSON payload.
+# Static-HTML report emitter: random-access loader + single-file inliner.
+# Builds on `record`; adds `base64` for payload inlining and `serde_json`
+# for the manifest JSON payload.
 report = ["record", "dep:base64", "dep:serde_json"]
 
 # Render LaTeX in docs (e.g. the cartpole physics) via KaTeX on docs.rs.

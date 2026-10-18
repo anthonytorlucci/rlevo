@@ -7,7 +7,9 @@
 //!
 //! # Module Organization
 //!
-//! - [`classic`]: Classic control problems (`CartPole`, `MountainCar`, Pendulum, Acrobot, `TenArmedBandit`)
+//! - [`classic`]: Classic control problems (`CartPole`, `MountainCar`,
+//!   `MountainCarContinuous`, Pendulum, Acrobot), the Santa Fe ant trail
+//!   (`SantaFeAnt`), and the bandit family (`TenArmedBandit` and its variants)
 //! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin,
 //!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites),
 //!   each a [`rlevo_core::fitness::Landscape`]
@@ -17,7 +19,8 @@
 //! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, `CliffWalking`, `FrozenLake`)
 //! - [`wrappers`]: Environment wrappers (`TimeLimit`)
 //! - [`render`]: Re-exports of the render surface defined in `rlevo-core`
-//! - [`box2d`]: Box2D-style physics environments (`BipedalWalker`, `LunarLander`, `CarRacing`)
+//! - [`box2d`]: Box2D-style physics environments (`BipedalWalker`,
+//!   `LunarLanderDiscrete`, `LunarLanderContinuous`, `CarRacing`)
 //! - [`locomotion`]: MuJoCo-inspired locomotion environments via `Rapier3D`
 //!
 //! # Design Principles
@@ -90,10 +93,9 @@ pub mod bench;
 pub mod box2d;
 pub mod classic;
 /// Cardinal direction primitive (4-way heading + rotation) shared across
-/// environments. Originally lived under [`grids::core`]; lifted to the crate
-/// root so non-grid environments (e.g. the Santa Fe ant) can reuse it without
-/// depending on the Minigrid framework. `grids::core` re-exports it for
-/// backward compatibility.
+/// environments. It sits at the crate root so non-grid environments (e.g. the
+/// Santa Fe ant) use it without depending on the Minigrid framework;
+/// [`grids::core`] re-exports the module and its `Direction` type.
 pub mod direction;
 /// The post-terminal conformance check this crate's tests share. The guard it
 /// checks for is [`rlevo_core::episode::EpisodeGuard`].
@@ -106,9 +108,9 @@ mod episode;
 /// Internal dead-code and doc-lint warnings are suppressed here because the
 /// contained code is scaffolding for those impls.
 #[doc(hidden)]
-// TODO(#1101): the board-state and move-encoding scaffolding under this module
-// has no non-test caller until the Chess and ConnectFour `Environment` impls
-// land; drop these allows once it does.
+// TODO: the board-state and move-encoding scaffolding under this module has no
+// non-test caller until the Chess and ConnectFour `Environment` impls land;
+// drop these allows once it does.
 #[allow(dead_code, clippy::doc_lazy_continuation, clippy::needless_range_loop)]
 pub mod games {
     pub mod chess;

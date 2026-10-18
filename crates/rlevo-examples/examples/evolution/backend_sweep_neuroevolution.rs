@@ -12,8 +12,8 @@
 //!
 //! 2. **GPUs win on the workload they were built for: large batched matmuls.**
 //!    A single-environment PPO rollout is the opposite — tiny, sequential,
-//!    sync-bound ops where a CPU backend is ~`$70\times$` faster (see the sibling
-//!    `ppo_cartpole` scaffolding, which is pinned to `Flex` for exactly that
+//!    sync-bound ops where a CPU backend is ~`$70\times$` faster (see the
+//!    PPO-on-CartPole examples, which are pinned to `Flex` for exactly that
 //!    reason). Neuroevolution flips every one of those properties: a whole
 //!    *population* of candidate networks is one `(pop, …)` tensor, and scoring
 //!    it is a batched forward pass — `$\text{pop} \times \text{samples} \times \text{in} \times \text{hidden}$` fused
@@ -47,9 +47,9 @@
 //! Note there is no CPU-favourable crossover *inside* this range: once the work is a batched
 //! matmul, the GPU wins even at `pop_size = 64`, and its margin **widens** with the population. The
 //! regime where the CPU wins is the *other* extreme — the tiny, sequential, single-environment PPO
-//! rollout in the sibling `ppo_cartpole` scaffolding, where `Flex` is ~`$70\times$` faster. The two
-//! examples bracket the trade-off: sequential-and-tiny favours CPU, batched-and-large favours GPU.
-//! The absolute numbers are machine-specific; the *shape* of the result is the lesson.
+//! rollout in the PPO-on-CartPole examples, where `Flex` is ~`$70\times$` faster. Those examples
+//! and this one bracket the trade-off: sequential-and-tiny favours CPU, batched-and-large favours
+//! GPU. The absolute numbers are machine-specific; the *shape* of the result is the lesson.
 //!
 //! This example deliberately installs **no** `tracing` subscriber. The verbose
 //! adapter-selection / autotune log lines you may have seen from the GPU path
@@ -205,7 +205,7 @@ impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for MlpRegressionFitness<B> {
         // Broadcast the shared input batch across the population: (pop, samples, in).
         let inputs = self.inputs.clone().unsqueeze_dim::<3>(0).repeat_dim(0, pop);
 
-        // ANCHOR: forward Batched forward pass — the heavy, GPU-favourable work.
+        // Batched forward pass — the heavy, GPU-favourable work.
         // `$(\text{pop},\text{samples},\text{in}) \cdot (\text{pop},\text{in},\text{hidden}) \to (\text{pop},\text{samples},\text{hidden})$`,
         // then `$\cdot(\text{pop},\text{hidden},1)$`.
         let activated = tanh(inputs.matmul(w1) + b1); // (pop, samples, hidden)
@@ -214,7 +214,6 @@ impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for MlpRegressionFitness<B> {
         // MSE per member vs the broadcast target: (pop, samples) - (1, samples) -> (pop,).
         let err = out - self.target.clone();
         err.powf_scalar(2.0).mean_dim(1).squeeze_dim::<1>(1)
-        // ANCHOR_END: forward
     }
 
     fn sense(&self) -> ObjectiveSense {
@@ -298,11 +297,9 @@ fn main() {
             hidden: 128,
         };
 
-        // ANCHOR: sweep
         // The same generic `run` — CPU and GPU differ only by the type argument.
         let (cpu_best, cpu_t) = run::<Flex>(&cfg);
         let (gpu_best, gpu_t) = run::<Wgpu>(&cfg);
-        // ANCHOR_END: sweep
         let speedup = cpu_t.as_secs_f64() / gpu_t.as_secs_f64().max(f64::MIN_POSITIVE);
 
         println!(

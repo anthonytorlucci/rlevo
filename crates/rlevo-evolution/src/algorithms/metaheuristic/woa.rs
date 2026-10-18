@@ -35,7 +35,7 @@
 //! weighted PSO update toward the current best (Camacho Villalón et al.
 //! 2023 review the structural similarities — the 2020 paper by the same
 //! authors covers only GWO/FA/BA, not WOA). Ship it for API coverage;
-//! prefer CMA-ES or LSHADE when available.
+//! prefer [CMA-ES](crate::algorithms::cma_es) for serious work.
 //!
 //! # References
 //!

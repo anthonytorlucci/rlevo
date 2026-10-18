@@ -4,7 +4,7 @@
 //! Demonstrates the live product end-to-end on a non-harness training loop.
 //! The live TUI is metrics-only (ADR-0013): it answers *"is it learning?"*
 //! from learning curves and renders no environment — env playback lives in
-//! the post-run report (see the `record_*`/`report_*` examples).
+//! the post-run report (see the `report_*` examples).
 //!
 //! 1. [`TuiRunner::start`] enters raw mode + alt screen and spawns the
 //!    render thread.
@@ -18,7 +18,7 @@
 //!    required.
 //! 4. PPO calls
 //!    [`train_discrete`](rlevo_reinforcement_learning::algorithms::ppo::train::train_discrete)
-//!    directly against the wrapped env (via the shared `ppo_cartpole::train`).
+//!    directly against the wrapped env (via the `train` helper below).
 //! 5. [`TuiRunner::shutdown`] joins the render thread and restores the
 //!    terminal.
 //!
@@ -93,7 +93,7 @@ const TOTAL_TIMESTEPS: usize = 20_000;
 // during an RL run.
 const PPO_METRICS: &[&str] = &["policy_loss", "entropy", "approx_kl"];
 
-/// Deterministic seed shared by the env, the RNG, and the recording config.
+/// Deterministic seed shared by the env and the RNG.
 pub const SEED: u64 = 42;
 /// Rollout horizon per PPO update.
 pub const NUM_STEPS: usize = 128;
@@ -111,28 +111,28 @@ const NUM_ACTIONS: usize = 2;
 /// `Flex` (a portable CPU backend), not `Wgpu`, is deliberate. A single-environment PPO rollout is
 /// tiny and sequential — every step is a handful of small ops with a host sync to pick an action —
 /// so the GPU's per-dispatch overhead dominates and CPU is ~`$70\times$` faster here. The GPU wins
-/// on the opposite shape (large batched work): see the `backend_sweep_neuroevolution` example and
-/// the user-book chapter "Choosing a Backend: CPU vs GPU" for the measured comparison.
+/// on the opposite shape (large batched work): see the `backend_sweep_neuroevolution` example for
+/// the measured comparison.
 pub type Be = Autodiff<Flex>;
 
 /// Concrete PPO agent type the examples drive — a categorical policy head
 /// over a two-hidden-layer value MLP.
 ///
 /// ```text
-/// pub struct PpoAgent<B, P, V, O, const DO: usize, const DB: usize>
+/// pub struct PpoAgent<B, P, V, O, const OR: usize, const BOR: usize>
 /// where
 ///     B: AutodiffBackend,                             --> Be = Autodiff<Flex>
-///     P: PpoPolicy<B, DB>,                            --> CategoricalPolicyHead<Be>
-///     V: PpoValue<B, DB>,                             --> ValueMlp<Be>
-///     O: Observation<DO> + TensorConvertible<DO, B>,  --> CartPoleObservation
+///     P: PpoPolicy<B, BOR>,                           --> CategoricalPolicyHead<Be>
+///     V: PpoValue<B, BOR>,                            --> ValueMlp<Be>
+///     O: Observation<OR> + TensorConvertible<OR, B>,  --> CartPoleObservation
 /// { /* private fields */ }
 /// ```
 ///
 /// todo! further discuss `CategoricalPolicyHead<Be>` and `CartPoleObservation`
 ///
 /// links:
-/// - <https://docs.rs/rlevo-reinforcement-learning/0.3.0/rlevo_reinforcement_learning/algorithms/ppo/ppo_agent/struct.PpoAgent.html>
-/// - <https://docs.rs/rlevo-environments/0.3.0/rlevo_environments/classic/cartpole/index.html>
+/// - <https://docs.rs/rlevo-reinforcement-learning/latest/rlevo_reinforcement_learning/algorithms/ppo/ppo_agent/struct.PpoAgent.html>
+/// - <https://docs.rs/rlevo-environments/latest/rlevo_environments/classic/cartpole/index.html>
 pub type CartPoleAgent =
     PpoAgent<Be, CategoricalPolicyHead<Be>, ValueMlp<Be>, CartPoleObservation, 1, 2>;
 
@@ -186,8 +186,8 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
     }
 }
 
-/// Builds the base [`CartPole`] wrapped in a [`TimeLimit`]. Each example
-/// then adds its own viz tap(s) on top of this.
+/// Builds the base [`CartPole`] wrapped in a [`TimeLimit`]; `main` adds the
+/// `TuiEnvTap` on top of this.
 ///
 /// `CartPole` can theoretically run forever if the agent is perfect, i.e.
 /// it learns to oscillate back and forth keeping the pole upright, which
@@ -213,8 +213,8 @@ pub fn base_env() -> TimeLimit<CartPole> {
     TimeLimit::new(base, EPISODE_TIME_LIMIT)
 }
 
-/// Builds a fresh PPO agent with the shared hyperparameters. `total_timesteps`
-/// sizes the learning-rate / clip annealing schedule.
+/// Builds a fresh PPO agent with this example's hyperparameters.
+/// `total_timesteps` sizes the learning-rate / clip annealing schedule.
 ///
 /// This wires teh policy + value + hyperparameters into a `PpoAgent`. The
 /// hyperparameters are:
@@ -276,7 +276,7 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 }
 
 /// Trains `agent` against `env` for `total_timesteps`, hiding the long
-/// `train_discrete` turbofish every call site would otherwise repeat.
+/// `train_discrete` turbofish from `main`.
 ///
 /// `env` is generic over the viz-tier composition: a bare [`TimeLimit`],
 /// a `TuiEnvTap`-wrapped env, a `RecordingTap`-wrapped env, or any nesting
@@ -291,7 +291,7 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 /// - Reward rank `1`, state rank `1`, action rank `1` (scalar rewards, 1D state tensors)
 /// - `2` actions at the end (`CartPole`'s push-left / push-right)
 ///
-/// The whole `train` function exists mainly to **hide that gnarly turbofish** from each example call site — a small but real ergonomics win.
+/// The whole `train` function exists mainly to **hide that gnarly turbofish** from `main` — a small but real ergonomics win.
 ///
 /// # Errors
 ///

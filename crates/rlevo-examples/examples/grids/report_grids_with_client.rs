@@ -7,9 +7,9 @@
 //!
 //! A random agent plays [`NUM_EPISODES`] episodes on a [`GRID_SIZE`]`$\times$`[`GRID_SIZE`]
 //! [`EmptyEnv`]. Each step is recorded as a frame via [`RecordingTap`]; the completed run is
-//! serialised to a per-run directory under the workspace `target/` tree. `emit_static_html` then
-//! writes a single `index.html` into that same directory — open it in a browser to replay the
-//! episodes.
+//! serialised to a per-run directory under `runs/` in the working directory, or under the
+//! directory `RLEVO_RUNS_DIR` names when that variable is set. `emit_static_html` then writes a
+//! single `index.html` into that same directory — open it in a browser to replay the episodes.
 //!
 //! # Run with
 //!

@@ -13,9 +13,24 @@
 //! memory grows with the square of the swarm. [`FireflyConfig`] therefore
 //! rejects a swarm larger than [`FIREFLY_PURE_TENSOR_CAP`].
 //!
+//! # Candor
+//!
+//! Legacy comparator. Camacho Villalón, Dorigo & Stützle (2020, 2023)
+//! show that the pairwise attraction reduces to a PSO-style attractor
+//! under a new metaphor; it has no novel search mechanism. Ship it for
+//! API coverage; prefer [CMA-ES](crate::algorithms::cma_es) for serious
+//! work.
+//!
 //! # References
 //!
 //! - Yang (2008), *Nature-Inspired Metaheuristic Algorithms*.
+//! - Camacho Villalón, Dorigo & Stützle (2020), *Grey Wolf, Firefly and
+//!   Bat Algorithms: Three Widespread Algorithms that Do Not Contain
+//!   Any Novelty*.
+//! - Camacho Villalón, Dorigo & Stützle (2023), *Exposing the grey wolf,
+//!   moth-flame, whale, firefly, bat, and antlion algorithms: six misleading
+//!   optimization techniques inspired by bestial metaphors*, International
+//!   Transactions in Operational Research 30:2945-2971.
 
 use std::marker::PhantomData;
 

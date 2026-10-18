@@ -1,8 +1,12 @@
 //! CLI front-end for [`rlevo_harness::report::emit_static_html`].
 //!
 //! Reads a previously recorded benchmark run from `<run-dir>` and emits a
-//! self-contained static HTML file at `<out.html>` that renders per-episode
-//! metrics and environment playback without a running server.
+//! self-contained static HTML file at `<out.html>`: the static placeholder
+//! body (manifest header, any load warnings, and an episode table), with
+//! the manifest and every episode's `.rec` bytes inlined as `<script>`
+//! blocks. The binary passes no client assets, so the page has no playback
+//! or charts; for those, call `emit_static_html` with
+//! `EmitConfig::client_assets` set to a built report client.
 //!
 //! Requires the `report` feature:
 //! ```text
@@ -12,7 +16,8 @@
 //! # Arguments
 //!
 //! - `<run-dir>` — path to a directory produced by a previous benchmark run
-//!   (must contain a `manifest.json` and one or more episode record files).
+//!   (must contain one or more `episode_*.rec` files; a missing `run.toml`
+//!   manifest is synthesised from the first episode header).
 //! - `<out.html>` — destination path for the generated HTML file.
 //!
 //! # Exit codes

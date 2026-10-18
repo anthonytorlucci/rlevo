@@ -58,7 +58,9 @@ cargo run -p rlevo-reinforcement-learning --release --example dqn_cart_pole -- \
 ```
 
 On ndarray the 100-episode moving average climbs past 100 within ~15k env
-steps and past 180 within 30k. Reference curve: `tests/baselines/dqn_cartpole.csv`.
+steps and past 180 within 30k. Reference curve, kept as a record (no test or
+bench reads it): `crates/rlevo/tests/baselines/dqn_cartpole.csv` in the
+workspace repository.
 
 ## Tests
 
