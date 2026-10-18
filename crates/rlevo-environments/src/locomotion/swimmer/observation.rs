@@ -1,7 +1,7 @@
 //! Observation type for [`super::Swimmer`].
 
-use burn::prelude::{Backend, Tensor};
-use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
+use burn::prelude::Backend;
+use rlevo_core::base::{HostRow, Observation, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
 /// 8-dim observation. Layout matches Gymnasium's `qpos[2:5]` + `qvel`:
@@ -98,19 +98,4 @@ impl HostRow<1> for SwimmerObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for SwimmerObservation {
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 observation tensor: {e:?}"),
-        })?;
-        if slice.len() != 8 {
-            return Err(TensorConversionError {
-                message: format!("expected 8 observation elements, got {}", slice.len()),
-            });
-        }
-        let mut arr = [0.0f32; 8];
-        arr.copy_from_slice(slice);
-        Ok(Self(arr))
-    }
-}
+impl<B: Backend> TensorConvertible<1, B> for SwimmerObservation {}

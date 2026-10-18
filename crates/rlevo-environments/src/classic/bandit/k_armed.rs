@@ -27,15 +27,12 @@
 //! assert!(!snap.is_done());
 //! ```
 
-use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{
-    Action, HostRow, Observation, Reward, State, TensorConversionError, TensorConvertible,
-};
+use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
@@ -62,8 +59,8 @@ pub struct KArmedBanditState;
 /// Observation for the k-armed bandit.
 ///
 /// Empty for the same reason as [`KArmedBanditState`]. The [`Observation`]
-/// impl reports `shape() = [1]` so tensor-based policies can still convert
-/// through [`TensorConvertible`].
+/// impl reports `shape() = [1]`. It writes no host row, so a tensor-based
+/// policy cannot consume it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct KArmedBanditObservation;
 
@@ -105,23 +102,7 @@ impl HostRow<1> for KArmedBanditState {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
-    /// Accepts any rank-1 tensor of shape `[1]`; contents are ignored because
-    /// the state carries no data.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not `[1]`.
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [1] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [1], got {dims:?}"),
-            });
-        }
-        Ok(Self)
-    }
-}
+impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {}
 
 // ---------------------------------------------------------------------------
 // Action
@@ -257,35 +238,7 @@ impl<const K: usize> HostRow<1> for KArmedBanditAction<K> {
     }
 }
 
-impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<K> {
-    /// Reconstructs an action from a one-hot tensor by argmax.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not `[K]` or
-    /// the argmax falls outside the valid arm range.
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [K] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [{K}], got {dims:?}"),
-            });
-        }
-        let data = tensor.into_data();
-        let values: Vec<f32> = data.to_vec().map_err(|e| TensorConversionError {
-            message: format!("failed to extract tensor data: {e:?}"),
-        })?;
-        let (argmax, _) = values.iter().enumerate().fold(
-            (0_usize, f32::NEG_INFINITY),
-            |(i_best, v_best), (i, &v)| {
-                if v > v_best { (i, v) } else { (i_best, v_best) }
-            },
-        );
-        KArmedBanditAction::<K>::new(argmax).map_err(|e| TensorConversionError {
-            message: format!("invalid one-hot argmax: {e}"),
-        })
-    }
-}
+impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<K> {}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -728,29 +681,13 @@ mod tests {
         assert!(KArmedBandit::<3>::with_config(bad).is_err());
     }
 
-    type TestBackend = burn::backend::Flex;
     const K: usize = 10;
 
     #[test]
-    fn state_round_trips_through_tensor() {
-        let device = Default::default();
-        let state = KArmedBanditState;
-        let tensor =
-            <KArmedBanditState as TensorConvertible<1, TestBackend>>::to_tensor(&state, &device);
-        let back = <KArmedBanditState as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect("round-trip should succeed for valid shape");
-        assert_eq!(back, state);
-    }
-
-    #[test]
-    fn state_from_tensor_rejects_wrong_shape() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        let device = Default::default();
-        let data = TD::new(vec![0.0_f32, 0.0_f32], [2]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let err = <KArmedBanditState as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect_err("shape [2] should be rejected");
-        assert!(err.message.contains("expected shape [1]"));
+    fn state_row_is_a_single_zero() {
+        let mut row = Vec::new();
+        KArmedBanditState.write_host_row(&mut row);
+        assert_eq!(row, vec![0.0_f32]);
     }
 
     #[test]
@@ -784,28 +721,13 @@ mod tests {
     }
 
     #[test]
-    fn action_one_hot_round_trips_through_tensor() {
-        let device = Default::default();
+    fn action_row_is_one_hot_at_the_arm() {
         for i in 0..K {
-            let a = KArmedBanditAction::<K>::from_index(i);
-            let t = <KArmedBanditAction<K> as TensorConvertible<1, TestBackend>>::to_tensor(
-                &a, &device,
-            );
-            let back = <KArmedBanditAction<K> as TensorConvertible<1, TestBackend>>::from_tensor(t)
-                .expect("valid one-hot");
-            assert_eq!(back, a);
+            let mut row = Vec::new();
+            KArmedBanditAction::<K>::from_index(i).write_host_row(&mut row);
+            let expected: Vec<f32> = (0..K).map(|j| if j == i { 1.0 } else { 0.0 }).collect();
+            assert_eq!(row, expected, "arm {i}");
         }
-    }
-
-    #[test]
-    fn action_from_tensor_rejects_wrong_shape() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        let device = Default::default();
-        let data = TD::new(vec![0.0_f32, 1.0_f32], [2]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let err = <KArmedBanditAction<K> as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect_err("shape [2] should be rejected");
-        assert!(err.message.contains("expected shape"));
     }
 
     #[test]

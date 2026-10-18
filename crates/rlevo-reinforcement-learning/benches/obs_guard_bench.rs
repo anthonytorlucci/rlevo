@@ -158,7 +158,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
-use rlevo_core::base::{Action, HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
 use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_environments::box2d::car_racing::{
     CarRacing, CarRacingAction, CarRacingConfig, CarRacingObservation,
@@ -246,24 +246,7 @@ impl HostRow<3> for F32Image {
     }
 }
 
-impl<B: Backend> TensorConvertible<3, B> for F32Image {
-    fn from_tensor(tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [FRAME, FRAME, 3] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [{FRAME}, {FRAME}, 3], got {dims:?}"),
-            });
-        }
-        let flat: Vec<f32> =
-            tensor
-                .into_data()
-                .into_vec::<f32>()
-                .map_err(|e| TensorConversionError {
-                    message: format!("failed to read tensor data: {e:?}"),
-                })?;
-        Ok(Self { px: Arc::new(flat) })
-    }
-}
+impl<B: Backend> TensorConvertible<3, B> for F32Image {}
 
 // ---------------------------------------------------------------------------
 // Bench-local discrete action for the image-shaped agents

@@ -186,7 +186,7 @@ mod tests {
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
     use super::*;
-    use rlevo_core::base::{HostRow, TensorConversionError};
+    use rlevo_core::base::HostRow;
     type TestBackend = burn::backend::Flex;
 
     #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -207,11 +207,7 @@ mod tests {
         }
     }
 
-    impl<BK: burn::tensor::backend::Backend> TensorConvertible<1, BK> for TestObs {
-        fn from_tensor(_t: Tensor<BK, 1>) -> Result<Self, TensorConversionError> {
-            unimplemented!("not exercised by this test")
-        }
-    }
+    impl<BK: burn::tensor::backend::Backend> TensorConvertible<1, BK> for TestObs {}
 
     // Test fixture data: the loop counter and element count are bounded by small
     // constants declared in this test, far below f32's 2^24 exact-integer limit,

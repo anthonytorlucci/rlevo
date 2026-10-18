@@ -56,12 +56,10 @@ use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 /// Making those signatures fallible would resolve this (see ADR 0057, which
 /// resolved the off-policy half and left `act` and the on-policy agents
 /// panic-based as the explicit residual). When that lands, the variant returns
-/// carrying [`rlevo_core::base::TensorConversionError`] via `#[from]` — a
-/// structured payload, **not** a `String`. `docs/rules.md` §4 prefers
-/// structured variants over string-based errors and names
-/// [`TensorConversionError`](rlevo_core::base::TensorConversionError) as the
-/// domain type for tensor ops, so re-adding a `String` payload would reintroduce
-/// the smell along with the variant.
+/// carrying a structured payload, **not** a `String`. The Error Handling
+/// section of `docs/rules.md` prefers structured variants over string-based
+/// errors, so re-adding a `String` payload would reintroduce the smell along
+/// with the variant.
 ///
 /// # Why there is no config variant
 ///
@@ -923,7 +921,7 @@ mod tests {
     use burn::tensor::backend::Backend;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rlevo_core::base::{HostRow, TensorConversionError};
+    use rlevo_core::base::HostRow;
     use serde::{Deserialize, Serialize};
 
     use crate::algorithms::ppo::policies::CategoricalPolicyHeadConfig;
@@ -980,15 +978,7 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<1, B> for TestObs {
-        fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-            let data = tensor.into_data().convert::<f32>();
-            let v = data.as_slice::<f32>().map_err(|_| TensorConversionError {
-                message: "non-float tensor".into(),
-            })?;
-            Ok(Self([v[0], v[1]]))
-        }
-    }
+    impl<B: Backend> TensorConvertible<1, B> for TestObs {}
 
     /// Builds an agent whose `clip_grad` is exactly `clip_grad`, leaving every
     /// other knob at its default.

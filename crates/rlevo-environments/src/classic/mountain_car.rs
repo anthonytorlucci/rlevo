@@ -86,7 +86,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State, TensorConversionError, TensorConvertible},
+    base::{Action, HostRow, Observation, State, TensorConvertible},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
@@ -558,26 +558,7 @@ impl HostRow<1> for MountainCarObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarObservation {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [2] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [2], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        Ok(Self {
-            position: v[0],
-            velocity: v[1],
-        })
-    }
-}
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarObservation {}
 
 impl HostRow<1> for MountainCarAction {
     fn row_shape() -> [usize; 1] {
@@ -591,24 +572,7 @@ impl HostRow<1> for MountainCarAction {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarAction {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [3] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [3], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        let idx = crate::tensor_decode::argmax(&v);
-        Ok(Self::from_index(idx))
-    }
-}
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarAction {}
 
 impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCar {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
@@ -752,19 +716,6 @@ mod tests {
         assert_eq!(MountainCarAction::ACTION_COUNT, 3);
         assert_eq!(MountainCarAction::from_index(0), MountainCarAction::Left);
         assert_eq!(MountainCarAction::from_index(2), MountainCarAction::Right);
-    }
-
-    #[test]
-    fn action_from_tensor_is_nan_safe() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        type TestBackend = burn::backend::Flex;
-        let device = Default::default();
-        // An all-NaN logit vector must not panic; falls back to index 0.
-        let data = TD::new(vec![f32::NAN, f32::NAN, f32::NAN], [3]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let back = <MountainCarAction as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect("all-NaN decodes to fallback");
-        assert_eq!(back, MountainCarAction::from_index(0));
     }
 
     #[test]

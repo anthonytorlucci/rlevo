@@ -52,10 +52,9 @@ use crate::utils::{PolyakError, compute_target_q_values};
 /// fail by construction (e.g. a tensor the same function just built)".
 ///
 /// Making action selection fallible is a breaking change, deferred and
-/// tracked separately. When it lands, the variant that returns must carry
-/// [`rlevo_core::base::TensorConversionError`] as a `#[from]` payload, not a
-/// `String`: §4 prefers structured error types over string-based ones, and
-/// names `TensorConversionError` as the domain type for tensor ops.
+/// tracked separately. When it lands, the variant that returns must carry a
+/// structured payload, not a `String`: the Error Handling section of
+/// `docs/rules.md` prefers structured error types over string-based ones.
 ///
 /// # Why there is no buffer or I/O variant
 ///
@@ -977,7 +976,7 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::base::Action;
-    use rlevo_core::base::{HostRow, TensorConversionError};
+    use rlevo_core::base::HostRow;
     use serde::{Deserialize, Serialize};
 
     use crate::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
@@ -1072,15 +1071,7 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<1, B> for TestObs {
-        fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-            let data = tensor.into_data().convert::<f32>();
-            let v = data.as_slice::<f32>().map_err(|_| TensorConversionError {
-                message: "non-float tensor".into(),
-            })?;
-            Ok(Self([v[0], v[1]]))
-        }
-    }
+    impl<B: Backend> TensorConvertible<1, B> for TestObs {}
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct TestAction(usize);

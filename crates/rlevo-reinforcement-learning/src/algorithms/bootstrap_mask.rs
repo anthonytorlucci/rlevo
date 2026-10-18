@@ -26,9 +26,7 @@ use burn::tensor::{Tensor, activation};
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
-use rlevo_core::base::{
-    Action, HostRow, Observation, State, TensorConversionError, TensorConvertible,
-};
+use rlevo_core::base::{Action, HostRow, Observation, State, TensorConvertible};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
@@ -71,6 +69,13 @@ pub(crate) struct MaskObservation {
     values: [f32; OBS_DIM],
 }
 
+impl MaskObservation {
+    /// Builds an observation from its two feature values.
+    pub(crate) fn new(values: [f32; OBS_DIM]) -> Self {
+        Self { values }
+    }
+}
+
 impl Observation<1> for MaskObservation {
     fn shape() -> [usize; 1] {
         [OBS_DIM]
@@ -86,17 +91,7 @@ impl HostRow<1> for MaskObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for MaskObservation {
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data().convert::<f32>();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("{e:?}"),
-        })?;
-        Ok(Self {
-            values: [slice[0], slice[1]],
-        })
-    }
-}
+impl<B: Backend> TensorConvertible<1, B> for MaskObservation {}
 
 /// Binary discrete action; the env dynamics ignore it entirely.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

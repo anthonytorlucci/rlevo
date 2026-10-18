@@ -7,13 +7,10 @@
 //! test that the public surface is sufficient to build a working training
 //! loop scaffold.
 
-use burn::tensor::Tensor;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{
-    Action, HostRow, Observation, Reward, State, TensorConversionError, TensorConvertible,
-};
+use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
 use rlevo_core::environment::{
     Environment, EnvironmentError, EpisodeStatus, Sensor, Snapshot, SnapshotBase,
 };
@@ -52,14 +49,7 @@ impl HostRow<1> for WalkObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {
-    fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        // Not exercised by these tests; included only for trait completeness.
-        Err(TensorConversionError {
-            message: "from_tensor not implemented for WalkObservation".into(),
-        })
-    }
-}
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {}
 
 /// Full internal state for `RandomWalkEnv`: position on the 1-D lattice `[0, 6]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,13 +112,7 @@ impl HostRow<1> for WalkAction {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
-    fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        Err(TensorConversionError {
-            message: "from_tensor not implemented for WalkAction".into(),
-        })
-    }
-}
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {}
 
 /// Local scalar reward newtype. Mirrors `rlevo_core::reward::ScalarReward`
 /// but is defined in this crate so we can implement the foreign
@@ -164,13 +148,7 @@ impl HostRow<1> for WalkReward {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {
-    fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        Err(TensorConversionError {
-            message: "from_tensor not implemented for WalkReward".into(),
-        })
-    }
-}
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {}
 
 /// Toy 1-D random-walk environment used across all integration tests.
 ///

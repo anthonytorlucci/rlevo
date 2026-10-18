@@ -104,7 +104,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, HostRow, Observation, State, TensorConversionError, TensorConvertible},
+    base::{Action, HostRow, Observation, State, TensorConvertible},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
@@ -568,24 +568,6 @@ impl HostRow<1> for MountainCarContinuousObservation {
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B>
     for MountainCarContinuousObservation
 {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [2] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [2], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        Ok(Self {
-            position: v[0],
-            velocity: v[1],
-        })
-    }
 }
 
 impl HostRow<1> for MountainCarContinuousAction {
@@ -598,23 +580,7 @@ impl HostRow<1> for MountainCarContinuousAction {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarContinuousAction {
-    fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [1] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [1], got {dims:?}"),
-            });
-        }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| TensorConversionError {
-                message: e.to_string(),
-            })?;
-        Ok(Self::unchecked(v[0]))
-    }
-}
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarContinuousAction {}
 
 // ---------------------------------------------------------------------------
 // ASCII renderer

@@ -5,11 +5,11 @@
 //! bytes per pixel in RGB order. The camera is fixed on the car's current
 //! position, so the car always appears near the centre of the frame.
 //!
-//! [`TensorConvertible`] produces a Burn
-//! `Tensor<B, 3>` with HWC layout `[96, 96, 3]`, with each pixel byte normalised
-//! by `$\div 255$` to `[0.0, 1.0]` *inside* the conversion — no external normalisation
-//! step is needed or expected. Consumers that feed a Burn `conv2d` must permute
-//! the frame from HWC to CHW first.
+//! The host row ([`HostRow::write_host_row`]) has HWC layout `[96, 96, 3]`,
+//! with each pixel byte normalised by `$\div 255$` to `[0.0, 1.0]` *inside* the
+//! row writer — no external normalisation step is needed or expected. Uploaded
+//! as a Burn tensor, the row keeps that shape; consumers that feed a Burn
+//! `conv2d` must permute the frame from HWC to CHW first.
 
 // The `$96 \times 96 \times 3$` pixel array (27,648 bytes) exceeds clippy's 16 KiB stack-array
 // threshold, but every construction site immediately moves it into a `Box` or `Arc`, and the array
@@ -19,9 +19,9 @@
 
 use std::sync::Arc;
 
-use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, TensorConvertible};
 
-use burn::tensor::{Tensor, backend::Backend};
+use burn::tensor::backend::Backend;
 
 use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 
@@ -36,13 +36,9 @@ use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 /// [`from_boxed`](Self::from_boxed), which moves the rasterizer's owned buffer
 /// in.
 ///
-/// When converted to tensors via
-/// [`TensorConvertible`], the buffer becomes
-/// a Burn `Tensor<B, 3>` with HWC layout `[96, 96, 3]`, each byte normalised by
-/// `$\div 255$` to `[0.0, 1.0]`. [`from_tensor`](TensorConvertible::from_tensor)
-/// reconstructs the buffer by scaling back (`$\times 255$`) and rounding, so the
-/// round-trip is exact for every `u8` value. This convention follows ADR 0020
-/// (synthetic pixel over grid).
+/// Its host row has HWC layout `[96, 96, 3]`, each byte normalised by
+/// `$\div 255$` to `[0.0, 1.0]`. This convention follows ADR 0020 (synthetic
+/// pixel over grid).
 #[derive(Clone)]
 pub struct CarRacingObservation {
     /// Raw pixel buffer: `$96 \times 96 \times 3$` = 27 648 bytes, shared via `Arc` so clones are
@@ -65,8 +61,8 @@ impl CarRacingObservation {
     /// copies. The `Box` → `Arc` conversion is the single residual 27 KB copy on
     /// the render *hot path* (an `Arc` must prepend a refcount header, so the box
     /// allocation cannot be reused). The cold [`Deserialize`](serde::Deserialize)
-    /// and [`from_tensor`](TensorConvertible::from_tensor) paths each perform one
-    /// such `Box` → `Arc` copy too, but neither runs per render step.
+    /// path performs one such `Box` → `Arc` copy too, but it does not run per
+    /// render step.
     #[must_use]
     pub fn from_boxed(pixels: Box<[u8; PIXEL_BYTES]>) -> Self {
         Self {
@@ -182,55 +178,7 @@ impl HostRow<3> for CarRacingObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<3, B> for CarRacingObservation {
-    /// Reconstructs the frame from a normalized `[FRAME_SIZE, FRAME_SIZE, 3]`
-    /// tensor by scaling back to `0..=255` and rounding.
-    ///
-    /// Round-trips exactly for any `u8` payload: `b / 255.0 * 255.0` rounds back
-    /// to `b`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not
-    /// `[FRAME_SIZE, FRAME_SIZE, 3]`, the backend fails to materialize its data,
-    /// or any value lies outside `[0, 1]` after scaling to the `u8` range.
-    fn from_tensor(tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [FRAME_SIZE, FRAME_SIZE, 3] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [{FRAME_SIZE}, {FRAME_SIZE}, 3], got {dims:?}"),
-            });
-        }
-        let flat: Vec<f32> =
-            tensor
-                .into_data()
-                .into_vec::<f32>()
-                .map_err(|e| TensorConversionError {
-                    message: format!("failed to read tensor data: {e:?}"),
-                })?;
-        let mut pixels: Vec<u8> = Vec::with_capacity(PIXEL_BYTES);
-        for (idx, &value) in flat.iter().enumerate() {
-            let scaled: f32 = value * 255.0;
-            if !scaled.is_finite() || scaled < -0.5 || scaled > f32::from(u8::MAX) + 0.5 {
-                return Err(TensorConversionError {
-                    message: format!("value at index {idx} out of u8 range: {value}"),
-                });
-            }
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            pixels.push(scaled.round() as u8);
-        }
-        let arr: Box<[u8; PIXEL_BYTES]> =
-            pixels
-                .into_boxed_slice()
-                .try_into()
-                .map_err(|_| TensorConversionError {
-                    message: "wrong element count".into(),
-                })?;
-        Ok(Self {
-            pixels: Arc::from(arr),
-        })
-    }
-}
+impl<B: Backend> TensorConvertible<3, B> for CarRacingObservation {}
 
 #[cfg(test)]
 mod tests {
@@ -283,59 +231,27 @@ mod tests {
         assert_eq!(&*obs.pixels, &expected);
     }
 
+    /// The row is HWC in buffer order, `PIXEL_BYTES` long, and each byte is
+    /// divided by 255, so `0` maps to `0.0` and `255` to `1.0`.
     #[test]
-    fn tensor_round_trip() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
+    fn host_row_normalises_each_byte_in_order() {
         let mut px: [u8; PIXEL_BYTES] = [0u8; PIXEL_BYTES];
         for (i, p) in px.iter_mut().enumerate() {
             *p = (i % 256) as u8;
         }
-        let obs: CarRacingObservation = CarRacingObservation::new(px);
-        let tensor =
-            <CarRacingObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
-        let back: CarRacingObservation =
-            <CarRacingObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-                .unwrap();
-        assert_eq!(&*obs.pixels, &*back.pixels);
-    }
+        let obs = CarRacingObservation::new(px);
+        let mut row = Vec::new();
+        obs.write_host_row(&mut row);
 
-    #[test]
-    fn tensor_boundary_values() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-        let device = Default::default();
-
-        let mut px: [u8; PIXEL_BYTES] = [0u8; PIXEL_BYTES];
-        px[0] = 0;
-        px[1] = 255;
-        let obs: CarRacingObservation = CarRacingObservation::new(px);
-        let tensor =
-            <CarRacingObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
-        let flat: Vec<f32> = tensor.clone().into_data().into_vec::<f32>().unwrap();
-        assert!((flat[0] - 0.0).abs() < 1e-6);
-        assert!((flat[1] - 1.0).abs() < 1e-6);
-
-        let back: CarRacingObservation =
-            <CarRacingObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-                .unwrap();
-        assert_eq!(back.pixels[0], 0);
-        assert_eq!(back.pixels[1], 255);
-    }
-
-    #[test]
-    fn from_tensor_rejects_wrong_shape() {
-        use burn::backend::Flex;
-        use burn::tensor::{Tensor, TensorData};
-        type TestBackend = Flex;
-        let device = Default::default();
-
-        let data: TensorData = TensorData::new(vec![0.0f32; 2 * 2 * 2], [2, 2, 2]);
-        let tensor = Tensor::<TestBackend, 3>::from_data(data, &device);
-        let err = <CarRacingObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
-            .unwrap_err();
-        assert!(err.message.contains("expected shape"));
+        assert_eq!(
+            row.len(),
+            CarRacingObservation::shape().iter().product::<usize>()
+        );
+        assert_eq!(row.len(), PIXEL_BYTES);
+        for (i, (&value, &byte)) in row.iter().zip(px.iter()).enumerate() {
+            assert_eq!(value, f32::from(byte) / 255.0, "element {i}");
+        }
+        assert_eq!(row[0], 0.0);
+        assert_eq!(row[255], 1.0);
     }
 }

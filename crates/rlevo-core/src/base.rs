@@ -241,14 +241,6 @@ pub trait TransitionDynamics<const SR: usize, const AR: usize, S: State<SR>, A: 
     fn transition(&self, state: &S, action: &A) -> S;
 }
 
-/// Error returned when a tensor cannot be converted to or from a domain type.
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-#[error("Invalid tensor conversion: {message}")]
-pub struct TensorConversionError {
-    /// Human-readable description of why the conversion failed.
-    pub message: String,
-}
-
 /// Host-side, backend-independent row serialization.
 ///
 /// This is the layout half of tensor conversion: how a value flattens into a
@@ -258,9 +250,9 @@ pub struct TensorConversionError {
 /// state in prose.
 ///
 /// Implement this alongside [`TensorConvertible`], which requires it as a
-/// supertrait and derives [`TensorConvertible::to_tensor`] from it. The
-/// whole-batch staging helper [`stack_to_tensor`] needs *only* this trait,
-/// because staging never touches a device.
+/// supertrait and derives [`TensorConvertible::to_tensor`] from it. A batch is
+/// staged by calling [`write_host_row`] once per item into one buffer, because
+/// staging never touches a device.
 ///
 /// # Type Parameters
 ///
@@ -273,7 +265,7 @@ pub struct TensorConversionError {
 ///   concrete value of that type ambiguous (E0283).
 /// - `write_host_row` pushes exactly `row_shape().iter().product()` values.
 ///
-/// [`stack_to_tensor`]: crate::base::stack_to_tensor
+/// [`write_host_row`]: HostRow::write_host_row
 pub trait HostRow<const R: usize> {
     /// Returns the per-item ("row") shape of the tensor this type serializes to.
     ///
@@ -293,8 +285,8 @@ pub trait HostRow<const R: usize> {
     /// Appends the row-major `f32` payload of `self` to `buf`.
     ///
     /// This is the primitive from which both single-item conversion
-    /// ([`to_tensor`]) and whole-batch staging ([`stack_to_tensor`]) are
-    /// derived, guaranteeing the two can never disagree on element order.
+    /// ([`to_tensor`]) and whole-batch staging (one call per item into one
+    /// buffer) are built, so the two can never disagree on element order.
     ///
     /// # Contract
     ///
@@ -308,7 +300,6 @@ pub trait HostRow<const R: usize> {
     ///
     /// [`row_shape`]: HostRow::row_shape
     /// [`to_tensor`]: TensorConvertible::to_tensor
-    /// [`stack_to_tensor`]: crate::base::stack_to_tensor
     fn write_host_row(&self, buf: &mut Vec<f32>);
 
     /// Returns `true` if every value this type writes into a row is finite —
@@ -399,48 +390,18 @@ fn row_slice_is_finite(buf: &[f32]) -> bool {
         != EXPONENT_MASK
 }
 
-/// Bidirectional conversion between a domain type and a Burn tensor.
+/// Conversion from a domain type to a Burn tensor.
 ///
 /// The backend-independent half of the conversion — the row layout — lives on
 /// the [`HostRow`] supertrait; this trait adds only the device-facing half.
+/// Conversion runs one way: nothing in the workspace turns a tensor back into
+/// a domain value. A decoder that needs one reads the host row it wants
+/// (`DiscreteAction::from_index`, `ContinuousAction::from_slice`).
 ///
 /// # Type Parameters
 ///
 /// - `R`: Rank of the tensor produced.
 /// - `B`: Burn backend.
-///
-/// # Invariants
-///
-/// Two clauses, both required of every implementor, for any valid `x` and any
-/// device `d`:
-///
-/// 1. **Tensor-image fidelity.** `from_tensor(x.to_tensor(d))?.to_tensor(d)`
-///    equals `x.to_tensor(d)` — decoding a tensor and re-encoding the result is
-///    a no-op *on the tensor*. Everything the tensor carries survives a decode
-///    unchanged, so no consumer that only ever sees tensors can observe a
-///    difference.
-/// 2. **No fabrication.** Any field [`write_host_row`] does not write must
-///    decode to a value that *represents absence* — `Option::None`, or a
-///    dedicated type whose decoded variant says "unknown". It must **never**
-///    decode to a plausible in-domain value. A default that looks like real
-///    data is the failure this clause exists to forbid: it is
-///    indistinguishable from a measurement downstream.
-///
-/// A type whose `write_host_row` covers **every** field satisfies clause 1 in
-/// the stronger form `from_tensor(x.to_tensor(d)) == Ok(x)` — a total round
-/// trip — and satisfies clause 2 vacuously. That is the expected case and what
-/// nearly every implementor in this workspace does; clause 1 is a **floor**
-/// that keeps a partial encoding honest, not permission to be partial. Omit a
-/// field from the row only when the domain says the tensor should not carry it,
-/// and document the omission on both the field and `from_tensor`.
-///
-/// [`write_host_row`]: HostRow::write_host_row
-///
-/// # Errors
-///
-/// `from_tensor` returns [`TensorConversionError`] when the tensor's shape,
-/// dtype, or contents violate the domain type's invariants (see
-/// [`State::is_valid`] / [`Action::is_valid`]).
 pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> + Sized {
     /// Converts `self` into a tensor on `device`.
     ///
@@ -450,12 +411,10 @@ pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> + Sized {
     /// [`write_host_row`]: it stages one row into a host `Vec<f32>` and uploads
     /// it with a single [`Tensor::from_data`]. Implementors **must not** provide
     /// their own `to_tensor` — doing so would let the single-item layout drift
-    /// from the batched layout produced by [`stack_to_tensor`], defeating the
-    /// whole point of the shared row-writer primitive.
+    /// from a batch staged with the same row writer.
     ///
     /// [`row_shape`]: HostRow::row_shape
     /// [`write_host_row`]: HostRow::write_host_row
-    /// [`stack_to_tensor`]: crate::base::stack_to_tensor
     fn to_tensor(
         &self,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
@@ -466,123 +425,6 @@ pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> + Sized {
         debug_assert_eq!(buf.len(), row.iter().product::<usize>());
         Tensor::from_data(TensorData::new(buf, row), device)
     }
-
-    /// Reconstructs a value from a tensor.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor's shape or contents
-    /// do not describe a valid instance of `Self`.
-    fn from_tensor(tensor: Tensor<B, R>) -> Result<Self, TensorConversionError>;
-}
-
-/// Stages a whole batch of rows into one host buffer and uploads it as a single
-/// tensor.
-///
-/// Each item's [`write_host_row`] payload is concatenated into one contiguous
-/// `Vec<f32>`, which is then uploaded with a **single** [`Tensor::from_data`]
-/// call. This is materially cheaper than converting each item to its own tensor
-/// and calling [`Tensor::stack`], which incurs one host→device upload *per item*
-/// plus a concatenation kernel. Because both this function and the derived
-/// [`TensorConvertible::to_tensor`] draw from the same
-/// [`write_host_row`]/[`row_shape`] primitives, the batched layout is guaranteed
-/// to match `stack`-ing the individual rows.
-///
-/// The produced tensor has rank `BR = R + 1` and shape `[items.len(), ..row]`,
-/// i.e. a leading batch axis followed by the per-item [`row_shape`].
-///
-/// # Type Parameters
-///
-/// - `R`: rank of a single row.
-/// - `BR`: rank of the batched tensor; must equal `R + 1`.
-/// - `T`: the row type, [`HostRow<R>`]. Note the bound is [`HostRow`], not
-///   [`TensorConvertible`]: staging is host-only, so the row type need not name
-///   a backend at all.
-/// - `B`: Burn backend the assembled buffer is uploaded to.
-///
-/// # The `BR = R + 1` contract
-///
-/// Stable Rust cannot express `R + 1` in a const-generic position, so `BR` is a
-/// separate parameter checked at runtime. This function is the **single
-/// chokepoint** for that invariant: the leading `assert_eq!` runs before the
-/// shape array is assembled, which is what makes the subsequent
-/// `shape[1..].copy_from_slice(&row)` sound (it would panic on a length
-/// mismatch otherwise).
-///
-/// # Note
-///
-/// That this helper has no in-tree call sites is deliberate, not neglect. The
-/// six off-policy agents (`dqn`, `c51`, `qrdqn`, `ddpg`, `td3`, `sac`) fill five
-/// buffers — observations, next-observations, actions, rewards, terminated
-/// flags — in a *single* pass over the sampled ids; routing observations through
-/// this function would first require materializing an intermediate `Vec` of
-/// those rows, splitting that pass in two. They call [`write_host_row`] directly
-/// instead — the same primitive used here — and keep the one batched upload.
-/// This remains the recommended primitive for the common case: batching a
-/// homogeneous slice of [`HostRow`] rows into a single upload.
-///
-/// # Panics
-///
-/// Panics if `BR != R + 1`.
-///
-/// # Examples
-///
-/// ```
-/// use burn::backend::Flex;
-/// use burn::tensor::Tensor;
-/// use rlevo_core::base::{stack_to_tensor, HostRow, TensorConversionError, TensorConvertible};
-///
-/// #[derive(Clone)]
-/// struct Point {
-///     x: f32,
-///     y: f32,
-/// }
-///
-/// impl HostRow<1> for Point {
-///     fn row_shape() -> [usize; 1] {
-///         [2]
-///     }
-///     fn write_host_row(&self, buf: &mut Vec<f32>) {
-///         buf.push(self.x);
-///         buf.push(self.y);
-///     }
-/// }
-///
-/// impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Point {
-///     fn from_tensor(_tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-///         unimplemented!()
-///     }
-/// }
-///
-/// type B = Flex;
-/// let device = Default::default();
-/// let items: Vec<Point> = vec![Point { x: 1.0, y: 2.0 }, Point { x: 3.0, y: 4.0 }];
-/// let batched: Tensor<B, 2> = stack_to_tensor::<1, 2, Point, B>(&items, &device);
-/// assert_eq!(batched.dims(), [2, 2]);
-/// ```
-///
-/// [`write_host_row`]: HostRow::write_host_row
-/// [`row_shape`]: HostRow::row_shape
-pub fn stack_to_tensor<const R: usize, const BR: usize, T, B>(
-    items: &[T],
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, BR>
-where
-    T: HostRow<R>,
-    B: Backend,
-{
-    assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
-    let row: [usize; R] = T::row_shape();
-    let row_len: usize = row.iter().product();
-    let mut buf: Vec<f32> = Vec::with_capacity(items.len() * row_len);
-    for item in items {
-        item.write_host_row(&mut buf);
-    }
-    debug_assert_eq!(buf.len(), items.len() * row_len);
-    let mut shape: [usize; BR] = [0usize; BR];
-    shape[0] = items.len();
-    shape[1..].copy_from_slice(&row); // sound only because the BR == R + 1 assert above ran first — keep the ordering
-    Tensor::from_data(TensorData::new(buf, shape), device)
 }
 
 #[cfg(test)]
@@ -1088,7 +930,7 @@ mod tests {
     }
 
     // ========================================================================
-    // TensorConvertible: derived `to_tensor` + `stack_to_tensor`
+    // TensorConvertible: the derived `to_tensor`
     // ========================================================================
 
     use burn::backend::Flex;
@@ -1109,11 +951,7 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<1, B> for Vec3 {
-        fn from_tensor(_tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-            unimplemented!("not exercised by these tests")
-        }
-    }
+    impl<B: Backend> TensorConvertible<1, B> for Vec3 {}
 
     /// Rank-3 test row: a `[2, 2, 1]` image-like payload.
     #[derive(Clone, Debug)]
@@ -1128,52 +966,7 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<3, B> for Img {
-        fn from_tensor(_tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
-            unimplemented!("not exercised by these tests")
-        }
-    }
-
-    /// `stack_to_tensor` must produce exactly what `Tensor::stack` of the
-    /// individually-converted rows produces — bit-identical data and shape.
-    #[test]
-    fn test_stack_to_tensor_matches_manual_stack() {
-        let device: <TcB as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let items: Vec<Vec3> = vec![
-            Vec3(1.0, 2.0, 3.0),
-            Vec3(4.0, 5.0, 6.0),
-            Vec3(7.0, 8.0, 9.0),
-        ];
-
-        let batched: Tensor<TcB, 2> = stack_to_tensor::<1, 2, Vec3, TcB>(&items, &device);
-
-        let per_item: Vec<Tensor<TcB, 1>> = items
-            .iter()
-            .map(|i| <Vec3 as TensorConvertible<1, TcB>>::to_tensor(i, &device))
-            .collect();
-        let manual: Tensor<TcB, 2> = Tensor::stack(per_item, 0);
-
-        assert_eq!(batched.dims(), manual.dims());
-        let batched_v: Vec<f32> = batched
-            .into_data()
-            .into_vec::<f32>()
-            .expect("f32 host read of a tensor this test just built");
-        let manual_v: Vec<f32> = manual
-            .into_data()
-            .into_vec::<f32>()
-            .expect("f32 host read of a tensor this test just built");
-        assert_eq!(batched_v, manual_v);
-    }
-
-    /// `stack_to_tensor` panics when the batched rank does not equal `R + 1`.
-    #[test]
-    #[should_panic(expected = "batched rank BR must equal row rank R + 1")]
-    fn test_stack_to_tensor_wrong_rank_panics() {
-        let device: <TcB as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let items: Vec<Vec3> = vec![Vec3(1.0, 2.0, 3.0)];
-        // BR = 3, but R + 1 = 2 → must panic.
-        let _bad: Tensor<TcB, 3> = stack_to_tensor::<1, 3, Vec3, TcB>(&items, &device);
-    }
+    impl<B: Backend> TensorConvertible<3, B> for Img {}
 
     /// The derived `to_tensor` produces the same data/shape as the old manual
     /// `Tensor::from_floats` path for a rank-1 row.

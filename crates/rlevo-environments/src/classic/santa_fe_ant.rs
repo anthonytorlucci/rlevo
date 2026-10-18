@@ -39,12 +39,9 @@
 //! assert_eq!(f32::from(*snap.reward()), 1.0);
 //! ```
 
-use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{
-    Action, HostRow, Observation, State, TensorConversionError, TensorConvertible,
-};
+use rlevo_core::base::{Action, HostRow, Observation, State, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
@@ -138,33 +135,7 @@ impl HostRow<1> for SantaFeAntAction {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for SantaFeAntAction {
-    /// Reconstruct an action from a one-hot tensor by argmax.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not
-    /// `[ACTION_COUNT]` or its data cannot be read.
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [ACTION_COUNT] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [{ACTION_COUNT}], got {dims:?}"),
-            });
-        }
-        let data = tensor.into_data();
-        let values: Vec<f32> = data.to_vec().map_err(|e| TensorConversionError {
-            message: format!("failed to extract tensor data: {e:?}"),
-        })?;
-        let (argmax, _) = values.iter().enumerate().fold(
-            (0_usize, f32::NEG_INFINITY),
-            |(i_best, v_best), (i, &v)| {
-                if v > v_best { (i, v) } else { (i_best, v_best) }
-            },
-        );
-        Ok(Self::from_index(argmax))
-    }
-}
+impl<B: Backend> TensorConvertible<1, B> for SantaFeAntAction {}
 
 // ---------------------------------------------------------------------------
 // Observation
@@ -196,29 +167,7 @@ impl HostRow<1> for SantaFeAntObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for SantaFeAntObservation {
-    /// Decode the food-ahead bit, thresholding the single element at `0.5`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not `[1]` or its
-    /// data cannot be read.
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.dims();
-        if dims.as_slice() != [1] {
-            return Err(TensorConversionError {
-                message: format!("expected shape [1], got {dims:?}"),
-            });
-        }
-        let data = tensor.into_data();
-        let values: Vec<f32> = data.to_vec().map_err(|e| TensorConversionError {
-            message: format!("failed to extract tensor data: {e:?}"),
-        })?;
-        Ok(Self {
-            food_ahead: values[0] > 0.5,
-        })
-    }
-}
+impl<B: Backend> TensorConvertible<1, B> for SantaFeAntObservation {}
 
 // ---------------------------------------------------------------------------
 // State
@@ -870,8 +819,6 @@ mod tests {
         assert!(SantaFeAnt::with_config(bad).is_err());
     }
 
-    type TestBackend = burn::backend::Flex;
-
     fn env() -> SantaFeAnt {
         <SantaFeAnt as ConstructableEnv>::new(false)
     }
@@ -1165,48 +1112,30 @@ mod tests {
         );
     }
 
-    // -- TensorConvertible round-trips ------------------------------------
+    // -- Host rows ---------------------------------------------------------
 
     #[test]
-    fn observation_round_trips_through_tensor() {
-        let device = Default::default();
-        for food_ahead in [false, true] {
-            let obs = SantaFeAntObservation { food_ahead };
-            let tensor = <SantaFeAntObservation as TensorConvertible<1, TestBackend>>::to_tensor(
-                &obs, &device,
-            );
-            let back =
-                <SantaFeAntObservation as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-                    .expect("round-trip");
-            assert_eq!(back, obs);
+    fn observation_row_encodes_food_ahead_as_one_or_zero() {
+        for (food_ahead, expected) in [(false, 0.0_f32), (true, 1.0)] {
+            let mut row = Vec::new();
+            SantaFeAntObservation { food_ahead }.write_host_row(&mut row);
+            assert_eq!(row, vec![expected], "food_ahead = {food_ahead}");
         }
     }
 
     #[test]
-    fn observation_from_tensor_rejects_wrong_shape() {
-        use burn::tensor::{Tensor, TensorData as TD};
-        let device = Default::default();
-        let data = TD::new(vec![0.0_f32, 0.0_f32], [2]);
-        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let err = <SantaFeAntObservation as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .expect_err("shape [2] rejected");
-        assert!(err.message.contains("expected shape [1]"));
-    }
-
-    #[test]
-    fn action_round_trips_through_tensor() {
-        let device = Default::default();
+    fn action_row_is_one_hot_at_the_index() {
         for action in [
             SantaFeAntAction::Move,
             SantaFeAntAction::TurnLeft,
             SantaFeAntAction::TurnRight,
         ] {
-            let tensor = <SantaFeAntAction as TensorConvertible<1, TestBackend>>::to_tensor(
-                &action, &device,
-            );
-            let back = <SantaFeAntAction as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-                .expect("round-trip");
-            assert_eq!(back, action);
+            let mut row = Vec::new();
+            action.write_host_row(&mut row);
+            let expected: Vec<f32> = (0..ACTION_COUNT)
+                .map(|j| if j == action.to_index() { 1.0 } else { 0.0 })
+                .collect();
+            assert_eq!(row, expected, "{action:?}");
         }
     }
 

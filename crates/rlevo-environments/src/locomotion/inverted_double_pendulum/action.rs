@@ -1,8 +1,8 @@
 //! Action type for [`super::InvertedDoublePendulum`].
 
-use burn::prelude::{Backend, Tensor};
+use burn::prelude::Backend;
 use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, HostRow, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
 /// 1D continuous action — horizontal force target on the cart, in pre-gear
@@ -62,17 +62,4 @@ impl HostRow<1> for InvertedDoublePendulumAction {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for InvertedDoublePendulumAction {
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 action tensor: {e:?}"),
-        })?;
-        if slice.len() != 1 {
-            return Err(TensorConversionError {
-                message: format!("expected 1 action element, got {}", slice.len()),
-            });
-        }
-        Ok(Self([slice[0]]))
-    }
-}
+impl<B: Backend> TensorConvertible<1, B> for InvertedDoublePendulumAction {}
