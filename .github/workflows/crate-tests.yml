@@ -253,7 +253,11 @@ jobs:
       - name: rlevo-core depends on no Burn by default
         run: |
           set -euo pipefail
-          count=$(cargo tree -p rlevo-core -e normal -f '{p}' --prefix none | grep -c '^burn' || true)
+          # Two lines, not one pipeline: `|| true` must forgive only grep's
+          # no-match exit. Inside one pipeline it would also forgive a failed
+          # `cargo tree`, whose empty output counts as zero and passes.
+          tree=$(cargo tree -p rlevo-core -e normal -f '{p}' --prefix none)
+          count=$(printf '%s\n' "$tree" | grep -c '^burn' || true)
           if [ "$count" != "0" ]; then
             echo "::error::rlevo-core reaches $count burn packages at its default features; it depends on Burn only under its burn feature (ADR 0089)"
             cargo tree -p rlevo-core -e normal -i burn
