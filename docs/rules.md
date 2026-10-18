@@ -468,7 +468,7 @@ generation-to-generation) diversity the caller relies on.
   1. The lint is a false positive in that specific context, **and**
   2. A comment directly above the attribute explains why.
 - Global `#![allow(...)]` in any crate is forbidden.
-- `#[allow(dead_code)]` is only permitted on stubs explicitly planned for future implementation; add a `// TODO:` comment with the tracking issue (see the Deferred Work Gets a GitHub Issue section — the issue must exist *before* the stub lands).
+- `#[allow(dead_code)]` is only permitted on stubs explicitly planned for future implementation; add a `// TODO:` comment saying what is left to do (the deferral itself still gets a GitHub issue, filed *before* the stub lands; see the Deferred Work Gets a GitHub Issue section).
 - `unsafe` blocks require a `// SAFETY:` comment explaining the invariant maintained.
 
 ---
