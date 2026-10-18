@@ -148,10 +148,6 @@ impl Observation<3> for CarRacingObservation {
 }
 
 impl HostRow<3> for CarRacingObservation {
-    fn row_shape() -> [usize; 3] {
-        [FRAME_SIZE, FRAME_SIZE, 3]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
         buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));

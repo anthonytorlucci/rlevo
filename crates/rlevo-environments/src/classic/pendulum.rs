@@ -588,22 +588,8 @@ fn style_pendulum_line(line: &str) -> crate::render::StyledLine {
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for PendulumObservation {
-    fn row_shape() -> [usize; 1] {
-        [3]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
-    }
-}
-
-impl HostRow<1> for PendulumAction {
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.push(self.0);
     }
 }
 

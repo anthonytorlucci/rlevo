@@ -1,7 +1,7 @@
 //! Action type for [`super::InvertedPendulum`].
 
 use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, HostRow};
+use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
 /// 1D continuous action — horizontal force target on the cart, in Gymnasium's
@@ -54,15 +54,5 @@ impl ContinuousAction<1> for InvertedPendulumAction {
     /// sensitive paths.
     fn random() -> Self {
         Self([rand::random::<f32>() * 6.0 - 3.0])
-    }
-}
-
-impl HostRow<1> for InvertedPendulumAction {
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.extend_from_slice(&self.0);
     }
 }

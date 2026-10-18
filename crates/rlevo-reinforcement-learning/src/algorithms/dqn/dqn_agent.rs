@@ -1062,10 +1062,6 @@ mod tests {
     }
 
     impl HostRow<1> for TestObs {
-        fn row_shape() -> [usize; 1] {
-            [2]
-        }
-
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }

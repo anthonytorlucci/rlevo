@@ -31,7 +31,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
+use rlevo_core::base::{Action, Observation, Reward, State};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
@@ -89,18 +89,6 @@ impl Display for KArmedBanditState {
     }
 }
 
-impl HostRow<1> for KArmedBanditState {
-    /// Row shape of the stateless bandit state: `[1]`.
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-
-    /// Encodes the stateless bandit state as a single `0.0` element.
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.push(0.0_f32);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Action
 // ---------------------------------------------------------------------------
@@ -120,8 +108,6 @@ impl HostRow<1> for KArmedBanditState {
 /// - [`Action<1>`]: validity check + shape reporting (`[K]`).
 /// - [`DiscreteAction<1>`]: `ACTION_COUNT = K`, plus `from_index` /
 ///   `to_index` / `random` / `enumerate` (the last three via trait defaults).
-/// - [`HostRow<1>`]: one-hot encoding of length `K` for neural-network
-///   integration.
 /// - [`Display`]: renders as `"KArmedBanditAction<K>(arm=N)"`.
 ///
 /// # Examples
@@ -218,20 +204,6 @@ impl<const K: usize> DiscreteAction<1> for KArmedBanditAction<K> {
 
     fn to_index(&self) -> usize {
         self.selected_arm
-    }
-}
-
-impl<const K: usize> HostRow<1> for KArmedBanditAction<K> {
-    /// Row shape of the one-hot arm encoding: `[K]`.
-    fn row_shape() -> [usize; 1] {
-        [K]
-    }
-
-    /// One-hot encoding of the selected arm, length `K`.
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        let mut one_hot = [0.0_f32; K];
-        one_hot[self.selected_arm] = 1.0;
-        buf.extend_from_slice(&one_hot);
     }
 }
 
@@ -679,13 +651,6 @@ mod tests {
     const K: usize = 10;
 
     #[test]
-    fn state_row_is_a_single_zero() {
-        let mut row = Vec::new();
-        KArmedBanditState.write_host_row(&mut row);
-        assert_eq!(row, vec![0.0_f32]);
-    }
-
-    #[test]
     fn action_from_index_round_trips() {
         for i in 0..K {
             let action = KArmedBanditAction::<K>::from_index(i);
@@ -712,16 +677,6 @@ mod tests {
         assert_eq!(all.len(), K);
         for (i, a) in all.iter().enumerate() {
             assert_eq!(a.to_index(), i);
-        }
-    }
-
-    #[test]
-    fn action_row_is_one_hot_at_the_arm() {
-        for i in 0..K {
-            let mut row = Vec::new();
-            KArmedBanditAction::<K>::from_index(i).write_host_row(&mut row);
-            let expected: Vec<f32> = (0..K).map(|j| if j == i { 1.0 } else { 0.0 }).collect();
-            assert_eq!(row, expected, "arm {i}");
         }
     }
 

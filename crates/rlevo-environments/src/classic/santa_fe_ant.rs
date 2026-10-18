@@ -120,20 +120,6 @@ impl DiscreteAction<1> for SantaFeAntAction {
     }
 }
 
-impl HostRow<1> for SantaFeAntAction {
-    /// Row shape of the one-hot action encoding: `[ACTION_COUNT]`.
-    fn row_shape() -> [usize; 1] {
-        [ACTION_COUNT]
-    }
-
-    /// One-hot encoding of the action, length [`ACTION_COUNT`].
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        let mut one_hot: [f32; ACTION_COUNT] = [0.0; ACTION_COUNT];
-        one_hot[self.to_index()] = 1.0;
-        buf.extend_from_slice(&one_hot);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Observation
 // ---------------------------------------------------------------------------
@@ -152,11 +138,6 @@ impl Observation<1> for SantaFeAntObservation {
 }
 
 impl HostRow<1> for SantaFeAntObservation {
-    /// Row shape of the food-ahead bit: `[1]`.
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-
     /// Encode the food-ahead bit as a single element (`1.0` / `0.0`).
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         let value: f32 = if self.food_ahead { 1.0 } else { 0.0 };
@@ -1115,22 +1096,6 @@ mod tests {
             let mut row = Vec::new();
             SantaFeAntObservation { food_ahead }.write_host_row(&mut row);
             assert_eq!(row, vec![expected], "food_ahead = {food_ahead}");
-        }
-    }
-
-    #[test]
-    fn action_row_is_one_hot_at_the_index() {
-        for action in [
-            SantaFeAntAction::Move,
-            SantaFeAntAction::TurnLeft,
-            SantaFeAntAction::TurnRight,
-        ] {
-            let mut row = Vec::new();
-            action.write_host_row(&mut row);
-            let expected: Vec<f32> = (0..ACTION_COUNT)
-                .map(|j| if j == action.to_index() { 1.0 } else { 0.0 })
-                .collect();
-            assert_eq!(row, expected, "{action:?}");
         }
     }
 

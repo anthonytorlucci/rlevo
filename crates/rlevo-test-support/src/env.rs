@@ -78,9 +78,6 @@ impl Observation<1> for LinearObservation {
 }
 
 impl HostRow<1> for LinearObservation {
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.x);
     }

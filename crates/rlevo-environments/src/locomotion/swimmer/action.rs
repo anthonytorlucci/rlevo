@@ -5,7 +5,7 @@
 //! configured `gear` scalar before applying the torque to the physics body.
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, HostRow};
+use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
 /// 2D continuous action — `[joint1, joint2]` torque targets in pre-gear
@@ -99,16 +99,6 @@ impl BoundedAction<1> for SwimmerAction {
 
     fn high() -> &'static [f32] {
         &[1.0, 1.0]
-    }
-}
-
-impl HostRow<1> for SwimmerAction {
-    fn row_shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.extend_from_slice(&self.0);
     }
 }
 

@@ -40,9 +40,6 @@ impl Observation<1> for WalkObservation {
 }
 
 impl HostRow<1> for WalkObservation {
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
     #[allow(clippy::cast_precision_loss)]
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.position as f32);
@@ -100,16 +97,6 @@ impl DiscreteAction<1> for WalkAction {
     }
 }
 
-impl HostRow<1> for WalkAction {
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-    #[allow(clippy::cast_precision_loss)]
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.push(self.to_index() as f32);
-    }
-}
-
 /// Local scalar reward newtype. Mirrors `rlevo_core::reward::ScalarReward`
 /// but is defined in this crate so we can implement the foreign `HostRow`
 /// trait on it without tripping the orphan rule.
@@ -132,15 +119,6 @@ impl Add for WalkReward {
 impl From<WalkReward> for f32 {
     fn from(r: WalkReward) -> f32 {
         r.0
-    }
-}
-
-impl HostRow<1> for WalkReward {
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.push(self.0);
     }
 }
 

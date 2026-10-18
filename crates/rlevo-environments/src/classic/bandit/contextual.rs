@@ -201,11 +201,6 @@ impl<const C: usize> State<1> for ContextualBanditState<C> {
 }
 
 impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
-    /// Row shape of the one-hot context encoding: `[C]`.
-    fn row_shape() -> [usize; 1] {
-        [C]
-    }
-
     /// One-hot encoding of the current context, length `C`.
     ///
     /// The write goes through `get_mut` rather than `[]`, so the encoder is

@@ -1,7 +1,7 @@
 //! Action type for [`super::InvertedDoublePendulum`].
 
 use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, HostRow};
+use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
 /// 1D continuous action — horizontal force target on the cart, in pre-gear
@@ -48,15 +48,5 @@ impl ContinuousAction<1> for InvertedDoublePendulumAction {
 
     fn random() -> Self {
         Self([rand::random::<f32>() * 2.0 - 1.0])
-    }
-}
-
-impl HostRow<1> for InvertedDoublePendulumAction {
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.extend_from_slice(&self.0);
     }
 }

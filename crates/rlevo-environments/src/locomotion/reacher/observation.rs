@@ -91,10 +91,6 @@ impl Observation<1> for ReacherObservation {
 }
 
 impl HostRow<1> for ReacherObservation {
-    fn row_shape() -> [usize; 1] {
-        [10]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
     }

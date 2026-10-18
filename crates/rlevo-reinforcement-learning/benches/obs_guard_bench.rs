@@ -237,10 +237,6 @@ impl Observation<3> for F32Image {
 }
 
 impl HostRow<3> for F32Image {
-    fn row_shape() -> [usize; 3] {
-        [FRAME, FRAME, 3]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.px);
     }
@@ -470,7 +466,7 @@ fn check_finite_reused<const R: usize, T: HostRow<R>>(
 /// The prototype guard, fresh-allocation form -- identical work plus one
 /// `Vec` allocation and one deallocation per call.
 fn check_finite_fresh<const R: usize, T: HostRow<R>>(obs: &T, next_obs: &T) -> bool {
-    let row_len: usize = T::row_shape().iter().product();
+    let row_len: usize = T::shape().iter().product();
     let mut scratch: Vec<f32> = Vec::with_capacity(2 * row_len);
     obs.write_host_row(&mut scratch);
     next_obs.write_host_row(&mut scratch);
@@ -670,7 +666,7 @@ fn bench_stage<const R: usize, T>(
     T: HostRow<R>,
 {
     let mut rng = StdRng::seed_from_u64(1043);
-    let row_len: usize = T::row_shape().iter().product();
+    let row_len: usize = T::shape().iter().product();
     let mut group = c.benchmark_group(group_name);
 
     for &batch in batches {
@@ -791,7 +787,7 @@ fn bench_ingest<B, M, O, const DO: usize, const DB: usize>(
     O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
 {
     let mut rng = StdRng::seed_from_u64(1043);
-    let row_len: usize = <O as HostRow<DO>>::row_shape().iter().product();
+    let row_len: usize = <O as Observation<DO>>::shape().iter().product();
 
     let clean: Vec<O> = (0..POOL).map(|_| make(&mut rng, false)).collect();
     let poisoned: Vec<O> = if poisonable {

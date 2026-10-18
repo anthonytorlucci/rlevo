@@ -556,22 +556,8 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for MountainCarContinuousObservation {
-    fn row_shape() -> [usize; 1] {
-        [2]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
-    }
-}
-
-impl HostRow<1> for MountainCarContinuousAction {
-    fn row_shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.push(self.0);
     }
 }
 

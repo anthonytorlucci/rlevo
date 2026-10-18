@@ -848,24 +848,8 @@ impl CartPole {
 // ---------------------------------------------------------------------------
 
 impl HostRow<1> for CartPoleObservation {
-    fn row_shape() -> [usize; 1] {
-        [4]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
-    }
-}
-
-impl HostRow<1> for CartPoleAction {
-    fn row_shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        let mut one_hot = [0.0_f32; 2];
-        one_hot[self.to_index()] = 1.0;
-        buf.extend_from_slice(&one_hot);
     }
 }
 

@@ -202,10 +202,6 @@ impl Observation<3> for GridObservation {
 }
 
 impl HostRow<3> for GridObservation {
-    fn row_shape() -> [usize; 3] {
-        [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         for row in &self.view {
             for cell in row {

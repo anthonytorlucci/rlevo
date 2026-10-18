@@ -82,10 +82,6 @@ impl Observation<1> for InvertedDoublePendulumObservation {
 }
 
 impl HostRow<1> for InvertedDoublePendulumObservation {
-    fn row_shape() -> [usize; 1] {
-        [9]
-    }
-
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
     }

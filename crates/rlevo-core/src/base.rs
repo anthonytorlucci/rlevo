@@ -103,8 +103,13 @@ pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
     /// Returns the size of each axis in this observation space.
     ///
     /// The returned array has length `R` (the rank), where each element is the
-    /// cardinality of that axis — the number of possible values along it. All
-    /// values must be greater than zero.
+    /// size of that axis — the number of elements along it. All values must be
+    /// greater than zero.
+    ///
+    /// For a type that also implements [`HostRow`], this is the shape of its
+    /// row: [`HostRow::write_host_row`] pushes exactly
+    /// `shape().iter().product()` values, and a tensor built from the row has
+    /// this shape.
     fn shape() -> [usize; R];
 }
 
@@ -242,12 +247,18 @@ pub trait TransitionDynamics<const SR: usize, const AR: usize, S: State<SR>, A: 
     fn transition(&self, state: &S, action: &A) -> S;
 }
 
-/// Host-side, backend-independent row serialization.
+/// Host-side, backend-independent row serialization of an observation.
 ///
-/// This is the layout half of tensor conversion: how a value flattens into a
-/// row-major `f32` row, and what shape that row has. Neither answer depends on
-/// which Burn backend the row is eventually uploaded to, so this trait carries
-/// **no** `B` parameter and names nothing from Burn.
+/// This is the layout half of tensor conversion: how an observation flattens
+/// into a row-major `f32` row. The row's shape is the observation's own
+/// [`Observation::shape`], so it is stated once. Neither depends on which Burn
+/// backend the row is eventually uploaded to, so this trait carries **no** `B`
+/// parameter and names nothing from Burn.
+///
+/// Only an observation writes a row: no learner converts an action or a state
+/// to a tensor. Actions reach a network through
+/// [`DiscreteAction::to_index`](crate::action::DiscreteAction::to_index) and
+/// [`ContinuousAction::as_slice`](crate::action::ContinuousAction::as_slice).
 ///
 /// Implementing it is all a type does for tensor conversion. With this crate's
 /// `burn` feature on, `TensorConvertible` is implemented for every `HostRow`
@@ -261,28 +272,14 @@ pub trait TransitionDynamics<const SR: usize, const AR: usize, S: State<SR>, A: 
 ///
 /// # Invariants
 ///
-/// - A type implements `HostRow` at exactly **one** rank `R`. Implementing it at
-///   two ranks makes every unqualified `write_host_row` / `row_shape` call on a
-///   concrete value of that type ambiguous (E0283).
-/// - `write_host_row` pushes exactly `row_shape().iter().product()` values.
+/// - A type implements `HostRow` at exactly **one** rank `R`, the rank of its
+///   `Observation`. Implementing it at two ranks makes every unqualified
+///   `write_host_row` or `shape` call on a concrete value of that type
+///   ambiguous (E0283).
+/// - `write_host_row` pushes exactly `shape().iter().product()` values.
 ///
 /// [`write_host_row`]: HostRow::write_host_row
-pub trait HostRow<const R: usize> {
-    /// Returns the per-item ("row") shape of the tensor this type serializes to.
-    ///
-    /// This is the shape of a **single** value — rank `R`, with each axis size
-    /// fixed by the domain type (e.g. `[8]` for an 8-feature observation, or
-    /// `[H, W, C]` for an image). It is the layout that [`write_host_row`] must
-    /// fill, and the shape `TensorConvertible::to_tensor` wraps around the
-    /// written buffer.
-    ///
-    /// The product of the returned axes is the number of `f32` scalars a single
-    /// row occupies, which is exactly how many values [`write_host_row`] must
-    /// push.
-    ///
-    /// [`write_host_row`]: HostRow::write_host_row
-    fn row_shape() -> [usize; R];
-
+pub trait HostRow<const R: usize>: Observation<R> {
     /// Appends the row-major `f32` payload of `self` to `buf`.
     ///
     /// This is the primitive from which both single-item conversion
@@ -292,8 +289,8 @@ pub trait HostRow<const R: usize> {
     ///
     /// # Contract
     ///
-    /// - Push **exactly** `row_shape().iter().product()` values, in **row-major**
-    ///   order matching [`row_shape`].
+    /// - Push **exactly** `shape().iter().product()` values, in **row-major**
+    ///   order matching [`shape`].
     /// - Push **plain `f32`** — do *not* pre-convert to a backend element type.
     ///   Burn's `TensorData::new` performs the element-type conversion at upload
     ///   time.
@@ -301,7 +298,7 @@ pub trait HostRow<const R: usize> {
     /// - **Append**; never clear or truncate `buf`. Batch staging relies on
     ///   successive rows being concatenated into one contiguous buffer.
     ///
-    /// [`row_shape`]: HostRow::row_shape
+    /// [`shape`]: Observation::shape
     fn write_host_row(&self, buf: &mut Vec<f32>);
 
     /// Returns `true` if every value this type writes into a row is finite —
@@ -412,17 +409,17 @@ pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> {
     /// Converts `self` into a tensor on `device`.
     ///
     /// Stages one row into a host `Vec<f32>` with [`write_host_row`] and uploads
-    /// it with a single [`Tensor::from_data`], in the shape [`row_shape`]
-    /// reports. A batch staged with the same row writer therefore has the same
-    /// element order.
+    /// it with a single [`Tensor::from_data`], in the shape [`shape`] reports.
+    /// A batch staged with the same row writer therefore has the same element
+    /// order.
     ///
-    /// [`row_shape`]: HostRow::row_shape
+    /// [`shape`]: Observation::shape
     /// [`write_host_row`]: HostRow::write_host_row
     fn to_tensor(
         &self,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, R> {
-        let row: [usize; R] = Self::row_shape();
+        let row: [usize; R] = Self::shape();
         let mut buf: Vec<f32> = Vec::with_capacity(row.iter().product());
         self.write_host_row(&mut buf);
         debug_assert_eq!(buf.len(), row.iter().product::<usize>());
@@ -951,10 +948,13 @@ mod tests {
         #[derive(Clone, Debug)]
         struct Vec3(f32, f32, f32);
 
-        impl HostRow<1> for Vec3 {
-            fn row_shape() -> [usize; 1] {
+        impl Observation<1> for Vec3 {
+            fn shape() -> [usize; 1] {
                 [3]
             }
+        }
+
+        impl HostRow<1> for Vec3 {
             fn write_host_row(&self, buf: &mut Vec<f32>) {
                 buf.extend_from_slice(&[self.0, self.1, self.2]);
             }
@@ -964,10 +964,13 @@ mod tests {
         #[derive(Clone, Debug)]
         struct Img([f32; 4]);
 
-        impl HostRow<3> for Img {
-            fn row_shape() -> [usize; 3] {
+        impl Observation<3> for Img {
+            fn shape() -> [usize; 3] {
                 [2, 2, 1]
             }
+        }
+
+        impl HostRow<3> for Img {
             fn write_host_row(&self, buf: &mut Vec<f32>) {
                 buf.extend_from_slice(&self.0);
             }
@@ -1159,11 +1162,13 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TestFiniteRow([f32; 4]);
 
-    impl HostRow<1> for TestFiniteRow {
-        fn row_shape() -> [usize; 1] {
+    impl Observation<1> for TestFiniteRow {
+        fn shape() -> [usize; 1] {
             [4]
         }
+    }
 
+    impl HostRow<1> for TestFiniteRow {
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }

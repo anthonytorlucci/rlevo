@@ -212,7 +212,7 @@ where
     B: AutodiffBackend,
     O: TensorConvertible<DO, B::InnerBackend>,
 {
-    let row_shape = O::row_shape();
+    let row_shape = O::shape();
     let row_len: usize = row_shape.iter().product();
     let mut obs_flat: Vec<f32> = Vec::with_capacity(batch.len() * row_len);
     let mut next_flat: Vec<f32> = Vec::with_capacity(batch.len() * row_len);
@@ -462,7 +462,7 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for WideMlp<B> {
 /// `Linear` layers down to the 4-way pixel-grid action space.
 ///
 /// Input arrives batched as `[batch, H, W, C]` (row-major, matching
-/// `PixelObservation::row_shape()`); `forward_impl` permutes to
+/// `PixelObservation::shape()`); `forward_impl` permutes to
 /// `[batch, C, H, W]` before the first convolution.
 #[derive(Module, Debug)]
 struct PixelConvNet<B: Backend> {

@@ -6,7 +6,7 @@
 //! resulting torques to the Rapier rigid bodies.
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, HostRow};
+use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
 /// 2D continuous action — `[shoulder, elbow]` torque targets in
@@ -101,16 +101,6 @@ impl BoundedAction<1> for ReacherAction {
 
     fn high() -> &'static [f32] {
         &[1.0, 1.0]
-    }
-}
-
-impl HostRow<1> for ReacherAction {
-    fn row_shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn write_host_row(&self, buf: &mut Vec<f32>) {
-        buf.extend_from_slice(&self.0);
     }
 }
 
