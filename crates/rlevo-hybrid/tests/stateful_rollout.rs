@@ -23,8 +23,7 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Tensor, backend::Backend};
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::State;
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction, SantaFeAntObservation};
 use rlevo_evolution::fitness::BatchFitnessFn;
@@ -50,21 +49,6 @@ fn device() -> Dev {
 // constant, so reactivity genuinely caps the achievable score.
 // ---------------------------------------------------------------------------
 
-/// Trivial state — the env tracks step count itself; this exists only to
-/// satisfy [`Environment::StateType`].
-#[derive(Debug, Clone)]
-struct AltState;
-
-impl State<1> for AltState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn is_valid(&self) -> bool {
-        true
-    }
-}
-
 #[derive(Debug, Clone)]
 struct AlternatingEnv {
     steps: usize,
@@ -80,30 +64,30 @@ impl AlternatingEnv {
     }
 }
 
-impl Environment<1, 1, 1> for AlternatingEnv {
-    type StateType = AltState;
+impl Environment<1, 1> for AlternatingEnv {
     type ObservationType = SantaFeAntObservation;
     type ActionType = SantaFeAntAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, SantaFeAntObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<SantaFeAntObservation>, EnvironmentError> {
         self.steps = 0;
-        Ok(SnapshotBase::running(
+        Ok(Snapshot::running(
             SantaFeAntObservation { food_ahead: false },
             ScalarReward::new(0.0),
         ))
     }
 
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<SantaFeAntObservation>, EnvironmentError> {
         let matches = action.to_index() % 2 == self.steps % 2;
         let reward = ScalarReward::new(if matches { 1.0 } else { 0.0 });
         self.steps += 1;
         let obs = SantaFeAntObservation { food_ahead: false };
         let snapshot = if self.steps >= self.max_steps {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
         Ok(snapshot)
     }
@@ -326,13 +310,7 @@ fn rollout_fitness_hosts_recurrent_gru_on_santa_fe() {
     let dev = device();
     let reshaper = ModuleReshaper::new(GruPolicy::<TestBackend>::new(&dev));
     let num_params = reshaper.num_params();
-    let mut fitness = RolloutFitness::new(
-        reshaper,
-        || <SantaFeAnt as ConstructableEnv>::new(false),
-        1,
-        50,
-        dev,
-    );
+    let mut fitness = RolloutFitness::new(reshaper, SantaFeAnt::default, 1, 50, dev);
     let pop = Tensor::<TestBackend, 2>::zeros([2, num_params], &dev);
     let out = fitness.evaluate_batch(&pop, &dev);
     let values = out.into_data().into_vec::<f32>().unwrap();

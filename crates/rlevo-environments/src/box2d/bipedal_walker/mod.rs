@@ -40,7 +40,7 @@
 //! let mut env = BipedalWalker::with_config(cfg).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(BipedalWalkerAction([0.1, -0.1, 0.1, -0.1])).unwrap();
-//! println!("reward: {:?}", snap.reward());
+//! println!("reward: {:?}", snap.reward);
 //! ```
 
 pub mod action;

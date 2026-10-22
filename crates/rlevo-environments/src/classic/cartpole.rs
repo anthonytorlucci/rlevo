@@ -128,12 +128,12 @@
 //! ```no_run,ignore
 //! use rlevo_environments::classic::{CartPole, CartPoleConfig, CartPoleAction};
 //! use rlevo_environments::wrappers::TimeLimit;
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
 //! let mut timed = TimeLimit::new(env, 500);
 //! let mut snap = timed.reset().unwrap();
-//! while !snap.is_done() {
+//! while !snap.status.is_done() {
 //!     snap = timed.step(CartPoleAction::Right).unwrap();
 //! }
 //! ```
@@ -144,9 +144,9 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -366,22 +366,6 @@ impl CartPoleState {
     }
 }
 
-impl State<1> for CartPoleState {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-    fn numel(&self) -> usize {
-        4
-    }
-
-    fn is_valid(&self) -> bool {
-        self.x.is_finite()
-            && self.x_dot.is_finite()
-            && self.theta.is_finite()
-            && self.theta_dot.is_finite()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Observation
 // ---------------------------------------------------------------------------
@@ -523,7 +507,7 @@ impl CartPole {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, CartPoleObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<CartPoleObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -621,27 +605,17 @@ impl fmt::Display for CartPole {
     }
 }
 
-impl ConstructableEnv for CartPole {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl Default for CartPole {
+    fn default() -> Self {
         Self::with_config(CartPoleConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for CartPole {
-    type Action = CartPoleAction;
-    type State = CartPoleState;
-    type Observation = CartPoleObservation;
-
-    /// Projects the resulting state directly onto the 4-D observation
-    /// `$[x, \dot{x}, \theta, \dot\theta]$`; the observation ignores the applied force.
-    fn observe(&self, _action: &CartPoleAction, next_state: &CartPoleState) -> CartPoleObservation {
-        cartpole_observation(next_state)
-    }
-
-    /// Projects the initial state onto the 4-D observation.
-    fn observe_reset(&self, state: &CartPoleState) -> CartPoleObservation {
-        cartpole_observation(state)
+impl CartPole {
+    /// Projects the current state directly onto the 4-D observation
+    /// `$[x, \dot{x}, \theta, \dot\theta]$`.
+    fn observe(&self) -> CartPoleObservation {
+        cartpole_observation(&self.state)
     }
 }
 
@@ -655,12 +629,9 @@ fn cartpole_observation(state: &CartPoleState) -> CartPoleObservation {
     }
 }
 
-impl Environment<1, 1, 1> for CartPole {
-    type StateType = CartPoleState;
+impl Environment<1, 1> for CartPole {
     type ObservationType = CartPoleObservation;
     type ActionType = CartPoleAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, CartPoleObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -672,14 +643,11 @@ impl Environment<1, 1, 1> for CartPole {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<CartPoleObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -692,7 +660,10 @@ impl Environment<1, 1, 1> for CartPole {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: CartPoleAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: CartPoleAction,
+    ) -> Result<Snapshot<CartPoleObservation>, EnvironmentError> {
         // Guard first: before the integrator runs, before `steps` advances, and
         // before anything touches `self.rng`. A rejected call must leave the
         // physics state, the step counter, and the RNG stream untouched, or the
@@ -716,11 +687,11 @@ impl Environment<1, 1, 1> for CartPole {
 
         // Single exit: every path builds exactly one snapshot, and the guard is
         // fed that snapshot's own status, so no branch can forget to record.
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         let snap = if terminated {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
 
         self.guard.record(snap.status);
@@ -911,6 +882,15 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
 // Tests
 // ---------------------------------------------------------------------------
 
+impl CartPoleState {
+    pub(crate) fn is_valid(&self) -> bool {
+        self.x.is_finite()
+            && self.x_dot.is_finite()
+            && self.theta.is_finite()
+            && self.theta_dot.is_finite()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Exact comparison is intentional throughout this test module: the values
@@ -924,7 +904,6 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::Snapshot;
 
     fn default_env() -> CartPole {
         CartPole::with_config(CartPoleConfig::default()).expect("valid config")
@@ -934,15 +913,13 @@ mod tests {
     /// returning the terminal snapshot. Pushing one direction from a near-upright start topples the
     /// pole in a few dozen steps, so this reaches a *real* termination rather than a hand-written
     /// terminal state.
-    fn drive_to_pole_fall(
-        env: &mut CartPole,
-    ) -> SnapshotBase<1, CartPoleObservation, ScalarReward> {
+    fn drive_to_pole_fall(env: &mut CartPole) -> Snapshot<CartPoleObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..1_000 {
             let snap = env
                 .step(CartPoleAction::Right)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -999,9 +976,9 @@ mod tests {
 
         let mut env = default_env();
         let snap = env.reset().unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Running);
-        assert!(!snap.is_done());
-        let obs = snap.observation();
+        assert_eq!(snap.status, EpisodeStatus::Running);
+        assert!(!snap.status.is_done());
+        let obs = snap.observation;
         for v in obs.to_array() {
             assert!(v.abs() <= 0.05 + f32::EPSILON, "init obs {v} out of range");
         }
@@ -1030,9 +1007,9 @@ mod tests {
         // Set pole way past threshold
         env.state.theta = 0.3;
         let snap = env.step(CartPoleAction::Left).unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Terminated);
-        assert!(snap.is_terminated());
-        assert!(!snap.is_truncated());
+        assert_eq!(snap.status, EpisodeStatus::Terminated);
+        assert!(snap.status.is_terminated());
+        assert!(!snap.status.is_truncated());
     }
 
     #[test]
@@ -1041,7 +1018,7 @@ mod tests {
         env.reset().unwrap();
         env.state.x = 2.5;
         let snap = env.step(CartPoleAction::Left).unwrap();
-        assert!(snap.is_terminated());
+        assert!(snap.status.is_terminated());
     }
 
     #[test]
@@ -1049,8 +1026,8 @@ mod tests {
         let mut env = default_env();
         env.reset().unwrap();
         let snap = env.step(CartPoleAction::Right).unwrap();
-        if !snap.is_done() {
-            assert_eq!(*snap.reward(), ScalarReward(1.0));
+        if !snap.status.is_done() {
+            assert_eq!(snap.reward, ScalarReward(1.0));
         }
     }
 
@@ -1065,8 +1042,8 @@ mod tests {
         // Force termination next step
         env.state.theta = 0.3;
         let snap = env.step(CartPoleAction::Left).unwrap();
-        assert!(snap.is_done());
-        assert_eq!(*snap.reward(), ScalarReward(-1.0));
+        assert!(snap.status.is_done());
+        assert_eq!(snap.reward, ScalarReward(-1.0));
     }
 
     #[test]
@@ -1078,8 +1055,8 @@ mod tests {
         let mut env = CartPole::with_config(config).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(CartPoleAction::Right).unwrap();
-        if !snap.is_done() {
-            assert_eq!(*snap.reward(), ScalarReward(0.0));
+        if !snap.status.is_done() {
+            assert_eq!(snap.reward, ScalarReward(0.0));
         }
     }
 
@@ -1106,7 +1083,7 @@ mod tests {
         for action in actions {
             let sa = env_a.step(action).unwrap();
             let sb = env_b.step(action).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -1167,7 +1144,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CartPole::new(false);
+        let mut env = CartPole::default();
         env.reset().unwrap();
         let plain = env.render_ascii();
         let styled = env.render_styled();
@@ -1185,7 +1162,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, GOAL_FG, WALL_FG};
 
-        let mut env = CartPole::new(false);
+        let mut env = CartPole::default();
         env.reset().unwrap();
         let styled = env.render_styled();
         let spans = || styled.lines.iter().flat_map(|l| l.spans.iter());
@@ -1214,7 +1191,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CartPole::new(false);
+        let mut env = CartPole::default();
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(
@@ -1231,8 +1208,8 @@ mod tests {
         // on all four state variables), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -1242,10 +1219,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -1275,7 +1252,7 @@ mod tests {
 
         let mut env = default_env();
         let terminal = drive_to_pole_fall(&mut env);
-        assert!(terminal.is_terminated(), "the pole must have fallen");
+        assert!(terminal.status.is_terminated(), "the pole must have fallen");
 
         let steps_at_end = env.steps();
         let state_at_end = env.state;
@@ -1332,7 +1309,7 @@ mod tests {
             .step(CartPoleAction::Right)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -1352,8 +1329,8 @@ mod tests {
             .step(CartPoleAction::Right)
             .expect_err("a step after termination must be rejected");
 
-        let after = rejected.reset().unwrap().observation().to_array();
-        let baseline = untouched.reset().unwrap().observation().to_array();
+        let after = rejected.reset().unwrap().observation.to_array();
+        let baseline = untouched.reset().unwrap().observation.to_array();
         assert_eq!(
             after, baseline,
             "a rejected step must draw no randomness; the next episode must start where it would have"

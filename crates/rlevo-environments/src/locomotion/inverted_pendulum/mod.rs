@@ -31,6 +31,6 @@ pub mod state;
 
 pub use action::InvertedPendulumAction;
 pub use config::InvertedPendulumConfig;
-pub use env::{InvertedPendulum, InvertedPendulumRapier, METADATA_KEY_ALIVE};
+pub use env::{InvertedPendulum, METADATA_KEY_ALIVE};
 pub use observation::InvertedPendulumObservation;
 pub use state::InvertedPendulumState;

@@ -39,10 +39,6 @@ impl ContinuousAction<1> for LunarLanderContinuousAction {
         &self.0
     }
 
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self(self.0.map(|v| v.clamp(min, max)))
-    }
-
     /// Construct from a slice of exactly `COMPONENTS` values.
     ///
     /// # Panics
@@ -125,13 +121,6 @@ mod tests {
     }
 
     #[test]
-    fn test_clip() {
-        let a = LunarLanderContinuousAction([2.0, -2.0]);
-        let c = a.clip(-1.0, 1.0);
-        assert_eq!(c.0, [1.0, -1.0]);
-    }
-
-    #[test]
     #[should_panic(expected = "needs exactly 2 components, got 3")]
     fn test_from_slice_rejects_an_over_long_slice() {
         // `ContinuousAction::from_slice` accepts *exactly* `COMPONENTS` values
@@ -143,18 +132,6 @@ mod tests {
     #[should_panic(expected = "needs exactly 2 components, got 1")]
     fn test_from_slice_rejects_a_short_slice() {
         let _ = LunarLanderContinuousAction::from_slice(&[0.1]);
-    }
-
-    #[test]
-    fn test_random_is_valid() {
-        // Regression test for the default-`random()` panic: the corrected
-        // override samples `COMPONENTS` values (2) rather than `RANK` (1), so
-        // `from_slice` no longer panics; symmetric `[-1, 1)` sampling keeps
-        // every draw valid.
-        for _ in 0..100 {
-            let a = LunarLanderContinuousAction::random();
-            assert!(a.is_valid(), "random action must be valid: {a:?}");
-        }
     }
 
     #[test]

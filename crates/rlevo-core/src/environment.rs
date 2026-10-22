@@ -3,13 +3,13 @@
 //! This module defines the contract between an agent and a problem domain:
 //! - [`Environment`] — core trait with `reset` / `step` methods
 //! - [`Snapshot`] — per-step result carrying observation, reward, and status
-//! - [`SnapshotBase`] — default `Snapshot` implementation for most environments
 //! - [`EpisodeStatus`] — distinguishes running, terminated, and truncated episodes
 //! - [`SnapshotMetadata`] — optional named reward components and 3D positions
 //!
 //! [`SnapshotMetadata`]: crate::environment::SnapshotMetadata
 
-use crate::base::{Action, Observation, Reward, State};
+use crate::base::{Action, Observation};
+use crate::reward::ScalarReward;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
@@ -100,9 +100,6 @@ pub enum EnvironmentError {
     /// Rendering or display failed.
     #[error("Render failed: {0}")]
     RenderFailed(String),
-    /// An I/O operation failed (wraps `std::io::Error`).
-    #[error("IO operation failed: {0}")]
-    IoError(#[from] std::io::Error),
     /// A configuration-domain invariant failed during a lifecycle operation.
     ///
     /// A `reset()` may re-run construction-time work (e.g. rebuilding a
@@ -118,7 +115,7 @@ pub enum EnvironmentError {
     /// `step()` was called after the episode already ended.
     ///
     /// The action itself was legal; the *call sequence* was not. An episode that
-    /// has emitted a snapshot with [`Snapshot::is_done`] `== true` is over — the
+    /// has emitted a snapshot with [`EpisodeStatus::is_done`] `== true` is over — the
     /// only valid next lifecycle call is [`Environment::reset`]. Stepping again
     /// would silently resurrect a finished episode (re-entering the MDP from a
     /// terminal state, emitting rewards on a `Running` snapshot), so it is an
@@ -137,114 +134,41 @@ pub enum EnvironmentError {
     },
 }
 
-/// Snapshot trait defines the interface for environment state observations.
+/// The result of one [`reset`](Environment::reset) or
+/// [`step`](Environment::step): what the agent sees, what it earned, and
+/// whether the episode goes on.
 ///
-/// A snapshot captures the state of the environment at a single point in time,
-/// including the observed state, reward received, and episode status.
-/// The required method is `status()`; `is_done`, `is_terminated`, `is_truncated`,
-/// and `metadata` are provided as defaults.
-pub trait Snapshot<const R: usize>: Debug {
-    /// The observation type exposed to the agent at each step.
-    type ObservationType: Observation<R>;
-
-    /// The type of reward contained in this snapshot.
-    type RewardType: Reward;
-
-    /// Access the observed state.
-    fn observation(&self) -> &Self::ObservationType;
-
-    /// Consume the snapshot and yield its observation by value.
-    ///
-    /// A driver that keeps the observation and drops the rest of the snapshot —
-    /// an episode rollout loop, typically — would otherwise have to
-    /// `snap.observation().clone()` an observation it is about to own outright.
-    ///
-    /// The default implementation clones, so this is a non-breaking addition for
-    /// existing implementors. Implementors that own their observation should
-    /// override it with a move; [`SnapshotBase`] does.
-    ///
-    /// Read `reward()`, `status()`, and `metadata()` **before** calling this —
-    /// it takes `self` by value, so it must be the last use of the snapshot.
-    fn into_observation(self) -> Self::ObservationType
-    where
-        Self: Sized,
-    {
-        self.observation().clone()
-    }
-
-    /// Access the reward received.
-    fn reward(&self) -> &Self::RewardType;
-
-    /// Episode lifecycle status for this step.
-    fn status(&self) -> EpisodeStatus;
-
-    /// `true` when the episode loop should stop.
-    fn is_done(&self) -> bool {
-        self.status().is_done()
-    }
-
-    /// `true` only for intrinsic MDP termination.
-    fn is_terminated(&self) -> bool {
-        self.status().is_terminated()
-    }
-
-    /// `true` only for extrinsic step-limit truncation.
-    fn is_truncated(&self) -> bool {
-        self.status().is_truncated()
-    }
-
-    /// Optional named reward components and position data.
-    fn metadata(&self) -> Option<&SnapshotMetadata> {
-        None
-    }
-}
-
-/// Default snapshot implementation for standard reinforcement learning observations.
-///
-/// `SnapshotBase` stores an observation, reward, [`EpisodeStatus`], and an
-/// optional [`SnapshotMetadata`]. Construct via the named constructors
-/// [`running`](Self::running), [`terminated`](Self::terminated), or
-/// [`truncated`](Self::truncated) — each of which leaves `metadata` as `None` —
-/// and attach metadata with the fluent [`with_metadata`](Self::with_metadata):
+/// A struct, not a trait: every environment returns this one type (ADR 0090),
+/// so a wrapper such as `TimeLimit` composes with any environment. `O` is the
+/// environment's observation type. Construct with the named constructors
+/// [`running`](Self::running), [`terminated`](Self::terminated) or
+/// [`truncated`](Self::truncated) — each leaves `metadata` as `None` — and
+/// attach metadata with [`with_metadata`](Self::with_metadata) (ADR 0042):
 ///
 /// ```
-/// # use rlevo_core::environment::{Snapshot, SnapshotBase, SnapshotMetadata};
+/// # use rlevo_core::environment::{Snapshot, SnapshotMetadata};
 /// # use rlevo_core::reward::ScalarReward;
-/// # use rlevo_core::base::Observation;
-/// # use serde::{Deserialize, Serialize};
-/// # #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// # #[derive(Debug, Clone, Copy)]
 /// # struct Obs(f32);
-/// # impl Observation<1> for Obs { fn shape() -> [usize; 1] { [1] } }
-/// let snap = SnapshotBase::running(Obs(0.0), ScalarReward(1.0))
+/// let snap = Snapshot::running(Obs(0.0), ScalarReward(1.0))
 ///     .with_metadata(SnapshotMetadata::new().with("ctrl", -0.25));
-/// assert_eq!(snap.metadata().unwrap().components["ctrl"], -0.25);
+/// assert_eq!(snap.metadata.as_ref().unwrap().components["ctrl"], -0.25);
 /// ```
-///
-/// Because environments that emit metadata still return a `SnapshotBase`, they
-/// compose with wrappers such as `TimeLimit` that are bound to this type.
-///
-/// # Type Parameters
-///
-/// * `R` - The observation tensor rank
-/// * `ObservationType` - The type of observation (must implement `Observation<R>`)
-/// * `RewardType` - The type of reward (must implement `Reward`)
 #[derive(Debug, Clone)]
-pub struct SnapshotBase<const R: usize, ObservationType: Observation<R>, RewardType: Reward> {
-    /// The observation derived from the state.
-    pub observation: ObservationType,
+pub struct Snapshot<O> {
+    /// The observation the agent receives.
+    pub observation: O,
     /// The reward received from the last action.
-    pub reward: RewardType,
+    pub reward: ScalarReward,
     /// Episode lifecycle status.
     pub status: EpisodeStatus,
     /// Optional named reward components and positions for this step.
     pub metadata: Option<SnapshotMetadata>,
 }
 
-impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
-    SnapshotBase<R, ObservationType, RewardType>
-{
+impl<O> Snapshot<O> {
     /// Snapshot for a step where the episode is still running.
-    pub fn running(observation: ObservationType, reward: RewardType) -> Self {
+    pub fn running(observation: O, reward: ScalarReward) -> Self {
         Self {
             observation,
             reward,
@@ -254,7 +178,7 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
     }
 
     /// Snapshot for the step on which the MDP reached a terminal state.
-    pub fn terminated(observation: ObservationType, reward: RewardType) -> Self {
+    pub fn terminated(observation: O, reward: ScalarReward) -> Self {
         Self {
             observation,
             reward,
@@ -264,7 +188,7 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
     }
 
     /// Snapshot for the step on which an external step limit was reached.
-    pub fn truncated(observation: ObservationType, reward: RewardType) -> Self {
+    pub fn truncated(observation: O, reward: ScalarReward) -> Self {
         Self {
             observation,
             reward,
@@ -284,34 +208,6 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
     }
 }
 
-impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward> Snapshot<R>
-    for SnapshotBase<R, ObservationType, RewardType>
-{
-    type ObservationType = ObservationType;
-    type RewardType = RewardType;
-
-    fn observation(&self) -> &Self::ObservationType {
-        &self.observation
-    }
-
-    /// Moves the owned observation out instead of cloning it.
-    fn into_observation(self) -> Self::ObservationType {
-        self.observation
-    }
-
-    fn reward(&self) -> &Self::RewardType {
-        &self.reward
-    }
-
-    fn status(&self) -> EpisodeStatus {
-        self.status
-    }
-
-    fn metadata(&self) -> Option<&SnapshotMetadata> {
-        self.metadata.as_ref()
-    }
-}
-
 /// Interaction protocol between an agent and a problem domain.
 ///
 /// An environment encapsulates the dynamics of a problem, processing actions and
@@ -320,35 +216,48 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward> Snapsh
 ///
 /// # Type Parameters
 ///
-/// * `R`  - Rank of the observation tensor (matches `Observation<R>` and `Snapshot<R>`).
-/// * `SR` - Rank of the state tensor (matches `State<SR>`).
+/// * `OR` - Rank of the observation tensor (matches `Observation<OR>`).
 /// * `AR` - Rank of the action tensor (matches `Action<AR>`).
 ///
 /// # Associated Types
 ///
-/// * `StateType`       - The concrete state type for this environment.
 /// * `ObservationType` - The observation type exposed to the agent.
 /// * `ActionType`      - The action type this environment accepts.
-/// * `RewardType`      - The reward scalar type returned each step.
-/// * `SnapshotType`    - The snapshot type returned by `reset` and `step`.
-pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
-    /// The concrete state type for this environment.
-    type StateType: State<SR>;
-
+///
+/// [`reset`](Self::reset) and [`step`](Self::step) return a
+/// [`Snapshot`] of the observation type; its reward is a [`ScalarReward`].
+///
+/// # The environment's state
+///
+/// The contract names no state type. What an environment keeps between steps
+/// (positions, velocities, a physics world, an RNG) is a plain type it owns,
+/// read by its own `reset` and `step`; nothing generic reads it, so no trait
+/// asks for it (ADR 0090).
+///
+/// # Building the observation
+///
+/// How an environment turns its state into what the agent sees (the emission
+/// model `O` of a POMDP `$\langle S, A, T, R, \Omega, O \rangle$`) is the
+/// environment's own business, and not a trait (ADR 0090). It lives on the
+/// environment, not on its state, so it can read world context a state value
+/// does not hold (ADR 0047): typically an inherent method that `reset` and
+/// `step` call. A stochastic observation is drawn there from the
+/// environment's own RNG (ADR 0029). Observation variants of one environment
+/// (a vector or pixels) are a type parameter on the environment; noise,
+/// latency and history are wrappers beside `TimeLimit`.
+///
+/// # Construction
+///
+/// Construction is not part of this trait (ADR 0011). An environment enters
+/// the evaluation harness through an `EnvFactory`, a closure from a trial's
+/// seed to a fresh environment. The workspace's own environments also
+/// implement `Default`.
+pub trait Environment<const OR: usize, const AR: usize> {
     /// The observation type exposed to the agent.
-    type ObservationType: Observation<R>;
+    type ObservationType: Observation<OR>;
 
     /// The concrete action type this environment accepts.
     type ActionType: Action<AR>;
-
-    /// The reward scalar type returned by this environment.
-    ///
-    /// Values emitted by [`step`](Self::step) should be finite — see the
-    /// [`Reward`] trait's `# Finiteness` section.
-    type RewardType: Reward;
-
-    /// The snapshot type returned by reset and step operations.
-    type SnapshotType: Snapshot<R, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
 
     /// Reset the environment to its initial state and return the first snapshot.
     ///
@@ -359,20 +268,20 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// # Errors
     ///
     /// Returns [`EnvironmentError`] if the environment cannot be initialised (e.g.
-    /// an I/O failure when loading level data).
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError>;
+    /// a configuration invariant that fails when the episode is rebuilt).
+    fn reset(&mut self) -> Result<Snapshot<Self::ObservationType>, EnvironmentError>;
 
     /// Execute one transition of the environment with the given action.
     ///
     /// Applies `action` to the current state, updates internal state, and
     /// returns a snapshot containing the next observation, the immediate reward,
-    /// and the new [`EpisodeStatus`]. When [`Snapshot::is_done`] returns `true`
+    /// and the new [`EpisodeStatus`]. When [`EpisodeStatus::is_done`] returns `true`
     /// the episode is over; call [`reset`](Self::reset) to begin a new one.
     ///
     /// # Post-terminal contract
     ///
     /// Implementations **must** return [`EnvironmentError::StepAfterEpisodeEnd`]
-    /// when `step()` is called after a snapshot whose [`Snapshot::is_done`] is
+    /// when `step()` is called after a snapshot whose [`EpisodeStatus::is_done`] is
     /// `true`. A finished episode is not silently resumed, and the terminal
     /// snapshot is not silently repeated: the call sequence is the caller's bug
     /// and is reported as one. Call [`reset`](Self::reset) to begin a new
@@ -394,161 +303,13 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// episode has already ended (see the post-terminal contract above), or
     /// another [`EnvironmentError`] variant if the step cannot complete (e.g. a
     /// physics simulation failure).
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError>;
-}
-
-/// The environment-side emission model `O(a, s')` of a POMDP
-/// `$\langle S, A, T, R, \Omega, O \rangle$`.
-///
-/// A `Sensor` produces the agent's [`Observation`] from the last [`Action`] and
-/// the resulting [`State`]. It is implemented on the **environment**, not on the
-/// state: `&self` is the environment, so a sensor may read world / simulator
-/// context — raycasts against physics geometry, a rendered pixel frame — that a
-/// bare `State` value does not own.
-///
-/// # Why O lives here, not on `State`
-///
-/// In the POMDP tuple `$\langle S, A, T, R, \Omega, O \rangle$` the emission
-/// model `O` is a property of
-/// the problem, not of a point `$s \in S$` in state space. `State` used to carry a
-/// `fn observe(&self) -> Self::Observation`, which welded the observation's
-/// tensor order to the state's own order and, having only `&self`, forced
-/// world-derived sensors (lidar, pixels) to be cached into the state first.
-/// Relocating `O` to this env-side trait removes both problems: the observation
-/// rank is independent of the state rank (the [`Environment`] contract already
-/// decouples `R` from `SR`), and `&self = env` gives direct world access. (ADR
-/// 0047, superseding ADR 0019 and obsoleting ADR 0039's cached-sensor target.)
-///
-/// # When and how to implement
-///
-/// Every environment builds the observations in its `reset` / `step` snapshots
-/// through a `Sensor` — typically by implementing it on the environment struct
-/// itself and calling [`observe`](Sensor::observe) at each step and
-/// [`observe_reset`](Sensor::observe_reset) at episode start. When the
-/// observation is a pure projection of the state (no world context), the body
-/// may delegate to [`Observable::project`](crate::state::Observable) — see the
-/// `pixel_grid` environment for the reference "sensor delegates to `Observable`"
-/// pattern.
-///
-/// # Type Parameters
-///
-/// - `OR`: tensor order (rank) of the produced [`Observation`].
-/// - `AR`: tensor order (rank) of the [`Action`].
-/// - `SR`: tensor order (rank) of the [`State`].
-///
-/// The three ranks are independent: an environment whose state is rank `SR` may
-/// observe through a sensor of any rank `OR`, which is exactly what lets a
-/// compact physics state be observed as a higher-rank pixel frame without
-/// inflating the state's own rank.
-///
-/// # Examples
-///
-/// A sensor whose observation is a plain function of the resulting state:
-///
-/// ```
-/// use rlevo_core::base::{Action, Observation, State};
-/// use rlevo_core::environment::Sensor;
-/// use serde::{Deserialize, Serialize};
-///
-/// #[derive(Debug, Clone)]
-/// struct Position {
-///     x: i32,
-/// }
-/// impl State<1> for Position {
-///     fn shape() -> [usize; 1] {
-///         [1]
-///     }
-///     fn is_valid(&self) -> bool {
-///         true
-///     }
-/// }
-///
-/// #[derive(Debug, Clone, Serialize, Deserialize)]
-/// struct PositionObs {
-///     x: i32,
-/// }
-/// impl Observation<1> for PositionObs {
-///     fn shape() -> [usize; 1] {
-///         [1]
-///     }
-/// }
-///
-/// #[derive(Debug, Clone, Copy)]
-/// struct Nudge;
-/// impl Action<1> for Nudge {
-///     fn shape() -> [usize; 1] {
-///         [1]
-///     }
-///     fn is_valid(&self) -> bool {
-///         true
-///     }
-/// }
-///
-/// struct World;
-/// impl Sensor<1, 1, 1> for World {
-///     type Action = Nudge;
-///     type State = Position;
-///     type Observation = PositionObs;
-///
-///     fn observe(&self, _action: &Nudge, next_state: &Position) -> PositionObs {
-///         PositionObs { x: next_state.x }
-///     }
-///     fn observe_reset(&self, state: &Position) -> PositionObs {
-///         PositionObs { x: state.x }
-///     }
-/// }
-///
-/// let obs = World.observe(&Nudge, &Position { x: 7 });
-/// assert_eq!(obs.x, 7);
-/// ```
-pub trait Sensor<const OR: usize, const AR: usize, const SR: usize> {
-    /// The action type consumed by the emission model.
-    type Action: Action<AR>;
-
-    /// The state type the observation is produced from.
-    type State: State<SR>;
-
-    /// The observation type produced for the agent.
-    type Observation: Observation<OR>;
-
-    /// Emission model `O(a, s')`: the observation after taking `action` and
-    /// arriving at `next_state`.
     ///
-    /// Called once per [`Environment::step`], after the transition has produced
-    /// `next_state`. `&self` is the environment, so the observation may read
-    /// world / simulator context beyond the state value itself.
-    fn observe(&self, action: &Self::Action, next_state: &Self::State) -> Self::Observation;
-
-    /// The initial observation at episode start, before any action exists.
-    ///
-    /// [`Environment::reset`] has no preceding action, so the stepping form
-    /// `O(a, s')` does not apply; this companion produces the first observation
-    /// from the initial `state` alone. Implementations whose observation ignores
-    /// the action typically forward both methods to the same projection.
-    fn observe_reset(&self, state: &Self::State) -> Self::Observation;
-}
-
-/// Default-construction factory for environments, lifted off [`Environment`]
-/// (ADR-0011).
-///
-/// Construction is a separate concern from the behavioural [`Environment`]
-/// contract (`reset`/`step`). Keeping `new` here means transparent decorators
-/// — `RecordingTap`, `TuiEnvTap`, `TimeLimit` — implement only the behaviour
-/// they actually forward and are never forced to synthesise a degenerate
-/// standalone constructor just to satisfy a trait bound. They are always
-/// built from an existing inner environment instead.
-///
-/// Concrete environments implement this alongside [`Environment`]; generic
-/// code that needs to build an environment from nothing (rather than from a
-/// caller-supplied factory closure) bounds on `E: ConstructableEnv`.
-pub trait ConstructableEnv {
-    /// Create a new environment instance.
-    ///
-    /// `render` controls whether the environment emits display output on each
-    /// step; pass `false` for training runs where rendering overhead is
-    /// unwanted. Implementations that do not support rendering may ignore the
-    /// flag.
-    fn new(render: bool) -> Self;
+    /// The reward should be finite; see [`ScalarReward`]'s `# Finiteness`
+    /// section.
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<Self::ObservationType>, EnvironmentError>;
 }
 
 #[cfg(test)]
@@ -587,25 +348,6 @@ mod tests {
         fn new(position: i32) -> Self {
             Self { position }
         }
-
-        /// Check if position is within valid bounds
-        fn is_in_bounds(position: i32) -> bool {
-            (0..=6).contains(&position)
-        }
-    }
-
-    impl State<1> for MockState {
-        fn numel(&self) -> usize {
-            7
-        }
-
-        fn shape() -> [usize; 1] {
-            [7]
-        }
-
-        fn is_valid(&self) -> bool {
-            Self::is_in_bounds(self.position)
-        }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -642,8 +384,6 @@ mod tests {
         }
     }
 
-    use crate::reward::ScalarReward;
-
     // Mock environment for testing: 1D random walk with 7 states
     // The agent starts at position 3 (middle) and can move left or right.
     // Episode terminates after 20 steps or when reaching boundaries (state 0 or 6).
@@ -659,7 +399,15 @@ mod tests {
         const MAX_STEPS: usize = 20;
         const GOAL_STATE: i32 = 6;
 
-        fn with_defaults(_render: bool) -> Self {
+        fn observe(&self) -> MockObservation {
+            MockObservation {
+                position: self.current_state.position,
+            }
+        }
+    }
+
+    impl Default for MockEnvironment {
+        fn default() -> Self {
             Self {
                 current_state: MockState::new(Self::START_STATE),
                 step_count: 0,
@@ -668,50 +416,20 @@ mod tests {
         }
     }
 
-    impl ConstructableEnv for MockEnvironment {
-        fn new(render: bool) -> Self {
-            Self::with_defaults(render)
-        }
-    }
-
-    impl Sensor<1, 1, 1> for MockEnvironment {
-        type Action = MockAction;
-        type State = MockState;
-        type Observation = MockObservation;
-
-        fn observe(&self, _action: &MockAction, next_state: &MockState) -> MockObservation {
-            MockObservation {
-                position: next_state.position,
-            }
-        }
-
-        fn observe_reset(&self, state: &MockState) -> MockObservation {
-            MockObservation {
-                position: state.position,
-            }
-        }
-    }
-
-    impl Environment<1, 1, 1> for MockEnvironment {
-        type StateType = MockState;
+    impl Environment<1, 1> for MockEnvironment {
         type ObservationType = MockObservation;
         type ActionType = MockAction;
-        type RewardType = ScalarReward;
-        type SnapshotType = SnapshotBase<1, MockObservation, ScalarReward>;
 
-        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn reset(&mut self) -> Result<Snapshot<MockObservation>, EnvironmentError> {
             self.current_state = MockState::new(Self::START_STATE);
             self.step_count = 0;
-            Ok(SnapshotBase::running(
-                self.observe_reset(&self.current_state),
-                ScalarReward(0.0),
-            ))
+            Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
         }
 
         fn step(
             &mut self,
             action: Self::ActionType,
-        ) -> Result<Self::SnapshotType, EnvironmentError> {
+        ) -> Result<Snapshot<MockObservation>, EnvironmentError> {
             if !action.is_valid() {
                 return Err(EnvironmentError::InvalidAction(format!(
                     "Invalid action: {action:?}."
@@ -752,8 +470,8 @@ mod tests {
                 EpisodeStatus::Running
             };
 
-            let observation = self.observe(&action, &new_state);
-            Ok(SnapshotBase {
+            let observation = self.observe();
+            Ok(Snapshot {
                 observation,
                 reward: ScalarReward(reward),
                 status,
@@ -762,120 +480,72 @@ mod tests {
         }
     }
 
-    // Custom snapshot implementation for advanced testing
-    #[derive(Debug, Clone)]
-    pub struct CustomSnapshot {
-        observation: MockObservation,
-        reward: ScalarReward,
-        status: EpisodeStatus,
-        step_count: usize,
-        cumulative_reward: f32,
-    }
-
-    impl Snapshot<1> for CustomSnapshot {
-        type ObservationType = MockObservation;
-        type RewardType = ScalarReward;
-
-        fn observation(&self) -> &MockObservation {
-            &self.observation
-        }
-
-        fn reward(&self) -> &ScalarReward {
-            &self.reward
-        }
-
-        fn status(&self) -> EpisodeStatus {
-            self.status
-        }
-    }
-
-    // Tests for Snapshot trait
+    // Tests for Snapshot
     #[test]
-    fn test_snapshot_base_creation() {
+    fn test_snapshot_creation() {
         let obs = MockObservation { position: 42 };
-        let snapshot = SnapshotBase::running(obs, ScalarReward(1.5));
+        let snapshot = Snapshot::running(obs, ScalarReward(1.5));
 
-        assert_eq!(snapshot.observation(), &obs);
-        assert_eq!(snapshot.reward(), &ScalarReward(1.5));
-        assert!(!snapshot.is_done());
-        assert_eq!(snapshot.status(), EpisodeStatus::Running);
+        assert_eq!(snapshot.observation, obs);
+        assert_eq!(snapshot.reward, ScalarReward(1.5));
+        assert!(!snapshot.status.is_done());
+        assert_eq!(snapshot.status, EpisodeStatus::Running);
     }
 
     #[test]
-    fn test_snapshot_base_terminal() {
+    fn test_snapshot_terminal() {
         let obs = MockObservation { position: 0 };
-        let snapshot = SnapshotBase::terminated(obs, ScalarReward(-1.0));
+        let snapshot = Snapshot::terminated(obs, ScalarReward(-1.0));
 
-        assert!(snapshot.is_done());
-        assert!(snapshot.is_terminated());
-        assert!(!snapshot.is_truncated());
-        assert_eq!(snapshot.reward(), &ScalarReward(-1.0));
+        assert!(snapshot.status.is_done());
+        assert!(snapshot.status.is_terminated());
+        assert!(!snapshot.status.is_truncated());
+        assert_eq!(snapshot.reward, ScalarReward(-1.0));
     }
 
     #[test]
-    fn test_snapshot_base_clone() {
+    fn test_snapshot_clone() {
         let obs = MockObservation { position: 10 };
-        let snapshot1 = SnapshotBase::running(obs, ScalarReward(0.5));
+        let snapshot1 = Snapshot::running(obs, ScalarReward(0.5));
         let snapshot2 = snapshot1.clone();
 
-        assert_eq!(snapshot1.observation(), snapshot2.observation());
-        assert_eq!(snapshot1.reward(), snapshot2.reward());
-        assert_eq!(snapshot1.is_done(), snapshot2.is_done());
+        assert_eq!(snapshot1.observation, snapshot2.observation);
+        assert_eq!(snapshot1.reward, snapshot2.reward);
+        assert_eq!(snapshot1.status.is_done(), snapshot2.status.is_done());
     }
 
     #[test]
     fn test_snapshot_debug() {
         let obs = MockObservation { position: 5 };
-        let snapshot = SnapshotBase::terminated(obs, ScalarReward(2.0));
+        let snapshot = Snapshot::terminated(obs, ScalarReward(2.0));
         let debug_str = format!("{snapshot:?}");
 
-        assert!(debug_str.contains("SnapshotBase"));
+        assert!(debug_str.contains("Snapshot"));
         assert!(debug_str.contains("position: 5"));
         assert!(debug_str.contains("reward: ScalarReward(2.0)"));
         assert!(debug_str.contains("Terminated"));
     }
 
-    // Tests for custom Snapshot implementations
-    #[test]
-    fn test_custom_snapshot_trait_impl() {
-        let snapshot = CustomSnapshot {
-            observation: MockObservation { position: 1 },
-            reward: ScalarReward(10.0),
-            status: EpisodeStatus::Running,
-            step_count: 5,
-            cumulative_reward: 25.0,
-        };
-
-        // Verify trait method access
-        assert_eq!(snapshot.observation().position, 1);
-        assert_eq!(snapshot.reward(), &ScalarReward(10.0));
-        assert!(!snapshot.is_done());
-
-        // Verify custom fields are accessible
-        assert_eq!(snapshot.step_count, 5);
-        assert_eq!(snapshot.cumulative_reward, 25.0);
-    }
-
     // Tests for Environment trait
     #[test]
     fn test_environment_creation() {
-        let env = MockEnvironment::new(false);
+        let env = MockEnvironment::default();
         assert_eq!(env.step_count, 0);
     }
 
     #[test]
     fn test_environment_reset() {
-        let mut env = MockEnvironment::new(false);
+        let mut env = MockEnvironment::default();
         let snapshot = env.reset().expect("Reset should succeed");
 
-        assert_eq!(snapshot.observation().position, 3);
-        assert_eq!(snapshot.reward(), &ScalarReward(0.0));
-        assert!(!snapshot.is_done());
+        assert_eq!(snapshot.observation.position, 3);
+        assert_eq!(snapshot.reward, ScalarReward(0.0));
+        assert!(!snapshot.status.is_done());
     }
 
     #[test]
     fn test_environment_step_valid_action() {
-        let mut env = MockEnvironment::new(false);
+        let mut env = MockEnvironment::default();
         env.reset().expect("Reset should succeed");
 
         let action = MockAction::MoveRight;
@@ -883,13 +553,13 @@ mod tests {
             .step(action)
             .expect("Step with valid action should succeed");
 
-        assert_eq!(snapshot.observation().position, 4);
-        assert_eq!(snapshot.reward(), &ScalarReward(0.0));
+        assert_eq!(snapshot.observation.position, 4);
+        assert_eq!(snapshot.reward, ScalarReward(0.0));
     }
 
     #[test]
     fn test_environment_episode_termination() {
-        let mut env = MockEnvironment::new(false);
+        let mut env = MockEnvironment::default();
         env.reset().expect("Reset should succeed");
         env.current_state.position = 0;
 
@@ -900,12 +570,12 @@ mod tests {
 
             if i < 5 {
                 assert!(
-                    !snapshot.is_done(),
+                    !snapshot.status.is_done(),
                     "Episode should not be done before reaching goal"
                 );
             } else {
                 assert!(
-                    snapshot.is_done(),
+                    snapshot.status.is_done(),
                     "Episode should be done upon reaching goal"
                 );
             }
@@ -914,7 +584,7 @@ mod tests {
 
     #[test]
     fn test_environment_reset_clears_state() {
-        let mut env = MockEnvironment::new(false);
+        let mut env = MockEnvironment::default();
 
         // Run for 5 steps
         env.reset().expect("Reset should succeed");
@@ -925,8 +595,8 @@ mod tests {
 
         // Reset and verify state is cleared
         let snapshot = env.reset().expect("Second reset should succeed");
-        assert_eq!(snapshot.observation().position, 3);
-        assert!(!snapshot.is_done());
+        assert_eq!(snapshot.observation.position, 3);
+        assert!(!snapshot.status.is_done());
     }
 
     #[test]
@@ -935,19 +605,6 @@ mod tests {
         let display_str = format!("{error}");
         assert!(display_str.contains("Invalid action"));
         assert!(display_str.contains("test action"));
-    }
-
-    #[test]
-    fn test_environment_error_io_conversion() {
-        let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-        let env_error = EnvironmentError::from(io_error);
-
-        match env_error {
-            EnvironmentError::IoError(_) => {
-                // Expected
-            }
-            _ => panic!("Expected IoError variant"),
-        }
     }
 
     #[test]
@@ -990,20 +647,20 @@ mod tests {
     fn test_environment_error_source() {
         use std::error::Error;
 
-        let io_error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
-        let env_error = EnvironmentError::IoError(io_error);
+        let config_error = crate::config::positive("TestConfig", "rate", 0.0).unwrap_err();
+        let env_error = EnvironmentError::from(config_error);
         assert!(env_error.source().is_some());
     }
 
     #[test]
     fn test_environment_multiple_episodes() {
-        let mut env = MockEnvironment::new(false);
+        let mut env = MockEnvironment::default();
 
         for _episode in 0..3 {
             let mut snapshot = env.reset().expect("Reset should succeed");
             let mut step = 0;
 
-            while !snapshot.is_done() && step < 5 {
+            while !snapshot.status.is_done() && step < 5 {
                 let action = MockAction::MoveRight;
                 snapshot = env.step(action).expect("Step should succeed");
                 step += 1;
@@ -1014,34 +671,34 @@ mod tests {
     #[test]
     fn test_snapshot_reward_conversion() {
         let observation = MockObservation { position: 1 };
-        let snapshot = SnapshotBase::running(observation, ScalarReward(42.5));
+        let snapshot = Snapshot::running(observation, ScalarReward(42.5));
 
-        // RewardType implements Into<f32>
-        let reward_as_f32: f32 = (*snapshot.reward()).into();
+        // ScalarReward converts into f32
+        let reward_as_f32: f32 = (snapshot.reward).into();
         assert_eq!(reward_as_f32, 42.5);
     }
 
     #[test]
-    fn test_snapshot_base_metadata_defaults_to_none() {
+    fn test_snapshot_metadata_defaults_to_none() {
         let obs = MockObservation { position: 1 };
-        let snapshot = SnapshotBase::running(obs, ScalarReward(0.0));
+        let snapshot = Snapshot::running(obs, ScalarReward(0.0));
         assert!(
-            snapshot.metadata().is_none(),
+            snapshot.metadata.as_ref().is_none(),
             "named constructors must leave metadata unset"
         );
     }
 
     #[test]
-    fn test_snapshot_base_with_metadata_on_every_status() {
+    fn test_snapshot_with_metadata_on_every_status() {
         let obs = MockObservation { position: 2 };
         let meta = || SnapshotMetadata::new().with("shaping", -1.5);
 
         for snapshot in [
-            SnapshotBase::running(obs, ScalarReward(0.0)).with_metadata(meta()),
-            SnapshotBase::terminated(obs, ScalarReward(0.0)).with_metadata(meta()),
-            SnapshotBase::truncated(obs, ScalarReward(0.0)).with_metadata(meta()),
+            Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta()),
+            Snapshot::terminated(obs, ScalarReward(0.0)).with_metadata(meta()),
+            Snapshot::truncated(obs, ScalarReward(0.0)).with_metadata(meta()),
         ] {
-            let m = snapshot.metadata().expect("metadata must be Some");
+            let m = snapshot.metadata.as_ref().expect("metadata must be Some");
             assert_eq!(m.components.get("shaping"), Some(&-1.5));
         }
     }

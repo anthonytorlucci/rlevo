@@ -64,7 +64,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::lava_gap::{LavaGapConfig, LavaGapEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = LavaGapConfig::new(5, 100, 0);
 //! let mut env = LavaGapEnv::with_config(cfg, false).expect("valid config");
@@ -76,7 +76,7 @@
 //! [`Lava`]: super::core::entity::Entity::Lava
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -95,9 +95,8 @@ use super::core::{
 // `R: Rng + ?Sized` per `rules.md` §8.
 use rand::{Rng, RngExt as _, SeedableRng, rngs::StdRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -266,16 +265,16 @@ impl FromStr for LavaGapConfig {
 /// the episode; a [`step`](Environment::step) taken afterwards is rejected with
 /// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
+/// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::grids::lava_gap::LavaGapEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = LavaGapEnv::new(false);
+/// let mut env = LavaGapEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("lava col: {}, gap row: {}", env.lava_col(), env.gap_row());
 /// ```
@@ -324,7 +323,7 @@ impl LavaGapEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -378,7 +377,7 @@ impl LavaGapEnv {
             lava_col,
             gap_row,
             rng,
-            // Sole construction chokepoint: `ConstructableEnv::new` and every
+            // Sole construction chokepoint: `Default::default` and every
             // test fixture route through here, so the guard cannot be missed on
             // one path. `reset_with_seed` re-seeds and delegates to `reset`,
             // which clears the guard itself.
@@ -397,7 +396,10 @@ impl LavaGapEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -493,7 +495,12 @@ impl LavaGapEnv {
         (GridState::new(grid, agent), lava_col, gap_row)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -521,49 +528,36 @@ impl Display for LavaGapEnv {
     }
 }
 
-impl ConstructableEnv for LavaGapEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(LavaGapConfig::default(), render).expect("default config must validate")
+impl Default for LavaGapEnv {
+    fn default() -> Self {
+        Self::with_config(LavaGapConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for LavaGapEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl LavaGapEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for LavaGapEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for LavaGapEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Samples a fresh board from the **persistent** RNG stream.
     ///
     /// Per ADR 0029 the stream is *not* re-seeded here: successive resets draw
     /// independent lava columns and gap rows. Use
     /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (state, lava_col, gap_row) = Self::build(&self.config, &mut self.rng);
         self.state = state;
         self.lava_col = lava_col;
         self.gap_row = gap_row;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -573,7 +567,10 @@ impl Environment<3, 3, 1> for LavaGapEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `self.steps` advances, before the dynamics move
         // the agent, and before anything can touch `self.rng`. A rejected call
         // must leave the board, the step counter and the RNG stream untouched,
@@ -591,11 +588,11 @@ impl Environment<3, 3, 1> for LavaGapEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         // Single exit: the guard is fed the emitted snapshot's own status, so
         // the two cannot drift apart.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -723,11 +720,11 @@ mod tests {
     /// The derived scripts above may overshoot by design (a route that reaches
     /// the goal early, a walk that hits lava early); stopping on `done` keeps
     /// the tests from stepping a finished episode.
-    fn run_to_completion(env: &mut LavaGapEnv, script: &[GridAction]) -> GridSnapshot {
+    fn run_to_completion(env: &mut LavaGapEnv, script: &[GridAction]) -> Snapshot<GridObservation> {
         let mut last = None;
         for &action in script {
             let snap = env.step(action).unwrap();
-            let done = snap.is_done();
+            let done = snap.status.is_done();
             last = Some(snap);
             if done {
                 break;
@@ -1007,8 +1004,7 @@ mod tests {
 
             let again = env.reset_with_seed(7).expect("reset");
             assert_eq!(
-                first.observation(),
-                again.observation(),
+                first.observation, again.observation,
                 "size {size}: reset_with_seed(7) did not replay its observation"
             );
             assert_eq!(
@@ -1096,7 +1092,7 @@ mod tests {
         let mut b = LavaGapEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     /// Walking into the strip anywhere other than the gap ends the episode for
@@ -1126,11 +1122,11 @@ mod tests {
 
                 let snap = run_to_completion(&mut env, &script);
                 assert!(
-                    snap.is_done(),
+                    snap.status.is_done(),
                     "size {size} seed {seed}: walking into the strip did not terminate:\n{}",
                     env.ascii()
                 );
-                let reward: f32 = (*snap.reward()).into();
+                let reward: f32 = (snap.reward).into();
                 assert_eq!(reward, 0.0, "size {size} seed {seed}: lava paid {reward}");
             }
         }
@@ -1150,11 +1146,11 @@ mod tests {
                 let script = route_to_goal(&env);
                 let snap = run_to_completion(&mut env, &script);
                 assert!(
-                    snap.is_done(),
+                    snap.status.is_done(),
                     "size {size} seed {seed}: the derived route did not terminate:\n{}",
                     env.ascii()
                 );
-                let reward: f32 = (*snap.reward()).into();
+                let reward: f32 = (snap.reward).into();
                 assert!(
                     reward > 0.0,
                     "size {size} seed {seed}: the derived route paid {reward}:\n{}",
@@ -1172,8 +1168,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1255,7 +1251,7 @@ mod tests {
     /// Fixing that is out of scope here; a budget-driven ending would just
     /// bake the mislabeling into these assertions, so the tests below drive
     /// to a real terminal instead.
-    fn drive_to_goal(env: &mut LavaGapEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut LavaGapEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(0).expect("reset");
         let script = route_to_goal(env);
         run_to_completion(env, &script)
@@ -1263,7 +1259,7 @@ mod tests {
 
     /// Reset to a known board and walk the derived route **into the lava**,
     /// returning the terminal snapshot.
-    fn drive_into_lava(env: &mut LavaGapEnv) -> GridSnapshot {
+    fn drive_into_lava(env: &mut LavaGapEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(0).expect("reset");
         let script = route_into_lava(env);
         run_to_completion(env, &script)
@@ -1295,8 +1291,11 @@ mod tests {
     fn test_lava_gap_post_terminal_step_does_not_resurrect_the_agent() {
         let mut env = env_5x5();
         let terminal = drive_into_lava(&mut env);
-        assert!(terminal.is_done(), "the agent must have died in the lava");
-        let ended = terminal.status();
+        assert!(
+            terminal.status.is_done(),
+            "the agent must have died in the lava"
+        );
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -1367,7 +1366,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "a turn on the first step of a fresh episode must not end it"
         );
     }
@@ -1443,7 +1442,7 @@ mod tests {
                     "size {size} seed {seed}: the start pose this clause names has moved"
                 );
                 let masked = mask_view(&grid, &start, LavaGapEnv::VISIBILITY);
-                let occluded = *snapshot.observation();
+                let occluded = snapshot.observation;
                 let see_through = observe_grid(env.state(), Visibility::SeeThrough);
                 let hidden = masked.iter().flatten().filter(|c| c.is_none()).count();
                 assert!(

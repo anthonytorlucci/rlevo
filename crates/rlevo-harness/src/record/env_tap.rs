@@ -63,7 +63,7 @@ pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Syn
 /// one-line `#[derive(...)]` addition to opt in to recording — see the
 /// example wired in
 /// `crates/rlevo-examples/examples/classic/report_ppo_cartpole_with_client.rs`.
-pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
+pub struct RecordingTap<E, const D: usize, const AD: usize> {
     inner: E,
     sink: Arc<Mutex<dyn RecordSink>>,
     payload_extractor: PayloadExtractor<E>,
@@ -76,7 +76,7 @@ pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     started: bool,
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
 where
     E: AsciiRenderable,
 {
@@ -121,7 +121,7 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD> {
+impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD> {
     /// Headless constructor — does **not** require [`AsciiRenderable`]
     /// on `E`. Frames ship with `ascii = None` and `styled = None`;
     /// the family payload is the only rendering surface. Intended for
@@ -166,7 +166,7 @@ impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD,
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
 where
     E: AsciiRenderable + Box2dPayloadSource + 'static,
 {
@@ -181,7 +181,7 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
 where
     E: Locomotion2DPayloadSource + 'static,
 {
@@ -197,7 +197,7 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
 where
     E: GridPayloadSource + 'static,
 {
@@ -213,7 +213,7 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
 where
     E: TabularPayloadSource + 'static,
 {
@@ -228,7 +228,7 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
 where
     E: Classic2DPayloadSource + 'static,
 {
@@ -244,8 +244,7 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> std::fmt::Debug
-    for RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> std::fmt::Debug for RecordingTap<E, D, AD>
 where
     E: std::fmt::Debug,
 {
@@ -265,8 +264,7 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> AsciiRenderable
-    for RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> AsciiRenderable for RecordingTap<E, D, AD>
 where
     E: AsciiRenderable,
 {
@@ -279,9 +277,9 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
 where
-    E: Environment<D, SD, AD>,
+    E: Environment<D, AD>,
     E::ActionType: Serialize,
 {
     fn capture_frame(&mut self, action_bytes: Vec<u8>, reward: f32) {
@@ -300,17 +298,13 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> Environment<D, SD, AD>
-    for RecordingTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> Environment<D, AD> for RecordingTap<E, D, AD>
 where
-    E: Environment<D, SD, AD>,
+    E: Environment<D, AD>,
     E::ActionType: Serialize + Clone,
 {
-    type StateType = E::StateType;
     type ObservationType = E::ObservationType;
     type ActionType = E::ActionType;
-    type RewardType = E::RewardType;
-    type SnapshotType = E::SnapshotType;
 
     /// Reset the wrapped environment, open a new episode in the sink, and
     /// emit an initial [`FrameRecord`] with an empty action and zero reward.
@@ -323,7 +317,7 @@ where
     /// # Errors
     ///
     /// Propagates any [`EnvironmentError`] returned by the inner env's `reset`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<E::ObservationType>, EnvironmentError> {
         let snap = self.inner.reset()?;
         if self.started {
             self.episode_idx = self.episode_idx.saturating_add(1);
@@ -345,7 +339,7 @@ where
     /// step bookkeeping is not disrupted. Call [`RecordSink::take_error`] after
     /// the episode to detect encode failures.
     ///
-    /// On termination or truncation ([`Snapshot::is_done`] is true),
+    /// On termination or truncation ([`EpisodeStatus::is_done`](rlevo_core::environment::EpisodeStatus::is_done) is true),
     /// [`RecordSink::on_episode_end`] is called with the cumulative episode
     /// return and length before this method returns.
     ///
@@ -354,7 +348,10 @@ where
     /// Propagates any [`EnvironmentError`] returned by the inner env's `step`.
     /// An action-encode failure is **not** returned as an error; it is routed
     /// to [`RecordSink::record_external_error`] instead.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<E::ObservationType>, EnvironmentError> {
         // On encode failure, surface it through `take_error` rather than
         // letting the action silently collapse to the same empty-bytes
         // sentinel a reset frame uses. The frame is still emitted (with an
@@ -375,11 +372,11 @@ where
             };
         let snap = self.inner.step(action)?;
         self.step = self.step.saturating_add(1);
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = snap.reward.value();
         self.episode_return += f64::from(r);
         self.episode_length = self.episode_length.saturating_add(1);
         self.capture_frame(action_bytes, r);
-        if snap.is_done() {
+        if snap.status.is_done() {
             self.sink
                 .lock()
                 .on_episode_end(self.episode_return, self.episode_length);
@@ -397,8 +394,8 @@ mod tests {
     use std::sync::Arc;
 
     use parking_lot::Mutex;
-    use rlevo_core::base::{Action, Observation, State};
-    use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+    use rlevo_core::base::{Action, Observation};
+    use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
     use rlevo_core::render::AsciiRenderable;
     use rlevo_core::reward::ScalarReward;
     use serde::{Deserialize, Serialize};
@@ -414,23 +411,6 @@ mod tests {
     impl Observation<1> for StubObs {
         fn shape() -> [usize; 1] {
             [1]
-        }
-    }
-
-    // Fieldless: `StubEnv` builds its `StubObs` snapshots directly, so the state
-    // is only a type-level placeholder for `Environment::StateType`.
-    #[derive(Debug, Clone, Copy)]
-    struct StubState;
-
-    impl State<1> for StubState {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-        fn is_valid(&self) -> bool {
-            true
-        }
-        fn numel(&self) -> usize {
-            1
         }
     }
 
@@ -476,20 +456,17 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1, 1> for StubEnv {
-        type StateType = StubState;
+    impl Environment<1, 1> for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
-        type RewardType = ScalarReward;
-        type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
 
-        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn reset(&mut self) -> Result<Snapshot<StubObs>, EnvironmentError> {
             self.pos = 0;
             self.step = 0;
-            Ok(SnapshotBase::running(StubObs { pos: 0 }, ScalarReward(0.0)))
+            Ok(Snapshot::running(StubObs { pos: 0 }, ScalarReward(0.0)))
         }
 
-        fn step(&mut self, _action: StubAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn step(&mut self, _action: StubAction) -> Result<Snapshot<StubObs>, EnvironmentError> {
             self.pos += 1;
             self.step += 1;
             let status = match self.termination {
@@ -500,9 +477,9 @@ mod tests {
             let obs = StubObs { pos: self.pos };
             let r = ScalarReward(self.reward);
             Ok(match status {
-                EpisodeStatus::Running => SnapshotBase::running(obs, r),
-                EpisodeStatus::Terminated => SnapshotBase::terminated(obs, r),
-                EpisodeStatus::Truncated => SnapshotBase::truncated(obs, r),
+                EpisodeStatus::Running => Snapshot::running(obs, r),
+                EpisodeStatus::Terminated => Snapshot::terminated(obs, r),
+                EpisodeStatus::Truncated => Snapshot::truncated(obs, r),
             })
         }
     }
@@ -520,7 +497,7 @@ mod tests {
     fn reset_starts_episode_and_emits_initial_frame() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.0, Termination::TerminateAt(u32::MAX));
-        let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
 
         let probe = probe.lock();
@@ -540,7 +517,7 @@ mod tests {
     fn step_appends_frame_with_action_bytes_and_reward() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.5, Termination::TerminateAt(u32::MAX));
-        let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         tap.step(StubAction(7)).unwrap();
         tap.step(StubAction(9)).unwrap();
@@ -566,7 +543,7 @@ mod tests {
     fn termination_closes_episode_with_return_and_length() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(1.0, Termination::TerminateAt(3));
-        let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         tap.step(StubAction(1)).unwrap();
         tap.step(StubAction(1)).unwrap();
@@ -583,7 +560,7 @@ mod tests {
     fn truncation_closes_episode_symmetrically() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.5, Termination::TruncateAt(2));
-        let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         tap.step(StubAction(0)).unwrap();
         tap.step(StubAction(0)).unwrap();
@@ -596,7 +573,7 @@ mod tests {
     fn second_episode_increments_episode_idx() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(1.0, Termination::TerminateAt(2));
-        let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         tap.step(StubAction(1)).unwrap();
         tap.step(StubAction(1)).unwrap();
@@ -615,7 +592,7 @@ mod tests {
     fn into_inner_returns_wrapped_env() {
         let (_probe, sink) = sink_handle();
         let env = StubEnv::new(0.0, Termination::TerminateAt(u32::MAX));
-        let tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
+        let tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
         let inner = tap.into_inner();
         assert_eq!(inner.render_ascii(), "pos=0");
     }
@@ -624,7 +601,7 @@ mod tests {
     fn default_constructor_emits_ascii_payload() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.0, Termination::TerminateAt(u32::MAX));
-        let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         let probe = probe.lock();
         let ep = &probe.episodes[&0];
@@ -642,7 +619,7 @@ mod tests {
 
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.5, Termination::TerminateAt(2));
-        let mut tap: RecordingTap<_, 1, 1, 1> =
+        let mut tap: RecordingTap<_, 1, 1> =
             RecordingTap::with_payload_extractor(env, sink, |stub| {
                 FamilyPayload::Landscape2D(Landscape2DPayload::from(Landscape2DSnapshot {
                     bounds_x: (-1.0, 1.0),
@@ -696,21 +673,18 @@ mod tests {
         pos: i32,
     }
 
-    impl Environment<1, 1, 1> for FailEnv {
-        type StateType = StubState;
+    impl Environment<1, 1> for FailEnv {
         type ObservationType = StubObs;
         type ActionType = FailAction;
-        type RewardType = ScalarReward;
-        type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
 
-        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn reset(&mut self) -> Result<Snapshot<StubObs>, EnvironmentError> {
             self.pos = 0;
-            Ok(SnapshotBase::running(StubObs { pos: 0 }, ScalarReward(0.0)))
+            Ok(Snapshot::running(StubObs { pos: 0 }, ScalarReward(0.0)))
         }
 
-        fn step(&mut self, _action: FailAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn step(&mut self, _action: FailAction) -> Result<Snapshot<StubObs>, EnvironmentError> {
             self.pos += 1;
-            Ok(SnapshotBase::running(
+            Ok(Snapshot::running(
                 StubObs { pos: self.pos },
                 ScalarReward(0.0),
             ))
@@ -724,7 +698,7 @@ mod tests {
 
         let (probe, sink) = sink_handle();
         let env = FailEnv { pos: 0 };
-        let mut tap: RecordingTap<_, 1, 1, 1> =
+        let mut tap: RecordingTap<_, 1, 1> =
             RecordingTap::new_headless(env, sink, |_| FamilyPayload::Ascii);
         tap.reset().unwrap();
         // The inner step still succeeds; only the action encode fails.

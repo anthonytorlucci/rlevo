@@ -36,11 +36,9 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
-use rlevo_core::base::{Action, State};
+use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -50,7 +48,7 @@ use super::action_continuous::LunarLanderContinuousAction;
 use super::action_discrete::LunarLanderDiscreteAction;
 use super::config::{LunarLanderConfig, WindMode};
 use super::observation::LunarLanderObservation;
-use super::snapshot::{LunarLanderSnapshot, shaping_metadata};
+use super::snapshot::shaping_metadata;
 use super::state::LunarLanderState;
 
 // ─── Physical constants ───────────────────────────────────────────────────────
@@ -400,12 +398,11 @@ impl LunarLanderCore {
 /// `LunarLander` with a 4-way discrete action space.
 ///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
-/// The snapshot type is a plain [`SnapshotBase`] alias ([`LunarLanderSnapshot`])
-/// carrying the shaping potential as metadata, so wrapping with
+/// Its [`Snapshot`] carries the shaping potential as metadata, so wrapping with
 /// [`TimeLimit`](crate::wrappers::TimeLimit) composes and preserves that
 /// metadata.
 ///
-/// [`SnapshotBase`]: rlevo_core::environment::SnapshotBase
+/// [`Snapshot`]: rlevo_core::environment::Snapshot
 ///
 /// All four [`LunarLanderDiscreteAction`] variants are always valid, so the only
 /// error [`step`](Environment::step) can return is
@@ -434,53 +431,25 @@ impl LunarLanderDiscrete {
     }
 }
 
-impl ConstructableEnv for LunarLanderDiscrete {
-    fn new(_render: bool) -> Self {
+impl Default for LunarLanderDiscrete {
+    fn default() -> Self {
         Self::with_config(LunarLanderConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for LunarLanderDiscrete {
-    type Action = LunarLanderDiscreteAction;
-    type State = LunarLanderState;
-    type Observation = LunarLanderObservation;
-
-    /// Emit the 8-dim observation from the live physics world. The action does
-    /// not affect the emission; it is accepted to satisfy the [`Sensor`]
-    /// contract.
-    ///
-    /// Both this method and the internal step path share the single emission
-    /// definition `LunarLanderCore::compute_obs`: `step` computes the same
-    /// observation once inside `LunarLanderCore::step_common` (it needs it for
-    /// reward shaping and termination) and carries it into the snapshot, so the
-    /// snapshot's observation is exactly this method's output — one definition,
-    /// no drift.
-    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
-        self.core.compute_obs()
-    }
-
-    /// Emit the initial observation at episode start.
-    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
-        self.core.compute_obs()
-    }
-}
-
-impl Environment<1, 1, 1> for LunarLanderDiscrete {
-    type StateType = LunarLanderState;
+impl Environment<1, 1> for LunarLanderDiscrete {
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderDiscreteAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LunarLanderSnapshot;
 
     /// Rebuild the physics world and return the initial observation.
     ///
     /// The reward in the returned snapshot is always `0.0`. The shaping potential
     /// is reset to the value computed from the spawn position so that the first
     /// `step` call produces a meaningful potential difference.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<LunarLanderObservation>, EnvironmentError> {
         self.core.rebuild();
-        let obs = self.observe_reset(&self.core.state);
-        Ok(LunarLanderSnapshot::running(obs, ScalarReward(0.0))
+        let obs = self.core.compute_obs();
+        Ok(Snapshot::running(obs, ScalarReward(0.0))
             .with_metadata(shaping_metadata(self.core.shaping_value())))
     }
 
@@ -502,7 +471,7 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
     fn step(
         &mut self,
         action: LunarLanderDiscreteAction,
-    ) -> Result<LunarLanderSnapshot, EnvironmentError> {
+    ) -> Result<Snapshot<LunarLanderObservation>, EnvironmentError> {
         // Guard first: before `step_common` touches the Rapier world, `steps`,
         // `prev_shaping`, or the stochastic-wind stream. `step_common` calls
         // `apply_wind` as its first act, which under `WindMode::Stochastic`
@@ -521,9 +490,9 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
         // Single exit: every branch builds exactly one snapshot, and the guard
         // is fed that snapshot's own status, so no branch can forget to record.
         let snap = match status {
-            EpisodeStatus::Running => LunarLanderSnapshot::running(obs, ScalarReward(reward)),
-            EpisodeStatus::Terminated => LunarLanderSnapshot::terminated(obs, ScalarReward(reward)),
-            EpisodeStatus::Truncated => LunarLanderSnapshot::truncated(obs, ScalarReward(reward)),
+            EpisodeStatus::Running => Snapshot::running(obs, ScalarReward(reward)),
+            EpisodeStatus::Terminated => Snapshot::terminated(obs, ScalarReward(reward)),
+            EpisodeStatus::Truncated => Snapshot::truncated(obs, ScalarReward(reward)),
         }
         .with_metadata(meta);
 
@@ -548,12 +517,11 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
 /// component drives the side engines symmetrically.
 ///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
-/// The snapshot type is a plain [`SnapshotBase`] alias ([`LunarLanderSnapshot`])
-/// carrying the shaping potential as metadata, so wrapping with
+/// Its [`Snapshot`] carries the shaping potential as metadata, so wrapping with
 /// [`TimeLimit`](crate::wrappers::TimeLimit) composes and preserves that
 /// metadata.
 ///
-/// [`SnapshotBase`]: rlevo_core::environment::SnapshotBase
+/// [`Snapshot`]: rlevo_core::environment::Snapshot
 #[derive(Debug)]
 pub struct LunarLanderContinuous {
     core: LunarLanderCore,
@@ -576,52 +544,24 @@ impl LunarLanderContinuous {
     }
 }
 
-impl ConstructableEnv for LunarLanderContinuous {
-    fn new(_render: bool) -> Self {
+impl Default for LunarLanderContinuous {
+    fn default() -> Self {
         Self::with_config(LunarLanderConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for LunarLanderContinuous {
-    type Action = LunarLanderContinuousAction;
-    type State = LunarLanderState;
-    type Observation = LunarLanderObservation;
-
-    /// Emit the 8-dim observation from the live physics world. The action does
-    /// not affect the emission; it is accepted to satisfy the [`Sensor`]
-    /// contract.
-    ///
-    /// Both this method and the internal step path share the single emission
-    /// definition `LunarLanderCore::compute_obs`: `step` computes the same
-    /// observation once inside `LunarLanderCore::step_common` (it needs it for
-    /// reward shaping and termination) and carries it into the snapshot, so the
-    /// snapshot's observation is exactly this method's output — one definition,
-    /// no drift.
-    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
-        self.core.compute_obs()
-    }
-
-    /// Emit the initial observation at episode start.
-    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
-        self.core.compute_obs()
-    }
-}
-
-impl Environment<1, 1, 1> for LunarLanderContinuous {
-    type StateType = LunarLanderState;
+impl Environment<1, 1> for LunarLanderContinuous {
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderContinuousAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LunarLanderSnapshot;
 
     /// Rebuild the physics world and return the initial observation.
     ///
     /// Identical in behaviour to [`LunarLanderDiscrete::reset`]: reward is `0.0`
     /// and the shaping potential is initialised from the spawn position.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<LunarLanderObservation>, EnvironmentError> {
         self.core.rebuild();
-        let obs = self.observe_reset(&self.core.state);
-        Ok(LunarLanderSnapshot::running(obs, ScalarReward(0.0))
+        let obs = self.core.compute_obs();
+        Ok(Snapshot::running(obs, ScalarReward(0.0))
             .with_metadata(shaping_metadata(self.core.shaping_value())))
     }
 
@@ -643,7 +583,7 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
     fn step(
         &mut self,
         action: LunarLanderContinuousAction,
-    ) -> Result<LunarLanderSnapshot, EnvironmentError> {
+    ) -> Result<Snapshot<LunarLanderObservation>, EnvironmentError> {
         // Guard first — ahead of the D5 bounds check. Episode-over is a fact
         // about the call *sequence*, independent of whether this particular
         // action is well-formed, so it is the stronger and earlier rejection.
@@ -669,9 +609,9 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
         // Single exit: every branch builds exactly one snapshot, and the guard
         // is fed that snapshot's own status, so no branch can forget to record.
         let snap = match status {
-            EpisodeStatus::Running => LunarLanderSnapshot::running(obs, ScalarReward(reward)),
-            EpisodeStatus::Terminated => LunarLanderSnapshot::terminated(obs, ScalarReward(reward)),
-            EpisodeStatus::Truncated => LunarLanderSnapshot::truncated(obs, ScalarReward(reward)),
+            EpisodeStatus::Running => Snapshot::running(obs, ScalarReward(reward)),
+            EpisodeStatus::Terminated => Snapshot::terminated(obs, ScalarReward(reward)),
+            EpisodeStatus::Truncated => Snapshot::truncated(obs, ScalarReward(reward)),
         }
         .with_metadata(meta);
 
@@ -891,7 +831,6 @@ mod tests {
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     #[test]
     fn test_discrete_action_count() {
@@ -908,7 +847,7 @@ mod tests {
         let mut env =
             LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
     }
 
     #[test]
@@ -917,19 +856,15 @@ mod tests {
             LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(LunarLanderDiscreteAction::MainEngine).unwrap();
-        let meta = snap.metadata().expect("metadata must be Some");
+        let meta = snap.metadata.as_ref().expect("metadata must be Some");
         assert!(
             meta.components.contains_key(METADATA_KEY_SHAPING),
             "shaping key must be in metadata"
         );
     }
 
-    /// `LunarLanderSnapshot` used to be a hand-rolled `impl Snapshot`,
-    /// byte-for-byte identical to the generic `LocomotionSnapshot<O>`;
-    /// consolidating it into a `SnapshotBase` type alias is what makes this
-    /// test possible at all — before the alias, `LunarLanderEnv` could not
-    /// compose with [`TimeLimit`] (which is generically bound to
-    /// `SnapshotType = SnapshotBase`); it simply did not compile. The wrapper
+    /// Every environment returns a [`Snapshot`], so [`TimeLimit`] wraps
+    /// `LunarLander` like any other. The wrapper
     /// must truncate at its own cap *and* preserve the shaping metadata the
     /// inner env attached.
     #[test]
@@ -943,18 +878,23 @@ mod tests {
         timed.reset().unwrap();
 
         let s1 = timed.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-        assert!(!s1.is_done(), "step 1 is below the TimeLimit cap");
+        assert!(!s1.status.is_done(), "step 1 is below the TimeLimit cap");
         assert!(
-            s1.metadata()
+            s1.metadata
+                .as_ref()
                 .expect("metadata must survive the wrapper")
                 .components
                 .contains_key(METADATA_KEY_SHAPING)
         );
 
         let s2 = timed.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-        assert!(s2.is_truncated(), "TimeLimit must truncate at its cap");
         assert!(
-            s2.metadata()
+            s2.status.is_truncated(),
+            "TimeLimit must truncate at its cap"
+        );
+        assert!(
+            s2.metadata
+                .as_ref()
                 .expect("metadata must survive the truncation path")
                 .components
                 .contains_key(METADATA_KEY_SHAPING),
@@ -992,10 +932,10 @@ mod tests {
         let mut obs_wind = [0.0f32; 8];
         for _ in 0..20 {
             if let Ok(snap) = env_no_wind.step(LunarLanderDiscreteAction::DoNothing) {
-                obs_no_wind = snap.observation().values;
+                obs_no_wind = snap.observation.values;
             }
             if let Ok(snap) = env_wind.step(LunarLanderDiscreteAction::DoNothing) {
-                obs_wind = snap.observation().values;
+                obs_wind = snap.observation.values;
             }
         }
         assert_ne!(
@@ -1023,7 +963,7 @@ mod tests {
             let mut last = [0.0f32; 8];
             for &a in acts {
                 if let Ok(snap) = env.step(a) {
-                    last = snap.observation().values;
+                    last = snap.observation.values;
                 }
             }
             last
@@ -1099,17 +1039,17 @@ mod tests {
         env.reset().unwrap();
 
         let snap1 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-        assert!(!snap1.is_done(), "step 1 should still be running");
+        assert!(!snap1.status.is_done(), "step 1 should still be running");
         let snap2 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-        assert!(!snap2.is_done(), "step 2 should still be running");
+        assert!(!snap2.status.is_done(), "step 2 should still be running");
         let snap3 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
 
         assert!(
-            snap3.is_truncated(),
+            snap3.status.is_truncated(),
             "3rd step at max_steps=3 must truncate"
         );
         assert!(
-            !snap3.is_terminated(),
+            !snap3.status.is_terminated(),
             "step-limit truncation must not report terminated"
         );
     }
@@ -1145,12 +1085,12 @@ mod tests {
         let mut terminal: Option<(usize, f32)> = None;
         for i in 0..max_steps {
             let snap = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-            if snap.is_terminated() {
-                terminal = Some((i + 1, snap.reward().0));
+            if snap.status.is_terminated() {
+                terminal = Some((i + 1, snap.reward.0));
                 break;
             }
             assert!(
-                !snap.is_truncated(),
+                !snap.status.is_truncated(),
                 "must terminate (crash) before truncating at step {i}"
             );
         }
@@ -1204,15 +1144,15 @@ mod tests {
     /// policy that nulls out velocity and angle and lets both legs settle, and
     /// no fixed hand-written action script achieves it without flakiness. The
     /// guard is status-based, not reward-based — it records
-    /// `snap.status()`, which is `Terminated` on both paths — so covering the
+    /// `snap.status`, which is `Terminated` on both paths — so covering the
     /// crash terminal covers the landing terminal's guard behaviour too.
-    fn crash_discrete(env: &mut LunarLanderDiscrete) -> LunarLanderSnapshot {
+    fn crash_discrete(env: &mut LunarLanderDiscrete) -> Snapshot<LunarLanderObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..FREE_FALL_CAP {
             let snap = env
                 .step(LunarLanderDiscreteAction::DoNothing)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -1221,13 +1161,13 @@ mod tests {
 
     /// Continuous counterpart of [`crash_discrete`]; a zero action is the
     /// continuous no-op, so the trajectory is the same free fall.
-    fn crash_continuous(env: &mut LunarLanderContinuous) -> LunarLanderSnapshot {
+    fn crash_continuous(env: &mut LunarLanderContinuous) -> Snapshot<LunarLanderObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..FREE_FALL_CAP {
             let snap = env
                 .step(LunarLanderContinuousAction([0.0, 0.0]))
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -1278,11 +1218,11 @@ mod tests {
         let mut env = LunarLanderDiscrete::with_config(guard_cfg()).expect("valid config");
         let terminal = crash_discrete(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "free fall must crash the hull, got {:?}",
-            terminal.status()
+            terminal.status
         );
-        approx::assert_relative_eq!(terminal.reward().0, -100.0, epsilon = 1e-4);
+        approx::assert_relative_eq!(terminal.reward.0, -100.0, epsilon = 1e-4);
 
         for i in 1..=5 {
             let err = env
@@ -1310,8 +1250,11 @@ mod tests {
     fn test_lunar_lander_continuous_post_terminal_step_does_not_repay_crash_penalty() {
         let mut env = LunarLanderContinuous::with_config(guard_cfg()).expect("valid config");
         let terminal = crash_continuous(&mut env);
-        assert!(terminal.is_terminated(), "free fall must crash the hull");
-        approx::assert_relative_eq!(terminal.reward().0, -100.0, epsilon = 1e-4);
+        assert!(
+            terminal.status.is_terminated(),
+            "free fall must crash the hull"
+        );
+        approx::assert_relative_eq!(terminal.reward.0, -100.0, epsilon = 1e-4);
 
         for i in 1..=5 {
             let err = env
@@ -1338,7 +1281,8 @@ mod tests {
         let mut env = LunarLanderDiscrete::with_config(guard_cfg()).expect("valid config");
         let terminal = crash_discrete(&mut env);
         let terminal_shaping = terminal
-            .metadata()
+            .metadata
+            .as_ref()
             .expect("the terminal snapshot carries shaping metadata")
             .components[METADATA_KEY_SHAPING];
 
@@ -1386,7 +1330,7 @@ mod tests {
             .step(LunarLanderDiscreteAction::DoNothing)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
 

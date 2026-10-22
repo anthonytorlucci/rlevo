@@ -1,15 +1,12 @@
-//! Snapshot type and shaping-metadata helper for `LunarLander` (D6).
+//! Shaping metadata for `LunarLander`'s snapshots (D6).
 
-use rlevo_core::environment::{SnapshotBase, SnapshotMetadata};
-use rlevo_core::reward::ScalarReward;
-
-use super::observation::LunarLanderObservation;
+use rlevo_core::environment::SnapshotMetadata;
 
 /// Metadata key for the **absolute potential-based shaping potential** `$\Phi(t)$`.
 ///
 /// # What the value *is*
 ///
-/// `snap.metadata().unwrap().components[METADATA_KEY_SHAPING]` is `$\Phi(t)$` — the potential of
+/// `snap.metadata.as_ref().unwrap().components[METADATA_KEY_SHAPING]` is `$\Phi(t)$` — the potential of
 /// the state observed at this step, as computed by `LunarLanderCore::shaping`:
 ///
 /// ```math
@@ -59,17 +56,6 @@ use super::observation::LunarLanderObservation;
 // `clippy::redundant_static_lifetimes`.
 pub const METADATA_KEY_SHAPING: &str = "shaping";
 
-/// Snapshot returned by [`super::LunarLanderDiscrete`] and
-/// [`super::LunarLanderContinuous`] (design decision D6).
-///
-/// A plain [`SnapshotBase`] whose optional [`SnapshotMetadata`] carries the
-/// shaping potential under [`METADATA_KEY_SHAPING`] — build the metadata with
-/// [`shaping_metadata`]. Because this is `SnapshotBase` and not a bespoke type,
-/// these environments compose with `TimeLimit` and any other wrapper bound to
-/// `SnapshotBase`. The step limit is *also* enforced internally via
-/// `config.max_steps`.
-pub type LunarLanderSnapshot = SnapshotBase<1, LunarLanderObservation, ScalarReward>;
-
 /// Packages the shaping potential `$\Phi$` under this environment's metadata-key contract.
 ///
 /// `shaping` is the **absolute potential** `$\Phi(t)$`, not the shaping reward — see
@@ -82,15 +68,16 @@ pub fn shaping_metadata(shaping: f32) -> SnapshotMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::box2d::lunar_lander::observation::LunarLanderObservation;
     use approx::assert_relative_eq;
     use rlevo_core::environment::Snapshot;
+    use rlevo_core::reward::ScalarReward;
 
     #[test]
     fn test_metadata_shaping_key_present() {
         let obs = LunarLanderObservation::default();
-        let snap = LunarLanderSnapshot::running(obs, ScalarReward(1.0))
-            .with_metadata(shaping_metadata(42.5));
-        let meta = snap.metadata().expect("metadata must be Some");
+        let snap = Snapshot::running(obs, ScalarReward(1.0)).with_metadata(shaping_metadata(42.5));
+        let meta = snap.metadata.as_ref().expect("metadata must be Some");
         assert!(
             meta.components.contains_key(METADATA_KEY_SHAPING),
             "metadata must contain the shaping key"
@@ -105,15 +92,13 @@ mod tests {
     fn test_shaping_metadata_present_on_all_status_variants() {
         let obs = LunarLanderObservation::default();
         let snapshots = [
-            LunarLanderSnapshot::running(obs.clone(), ScalarReward(0.0))
+            Snapshot::running(obs.clone(), ScalarReward(0.0)).with_metadata(shaping_metadata(-1.5)),
+            Snapshot::terminated(obs.clone(), ScalarReward(-100.0))
                 .with_metadata(shaping_metadata(-1.5)),
-            LunarLanderSnapshot::terminated(obs.clone(), ScalarReward(-100.0))
-                .with_metadata(shaping_metadata(-1.5)),
-            LunarLanderSnapshot::truncated(obs, ScalarReward(0.0))
-                .with_metadata(shaping_metadata(-1.5)),
+            Snapshot::truncated(obs, ScalarReward(0.0)).with_metadata(shaping_metadata(-1.5)),
         ];
         for snap in &snapshots {
-            let meta = snap.metadata().expect("metadata must be Some");
+            let meta = snap.metadata.as_ref().expect("metadata must be Some");
             assert_relative_eq!(meta.components[METADATA_KEY_SHAPING], -1.5, epsilon = 1e-6);
         }
     }
@@ -123,21 +108,21 @@ mod tests {
         let obs = LunarLanderObservation::default();
         let meta = shaping_metadata(0.0);
         assert!(
-            !LunarLanderSnapshot::running(obs.clone(), ScalarReward(0.0))
+            !Snapshot::running(obs.clone(), ScalarReward(0.0))
                 .with_metadata(meta.clone())
-                .status()
+                .status
                 .is_done()
         );
         assert!(
-            LunarLanderSnapshot::terminated(obs.clone(), ScalarReward(0.0))
+            Snapshot::terminated(obs.clone(), ScalarReward(0.0))
                 .with_metadata(meta.clone())
-                .status()
+                .status
                 .is_terminated()
         );
         assert!(
-            LunarLanderSnapshot::truncated(obs, ScalarReward(0.0))
+            Snapshot::truncated(obs, ScalarReward(0.0))
                 .with_metadata(meta)
-                .status()
+                .status
                 .is_truncated()
         );
     }

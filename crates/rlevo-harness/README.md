@@ -140,7 +140,7 @@ Four producers share one `Arc<Mutex<dyn RecordSink>>`:
 
 | Producer | Role |
 |----------|------|
-| `RecordingTap<E>` | Wraps `Environment`; emits per-step `FrameRecord` (subject to `frame_stride`) + closes the episode on `Snapshot::is_done` |
+| `RecordingTap<E>` | Wraps `Environment`; emits per-step `FrameRecord` (subject to `frame_stride`) + closes the episode when the snapshot's status is done |
 | `RecordingReporter` | Drives the suite lifecycle; finalises `run.toml` at `on_suite_end`. Two modes: with or without per-episode signals |
 | `PopulationReporter` | `PopulationObserver` attached with `EvolutionaryLoop::with_observer`; writes one `PopulationSample` (fitnesses, diversity, best) per generation |
 | `RecordingLayer` | `tracing_subscriber::Layer` that captures canonical metric fields (matches the `tui::log_layer` registry) |
@@ -252,22 +252,19 @@ use rlevo_harness::{
 use rlevo_core::environment::Environment;
 use rlevo_core::fitness::BenchableAgent;
 
-// 1. Implement `rlevo_core::environment::Environment` for your env, with
-//    `RewardType = ScalarReward`. The evaluator infers the rank parameters
+// 1. Implement `rlevo_core::environment::Environment` for your env. The
+//    evaluator infers the rank parameters
 //    from the `Suite<MyEnv>` you hand it — no adapter, no turbofish.
 struct MyEnv { /* ... */ }
-impl Environment<1, 1, 1> for MyEnv {
-    type StateType = MyState;
+impl Environment<1, 1> for MyEnv {
     type ObservationType = MyObs;
     type ActionType = MyAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, MyObs, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        Ok(SnapshotBase::running(MyObs, ScalarReward(0.0)))
+    fn reset(&mut self) -> Result<Snapshot<MyObs>, EnvironmentError> {
+        Ok(Snapshot::running(MyObs, ScalarReward(0.0)))
     }
-    fn step(&mut self, action: MyAction) -> Result<Self::SnapshotType, EnvironmentError> {
-        Ok(SnapshotBase::terminated(MyObs, ScalarReward(1.0)))
+    fn step(&mut self, action: MyAction) -> Result<Snapshot<MyObs>, EnvironmentError> {
+        Ok(Snapshot::terminated(MyObs, ScalarReward(1.0)))
     }
 }
 

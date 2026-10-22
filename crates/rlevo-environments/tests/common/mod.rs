@@ -122,7 +122,9 @@ where
         return Some(Vec::new());
     }
 
-    let actions = GridAction::enumerate();
+    let actions: Vec<GridAction> = (0..GridAction::ACTION_COUNT)
+        .map(GridAction::from_index)
+        .collect();
     let mut nodes = vec![Node {
         grid: state.grid.clone(),
         agent: state.agent,

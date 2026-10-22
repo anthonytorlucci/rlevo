@@ -22,6 +22,7 @@ jobs:
   tensor-read-hygiene:
     name: tensor-read hygiene grep
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Forbid unwrap_or_default on tensor host-reads
@@ -47,6 +48,7 @@ jobs:
   workspace-lints-optin:
     name: workspace lints opt-in
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Every crate must opt into the workspace lint table
@@ -134,6 +136,7 @@ jobs:
   docs:
     name: rustdoc intra-doc links
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -166,6 +169,7 @@ jobs:
   feature-orthogonality:
     name: rlevo-environments feature orthogonality
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -209,6 +213,7 @@ jobs:
   libraries-select-no-backend:
     name: library crates select no Burn backend
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -279,6 +284,7 @@ jobs:
     name: ${{ matrix.crate }}
     needs: tier
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

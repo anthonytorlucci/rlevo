@@ -50,7 +50,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::multi_room::{MultiRoomConfig, MultiRoomEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = MultiRoomConfig::new(3, 5, 5, 300, 0);
 //! let mut env = MultiRoomEnv::with_config(cfg, false).expect("valid config");
@@ -61,7 +61,7 @@
 //! [`MultiRoomEnv`]: https://minigrid.farama.org/environments/minigrid/MultiRoomEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -77,9 +77,8 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -285,8 +284,8 @@ impl FromStr for MultiRoomConfig {
 /// in the last room. Rollout length scales with [`MultiRoomConfig::num_rooms`],
 /// making this suitable for testing long-horizon planning and credit assignment.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
+/// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// Reaching the goal (or exhausting `max_steps`) ends the episode; a
 /// [`step`](Environment::step) taken afterwards is rejected with
@@ -296,9 +295,9 @@ impl FromStr for MultiRoomConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::multi_room::MultiRoomEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = MultiRoomEnv::new(false);
+/// let mut env = MultiRoomEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("wall cols: {:?}", env.wall_columns());
 /// ```
@@ -337,7 +336,7 @@ impl MultiRoomEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -461,7 +460,12 @@ impl MultiRoomEnv {
         GridState::new(grid, agent)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -489,46 +493,33 @@ impl Display for MultiRoomEnv {
     }
 }
 
-impl ConstructableEnv for MultiRoomEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(MultiRoomConfig::default(), render).expect("default config must validate")
+impl Default for MultiRoomEnv {
+    fn default() -> Self {
+        Self::with_config(MultiRoomConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for MultiRoomEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl MultiRoomEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for MultiRoomEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for MultiRoomEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Rebuilds the fixed strip, re-closes every door, and re-opens the episode.
     ///
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = Self::build(&self.config);
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -538,7 +529,10 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances and before `apply_action` touches
         // the grid or the agent. A rejected call must leave the environment
         // bit-identical — and it must precede any future random draw, or the
@@ -556,11 +550,11 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         // Single exit: the guard is fed the emitted snapshot's own status, so it
         // cannot disagree with what the caller received.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -624,7 +618,7 @@ mod tests {
     /// future value; a terminated one does not). A timeout-driven test here
     /// would bake that collapsed signal into an assertion instead of exercising
     /// the intended termination path.
-    fn drive_to_goal(env: &mut MultiRoomEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut MultiRoomEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         let mut last = None;
         for action in OPTIMAL_ROLLOUT {
@@ -761,7 +755,7 @@ mod tests {
         env.step(GridAction::Forward).unwrap(); // (3, 2)
         env.step(GridAction::Forward).unwrap(); // (4, 2)
         let snap = env.step(GridAction::Forward).unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
         assert_eq!(env.state().agent.x, 4);
     }
 
@@ -792,8 +786,8 @@ mod tests {
             last = Some(env.step(a).unwrap());
         }
         let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.9, "reward was {reward}");
     }
 
@@ -804,7 +798,7 @@ mod tests {
         let mut b = MultiRoomEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     #[test]
@@ -821,8 +815,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -894,7 +888,7 @@ mod tests {
         );
 
         let masked = mask_view(&env.state().grid, &agent, MultiRoomEnv::VISIBILITY);
-        let occluded = *snapshot.observation();
+        let occluded = snapshot.observation;
         let see_through = observe_grid(env.state(), Visibility::SeeThrough);
 
         // (row 1, col 3) is the goal: five cells straight ahead.
@@ -971,7 +965,10 @@ mod tests {
     fn test_multi_room_post_terminal_step_does_not_refarm_the_goal() {
         let mut env = default_env();
         let terminal = drive_to_goal(&mut env);
-        assert!(terminal.is_done(), "reaching the goal must end the episode");
+        assert!(
+            terminal.status.is_done(),
+            "reaching the goal must end the episode"
+        );
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -987,8 +984,7 @@ mod tests {
             .expect_err("a step after the goal must return Err, not another payout");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
-                status,
-                terminal.status(),
+                status, terminal.status,
                 "the error must carry the status that ended the episode"
             ),
             other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
@@ -1010,7 +1006,7 @@ mod tests {
         );
         assert_eq!(
             env.guard.status(),
-            terminal.status(),
+            terminal.status,
             "a rejected step must not reopen the episode"
         );
     }
@@ -1037,7 +1033,7 @@ mod tests {
             .step(GridAction::Forward)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
         assert_eq!(env.steps(), 1, "reset() must restart the step counter");

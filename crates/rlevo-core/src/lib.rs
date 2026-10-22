@@ -9,10 +9,10 @@
 //!
 //! | Module | What it provides |
 //! |---|---|
-//! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`] — the primitive trait vocabulary; `TensorConvertible` with the `burn` feature |
-//! | [`action`] | [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`] — layered action-space extensions |
-//! | [`state`] | [`BeliefState`], [`StateAggregation`], [`Observable`] — POMDP belief, state aggregation and the state-to-observation projection |
-//! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
+//! | [`base`] | [`Observation`], [`Action`], [`HostRow`] — the primitive trait vocabulary; `TensorConvertible` with the `burn` feature |
+//! | [`action`] | [`DiscreteAction`], [`ContinuousAction`], [`BoundedAction`] — layered action-space extensions |
+//! | [`state`] | [`StateError`] — why a value is not a legal state |
+//! | [`environment`] | [`Environment`], [`Snapshot`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
 //! | [`episode`] | [`EpisodeGuard`] — the state machine behind `Environment::step`'s post-terminal contract, held by every implementor |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`GenerationProbe`] — drive seam for self-paced work (evolutionary generation loops) |
@@ -32,20 +32,19 @@
 //! |---|---|---|
 //! | `burn` | off | `base::TensorConvertible`, implemented for every [`HostRow`] type, which uploads the row as a Burn tensor. Without it the crate does not depend on Burn |
 //!
-//! # Const-generic `RANK`
+//! # Const-generic rank `R`
 //!
-//! Several traits — [`Observation`], [`State`], [`Action`] — are parameterized
+//! [`Observation`] and [`Action`], and the traits built on them, are parameterized
 //! by a const generic `R` (rank) that denotes the *number of tensor axes*
 //! (equivalent to `NumPy`'s `ndim` or Burn's `Tensor<B, R>`). This encodes
 //! shape compatibility at compile time: a rank-1 observation and a rank-2
 //! observation cannot be mixed up without a compile error.
 //!
 //! ```text
-//! Environment<R, SR, AR>
-//!   ├── StateType     : State<SR>        (shape: [usize; SR])
-//!   ├── ObservationType: Observation<R>  (shape: [usize; R])
-//!   ├── ActionType    : Action<AR>       (shape: [usize; AR])
-//!   └── SnapshotType  : Snapshot<R, ...>
+//! Environment<OR, AR>
+//!   ├── ObservationType: Observation<OR>  (shape: [usize; OR])
+//!   ├── ActionType     : Action<AR>       (shape: [usize; AR])
+//!   └── reset / step   → Snapshot<ObservationType>
 //! ```
 //!
 //! # Episode loop sketch
@@ -64,21 +63,16 @@
 //! distinct so RL algorithms can bootstrap value correctly at truncation
 //! boundaries.
 //!
-//! [`Reward`]: crate::base::Reward
 //! [`Observation`]: crate::base::Observation
-//! [`State`]: crate::base::State
 //! [`Action`]: crate::base::Action
 //! [`HostRow`]: crate::base::HostRow
 //! [`DiscreteAction`]: crate::action::DiscreteAction
-//! [`MultiDiscreteAction`]: crate::action::MultiDiscreteAction
 //! [`ContinuousAction`]: crate::action::ContinuousAction
-//! [`BeliefState`]: crate::state::BeliefState
-//! [`StateAggregation`]: crate::state::StateAggregation
-//! [`Observable`]: crate::state::Observable
+//! [`BoundedAction`]: crate::action::BoundedAction
+//! [`StateError`]: crate::state::StateError
 //! [`Environment`]: crate::environment::Environment
-//! [`Sensor`]: crate::environment::Sensor
 //! [`Snapshot`]: crate::environment::Snapshot
-//! [`SnapshotBase`]: crate::environment::SnapshotBase
+//! [`Snapshot`]: crate::environment::Snapshot
 //! [`EpisodeStatus`]: crate::environment::EpisodeStatus
 //! [`EpisodeStatus::Terminated`]: crate::environment::EpisodeStatus::Terminated
 //! [`EpisodeStatus::Truncated`]: crate::environment::EpisodeStatus::Truncated
@@ -99,25 +93,22 @@
 //! [`NonNegativeRate`]: crate::rate::NonNegativeRate
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
 
-/// Primitive trait vocabulary: [`Reward`], [`Observation`], [`State`],
-/// [`Action`] and [`HostRow`], plus `TensorConvertible` under the `burn`
-/// feature.
+/// Primitive trait vocabulary: [`Observation`], [`Action`] and [`HostRow`],
+/// plus `TensorConvertible` under the `burn` feature.
 ///
 /// All other modules in this crate depend on the types defined here.
 ///
-/// [`Reward`]: crate::base::Reward
 /// [`Observation`]: crate::base::Observation
-/// [`State`]: crate::base::State
 /// [`Action`]: crate::base::Action
 /// [`HostRow`]: crate::base::HostRow
 pub mod base;
 
-/// Layered action-space traits: [`DiscreteAction`], [`MultiDiscreteAction`],
-/// and [`ContinuousAction`].
+/// Layered action-space traits: [`DiscreteAction`], [`ContinuousAction`] and
+/// [`BoundedAction`].
 ///
 /// [`DiscreteAction`]: crate::action::DiscreteAction
-/// [`MultiDiscreteAction`]: crate::action::MultiDiscreteAction
 /// [`ContinuousAction`]: crate::action::ContinuousAction
+/// [`BoundedAction`]: crate::action::BoundedAction
 pub mod action;
 
 /// Reserved for a future unified agent trait hierarchy.
@@ -155,13 +146,12 @@ pub mod config;
 
 /// Agent/environment interaction protocol.
 ///
-/// Defines [`Environment`], the env-side emission model [`Sensor`],
-/// [`Snapshot`]/[`SnapshotBase`], [`EpisodeStatus`], and [`EnvironmentError`].
+/// Defines [`Environment`], [`Snapshot`], [`EpisodeStatus`],
+/// and [`EnvironmentError`].
 ///
 /// [`Environment`]: crate::environment::Environment
-/// [`Sensor`]: crate::environment::Sensor
 /// [`Snapshot`]: crate::environment::Snapshot
-/// [`SnapshotBase`]: crate::environment::SnapshotBase
+/// [`Snapshot`]: crate::environment::Snapshot
 /// [`EpisodeStatus`]: crate::environment::EpisodeStatus
 /// [`EnvironmentError`]: crate::environment::EnvironmentError
 pub mod environment;
@@ -257,16 +247,9 @@ pub mod render;
 /// [`ScalarReward`]: crate::reward::ScalarReward
 pub mod reward;
 
-/// State abstractions beyond the base contract.
+/// [`StateError`]: why a value is not a legal state of an environment.
 ///
-/// Extends [`base::State`] with [`BeliefState`], [`StateAggregation`], and
-/// [`Observable`] (the modality-changing state→observation projection for
-/// `OR != SR`).
-///
-/// [`base::State`]: crate::base::State
-/// [`BeliefState`]: crate::state::BeliefState
-/// [`StateAggregation`]: crate::state::StateAggregation
-/// [`Observable`]: crate::state::Observable
+/// [`StateError`]: crate::state::StateError
 pub mod state;
 
 /// Shared utility helpers used across `rlevo-core` modules.

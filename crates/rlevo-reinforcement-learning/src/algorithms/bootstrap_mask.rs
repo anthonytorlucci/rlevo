@@ -2,7 +2,7 @@
 //! guard shared by the six off-policy `train` loops.
 //!
 //! Every off-policy training loop must feed the *Bellman bootstrap mask* from
-//! [`Snapshot::is_terminated`], not [`Snapshot::is_done`]. A truncation (time
+//! [`EpisodeStatus::is_terminated`], not [`EpisodeStatus::is_done`]. A truncation (time
 //! limit) ends the episode but not the MDP, so `$\gamma \cdot V(\text{next\_obs})$` must survive
 //! in the target; zeroing it there biases every Q-value downward (Pardo et
 //! al., "Time Limits in Reinforcement Learning", ICML 2018, Eq. 6).
@@ -14,8 +14,8 @@
 //! `learning_starts` set past the budget, so no gradient work runs and the
 //! whole guard costs milliseconds.
 //!
-//! [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
-//! [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+//! [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
+//! [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
 
 use std::marker::PhantomData;
 
@@ -26,8 +26,8 @@ use burn::tensor::{Tensor, activation};
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
-use rlevo_core::base::{Action, HostRow, Observation, State};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
+use rlevo_core::base::{Action, HostRow, Observation};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
@@ -49,18 +49,6 @@ pub(crate) const ACT_DIM: usize = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MaskState {
     steps: usize,
-}
-
-impl State<1> for MaskState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn numel(&self) -> usize {
-        1
-    }
-    fn is_valid(&self) -> bool {
-        true
-    }
 }
 
 /// Two-feature view of the step counter.
@@ -131,9 +119,6 @@ impl ContinuousAction<1> for MaskContinuousAction {
 
     fn as_slice(&self) -> &[f32] {
         std::slice::from_ref(&self.0)
-    }
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self(self.0.clamp(min, max))
     }
     fn from_slice(values: &[f32]) -> Self {
         assert_eq!(values.len(), 1, "continuous action width");
@@ -215,29 +200,13 @@ impl<A> MaskEnv<A> {
     }
 }
 
-impl<A: Action<1> + Clone> Sensor<1, 1, 1> for MaskEnv<A> {
-    type Action = A;
-    type State = MaskState;
-    type Observation = MaskObservation;
-
-    fn observe(&self, _action: &A, next_state: &MaskState) -> MaskObservation {
-        Self::observation(*next_state)
-    }
-    fn observe_reset(&self, state: &MaskState) -> MaskObservation {
-        Self::observation(*state)
-    }
-}
-
-impl<A: Action<1> + Clone> Environment<1, 1, 1> for MaskEnv<A> {
-    type StateType = MaskState;
+impl<A: Action<1> + Clone> Environment<1, 1> for MaskEnv<A> {
     type ObservationType = MaskObservation;
     type ActionType = A;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, MaskObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<MaskObservation>, EnvironmentError> {
         self.state = MaskState { steps: 0 };
-        Ok(SnapshotBase {
+        Ok(Snapshot {
             observation: Self::observation(self.state),
             reward: ScalarReward::new(0.0),
             status: EpisodeStatus::Running,
@@ -245,7 +214,10 @@ impl<A: Action<1> + Clone> Environment<1, 1, 1> for MaskEnv<A> {
         })
     }
 
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        _action: Self::ActionType,
+    ) -> Result<Snapshot<MaskObservation>, EnvironmentError> {
         self.state.steps += 1;
         self.calls += 1;
         let status = if self.state.steps.is_multiple_of(self.period) {
@@ -258,8 +230,8 @@ impl<A: Action<1> + Clone> Environment<1, 1, 1> for MaskEnv<A> {
         } else {
             1.0
         };
-        Ok(SnapshotBase {
-            observation: self.observe(&action, &self.state),
+        Ok(Snapshot {
+            observation: Self::observation(self.state),
             reward: ScalarReward::new(reward),
             status,
             metadata: None,

@@ -94,10 +94,9 @@
 //! the workspace, or the guard fails and names every site), then looks for the
 //! item's `fn` in the declaring file — widening to any file whose production
 //! source carries an `impl … T` or a bare `for T` line. The second alternative
-//! is not redundant: `EpisodicTrial`'s impl headers **wrap**, and
-//! `rlevo-harness/src/evaluator.rs` reads `impl<…> Trial` /
-//! `for EpisodicTrial<E, A, D, SD, AD>` / `where`. Any owner parse that assumes
-//! one impl per line drops it.
+//! is not redundant: rustfmt **wraps** an impl header that does not fit on one
+//! line, as `impl<…> Trial` / `for EpisodicTrial<…>` / `where`. Any owner
+//! parse that assumes one impl per line drops it.
 //!
 //! ## Step C is unreached by today's table, and that is recorded, not hidden
 //!
@@ -568,7 +567,7 @@ impl SourceFile {
 
     /// Whether a production line looks like an impl block header for `ty`,
     /// including the `for T` continuation of a **wrapped** header (see the
-    /// module docs: `EpisodicTrial`'s `impl<…> Trial` / `for EpisodicTrial<…>`).
+    /// module docs: `impl<…> Trial` / `for EpisodicTrial<…>`).
     fn mentions_impl_of(&self, ty: &str) -> bool {
         self.lines
             .iter()
@@ -1306,42 +1305,58 @@ fn no_exempted_row_names_an_identifier() {
 /// Pins type-tier **step C**'s wrapped-impl-header handling, which no row in
 /// today's table exercises.
 ///
-/// `crates/rlevo-harness/src/evaluator.rs` is the workspace's live example:
-/// **both** impl headers of `EpisodicTrial` wrap, so `impl<…> std::fmt::Debug`
-/// and `impl<…> Trial` each sit on a line that does not contain `EpisodicTrial`
-/// at all, and the type name appears only on the continuation line
-/// `for EpisodicTrial<E, A, D, SD, AD>`. A step C that matched only
-/// `^\s*impl\b.*\bT\b` would find **zero** candidate files for `EpisodicTrial`
+/// rustfmt wraps an impl header that does not fit on one line, putting the
+/// type name only on the continuation line `for T<…>`: `impl<…> Trial` sits on
+/// a line that does not contain `T` at all. A step C that matched only
+/// `^\s*impl\b.*\bT\b` would find **zero** candidate files for such a type
 /// and silently degrade — and because step C is a *widening*, its degradation
 /// shows up as a spurious failure much later, in some future diff that moves a
 /// method out of its type's declaring file.
 ///
-/// This test therefore asserts both halves: that the file *is* recognised, and
-/// that the single-line `impl … EpisodicTrial` alternative alone would *not*
-/// have recognised it. The second assertion is what makes the first one
-/// informative.
+/// No file in the workspace has such a header today (the last was
+/// `EpisodicTrial`'s, until its state-rank parameter left), so the fixture
+/// below has that shape. The test asserts both halves: that the fixture *is*
+/// recognised, and that the single-line `impl … EpisodicTrial` alternative
+/// alone would *not* have recognised it. The second assertion is what makes
+/// the first one informative.
 #[test]
 fn the_wrapped_impl_header_is_recognized() {
-    let evaluator = workspace()
-        .iter()
-        .find(|file| file.display == "crates/rlevo-harness/src/evaluator.rs")
-        .expect(
-            "crates/rlevo-harness/src/evaluator.rs should exist; it holds \
-             `EpisodicTrial`, whose impl headers all wrap",
-        );
+    const WRAPPED: &str = "\
+impl<E, A, const D: usize, const AD: usize, const BD: usize> std::fmt::Debug
+    for EpisodicTrial<E, A, D, AD, BD>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.finish()
+    }
+}
+
+impl<E, A, const D: usize, const AD: usize, const BD: usize> Trial
+    for EpisodicTrial<E, A, D, AD, BD>
+{
+    fn run(&self) {}
+}
+";
+    let display = "crates/fixture/src/evaluator.rs";
+    let borrowed: Vec<&str> = WRAPPED.lines().collect();
+    let evaluator = SourceFile {
+        crate_name: "fixture".to_owned(),
+        relative: "evaluator.rs".to_owned(),
+        display: display.to_owned(),
+        lines: borrowed.iter().map(|line| (*line).to_owned()).collect(),
+        production: production_flags(display, &borrowed),
+    };
 
     assert!(
         evaluator.mentions_impl_of("EpisodicTrial"),
-        "type-tier step C no longer recognises `crates/rlevo-harness/src/evaluator.rs` \
-         as carrying an impl of `EpisodicTrial`. Its impl headers **wrap** — the type \
-         name is on the `for EpisodicTrial<E, A, D, SD, AD>` continuation line, not on \
-         the `impl` line — so the `for T` alternative in `mentions_impl_of` is load \
-         bearing, not redundant. Do not delete this assertion.",
+        "type-tier step C no longer recognises a file whose only impl headers \
+         **wrap** — the type name is on the `for EpisodicTrial<…>` continuation line, \
+         not on the `impl` line — so the `for T` alternative in `mentions_impl_of` is \
+         load bearing, not redundant. Do not delete this assertion.",
     );
     assert!(
         evaluator.declares_fn("run"),
-        "`fn run` is no longer a production declaration in evaluator.rs; step C would \
-         have nothing to accept even with the candidate file in hand.",
+        "the fixture's `fn run` is not recognised as a production declaration; step \
+         C would have nothing to accept even with the candidate file in hand.",
     );
 
     let single_line_impl_headers = evaluator
@@ -1356,9 +1371,8 @@ fn the_wrapped_impl_header_is_recognized() {
         .count();
     assert_eq!(
         single_line_impl_headers, 0,
-        "evaluator.rs now has a single-line `impl … EpisodicTrial` header, so this test no \
-         longer proves the `for T` alternative is required. Find another wrapped header to \
-         pin step C against, or delete the alternative and this test together.",
+        "the fixture has a single-line `impl … EpisodicTrial` header, so this test no \
+         longer proves the `for T` alternative is required.",
     );
 }
 

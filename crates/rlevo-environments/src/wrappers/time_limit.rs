@@ -1,6 +1,5 @@
 use rlevo_core::{
-    base::{Observation, Reward},
-    environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
+    environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot},
     render::{AsciiRenderable, StyledFrame},
 };
 
@@ -19,10 +18,10 @@ use rlevo_core::episode::EpisodeGuard;
 /// before the first [`step`](TimeLimit::step); the step counter resets to
 /// zero on every `reset` call.
 ///
-/// `TimeLimit` implements [`Environment`] for any inner env whose
-/// `SnapshotType` is [`SnapshotBase`], [`AsciiRenderable`] by forwarding
-/// to the wrapped env, and `Classic2DPayloadSource` for structured
-/// post-run playback.
+/// `TimeLimit` implements [`Environment`] for any inner env, since every
+/// environment returns a [`Snapshot`]; [`AsciiRenderable`] by forwarding to
+/// the wrapped env; and `Classic2DPayloadSource` for structured post-run
+/// playback.
 ///
 /// # Post-terminal steps
 ///
@@ -86,44 +85,20 @@ where
     }
 }
 
-/// A `TimeLimit` over a constructable inner env is itself constructable: it
-/// builds the inner via [`ConstructableEnv`] and wraps it with no limit
-/// (`usize::MAX`). Prefer the inherent `TimeLimit::new(env, max)` for real
-/// use — this exists so generic `E: ConstructableEnv` code composes.
-impl<E: ConstructableEnv> ConstructableEnv for TimeLimit<E> {
-    fn new(render: bool) -> Self {
-        Self::new(E::new(render), usize::MAX)
-    }
-}
-
-/// `TimeLimit` implements `Environment` for any inner env whose `SnapshotType`
-/// is `SnapshotBase<D, Obs, Rew>`. This constraint lets `step` directly
-/// set `snap.status = Truncated` without trait acrobatics.
+/// `TimeLimit` implements `Environment` for any inner env. Every environment
+/// returns a [`Snapshot`], so `step` sets `snap.status = Truncated` directly.
 ///
 /// `reset` clears the step counter and re-opens the wrapper's [`EpisodeGuard`];
 /// `step` consults that guard *before* delegating, then records the status of
 /// the snapshot it actually returns — truncation included.
-impl<const D: usize, const SD: usize, const AD: usize, E, Obs, Rew> Environment<D, SD, AD>
-    for TimeLimit<E>
+impl<const D: usize, const AD: usize, E> Environment<D, AD> for TimeLimit<E>
 where
-    E: Environment<
-            D,
-            SD,
-            AD,
-            ObservationType = Obs,
-            RewardType = Rew,
-            SnapshotType = SnapshotBase<D, Obs, Rew>,
-        >,
-    Obs: Observation<D>,
-    Rew: Reward,
+    E: Environment<D, AD>,
 {
-    type StateType = E::StateType;
-    type ObservationType = Obs;
+    type ObservationType = E::ObservationType;
     type ActionType = E::ActionType;
-    type RewardType = Rew;
-    type SnapshotType = SnapshotBase<D, Obs, Rew>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<E::ObservationType>, EnvironmentError> {
         // Delegate first: only a *successful* inner reset actually starts a new
         // episode. Clearing the guard before delegating would re-open a finished
         // episode even when the inner reset failed, leaving the wrapper willing
@@ -134,7 +109,10 @@ where
         Ok(snap)
     }
 
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<E::ObservationType>, EnvironmentError> {
         // Check *before* delegating: the wrapper manufactures `Truncated` itself,
         // so the inner env's own guard (if any) still reads `Running` after a
         // truncation and provably cannot reject this call. Short-circuiting here
@@ -185,11 +163,7 @@ where
 mod tests {
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::{
-        base::{Action, State},
-        environment::Snapshot,
-        reward::ScalarReward,
-    };
+    use rlevo_core::{base::Action, reward::ScalarReward};
     use serde::{Deserialize, Serialize};
 
     // Minimal stub environment: terminates when position reaches GOAL.
@@ -198,28 +172,9 @@ mod tests {
         pos: i32,
     }
 
-    impl Observation<1> for StubObs {
+    impl rlevo_core::base::Observation<1> for StubObs {
         fn shape() -> [usize; 1] {
             [1]
-        }
-    }
-
-    // Carries no fields: `StubEnv` builds its `StubObs` snapshots directly, so
-    // the state is only a type-level placeholder for `Environment::StateType`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct StubState;
-
-    impl State<1> for StubState {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-
-        fn is_valid(&self) -> bool {
-            true
-        }
-
-        fn numel(&self) -> usize {
-            1
         }
     }
 
@@ -277,8 +232,8 @@ mod tests {
         }
     }
 
-    impl ConstructableEnv for StubEnv {
-        fn new(_render: bool) -> Self {
+    impl Default for StubEnv {
+        fn default() -> Self {
             Self {
                 pos: 0,
                 goal: i32::MAX,
@@ -288,14 +243,11 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1, 1> for StubEnv {
-        type StateType = StubState;
+    impl Environment<1, 1> for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
-        type RewardType = ScalarReward;
-        type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
 
-        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn reset(&mut self) -> Result<Snapshot<StubObs>, EnvironmentError> {
             if self.reset_should_fail {
                 // Fail *before* touching state, exactly as FrozenLake's map
                 // regeneration does: a failed reset starts no new episode.
@@ -304,19 +256,19 @@ mod tests {
                 ));
             }
             self.pos = 0;
-            Ok(SnapshotBase::running(StubObs { pos: 0 }, ScalarReward(0.0)))
+            Ok(Snapshot::running(StubObs { pos: 0 }, ScalarReward(0.0)))
         }
 
-        fn step(&mut self, _action: StubAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn step(&mut self, _action: StubAction) -> Result<Snapshot<StubObs>, EnvironmentError> {
             self.step_calls += 1;
             self.pos += 1;
             if self.pos >= self.goal {
-                Ok(SnapshotBase::terminated(
+                Ok(Snapshot::terminated(
                     StubObs { pos: self.pos },
                     ScalarReward(1.0),
                 ))
             } else {
-                Ok(SnapshotBase::running(
+                Ok(Snapshot::running(
                     StubObs { pos: self.pos },
                     ScalarReward(0.0),
                 ))
@@ -338,9 +290,9 @@ mod tests {
 
         let s3 = timed.step(StubAction).unwrap();
         assert_eq!(s3.status, EpisodeStatus::Truncated);
-        assert!(s3.is_truncated());
-        assert!(!s3.is_terminated());
-        assert!(s3.is_done());
+        assert!(s3.status.is_truncated());
+        assert!(!s3.status.is_terminated());
+        assert!(s3.status.is_done());
     }
 
     #[test]
@@ -354,7 +306,7 @@ mod tests {
 
         let s2 = timed.step(StubAction).unwrap();
         assert_eq!(s2.status, EpisodeStatus::Terminated);
-        assert!(!s2.is_truncated());
+        assert!(!s2.status.is_truncated());
     }
 
     #[test]
@@ -388,14 +340,14 @@ mod tests {
         // Goal unreachable within the cap: the episode can only end by truncation.
         let mut timed = TimeLimit::new(StubEnv::new_at_goal(100), 3);
 
-        assert_rejects_post_terminal_step::<1, 1, 1, _, _>(
+        assert_rejects_post_terminal_step::<1, 1, _, _>(
             &mut timed,
             |env| {
                 env.reset().expect("reset must succeed");
                 let mut snap = env
                     .step(StubAction)
                     .expect("step must succeed until the cap");
-                while !snap.is_done() {
+                while !snap.status.is_done() {
                     snap = env
                         .step(StubAction)
                         .expect("step must succeed until the cap");
@@ -416,14 +368,14 @@ mod tests {
         // Inner env terminates at step 2, well inside the cap of 10.
         let mut timed = TimeLimit::new(StubEnv::new_at_goal(2), 10);
 
-        assert_rejects_post_terminal_step::<1, 1, 1, _, _>(
+        assert_rejects_post_terminal_step::<1, 1, _, _>(
             &mut timed,
             |env| {
                 env.reset().expect("reset must succeed");
                 let mut snap = env
                     .step(StubAction)
                     .expect("step must succeed until termination");
-                while !snap.is_done() {
+                while !snap.status.is_done() {
                     snap = env
                         .step(StubAction)
                         .expect("step must succeed until termination");

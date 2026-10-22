@@ -19,7 +19,7 @@
 //! library-tier ASCII renderer; the report tier owns them via
 //! `FamilyPayload::Locomotion2D`.
 
-use rlevo_core::environment::{ConstructableEnv, Environment};
+use rlevo_core::environment::Environment;
 use rlevo_environments::render::AsciiRenderable;
 
 /// Run the three invariants against any [`AsciiRenderable`].
@@ -60,7 +60,7 @@ fn assert_render_invariants<R: AsciiRenderable>(env: &R, name: &str) {
 #[test]
 fn classic_mountain_car() {
     use rlevo_environments::classic::mountain_car::MountainCar;
-    let mut env = MountainCar::new(false);
+    let mut env = MountainCar::default();
     env.reset().unwrap();
     assert_render_invariants(&env, "MountainCar");
 }
@@ -68,7 +68,7 @@ fn classic_mountain_car() {
 #[test]
 fn classic_cartpole() {
     use rlevo_environments::classic::cartpole::CartPole;
-    let mut env = CartPole::new(false);
+    let mut env = CartPole::default();
     env.reset().unwrap();
     assert_render_invariants(&env, "CartPole");
 }
@@ -76,14 +76,14 @@ fn classic_cartpole() {
 #[test]
 fn classic_pendulum() {
     use rlevo_environments::classic::pendulum::Pendulum;
-    let env = Pendulum::new(false);
+    let env = Pendulum::default();
     assert_render_invariants(&env, "Pendulum");
 }
 
 #[test]
 fn classic_acrobot() {
     use rlevo_environments::classic::acrobot::Acrobot;
-    let mut env = Acrobot::new(false);
+    let mut env = Acrobot::default();
     env.reset().unwrap();
     assert_render_invariants(&env, "Acrobot");
 }
@@ -91,7 +91,7 @@ fn classic_acrobot() {
 #[test]
 fn classic_mountain_car_continuous() {
     use rlevo_environments::classic::mountain_car_continuous::MountainCarContinuous;
-    let mut env = MountainCarContinuous::new(false);
+    let mut env = MountainCarContinuous::default();
     env.reset().unwrap();
     assert_render_invariants(&env, "MountainCarContinuous");
 }
@@ -127,7 +127,7 @@ fn classic_non_stationary_bandit() {
 #[test]
 fn classic_santa_fe_ant() {
     use rlevo_environments::classic::SantaFeAnt;
-    let mut env = <SantaFeAnt as ConstructableEnv>::new(false);
+    let mut env = SantaFeAnt::default();
     env.reset().unwrap();
     assert_render_invariants(&env, "SantaFeAnt");
 }

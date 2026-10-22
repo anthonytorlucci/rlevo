@@ -70,7 +70,6 @@ use rlevo_harness::env_wrappers::TuiEnvTap;
 use rlevo_harness::tui::{MetricsLayout, TuiCaptureLayer, TuiConfig, TuiRunner};
 
 use rlevo_core::environment::Environment;
-use rlevo_core::reward::ScalarReward;
 
 use rlevo_environments::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
@@ -285,11 +284,11 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 /// observation/action/reward types, so a single generic function handles them
 /// all.
 ///
-/// The const generics `<1, 1, 1>` and the turbofish in
-/// `train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>` encode
+/// The const generics `<1, 1>` and the turbofish in
+/// `train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>` encode
 /// type-level facts:
-/// - Reward rank `1`, state rank `1`, action rank `1` (scalar rewards, 1D state tensors)
-/// - `2` actions at the end (`CartPole`'s push-left / push-right)
+/// - observation rank `1` and action rank `1`
+/// - `2` at the end, the batched observation rank (`OR + 1`)
 ///
 /// The whole `train` function exists mainly to **hide that gnarly turbofish** from `main` — a small but real ergonomics win.
 ///
@@ -303,16 +302,9 @@ pub fn train<E>(
     total_timesteps: usize,
 ) -> Result<(), PpoAgentError>
 where
-    E: Environment<
-            1,
-            1,
-            1,
-            ObservationType = CartPoleObservation,
-            ActionType = CartPoleAction,
-            RewardType = ScalarReward,
-        >,
+    E: Environment<1, 1, ObservationType = CartPoleObservation, ActionType = CartPoleAction>,
 {
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         agent,
         env,
         rng,
@@ -345,7 +337,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    tracing-driven metric sparklines. Without it the reward sparkline
     //    stays empty.
     let mut rng = StdRng::seed_from_u64(SEED);
-    let mut env: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(base_env(), handle);
+    let mut env: TuiEnvTap<_, 1, 1> = TuiEnvTap::new(base_env(), handle);
     let mut agent = build_agent(TOTAL_TIMESTEPS);
 
     // 4. Train. Every `LOG_EVERY` steps PPO emits a structured tracing

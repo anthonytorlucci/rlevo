@@ -4,7 +4,6 @@
 //! and the tile-visit counters used for lap-completion detection.
 
 use rapier2d::dynamics::RigidBodyHandle;
-use rlevo_core::base::State;
 
 /// Physics and progress state for `CarRacing`.
 ///
@@ -17,36 +16,23 @@ use rlevo_core::base::State;
 /// (pose, twist, per-wheel dynamics) live *behind* those handles in that world;
 /// they are not values stored here. Consequently `#[derive(Clone)]` yields a
 /// non-portable *view*: a clone's handles alias the arena they were taken from
-/// and **dangle** once the world is rebuilt by a `reset()`. The
-/// [`shape()`](State::shape) of `[96, 96, 3]` describes the pixel-observation
-/// modality — a frame rendered on demand by the env-side
-/// [`Sensor`](rlevo_core::environment::Sensor) rasterizing the world, no longer
-/// cached on this struct — not the physics state.
+/// and **dangle** once the world is rebuilt by a `reset()`.
 ///
 /// `CarRacing` is a genuine pixels-over-physics POMDP: a single rendered
 /// frame is not Markov (recovering angular velocities needs frame-stacking),
 /// while the true state is the hull's pose and twist, each wheel's
 /// dynamical state (angular velocity, steering phase, slip), fuel, and track
-/// progress. The `[96, 96, 3]` shape above is not that state — this struct
-/// was typed to the pixel-buffer shape, forcing `CarRacing` into
-/// `Environment<3, 3, 1>`, only because
-/// [`Observable<OR>`](rlevo_core::state::Observable) (the
-/// modality-changing-observation trait) did not exist when this environment
-/// was built.
+/// progress.
 ///
-/// ADR 0039 targets a compact `State<1>` — this type, refactored to own the
-/// DOFs above as values instead of Rapier handles — paired with
-/// `Environment<3, 1, 1>` and an `impl Sensor<3, 1, 1> for CarRacing`.
-/// ADR 0047 later gave `Sensor` direct `&self` world access, so that target
-/// `Sensor` renders the frame straight from the live world rather than a
-/// cached `Observable` projection — the on-demand rendering already
-/// described above. The handles would move off the exported state onto the
-/// environment's core struct, and [`is_valid()`](State::is_valid) would
-/// become a real check over the dynamical DOFs rather than handle liveness.
-/// As of the most recent audit (2026-08-10) this refactor has not landed:
-/// `CarRacingState` is still the handle bundle below, and `env.rs` still
-/// implements `Environment<3, 3, 1>`; this type today only closes the
-/// encapsulation and invariant-honesty gap around those handles.
+/// ADR 0039 targets this type refactored to own those degrees of freedom as
+/// values instead of Rapier handles, with the frame rendered by the
+/// environment straight from the live world (ADR 0047), as it already is. The
+/// handles would move off the exported state onto the environment's core
+/// struct, and the validity check would cover the dynamical DOFs rather than
+/// handle liveness. As of the most recent audit (2026-08-10) this refactor has
+/// not landed: `CarRacingState` is still the handle bundle below; this type
+/// today only closes the encapsulation and invariant-honesty gap around those
+/// handles.
 #[derive(Debug, Clone)]
 pub struct CarRacingState {
     /// Car body rigid body handle.
@@ -103,12 +89,8 @@ impl CarRacingState {
     }
 }
 
-impl State<3> for CarRacingState {
-    fn shape() -> [usize; 3] {
-        [96, 96, 3]
-    }
-
-    fn is_valid(&self) -> bool {
+impl CarRacingState {
+    pub(crate) fn is_valid(&self) -> bool {
         self.car_handle != RigidBodyHandle::invalid()
             && self
                 .wheel_handles
@@ -124,12 +106,12 @@ mod tests {
     use super::*;
     use crate::box2d::car_racing::action::CarRacingAction;
     use crate::box2d::car_racing::env::CarRacing;
-    use rlevo_core::environment::{ConstructableEnv, Environment};
+    use rlevo_core::environment::Environment;
 
     /// Builds a freshly-reset `CarRacing` env and returns it. The env owns the
     /// world the state's handles index into, so it must outlive any state read.
     fn reset_env() -> CarRacing {
-        let mut env = CarRacing::new(false);
+        let mut env = CarRacing::default();
         env.reset().expect("reset must succeed");
         env
     }

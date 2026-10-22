@@ -46,7 +46,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = DynamicObstaclesConfig::new(6, 2, 144, 0);
 //! let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
@@ -57,7 +57,7 @@
 //! [`Ball`]: super::core::entity::Entity::Ball
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -75,11 +75,8 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
@@ -240,21 +237,21 @@ impl FromStr for DynamicObstaclesConfig {
 
 /// Stochastic gridworld where ball obstacles random-walk after each agent step.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// This is the first grid environment with a genuinely stochastic post-step
 /// dynamics: obstacle positions change every step regardless of the agent's
 /// action. The internal RNG is seeded, so resets are fully reproducible.
 ///
 /// Construct via [`DynamicObstaclesEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 6, 1 obstacle, seed 0).
+/// [`Default`] for default settings (size 6, 1 obstacle, seed 0).
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = DynamicObstaclesEnv::with_config(
 ///     DynamicObstaclesConfig::new(6, 2, 144, 0),
@@ -294,7 +291,7 @@ impl DynamicObstaclesEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -357,7 +354,10 @@ impl DynamicObstaclesEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -440,7 +440,12 @@ impl DynamicObstaclesEnv {
         (GridState::new(grid, agent), obstacles)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -574,36 +579,23 @@ impl Display for DynamicObstaclesEnv {
     }
 }
 
-impl ConstructableEnv for DynamicObstaclesEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(DynamicObstaclesConfig::default(), render)
+impl Default for DynamicObstaclesEnv {
+    fn default() -> Self {
+        Self::with_config(DynamicObstaclesConfig::default(), false)
             .expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for DynamicObstaclesEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl DynamicObstaclesEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for DynamicObstaclesEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for DynamicObstaclesEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Rebuilds the grid, respawns the obstacles, and re-opens the
     /// [`EpisodeGuard`] for a new episode.
@@ -611,13 +603,13 @@ impl Environment<3, 3, 1> for DynamicObstaclesEnv {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (state, obstacles) = Self::build(&self.config, &mut self.rng);
         self.state = state;
         self.obstacles = obstacles;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -627,7 +619,10 @@ impl Environment<3, 3, 1> for DynamicObstaclesEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Self::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first — before the step counter, before `apply_action`, and
         // critically before `move_obstacles` draws from `self.rng`. ADR 0029
         // makes the persistent RNG an observable part of this environment's
@@ -653,9 +648,9 @@ impl Environment<3, 3, 1> for DynamicObstaclesEnv {
         // guard is fed that snapshot's own status, so no branch can forget to
         // record — and the guard cannot disagree with what the caller was
         // handed.
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -676,7 +671,6 @@ mod tests {
 
     use super::*;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
 
     fn env_no_obstacles() -> DynamicObstaclesEnv {
         DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(5, 0, 100, 0), false)
@@ -776,8 +770,8 @@ mod tests {
             last = Some(env.step(a).unwrap());
         }
         let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.9);
     }
 
@@ -798,7 +792,7 @@ mod tests {
         // Manually place a ball directly in front of the agent.
         env.state.grid.set(2, 1, Entity::Ball(OBSTACLE_COLOR));
         let snap = env.step(GridAction::Forward).unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
         assert_eq!(env.state().agent.x, 1, "ball should have blocked movement");
     }
 
@@ -811,7 +805,7 @@ mod tests {
         let mut done = false;
         for _ in 0..60 {
             let snap = env.step(GridAction::TurnLeft).unwrap();
-            if snap.is_done() {
+            if snap.status.is_done() {
                 done = true;
                 break;
             }
@@ -836,8 +830,11 @@ mod tests {
         // for collision we need the ball to step west onto the agent at
         // (1, 1). The agent stays put with TurnLeft.
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done(), "collision should terminate the episode");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(
+            snap.status.is_done(),
+            "collision should terminate the episode"
+        );
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, COLLISION_REWARD);
     }
 
@@ -937,7 +934,7 @@ mod tests {
             for step in 1..=cfg.max_steps {
                 let snap = env.step(GridAction::TurnLeft).unwrap();
                 assert_distinct(&env, cfg, step);
-                if snap.is_done() {
+                if snap.status.is_done() {
                     break;
                 }
             }
@@ -968,7 +965,7 @@ mod tests {
             env.reset().unwrap();
             for step in 1..=cfg.max_steps {
                 let snap = env.step(GridAction::TurnLeft).unwrap();
-                if snap.is_done() {
+                if snap.status.is_done() {
                     break;
                 }
                 assert_eq!(
@@ -1021,7 +1018,7 @@ mod tests {
 
         // TurnLeft leaves the agent at (1, 1), far from both balls.
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
         assert_eq!(
             env.obstacles(),
             &[(3, 2), (3, 3)],
@@ -1052,15 +1049,15 @@ mod tests {
     /// Drives a fresh episode to its **collision**-terminal snapshot through
     /// real `step()` calls, and asserts the ending really was a collision (the
     /// `$-1.0$` reward) rather than the step budget running out.
-    fn drive_to_collision(env: &mut DynamicObstaclesEnv) -> GridSnapshot {
+    fn drive_to_collision(env: &mut DynamicObstaclesEnv) -> Snapshot<GridObservation> {
         let cfg = *env.config();
         env.reset().expect("reset must succeed");
         for _ in 1..=cfg.max_steps {
             let snapshot = env
                 .step(GridAction::TurnLeft)
                 .expect("step must succeed until the episode ends");
-            if snapshot.is_done() {
-                let reward: f32 = (*snapshot.reward()).into();
+            if snapshot.status.is_done() {
+                let reward: f32 = (snapshot.reward).into();
                 assert_eq!(
                     reward, COLLISION_REWARD,
                     "this fixture must end by collision, not by exhausting the step budget"
@@ -1094,7 +1091,7 @@ mod tests {
         // at (1, 1).
         let mut env = DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
         let terminal = drive_to_collision(&mut env);
-        assert!(terminal.is_done());
+        assert!(terminal.status.is_done());
         let frozen = env.obstacles().to_vec();
 
         let err = env
@@ -1155,13 +1152,13 @@ mod tests {
         for _ in 0..5 {
             let a = rejected.step(GridAction::TurnLeft).expect("step");
             let b = clean.step(GridAction::TurnLeft).expect("step");
-            assert_eq!(a.is_done(), b.is_done());
+            assert_eq!(a.status.is_done(), b.status.is_done());
             assert_eq!(
                 rejected.obstacles(),
                 clean.obstacles(),
                 "the two streams must stay in lockstep after the rejected call"
             );
-            if a.is_done() {
+            if a.status.is_done() {
                 break;
             }
         }

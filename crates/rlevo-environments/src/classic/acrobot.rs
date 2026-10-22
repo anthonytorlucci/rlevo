@@ -133,12 +133,12 @@
 //!
 //! ```no_run,ignore
 //! use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(AcrobotAction::TorquePos).unwrap();
-//! println!("terminated: {}", snap.is_terminated());
+//! println!("terminated: {}", snap.status.is_terminated());
 //! ```
 use std::fmt;
 
@@ -147,9 +147,9 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -512,22 +512,6 @@ impl AcrobotState {
     }
 }
 
-impl State<1> for AcrobotState {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-    fn numel(&self) -> usize {
-        4
-    }
-
-    fn is_valid(&self) -> bool {
-        self.theta1.is_finite()
-            && self.theta2.is_finite()
-            && self.theta1_dot.is_finite()
-            && self.theta2_dot.is_finite()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Observation
 // ---------------------------------------------------------------------------
@@ -639,13 +623,13 @@ impl DiscreteAction<1> for AcrobotAction {
 ///
 /// ```rust,ignore
 /// use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default()).expect("valid config");
 /// env.reset().unwrap();
 /// loop {
 ///     let snap = env.step(AcrobotAction::TorquePos).unwrap();
-///     if snap.is_terminated() { break; }
+///     if snap.status.is_terminated() { break; }
 /// }
 /// ```
 pub struct Acrobot<D: AcrobotDynamicsFn = BookDynamics> {
@@ -688,7 +672,7 @@ impl<D: AcrobotDynamicsFn + Default> Acrobot<D> {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, AcrobotObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<AcrobotObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -770,28 +754,17 @@ impl<D: AcrobotDynamicsFn> fmt::Display for Acrobot<D> {
     }
 }
 
-impl<D: AcrobotDynamicsFn + Default> ConstructableEnv for Acrobot<D> {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl<D: AcrobotDynamicsFn + Default> Default for Acrobot<D> {
+    fn default() -> Self {
         Self::with_config(AcrobotConfig::default()).expect("default config must validate")
     }
 }
 
-impl<D: AcrobotDynamicsFn> Sensor<1, 1, 1> for Acrobot<D> {
-    type Action = AcrobotAction;
-    type State = AcrobotState;
-    type Observation = AcrobotObservation;
-
-    /// Projects the resulting state to the 6-D `$[\cos\theta, \sin\theta, \dot\theta]$` observation;
-    /// the observation is a pure trigonometric function of the state and ignores
-    /// the applied torque.
-    fn observe(&self, _action: &AcrobotAction, next_state: &AcrobotState) -> AcrobotObservation {
-        acrobot_observation(next_state)
-    }
-
-    /// Projects the initial state to the 6-D observation.
-    fn observe_reset(&self, state: &AcrobotState) -> AcrobotObservation {
-        acrobot_observation(state)
+impl<D: AcrobotDynamicsFn> Acrobot<D> {
+    /// Projects the current state to the 6-D `$[\cos\theta, \sin\theta, \dot\theta]$` observation,
+    /// a pure trigonometric function of the state.
+    fn observe(&self) -> AcrobotObservation {
+        acrobot_observation(&self.state)
     }
 }
 
@@ -808,12 +781,9 @@ fn acrobot_observation(state: &AcrobotState) -> AcrobotObservation {
     }
 }
 
-impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
-    type StateType = AcrobotState;
+impl<D: AcrobotDynamicsFn + Default> Environment<1, 1> for Acrobot<D> {
     type ObservationType = AcrobotObservation;
     type ActionType = AcrobotAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, AcrobotObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -825,14 +795,11 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
     /// # Errors
     ///
     /// Currently infallible; returns `Ok` in all cases.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<AcrobotObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -847,7 +814,10 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode already
     /// ended; call [`reset`](Environment::reset) first. No other failure is
     /// possible.
-    fn step(&mut self, action: AcrobotAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: AcrobotAction,
+    ) -> Result<Snapshot<AcrobotObservation>, EnvironmentError> {
         // Guard first: before the state integrates and — critically — before the
         // torque-noise draw below, which consumes from `self.rng` whenever
         // `torque_noise_max > 0`. A rejected call must leave both the physical
@@ -871,13 +841,13 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
         self.steps += 1;
 
         let terminated = Self::is_terminal(&self.state, &self.config);
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         // Single exit: both branches build exactly one snapshot, and the guard is
         // fed that snapshot's own status, so no branch can forget to record.
         let snap = if terminated {
-            SnapshotBase::terminated(obs, ScalarReward(0.0))
+            Snapshot::terminated(obs, ScalarReward(0.0))
         } else {
-            SnapshotBase::running(obs, ScalarReward(-1.0))
+            Snapshot::running(obs, ScalarReward(-1.0))
         };
 
         self.guard.record(snap.status);
@@ -1001,7 +971,6 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::Snapshot;
 
     type DefaultAcrobot = Acrobot<BookDynamics>;
 
@@ -1012,9 +981,7 @@ mod tests {
     /// in the direction the elbow is already turning — which drives the real
     /// dynamics through `step()` rather than hand-placing a terminal state, so
     /// the termination the guard records is one the environment produced itself.
-    fn swing_up_to_terminal(
-        env: &mut DefaultAcrobot,
-    ) -> SnapshotBase<1, AcrobotObservation, ScalarReward> {
+    fn swing_up_to_terminal(env: &mut DefaultAcrobot) -> Snapshot<AcrobotObservation> {
         const MAX_STEPS: usize = 2_000;
 
         env.reset().expect("reset must succeed");
@@ -1027,7 +994,7 @@ mod tests {
             let snap = env
                 .step(action)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -1070,7 +1037,7 @@ mod tests {
 
         let mut env = default_env();
         let snap = env.reset().unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Running);
+        assert_eq!(snap.status, EpisodeStatus::Running);
     }
 
     #[test]
@@ -1134,7 +1101,7 @@ mod tests {
         ] {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -1159,7 +1126,7 @@ mod tests {
         for _ in 0..20 {
             let sb = book.step(AcrobotAction::TorquePos).unwrap();
             let sn = nips.step(AcrobotAction::TorquePos).unwrap();
-            if sb.observation().to_array() != sn.observation().to_array() {
+            if sb.observation.to_array() != sn.observation.to_array() {
                 any_diff = true;
                 break;
             }
@@ -1187,10 +1154,10 @@ mod tests {
         let mut env = default_env();
         env.reset().unwrap();
         let snap = env.step(AcrobotAction::TorquePos).unwrap();
-        if snap.is_terminated() {
-            assert_eq!(*snap.reward(), ScalarReward(0.0));
+        if snap.status.is_terminated() {
+            assert_eq!(snap.reward, ScalarReward(0.0));
         } else {
-            assert_eq!(*snap.reward(), ScalarReward(-1.0));
+            assert_eq!(snap.reward, ScalarReward(-1.0));
         }
     }
 
@@ -1244,8 +1211,8 @@ mod tests {
         // on all four state variables), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -1277,7 +1244,7 @@ mod tests {
 
         let mut env = default_env();
         let terminal = swing_up_to_terminal(&mut env);
-        assert!(terminal.is_terminated(), "swing-up must terminate");
+        assert!(terminal.status.is_terminated(), "swing-up must terminate");
 
         let state_before = env.state;
         let steps_before = env.steps;
@@ -1322,7 +1289,7 @@ mod tests {
             .step(AcrobotAction::TorqueZero)
             .expect("the first step must succeed");
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "an upright acrobot must terminate on the next step"
         );
 
@@ -1385,7 +1352,10 @@ mod tests {
             let snap = env
                 .step(AcrobotAction::TorqueZero)
                 .expect("the first step must succeed");
-            assert!(snap.is_terminated(), "an upright acrobot must terminate");
+            assert!(
+                snap.status.is_terminated(),
+                "an upright acrobot must terminate"
+            );
             env
         };
 
@@ -1410,10 +1380,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"

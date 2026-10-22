@@ -34,7 +34,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = EmptyConfig::new(8, 256, 0);
 //! let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
@@ -58,9 +58,7 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -207,21 +205,21 @@ fn apply_positional(cfg: &mut EmptyConfig, index: usize, value: &str) -> Result<
 
 /// Simplest grid environment: navigate an empty room to the goal.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// No obstacles, keys, or doors — useful as a baseline for verifying that a
 /// navigation policy can solve a trivial task before tackling harder
 /// environments.
 ///
 /// Construct via [`EmptyEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 8, seed 0).
+/// [`Default`] for default settings (size 8, seed 0).
 ///
 /// # Examples
 ///
 /// ```no_run
 /// use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false).expect("valid config");
 /// env.reset().unwrap();
@@ -250,7 +248,7 @@ impl EmptyEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -286,7 +284,7 @@ impl EmptyEnv {
     /// .expect("valid config");
     /// ```
     /// This is the only constructor that builds an `EmptyEnv` value —
-    /// [`ConstructableEnv::new`] delegates here — so it is also the single
+    /// [`Default`] delegates here — so it is also the single
     /// place the [`EpisodeGuard`] is initialized.
     pub fn with_config(config: EmptyConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
@@ -335,16 +333,16 @@ impl EmptyEnv {
         observation: GridObservation,
         reward: f32,
         done: bool,
-    ) -> SnapshotBase<3, GridObservation, ScalarReward> {
+    ) -> Snapshot<GridObservation> {
         if self.render {
             // Render is a debug side effect; return the string so callers can
             // capture it if they wish, or drop it when invoked internally.
             let _ = super::core::render::render_ascii(&self.state.grid, &self.state.agent);
         }
         if done {
-            SnapshotBase::terminated(observation, ScalarReward::new(reward))
+            Snapshot::terminated(observation, ScalarReward::new(reward))
         } else {
-            SnapshotBase::running(observation, ScalarReward::new(reward))
+            Snapshot::running(observation, ScalarReward::new(reward))
         }
     }
 }
@@ -369,35 +367,22 @@ impl Display for EmptyEnv {
     }
 }
 
-impl ConstructableEnv for EmptyEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(EmptyConfig::default(), render).expect("default config must validate")
+impl Default for EmptyEnv {
+    fn default() -> Self {
+        Self::with_config(EmptyConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for EmptyEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl EmptyEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for EmptyEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for EmptyEnv {
     type ObservationType = GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<3, GridObservation, ScalarReward>;
 
     /// Rebuilds the fixed layout, clears the step counter, and re-opens the
     /// episode guard so a terminated environment becomes steppable again.
@@ -405,12 +390,12 @@ impl Environment<3, 3, 1> for EmptyEnv {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (grid, agent) = Self::build(&self.config);
         self.state = GridState::new(grid, agent);
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.snapshot(observation, 0.0, false))
     }
 
@@ -421,7 +406,10 @@ impl Environment<3, 3, 1> for EmptyEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances and before `apply_action` touches
         // the grid or the agent. A rejected call must leave the environment
         // bit-identical — and this env draws no randomness, but the ordering is
@@ -439,12 +427,12 @@ impl Environment<3, 3, 1> for EmptyEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
 
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot drift apart.
         let snapshot = self.snapshot(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -570,8 +558,8 @@ mod tests {
         let mut b = EmptyEnv::with_config(cfg, false).expect("valid config");
         let snap_a = a.reset().unwrap();
         let snap_b = b.reset().unwrap();
-        assert_eq!(snap_a.observation(), snap_b.observation());
-        assert!(!snap_a.is_done());
+        assert_eq!(snap_a.observation, snap_b.observation);
+        assert!(!snap_a.status.is_done());
     }
 
     #[test]
@@ -613,8 +601,8 @@ mod tests {
             last = Some(env.step(action).unwrap());
         }
         let snap = last.expect("at least one step");
-        assert!(snap.is_done(), "reaching the goal should terminate");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done(), "reaching the goal should terminate");
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.0, "goal reward must be positive, got {reward}");
         // 5 steps out of 100 → 1 - 0.9 * 0.05 = 0.955.
         assert!((reward - 0.955).abs() < 1e-4, "reward was {reward}");
@@ -629,8 +617,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -656,7 +644,7 @@ mod tests {
         for i in 0..50 {
             let action = GridAction::from_index(i % GridAction::ACTION_COUNT);
             let snap = env.step(action).unwrap();
-            if snap.is_done() {
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -675,7 +663,7 @@ mod tests {
     /// any bootstrapping agent. A timeout-driven test here would bake that
     /// wrong status into the assertion instead of exercising the intended
     /// termination path.
-    fn drive_to_goal(env: &mut EmptyEnv) -> SnapshotBase<3, GridObservation, ScalarReward> {
+    fn drive_to_goal(env: &mut EmptyEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         // Agent at (1,1) facing East, goal at (3,3).
         let script = [
@@ -714,8 +702,11 @@ mod tests {
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = goal_env();
         let terminal = drive_to_goal(&mut env);
-        assert!(terminal.is_done(), "reaching the goal must end the episode");
-        let ended = terminal.status();
+        assert!(
+            terminal.status.is_done(),
+            "reaching the goal must end the episode"
+        );
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let pos_at_end = (env.state().agent.x, env.state().agent.y);
@@ -766,7 +757,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after termination");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -777,7 +771,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

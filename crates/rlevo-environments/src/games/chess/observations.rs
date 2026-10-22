@@ -120,7 +120,7 @@
 use crate::games::chess::board::{CastlingRights, Color, PieceType, Square};
 // Required once the commented-out `impl State` and `impl Observation` blocks are activated.
 #[allow(unused_imports)]
-use rlevo_core::base::{Observation, State};
+use rlevo_core::base::Observation;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 

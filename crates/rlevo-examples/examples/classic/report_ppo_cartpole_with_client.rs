@@ -62,7 +62,6 @@ use rlevo_harness::record::{
 use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 
 use rlevo_core::environment::Environment;
-use rlevo_core::reward::ScalarReward;
 
 use rlevo_environments::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
@@ -285,11 +284,11 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 /// observation/action/reward types, so a single generic function handles them
 /// all.
 ///
-/// The const generics `<1, 1, 1>` and the turbofish in
-/// `train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>` encode
+/// The const generics `<1, 1>` and the turbofish in
+/// `train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>` encode
 /// type-level facts:
-/// - Reward rank `1`, state rank `1`, action rank `1` (scalar rewards, 1D state tensors)
-/// - `2` actions at the end (`CartPole`'s push-left / push-right)
+/// - observation rank `1` and action rank `1`
+/// - `2` at the end, the batched observation rank (`OR + 1`)
 ///
 /// The whole `train` function exists mainly to **hide that gnarly turbofish** from `main` — a small but real ergonomics win.
 ///
@@ -303,16 +302,9 @@ pub fn train<E>(
     total_timesteps: usize,
 ) -> Result<(), PpoAgentError>
 where
-    E: Environment<
-            1,
-            1,
-            1,
-            ObservationType = CartPoleObservation,
-            ActionType = CartPoleAction,
-            RewardType = ScalarReward,
-        >,
+    E: Environment<1, 1, ObservationType = CartPoleObservation, ActionType = CartPoleAction>,
 {
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         agent,
         env,
         rng,
@@ -347,7 +339,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // CartPole → TimeLimit → RecordingTap. No TUI tap here — the metric
     // stream is captured headlessly and replayed by the report client.
     // Structured-only (ADR-0013): record `FamilyPayload::Classic2D` line-art.
-    let mut env: RecordingTap<_, 1, 1, 1> =
+    let mut env: RecordingTap<_, 1, 1> =
         RecordingTap::with_classic2d_payload(base_env(), sink.clone());
     let mut agent = build_agent(TOTAL_TIMESTEPS);
 

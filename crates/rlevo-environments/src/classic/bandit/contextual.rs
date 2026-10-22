@@ -17,28 +17,26 @@
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
+//! use rlevo_core::environment::{Environment, Snapshot};
 //! use rlevo_environments::classic::{ContextualBandit, ContextualBanditConfig, KArmedBanditAction};
 //!
 //! let mut env = ContextualBandit::<4, 10>::with_config(ContextualBanditConfig::default())
 //!     .expect("valid config");
-//! let _ = <ContextualBandit<4, 10> as Environment<1, 1, 1>>::reset(&mut env)
+//! let _ = <ContextualBandit<4, 10> as Environment<1, 1>>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(2).expect("arm in range");
-//! let snap = <ContextualBandit<4, 10> as Environment<1, 1, 1>>::step(&mut env, action)
+//! let snap = <ContextualBandit<4, 10> as Environment<1, 1>>::step(&mut env, action)
 //!     .expect("step");
-//! assert!(!snap.is_done());
+//! assert!(!snap.status.is_done());
 //! ```
 
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
-use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
+use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -90,7 +88,7 @@ impl<const C: usize> Display for ContextualBanditState<C> {
 /// be validated at construction, and it is out of range for the degenerate
 /// `C == 0`.
 ///
-/// The single in-module struct-literal path, the [`Sensor`] impl on
+/// The single in-module struct-literal path, the `observe` method of
 /// [`ContextualBandit`], copies a context the environment sampled from `0..C`,
 /// so it upholds the invariant by construction;
 /// [`HostRow::write_host_row`] carries a `debug_assert!` as
@@ -186,20 +184,6 @@ impl<const C: usize> Observation<1> for ContextualBanditObservation<C> {
     }
 }
 
-impl<const C: usize> State<1> for ContextualBanditState<C> {
-    fn shape() -> [usize; 1] {
-        [C]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.context < C
-    }
-
-    fn numel(&self) -> usize {
-        C
-    }
-}
-
 impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
     /// One-hot encoding of the current context, length `C`.
     ///
@@ -213,7 +197,7 @@ impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
     /// `debug_assert!` fires if `context >= C`. `context < C` is a construction
     /// invariant of [`ContextualBanditObservation`] — every public constructor
     /// validates it — so the assert only guards the in-module struct-literal
-    /// path in the [`Sensor`] impl on [`ContextualBandit`] against a future
+    /// path in [`ContextualBandit`]'s `observe` method against a future
     /// regression.
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         debug_assert!(
@@ -434,41 +418,26 @@ fn sample_arm_means<const C: usize, const K: usize>(rng: &mut StdRng) -> [[f32; 
     means
 }
 
-impl<const C: usize, const K: usize> ConstructableEnv for ContextualBandit<C, K> {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl<const C: usize, const K: usize> Default for ContextualBandit<C, K> {
+    fn default() -> Self {
         Self::with_config(ContextualBanditConfig::default()).expect("default config must validate")
     }
 }
 
-impl<const C: usize, const K: usize> Sensor<1, 1, 1> for ContextualBandit<C, K> {
-    type Action = KArmedBanditAction<K>;
-    type State = ContextualBanditState<C>;
-    type Observation = ContextualBanditObservation<C>;
-
-    /// Reveals the context carried by `next_state`. The context the environment
+impl<const C: usize, const K: usize> ContextualBandit<C, K> {
+    /// Reveals the context of the current state. The context the environment
     /// sampled is always in `0..C`, so this upholds the
     /// `ContextualBanditObservation` `context < C` invariant by construction.
-    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
+    fn observe(&self) -> ContextualBanditObservation<C> {
         ContextualBanditObservation {
-            context: next_state.context,
-        }
-    }
-
-    /// Reveals the initial context carried by `state`.
-    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
-        ContextualBanditObservation {
-            context: state.context,
+            context: self.state.context,
         }
     }
 }
 
-impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C, K> {
-    type StateType = ContextualBanditState<C>;
+impl<const C: usize, const K: usize> Environment<1, 1> for ContextualBandit<C, K> {
     type ObservationType = ContextualBanditObservation<C>;
     type ActionType = KArmedBanditAction<K>;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, ContextualBanditObservation<C>, ScalarReward>;
 
     /// Reset episode state and reveal a fresh first context.
     ///
@@ -478,14 +447,11 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
     /// vary independently each episode (host-RNG seeding convention,
     /// `docs/rules.md` §8). For a reproducible problem, construct with a fixed
     /// seed.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<ContextualBanditObservation<C>>, EnvironmentError> {
         self.guard.reset();
         self.state.context = self.rng.random_range(0..C);
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward::zero(),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward::default()))
     }
 
     /// # Errors
@@ -495,7 +461,10 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
     /// before the reward draw or the next-context draw, so a rejected call
     /// advances neither the environment nor its RNG stream. Returns
     /// [`EnvironmentError::InvalidAction`] when the arm index is out of range.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<ContextualBanditObservation<C>>, EnvironmentError> {
         self.guard.check()?;
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -508,13 +477,13 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
         self.steps += 1;
         // Reveal the next context after computing reward for the current one.
         self.state.context = self.rng.random_range(0..C);
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         let snap = if self.steps >= self.config.max_steps {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
-        self.guard.record(snap.status());
+        self.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -678,12 +647,11 @@ mod tests {
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
         let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default())
             .expect("valid config");
-        let snap =
-            <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
-        assert!(!snap.is_done());
-        assert_eq!(f32::from(*snap.reward()), 0.0);
+        let snap = <ContextualBandit<C, K> as Environment<1, 1>>::reset(&mut env).expect("reset");
+        assert!(!snap.status.is_done());
+        assert_eq!(f32::from(snap.reward), 0.0);
         assert!(
-            snap.observation().context() < C,
+            snap.observation.context() < C,
             "revealed context must be in range"
         );
     }
@@ -692,13 +660,12 @@ mod tests {
     fn step_observation_matches_revealed_context_after_step() {
         let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default())
             .expect("valid config");
-        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        <ContextualBandit<C, K> as Environment<1, 1>>::reset(&mut env).unwrap();
         let action = KArmedBanditAction::<K>::from_index(0);
-        let snap =
-            <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let snap = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         // After `step`, the observation reflects the *next* context that the
         // env has just sampled.
-        assert_eq!(snap.observation().context(), env.current_context());
+        assert_eq!(snap.observation.context(), env.current_context());
     }
 
     #[test]
@@ -709,12 +676,12 @@ mod tests {
         })
         .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
-        let s1 = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        assert!(!s1.is_done());
-        let s2 = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        assert!(!s2.is_done());
-        let s3 = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        assert!(s3.is_terminated());
+        let s1 = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        assert!(!s1.status.is_done());
+        let s2 = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        assert!(!s2.status.is_done());
+        let s3 = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        assert!(s3.status.is_terminated());
     }
 
     // ── post-terminal step guard ──────────────────────────────────────────────
@@ -745,13 +712,13 @@ mod tests {
     /// Resets, then steps arm 0 until the step budget terminates the episode.
     fn drive_to_termination(
         env: &mut ContextualBandit<C, K>,
-    ) -> SnapshotBase<1, ContextualBanditObservation<C>, ScalarReward> {
-        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(env).expect("reset must succeed");
+    ) -> Snapshot<ContextualBanditObservation<C>> {
+        <ContextualBandit<C, K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
-        let mut snap = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(env, action)
+        let mut snap = <ContextualBandit<C, K> as Environment<1, 1>>::step(env, action)
             .expect("first step must succeed");
-        while !snap.is_done() {
-            snap = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(env, action)
+        while !snap.status.is_done() {
+            snap = <ContextualBandit<C, K> as Environment<1, 1>>::step(env, action)
                 .expect("step must succeed while the episode is running");
         }
         snap
@@ -777,12 +744,11 @@ mod tests {
         let malformed = KArmedBanditAction::<K>::out_of_range_for_tests();
         assert!(!malformed.is_valid(), "the replayed action is out of range");
 
-        let err = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, malformed)
+        let err = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, malformed)
             .expect_err("a step after termination must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
-                status,
-                terminal.status(),
+                status, terminal.status,
                 "the error must carry the status that ended the episode"
             ),
             other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
@@ -796,7 +762,7 @@ mod tests {
         let steps_at_end = env.steps;
         let context_at_end = env.current_context();
 
-        let _ = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(
+        let _ = <ContextualBandit<C, K> as Environment<1, 1>>::step(
             &mut env,
             KArmedBanditAction::<K>::from_index(0),
         )
@@ -813,7 +779,7 @@ mod tests {
         );
         assert_eq!(
             env.guard.status(),
-            terminal.status(),
+            terminal.status,
             "a rejected step must not reopen the episode"
         );
     }
@@ -829,20 +795,20 @@ mod tests {
         drive_to_termination(&mut rejected);
         drive_to_termination(&mut untouched);
 
-        let _ = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(
+        let _ = <ContextualBandit<C, K> as Environment<1, 1>>::step(
             &mut rejected,
             KArmedBanditAction::<K>::from_index(0),
         )
         .expect_err("a step after termination must be rejected");
 
         let replay = |env: &mut ContextualBandit<C, K>| -> Vec<(f32, usize)> {
-            <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(env).unwrap();
+            <ContextualBandit<C, K> as Environment<1, 1>>::reset(env).unwrap();
             let action = KArmedBanditAction::<K>::from_index(0);
             (0..GUARD_MAX_STEPS)
                 .map(|_| {
-                    let snap = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(env, action)
-                        .unwrap();
-                    (f32::from(*snap.reward()), snap.observation().context())
+                    let snap =
+                        <ContextualBandit<C, K> as Environment<1, 1>>::step(env, action).unwrap();
+                    (f32::from(snap.reward), snap.observation.context())
                 })
                 .collect()
         };
@@ -859,20 +825,20 @@ mod tests {
         drive_to_termination(&mut env);
         let action = KArmedBanditAction::<K>::from_index(0);
         assert!(
-            <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).is_err(),
+            <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action).is_err(),
             "the episode has ended; a step must be rejected before reset()"
         );
 
-        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env)
-            .expect("reset must succeed");
+        <ContextualBandit<C, K> as Environment<1, 1>>::reset(&mut env).expect("reset must succeed");
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
             "reset() must return the guard to Running"
         );
         assert!(
-            !<ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action)
+            !<ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action)
                 .expect("reset() must re-open the environment")
+                .status
                 .is_done(),
             "the first step of a fresh episode must not be done"
         );
@@ -886,23 +852,20 @@ mod tests {
         };
         let mut a = ContextualBandit::<C, K>::with_config(cfg.clone()).expect("valid config");
         let mut b = ContextualBandit::<C, K>::with_config(cfg).expect("valid config");
-        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut a).unwrap();
-        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut b).unwrap();
+        <ContextualBandit<C, K> as Environment<1, 1>>::reset(&mut a).unwrap();
+        <ContextualBandit<C, K> as Environment<1, 1>>::reset(&mut b).unwrap();
         assert_eq!(a.arm_means(), b.arm_means());
         assert_eq!(a.current_context(), b.current_context());
 
         for step in 0..32 {
             let action = KArmedBanditAction::<K>::from_index(step % K);
             let snap_a =
-                <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut a, action).unwrap();
+                <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut a, action).unwrap();
             let snap_b =
-                <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut b, action).unwrap();
-            assert_eq!(f32::from(*snap_a.reward()), f32::from(*snap_b.reward()));
-            assert_eq!(
-                snap_a.observation().context(),
-                snap_b.observation().context()
-            );
-            assert_eq!(snap_a.status(), snap_b.status());
+                <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut b, action).unwrap();
+            assert_eq!(f32::from(snap_a.reward), f32::from(snap_b.reward));
+            assert_eq!(snap_a.observation.context(), snap_b.observation.context());
+            assert_eq!(snap_a.status, snap_b.status);
         }
     }
 
@@ -918,9 +881,9 @@ mod tests {
         let before = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
         for _ in 0..5 {
-            let _ = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action);
+            let _ = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action);
         }
-        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        <ContextualBandit<C, K> as Environment<1, 1>>::reset(&mut env).unwrap();
         assert_eq!(before, *env.arm_means());
     }
 
@@ -938,15 +901,15 @@ mod tests {
             (0..16)
                 .map(|_| {
                     f32::from(
-                        *<ContextualBandit<C, K> as Environment<1, 1, 1>>::step(env, action)
+                        <ContextualBandit<C, K> as Environment<1, 1>>::step(env, action)
                             .unwrap()
-                            .reward(),
+                            .reward,
                     )
                 })
                 .collect()
         };
         let episode1 = episode(&mut env);
-        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        <ContextualBandit<C, K> as Environment<1, 1>>::reset(&mut env).unwrap();
         let episode2 = episode(&mut env);
         assert_ne!(
             episode1, episode2,

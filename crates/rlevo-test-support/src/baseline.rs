@@ -20,7 +20,7 @@ use rand::RngExt;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::{BoundedAction, DiscreteAction};
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 
 /// Samples a uniformly-random action from a discrete action space.
 ///
@@ -53,16 +53,15 @@ pub fn uniform_bounded<const AR: usize, A: BoundedAction<AR>>(rng: &mut StdRng) 
 /// `sample` produces one random action per step (see [`uniform_discrete`] /
 /// [`uniform_bounded`]); `max_steps` caps each episode so a non-terminating
 /// environment (e.g. a `Pendulum` with no [`TimeLimit`]) cannot hang the
-/// rollout. The reward is read through [`Snapshot::reward`] and converted to
-/// `f32` via the `Reward: Into<f32>` supertrait, so the helper is agnostic to
-/// the concrete reward type.
+/// rollout. The reward is read from
+/// [`Snapshot::reward`](rlevo_core::environment::Snapshot::reward) as an `f32`.
 ///
 /// [`TimeLimit`]: rlevo_environments::wrappers::TimeLimit
 ///
 /// # Panics
 ///
 /// Panics if `episodes` is zero, or if `env.reset()` / `env.step()` errors.
-pub fn random_return<const R: usize, const SR: usize, const AR: usize, E>(
+pub fn random_return<const R: usize, const AR: usize, E>(
     env: &mut E,
     episodes: usize,
     max_steps: usize,
@@ -70,7 +69,7 @@ pub fn random_return<const R: usize, const SR: usize, const AR: usize, E>(
     mut sample: impl FnMut(&mut StdRng) -> E::ActionType,
 ) -> f32
 where
-    E: Environment<R, SR, AR>,
+    E: Environment<R, AR>,
 {
     assert!(episodes > 0, "episodes must be non-zero");
     let mut total = 0.0_f32;
@@ -80,9 +79,9 @@ where
         loop {
             let action = sample(rng);
             let snap = env.step(action).expect("step");
-            total += snap.reward().clone().into();
+            total += snap.reward.value();
             steps += 1;
-            if snap.is_done() || steps >= max_steps {
+            if snap.status.is_done() || steps >= max_steps {
                 break;
             }
         }

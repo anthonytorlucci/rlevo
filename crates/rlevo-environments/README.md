@@ -76,7 +76,7 @@ Since the leak zone is fixed while the corridor grows, the **recall horizon scal
 
 ### Pixel Grid (modality-changing POMDP)
 
-`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — `Environment<3, 1, 1>` with observation rank `3` and state rank `1`. It is the crate's flagship consumer of `rlevo-core`'s `Observable<OR>` trait (ADR 0019), built from `Observable::project` rather than `State::observe`. Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
+`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — `Environment<3, 1>`, a rank-3 observation of a rank-1 latent. Every observation is `PixelGridState::project` of the latent, a method of the state type (ADR 0020). Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
 
 ---
 
@@ -179,7 +179,7 @@ let env = CartPole::with_config(CartPoleConfig::default()).expect("valid config"
 let mut env = TimeLimit::new(env, 500);
 
 let mut snap = env.reset().expect("reset");
-while !snap.is_done() {
+while !snap.status.is_done() {
     snap = env.step(CartPoleAction::Right).expect("step");
 }
 ```
@@ -193,7 +193,7 @@ use rlevo_environments::grids::core::GridAction;
 
 let mut env = EmptyEnv::with_config(EmptyConfig::default(), false).expect("valid config");
 let mut snap = env.reset().expect("reset");
-while !snap.is_done() {
+while !snap.status.is_done() {
     snap = env.step(GridAction::Forward).expect("step");
 }
 ```
@@ -246,7 +246,7 @@ To replay one specific episode bit-for-bit, call the inherent `reset_with_seed(s
 
 ### Episode Status
 
-`Snapshot::status()` returns one of three variants:
+`Snapshot::status` holds one of three variants:
 
 - `Running` — episode continues
 - `Terminated` — natural episode end (goal reached, fell over, game over)
@@ -256,7 +256,7 @@ A `step` after `Terminated` or `Truncated` returns `EnvironmentError::StepAfterE
 
 ### Const Generics
 
-Tensor ranks (the number of axes, not their sizes) are encoded as const generics: `State<R>`, `Observation<R>` and `Action<R>`, with an environment declaring all three as `Environment<R, SR, AR>` (observation, state and action rank). A rank mismatch produces a compile-time error rather than a runtime panic; the size of each axis is a runtime value, returned by `shape()`.
+Tensor ranks (the number of axes, not their sizes) are encoded as const generics: `Observation<R>` and `Action<R>`, with an environment declaring both as `Environment<OR, AR>` (observation and action rank). A rank mismatch produces a compile-time error rather than a runtime panic; the size of each axis is a runtime value, returned by `shape()`.
 
 ---
 

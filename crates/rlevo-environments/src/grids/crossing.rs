@@ -73,7 +73,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = CrossingConfig::new(7, 196, 42, CrossingKind::Lava);
 //! let mut env = CrossingEnv::with_config(cfg, false).expect("valid config");
@@ -87,7 +87,7 @@
 //! [`Wall`]: super::core::entity::Entity::Wall
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -108,14 +108,8 @@ use rand::seq::SliceRandom;
 // every `R: Rng + ?Sized`. Imported anonymously — only its methods are wanted.
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-// `Snapshot` is imported anonymously: `step()` needs its `status()` method to
-// feed the guard, but re-exporting the name through this module's `use super::*`
-// in the test module would shadow the test module's own explicit import.
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
-};
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -358,8 +352,8 @@ impl FromStr for CrossingConfig {
 
 /// Grid environment where the agent crosses obstacle rivers to reach the goal.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// Every [`reset`](Environment::reset) samples a fresh layout from the
 /// environment's persistent RNG: which two candidate lines become rivers, and
@@ -367,13 +361,13 @@ impl FromStr for CrossingConfig {
 /// and the goal `(size - 2, size - 2)` are fixed, as upstream.
 ///
 /// Construct via [`CrossingEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 7, lava, seed 0).
+/// [`Default`] for default settings (size 7, lava, seed 0).
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = CrossingEnv::with_config(
 ///     CrossingConfig::new(7, 196, 0, CrossingKind::Lava),
@@ -421,7 +415,7 @@ impl CrossingEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -485,7 +479,10 @@ impl CrossingEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -687,7 +684,12 @@ impl CrossingEnv {
         (GridState::new(grid, agent), layout)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -715,35 +717,22 @@ impl Display for CrossingEnv {
     }
 }
 
-impl ConstructableEnv for CrossingEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(CrossingConfig::default(), render).expect("default config must validate")
+impl Default for CrossingEnv {
+    fn default() -> Self {
+        Self::with_config(CrossingConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for CrossingEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl CrossingEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for CrossingEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for CrossingEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Samples a fresh layout and returns the first snapshot of a new episode.
     ///
@@ -753,13 +742,13 @@ impl Environment<3, 3, 1> for CrossingEnv {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (state, layout) = Self::build(&self.config, &mut self.rng);
         self.state = state;
         self.layout = layout;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -770,7 +759,10 @@ impl Environment<3, 3, 1> for CrossingEnv {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended (goal reached, lava entered, or the step budget spent);
     /// call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before the grid or the agent is
         // touched, and before any draw from `self.rng`. A rejected call must
         // leave the board, the step counter and the RNG stream exactly as they
@@ -788,12 +780,12 @@ impl Environment<3, 3, 1> for CrossingEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
 
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot drift apart.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -820,7 +812,6 @@ mod tests {
     use super::super::core::grid::egocentric_view;
     use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
     use std::collections::{HashMap, HashSet, VecDeque};
 
     /// The four facings, for the occlusion sweeps.
@@ -1219,7 +1210,7 @@ mod tests {
         }
         let sa = a.reset_with_seed(99).expect("reset_with_seed");
         let sb = b.reset_with_seed(99).expect("reset_with_seed");
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
         assert_eq!(a.ascii(), b.ascii(), "same seed, bit-identical board");
     }
 
@@ -1241,7 +1232,7 @@ mod tests {
         let mut b = CrossingEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     // -----------------------------------------------------------------------
@@ -1281,8 +1272,8 @@ mod tests {
                         last = Some(env.step(action).expect("step"));
                     }
                     let snap = last.expect("plan must contain at least one action");
-                    assert!(snap.is_done(), "plan did not terminate the episode");
-                    let reward: f32 = (*snap.reward()).into();
+                    assert!(snap.status.is_done(), "plan did not terminate the episode");
+                    let reward: f32 = (snap.reward).into();
                     assert!(reward > 0.0, "reward was {reward} at size {size}, {kind:?}");
                 }
             }
@@ -1314,8 +1305,8 @@ mod tests {
         // (1,1) E → TurnRight → S → Forward → (1,2) = Lava
         env.step(GridAction::TurnRight).unwrap();
         let snap = env.step(GridAction::Forward).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1328,7 +1319,10 @@ mod tests {
         );
         env.step(GridAction::TurnRight).unwrap();
         let snap = env.step(GridAction::Forward).unwrap();
-        assert!(!snap.is_done(), "walls should not terminate the episode");
+        assert!(
+            !snap.status.is_done(),
+            "walls should not terminate the episode"
+        );
         assert_eq!(env.state().agent.y, 1, "agent should not have moved");
     }
 
@@ -1451,7 +1445,7 @@ mod tests {
     ///
     /// Returns the terminal snapshot. The layout is sampled fresh every reset,
     /// so the route is re-planned from the board rather than scripted.
-    fn drive_to_goal(env: &mut CrossingEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut CrossingEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset");
         let path = safe_path(env.state()).expect("every sampled board is solvable");
         let mut last = None;
@@ -1464,7 +1458,7 @@ mod tests {
     /// Reset until lava sits directly south of the start, then walk into it.
     ///
     /// Returns the terminal snapshot.
-    fn drive_into_lava(env: &mut CrossingEnv) -> GridSnapshot {
+    fn drive_into_lava(env: &mut CrossingEnv) -> Snapshot<GridObservation> {
         assert!(
             reset_until_blocker_south(env, 512),
             "no episode in 512 put lava directly south of the start"
@@ -1503,7 +1497,7 @@ mod tests {
         // touches the grid or the agent, and before any RNG draw (ADR 0029).
         let mut env = default_env(CrossingKind::Lava);
         let terminal = drive_into_lava(&mut env);
-        assert!(terminal.is_done(), "the drive must end the episode");
+        assert!(terminal.status.is_done(), "the drive must end the episode");
 
         let steps = env.steps();
         let agent = env.state().agent;
@@ -1544,7 +1538,7 @@ mod tests {
 
         for env in [&mut guarded, &mut clean] {
             let terminal = drive_to_goal(env);
-            assert!(terminal.is_done(), "the drive must end the episode");
+            assert!(terminal.status.is_done(), "the drive must end the episode");
         }
         for _ in 0..3 {
             guarded
@@ -1565,13 +1559,13 @@ mod tests {
     fn test_crossing_reset_reopens_a_terminated_episode() {
         let mut env = default_env(CrossingKind::Lava);
         let terminal = drive_into_lava(&mut env);
-        assert!(terminal.is_done(), "the drive must end the episode");
+        assert!(terminal.status.is_done(), "the drive must end the episode");
         env.step(GridAction::TurnLeft)
             .expect_err("the episode has ended; a further step must be rejected");
 
         let snapshot = env.reset().expect("reset");
         assert!(
-            !snapshot.is_done(),
+            !snapshot.status.is_done(),
             "reset() must hand back a running snapshot"
         );
         assert_eq!(env.steps(), 0, "reset() must clear the step counter");

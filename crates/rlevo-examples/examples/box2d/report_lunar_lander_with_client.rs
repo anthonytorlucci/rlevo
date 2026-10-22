@@ -24,7 +24,7 @@ use parking_lot::Mutex;
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_harness::record::{RecordSink, RecordWriter, RecordingConfig, RecordingTap};
 use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..LunarLanderConfig::default()
     })
     .expect("valid config");
-    let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::with_box2d_payload(env, sink.clone());
+    let mut tap: RecordingTap<_, 1, 1> = RecordingTap::with_box2d_payload(env, sink.clone());
 
     for ep in 0..NUM_EPISODES {
         let mut rng = StdRng::seed_from_u64(SEED.wrapping_add(ep as u64));
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => LunarLanderDiscreteAction::RightEngine,
             };
             let snap = tap.step(action)?;
-            if snap.is_done() {
+            if snap.status.is_done() {
                 break;
             }
         }

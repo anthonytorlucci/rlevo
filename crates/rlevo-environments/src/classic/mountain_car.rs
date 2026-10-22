@@ -65,16 +65,16 @@
 //! ```no_run,ignore
 //! use rlevo_environments::{classic::mountain_car::MountainCar, wrappers::TimeLimit};
 //!
-//! let env = TimeLimit::new(MountainCar::new(false), 200);
+//! let env = TimeLimit::new(MountainCar::default(), 200);
 //! ```
 //!
 //! ## Quick start
 //!
 //! ```rust
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //! use rlevo_environments::classic::mountain_car::{MountainCar, MountainCarAction};
 //!
-//! let mut env = MountainCar::new(false);
+//! let mut env = MountainCar::default();
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(MountainCarAction::Right).unwrap();
 //! println!("{snap:?}");
@@ -86,10 +86,10 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -171,19 +171,6 @@ pub struct MountainCarState {
     pub position: f32,
     /// Velocity (m/s).
     pub velocity: f32,
-}
-
-impl State<1> for MountainCarState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-    fn numel(&self) -> usize {
-        2
-    }
-
-    fn is_valid(&self) -> bool {
-        self.position.is_finite() && self.velocity.is_finite()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +308,7 @@ impl MountainCar {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, MountainCarObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<MountainCarObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -378,31 +365,17 @@ impl fmt::Display for MountainCar {
     }
 }
 
-impl ConstructableEnv for MountainCar {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl Default for MountainCar {
+    fn default() -> Self {
         Self::with_config(MountainCarConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for MountainCar {
-    type Action = MountainCarAction;
-    type State = MountainCarState;
-    type Observation = MountainCarObservation;
-
-    /// Projects the resulting state directly onto the 2-D `[position, velocity]`
-    /// observation; the observation ignores the chosen action.
-    fn observe(
-        &self,
-        _action: &MountainCarAction,
-        next_state: &MountainCarState,
-    ) -> MountainCarObservation {
-        mountain_car_observation(*next_state)
-    }
-
-    /// Projects the initial state onto the 2-D observation.
-    fn observe_reset(&self, state: &MountainCarState) -> MountainCarObservation {
-        mountain_car_observation(*state)
+impl MountainCar {
+    /// Projects the current state directly onto the 2-D `[position, velocity]`
+    /// observation.
+    fn observe(&self) -> MountainCarObservation {
+        mountain_car_observation(self.state)
     }
 }
 
@@ -414,12 +387,9 @@ fn mountain_car_observation(state: MountainCarState) -> MountainCarObservation {
     }
 }
 
-impl Environment<1, 1, 1> for MountainCar {
-    type StateType = MountainCarState;
+impl Environment<1, 1> for MountainCar {
     type ObservationType = MountainCarObservation;
     type ActionType = MountainCarAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, MountainCarObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -431,14 +401,11 @@ impl Environment<1, 1, 1> for MountainCar {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<MountainCarObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -453,7 +420,10 @@ impl Environment<1, 1, 1> for MountainCar {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first. The physics
     /// themselves are infallible.
-    fn step(&mut self, action: MountainCarAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: MountainCarAction,
+    ) -> Result<Snapshot<MountainCarObservation>, EnvironmentError> {
         // Guard first: before the physics update and before `steps` advances, so
         // a rejected call leaves position, velocity, step count and the RNG
         // stream exactly as the terminal step left them (ADR 0029).
@@ -465,11 +435,11 @@ impl Environment<1, 1, 1> for MountainCar {
         // Single exit: both branches build exactly one snapshot, and the guard is
         // fed that snapshot's own status, so no branch can forget to record.
         let terminated = Self::is_terminal(self.state, &self.config);
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         let snap = if terminated {
-            SnapshotBase::terminated(obs, ScalarReward(-1.0))
+            Snapshot::terminated(obs, ScalarReward(-1.0))
         } else {
-            SnapshotBase::running(obs, ScalarReward(-1.0))
+            Snapshot::running(obs, ScalarReward(-1.0))
         };
 
         self.guard.record(snap.status);
@@ -614,7 +584,7 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
 
     fn default_env() -> MountainCar {
         MountainCar::with_config(MountainCarConfig::default()).expect("valid config")
@@ -632,14 +602,12 @@ mod tests {
     /// snapshot. This reaches the goal *legitimately*, through the real physics,
     /// rather than by writing `state` directly, so the guard is exercised on the
     /// same path an agent takes.
-    fn drive_to_goal(
-        env: &mut MountainCar,
-    ) -> SnapshotBase<1, MountainCarObservation, ScalarReward> {
+    fn drive_to_goal(env: &mut MountainCar) -> Snapshot<MountainCarObservation> {
         let mut snap = env.reset().expect("reset must succeed");
         for _ in 0..PUMP_STEP_CAP {
             // Velocity 0 (the reset state) pumps right: any direction works, the
             // hill returns the car with more energy either way.
-            let action = if snap.observation().velocity < 0.0 {
+            let action = if snap.observation.velocity < 0.0 {
                 MountainCarAction::Left
             } else {
                 MountainCarAction::Right
@@ -647,7 +615,7 @@ mod tests {
             snap = env
                 .step(action)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -676,8 +644,8 @@ mod tests {
 
         let mut env = default_env();
         let snap = env.reset().unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Running);
-        let obs = snap.observation();
+        assert_eq!(snap.status, EpisodeStatus::Running);
+        let obs = snap.observation;
         assert!(
             obs.position >= -0.6 && obs.position <= -0.4,
             "position {}",
@@ -719,7 +687,7 @@ mod tests {
             velocity: 0.01,
         };
         let snap = env.step(MountainCarAction::Right).unwrap();
-        assert!(snap.is_terminated());
+        assert!(snap.status.is_terminated());
     }
 
     #[test]
@@ -727,7 +695,7 @@ mod tests {
         let mut env = default_env();
         env.reset().unwrap();
         let snap = env.step(MountainCarAction::NoAccel).unwrap();
-        assert_eq!(*snap.reward(), ScalarReward(-1.0));
+        assert_eq!(snap.reward, ScalarReward(-1.0));
     }
 
     #[test]
@@ -751,7 +719,7 @@ mod tests {
         ] {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -814,8 +782,8 @@ mod tests {
         // position from U(-0.6, -0.4)), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -825,10 +793,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -854,7 +822,7 @@ mod tests {
         let mut env = default_env();
         let terminal = drive_to_goal(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "the flag must terminate the episode"
         );
 
@@ -896,7 +864,7 @@ mod tests {
             .step(MountainCarAction::Right)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

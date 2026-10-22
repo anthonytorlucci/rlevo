@@ -2,7 +2,7 @@
 //!
 //! # Modules
 //!
-//! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, `TensorConvertible`
+//! - [`core`] — foundational traits and types: `Environment`, `Observation`, `Action`, `Snapshot`, `ScalarReward`, `TensorConvertible`
 //! - [`envs`] — benchmark environments: classic control, gridworlds, `Box2D` physics, locomotion
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay and metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, CMA-ES, DE, EP, GP, swarm metaheuristics, EDAs, memetic, neuroevolution, co-evolution
@@ -71,15 +71,14 @@ pub use burn;
 /// # Contents
 ///
 /// **Core base traits** (`rlevo::core::base`):
-/// [`State`](core::base::State), [`Observation`](core::base::Observation),
-/// [`Action`](core::base::Action), [`Reward`](core::base::Reward),
+/// [`Observation`](core::base::Observation),
+/// [`Action`](core::base::Action),
 /// [`HostRow`](core::base::HostRow),
 /// [`TensorConvertible`](core::base::TensorConvertible)
 ///
 /// **Environment** (`rlevo::core::environment`):
 /// [`Environment`](core::environment::Environment),
 /// [`Snapshot`](core::environment::Snapshot),
-/// [`SnapshotBase`](core::environment::SnapshotBase),
 /// [`EpisodeStatus`](core::environment::EpisodeStatus),
 /// [`EnvironmentError`](core::environment::EnvironmentError)
 ///
@@ -88,7 +87,6 @@ pub use burn;
 ///
 /// **Action extensions** (`rlevo::core::action`):
 /// [`DiscreteAction`](core::action::DiscreteAction),
-/// [`MultiDiscreteAction`](core::action::MultiDiscreteAction),
 /// [`ContinuousAction`](core::action::ContinuousAction),
 /// [`BoundedAction`](core::action::BoundedAction)
 ///
@@ -102,19 +100,17 @@ pub use burn;
 /// [`Population`](evo::population::Population)
 pub mod prelude {
     // Base traits
-    pub use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
+    pub use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
 
     // Environment protocol
-    pub use rlevo_core::environment::{
-        Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
-    };
+    pub use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 
     // Reward
     pub use rlevo_core::reward::ScalarReward;
 
     // Action extensions
     pub use rlevo_core::action::{
-        BoundedAction, ContinuousAction, DiscreteAction, InvalidActionError, MultiDiscreteAction,
+        BoundedAction, ContinuousAction, DiscreteAction, InvalidActionError,
     };
 
     // State and action errors

@@ -25,7 +25,7 @@ Because evaluating individuals is independent, ERL maps naturally onto Rust's fe
 
 The ERL research community has produced a rich ecosystem of Python implementations, many optimized for rapid experimentation with flat vector observations and fixed-dimension action spaces. `rlevo` builds on those foundations while exploring a different set of design priorities, rooted in Rust:
 
-**Const-generic dimensional safety.** `State<SR>`, `Observation<R>`, and `Action<AR>` carry their dimensionality as const generic parameters. Dimension mismatches are compile-time errors, not runtime panics — to our knowledge, a guarantee no other Rust RL crate currently offers at the type level.
+**Const-generic dimensional safety.** `Observation<OR>` and `Action<AR>` carry their dimensionality as const generic parameters. Dimension mismatches are compile-time errors, not runtime panics — to our knowledge, a guarantee no other Rust RL crate currently offers at the type level.
 
 **Shared abstractions for evolutionary and gradient-based RL.** Evolutionary and gradient-based agents implement the same `rlevo::core` traits and run against identical environments. Hybrid algorithms that interleave the two — the evolution-guided injection loop pioneered by [Khadka & Tumer (2018)](https://arxiv.org/abs/1805.07917) and extended by work like [EvoRainbow](https://github.com/yeshenpy/EvoRainbow) (ICML 2024) — are in active design in `rlevo-hybrid`. JAX-based libraries such as [EvoRL](https://github.com/EMI-Group/evorl) already ship implemented hybrids; `rlevo` aims to bring that pairing to a type-safe Rust stack.
 

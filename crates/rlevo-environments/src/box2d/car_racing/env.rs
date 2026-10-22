@@ -1,8 +1,8 @@
-//! `CarRacing` environment: `Environment` and `ConstructableEnv` implementations.
+//! `CarRacing` environment: its `Environment` and `Default` implementations.
 //!
 //! This module wires the `Rapier2D` physics world, the [`Track`] generator, the
 //! [`Rasterizer`], and the tile-visit logic into the [`CarRacing`] struct that
-//! implements [`Environment<3, 3, 1>`](rlevo_core::environment::Environment).
+//! implements [`Environment<3, 1>`](rlevo_core::environment::Environment).
 //!
 //! Physics is integrated at a fixed timestep of `config.dt` (default 1/50 s)
 //! via [`RapierWorld::step`](crate::box2d::physics::RapierWorld). Car dynamics
@@ -53,11 +53,9 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
-use rlevo_core::base::{Action, State};
+use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -281,7 +279,7 @@ impl CarRacing {
 
     /// Rasterize the `$96 \times 96 \times 3$` pixel observation for `state` from the live world.
     ///
-    /// This is the emission model driving the env-side [`Sensor`]: it reads the
+    /// This is the environment's emission model: it reads the
     /// car pose from `state` and the world it indexes into, draws the track
     /// tiles and the car into a fresh per-frame [`Rasterizer`], and moves the
     /// buffer out into the observation. It is recomputed on demand each
@@ -360,41 +358,28 @@ impl CarRacing {
     }
 }
 
-impl ConstructableEnv for CarRacing {
+impl Default for CarRacing {
     /// Construct a `CarRacing` environment with default configuration and seed 0.
     ///
     /// The `render` flag is accepted for interface compatibility but has no
     /// effect; the pixel observation is always produced regardless of this value.
     /// Use [`CarRacing::with_config`] to control the seed and other parameters.
-    fn new(_render: bool) -> Self {
+    fn default() -> Self {
         Self::with_config(CarRacingConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for CarRacing {
-    type Action = CarRacingAction;
-    type State = CarRacingState;
-    type Observation = CarRacingObservation;
-
-    /// Emit the `$96 \times 96 \times 3$` pixel frame for `next_state` by rasterizing the live
-    /// world. The action does not affect the rendered frame; it is accepted to satisfy the
-    /// [`Sensor`] contract.
-    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
-        self.render_frame(next_state)
-    }
-
-    /// Emit the initial pixel frame at episode start from the reset `state`.
-    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
-        self.render_frame(state)
+impl CarRacing {
+    /// Emit the `$96 \times 96 \times 3$` pixel frame of the current state by
+    /// rasterizing the live world.
+    fn observe(&self) -> CarRacingObservation {
+        self.render_frame(&self.state)
     }
 }
 
-impl Environment<3, 3, 1> for CarRacing {
-    type StateType = CarRacingState;
+impl Environment<3, 1> for CarRacing {
     type ObservationType = CarRacingObservation;
     type ActionType = CarRacingAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<3, CarRacingObservation, ScalarReward>;
 
     /// Generates a fresh procedural track, rebuilds the physics world, and
     /// returns the first snapshot of a new episode.
@@ -408,17 +393,17 @@ impl Environment<3, 3, 1> for CarRacing {
     ///
     /// Currently infallible; always returns `Ok`. Track generation and world
     /// construction cannot fail once the config has validated.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<CarRacingObservation>, EnvironmentError> {
         self.guard.reset();
         self.track = Track::generate(&self.config, &mut self.rng);
         self.state.total_tiles = self.track.tiles.len();
         self.build_world();
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         debug_assert!(
             self.state.is_valid(),
             "CarRacingState invariant violated after reset"
         );
-        Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)))
     }
 
     /// Applies the car controls, advances the physics world by one fixed
@@ -439,7 +424,10 @@ impl Environment<3, 3, 1> for CarRacing {
     ///   [`reset`](Environment::reset) first.
     /// - [`EnvironmentError::InvalidAction`] if `action` violates the asymmetric
     ///   bounds `$\text{steer} \in [-1, 1]$`, `$\text{gas} \in [0, 1]$`, `$\text{brake} \in [0, 1]$`.
-    fn step(&mut self, action: CarRacingAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: CarRacingAction,
+    ) -> Result<Snapshot<CarRacingObservation>, EnvironmentError> {
         // Guard first — ahead of the action check, the force application, the
         // world integration, the step counter and the tile-visit sweep. Whether
         // the episode is over is a call-sequence fact independent of the action's
@@ -472,14 +460,14 @@ impl Environment<3, 3, 1> for CarRacing {
             EpisodeStatus::Running
         };
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         debug_assert!(
             self.state.is_valid(),
             "CarRacingState invariant violated after step"
         );
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot disagree.
-        let snap = SnapshotBase {
+        let snap = Snapshot {
             observation: obs,
             reward: ScalarReward(reward),
             status,
@@ -613,7 +601,6 @@ mod tests {
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
     use std::sync::Arc;
 
     /// Creates a default seeded `CarRacing` environment for use in tests.
@@ -653,12 +640,10 @@ mod tests {
     }
 
     /// Coasts until the step budget runs out and returns the truncated snapshot.
-    fn drive_to_truncation(
-        env: &mut CarRacing,
-    ) -> SnapshotBase<3, CarRacingObservation, ScalarReward> {
+    fn drive_to_truncation(env: &mut CarRacing) -> Snapshot<CarRacingObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env.step(coast()).expect("first step must succeed");
-        while !snap.is_done() {
+        while !snap.status.is_done() {
             snap = env
                 .step(coast())
                 .expect("step must succeed while the episode is running");
@@ -713,7 +698,7 @@ mod tests {
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = truncating_env();
         let terminal = drive_to_truncation(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
         assert_eq!(
             ended,
             EpisodeStatus::Truncated,
@@ -723,7 +708,7 @@ mod tests {
         let steps_at_end = env.steps;
         let visited_at_end = env.state_for_test().tiles_visited();
         let tile_at_end = env.state_for_test().current_tile();
-        let frame_at_end = Arc::clone(&terminal.observation().pixels);
+        let frame_at_end = Arc::clone(&terminal.observation.pixels);
 
         let err = env
             .step(coast())
@@ -757,7 +742,7 @@ mod tests {
         );
         // The frame is a pure function of the world pose and the tile colours, so
         // an unchanged frame is direct evidence the physics world did not step.
-        let frame_after = env.observe_reset(&env.state);
+        let frame_after = env.observe();
         assert!(
             *frame_after.pixels == *frame_at_end,
             "a rejected step must not advance the physics world (frame changed)"
@@ -776,7 +761,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after truncation");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -787,7 +775,7 @@ mod tests {
             .step(coast())
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -801,7 +789,7 @@ mod tests {
     fn test_reset_returns_running() {
         let mut env = make_env();
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
     }
 
     #[test]
@@ -819,7 +807,7 @@ mod tests {
         let total = env.state_for_test().total_tiles();
         let before = env.state_for_test().tiles_visited();
         let snap = env.step(CarRacingAction::new(0.0, 0.0, 0.0)).unwrap();
-        let reward: f32 = (*snap.reward()).into();
+        let reward: f32 = (snap.reward).into();
         let newly = env.state_for_test().tiles_visited() - before;
 
         // Reward decomposes exactly as: newly-marked tiles `$\times$` per-tile reward (lap_reward /
@@ -857,7 +845,7 @@ mod tests {
             let mut reward_sum = 0.0f32;
             for _ in 0..5 {
                 if let Ok(snap) = env.step(a.clone()) {
-                    let r: f32 = (*snap.reward()).into();
+                    let r: f32 = (snap.reward).into();
                     reward_sum += r;
                 }
             }
@@ -1085,7 +1073,7 @@ mod tests {
 
         let snap = env.step(CarRacingAction::new(0.0, 0.0, 0.0)).unwrap();
         assert!(
-            matches!(snap.status(), EpisodeStatus::Terminated),
+            matches!(snap.status, EpisodeStatus::Terminated),
             "a completed lap must report Terminated"
         );
     }

@@ -4,26 +4,21 @@
 //! `Environment` trait. The public entry-points are:
 //!
 //! - [`Reacher::with_config`] — construct from an explicit [`ReacherConfig`].
-//! - [`ConstructableEnv::new`] — construct with default config (render flag is
-//!   a no-op; there is no render path in this environment).
+//! - [`Default`] — construct with the default config.
 //! - [`METADATA_KEY_REWARD_DISTANCE`] / [`METADATA_KEY_REWARD_CONTROL`] — keys
 //!   for per-step reward components stored in `SnapshotMetadata`.
-
-use std::marker::PhantomData;
 
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
+    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotMetadata,
 };
 use rlevo_core::reward::ScalarReward;
 
-use crate::locomotion::backend::{
-    LocomotionBackend, Rapier3DBackend, Rapier3DJointHandle, Rapier3DWorld,
-};
-use crate::locomotion::common::{LocomotionSnapshot, ctrl_cost, wrap_to_pi};
+use crate::locomotion::backend::{Rapier3DBackend, Rapier3DJointHandle, Rapier3DWorld};
+use crate::locomotion::common::{ctrl_cost, wrap_to_pi};
 use rlevo_core::episode::EpisodeGuard;
 
 use super::action::ReacherAction;
@@ -37,8 +32,7 @@ pub const METADATA_KEY_REWARD_DISTANCE: &str = "reward_distance";
 pub const METADATA_KEY_REWARD_CONTROL: &str = "reward_control";
 
 /// Reacher — a 2-link planar arm whose fingertip must reach a randomly
-/// placed target. Generic in the physics backend; v1 only implements
-/// `B = Rapier3DBackend`.
+/// placed target, simulated on `Rapier3D`.
 ///
 /// # Episode lifecycle
 ///
@@ -48,8 +42,8 @@ pub const METADATA_KEY_REWARD_CONTROL: &str = "reward_control";
 /// [`EnvironmentError::StepAfterEpisodeEnd`] until [`reset`](Environment::reset)
 /// is called (see the [`EpisodeGuard`] field).
 #[derive(Debug)]
-pub struct Reacher<B: LocomotionBackend = Rapier3DBackend> {
-    world: B::World,
+pub struct Reacher {
+    world: Rapier3DWorld,
     state: ReacherState,
     config: ReacherConfig,
     rng: StdRng,
@@ -61,13 +55,9 @@ pub struct Reacher<B: LocomotionBackend = Rapier3DBackend> {
     /// caller asked for, and re-emit `Truncated` with a fresh distance/control
     /// reward — for as many calls as the caller makes.
     guard: EpisodeGuard,
-    _marker: PhantomData<B>,
 }
 
-/// Default backend alias.
-pub type ReacherRapier = Reacher<Rapier3DBackend>;
-
-impl Reacher<Rapier3DBackend> {
+impl Reacher {
     /// Create with an explicit configuration.
     ///
     /// # Errors
@@ -86,7 +76,6 @@ impl Reacher<Rapier3DBackend> {
             rng,
             steps: 0,
             guard: EpisodeGuard::new(),
-            _marker: PhantomData,
         })
     }
 
@@ -106,7 +95,7 @@ impl Reacher<Rapier3DBackend> {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<LocomotionSnapshot<ReacherObservation>, EnvironmentError> {
+    ) -> Result<Snapshot<ReacherObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -274,38 +263,24 @@ impl Reacher<Rapier3DBackend> {
     }
 }
 
-impl Sensor<1, 1, 1> for Reacher<Rapier3DBackend> {
-    type Action = ReacherAction;
-    type State = ReacherState;
-    type Observation = ReacherObservation;
-
+impl Reacher {
     /// Emission model: reads the 10-element observation directly from the
-    /// physics world through the state's body handles and cached target. The
-    /// action does not enter the observation, and `next_state` carries the same
-    /// handles as `self.state`, so both are unused; the world is the source of
-    /// truth.
-    fn observe(&self, _action: &ReacherAction, _next_state: &ReacherState) -> ReacherObservation {
-        self.extract_observation()
-    }
-
-    /// Initial observation at episode start, read from the freshly built world.
-    fn observe_reset(&self, _state: &ReacherState) -> ReacherObservation {
+    /// physics world through the state's body handles and cached target; the
+    /// world is the source of truth.
+    fn observe(&self) -> ReacherObservation {
         self.extract_observation()
     }
 }
 
-impl ConstructableEnv for Reacher<Rapier3DBackend> {
-    fn new(_render: bool) -> Self {
+impl Default for Reacher {
+    fn default() -> Self {
         Self::with_config(ReacherConfig::default()).expect("default config must validate")
     }
 }
 
-impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
-    type StateType = ReacherState;
+impl Environment<1, 1> for Reacher {
     type ObservationType = ReacherObservation;
     type ActionType = ReacherAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LocomotionSnapshot<ReacherObservation>;
 
     /// Reset the environment to a freshly sampled initial state.
     ///
@@ -323,7 +298,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
     ///
     /// This implementation never returns `Err`; the signature is required by
     /// the `Environment` trait.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<ReacherObservation>, EnvironmentError> {
         // The rebuild below is infallible, so there is no partial-reset window
         // in which clearing the guard would re-open an episode over a world
         // that never returned to its initial state (ADR 0044 §6).
@@ -334,7 +309,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         self.state = state;
         self.steps = 0;
 
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
         // Zero-reward initial snapshot; emit both reward components at 0.0 so the
         // `$\sum$`-components = reward invariant holds at step 0 (no action taken).
@@ -342,7 +317,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
             .with(METADATA_KEY_REWARD_DISTANCE, 0.0)
             .with(METADATA_KEY_REWARD_CONTROL, 0.0)
             .with_position("target", [obs.target_xy()[0], obs.target_xy()[1], 0.0]);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advance the simulation by one environment timestep (`dt * frame_skip`).
@@ -362,7 +337,10 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
     ///   call-sequence bug it is even when the replayed action is malformed.
     /// - [`EnvironmentError::InvalidAction`] if either action element is
     ///   non-finite (`NaN` or `$\pm\infty$`).
-    fn step(&mut self, action: ReacherAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: ReacherAction,
+    ) -> Result<Snapshot<ReacherObservation>, EnvironmentError> {
         // Guard first — ahead of the action check, the torque application and
         // the physics substeps. Whether the episode is over is a call-sequence
         // fact independent of the action's validity, and a rejected step must
@@ -409,7 +387,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         });
         self.steps += 1;
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
 
         let [dx, dy] = obs.finger_minus_target_xy();
@@ -439,7 +417,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
             .with_position("target", [tx, ty, 0.0]);
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot disagree.
-        let snapshot = LocomotionSnapshot {
+        let snapshot = Snapshot {
             observation: obs,
             reward: ScalarReward(total),
             status,
@@ -462,7 +440,6 @@ mod tests {
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     fn cfg(seed: u64) -> ReacherConfig {
         ReacherConfig {
@@ -504,8 +481,8 @@ mod tests {
     }
 
     /// Environment whose episodes truncate after [`GUARD_MAX_STEPS`] steps.
-    fn truncating_env() -> ReacherRapier {
-        ReacherRapier::with_config(ReacherConfig {
+    fn truncating_env() -> Reacher {
+        Reacher::with_config(ReacherConfig {
             seed: 7,
             reset_noise_scale: 0.0,
             max_steps: GUARD_MAX_STEPS,
@@ -515,10 +492,10 @@ mod tests {
     }
 
     /// Idles until the step budget runs out and returns the truncated snapshot.
-    fn drive_to_truncation(env: &mut ReacherRapier) -> LocomotionSnapshot<ReacherObservation> {
+    fn drive_to_truncation(env: &mut Reacher) -> Snapshot<ReacherObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env.step(idle()).expect("first step must succeed");
-        while !snap.is_done() {
+        while !snap.status.is_done() {
             snap = env
                 .step(idle())
                 .expect("step must succeed while the episode is running");
@@ -545,7 +522,7 @@ mod tests {
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = truncating_env();
         let terminal = drive_to_truncation(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
         assert_eq!(
             ended,
             EpisodeStatus::Truncated,
@@ -623,7 +600,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after truncation");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -695,11 +675,11 @@ mod tests {
             }
         }
         fn rollout(config: ReacherConfig, action: ReacherAction) -> [f32; 10] {
-            let mut env = ReacherRapier::with_config(config).expect("valid config");
+            let mut env = Reacher::with_config(config).expect("valid config");
             env.reset().expect("reset");
             env.step(action)
                 .expect("a boundary action of the static space must be accepted")
-                .observation()
+                .observation
                 .0
         }
 
@@ -734,25 +714,25 @@ mod tests {
 
     #[test]
     fn reset_returns_running() {
-        let mut env = ReacherRapier::with_config(cfg(7)).expect("valid config");
+        let mut env = Reacher::with_config(cfg(7)).expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
-        assert!(snap.observation().is_finite());
+        assert!(!snap.status.is_done());
+        assert!(snap.observation.is_finite());
     }
 
     #[test]
     fn reward_decomposition_sums_to_total() {
-        let mut env = ReacherRapier::with_config(cfg(1)).expect("valid config");
+        let mut env = Reacher::with_config(cfg(1)).expect("valid config");
         env.reset().unwrap();
         for i in 0..20 {
             let a = ReacherAction::new(0.3 * (i as f32).sin(), -0.2);
             let snap = env.step(a).unwrap();
-            let meta = snap.metadata().unwrap();
+            let meta = snap.metadata.as_ref().unwrap();
             let sum: f32 = meta.components.values().sum();
             assert!(
-                (sum - snap.reward().0).abs() < 1e-5,
+                (sum - snap.reward.0).abs() < 1e-5,
                 "Σ components ({sum}) must equal reward ({}) at step {i}",
-                snap.reward().0
+                snap.reward.0
             );
         }
     }
@@ -769,12 +749,12 @@ mod tests {
     #[test]
     fn determinism_across_reset() {
         let rollout = |actions: &[[f32; 2]]| {
-            let mut env = ReacherRapier::with_config(cfg(123)).expect("valid config");
+            let mut env = Reacher::with_config(cfg(123)).expect("valid config");
             env.reset().unwrap();
             let mut last = ReacherObservation::default();
             for a in actions {
                 if let Ok(snap) = env.step(ReacherAction(*a)) {
-                    last = *snap.observation();
+                    last = snap.observation;
                 }
             }
             last
@@ -786,7 +766,7 @@ mod tests {
     #[test]
     fn init_noise_bounded() {
         for seed in 0..50 {
-            let env = ReacherRapier::with_config(cfg(seed)).expect("valid config");
+            let env = Reacher::with_config(cfg(seed)).expect("valid config");
             let obs = env.state.last_obs;
             assert!(obs.is_finite(), "seed {seed} produced non-finite obs");
             let theta1 = obs.theta1_sin().atan2(obs.theta1_cos());
@@ -807,7 +787,7 @@ mod tests {
 
     #[test]
     fn truncates_at_max_steps() {
-        let mut env = ReacherRapier::with_config(ReacherConfig {
+        let mut env = Reacher::with_config(ReacherConfig {
             max_steps: 5,
             ..Default::default()
         })
@@ -816,14 +796,14 @@ mod tests {
         let mut status = EpisodeStatus::Running;
         for _ in 0..5 {
             let snap = env.step(ReacherAction::new(0.0, 0.0)).unwrap();
-            status = snap.status();
+            status = snap.status;
         }
         assert_eq!(status, EpisodeStatus::Truncated);
     }
 
     #[test]
     fn invalid_action_is_error() {
-        let mut env = ReacherRapier::with_config(ReacherConfig::default()).expect("valid config");
+        let mut env = Reacher::with_config(ReacherConfig::default()).expect("valid config");
         env.reset().unwrap();
         let bad = ReacherAction::new(f32::NAN, 0.0);
         assert!(env.step(bad).is_err());
@@ -831,13 +811,13 @@ mod tests {
 
     #[test]
     fn obs_is_finite_after_rollout() {
-        let mut env = ReacherRapier::with_config(cfg(42)).expect("valid config");
+        let mut env = Reacher::with_config(cfg(42)).expect("valid config");
         env.reset().unwrap();
         for i in 0..50 {
             let a = ReacherAction::new(0.5 * (i as f32 * 0.3).sin(), 0.5 * (i as f32 * 0.4).cos());
             let snap = env.step(a).unwrap();
-            assert!(snap.observation().is_finite(), "non-finite obs at step {i}");
-            if snap.is_done() {
+            assert!(snap.observation.is_finite(), "non-finite obs at step {i}");
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -845,10 +825,10 @@ mod tests {
 
     #[test]
     fn obs_layout_matches_spec() {
-        let mut env = ReacherRapier::with_config(cfg(3)).expect("valid config");
+        let mut env = Reacher::with_config(cfg(3)).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(ReacherAction::new(0.2, -0.1)).unwrap();
-        let obs = snap.observation().0;
+        let obs = snap.observation.0;
         // `$\cos^2 + \sin^2 \approx 1$` for each joint
         assert!((obs[0].powi(2) + obs[2].powi(2) - 1.0).abs() < 1e-4);
         assert!((obs[1].powi(2) + obs[3].powi(2) - 1.0).abs() < 1e-4);
@@ -860,7 +840,7 @@ mod tests {
     #[test]
     fn target_within_disk_on_reset() {
         for seed in 0..200 {
-            let env = ReacherRapier::with_config(cfg(seed)).expect("valid config");
+            let env = Reacher::with_config(cfg(seed)).expect("valid config");
             let [tx, ty] = env.state.target_xy;
             let r2 = tx * tx + ty * ty;
             assert!(
@@ -873,10 +853,10 @@ mod tests {
 
     #[test]
     fn finger_minus_target_matches_positions() {
-        let mut env = ReacherRapier::with_config(cfg(5)).expect("valid config");
+        let mut env = Reacher::with_config(cfg(5)).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(ReacherAction::new(0.1, -0.1)).unwrap();
-        let obs = snap.observation();
+        let obs = snap.observation;
 
         // Re-derive fingertip from link2's pose and the half-length offset.
         let p2 = Rapier3DBackend::get_pose(&env.world, env.state.link2);
@@ -901,7 +881,7 @@ mod tests {
 
     #[test]
     fn reward_distance_is_nonpositive() {
-        let mut env = ReacherRapier::with_config(cfg(11)).expect("valid config");
+        let mut env = Reacher::with_config(cfg(11)).expect("valid config");
         env.reset().unwrap();
         for i in 0..50 {
             let a = ReacherAction::new(
@@ -909,20 +889,20 @@ mod tests {
                 -0.3 * (i as f32 * 0.23).cos(),
             );
             let snap = env.step(a).unwrap();
-            let d = snap.metadata().unwrap().components[METADATA_KEY_REWARD_DISTANCE];
+            let d = snap.metadata.as_ref().unwrap().components[METADATA_KEY_REWARD_DISTANCE];
             assert!(d <= 0.0, "reward_distance must be ≤ 0, got {d} at step {i}");
         }
     }
 
     #[test]
     fn reward_control_is_nonpositive() {
-        let mut env = ReacherRapier::with_config(cfg(13)).expect("valid config");
+        let mut env = Reacher::with_config(cfg(13)).expect("valid config");
         env.reset().unwrap();
         for i in 0..50 {
             let a =
                 ReacherAction::new(0.6 * (i as f32 * 0.31).cos(), 0.9 * (i as f32 * 0.11).sin());
             let snap = env.step(a).unwrap();
-            let c = snap.metadata().unwrap().components[METADATA_KEY_REWARD_CONTROL];
+            let c = snap.metadata.as_ref().unwrap().components[METADATA_KEY_REWARD_CONTROL];
             assert!(c <= 0.0, "reward_control must be ≤ 0, got {c} at step {i}");
         }
     }
@@ -969,7 +949,7 @@ mod tests {
         const STEPS: usize = 3;
         const RESIDUAL_TOL: f32 = 1e-3;
 
-        let mut env = ReacherRapier::with_config(ReacherConfig {
+        let mut env = Reacher::with_config(ReacherConfig {
             seed: 5,
             reset_noise_scale: 0.0,
             ..Default::default()
@@ -983,10 +963,10 @@ mod tests {
         for i in 0..STEPS {
             let snap = env.step(ReacherAction::new(0.5, 0.0)).unwrap();
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "obs must stay finite at step {i}"
             );
-            moved |= snap.observation().theta1_dot().abs() > 0.0;
+            moved |= snap.observation.theta1_dot().abs() > 0.0;
         }
 
         // link1 (shoulder) carries the actuated torque
@@ -1015,9 +995,9 @@ mod tests {
     fn two_successive_resets_differ() {
         // The persistent RNG advances across resets (default reset noise > 0),
         // so back-to-back resets must sample independent initial states.
-        let mut env = ReacherRapier::with_config(cfg(7)).expect("valid config");
-        let first = env.reset().unwrap().observation().0;
-        let second = env.reset().unwrap().observation().0;
+        let mut env = Reacher::with_config(cfg(7)).expect("valid config");
+        let first = env.reset().unwrap().observation.0;
+        let second = env.reset().unwrap().observation.0;
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -1026,11 +1006,11 @@ mod tests {
 
     #[test]
     fn reset_with_seed_is_reproducible() {
-        let mut env = ReacherRapier::with_config(cfg(7)).expect("valid config");
-        let a = env.reset_with_seed(999).unwrap().observation().0;
+        let mut env = Reacher::with_config(cfg(7)).expect("valid config");
+        let a = env.reset_with_seed(999).unwrap().observation.0;
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().0;
+        let b = env.reset_with_seed(999).unwrap().observation.0;
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"

@@ -15,8 +15,8 @@ use rand::Rng;
 
 use burn::tensor::backend::AutodiffBackend;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Observation, Reward, TensorConvertible};
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::environment::Environment;
 
 use crate::algorithms::c51::c51_agent::{C51Agent, C51AgentError, C51Metrics};
 use crate::algorithms::c51::c51_model::C51Model;
@@ -40,8 +40,6 @@ use crate::algorithms::c51::c51_model::C51Model;
 ///
 /// - `R` — rank of a single observation tensor (e.g. `1` for flat vector
 ///   observations).
-/// - `SR` — rank of the state tensor (unused by the loop itself; forwarded to
-///   the environment bound).
 /// - `BR` — rank of a batched observation tensor (`R + 1`).
 ///
 /// # Arguments
@@ -64,7 +62,7 @@ use crate::algorithms::c51::c51_model::C51Model;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, Rew, const R: usize, const SR: usize, const BR: usize>(
+pub fn train<B, M, E, O, A, const R: usize, const BR: usize>(
     agent: &mut C51Agent<B, M, O, A, R, BR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -74,10 +72,9 @@ pub fn train<B, M, E, O, A, Rew, const R: usize, const SR: usize, const BR: usiz
 where
     B: AutodiffBackend,
     M: C51Model<B, BR>,
-    E: Environment<R, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<R, 1, ObservationType = O, ActionType = A>,
     O: Observation<R> + TensorConvertible<R, B> + TensorConvertible<R, B::InnerBackend>,
     A: DiscreteAction<1>,
-    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(io_from_env)?;
     let mut episode_reward = 0.0_f32;
@@ -87,11 +84,11 @@ where
     let mut last_entropy = 0.0_f32;
 
     for step in 0..total_steps {
-        let obs_current = snapshot.observation().clone();
+        let obs_current = snapshot.observation.clone();
         let action = agent.act(&obs_current, rng);
 
         let next_snapshot = env.step(action.clone()).map_err(io_from_env)?;
-        let reward_f32: f32 = (*next_snapshot.reward()).into();
+        let reward_f32: f32 = (next_snapshot.reward).into();
         // Two distinct masks — do NOT collapse these back into one.
         //
         // `done` drives episode bookkeeping (metrics, `env.reset()`): the
@@ -103,9 +100,9 @@ where
         // target. Masking on `done` here would zero the bootstrap at every timeout and bias Q
         // downward on any time-limited env (Pardo et al., "Time Limits in Reinforcement Learning",
         // ICML 2018, Eq. 6 — partial-episode bootstrapping).
-        let done = next_snapshot.is_done();
-        let terminated = next_snapshot.is_terminated();
-        let next_obs = next_snapshot.observation().clone();
+        let done = next_snapshot.status.is_done();
+        let terminated = next_snapshot.status.is_terminated();
+        let next_obs = next_snapshot.observation.clone();
 
         agent.remember(
             obs_current,

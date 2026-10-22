@@ -56,8 +56,8 @@ impl Direction {
     /// (`East = 0`, `South = 1`, `West = 2`, `North = 3`).
     ///
     /// This is *not* what the grid observations use: the facing is carried on
-    /// `GridObservation` / `GoToDoorObservation` as a typed
-    /// `Option<Direction>`, and no observation channel encodes it. This method
+    /// `GridObservation` / `GoToDoorObservation` as a typed `Direction`, and
+    /// no observation channel encodes it. This method
     /// exists for callers that need the canonical wire byte — logging,
     /// interop, or a bespoke encoding of their own.
     #[must_use]

@@ -6,7 +6,6 @@
 //! [`super::Reacher`] struct because it is not `Clone`.
 
 use rapier3d::prelude::{ImpulseJointHandle, RigidBodyHandle};
-use rlevo_core::base::State;
 
 use super::observation::ReacherObservation;
 
@@ -37,21 +36,9 @@ pub struct ReacherState {
     /// extraction — the target body is fixed and never moves within an
     /// episode.
     pub target_xy: [f32; 2],
-    /// Most recent observation extracted after the last `step` (or `reset`).
-    /// Read only by [`State::is_valid`] to detect physics divergence; the
-    /// observation itself is produced by the env-side
-    /// [`Sensor`](rlevo_core::environment::Sensor) (ADR 0047). Set to
-    /// `ReacherObservation::default()` (all zeros) before the first
-    /// observation is extracted.
+    /// Most recent observation extracted after the last `step` (or `reset`);
+    /// the observation itself is produced by the environment's emission model
+    /// (ADR 0047). Set to `ReacherObservation::default()` (all zeros) before
+    /// the first observation is extracted.
     pub last_obs: ReacherObservation,
-}
-
-impl State<1> for ReacherState {
-    fn shape() -> [usize; 1] {
-        [10]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.last_obs.is_finite()
-    }
 }

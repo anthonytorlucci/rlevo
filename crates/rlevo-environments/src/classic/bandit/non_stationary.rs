@@ -15,7 +15,7 @@
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
+//! use rlevo_core::environment::{Environment, Snapshot};
 //! use rlevo_environments::classic::{
 //!     KArmedBanditAction, NonStationaryBandit, NonStationaryBanditConfig,
 //! };
@@ -25,29 +25,25 @@
 //!     ..NonStationaryBanditConfig::default()
 //! };
 //! let mut env = NonStationaryBandit::<10>::with_config(cfg).expect("valid config");
-//! let _ = <NonStationaryBandit<10> as Environment<1, 1, 1>>::reset(&mut env)
+//! let _ = <NonStationaryBandit<10> as Environment<1, 1>>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(3).expect("arm in range");
-//! let _ = <NonStationaryBandit<10> as Environment<1, 1, 1>>::step(&mut env, action)
+//! let _ = <NonStationaryBandit<10> as Environment<1, 1>>::step(&mut env, action)
 //!     .expect("step");
 //! ```
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
-use rlevo_core::base::{Action, Reward};
+use rlevo_core::base::Action;
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use super::k_armed::{
-    KArmedBanditAction, KArmedBanditObservation, KArmedBanditState, sample_arm_means,
-};
+use super::k_armed::{KArmedBanditAction, KArmedBanditObservation, sample_arm_means};
 use rlevo_core::episode::EpisodeGuard;
 
 // ---------------------------------------------------------------------------
@@ -175,7 +171,6 @@ impl FromStr for NonStationaryBanditConfig {
 /// means after each step.
 #[derive(Debug)]
 pub struct NonStationaryBandit<const K: usize> {
-    state: KArmedBanditState,
     steps: usize,
     /// Episode-lifecycle guard: rejects a [`Environment::step`] taken after the
     /// episode ended (ADR 0044). `EpisodeStatus` is the single source of truth
@@ -230,7 +225,6 @@ impl<const K: usize> NonStationaryBandit<K> {
         let mut rng = StdRng::seed_from_u64(config.seed);
         let arm_means = sample_arm_means::<K>(&mut rng);
         Ok(Self {
-            state: KArmedBanditState,
             steps: 0,
             guard: EpisodeGuard::new(),
             config,
@@ -265,37 +259,16 @@ impl<const K: usize> NonStationaryBandit<K> {
     }
 }
 
-impl<const K: usize> ConstructableEnv for NonStationaryBandit<K> {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl<const K: usize> Default for NonStationaryBandit<K> {
+    fn default() -> Self {
         Self::with_config(NonStationaryBanditConfig::default())
             .expect("default config must validate")
     }
 }
 
-impl<const K: usize> Sensor<1, 1, 1> for NonStationaryBandit<K> {
-    type Action = KArmedBanditAction<K>;
-    type State = KArmedBanditState;
-    type Observation = KArmedBanditObservation;
-
-    /// Emits the (empty) stateless bandit observation; the drifting arm means
-    /// are internal to the environment and not surfaced to the agent.
-    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
-        KArmedBanditObservation
-    }
-
-    /// Emits the initial (empty) stateless bandit observation.
-    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
-        KArmedBanditObservation
-    }
-}
-
-impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
-    type StateType = KArmedBanditState;
+impl<const K: usize> Environment<1, 1> for NonStationaryBandit<K> {
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
 
     /// Reset episode state and restore the drifting arm means to their fixed
     /// construction baseline.
@@ -305,14 +278,13 @@ impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
     /// realisations advance independently each episode (host-RNG seeding
     /// convention, `docs/rules.md` §8). For a reproducible problem, construct
     /// with a fixed seed.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<KArmedBanditObservation>, EnvironmentError> {
         self.guard.reset();
         self.arm_means = self.initial_arm_means;
-        self.state = KArmedBanditState;
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward::zero(),
+        Ok(Snapshot::running(
+            KArmedBanditObservation,
+            ScalarReward::default(),
         ))
     }
 
@@ -323,7 +295,10 @@ impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
     /// before the reward draw or the random-walk drift, so a rejected call
     /// advances neither the arm means nor the RNG stream. Returns
     /// [`EnvironmentError::InvalidAction`] when the arm index is out of range.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<KArmedBanditObservation>, EnvironmentError> {
         self.guard.check()?;
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -334,13 +309,13 @@ impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
         let reward = ScalarReward(self.sample_reward(action.arm()));
         self.drift_arm_means();
         self.steps += 1;
-        let obs = self.observe(&action, &self.state);
+        let obs = KArmedBanditObservation;
         let snap = if self.steps >= self.config.max_steps {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
-        self.guard.record(snap.status());
+        self.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -401,10 +376,9 @@ mod tests {
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
         let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default())
             .expect("valid config");
-        let snap =
-            <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
-        assert!(!snap.is_done());
-        assert_eq!(f32::from(*snap.reward()), 0.0);
+        let snap = <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).expect("reset");
+        assert!(!snap.status.is_done());
+        assert_eq!(f32::from(snap.reward), 0.0);
     }
 
     #[test]
@@ -416,11 +390,11 @@ mod tests {
         })
         .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
-        let s1 = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        assert!(!s1.is_done());
-        let _ = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        let s3 = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        assert!(s3.is_terminated());
+        let s1 = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        assert!(!s1.status.is_done());
+        let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        let s3 = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        assert!(s3.status.is_terminated());
     }
 
     // ── post-terminal step guard ──────────────────────────────────────────
@@ -453,15 +427,13 @@ mod tests {
     }
 
     /// Resets, then steps arm 0 until the step budget terminates the episode.
-    fn drive_to_termination(
-        env: &mut NonStationaryBandit<K>,
-    ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(env).expect("reset must succeed");
+    fn drive_to_termination(env: &mut NonStationaryBandit<K>) -> Snapshot<KArmedBanditObservation> {
+        <NonStationaryBandit<K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
-        let mut snap = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(env, action)
+        let mut snap = <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
             .expect("first step must succeed");
-        while !snap.is_done() {
-            snap = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(env, action)
+        while !snap.status.is_done() {
+            snap = <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
                 .expect("step must succeed while the episode is running");
         }
         snap
@@ -487,12 +459,11 @@ mod tests {
         let malformed = KArmedBanditAction::<K>::out_of_range_for_tests();
         assert!(!malformed.is_valid(), "the replayed action is out of range");
 
-        let err = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, malformed)
+        let err = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, malformed)
             .expect_err("a step after termination must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
-                status,
-                terminal.status(),
+                status, terminal.status,
                 "the error must carry the status that ended the episode"
             ),
             other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
@@ -506,7 +477,7 @@ mod tests {
         let steps_at_end = env.steps;
         let means_at_end = *env.arm_means();
 
-        let _ = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(
+        let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(
             &mut env,
             KArmedBanditAction::<K>::from_index(0),
         )
@@ -539,21 +510,21 @@ mod tests {
         drive_to_termination(&mut rejected);
         drive_to_termination(&mut untouched);
 
-        let _ = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(
+        let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(
             &mut rejected,
             KArmedBanditAction::<K>::from_index(0),
         )
         .expect_err("a step after termination must be rejected");
 
         let replay = |env: &mut NonStationaryBandit<K>| -> Vec<f32> {
-            <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(env).unwrap();
+            <NonStationaryBandit<K> as Environment<1, 1>>::reset(env).unwrap();
             let action = KArmedBanditAction::<K>::from_index(0);
             (0..GUARD_MAX_STEPS)
                 .map(|_| {
                     f32::from(
-                        *<NonStationaryBandit<K> as Environment<1, 1, 1>>::step(env, action)
+                        <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
                             .unwrap()
-                            .reward(),
+                            .reward,
                     )
                 })
                 .collect()
@@ -571,20 +542,20 @@ mod tests {
         drive_to_termination(&mut env);
         let action = KArmedBanditAction::<K>::from_index(0);
         assert!(
-            <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).is_err(),
+            <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).is_err(),
             "the episode has ended; a step must be rejected before reset()"
         );
 
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env)
-            .expect("reset must succeed");
+        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).expect("reset must succeed");
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
             "reset() must return the guard to Running"
         );
         assert!(
-            !<NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action)
+            !<NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action)
                 .expect("reset() must re-open the environment")
+                .status
                 .is_done(),
             "the first step of a fresh episode must not be done"
         );
@@ -598,10 +569,10 @@ mod tests {
             sigma_walk: 0.1, // large enough to make drift overwhelmingly likely
         })
         .expect("valid config");
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
         let before = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         let after = *env.arm_means();
         // With sigma_walk = 0.1 the probability that *every* arm's drift
         // sample is exactly zero is effectively nil; require at least one
@@ -620,11 +591,11 @@ mod tests {
             sigma_walk: 0.0,
         })
         .expect("valid config");
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
         let before = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
         for _ in 0..10 {
-            <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+            <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         }
         let after = *env.arm_means();
         assert_eq!(before, after);
@@ -639,15 +610,15 @@ mod tests {
         };
         let mut a = NonStationaryBandit::<K>::with_config(cfg.clone()).expect("valid config");
         let mut b = NonStationaryBandit::<K>::with_config(cfg).expect("valid config");
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut a).unwrap();
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut b).unwrap();
+        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut a).unwrap();
+        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut b).unwrap();
         for step in 0..32 {
             let action = KArmedBanditAction::<K>::from_index(step % K);
             let snap_a =
-                <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut a, action).unwrap();
+                <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut a, action).unwrap();
             let snap_b =
-                <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut b, action).unwrap();
-            assert_eq!(f32::from(*snap_a.reward()), f32::from(*snap_b.reward()));
+                <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut b, action).unwrap();
+            assert_eq!(f32::from(snap_a.reward), f32::from(snap_b.reward));
         }
         assert_eq!(a.arm_means(), b.arm_means());
     }
@@ -665,10 +636,10 @@ mod tests {
         let baseline = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
         for _ in 0..10 {
-            <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+            <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         }
         assert_ne!(baseline, *env.arm_means(), "means should have drifted");
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
         assert_eq!(
             baseline,
             *env.arm_means(),
@@ -691,15 +662,15 @@ mod tests {
             (0..16)
                 .map(|_| {
                     f32::from(
-                        *<NonStationaryBandit<K> as Environment<1, 1, 1>>::step(env, action)
+                        <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
                             .unwrap()
-                            .reward(),
+                            .reward,
                     )
                 })
                 .collect()
         };
         let episode1 = episode(&mut env);
-        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
         let episode2 = episode(&mut env);
         assert_ne!(
             episode1, episode2,

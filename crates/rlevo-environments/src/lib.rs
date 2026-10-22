@@ -15,7 +15,7 @@
 //!   each a [`rlevo_core::fitness::Landscape`]
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`pixel_grid`]: Synthetic pixel-over-grid env — a rank-1 latent observed as
-//!   a rank-3 RGB image (first real [`rlevo_core::state::Observable`] consumer)
+//!   a rank-3 RGB image
 //! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, `CliffWalking`, `FrozenLake`)
 //! - [`wrappers`]: Environment wrappers (`TimeLimit`)
 //! - [`render`]: Re-exports of the render surface defined in `rlevo-core`
@@ -29,7 +29,7 @@
 //! Every environment exposes two fallible operations:
 //!
 //! - [`reset`](rlevo_core::environment::Environment::reset) — returns an initial
-//!   [`SnapshotBase`](rlevo_core::environment::SnapshotBase) with
+//!   [`Snapshot`](rlevo_core::environment::Snapshot) with
 //!   [`EpisodeStatus::Running`](rlevo_core::environment::EpisodeStatus::Running).
 //! - [`step`](rlevo_core::environment::Environment::step) — applies an action and
 //!   returns the next snapshot; status transitions to `Terminated` or `Truncated`

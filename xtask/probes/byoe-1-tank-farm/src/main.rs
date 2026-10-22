@@ -34,7 +34,7 @@ mod policy;
 #[cfg(feature = "harness")]
 mod harness;
 
-use rlevo::core::base::{Action, Observation, State};
+use rlevo::core::base::{Action, Observation};
 use rlevo::core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo::envs::wrappers::TimeLimit;
 
@@ -47,10 +47,10 @@ const TIME_LIMIT: usize = 60;
 const SEED: u64 = 2026;
 
 // The ranks are written out and checked when the base level compiles: a
-// rank-2 observation, a rank-1 state and a rank-1 action, through the
-// wrapper the harness runs. Flattening the observation to rank 1 to make
+// rank-2 observation and a rank-1 action, through the wrapper the harness
+// runs. Flattening the observation to rank 1 to make
 // something compile breaks this line, at step 3, and not a later step.
-const fn has_ranks<E: Environment<2, 1, 1>>() {}
+const fn has_ranks<E: Environment<2, 1>>() {}
 const _: () = has_ranks::<TimeLimit<TankFarm>>();
 
 fn main() {
@@ -70,10 +70,10 @@ fn report(label: &str, outcome: Result<String, String>) {
 /// after either ending are the errors the contract names, and change
 /// nothing.
 fn contract() -> Result<String, String> {
-    let shapes = (TankObs::shape(), TankState::shape(), PumpCommand::shape());
-    if shapes != ([2, HISTORY], [2], [2]) {
+    let shapes = (TankObs::shape(), PumpCommand::shape());
+    if shapes != ([2, HISTORY], [2]) {
         return Err(format!(
-            "observation, state and action shapes are {shapes:?}; expected ([2, {HISTORY}], [2], [2])"
+            "observation and action shapes are {shapes:?}; expected ([2, {HISTORY}], [2])"
         ));
     }
 
@@ -139,9 +139,9 @@ fn invalid_commands_change_nothing() -> Result<(), String> {
     let expected = fresh
         .step(valid)
         .map_err(|e| format!("the first step on a fresh farm failed: {e}"))?;
-    if after.observation() != expected.observation()
-        || after.reward() != expected.reward()
-        || after.status() != expected.status()
+    if after.observation != expected.observation
+        || after.reward != expected.reward
+        || after.status != expected.status
     {
         return Err(
             "a rejected command changed the farm: the next step differs from the same step \
@@ -160,7 +160,7 @@ fn run_to_end<E>(
     bound: usize,
 ) -> Result<(usize, EpisodeStatus), String>
 where
-    E: Environment<2, 1, 1, ActionType = PumpCommand>,
+    E: Environment<2, 1, ActionType = PumpCommand>,
 {
     env.reset().map_err(|e| format!("reset failed: {e}"))?;
     // Bounded: an episode that never ends fails here, it does not hang.
@@ -168,8 +168,8 @@ where
         let snapshot = env
             .step(command)
             .map_err(|e| format!("step {steps} failed: {e}"))?;
-        if snapshot.is_done() {
-            return Ok((steps, snapshot.status()));
+        if snapshot.status.is_done() {
+            return Ok((steps, snapshot.status));
         }
     }
     Err(format!(
@@ -187,7 +187,7 @@ fn rejects_after_end<E>(
     state: impl Fn(&E) -> TankState,
 ) -> Result<(), String>
 where
-    E: Environment<2, 1, 1, ActionType = PumpCommand>,
+    E: Environment<2, 1, ActionType = PumpCommand>,
 {
     let before = state(env);
     match env.step(command) {

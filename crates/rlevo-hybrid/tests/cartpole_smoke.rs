@@ -10,7 +10,6 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Tensor, TensorData, activation, backend::Backend};
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::environment::ConstructableEnv;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleAction, CartPoleObservation};
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::param_reshaper::ModuleReshaper;
@@ -72,7 +71,7 @@ fn policy_neuroevolution_runs_two_generations_on_cartpole() {
 
     let fitness = RolloutFitness::new(
         reshaper,
-        || <CartPole as ConstructableEnv>::new(false),
+        CartPole::default,
         1,      // episodes_per_eval
         50,     // max_steps_per_episode (CartPole has no intrinsic cap)
         device, // captured into the rollout scorer (FlexDevice is Copy)

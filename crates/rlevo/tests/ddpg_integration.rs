@@ -180,10 +180,8 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut agent: LinearAgent =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train::<Be, _, _, _, _, LinearAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
 
     let stats = agent.stats();
     TrainOutcome {
@@ -331,10 +329,8 @@ fn ddpg_pendulum_improves_over_random() {
         2,
     > = DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
-        &mut agent, &mut env, &mut rng, 50_000, 0,
-    )
-    .expect("training");
+    train::<Be, _, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 50_000, 0)
+        .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
     // Compare against an actual uniform-random torque policy rather than a

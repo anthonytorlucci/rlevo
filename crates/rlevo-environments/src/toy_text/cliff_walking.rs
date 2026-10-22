@@ -49,11 +49,9 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
@@ -174,16 +172,6 @@ impl TryFrom<u16> for CliffWalkingState {
 impl From<CliffWalkingState> for u16 {
     fn from(s: CliffWalkingState) -> u16 {
         s.state_id()
-    }
-}
-
-impl State<1> for CliffWalkingState {
-    fn shape() -> [usize; 1] {
-        [NROW as usize * NCOL as usize]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.row < NROW && self.col < NCOL
     }
 }
 
@@ -393,57 +381,39 @@ impl CliffWalking {
     }
 }
 
-impl ConstructableEnv for CliffWalking {
-    fn new(_render: bool) -> Self {
+impl Default for CliffWalking {
+    fn default() -> Self {
         Self::with_config(CliffWalkingConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for CliffWalking {
-    type Action = CliffWalkingAction;
-    type State = CliffWalkingState;
-    type Observation = CliffWalkingObservation;
-
-    /// Projects the resulting state onto its linear grid id; the observation is a
-    /// pure function of the `(row, col)` position and ignores the action.
-    fn observe(
-        &self,
-        _action: &CliffWalkingAction,
-        next_state: &CliffWalkingState,
-    ) -> CliffWalkingObservation {
+impl CliffWalking {
+    /// Projects the current state onto its linear grid id, a pure function of
+    /// the `(row, col)` position.
+    fn observe(&self) -> CliffWalkingObservation {
         CliffWalkingObservation {
-            state_id: next_state.state_id(),
-        }
-    }
-
-    /// Projects the initial (start) state onto its linear grid id.
-    fn observe_reset(&self, state: &CliffWalkingState) -> CliffWalkingObservation {
-        CliffWalkingObservation {
-            state_id: state.state_id(),
+            state_id: self.state.state_id(),
         }
     }
 }
 
-impl Environment<1, 1, 1> for CliffWalking {
-    type StateType = CliffWalkingState;
+impl Environment<1, 1> for CliffWalking {
     type ObservationType = CliffWalkingObservation;
     type ActionType = CliffWalkingAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, CliffWalkingObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<CliffWalkingObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = CliffWalkingState {
             row: START.0,
             col: START.1,
         };
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
-    fn step(&mut self, action: CliffWalkingAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: CliffWalkingAction,
+    ) -> Result<Snapshot<CliffWalkingObservation>, EnvironmentError> {
         // Guard first: before any state mutation and — critically — before
         // `resolve_action`, which draws from `self.rng` in slippery mode. A rejected
         // call must leave both the position and the RNG stream untouched, or the
@@ -460,15 +430,15 @@ impl Environment<1, 1, 1> for CliffWalking {
             // keep the episode running.
             self.state.row = START.0;
             self.state.col = START.1;
-            SnapshotBase::running(self.observe(&action, &self.state), ScalarReward(-100.0))
+            Snapshot::running(self.observe(), ScalarReward(-100.0))
         } else {
             self.state.row = nr;
             self.state.col = nc;
 
             if (nr, nc) == GOAL {
-                SnapshotBase::terminated(self.observe(&action, &self.state), ScalarReward(-1.0))
+                Snapshot::terminated(self.observe(), ScalarReward(-1.0))
             } else {
-                SnapshotBase::running(self.observe(&action, &self.state), ScalarReward(-1.0))
+                Snapshot::running(self.observe(), ScalarReward(-1.0))
             }
         };
 
@@ -612,7 +582,7 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
 
     fn make_env() -> CliffWalking {
         CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config")
@@ -620,9 +590,7 @@ mod tests {
 
     /// Walks the optimal path `$\text{Up}, \text{Right}\times 11, \text{Down}$` from the start onto
     /// the goal and returns the terminal snapshot. Deterministic mode only.
-    fn drive_to_goal(
-        env: &mut CliffWalking,
-    ) -> SnapshotBase<1, CliffWalkingObservation, ScalarReward> {
+    fn drive_to_goal(env: &mut CliffWalking) -> Snapshot<CliffWalkingObservation> {
         env.reset().expect("reset must succeed");
         env.step(CliffWalkingAction::Up)
             .expect("step off the cliff row must succeed");
@@ -749,9 +717,9 @@ mod tests {
         env.reset().unwrap();
         // Start (3,0): move right → (3,1) = cliff.
         let snap = env.step(CliffWalkingAction::Right).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, -100.0);
-        assert!(!snap.is_done(), "cliff must not terminate episode");
+        assert!(!snap.status.is_done(), "cliff must not terminate episode");
         // Agent should be back at start.
         assert_eq!(
             env.state.state_id(),
@@ -768,9 +736,9 @@ mod tests {
         // Better: place at (2,11) and step down.
         env.state = CliffWalkingState { row: 2, col: 11 };
         let snap = env.step(CliffWalkingAction::Down).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, -1.0);
-        assert!(snap.is_terminated());
+        assert!(snap.status.is_terminated());
     }
 
     #[test]
@@ -800,22 +768,22 @@ mod tests {
         // One step up from (3,0) → (2,0)
         let snap = env.step(CliffWalkingAction::Up).unwrap();
         {
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             total += r;
         }
         // Eleven steps right: (2,0) → … → (2,11)
         for _ in 0..11 {
             let snap = env.step(CliffWalkingAction::Right).unwrap();
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             total += r;
         }
         // One step down (2,11) → (3,11) = GOAL
         let snap = env.step(CliffWalkingAction::Down).unwrap();
         {
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             total += r;
         }
-        assert!(snap.is_done(), "goal must terminate episode");
+        assert!(snap.status.is_done(), "goal must terminate episode");
         assert!(
             (total - (-13.0)).abs() < 1e-5,
             "optimal path must yield -13, got {total}"
@@ -869,9 +837,9 @@ mod tests {
             let mut total = 0.0_f32;
             for _ in 0..20 {
                 let snap = env.step(CliffWalkingAction::Right).unwrap();
-                let r: f32 = (*snap.reward()).into();
+                let r: f32 = (snap.reward).into();
                 total += r;
-                if snap.is_done() {
+                if snap.status.is_done() {
                     break;
                 }
             }
@@ -973,7 +941,7 @@ mod tests {
         let mut env = make_env();
         let terminal = drive_to_goal(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "reaching the goal must terminate the episode"
         );
         let goal_id = CliffWalkingState::from(GOAL).state_id();
@@ -1030,7 +998,7 @@ mod tests {
             .step(CliffWalkingAction::Up)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -1046,7 +1014,7 @@ mod tests {
         let fall = env
             .step(CliffWalkingAction::Right)
             .expect("stepping into the cliff must succeed");
-        assert!(!fall.is_done(), "cliff must not terminate episode");
+        assert!(!fall.status.is_done(), "cliff must not terminate episode");
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -1057,7 +1025,7 @@ mod tests {
             .step(CliffWalkingAction::Up)
             .expect("the episode continues after a cliff fall");
         assert!(
-            !next.is_done(),
+            !next.status.is_done(),
             "a step following a cliff fall must still be running"
         );
     }
@@ -1082,6 +1050,7 @@ mod tests {
                 if env
                     .step(CliffWalkingAction::Down)
                     .expect("step must succeed while the episode is running")
+                    .status
                     .is_done()
                 {
                     return env;

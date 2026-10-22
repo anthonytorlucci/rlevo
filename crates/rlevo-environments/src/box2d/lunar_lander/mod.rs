@@ -35,7 +35,7 @@
 //! let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(LunarLanderDiscreteAction::MainEngine).unwrap();
-//! println!("reward: {:?}", snap.reward());
+//! println!("reward: {:?}", snap.reward);
 //! ```
 
 pub mod action_continuous;
@@ -51,5 +51,5 @@ pub use action_discrete::LunarLanderDiscreteAction;
 pub use config::{LunarLanderConfig, LunarLanderConfigBuilder, WindMode};
 pub use env::{LunarLanderContinuous, LunarLanderDiscrete};
 pub use observation::LunarLanderObservation;
-pub use snapshot::{LunarLanderSnapshot, METADATA_KEY_SHAPING, shaping_metadata};
+pub use snapshot::{METADATA_KEY_SHAPING, shaping_metadata};
 pub use state::LunarLanderState;

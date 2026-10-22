@@ -15,8 +15,8 @@ use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, HostRow, Observation, State};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
+use rlevo_core::base::{Action, HostRow, Observation};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
 
@@ -50,18 +50,6 @@ pub struct LinearState {
     pub x: f32,
     /// Number of steps elapsed in the current episode.
     pub steps: usize,
-}
-
-impl State<1> for LinearState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn numel(&self) -> usize {
-        1
-    }
-    fn is_valid(&self) -> bool {
-        self.x.is_finite()
-    }
 }
 
 /// Agent's view of [`LinearState`]: just the scalar target `x`.
@@ -101,9 +89,6 @@ impl ContinuousAction<1> for LinearAction {
 
     fn as_slice(&self) -> &[f32] {
         std::slice::from_ref(&self.0)
-    }
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self(self.0.clamp(min, max))
     }
     fn from_slice(values: &[f32]) -> Self {
         assert_eq!(values.len(), 1);
@@ -150,41 +135,33 @@ impl LinearEnv {
     }
 }
 
-impl Sensor<1, 1, 1> for LinearEnv {
-    type Action = LinearAction;
-    type State = LinearState;
-    type Observation = LinearObservation;
-
-    fn observe(&self, _action: &LinearAction, next_state: &LinearState) -> LinearObservation {
-        LinearObservation { x: next_state.x }
-    }
-
-    fn observe_reset(&self, state: &LinearState) -> LinearObservation {
-        LinearObservation { x: state.x }
+impl LinearEnv {
+    fn observe(&self) -> LinearObservation {
+        LinearObservation { x: self.state.x }
     }
 }
 
-impl Environment<1, 1, 1> for LinearEnv {
-    type StateType = LinearState;
+impl Environment<1, 1> for LinearEnv {
     type ObservationType = LinearObservation;
     type ActionType = LinearAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, LinearObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<LinearObservation>, EnvironmentError> {
         self.state = LinearState {
             x: Self::sample_x(&mut self.rng),
             steps: 0,
         };
-        Ok(SnapshotBase {
-            observation: self.observe_reset(&self.state),
+        Ok(Snapshot {
+            observation: self.observe(),
             reward: ScalarReward::new(0.0),
             status: EpisodeStatus::Running,
             metadata: None,
         })
     }
 
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<LinearObservation>, EnvironmentError> {
         let a = action.0.clamp(-1.0, 1.0);
         let err = a - self.state.x;
         let reward = -(err * err);
@@ -198,8 +175,8 @@ impl Environment<1, 1, 1> for LinearEnv {
         } else {
             EpisodeStatus::Running
         };
-        Ok(SnapshotBase {
-            observation: self.observe(&action, &self.state),
+        Ok(Snapshot {
+            observation: self.observe(),
             reward: ScalarReward::new(reward),
             status,
             metadata: None,

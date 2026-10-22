@@ -1,18 +1,16 @@
 //! `InvertedPendulum` environment implementation.
 
-use std::marker::PhantomData;
-
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
+    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotMetadata,
 };
 use rlevo_core::reward::ScalarReward;
 
-use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
-use crate::locomotion::common::{LocomotionSnapshot, TerminationMode, wrap_to_pi};
+use crate::locomotion::backend::{Rapier3DBackend, Rapier3DWorld};
+use crate::locomotion::common::{TerminationMode, wrap_to_pi};
 use rlevo_core::episode::EpisodeGuard;
 
 use super::action::InvertedPendulumAction;
@@ -26,14 +24,11 @@ pub const METADATA_KEY_ALIVE: &str = "alive";
 /// `InvertedPendulum` — cart-pole balance in 3D, with the cart restricted to
 /// the world-x axis and the pole free to rotate about the world-y axis.
 ///
-/// Generic in the physics backend; v1 only implements `B = Rapier3DBackend`
-/// (see [`InvertedPendulumRapier`] for the default type alias).
-///
 /// A [`step`](Environment::step) taken after the episode ended is rejected with
 /// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 #[derive(Debug)]
-pub struct InvertedPendulum<B: LocomotionBackend = Rapier3DBackend> {
-    world: B::World,
+pub struct InvertedPendulum {
+    world: Rapier3DWorld,
     state: InvertedPendulumState,
     config: InvertedPendulumConfig,
     rng: StdRng,
@@ -46,13 +41,9 @@ pub struct InvertedPendulum<B: LocomotionBackend = Rapier3DBackend> {
     /// pole that swings back through `$|\theta| < 0.2$` even re-earns `+1` on a
     /// `Running` snapshot, silently resurrecting the episode.
     guard: EpisodeGuard,
-    _marker: PhantomData<B>,
 }
 
-/// Default backend alias.
-pub type InvertedPendulumRapier = InvertedPendulum<Rapier3DBackend>;
-
-impl InvertedPendulum<Rapier3DBackend> {
+impl InvertedPendulum {
     /// Create with an explicit configuration.
     ///
     /// # Errors
@@ -71,7 +62,6 @@ impl InvertedPendulum<Rapier3DBackend> {
             rng,
             steps: 0,
             guard: EpisodeGuard::new(),
-            _marker: PhantomData,
         })
     }
 
@@ -92,7 +82,7 @@ impl InvertedPendulum<Rapier3DBackend> {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<LocomotionSnapshot<InvertedPendulumObservation>, EnvironmentError> {
+    ) -> Result<Snapshot<InvertedPendulumObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -219,47 +209,29 @@ impl InvertedPendulum<Rapier3DBackend> {
     }
 }
 
-impl Sensor<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
-    type Action = InvertedPendulumAction;
-    type State = InvertedPendulumState;
-    type Observation = InvertedPendulumObservation;
-
+impl InvertedPendulum {
     /// Emission model: reads `[cart_x, pole_angle, cart_vx, pole_angvel_y]`
-    /// directly from the physics world through the state's body handles. The
-    /// action does not enter the observation, and `next_state` carries the same
-    /// handles as `self.state`, so both are unused; the world is the source of
-    /// truth.
-    fn observe(
-        &self,
-        _action: &InvertedPendulumAction,
-        _next_state: &InvertedPendulumState,
-    ) -> InvertedPendulumObservation {
-        self.extract_observation()
-    }
-
-    /// Initial observation at episode start, read from the freshly built world.
-    fn observe_reset(&self, _state: &InvertedPendulumState) -> InvertedPendulumObservation {
+    /// directly from the physics world through the state's body handles; the
+    /// world is the source of truth.
+    fn observe(&self) -> InvertedPendulumObservation {
         self.extract_observation()
     }
 }
 
-impl ConstructableEnv for InvertedPendulum<Rapier3DBackend> {
+impl Default for InvertedPendulum {
     /// Constructs the environment with [`InvertedPendulumConfig::default`].
     ///
     /// The `render` flag is accepted for interface conformance but has no
     /// effect; this environment has no built-in renderer. Use
     /// [`InvertedPendulum::with_config`] for full control.
-    fn new(_render: bool) -> Self {
+    fn default() -> Self {
         Self::with_config(InvertedPendulumConfig::default()).expect("default config must validate")
     }
 }
 
-impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
-    type StateType = InvertedPendulumState;
+impl Environment<1, 1> for InvertedPendulum {
     type ObservationType = InvertedPendulumObservation;
     type ActionType = InvertedPendulumAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LocomotionSnapshot<InvertedPendulumObservation>;
 
     /// Resets the environment to a new initial state sampled from
     /// `U(-reset_noise_scale, reset_noise_scale)` on each of the four state
@@ -283,7 +255,7 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
     ///
     /// This implementation is currently infallible, but returns `Result` for
     /// trait conformance.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<InvertedPendulumObservation>, EnvironmentError> {
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
         self.world = world;
         state.last_obs = InvertedPendulumObservation::default();
@@ -291,10 +263,10 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
         self.steps = 0;
         self.guard.reset();
 
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
         let meta = SnapshotMetadata::new().with(METADATA_KEY_ALIVE, 0.0);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advances the simulation by one timestep (`dt * frame_skip` seconds).
@@ -324,7 +296,7 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
     fn step(
         &mut self,
         action: InvertedPendulumAction,
-    ) -> Result<Self::SnapshotType, EnvironmentError> {
+    ) -> Result<Snapshot<InvertedPendulumObservation>, EnvironmentError> {
         // Guard first — ahead of even the finiteness check: the episode being
         // over is a fact about the *call sequence*, independent of whether the
         // action itself is well-formed, so a caller replaying a malformed action
@@ -355,7 +327,7 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
         });
         self.steps += 1;
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
 
         let healthy = self.config.healthy.is_healthy(
@@ -383,7 +355,7 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
             );
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
-        let snapshot = LocomotionSnapshot {
+        let snapshot = Snapshot {
             observation: obs,
             reward,
             status,
@@ -406,7 +378,7 @@ fn cart_half_z(config: &InvertedPendulumConfig) -> f32 {
 // `ground_y` is z = 0 — the floor plane the cart rests on.
 // ---------------------------------------------------------------------------
 
-impl rlevo_core::render::Locomotion2DPayloadSource for InvertedPendulum<Rapier3DBackend> {
+impl rlevo_core::render::Locomotion2DPayloadSource for InvertedPendulum {
     /// Returns a sagittal-plane (x–z) projection of the current physics state.
     ///
     /// Joint 0 is the cart centre; joint 1 is the pole tip, approximated as
@@ -453,10 +425,8 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::action::ContinuousAction;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     #[test]
     fn action_shape_and_validity() {
@@ -474,15 +444,15 @@ mod tests {
 
     #[test]
     fn reset_returns_running_with_near_zero_obs() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+        let mut env = InvertedPendulum::with_config(InvertedPendulumConfig {
             seed: 7,
             reset_noise_scale: 0.0,
             ..Default::default()
         })
         .expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
-        for v in snap.observation().0 {
+        assert!(!snap.status.is_done());
+        for v in snap.observation.0 {
             assert!(v.abs() < 1e-5, "zero reset noise should give ~zero obs");
         }
     }
@@ -490,28 +460,28 @@ mod tests {
     #[test]
     fn ctrl_cost_not_paid() {
         // InvertedPendulum's Gymnasium reward is +1 alive, not a quadratic cost.
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default())
-            .expect("valid config");
+        let mut env =
+            InvertedPendulum::with_config(InvertedPendulumConfig::default()).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(InvertedPendulumAction::new(3.0)).unwrap();
         // Reward is +1 per step while healthy regardless of action magnitude.
-        let total: f32 = snap.metadata().unwrap().components.values().sum();
-        assert!((total - snap.reward().0).abs() < 1e-5);
+        let total: f32 = snap.metadata.as_ref().unwrap().components.values().sum();
+        assert!((total - snap.reward.0).abs() < 1e-5);
     }
 
     #[test]
     fn reward_roundtrip_matches_components() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default())
-            .expect("valid config");
+        let mut env =
+            InvertedPendulum::with_config(InvertedPendulumConfig::default()).expect("valid config");
         env.reset().unwrap();
         for _ in 0..5 {
             let snap = env.step(InvertedPendulumAction::new(0.0)).unwrap();
-            let meta = snap.metadata().unwrap();
+            let meta = snap.metadata.as_ref().unwrap();
             let total: f32 = meta.components.values().sum();
             assert!(
-                (total - snap.reward().0).abs() < 1e-5,
+                (total - snap.reward.0).abs() < 1e-5,
                 "components sum ({total}) must equal reward ({})",
-                snap.reward().0
+                snap.reward.0
             );
         }
     }
@@ -521,7 +491,7 @@ mod tests {
         // Start with a mild tilt (within healthy band), no reset noise, then apply force in the
         // tilt direction. Gravity does the rest: the pole must reach
         // `$\lvert\theta\rvert \geq 0.2$` and terminate.
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+        let mut env = InvertedPendulum::with_config(InvertedPendulumConfig {
             reset_noise_scale: 0.0,
             max_steps: 2000,
             ..Default::default()
@@ -535,9 +505,9 @@ mod tests {
         for i in 0..2000 {
             let action = if i < 20 { 3.0 } else { 0.0 };
             let snap = env.step(InvertedPendulumAction::new(action)).unwrap();
-            max_abs_angle = max_abs_angle.max(snap.observation().pole_angle().abs());
-            cart_x_max = cart_x_max.max(snap.observation().cart_position().abs());
-            if snap.is_terminated() {
+            max_abs_angle = max_abs_angle.max(snap.observation.pole_angle().abs());
+            cart_x_max = cart_x_max.max(snap.observation.cart_position().abs());
+            if snap.status.is_terminated() {
                 terminated = true;
                 break;
             }
@@ -551,7 +521,7 @@ mod tests {
 
     #[test]
     fn truncates_at_max_steps() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+        let mut env = InvertedPendulum::with_config(InvertedPendulumConfig {
             max_steps: 5,
             termination: TerminationMode::Never,
             reset_noise_scale: 0.0,
@@ -562,7 +532,7 @@ mod tests {
         let mut status = EpisodeStatus::Running;
         for _ in 0..5 {
             let snap = env.step(InvertedPendulumAction::new(0.0)).unwrap();
-            status = snap.status();
+            status = snap.status;
         }
         assert_eq!(status, EpisodeStatus::Truncated);
     }
@@ -574,12 +544,12 @@ mod tests {
             ..Default::default()
         };
         let rollout = |actions: &[f32]| {
-            let mut env = InvertedPendulumRapier::with_config(cfg.clone()).expect("valid config");
+            let mut env = InvertedPendulum::with_config(cfg.clone()).expect("valid config");
             env.reset().unwrap();
             let mut last = InvertedPendulumObservation::default();
             for &a in actions {
                 if let Ok(snap) = env.step(InvertedPendulumAction::new(a)) {
-                    last = *snap.observation();
+                    last = snap.observation;
                 }
             }
             last
@@ -590,30 +560,22 @@ mod tests {
 
     #[test]
     fn invalid_action_is_error() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default())
-            .expect("valid config");
+        let mut env =
+            InvertedPendulum::with_config(InvertedPendulumConfig::default()).expect("valid config");
         env.reset().unwrap();
         let bad = InvertedPendulumAction::new(f32::NAN);
         assert!(env.step(bad).is_err());
     }
 
     #[test]
-    fn action_clip_at_boundaries() {
-        let a = InvertedPendulumAction::new(10.0).clip(-3.0, 3.0);
-        assert_eq!(a.0[0], 3.0);
-        let a = InvertedPendulumAction::new(-10.0).clip(-3.0, 3.0);
-        assert_eq!(a.0[0], -3.0);
-    }
-
-    #[test]
     fn obs_is_finite_after_rollout() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default())
-            .expect("valid config");
+        let mut env =
+            InvertedPendulum::with_config(InvertedPendulumConfig::default()).expect("valid config");
         env.reset().unwrap();
         for _ in 0..50 {
             let snap = env.step(InvertedPendulumAction::new(0.1)).unwrap();
-            assert!(snap.observation().is_finite());
-            if snap.is_done() {
+            assert!(snap.observation.is_finite());
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -628,7 +590,7 @@ mod tests {
         // the joint move" tests stayed green throughout. Fixed once in `RapierWorld::step()` (reset
         // forces and torques every step) with per-env force constants re-tuned afterward. Without
         // that fix, `$\Delta v_x$` grows ~linearly instead of holding steady.
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+        let mut env = InvertedPendulum::with_config(InvertedPendulumConfig {
             reset_noise_scale: 0.0,
             termination: TerminationMode::Never,
             max_steps: 10_000,
@@ -641,8 +603,8 @@ mod tests {
         let mut deltas: Vec<f32> = Vec::new();
         for _ in 0..40 {
             let snap = env.step(InvertedPendulumAction::new(1.0)).unwrap();
-            assert!(snap.observation().is_finite(), "obs must stay finite");
-            let vx = snap.observation().cart_velocity();
+            assert!(snap.observation.is_finite(), "obs must stay finite");
+            let vx = snap.observation.cart_velocity();
             deltas.push(vx - prev_vx);
             prev_vx = vx;
         }
@@ -665,13 +627,13 @@ mod tests {
     fn two_successive_resets_differ() {
         // The persistent RNG advances across resets (default reset noise > 0),
         // so back-to-back resets must sample independent initial states.
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+        let mut env = InvertedPendulum::with_config(InvertedPendulumConfig {
             seed: 7,
             ..Default::default()
         })
         .expect("valid config");
-        let first = env.reset().unwrap().observation().0;
-        let second = env.reset().unwrap().observation().0;
+        let first = env.reset().unwrap().observation.0;
+        let second = env.reset().unwrap().observation.0;
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -680,15 +642,15 @@ mod tests {
 
     #[test]
     fn reset_with_seed_is_reproducible() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+        let mut env = InvertedPendulum::with_config(InvertedPendulumConfig {
             seed: 7,
             ..Default::default()
         })
         .expect("valid config");
-        let a = env.reset_with_seed(999).unwrap().observation().0;
+        let a = env.reset_with_seed(999).unwrap().observation.0;
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().0;
+        let b = env.reset_with_seed(999).unwrap().observation.0;
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -731,18 +693,16 @@ mod tests {
     /// a short +x kick on the cart topples the pole, gravity carries `$|\theta|$`
     /// past the healthy band `(-0.2, 0.2)`, and the `OnUnhealthy` rule ends
     /// the episode through the same physics path an agent would hit.
-    fn drive_to_pole_fall(
-        env: &mut InvertedPendulum<Rapier3DBackend>,
-    ) -> LocomotionSnapshot<InvertedPendulumObservation> {
+    fn drive_to_pole_fall(env: &mut InvertedPendulum) -> Snapshot<InvertedPendulumObservation> {
         env.reset().expect("reset must succeed");
         for i in 0..FALL_STEP_CAP {
             let force = if i < 20 { 3.0 } else { 0.0 };
             let snap = env
                 .step(InvertedPendulumAction::new(force))
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 assert!(
-                    snap.is_terminated(),
+                    snap.status.is_terminated(),
                     "this fixture must end by termination, not truncation"
                 );
                 return snap;
@@ -759,7 +719,7 @@ mod tests {
     /// rejection can only be on call-sequence grounds, never on the action's own
     /// validity.
     fn test_inverted_pendulum_rejects_post_terminal_step() {
-        let mut env = InvertedPendulumRapier::with_config(terminating_cfg()).expect("valid config");
+        let mut env = InvertedPendulum::with_config(terminating_cfg()).expect("valid config");
         assert_rejects_post_terminal_step(
             &mut env,
             drive_to_pole_fall,
@@ -774,11 +734,11 @@ mod tests {
     /// step counter and could hand back a fresh `+1` alive bonus on a `Running`
     /// snapshot as the toppled pole swung back through the band.
     fn test_inverted_pendulum_post_terminal_step_does_not_mutate_state() {
-        let mut env = InvertedPendulumRapier::with_config(terminating_cfg()).expect("valid config");
+        let mut env = InvertedPendulum::with_config(terminating_cfg()).expect("valid config");
         let terminal = drive_to_pole_fall(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
-        let obs_at_end = terminal.observation().0;
+        let obs_at_end = terminal.observation.0;
         let steps_at_end = env.steps;
 
         let err = env
@@ -816,7 +776,7 @@ mod tests {
     /// `InvalidAction`: the episode being over is a fact about the call
     /// sequence, and the finished episode is the diagnosis the caller needs.
     fn test_inverted_pendulum_post_terminal_step_outranks_the_action_check() {
-        let mut env = InvertedPendulumRapier::with_config(terminating_cfg()).expect("valid config");
+        let mut env = InvertedPendulum::with_config(terminating_cfg()).expect("valid config");
         drive_to_pole_fall(&mut env);
 
         let err = env
@@ -834,18 +794,16 @@ mod tests {
     /// would have got had the mis-sequenced call never happened.
     fn test_inverted_pendulum_post_terminal_step_does_not_advance_rng() {
         let with_replay = {
-            let mut env =
-                InvertedPendulumRapier::with_config(terminating_cfg()).expect("valid config");
+            let mut env = InvertedPendulum::with_config(terminating_cfg()).expect("valid config");
             drive_to_pole_fall(&mut env);
             env.step(InvertedPendulumAction::new(0.0))
                 .expect_err("the post-terminal step must be rejected");
-            env.reset().unwrap().observation().0
+            env.reset().unwrap().observation.0
         };
         let without_replay = {
-            let mut env =
-                InvertedPendulumRapier::with_config(terminating_cfg()).expect("valid config");
+            let mut env = InvertedPendulum::with_config(terminating_cfg()).expect("valid config");
             drive_to_pole_fall(&mut env);
-            env.reset().unwrap().observation().0
+            env.reset().unwrap().observation.0
         };
         assert_eq!(
             with_replay, without_replay,
@@ -857,7 +815,7 @@ mod tests {
     /// `reset()` re-opens a finished episode, so a latched guard cannot strand
     /// the environment for the rest of the run.
     fn test_inverted_pendulum_reset_reopens_terminated_episode() {
-        let mut env = InvertedPendulumRapier::with_config(terminating_cfg()).expect("valid config");
+        let mut env = InvertedPendulum::with_config(terminating_cfg()).expect("valid config");
         drive_to_pole_fall(&mut env);
         assert!(
             env.step(InvertedPendulumAction::new(0.0)).is_err(),
@@ -865,7 +823,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after termination");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -875,7 +836,7 @@ mod tests {
             .step(InvertedPendulumAction::new(0.0))
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -885,7 +846,7 @@ mod tests {
     /// `reset`, so it must clear the guard on the same terms — and a step past
     /// a `Truncated` snapshot must report `Truncated`, not `Terminated`.
     fn test_inverted_pendulum_rejects_post_truncation_step_and_reset_with_seed_reopens() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+        let mut env = InvertedPendulum::with_config(InvertedPendulumConfig {
             max_steps: 5,
             termination: TerminationMode::Never,
             reset_noise_scale: 0.0,
@@ -898,7 +859,7 @@ mod tests {
             last = Some(env.step(InvertedPendulumAction::new(0.0)).unwrap());
         }
         assert_eq!(
-            last.expect("five steps were taken").status(),
+            last.expect("five steps were taken").status,
             EpisodeStatus::Truncated
         );
 

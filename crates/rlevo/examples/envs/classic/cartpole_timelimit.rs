@@ -17,7 +17,7 @@ use rand::rngs::StdRng;
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::Observation;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::classic::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
 use rlevo_environments::wrappers::TimeLimit;
 
@@ -77,18 +77,18 @@ fn main() {
             let action = CartPoleAction::from_index(idx);
             let snap = timed.step(action).expect("step");
             steps += 1;
-            cumulative += snap.reward().0;
+            cumulative += snap.reward.0;
 
-            let abs_angle = snap.observation().pole_angle.abs();
+            let abs_angle = snap.observation.pole_angle.abs();
             if abs_angle > worst_angle {
                 worst_angle = abs_angle;
             }
 
-            if snap.is_done() {
-                if snap.is_terminated() {
+            if snap.status.is_done() {
+                if snap.status.is_terminated() {
                     terminated += 1;
                 }
-                if snap.is_truncated() {
+                if snap.status.is_truncated() {
                     truncated += 1;
                 }
                 break;

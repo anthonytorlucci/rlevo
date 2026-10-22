@@ -20,7 +20,7 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
@@ -197,15 +197,15 @@ type LinearAgent =
 fn prime_buffer(agent: &mut LinearAgent, env: &mut LinearEnv, rng: &mut StdRng, steps: usize) {
     let mut snap = env.reset().expect("reset");
     for _ in 0..steps {
-        let obs = *snap.observation();
+        let obs = snap.observation;
         let action = agent.act(&obs, true, rng);
         let next = env.step(action).expect("step");
-        let reward: f32 = (*next.reward()).into();
+        let reward: f32 = (next.reward).into();
         // `done` drives the episode reset; `terminated` is the Bellman
         // bootstrap mask. `LinearEnv` only ever truncates, so these differ.
-        let done = next.is_done();
-        let terminated = next.is_terminated();
-        let next_obs = *next.observation();
+        let done = next.status.is_done();
+        let terminated = next.status.is_terminated();
+        let next_obs = next.observation;
         agent.remember(obs, &action, reward, next_obs, terminated);
         agent.on_env_step();
         snap = if done {
@@ -248,10 +248,8 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut agent: LinearAgent =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train::<Be, _, _, _, _, LinearAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
 
     let stats = agent.stats();
     TrainOutcome {
@@ -437,10 +435,8 @@ fn sac_pendulum_improves_over_random() {
         2,
     > = SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
-        &mut agent, &mut env, &mut rng, 30_000, 0,
-    )
-    .expect("training");
+    train::<Be, _, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 30_000, 0)
+        .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
     // Reduced from the former 500k-step / 256-wide macro run (~9 min even at 50k) to a 30k-step /

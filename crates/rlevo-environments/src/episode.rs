@@ -11,6 +11,7 @@
 //! smoke-tests it. The module is compiled for tests only.
 
 use rlevo_core::environment::EnvironmentError;
+use rlevo_core::environment::Snapshot;
 
 /// Asserts that `env` rejects a `step()` taken after its episode has ended.
 ///
@@ -32,24 +33,16 @@ use rlevo_core::environment::EnvironmentError;
 /// Panics (as a test assertion) if the driven snapshot is not done, if the
 /// post-terminal `step` succeeds, or if it fails with any other
 /// [`EnvironmentError`] variant.
-pub(crate) fn assert_rejects_post_terminal_step<
-    const R: usize,
-    const SR: usize,
-    const AR: usize,
-    E,
-    F,
->(
+pub(crate) fn assert_rejects_post_terminal_step<const R: usize, const AR: usize, E, F>(
     env: &mut E,
     drive_to_done: F,
     replay_action: E::ActionType,
 ) where
-    E: rlevo_core::environment::Environment<R, SR, AR>,
-    F: FnOnce(&mut E) -> E::SnapshotType,
+    E: rlevo_core::environment::Environment<R, AR>,
+    F: FnOnce(&mut E) -> Snapshot<E::ObservationType>,
 {
-    use rlevo_core::environment::Snapshot;
-
     let terminal = drive_to_done(env);
-    let ended = terminal.status();
+    let ended = terminal.status;
     assert!(
         ended.is_done(),
         "drive_to_done must leave the environment on a done snapshot, got {ended:?}"
@@ -71,8 +64,8 @@ pub(crate) fn assert_rejects_post_terminal_step<
 mod tests {
     use super::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
-    use rlevo_core::base::{Action, Observation, State};
-    use rlevo_core::environment::{Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase};
+    use rlevo_core::base::{Action, Observation};
+    use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
     use rlevo_core::episode::EpisodeGuard;
     use rlevo_core::reward::ScalarReward;
     use serde::{Deserialize, Serialize};
@@ -96,20 +89,6 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct MockState {
         steps: u8,
-    }
-
-    impl State<1> for MockState {
-        fn numel(&self) -> usize {
-            1
-        }
-
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-
-        fn is_valid(&self) -> bool {
-            true
-        }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,50 +135,39 @@ mod tests {
         }
     }
 
-    impl Sensor<1, 1, 1> for MockGuardedEnv {
-        type Action = MockAction;
-        type State = MockState;
-        type Observation = MockObservation;
-
-        fn observe(&self, _action: &MockAction, next_state: &MockState) -> MockObservation {
+    impl MockGuardedEnv {
+        fn observe(&self) -> MockObservation {
             MockObservation {
-                steps: next_state.steps,
+                steps: self.state.steps,
             }
-        }
-
-        fn observe_reset(&self, state: &MockState) -> MockObservation {
-            MockObservation { steps: state.steps }
         }
     }
 
-    impl Environment<1, 1, 1> for MockGuardedEnv {
-        type StateType = MockState;
+    impl Environment<1, 1> for MockGuardedEnv {
         type ObservationType = MockObservation;
         type ActionType = MockAction;
-        type RewardType = ScalarReward;
-        type SnapshotType = SnapshotBase<1, MockObservation, ScalarReward>;
 
-        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn reset(&mut self) -> Result<Snapshot<MockObservation>, EnvironmentError> {
             self.guard.reset();
             self.state = MockState { steps: 0 };
-            Ok(SnapshotBase::running(
-                self.observe_reset(&self.state),
-                ScalarReward(0.0),
-            ))
+            Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
         }
 
-        fn step(&mut self, action: MockAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn step(
+            &mut self,
+            _action: MockAction,
+        ) -> Result<Snapshot<MockObservation>, EnvironmentError> {
             self.guard.check()?;
 
             self.state.steps += 1;
-            let obs = self.observe(&action, &self.state);
+            let obs = self.observe();
             let snapshot = if self.state.steps >= Self::TERMINAL_STEP {
-                SnapshotBase::terminated(obs, ScalarReward(1.0))
+                Snapshot::terminated(obs, ScalarReward(1.0))
             } else {
-                SnapshotBase::running(obs, ScalarReward(0.0))
+                Snapshot::running(obs, ScalarReward(0.0))
             };
 
-            self.guard.record(snapshot.status());
+            self.guard.record(snapshot.status);
             Ok(snapshot)
         }
     }
@@ -212,7 +180,7 @@ mod tests {
             |env| {
                 env.reset().expect("reset must succeed");
                 let mut snapshot = env.step(MockAction).expect("first step must succeed");
-                while !snapshot.is_done() {
+                while !snapshot.status.is_done() {
                     snapshot = env.step(MockAction).expect("step must succeed until done");
                 }
                 snapshot

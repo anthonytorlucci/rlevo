@@ -19,8 +19,8 @@ use rand::Rng;
 
 use burn::tensor::backend::AutodiffBackend;
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
-use rlevo_core::base::{Observation, Reward, TensorConvertible};
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::environment::Environment;
 
 use crate::algorithms::ppo::ppo_agent::{PpoAgent, PpoAgentError, PpoMetrics, PpoUpdateStats};
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
@@ -48,7 +48,7 @@ use crate::algorithms::shared::LogWatermark;
 // sign; where an index round-trips through f32 it stays far below the 2^24
 // exact-integer limit. `from_index` bounds-checks on the way back.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+pub fn train_discrete<B, P, V, E, O, A, const OR: usize, const BOR: usize>(
     agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -59,10 +59,9 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, 1, ObservationType = O, ActionType = A>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: DiscreteAction<1>,
-    Rew: Reward + Copy,
 {
     run_loop(agent, env, rng, total_timesteps, log_every, |row| {
         assert_eq!(row.len(), 1, "discrete action row must have length 1");
@@ -84,19 +83,7 @@ where
 ///
 /// Returns [`PpoAgentError`] if the environment's `reset` or `step` fails, or
 /// if a rollout update cannot be applied.
-pub fn train_continuous<
-    B,
-    P,
-    V,
-    E,
-    O,
-    A,
-    Rew,
-    const OR: usize,
-    const SR: usize,
-    const AR: usize,
-    const BOR: usize,
->(
+pub fn train_continuous<B, P, V, E, O, A, const OR: usize, const AR: usize, const BOR: usize>(
     agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -107,10 +94,9 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, AR, ObservationType = O, ActionType = A>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: ContinuousAction<AR>,
-    Rew: Reward + Copy,
 {
     run_loop(agent, env, rng, total_timesteps, log_every, A::from_slice)
 }
@@ -120,20 +106,7 @@ where
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-fn run_loop<
-    B,
-    P,
-    V,
-    E,
-    O,
-    A,
-    Rew,
-    F,
-    const OR: usize,
-    const SR: usize,
-    const AR: usize,
-    const BOR: usize,
->(
+fn run_loop<B, P, V, E, O, A, F, const OR: usize, const AR: usize, const BOR: usize>(
     agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -145,10 +118,9 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, AR, ObservationType = O, ActionType = A>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: rlevo_core::base::Action<AR> + Clone,
-    Rew: Reward + Copy,
     F: Fn(&[f32]) -> A,
 {
     let rollout_len = agent.config().num_steps;
@@ -168,13 +140,13 @@ where
     while global_step < total_timesteps {
         // -------- Collect rollout --------
         for _ in 0..rollout_len {
-            let obs_now = snapshot.observation().clone();
+            let obs_now = snapshot.observation.clone();
             let act = agent.act(&obs_now, rng);
 
             let typed_action = action_from_row(&act.env_row);
             let next_snapshot = env.step(typed_action).map_err(env_error)?;
-            let reward_f32: f32 = (*next_snapshot.reward()).into();
-            let status = next_snapshot.status();
+            let reward_f32: f32 = (next_snapshot.reward).into();
+            let status = next_snapshot.status;
             let done = status.is_done();
 
             // `next_snapshot.observation()` is the continuation state, read
@@ -185,7 +157,7 @@ where
                 obs_now,
                 &act,
                 reward_f32,
-                next_snapshot.observation(),
+                &next_snapshot.observation,
                 status,
             );
             global_step += 1;
@@ -240,7 +212,7 @@ where
         // Borrowed, not cloned: `finalize_rollout` only reads this when the
         // rollout's final step left the episode `Running`, which is exactly
         // when `snapshot` is the genuine continuation state.
-        agent.finalize_rollout(snapshot.observation());
+        agent.finalize_rollout(&snapshot.observation);
         last_update_stats = agent.update(rng);
 
         if log_watermark.should_log(global_step) {

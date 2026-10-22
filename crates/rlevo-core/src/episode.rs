@@ -1,7 +1,7 @@
 //! The episode-lifecycle guard an [`Environment`] holds.
 //!
 //! An episode that has emitted a snapshot with
-//! [`Snapshot::is_done`](crate::environment::Snapshot::is_done) `== true` is
+//! [`EpisodeStatus::is_done`](crate::environment::EpisodeStatus::is_done) `== true` is
 //! over. Calling [`step`](crate::environment::Environment::step) again must
 //! not silently resurrect it: the contract on `Environment::step` is that the
 //! second call returns [`EnvironmentError::StepAfterEpisodeEnd`].
@@ -23,13 +23,13 @@
 //! `Environment::reset`:
 //!
 //! ```rust,ignore
-//! fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+//! fn reset(&mut self) -> Result<Snapshot<Self::ObservationType>, EnvironmentError> {
 //!     self.guard.reset();
 //!     // ... rebuild initial state ...
-//!     Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
+//!     Ok(Snapshot::running(obs, ScalarReward(0.0)))
 //! }
 //!
-//! fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+//! fn step(&mut self, action: Self::ActionType) -> Result<Snapshot<Self::ObservationType>, EnvironmentError> {
 //!     self.guard.check()?;
 //!     // ... apply the action, build `snapshot` ...
 //!     self.guard.record(snapshot.status);

@@ -27,7 +27,7 @@
 //! cargo run -p rlevo --example grid_door_key_scripted
 //! ```
 
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::grids::core::GridAction;
 use rlevo_environments::grids::{DoorKeyConfig, DoorKeyEnv};
 
@@ -83,8 +83,8 @@ fn main() {
         let snap = env.step(*action).expect("step");
         println!("step {:>2} action={action:?}", i + 1);
         println!("{}", env.ascii());
-        if snap.is_done() {
-            let reward = f32::from(*snap.reward());
+        if snap.status.is_done() {
+            let reward = f32::from(snap.reward);
             // Reaching the goal pays a positive, step-count-discounted reward;
             // walking into lava or running out of budget also terminates, but
             // pays 0.0. A tutorial that cannot tell those apart teaches nothing.

@@ -61,8 +61,8 @@ fn post_terminal() -> Result<String, String> {
             .step(Boiler::On)
             .map_err(|e| format!("step {steps} failed: {e}"))?;
         steps += 1;
-        if snapshot.is_done() {
-            break snapshot.status();
+        if snapshot.status.is_done() {
+            break snapshot.status;
         }
     };
     if steps != HORIZON || ended != EpisodeStatus::Terminated {

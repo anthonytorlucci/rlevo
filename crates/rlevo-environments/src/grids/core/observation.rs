@@ -3,9 +3,8 @@
 //! The agent sits at the bottom-center of its view window and looks toward
 //! the top. Every visible cell is encoded into three bytes — entity type,
 //! color, and door state — laid out as a `[VIEW_SIZE][VIEW_SIZE][OBS_CHANNELS]`
-//! array. The agent's facing is carried *beside* the view as an
-//! `Option<`[`Direction`]`>` and is deliberately **not** written into the host
-//! row — the view is already rotated into the agent's own frame, so the
+//! array. The agent's facing is carried *beside* the view as a [`Direction`]
+//! and is deliberately **not** written into the host row — the view is already rotated into the agent's own frame, so the
 //! absolute heading is redundant for a policy (see
 //! [`GridObservation::agent_direction`]).
 
@@ -97,8 +96,7 @@ pub const UNSEEN_TYPE: u8 = 0;
 pub struct GridObservation {
     /// Encoded view, indexed as `view[row][col][channel]`.
     pub view: [[[u8; OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE],
-    /// Agent's absolute facing when the observation was produced, or `None`
-    /// when the facing is genuinely unknown.
+    /// Agent's absolute facing when the observation was produced.
     ///
     /// Typed as [`Direction`] rather than a raw byte (ADR 0061 Decision 1):
     /// the byte form let illegal values like `200` through unchecked, with
@@ -114,19 +112,7 @@ pub struct GridObservation {
     /// as a separate entry of the observation dict and never inside the
     /// image, and every published baseline (`ImgObsWrapper`,
     /// `rl-starter-files`, RIDE) discards it before the network.
-    ///
-    /// # What `None` means
-    ///
-    /// `None` means *the facing is genuinely unknown* — **not** "the agent
-    /// faces some default". A value produced by
-    /// [`from_entity_view`](Self::from_entity_view) or
-    /// [`from_masked_view`](Self::from_masked_view) — i.e. by every
-    /// environment — is always `Some`; `None` arrives only from a caller that
-    /// builds or deserializes an observation without one. When the true facing is
-    /// needed, read it from the full state
-    /// ([`GridState::agent`](super::state::GridState::agent)), which is where
-    /// the allocentric heading lives.
-    pub agent_direction: Option<Direction>,
+    pub agent_direction: Direction,
 }
 
 impl GridObservation {
@@ -179,7 +165,7 @@ impl GridObservation {
         }
         Self {
             view: encoded,
-            agent_direction: Some(direction),
+            agent_direction: direction,
         }
     }
 
@@ -263,7 +249,7 @@ mod tests {
         assert_eq!(obs.view[3][3][1], Color::Blue.to_u8());
         assert_eq!(obs.view[3][3][2], DoorState::Locked.to_u8());
         assert_eq!(obs.view[6][3][0], 8); // Goal type byte
-        assert_eq!(obs.agent_direction, Some(Direction::North));
+        assert_eq!(obs.agent_direction, Direction::North);
     }
 
     #[test]
@@ -337,8 +323,7 @@ mod tests {
         );
     }
 
-    /// The facing is not in the row: every facing, and none, writes the same
-    /// row.
+    /// The facing is not in the row: every facing writes the same row.
     #[test]
     fn host_row_ignores_agent_direction() {
         let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
@@ -348,12 +333,7 @@ mod tests {
         let mut expected = Vec::new();
         obs.write_host_row(&mut expected);
 
-        for agent_direction in [
-            Some(Direction::East),
-            Some(Direction::South),
-            Some(Direction::West),
-            None,
-        ] {
+        for agent_direction in [Direction::East, Direction::South, Direction::West] {
             let mut row = Vec::new();
             GridObservation {
                 agent_direction,
@@ -378,7 +358,7 @@ mod tests {
             "a masked cell encodes as canonical's [unseen, 0, 0] triple"
         );
         assert_eq!(obs.view[6][3][0], Entity::Goal.type_u8());
-        assert_eq!(obs.agent_direction, Some(Direction::South));
+        assert_eq!(obs.agent_direction, Direction::South);
     }
 
     #[test]
@@ -522,8 +502,7 @@ mod tests {
         ] {
             let obs = GridObservation::from_entity_view(view, direction);
             assert_eq!(
-                obs.agent_direction,
-                Some(direction),
+                obs.agent_direction, direction,
                 "from_entity_view must record the facing it was handed"
             );
         }

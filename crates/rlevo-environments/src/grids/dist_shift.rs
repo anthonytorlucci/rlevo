@@ -39,7 +39,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = DistShiftConfig::new(DistShiftVariant::Two, 100, 0);
 //! let mut env = DistShiftEnv::with_config(cfg, false).expect("valid config");
@@ -49,7 +49,7 @@
 //! [`DistShiftEnv`]: https://minigrid.farama.org/environments/minigrid/DistShiftEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -64,9 +64,8 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -223,21 +222,21 @@ impl FromStr for DistShiftConfig {
 
 /// Fixed `$9 \times 7$` distribution-shift gridworld environment.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// The optimal policy for variant `One` hugs the top corridor; variant `Two`
 /// tests whether that policy generalises when the lava strip moves to a lower
 /// row.
 ///
 /// Construct via [`DistShiftEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (variant One, 100 steps, seed 0).
+/// [`Default`] for default settings (variant One, 100 steps, seed 0).
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = DistShiftEnv::with_config(
 ///     DistShiftConfig::new(DistShiftVariant::One, 100, 0),
@@ -281,7 +280,7 @@ impl DistShiftEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -366,7 +365,12 @@ impl DistShiftEnv {
         GridState::new(grid, agent)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -394,35 +398,22 @@ impl Display for DistShiftEnv {
     }
 }
 
-impl ConstructableEnv for DistShiftEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(DistShiftConfig::default(), render).expect("default config must validate")
+impl Default for DistShiftEnv {
+    fn default() -> Self {
+        Self::with_config(DistShiftConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for DistShiftEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl DistShiftEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for DistShiftEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for DistShiftEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Rebuilds the fixed board, re-opens the episode, and returns the initial
     /// observation.
@@ -430,11 +421,11 @@ impl Environment<3, 3, 1> for DistShiftEnv {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = Self::build(&self.config);
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -445,7 +436,10 @@ impl Environment<3, 3, 1> for DistShiftEnv {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended (goal reached, lava entered, or step limit hit); call
     /// [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances and before `apply_action` touches
         // the grid or the agent, so a rejected call leaves the environment
         // bit-for-bit unchanged. This env draws no randomness, but the guard
@@ -463,12 +457,12 @@ impl Environment<3, 3, 1> for DistShiftEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
 
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -579,8 +573,8 @@ mod tests {
             last = Some(env.step(GridAction::Forward).unwrap());
         }
         let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.9);
     }
 
@@ -595,8 +589,8 @@ mod tests {
         env.step(GridAction::TurnRight).unwrap();
         env.step(GridAction::Forward).unwrap(); // (3,2)
         let snap = env.step(GridAction::Forward).unwrap(); // (3,3) = lava
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -651,12 +645,12 @@ mod tests {
 
     /// Drives a default env to the goal at `(7, 1)` with six `Forward`s, through
     /// real `step()` calls only.
-    fn drive_to_goal(env: &mut DistShiftEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut DistShiftEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         let mut snapshot = env
             .step(GridAction::Forward)
             .expect("the first step must succeed");
-        while !snapshot.is_done() {
+        while !snapshot.status.is_done() {
             snapshot = env
                 .step(GridAction::Forward)
                 .expect("stepping east along the safe corridor must succeed until the goal");
@@ -666,7 +660,7 @@ mod tests {
 
     /// Drives a default env (variant One, lava at row 3) onto the lava strip at
     /// `(3, 3)`, through real `step()` calls only.
-    fn drive_into_lava(env: &mut DistShiftEnv) -> GridSnapshot {
+    fn drive_into_lava(env: &mut DistShiftEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         for action in [
             GridAction::Forward,   // (2, 1)
@@ -678,7 +672,7 @@ mod tests {
                 .step(action)
                 .expect("the approach must not end the episode");
             assert!(
-                !snapshot.is_done(),
+                !snapshot.status.is_done(),
                 "the approach to the lava must stay running"
             );
         }
@@ -723,7 +717,7 @@ mod tests {
         let mut env =
             DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
         let terminal = drive_to_goal(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -787,7 +781,7 @@ mod tests {
             .step(GridAction::Forward)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snapshot.is_done(),
+            !snapshot.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

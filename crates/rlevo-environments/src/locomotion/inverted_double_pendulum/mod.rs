@@ -62,8 +62,7 @@ pub mod state;
 pub use action::InvertedDoublePendulumAction;
 pub use config::InvertedDoublePendulumConfig;
 pub use env::{
-    InvertedDoublePendulum, InvertedDoublePendulumRapier, METADATA_KEY_ALIVE,
-    METADATA_KEY_DISTANCE, METADATA_KEY_VELOCITY,
+    InvertedDoublePendulum, METADATA_KEY_ALIVE, METADATA_KEY_DISTANCE, METADATA_KEY_VELOCITY,
 };
 pub use observation::InvertedDoublePendulumObservation;
 pub use state::InvertedDoublePendulumState;

@@ -60,7 +60,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::go_to_door::{GoToDoorConfig, GoToDoorEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = GoToDoorConfig::new(6, 100, 0);
 //! let mut env = GoToDoorEnv::with_config(cfg, false).expect("valid config");
@@ -89,9 +89,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -127,13 +125,6 @@ pub const MISSION_CHANNEL: usize = super::core::OBS_CHANNELS;
 /// Per-cell channel count of a [`GoToDoorObservation`]: the three shared
 /// entity-encoding channels plus the mission channel.
 pub const GO_TO_DOOR_OBS_CHANNELS: usize = super::core::OBS_CHANNELS + 1;
-
-/// Snapshot type produced by [`GoToDoorEnv`].
-///
-/// A plain [`SnapshotBase`] over the 4-channel [`GoToDoorObservation`] (ADR
-/// 0042: `SnapshotBase` is the only `Snapshot` implementation in the workspace;
-/// a family that needs a named snapshot shape defines a local alias).
-pub type GoToDoorSnapshot = SnapshotBase<3, GoToDoorObservation, ScalarReward>;
 
 /// Instruction the agent must fulfil in a given episode.
 ///
@@ -210,14 +201,13 @@ impl Mission {
 /// let mut env = GoToDoorEnv::with_config(GoToDoorConfig::new(6, 100, 7), false).unwrap();
 /// let snap = env.reset().unwrap();
 /// let mission_byte = env.mission().color_u8();
-/// assert_eq!(snap.observation().view[0][0][MISSION_CHANNEL], mission_byte);
+/// assert_eq!(snap.observation.view[0][0][MISSION_CHANNEL], mission_byte);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GoToDoorObservation {
     /// Encoded view, indexed as `view[row][col][channel]`.
     pub view: [[[u8; GO_TO_DOOR_OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE],
-    /// Agent's absolute facing when the observation was produced, or `None`
-    /// when the facing is genuinely unknown.
+    /// Agent's absolute facing when the observation was produced.
     ///
     /// Typed as [`Direction`] rather than a raw byte so that no illegal
     /// encoding is representable — a raw `u8` permitted values like `200`
@@ -237,19 +227,7 @@ pub struct GoToDoorObservation {
     /// RIDE) discards it before the network. The mission is the one piece of
     /// out-of-image information this env *does* fold into the row, via
     /// [`MISSION_CHANNEL`] (ADR 0043).
-    ///
-    /// # What `None` means
-    ///
-    /// `None` means *the facing is genuinely unknown* — **not** "the agent
-    /// faces some default". A value produced by
-    /// [`from_entity_view`](Self::from_entity_view) or
-    /// [`from_masked_view`](Self::from_masked_view) — i.e. by `GoToDoorEnv`'s
-    /// own projection — is always `Some`; `None` arrives only from a caller
-    /// that builds or deserializes an observation without one. When the true
-    /// facing is needed, read it from the full state
-    /// ([`GridState::agent`](super::core::GridState::agent)), which is where
-    /// the allocentric heading lives.
-    pub agent_direction: Option<Direction>,
+    pub agent_direction: Direction,
 }
 
 impl GoToDoorObservation {
@@ -303,7 +281,7 @@ impl GoToDoorObservation {
         }
         Self {
             view: encoded,
-            agent_direction: Some(direction),
+            agent_direction: direction,
         }
     }
 
@@ -509,8 +487,8 @@ impl FromStr for GoToDoorConfig {
 /// every [`GoToDoorObservation`] cell — this is the only place it appears, so a
 /// policy that ignores that channel cannot beat 25%.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GoToDoorObservation`] / [`GridAction`] / [`ScalarReward`].
+/// Implements [`Environment<3, 1>`] with [`GoToDoorObservation`] / [`GridAction`] /
+/// [`ScalarReward`].
 ///
 /// [`GridAction::Done`] ends the episode either way — at a target-colored door
 /// for [`success_reward`], anywhere else for `0.0` — and a
@@ -522,9 +500,9 @@ impl FromStr for GoToDoorConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::go_to_door::GoToDoorEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = GoToDoorEnv::new(false);
+/// let mut env = GoToDoorEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("Mission: {}", env.mission().describe());
 /// ```
@@ -571,7 +549,7 @@ impl GoToDoorEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl
+    /// constructor argument. Read only by this environment's `observe` method
     /// (through [`observe_impl`](Self::observe_impl)), and an inherent const
     /// rather than a config field because it is part of the task definition, not
     /// a knob a caller tunes.
@@ -640,7 +618,10 @@ impl GoToDoorEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GoToDoorSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GoToDoorObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -744,7 +725,7 @@ impl GoToDoorEnv {
 
     /// Project a grid `state` into a mission-carrying observation.
     ///
-    /// The shared body behind the env-side [`Sensor`] impl: it masks the view
+    /// The shared body behind the environment's `observe` methods: it masks the view
     /// under [`Self::VISIBILITY`] and stamps the current
     /// [`Mission::target_color`] into the observation's mission channel, which is
     /// why the emission model lives on the environment rather than on
@@ -765,15 +746,20 @@ impl GoToDoorEnv {
         )
     }
 
-    fn emit(&self, observation: GoToDoorObservation, reward: f32, done: bool) -> GoToDoorSnapshot {
+    fn emit(
+        &self,
+        observation: GoToDoorObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GoToDoorObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
         let reward = ScalarReward::new(reward);
         if done {
-            SnapshotBase::terminated(observation, reward)
+            Snapshot::terminated(observation, reward)
         } else {
-            SnapshotBase::running(observation, reward)
+            Snapshot::running(observation, reward)
         }
     }
 
@@ -807,42 +793,30 @@ impl Display for GoToDoorEnv {
     }
 }
 
-impl ConstructableEnv for GoToDoorEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(GoToDoorConfig::default(), render).expect("default config must validate")
+impl Default for GoToDoorEnv {
+    fn default() -> Self {
+        Self::with_config(GoToDoorConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for GoToDoorEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GoToDoorObservation;
-
-    /// Emission model `$O(a, s')$`. The observation ignores the action — it is a
-    /// function of the resulting `next_state` and the episode mission — so this
-    /// forwards to the same projection as [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GoToDoorObservation {
-        self.observe_impl(next_state)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GoToDoorObservation {
-        self.observe_impl(state)
+impl GoToDoorEnv {
+    /// The emission model: the egocentric view of the current state, with the
+    /// episode mission.
+    fn observe(&self) -> GoToDoorObservation {
+        self.observe_impl(&self.state)
     }
 }
 
-impl Environment<3, 3, 1> for GoToDoorEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for GoToDoorEnv {
     type ObservationType = GoToDoorObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GoToDoorSnapshot;
 
     /// Samples a fresh episode from the **persistent** RNG stream.
     ///
     /// Per ADR 0029 the stream is *not* re-seeded here: successive resets draw
     /// independent door colors and missions. Use
     /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<GoToDoorObservation>, EnvironmentError> {
         // Re-open the episode first, so no later statement can return early and
         // strand a latched guard. `build` is infallible and this body has no `?`,
         // so `reset` never leaves here on an `Err` path today; should `build`
@@ -855,7 +829,7 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
         self.doors = doors;
         self.mission = mission;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -866,7 +840,10 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<GoToDoorObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before `apply_action` touches
         // the grid or the agent pose, and before anything reads `self.rng`. A
         // rejected call must leave the environment bit-identical — `step` draws
@@ -889,9 +866,9 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
         };
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch above can disagree with it.
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -914,7 +891,7 @@ mod tests {
     // The env no longer cuts the raw window itself (it goes through `mask_view`),
     // but the encoding tests still compare against the *unoccluded* view.
     use crate::grids::core::grid::egocentric_view;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
     use std::collections::HashSet;
 
     /// Wall order used by `GoToDoorEnv::doors` and by the scripts below.
@@ -952,10 +929,10 @@ mod tests {
         }
         let snap = last.expect("script must be non-empty");
         assert!(
-            snap.is_done(),
+            snap.status.is_done(),
             "a Done-terminated script must end the episode"
         );
-        (*snap.reward()).into()
+        (snap.reward).into()
     }
 
     /// Index of the wall whose door carries the mission color, read *only* from
@@ -1139,7 +1116,7 @@ mod tests {
         for _ in 0..20 {
             let snap = env.reset().expect("reset must succeed");
             let expected = env.mission().target_color.to_u8();
-            for (r, row) in snap.observation().view.iter().enumerate() {
+            for (r, row) in snap.observation.view.iter().enumerate() {
                 for (c, cell) in row.iter().enumerate() {
                     assert_eq!(
                         cell[MISSION_CHANNEL], expected,
@@ -1200,7 +1177,7 @@ mod tests {
     #[test]
     fn test_observation_entity_channels_match_shared_encoding() {
         let env = env_6x6(2);
-        let obs = env.observe_reset(env.state());
+        let obs = env.observe();
         let view = egocentric_view(&env.state().grid, &env.state().agent);
         // The agent's own cell is deliberately excluded: `observe_impl` goes
         // through `mask_view`, whose final step stamps the carried item over
@@ -1259,12 +1236,12 @@ mod tests {
             let snap = env.reset().expect("reset must succeed");
             let mission = env.mission().target_color.to_u8();
             assert_eq!(
-                snap.observation().view[agent_row][agent_col],
+                snap.observation.view[agent_row][agent_col],
                 [Entity::Empty.type_u8(), 0, 0, mission],
                 "the agent cell must be an empty hand plus the mission byte"
             );
             assert_eq!(
-                snap.observation().mission_color_u8(),
+                snap.observation.mission_color_u8(),
                 mission,
                 "the mission accessor reads cell (0, 0), which the stamp never touches"
             );
@@ -1279,7 +1256,7 @@ mod tests {
         // behind the 25% cap asserted below.
         let mut env = env_6x6(8);
         env.reset().expect("reset must succeed");
-        let before = env.observe_reset(env.state());
+        let before = env.observe();
         let other = env
             .doors()
             .iter()
@@ -1287,7 +1264,7 @@ mod tests {
             .find(|&c| c != env.mission().target_color)
             .expect("four distinct colors means an alternative exists");
         env.mission = Mission::new(other);
-        let after = env.observe_reset(env.state());
+        let after = env.observe();
 
         for r in 0..VIEW_SIZE {
             for c in 0..VIEW_SIZE {
@@ -1310,7 +1287,7 @@ mod tests {
     #[test]
     fn test_observation_host_row_carries_the_mission_in_every_cell() {
         let env = env_6x6(4);
-        let obs = env.observe_reset(env.state());
+        let obs = env.observe();
         let mut row = Vec::new();
         obs.write_host_row(&mut row);
 
@@ -1338,21 +1315,19 @@ mod tests {
         }
     }
 
-    /// The facing is not in the row: every facing, and none, writes the same
-    /// row.
+    /// The facing is not in the row: every facing writes the same row.
     #[test]
     fn test_observation_host_row_ignores_agent_direction() {
         let env = env_6x6(9);
-        let obs = env.observe_reset(env.state());
+        let obs = env.observe();
         let mut expected = Vec::new();
         obs.write_host_row(&mut expected);
 
         for agent_direction in [
-            Some(Direction::North),
-            Some(Direction::East),
-            Some(Direction::South),
-            Some(Direction::West),
-            None,
+            Direction::North,
+            Direction::East,
+            Direction::South,
+            Direction::West,
         ] {
             let mut row = Vec::new();
             GoToDoorObservation {
@@ -1374,7 +1349,7 @@ mod tests {
         let mut counts = [0usize; DOOR_COUNT];
         for _ in 0..200 {
             let snap = env.reset().expect("reset must succeed");
-            counts[target_wall(&env, snap.observation())] += 1;
+            counts[target_wall(&env, &snap.observation)] += 1;
         }
         for (wall, &n) in counts.iter().enumerate() {
             assert!(
@@ -1454,7 +1429,7 @@ mod tests {
         let mut env = env_6x6(31);
         for episode in 0..100 {
             let snap = env.reset().expect("reset must succeed");
-            let wall = target_wall(&env, snap.observation());
+            let wall = target_wall(&env, &snap.observation);
             let reward = run(&mut env, script_for(wall));
             assert!(
                 reward > 0.9,
@@ -1490,7 +1465,7 @@ mod tests {
     fn test_done_at_wrong_color_door_scores_zero() {
         let mut env = env_6x6(6);
         let snap = env.reset().expect("reset must succeed");
-        let target = target_wall(&env, snap.observation());
+        let target = target_wall(&env, &snap.observation);
         let wrong = (target + 1) % DOOR_COUNT;
         let reward = run(&mut env, script_for(wrong));
         assert_eq!(
@@ -1505,8 +1480,8 @@ mod tests {
         env.reset().expect("reset must succeed");
         // From (2, 2) facing East the cell in front is empty interior.
         let snap = env.step(GridAction::Done).expect("step must succeed");
-        assert!(snap.is_done(), "Done always terminates the episode");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done(), "Done always terminates the episode");
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0, "Done facing no door must pay nothing");
     }
 
@@ -1519,7 +1494,10 @@ mod tests {
         env.step(GridAction::TurnLeft).expect("step"); // face North
         env.step(GridAction::Forward).expect("step"); // → (3, 1)
         let snap = env.step(GridAction::Forward).expect("step"); // bump
-        assert!(!snap.is_done(), "bumping a door does not end the episode");
+        assert!(
+            !snap.status.is_done(),
+            "bumping a door does not end the episode"
+        );
         assert_eq!(
             env.state().agent.y,
             1,
@@ -1538,8 +1516,11 @@ mod tests {
             last = Some(env.step(GridAction::TurnLeft).expect("step must succeed"));
         }
         let snap = last.expect("max_steps > 0");
-        assert!(snap.is_done(), "the episode must end at the step budget");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(
+            snap.status.is_done(),
+            "the episode must end at the step budget"
+        );
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0, "a timeout must pay nothing");
         assert_eq!(env.steps(), max_steps);
     }
@@ -1568,9 +1549,9 @@ mod tests {
     /// is reported identically to a win (out of scope here) — the
     /// conformance check must not be written against a status the env is
     /// known to be reporting wrongly.
-    fn drive_to_mission_done(env: &mut GoToDoorEnv) -> GoToDoorSnapshot {
+    fn drive_to_mission_done(env: &mut GoToDoorEnv) -> Snapshot<GoToDoorObservation> {
         let snap = env.reset().expect("reset must succeed");
-        let wall = target_wall(env, snap.observation());
+        let wall = target_wall(env, &snap.observation);
         let mut last = None;
         for &a in script_for(wall) {
             last = Some(env.step(a).expect("the scripted route must step cleanly"));
@@ -1613,10 +1594,10 @@ mod tests {
         let mut env = env_6x6(31);
         let terminal = drive_to_mission_done(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "the scripted route must end on the mission-completing Done"
         );
-        let won: f32 = (*terminal.reward()).into();
+        let won: f32 = (terminal.reward).into();
         assert!(won > 0.9, "the oracle must be paid for the win, got {won}");
 
         let steps_at_end = env.steps();
@@ -1667,7 +1648,7 @@ mod tests {
     fn test_wrong_door_done_cannot_be_retried_within_the_episode() {
         let mut env = env_6x6(6);
         let snap = env.reset().expect("reset must succeed");
-        let target = target_wall(&env, snap.observation());
+        let target = target_wall(&env, &snap.observation);
         let wrong = (target + 1) % DOOR_COUNT;
         let forfeit = run(&mut env, script_for(wrong));
         assert_eq!(forfeit, 0.0, "a wrong-color Done pays nothing");
@@ -1705,9 +1686,9 @@ mod tests {
             EpisodeStatus::Running,
             "reset() must return the guard to Running"
         );
-        assert!(!snap.is_done(), "a reset snapshot is not done");
+        assert!(!snap.status.is_done(), "a reset snapshot is not done");
         assert_mission_channel_is(
-            snap.observation(),
+            &snap.observation,
             env.mission().color_u8(),
             "reset snapshot",
         );
@@ -1716,11 +1697,11 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !stepped.is_done(),
+            !stepped.status.is_done(),
             "a turn on the first step of a fresh episode must not end it"
         );
         assert_mission_channel_is(
-            stepped.observation(),
+            &stepped.observation,
             env.mission().color_u8(),
             "first step of the new episode",
         );

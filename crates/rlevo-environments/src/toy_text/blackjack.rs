@@ -40,11 +40,9 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 
@@ -212,16 +210,6 @@ pub struct BlackjackState {
     pub usable_ace: bool,
     player_hand: Vec<u8>,
     dealer_hand: Vec<u8>,
-}
-
-impl State<1> for BlackjackState {
-    fn shape() -> [usize; 1] {
-        [3]
-    }
-
-    fn is_valid(&self) -> bool {
-        (4..=32).contains(&self.player_sum) && (1..=10).contains(&self.dealer_showing)
-    }
 }
 
 // ── observation ───────────────────────────────────────────────────────────────
@@ -414,30 +402,17 @@ impl Blackjack {
     }
 }
 
-impl ConstructableEnv for Blackjack {
-    fn new(_render: bool) -> Self {
+impl Default for Blackjack {
+    fn default() -> Self {
         Self::with_config(BlackjackConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for Blackjack {
-    type Action = BlackjackAction;
-    type State = BlackjackState;
-    type Observation = BlackjackObservation;
-
-    /// Projects the resulting state onto the `(player_sum, dealer_showing,
-    /// usable_ace)` observation; the observation ignores which action was taken.
-    fn observe(
-        &self,
-        _action: &BlackjackAction,
-        next_state: &BlackjackState,
-    ) -> BlackjackObservation {
-        blackjack_observation(next_state)
-    }
-
-    /// Projects the initial dealt state onto the observation.
-    fn observe_reset(&self, state: &BlackjackState) -> BlackjackObservation {
-        blackjack_observation(state)
+impl Blackjack {
+    /// Projects the current state onto the `(player_sum, dealer_showing,
+    /// usable_ace)` observation.
+    fn observe(&self) -> BlackjackObservation {
+        blackjack_observation(&self.state)
     }
 }
 
@@ -451,20 +426,14 @@ fn blackjack_observation(state: &BlackjackState) -> BlackjackObservation {
     }
 }
 
-impl Environment<1, 1, 1> for Blackjack {
-    type StateType = BlackjackState;
+impl Environment<1, 1> for Blackjack {
     type ObservationType = BlackjackObservation;
     type ActionType = BlackjackAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, BlackjackObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<BlackjackObservation>, EnvironmentError> {
         self.guard.reset();
         self.deal_initial();
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Applies one action and settles the hand.
@@ -474,7 +443,10 @@ impl Environment<1, 1, 1> for Blackjack {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended. The check runs before any card is drawn, so a rejected
     /// call leaves both the hands and the RNG stream untouched.
-    fn step(&mut self, action: BlackjackAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: BlackjackAction,
+    ) -> Result<Snapshot<BlackjackObservation>, EnvironmentError> {
         // Before any mutation *and* before any RNG draw: a rejected step must not
         // advance the stream, or determinism would depend on the caller's mistakes.
         self.guard.check()?;
@@ -531,15 +503,15 @@ impl Environment<1, 1, 1> for Blackjack {
 
         self.apply_sab_override(&mut reward, &mut done);
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         // Build the snapshot once and record *its* status, so the guard can never
         // disagree with the snapshot the caller was handed.
         let snapshot = if done {
-            SnapshotBase::terminated(obs, ScalarReward(reward))
+            Snapshot::terminated(obs, ScalarReward(reward))
         } else {
-            SnapshotBase::running(obs, ScalarReward(reward))
+            Snapshot::running(obs, ScalarReward(reward))
         };
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -746,9 +718,9 @@ mod tests {
             env.set_hands(vec![10, 10], vec![6, 5]);
             env.rng = StdRng::seed_from_u64(seed);
             let snap = env.step(BlackjackAction::Hit).unwrap();
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             if r == -1.0 {
-                assert!(snap.is_done());
+                assert!(snap.status.is_done());
                 return;
             }
         }
@@ -765,9 +737,9 @@ mod tests {
             env.set_hands(vec![9, 9], vec![10, 6]);
             env.rng = StdRng::seed_from_u64(seed);
             let snap = env.step(BlackjackAction::Stick).unwrap();
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             if r == 1.0 {
-                assert!(snap.is_done());
+                assert!(snap.status.is_done());
                 return;
             }
         }
@@ -782,9 +754,9 @@ mod tests {
         // Player 18, dealer 18 (10+8) → no draw needed (`$18 \geq 17$`).
         env.set_hands(vec![9, 9], vec![10, 8]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, 0.0, "equal sums must push (reward 0), got {r}");
-        assert!(snap.is_done());
+        assert!(snap.status.is_done());
     }
 
     #[test]
@@ -801,9 +773,9 @@ mod tests {
         // Natural player [1,10]=21, dealer [8,9]=17 (not natural, no draw).
         env.set_hands(vec![1, 10], vec![8, 9]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert!((r - 1.5).abs() < 1e-6, "natural pays 1.5, got {r}");
-        assert!(snap.is_done());
+        assert!(snap.status.is_done());
     }
 
     #[test]
@@ -818,12 +790,12 @@ mod tests {
         // SAB: player natural [1,10], dealer non-natural [8,9] → reward = 1.0.
         env.set_hands(vec![1, 10], vec![8, 9]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert!(
             (r - 1.0).abs() < 1e-6,
             "SAB player natural must pay 1.0, got {r}"
         );
-        assert!(snap.is_done());
+        assert!(snap.status.is_done());
     }
 
     #[test]
@@ -838,12 +810,12 @@ mod tests {
         // SAB: dealer natural [1,10], player non-natural [9,7] → reward = -1.0.
         env.set_hands(vec![9, 7], vec![1, 10]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert!(
             (r - (-1.0)).abs() < 1e-6,
             "SAB dealer natural costs -1.0, got {r}"
         );
-        assert!(snap.is_done());
+        assert!(snap.status.is_done());
     }
 
     #[test]
@@ -865,9 +837,9 @@ mod tests {
                         BlackjackAction::Stick
                     };
                     let snap = env.step(a).unwrap();
-                    let r: f32 = (*snap.reward()).into();
+                    let r: f32 = (snap.reward).into();
                     total += r;
-                    if snap.is_done() {
+                    if snap.status.is_done() {
                         break;
                     }
                 }
@@ -933,7 +905,7 @@ mod tests {
     // these fixtures terminate the episode without searching for a seed.
 
     /// Drives `env` to a bust on `Hit`, returning the terminal snapshot.
-    fn bust_on_hit(env: &mut Blackjack) -> SnapshotBase<1, BlackjackObservation, ScalarReward> {
+    fn bust_on_hit(env: &mut Blackjack) -> Snapshot<BlackjackObservation> {
         env.reset().expect("reset must succeed");
         env.set_hands(vec![10, 7, 4], vec![6, 5]); // hard 21 — any card busts it
         env.step(BlackjackAction::Hit)
@@ -953,7 +925,7 @@ mod tests {
         let mut env = make_env();
         let snapshot = bust_on_hit(&mut env);
         assert!(
-            snapshot.is_done(),
+            snapshot.status.is_done(),
             "hitting a hard 21 must bust and terminate the episode"
         );
 
@@ -1005,7 +977,10 @@ mod tests {
     fn test_blackjack_reset_reopens_terminated_episode() {
         let mut env = make_env();
         let snapshot = bust_on_hit(&mut env);
-        assert!(snapshot.is_done(), "the episode must have terminated");
+        assert!(
+            snapshot.status.is_done(),
+            "the episode must have terminated"
+        );
         assert!(
             env.step(BlackjackAction::Hit).is_err(),
             "the guard must be closed before reset()"
@@ -1049,14 +1024,14 @@ mod tests {
                 let snapshot = env
                     .step(action)
                     .expect("a running episode must accept a step");
-                let reward: f32 = (*snapshot.reward()).into();
+                let reward: f32 = (snapshot.reward).into();
                 trace.push((
                     env.state.player_hand.clone(),
                     env.state.dealer_hand.clone(),
                     reward.to_bits(),
-                    snapshot.is_done(),
+                    snapshot.status.is_done(),
                 ));
-                if snapshot.is_done() {
+                if snapshot.status.is_done() {
                     break;
                 }
             }
@@ -1084,7 +1059,7 @@ mod tests {
         for env in [&mut probed, &mut clean] {
             let terminal = bust_on_hit(env);
             assert!(
-                terminal.is_done(),
+                terminal.status.is_done(),
                 "hitting a hard 21 must bust and terminate the episode"
             );
         }

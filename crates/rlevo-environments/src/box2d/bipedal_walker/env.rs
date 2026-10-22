@@ -19,11 +19,9 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
-use rlevo_core::base::{Action, State};
+use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -375,7 +373,7 @@ impl BipedalWalker {
 
     /// Build the 24-dim observation by reading the live physics world.
     ///
-    /// This is the emission model driving the env-side [`Sensor`]: hull and
+    /// This is the environment's emission model: hull and
     /// joint kinematics and the leg-contact flags are read from `state` and the
     /// world it indexes into, and the 10 lidar rays are cast against the live
     /// physics geometry via [`cast_lidar`](Self::cast_lidar). It is not cached on
@@ -497,37 +495,23 @@ impl BipedalWalker {
     }
 }
 
-impl ConstructableEnv for BipedalWalker {
-    fn new(_render: bool) -> Self {
+impl Default for BipedalWalker {
+    fn default() -> Self {
         Self::with_config(BipedalWalkerConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for BipedalWalker {
-    type Action = BipedalWalkerAction;
-    type State = BipedalWalkerState;
-    type Observation = BipedalWalkerObservation;
-
-    /// Emit the 24-dim observation for `next_state` by reading the live physics
-    /// world (hull/joint kinematics, contact flags, and lidar raycasts). The
-    /// action does not affect the emission; it is accepted to satisfy the
-    /// [`Sensor`] contract.
-    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
-        self.compute_observation(next_state)
-    }
-
-    /// Emit the initial observation at episode start from the reset `state`.
-    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
-        self.compute_observation(state)
+impl BipedalWalker {
+    /// Emit the 24-dim observation of the current state by reading the live
+    /// physics world (hull/joint kinematics, contact flags, and lidar raycasts).
+    fn observe(&self) -> BipedalWalkerObservation {
+        self.compute_observation(&self.state)
     }
 }
 
-impl Environment<1, 1, 1> for BipedalWalker {
-    type StateType = BipedalWalkerState;
+impl Environment<1, 1> for BipedalWalker {
     type ObservationType = BipedalWalkerObservation;
     type ActionType = BipedalWalkerAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, BipedalWalkerObservation, ScalarReward>;
 
     /// Rebuild the physics world, reset counters, and return the initial
     /// observation with reward 0 and status `Running`.
@@ -545,14 +529,14 @@ impl Environment<1, 1, 1> for BipedalWalker {
     /// *old* physics world — the environment would happily step a state it never
     /// returned to its initial condition (ADR 0044 §6, the same rule
     /// `TimeLimit::reset` follows).
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<BipedalWalkerObservation>, EnvironmentError> {
         self.rebuild_world()?;
         self.guard.reset();
         self.steps = 0;
         self.total_reward = 0.0;
         self.state.leg1_contact = false;
         self.state.leg2_contact = false;
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         // Mirror the observation onto the state so `is_valid` can check its
         // finiteness (physics-divergence detector); see `BipedalWalkerState`.
         self.state.last_obs = obs.clone();
@@ -560,7 +544,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
             self.state.is_valid(),
             "BipedalWalkerState invariant violated after reset"
         );
-        Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)))
     }
 
     /// Advance the simulation by one timestep and return the resulting snapshot.
@@ -571,7 +555,10 @@ impl Environment<1, 1, 1> for BipedalWalker {
     /// already ended; call [`reset`](Environment::reset) first. Returns
     /// [`EnvironmentError::InvalidAction`] if any component of `action` is
     /// outside `[-1, 1]` or is non-finite.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<BipedalWalkerObservation>, EnvironmentError> {
         // Guard first — ahead of even the action-validity check: the episode
         // being over is a fact about the *call sequence*, independent of whether
         // the action itself is well-formed, so the caller must hear about the
@@ -605,7 +592,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
         let reward = Self::compute_reward(&action, vel_x);
         self.total_reward += reward;
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         // Mirror the observation onto the state so `is_valid` can check its
         // finiteness (physics-divergence detector); see `BipedalWalkerState`.
         self.state.last_obs = obs.clone();
@@ -628,7 +615,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
         let final_reward = if hull_down { reward - 100.0 } else { reward };
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
-        let snapshot = SnapshotBase {
+        let snapshot = Snapshot {
             observation: obs,
             reward: ScalarReward(final_reward),
             status,
@@ -728,7 +715,6 @@ mod tests {
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     /// Creates a default flat-terrain environment for use in tests.
     fn make_env() -> BipedalWalker {
@@ -744,7 +730,7 @@ mod tests {
     fn test_reset_returns_running() {
         let mut env = make_env();
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
     }
 
     #[test]
@@ -755,7 +741,7 @@ mod tests {
             let action = BipedalWalkerAction([0.0; 4]);
             let snap = env.step(action).unwrap();
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "observation must be all-finite after every step"
             );
         }
@@ -788,7 +774,7 @@ mod tests {
             let mut last_obs = BipedalWalkerObservation::default();
             for a in actions {
                 if let Ok(snap) = env.step(a.clone()) {
-                    last_obs = snap.observation().clone();
+                    last_obs = snap.observation.clone();
                 }
             }
             last_obs.values
@@ -809,7 +795,7 @@ mod tests {
         let mut env =
             BipedalWalker::with_terrain(cfg, Box::new(FlatTerrain)).expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(snap.observation().is_finite());
+        assert!(snap.observation.is_finite());
     }
 
     #[test]
@@ -849,7 +835,7 @@ mod tests {
         // joint speeds.
         let mut env = make_env();
         let reset_snap = env.reset().unwrap();
-        let reset_obs = reset_snap.observation().values;
+        let reset_obs = reset_snap.observation.values;
 
         // Drive asymmetric motor targets so joints move differently. The
         // asymmetric drive topples the walker well inside 30 steps, and since
@@ -861,8 +847,8 @@ mod tests {
         for _ in 0..30 {
             let action = BipedalWalkerAction([1.0, -1.0, -1.0, 1.0]);
             let snap = env.step(action).unwrap();
-            moved_obs = snap.observation().values;
-            if snap.is_done() {
+            moved_obs = snap.observation.values;
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -917,7 +903,7 @@ mod tests {
             let mut v = [0.0f32; 24];
             for _ in 0..8 {
                 let snap = env.step(BipedalWalkerAction([0.0; 4])).unwrap();
-                v = snap.observation().values;
+                v = snap.observation.values;
             }
             (v[5], v[10])
         };
@@ -964,7 +950,7 @@ mod tests {
             );
             let snap = env.reset().unwrap();
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "reset obs must be finite for terrain {terrain:?}"
             );
         }
@@ -1075,7 +1061,7 @@ mod tests {
             let mut env = BipedalWalker::with_config(cfg).expect("valid config");
             let snap = env.reset().expect("reset must succeed");
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "reset obs must be finite for {terrain:?}"
             );
         }
@@ -1089,7 +1075,7 @@ mod tests {
             let mut env = BipedalWalker::with_config(cfg).expect("valid config");
             let snap = env.reset().expect("hardcore reset must succeed");
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "hardcore reset obs must be finite for seed {seed}"
             );
         }
@@ -1110,15 +1096,13 @@ mod tests {
     /// unactuated walker topples and the hull contacts the ground. The episode
     /// ends through the genuine physics path an agent would hit, not by writing
     /// state directly.
-    fn drive_to_fall(
-        env: &mut BipedalWalker,
-    ) -> SnapshotBase<1, BipedalWalkerObservation, ScalarReward> {
+    fn drive_to_fall(env: &mut BipedalWalker) -> Snapshot<BipedalWalkerObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..FALL_STEP_CAP {
             let snap = env
                 .step(BipedalWalkerAction([0.0; 4]))
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -1145,10 +1129,10 @@ mod tests {
     fn test_bipedal_walker_post_terminal_step_does_not_mutate_state() {
         let mut env = make_env();
         let terminal = drive_to_fall(&mut env);
-        assert!(terminal.is_done(), "the fall must end the episode");
-        let ended = terminal.status();
+        assert!(terminal.status.is_done(), "the fall must end the episode");
+        let ended = terminal.status;
 
-        let obs_at_end = terminal.observation().values;
+        let obs_at_end = terminal.observation.values;
         let steps_at_end = env.steps;
         let total_reward_at_end = env.total_reward;
 
@@ -1197,7 +1181,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after termination");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -1207,7 +1194,7 @@ mod tests {
             .step(BipedalWalkerAction([0.0; 4]))
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

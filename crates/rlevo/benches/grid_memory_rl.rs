@@ -94,7 +94,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 
 use rlevo_environments::grids::core::{GridObservation, OBS_CHANNELS, VIEW_SIZE};
 use rlevo_environments::grids::{GridAction, MemoryConfig, MemoryEnv};
@@ -171,10 +171,10 @@ fn roll_out(
 ) -> (f32, bool) {
     let mut snapshot = env.reset().expect("reset");
     loop {
-        let action = next_action(snapshot.observation());
+        let action = next_action(&snapshot.observation);
         snapshot = env.step(action).expect("step");
-        if snapshot.is_done() {
-            let reward = f32::from(*snapshot.reward());
+        if snapshot.status.is_done() {
+            let reward = f32::from(snapshot.reward);
             return (reward, reward > 0.0);
         }
     }
@@ -226,9 +226,9 @@ fn rollout_steps(steps: usize, mut next_action: impl FnMut(&GridObservation) -> 
     let mut env = MemoryEnv::with_config(memory_config(), false).expect("valid config");
     let mut snapshot = env.reset().expect("reset");
     for _ in 0..steps {
-        let action = next_action(snapshot.observation());
+        let action = next_action(&snapshot.observation);
         snapshot = env.step(action).expect("step");
-        if snapshot.is_done() {
+        if snapshot.status.is_done() {
             snapshot = env.reset().expect("reset");
         }
     }

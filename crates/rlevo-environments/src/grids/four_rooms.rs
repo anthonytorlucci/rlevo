@@ -69,7 +69,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = FourRoomsConfig::new(11, 484, 0);
 //! let mut env = FourRoomsEnv::with_config(cfg, false).expect("valid config");
@@ -79,7 +79,7 @@
 //! [`FourRoomsEnv`]: https://minigrid.farama.org/environments/minigrid/FourRoomsEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     build_snapshot,
     dynamics::{StepOutcome, apply_action},
@@ -95,11 +95,8 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -313,8 +310,8 @@ impl FromStr for FourRoomsConfig {
 
 /// Four-quadrant maze environment requiring multi-room navigation.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// The agent must generally transit two openings to reach the goal, making this
 /// a classic long-horizon exploration task. The quadrant partition is fixed, but
@@ -323,7 +320,7 @@ impl FromStr for FourRoomsConfig {
 /// boards rather than on one memorized route.
 ///
 /// Construct via [`FourRoomsEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 11, seed 0).
+/// [`Default`] for default settings (size 11, seed 0).
 ///
 /// Reaching the goal (or lava) ends the episode; a [`step`](Environment::step)
 /// taken afterwards is rejected with
@@ -333,7 +330,7 @@ impl FromStr for FourRoomsConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = FourRoomsEnv::with_config(
 ///     FourRoomsConfig::new(11, 484, 0),
@@ -374,7 +371,7 @@ impl FourRoomsEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -446,7 +443,10 @@ impl FourRoomsEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -575,7 +575,12 @@ impl FourRoomsEnv {
         Ok((GridState::new(grid, agent), openings))
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -603,36 +608,23 @@ impl Display for FourRoomsEnv {
     }
 }
 
-impl ConstructableEnv for FourRoomsEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(FourRoomsConfig::default(), render)
+impl Default for FourRoomsEnv {
+    fn default() -> Self {
+        Self::with_config(FourRoomsConfig::default(), false)
             .expect("default config must validate and its 11x11 board must place agent and goal")
     }
 }
 
-impl Sensor<3, 1, 3> for FourRoomsEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl FourRoomsEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for FourRoomsEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for FourRoomsEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Samples a fresh board — four openings, agent pose, goal — from the
     /// persistent RNG, letting the stream advance (ADR 0029). Never re-seeds;
@@ -650,13 +642,13 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
     /// a finished episode over the *old* board — the environment would happily
     /// step a state it never returned to its initial condition (ADR 0044 §6,
     /// the same rule `TimeLimit::reset` follows).
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         let (state, openings) = Self::build(&self.config, &mut self.rng)?;
         self.guard.reset();
         self.state = state;
         self.openings = openings;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -664,7 +656,10 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before `apply_action` touches
         // the grid or the agent pose, and before any RNG draw. A rejected call
         // must leave the board, the counter, and the stream untouched, or the
@@ -683,9 +678,9 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
         };
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -711,7 +706,6 @@ mod tests {
     use crate::episode::assert_rejects_post_terminal_step;
     use crate::grids::core::UNSEEN_TYPE;
     use crate::grids::core::agent::AgentState;
-    use rlevo_core::environment::Snapshot;
     use std::collections::{HashSet, VecDeque};
 
     /// How many distinct episodes every seed loop must clear.
@@ -1132,7 +1126,7 @@ mod tests {
         let mut b = FourRoomsEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     /// The persistent stream advances, so successive episodes are fresh boards.
@@ -1170,8 +1164,7 @@ mod tests {
             env.reset().expect("reset");
             let second = env.reset_with_seed(7).expect("reset");
             assert_eq!(
-                first.observation(),
-                second.observation(),
+                first.observation, second.observation,
                 "size {size}: reset_with_seed(7) did not replay"
             );
             assert_eq!(first_layout, layout_of(&env));
@@ -1211,7 +1204,7 @@ mod tests {
                     let before = (env.state().agent.x, env.state().agent.y);
                     let snap = env.step(GridAction::Forward).expect("step");
                     let agent = env.state().agent;
-                    if snap.is_done() {
+                    if snap.status.is_done() {
                         verdict = Some(true); // walked onto the goal; nothing to block
                         break;
                     }
@@ -1336,10 +1329,10 @@ mod tests {
                 }
                 let snap = last.expect("non-empty route");
                 assert!(
-                    snap.is_done(),
+                    snap.status.is_done(),
                     "size {size} seed {seed}: the derived route did not end the episode"
                 );
-                let reward: f32 = (*snap.reward()).into();
+                let reward: f32 = (snap.reward).into();
                 assert!(
                     reward > 0.0,
                     "size {size} seed {seed}: reward was {reward}, expected > 0.0"
@@ -1356,8 +1349,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1393,7 +1386,7 @@ mod tests {
     /// that status, since the status itself is the defect a future fix is
     /// expected to change. The route is derived from the board the env
     /// actually drew, so this does not encode one seed's geometry.
-    fn drive_to_goal(env: &mut FourRoomsEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut FourRoomsEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(3).expect("reset must succeed");
         let agent = env.state().agent;
         let goal = goal_of(&env.state().grid);
@@ -1411,7 +1404,7 @@ mod tests {
         }
         let snapshot = last.expect("the route is non-empty");
         assert!(
-            snapshot.is_done(),
+            snapshot.status.is_done(),
             "walking the derived route must end the episode at the goal"
         );
         snapshot
@@ -1439,7 +1432,7 @@ mod tests {
     fn test_four_rooms_post_terminal_step_does_not_resume_the_episode() {
         let mut env = env_11();
         let terminal = drive_to_goal(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -1506,7 +1499,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "a single turn on a fresh board must not end the episode"
         );
     }

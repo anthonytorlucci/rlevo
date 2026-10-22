@@ -38,7 +38,7 @@ where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
     M: Module<B> + Sync + StatefulPolicy<B, E>,
-    E: Environment<1, 1, 1> + Send,
+    E: Environment<1, 1> + Send,
 {
     evo_loop: EvolutionaryLoop<B, WeightOnly<B, S, M>, RolloutFitness<B, M, E>>,
 }
@@ -48,7 +48,7 @@ where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
     M: Module<B> + Sync + StatefulPolicy<B, E>,
-    E: Environment<1, 1, 1> + Send,
+    E: Environment<1, 1> + Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PolicyNeuroevolution")
@@ -62,7 +62,7 @@ where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
     M: Module<B> + Sync + StatefulPolicy<B, E>,
-    E: Environment<1, 1, 1> + Send,
+    E: Environment<1, 1> + Send,
 {
     /// Assemble the driver.
     ///

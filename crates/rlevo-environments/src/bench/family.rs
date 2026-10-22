@@ -220,37 +220,25 @@ impl RecordedEnvFamily for crate::box2d::car_racing::CarRacing {
 
 // ---------------------------------------------------------------------------
 // Locomotion — behind the `locomotion` feature (rapier3d).
-//
-// The env structs are generic over `B: LocomotionBackend` (defaulted to
-// `Rapier3DBackend`), so the impls are generic too: that covers the
-// `*Rapier` aliases and any future backend without a second, overlapping impl.
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "locomotion")]
-impl<B: crate::locomotion::backend::LocomotionBackend> RecordedEnvFamily
-    for crate::locomotion::inverted_pendulum::InvertedPendulum<B>
-{
+impl RecordedEnvFamily for crate::locomotion::inverted_pendulum::InvertedPendulum {
     const FAMILY: EnvFamily = EnvFamily::Locomotion;
 }
 
 #[cfg(feature = "locomotion")]
-impl<B: crate::locomotion::backend::LocomotionBackend> RecordedEnvFamily
-    for crate::locomotion::inverted_double_pendulum::InvertedDoublePendulum<B>
-{
+impl RecordedEnvFamily for crate::locomotion::inverted_double_pendulum::InvertedDoublePendulum {
     const FAMILY: EnvFamily = EnvFamily::Locomotion;
 }
 
 #[cfg(feature = "locomotion")]
-impl<B: crate::locomotion::backend::LocomotionBackend> RecordedEnvFamily
-    for crate::locomotion::swimmer::Swimmer<B>
-{
+impl RecordedEnvFamily for crate::locomotion::swimmer::Swimmer {
     const FAMILY: EnvFamily = EnvFamily::Locomotion;
 }
 
 #[cfg(feature = "locomotion")]
-impl<B: crate::locomotion::backend::LocomotionBackend> RecordedEnvFamily
-    for crate::locomotion::reacher::Reacher<B>
-{
+impl RecordedEnvFamily for crate::locomotion::reacher::Reacher {
     const FAMILY: EnvFamily = EnvFamily::Locomotion;
 }
 
@@ -268,7 +256,6 @@ impl<E: RecordedEnvFamily> RecordedEnvFamily for TimeLimit<E> {
 
 #[cfg(test)]
 mod tests {
-    use rlevo_core::environment::ConstructableEnv;
     use rlevo_core::render::payload::{
         Classic2DPayloadSource, GridPayloadSource, TabularPayloadSource,
     };
@@ -317,27 +304,27 @@ mod tests {
     /// than a wrong SVG.
     fn assert_classic2d_family<E>()
     where
-        E: ConstructableEnv + Classic2DPayloadSource + RecordedEnvFamily,
+        E: Default + Classic2DPayloadSource + RecordedEnvFamily,
     {
-        let env = E::new(false);
+        let env = E::default();
         let emitted = FamilyPayload::Classic2D(Classic2DPayload::from(env.classic2d_snapshot()));
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
     fn assert_grid_family<E>()
     where
-        E: ConstructableEnv + GridPayloadSource + RecordedEnvFamily,
+        E: Default + GridPayloadSource + RecordedEnvFamily,
     {
-        let env = E::new(false);
+        let env = E::default();
         let emitted = FamilyPayload::Grid(GridPayload::from(env.grid_snapshot()));
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
 
     fn assert_tabular_family<E>()
     where
-        E: ConstructableEnv + TabularPayloadSource + RecordedEnvFamily,
+        E: Default + TabularPayloadSource + RecordedEnvFamily,
     {
-        let env = E::new(false);
+        let env = E::default();
         let emitted = FamilyPayload::TabularText(TabularPayload::from(env.tabular_snapshot()));
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
@@ -345,11 +332,11 @@ mod tests {
     #[cfg(feature = "box2d")]
     fn assert_box2d_family<E>()
     where
-        E: ConstructableEnv + rlevo_core::render::payload::Box2dPayloadSource + RecordedEnvFamily,
+        E: Default + rlevo_core::render::payload::Box2dPayloadSource + RecordedEnvFamily,
     {
         use rlevo_harness::record::Box2dPayload;
 
-        let env = E::new(false);
+        let env = E::default();
         let emitted = FamilyPayload::Box2dBodies(Box2dPayload::from(env.box2d_snapshot()));
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
     }
@@ -357,13 +344,11 @@ mod tests {
     #[cfg(feature = "locomotion")]
     fn assert_locomotion_family<E>()
     where
-        E: ConstructableEnv
-            + rlevo_core::render::payload::Locomotion2DPayloadSource
-            + RecordedEnvFamily,
+        E: Default + rlevo_core::render::payload::Locomotion2DPayloadSource + RecordedEnvFamily,
     {
         use rlevo_harness::record::Locomotion2DPayload;
 
-        let env = E::new(false);
+        let env = E::default();
         let emitted =
             FamilyPayload::Locomotion2D(Locomotion2DPayload::from(env.locomotion2d_snapshot()));
         assert_family(&emitted, E::FAMILY, std::any::type_name::<E>());
@@ -416,7 +401,7 @@ mod tests {
             assert_box2d_family::<crate::box2d::lunar_lander::LunarLanderContinuous>();
         }
         #[cfg(feature = "locomotion")]
-        assert_locomotion_family::<crate::locomotion::inverted_pendulum::InvertedPendulumRapier>();
+        assert_locomotion_family::<crate::locomotion::inverted_pendulum::InvertedPendulum>();
     }
 
     // -----------------------------------------------------------------------
@@ -570,22 +555,22 @@ mod tests {
     #[cfg(feature = "locomotion")]
     #[test]
     fn test_recorded_env_family_pins_locomotion_envs() {
-        use crate::locomotion::inverted_double_pendulum::InvertedDoublePendulumRapier;
-        use crate::locomotion::inverted_pendulum::InvertedPendulumRapier;
-        use crate::locomotion::reacher::ReacherRapier;
-        use crate::locomotion::swimmer::SwimmerRapier;
+        use crate::locomotion::inverted_double_pendulum::InvertedDoublePendulum;
+        use crate::locomotion::inverted_pendulum::InvertedPendulum;
+        use crate::locomotion::reacher::Reacher;
+        use crate::locomotion::swimmer::Swimmer;
 
         for (env, family) in [
             (
                 "InvertedPendulum",
-                <InvertedPendulumRapier as RecordedEnvFamily>::FAMILY,
+                <InvertedPendulum as RecordedEnvFamily>::FAMILY,
             ),
             (
                 "InvertedDoublePendulum",
-                <InvertedDoublePendulumRapier as RecordedEnvFamily>::FAMILY,
+                <InvertedDoublePendulum as RecordedEnvFamily>::FAMILY,
             ),
-            ("Swimmer", <SwimmerRapier as RecordedEnvFamily>::FAMILY),
-            ("Reacher", <ReacherRapier as RecordedEnvFamily>::FAMILY),
+            ("Swimmer", <Swimmer as RecordedEnvFamily>::FAMILY),
+            ("Reacher", <Reacher as RecordedEnvFamily>::FAMILY),
         ] {
             assert_eq!(
                 family,

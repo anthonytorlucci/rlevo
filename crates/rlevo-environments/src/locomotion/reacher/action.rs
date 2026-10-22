@@ -44,11 +44,6 @@ impl ContinuousAction<1> for ReacherAction {
         &self.0
     }
 
-    /// Returns a new action with both elements clamped to `[min, max]`.
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
-    }
-
     /// Construct from a slice of exactly `COMPONENTS` values
     /// `[shoulder, elbow]`.
     ///
@@ -64,15 +59,6 @@ impl ContinuousAction<1> for ReacherAction {
             values.len(),
         );
         Self([values[0], values[1]])
-    }
-
-    /// Sample a uniformly-random action in `$[-1.0, 1.0]^2$` using the global
-    /// thread-local RNG.
-    fn random() -> Self {
-        Self([
-            rand::random::<f32>() * 2.0 - 1.0,
-            rand::random::<f32>() * 2.0 - 1.0,
-        ])
     }
 }
 

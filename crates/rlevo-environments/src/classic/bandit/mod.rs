@@ -26,18 +26,13 @@ pub use adversarial::{AdversarialBandit, AdversarialBanditConfig};
 pub use contextual::{
     ContextualBandit, ContextualBanditConfig, ContextualBanditObservation, ContextualBanditState,
 };
-pub use k_armed::{
-    KArmedBandit, KArmedBanditAction, KArmedBanditConfig, KArmedBanditObservation,
-    KArmedBanditState,
-};
+pub use k_armed::{KArmedBandit, KArmedBanditAction, KArmedBanditConfig, KArmedBanditObservation};
 pub use non_stationary::{NonStationaryBandit, NonStationaryBanditConfig};
 
 /// Canonical Sutton & Barto §2 ten-armed testbed.
 pub type TenArmedBandit = KArmedBandit<10>;
 /// Action type for the canonical ten-armed bandit.
 pub type TenArmedBanditAction = KArmedBanditAction<10>;
-/// State type for the canonical ten-armed bandit.
-pub type TenArmedBanditState = KArmedBanditState;
 /// Observation type for the canonical ten-armed bandit.
 pub type TenArmedBanditObservation = KArmedBanditObservation;
 /// Configuration type for the canonical ten-armed bandit.

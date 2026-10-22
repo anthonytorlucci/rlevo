@@ -321,7 +321,7 @@ are two calls on purpose. A `step()` that returned a flag would be written
 `while !evo_loop.step() {}`, and the reader would have to remember which way the
 flag points. With the question separate, the loop reads as what it does, and it
 asks *before* it runs, so a budget of zero runs no generation. `is_done()` is
-also the word `rlevo` uses to end an episode (`Snapshot::is_done()`), so both
+also the word `rlevo` uses to end an episode (`snap.status.is_done()`), so both
 kinds of run stop on the same question.
 
 **The budget is advisory to `step()`.** `is_done()` turns `true` when the budget

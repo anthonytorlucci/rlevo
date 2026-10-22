@@ -34,7 +34,7 @@ use rand::rngs::StdRng;
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::box2d::car_racing::{
     CarRacing, CarRacingAction, CarRacingConfig, CarRacingObservation,
 };
@@ -187,7 +187,7 @@ fn build_env() -> CarRacing {
         max_steps: 64,
         ..CarRacingConfig::default()
     };
-    // Not `unwrap_or_else(|_| CarRacing::new(false))`: that fallback silently
+    // Not `unwrap_or_else(|_| CarRacing::default())`: that fallback silently
     // substitutes a *differently* configured env (the default `max_steps`, not
     // 64), so a config regression would turn into a slower test rather than a
     // failing one.
@@ -229,9 +229,9 @@ fn car_racing_bounds_match_the_gymnasium_box() {
     assert_eq!(CarRacingAction::high(), &[1.0, 1.0, 1.0]);
     assert_eq!(CarRacingAction::low().len(), CarRacingAction::COMPONENTS);
     assert_eq!(CarRacingAction::high().len(), CarRacingAction::COMPONENTS);
-    assert_eq!(CarRacingAction::RANK, 1);
+    assert_eq!(CarRacingAction::shape().len(), 1);
     assert_ne!(
-        CarRacingAction::RANK,
+        CarRacingAction::shape().len(),
         CarRacingAction::COMPONENTS,
         "the witness is only a witness while rank and component count disagree"
     );
@@ -255,7 +255,7 @@ fn td3_steps_car_racing_without_producing_an_impossible_action() {
     let mut env = build_env();
     let mut rng = StdRng::seed_from_u64(0x0D15_EA5E);
 
-    let mut obs = env.reset().expect("reset").observation().clone();
+    let mut obs = env.reset().expect("reset").observation.clone();
 
     // 4 warm-up steps (uniform sample per component) then 4 policy steps
     // (tanh output clipped per component) — both action paths, one run.
@@ -266,19 +266,19 @@ fn td3_steps_car_racing_without_producing_an_impossible_action() {
         let snapshot = env.step(action.clone()).unwrap_or_else(|e| {
             panic!("CarRacing rejected the agent's action at step {step}: {e}")
         });
-        let next_obs = snapshot.observation().clone();
+        let next_obs = snapshot.observation.clone();
 
         agent.remember(
             obs,
             &action,
-            snapshot.reward().0,
+            snapshot.reward.0,
             next_obs.clone(),
-            snapshot.is_terminated(),
+            snapshot.status.is_terminated(),
         );
         agent.on_env_step();
 
-        if snapshot.is_done() {
-            obs = env.reset().expect("reset").observation().clone();
+        if snapshot.status.is_done() {
+            obs = env.reset().expect("reset").observation.clone();
         } else {
             obs = next_obs;
         }
@@ -303,18 +303,18 @@ fn td3_learn_step_runs_against_the_asymmetric_action_space() {
     let mut env = build_env();
     let mut rng = StdRng::seed_from_u64(0xBEEF);
 
-    let mut obs = env.reset().expect("reset").observation().clone();
+    let mut obs = env.reset().expect("reset").observation.clone();
     for _ in 0..8 {
         let action = agent.act(&obs, true, &mut rng);
         assert_per_component_valid(&action);
         let snapshot = env.step(action.clone()).expect("valid action accepted");
-        let next_obs = snapshot.observation().clone();
+        let next_obs = snapshot.observation.clone();
         agent.remember(
             obs,
             &action,
-            snapshot.reward().0,
+            snapshot.reward.0,
             next_obs.clone(),
-            snapshot.is_terminated(),
+            snapshot.status.is_terminated(),
         );
         agent.on_env_step();
         obs = next_obs;

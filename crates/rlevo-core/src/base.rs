@@ -1,71 +1,13 @@
 //! Core traits for reinforcement learning abstractions.
 //!
 //! This module defines the foundational vocabulary used throughout `rlevo-core`:
-//! rewards, observations, states, actions, transition dynamics, and the host
-//! row a tensor is built from. The conversion to a Burn tensor itself,
+//! observations, actions, and the host row a tensor is built from. The conversion to a Burn tensor itself,
 //! `TensorConvertible`, exists only under the `burn` feature. All other modules
 //! depend on these primitives.
 
 #[cfg(feature = "burn")]
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use std::fmt::Debug;
-
-/// A scalar reward signal emitted by an environment each step.
-///
-/// # Finiteness
-///
-/// Implementors **should** yield finite values. `Reward: Into<f32>` erases every
-/// reward to an `f32` at the framework's ingestion points, so a `NaN` or an
-/// infinity arriving there is an environment bug — not user input that some
-/// layer is expected to sanitise.
-///
-/// `rlevo-core` enforces none of this. There is no `is_finite` check on this
-/// trait, no bound that could express one, and no validation in
-/// [`ScalarReward::new`](crate::reward::ScalarReward::new) (ADR 0065 closed that
-/// question). What follows is what the framework *actually does* when the
-/// obligation is broken, and it is three different things at three places:
-///
-/// - **Dropped at replay ingestion.** The reinforcement-learning crate's reward
-///   guard (`FiniteRewardGuard`) refuses to store a transition whose reward is
-///   non-finite, counts every such drop, and logs a warning on an escalating
-///   schedule. The transition never reaches the buffer, so learning is not
-///   poisoned. (ADR 0065.)
-/// - **Transited, deliberately, by the reported score.** Episode return
-///   accumulates the raw value, so an affected episode reports a non-finite
-///   return and `AgentStats::avg_score` transits it rather than sanitising it.
-///   This is intentional: a non-finite return is a true statement about a run
-///   whose environment emitted a non-finite reward, and hiding it would make the
-///   bug harder to find, not rarer. (ADR 0065 and ADR 0070.)
-/// - **Counted and reported by the evaluation harness.** The evaluator
-///   accumulates raw (matching the above), logs a warning, and records a
-///   `return/non_finite_steps` counter on the trial report. (ADR 0078.)
-///
-/// ## Both signs corrupt a report, and neither announces itself
-///
-/// This is not a `NaN`-only hazard. For trial returns `[1, 5, X, 20, 100]` with a
-/// success threshold of `10`, the harness's own aggregates come out as:
-///
-/// | `X`     | mean | median | std   | min | max   | success rate |
-/// | ------- | ---- | ------ | ----- | --- | ----- | ------------ |
-/// | finite  | 27.0 | 9.0    | 41.42 | 1   | 100   | 0.40         |
-/// | `NaN`   | NaN  | 20.0   | NaN   | 1   | 100   | 0.40         |
-/// | `+inf`  | inf  | 20.0   | NaN   | 1   | inf   | 0.60         |
-///
-/// `NaN` is scored as a *failure* the agent may not have earned; `+inf` is scored
-/// as a *success* it certainly did not, and poisons `max` besides. In both cases
-/// the median silently shifts (9.0 to 20.0) while min stays finite-looking, so a
-/// report can present a poisoned aggregate next to plausible order statistics
-/// with no single tell. Treat a non-finite reward as a defect to fix upstream in
-/// the environment, not as a condition to detect downstream.
-///
-/// The enforcement that does exist lives at the points where the reward has
-/// already been erased to `f32` — by then the type that produced it is gone, and
-/// with it any chance of a useful diagnostic. This section is the obligation;
-/// meeting it is the implementor's job.
-pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
-    /// Returns the additive identity for this reward type (typically `0.0`).
-    fn zero() -> Self;
-}
 
 /// The `Observation` trait defines how an agent perceives the world. It
 /// represents something that can be observed from the environment.
@@ -89,17 +31,9 @@ pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
 ///
 /// Concrete observation types are still expected to derive `Serialize` /
 /// `Deserialize` (`docs/rules.md` §8) — this removes a universal *obligation*,
-/// not the capability. `Action` and `Reward` are likewise deliberately
-/// serde-free. (ADR 0064.)
+/// not the capability. `Action` is likewise deliberately serde-free.
+/// (ADR 0064.)
 pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
-    /// The rank of this observation space — i.e. the number of axes (tensor
-    /// order), *not* the size of any axis.
-    ///
-    /// "Rank" here means the count of indices needed to address an element
-    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
-    /// rank. This is automatically set to match the const generic parameter `R`.
-    const RANK: usize = R;
-
     /// Returns the size of each axis in this observation space.
     ///
     /// The returned array has length `R` (the rank), where each element is the
@@ -111,65 +45,6 @@ pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
     /// `shape().iter().product()` values, and a tensor built from the row has
     /// this shape.
     fn shape() -> [usize; R];
-}
-
-/// The complete state of an environment (Markov property).
-///
-/// # Observation production has moved off `State`
-///
-/// A `State` no longer produces its own observation. In the POMDP tuple
-/// `$\langle S, A, T, R, \Omega, O \rangle$` the emission model `O` is a property
-/// of the *environment*,
-/// not of a state value, so it lives on the env-side
-/// [`Sensor`](crate::environment::Sensor) trait with the canonical signature
-/// `O(a, s')`. `State` retains only what genuinely belongs to a point in state
-/// space: its rank, [`shape`](State::shape), [`numel`](State::numel), and
-/// [`is_valid`](State::is_valid). (ADR 0047, superseding ADR 0019.)
-pub trait State<const R: usize>: Debug + Clone + Send + Sync {
-    /// The rank of this state space — i.e. the number of axes (tensor order),
-    /// *not* the size of any axis.
-    ///
-    /// "Rank" here means the count of indices needed to address an element
-    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
-    /// rank. This is automatically set to match the const generic parameter `R`.
-    const RANK: usize = R;
-
-    /// Returns the size of each axis in this state space.
-    ///
-    /// The returned array has length `R` (the rank), where each element is the
-    /// cardinality of that axis — the number of possible values along it. All
-    /// values must be greater than zero.
-    fn shape() -> [usize; R];
-
-    /// Validates whether this state satisfies all constraints.
-    ///
-    /// This method checks if the state is legal according to its type's invariants.
-    /// It does **not** check environment-specific legality - that's the environment's responsibility.
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if the state satisfies all structural constraints, `false` otherwise.
-    fn is_valid(&self) -> bool;
-
-    /// Returns the total number of scalar elements in this state's representation.
-    ///
-    /// This value is critical for:
-    /// - Allocating buffers for state serialization
-    /// - Determining neural network input layer dimensions
-    /// - Validating state transformations (e.g., flattening/unflattening)
-    ///
-    /// # Relationship to Shape
-    ///
-    /// For consistency, `numel()` must equal the product of all dimensions returned by
-    /// [`shape()`](State::shape). The default implementation enforces this by computing
-    /// the product directly. Override only if the state uses a non-product layout.
-    ///
-    /// # Returns
-    ///
-    /// The total number of scalar elements needed to represent this state.
-    fn numel(&self) -> usize {
-        Self::shape().iter().product()
-    }
 }
 
 /// Base trait for all action types in reinforcement learning environments.
@@ -194,14 +69,6 @@ pub trait State<const R: usize>: Debug + Clone + Send + Sync {
 /// - Structural invariants (e.g., array dimensions)
 /// - Environment-specific rules (e.g., available moves in a game state)
 pub trait Action<const R: usize>: Debug + Clone + Sized {
-    /// The rank of this action space — i.e. the number of axes (tensor order),
-    /// *not* the size of any axis.
-    ///
-    /// "Rank" here means the count of indices needed to address an element
-    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
-    /// rank. This is automatically set to match the const generic parameter `R`.
-    const RANK: usize = R;
-
     /// Returns the size of each axis in this action space.
     ///
     /// The returned array has length `R` (the rank), where each element is the
@@ -230,21 +97,6 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
     ///
     /// Returns `true` if the action satisfies all structural constraints, `false` otherwise.
     fn is_valid(&self) -> bool;
-}
-
-/// Deterministic environment transition dynamics.
-///
-/// ```math
-/// s_{t+1} = f(s_t, a_t)
-/// ```
-///
-/// This trait covers only **deterministic** transitions. Stochastic dynamics
-/// (where the successor state is drawn from a distribution) are not modeled
-/// here; environments with stochastic transitions implement that logic internally
-/// inside [`crate::environment::Environment::step`].
-pub trait TransitionDynamics<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>> {
-    /// Returns the successor state after applying `action` to `state`.
-    fn transition(&self, state: &S, action: &A) -> S;
 }
 
 /// Host-side, backend-independent row serialization of an observation.
@@ -439,497 +291,35 @@ mod tests {
     // range f32 represents exactly.
     #![allow(clippy::float_cmp, clippy::cast_precision_loss)]
     use super::*;
-    use serde::{Deserialize, Serialize};
 
-    /// Simple scalar reward implementation for testing
-    #[derive(Clone, Debug, PartialEq)]
-    struct TestReward(f32);
-
-    impl Reward for TestReward {
-        fn zero() -> Self {
-            TestReward(0.0)
-        }
-    }
-
-    impl std::ops::Add for TestReward {
-        type Output = Self;
-
-        fn add(self, other: Self) -> Self {
-            TestReward(self.0 + other.0)
-        }
-    }
-
-    impl From<TestReward> for f32 {
-        fn from(reward: TestReward) -> f32 {
-            reward.0
-        }
-    }
-
-    // ===== Basic Reward Trait Tests =====
-
-    /// Test that `zero()` creates a neutral element for addition
-    #[test]
-    fn test_reward_zero_is_additive_identity() {
-        let zero = TestReward::zero();
-        let reward = TestReward(42.5);
-
-        // zero + reward should equal reward
-        let result = zero.clone() + reward.clone();
-        assert_eq!(result, reward);
-
-        // reward + zero should equal reward
-        let result = reward.clone() + zero.clone();
-        assert_eq!(result, reward);
-    }
-
-    /// Test that rewards can be added together
-    #[test]
-    fn test_reward_addition() {
-        let reward1 = TestReward(10.0);
-        let reward2 = TestReward(25.5);
-        let result = reward1 + reward2;
-
-        assert_eq!(result, TestReward(35.5));
-    }
-
-    /// Test that negative rewards can be added
-    #[test]
-    fn test_reward_negative_addition() {
-        let positive = TestReward(100.0);
-        let negative = TestReward(-30.0);
-        let result = positive + negative;
-
-        assert_eq!(result, TestReward(70.0));
-    }
-
-    /// Test that rewards can be converted to f32
-    #[test]
-    fn test_reward_into_f32() {
-        let reward = TestReward(42.5);
-        let as_f32: f32 = reward.into();
-
-        assert_eq!(as_f32, 42.5);
-    }
-
-    /// Test that zero reward converts to 0.0
-    #[test]
-    fn test_reward_zero_into_f32() {
-        let zero = TestReward::zero();
-        let as_f32: f32 = zero.into();
-
-        assert_eq!(as_f32, 0.0);
-    }
-
-    /// Test that rewards are cloneable
-    #[test]
-    fn test_reward_clone() {
-        let original = TestReward(123.456);
-        let cloned = original.clone();
-
-        assert_eq!(original, cloned);
-    }
-
-    /// Test that rewards implement Debug
-    #[test]
-    fn test_reward_debug() {
-        let reward = TestReward(42.0);
-        let debug_str = format!("{reward:?}");
-
-        assert!(!debug_str.is_empty(), "debug_str must not be empty");
-        assert!(debug_str.contains("TestReward"));
-    }
-
-    // ===== Arithmetic Properties Tests =====
-
-    /// Test accumulated reward through chained additions
-    #[test]
-    fn test_reward_accumulation() {
-        let mut accumulated = TestReward::zero();
-        let rewards = vec![TestReward(10.0), TestReward(20.0), TestReward(15.0)];
-
-        for reward in rewards {
-            accumulated = accumulated + reward;
-        }
-
-        assert_eq!(accumulated, TestReward(45.0));
-    }
-
-    /// Test reward trait with floating point precision
-    #[test]
-    fn test_reward_floating_point_precision() {
-        let r1 = TestReward(0.1);
-        let r2 = TestReward(0.2);
-        let result = r1 + r2;
-
-        // Account for floating point imprecision
-        let expected = 0.3;
-        let as_f32: f32 = result.into();
-        assert!((as_f32 - expected).abs() < 1e-6);
-    }
-
-    /// Test addition associativity: (a + b) + c == a + (b + c)
-    #[test]
-    fn test_reward_addition_associativity() {
-        let r1 = TestReward(5.0);
-        let r2 = TestReward(10.0);
-        let r3 = TestReward(15.0);
-
-        let left = (r1.clone() + r2.clone()) + r3.clone();
-        let right = r1 + (r2 + r3);
-
-        assert_eq!(left, right);
-    }
-
-    /// Test addition commutativity: a + b == b + a
-    #[test]
-    fn test_reward_addition_commutativity() {
-        let r1 = TestReward(7.5);
-        let r2 = TestReward(12.5);
-
-        let left = r1.clone() + r2.clone();
-        let right = r2 + r1;
-
-        assert_eq!(left, right);
-    }
-
-    // ===== Special Values Tests =====
-
-    /// Test reward arithmetic with large values
-    #[test]
-    fn test_reward_large_values() {
-        let large1 = TestReward(1e6);
-        let large2 = TestReward(1e6);
-
-        let result = large1 + large2;
-        let result_f32: f32 = result.into();
-
-        assert_eq!(result_f32, 2e6);
-    }
-
-    /// Test reward arithmetic with small values
-    #[test]
-    fn test_reward_small_values() {
-        let small1 = TestReward(1e-6);
-        let small2 = TestReward(1e-6);
-
-        let result = small1 + small2;
-        let result_f32: f32 = result.into();
-
-        assert!((result_f32 - 2e-6).abs() < 1e-7);
-    }
-
-    /// Test mixed positive and negative rewards
-    #[test]
-    fn test_reward_mixed_signs() {
-        let positive = TestReward(10.0);
-        let negative = TestReward(-5.0);
-
-        let pos_then_neg = positive.clone() + negative.clone();
-        let pos_then_neg_f32: f32 = pos_then_neg.into();
-
-        let neg_then_pos = negative.clone() + positive.clone();
-        let neg_then_pos_f32: f32 = neg_then_pos.into();
-
-        assert_eq!(pos_then_neg_f32, 5.0);
-        assert_eq!(neg_then_pos_f32, 5.0);
-    }
-
-    /// ========================================================================
-    /// `GameState` example to test the State trait implementation
-    /// ========================================================================
+    /// A rank-2 observation: a 2x2 grid of bits.
+    ///
+    /// **The absence of `Serialize` / `Deserialize` here is load-bearing.** This
+    /// mock is the compile-time guard that [`Observation`] carries no serde
+    /// supertrait (ADR 0064): its supertrait list is exactly
+    /// `Debug + Clone + Send + Sync`, and if anyone re-adds
+    /// `Serialize + for<'de> Deserialize<'de>` to it, `rlevo-core`'s own test
+    /// build stops compiling on the `impl Observation<2>` below. Do not
+    /// "helpfully" derive serde for this type — a consumer that needs to persist
+    /// an observation declares the bound at its own seam.
     #[derive(Debug, Clone, PartialEq)]
-    enum GameState {
-        Menu,
-        Playing { level: u8 },
-        GameOver { score: u32 },
+    struct SerdeFreeObservation {
+        pixels: [[u8; 2]; 2],
     }
 
-    impl State<1> for GameState {
-        fn shape() -> [usize; 1] {
-            [3] // 3 features: state_id, level, score
-        }
-
-        fn is_valid(&self) -> bool {
-            match self {
-                GameState::Playing { level } => *level > 0 && *level <= 10,
-                _ => true,
-            }
-        }
-
-        fn numel(&self) -> usize {
-            // Encode as 3 features: [state_id, level, score]
-            3
+    impl Observation<2> for SerdeFreeObservation {
+        fn shape() -> [usize; 2] {
+            [2, 2]
         }
     }
 
-    /// Test state validation for each state variant
     #[test]
-    fn test_game_state_validation() {
-        // Menu state should always be valid
-        let menu_state = GameState::Menu;
-        assert!(menu_state.is_valid(), "Menu state should always be valid");
-
-        // GameOver state should always be valid
-        let game_over_state = GameState::GameOver { score: 1000 };
-        assert!(
-            game_over_state.is_valid(),
-            "GameOver state should always be valid"
-        );
-
-        // Playing state with valid levels should be valid
-        for level in 1..=10 {
-            let playing_state = GameState::Playing { level };
-            assert!(
-                playing_state.is_valid(),
-                "Playing state with level {level} should be valid"
-            );
-        }
-
-        // Playing state with invalid levels should be invalid
-        let invalid_levels = [0, 11, 255];
-        for level in invalid_levels {
-            let invalid_state = GameState::Playing { level };
-            assert!(
-                !invalid_state.is_valid(),
-                "Playing state with level {level} should be invalid"
-            );
-        }
-    }
-
-    /// Test that numel returns 3 for all state variants
-    #[test]
-    fn test_game_state_numel() {
-        let test_states = [
-            GameState::Menu,
-            GameState::Playing { level: 5 },
-            GameState::GameOver { score: 1000 },
-        ];
-
-        for state in test_states {
-            assert_eq!(
-                state.numel(),
-                3,
-                "Number of elements should be 3 for all states"
-            );
-        }
-    }
-
-    /// Test that shape returns [3] for all state variants
-    #[test]
-    fn test_game_state_shape() {
-        let test_states = [
-            GameState::Menu,
-            GameState::Playing { level: 5 },
-            GameState::GameOver { score: 1000 },
-        ];
-
-        for _state in test_states {
-            assert_eq!(
-                GameState::shape(),
-                [3],
-                "Shape should be [3] for all states"
-            );
-        }
-    }
-
-    /// Test the invariant: `numel()` should equal product of `shape()`
-    #[test]
-    fn test_game_state_consistency() {
-        let test_states = [
-            GameState::Menu,
-            GameState::Playing { level: 5 },
-            GameState::GameOver { score: 1000 },
-        ];
-
-        for state in test_states {
-            let numel = state.numel();
-            let shape_product: usize = GameState::shape().iter().product();
-            assert_eq!(
-                numel, shape_product,
-                "numel({numel}) should equal shape product({shape_product})"
-            );
-        }
-    }
-
-    /// Test that filtering states by validity works correctly
-    #[test]
-    fn test_game_state_filtering() {
-        let states = vec![
-            GameState::Menu,
-            GameState::Playing { level: 5 },
-            GameState::Playing { level: 0 }, // Invalid
-            GameState::GameOver { score: 1000 },
-        ];
-
-        let valid_states: Vec<_> = states.into_iter().filter(super::State::is_valid).collect();
-
-        assert_eq!(
-            valid_states.len(),
-            3,
-            "Should have 3 valid states out of 4 total"
-        );
-        assert!(
-            valid_states.iter().all(super::State::is_valid),
-            "All filtered states should be valid"
-        );
-
-        // Verify the invalid state was filtered out
-        assert!(
-            !valid_states.contains(&GameState::Playing { level: 0 }),
-            "Invalid playing state should be filtered out"
-        );
-    }
-
-    /// Test edge cases for Playing state level bounds
-    #[test]
-    fn test_playing_state_edge_cases() {
-        // Test boundary values
-        let min_valid_level = GameState::Playing { level: 1 };
-        assert!(
-            min_valid_level.is_valid(),
-            "Level 1 should be valid (minimum valid)"
-        );
-
-        let max_valid_level = GameState::Playing { level: 10 };
-        assert!(
-            max_valid_level.is_valid(),
-            "Level 10 should be valid (maximum valid)"
-        );
-
-        let below_min = GameState::Playing { level: 0 };
-        assert!(
-            !below_min.is_valid(),
-            "Level 0 should be invalid (below minimum)"
-        );
-
-        let above_max = GameState::Playing { level: 11 };
-        assert!(
-            !above_max.is_valid(),
-            "Level 11 should be invalid (above maximum)"
-        );
-    }
-
-    /// ========================================================================
-    /// `GridPosition` example to test the State trait implementation
-    /// ========================================================================
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct GridPosition {
-        x: i32,
-        y: i32,
-        max_x: i32,
-        max_y: i32,
-    }
-
-    impl State<1> for GridPosition {
-        fn shape() -> [usize; 1] {
-            [2] // 2 coordinates: x, y
-        }
-
-        fn is_valid(&self) -> bool {
-            self.x >= 0 && self.y >= 0 && self.x < self.max_x && self.y < self.max_y
-        }
-
-        fn numel(&self) -> usize {
-            2 // x and y coordinates
-        }
-    }
-
-    impl GridPosition {
-        /// Flatten the grid position to a vector of f32 values
-        fn flatten(&self) -> Vec<f32> {
-            vec![
-                self.x as f32,
-                self.y as f32,
-                self.max_x as f32,
-                self.max_y as f32,
-            ]
-        }
-    }
-
-    /// Test `GridPosition` validation
-    #[test]
-    fn test_grid_position_validation() {
-        let valid = GridPosition {
-            x: 5,
-            y: 3,
-            max_x: 10,
-            max_y: 10,
+    fn test_observation_needs_no_serde() {
+        let obs = SerdeFreeObservation {
+            pixels: [[1, 0], [0, 1]],
         };
-        assert!(valid.is_valid(), "x, y should be valid.");
-        //
-        let invalid = GridPosition {
-            x: 15,
-            y: 3,
-            max_x: 10,
-            max_y: 10,
-        };
-        assert!(
-            !invalid.is_valid(),
-            "x is larger than max_x and therefore invalid."
-        );
-    }
-
-    /// Test `GridPosition` flatten
-    #[test]
-    fn test_grid_position_flattening() {
-        let pos1 = GridPosition {
-            x: 3,
-            y: 7,
-            max_x: 10,
-            max_y: 10,
-        };
-        let pos2 = GridPosition {
-            x: 0,
-            y: 0,
-            max_x: 10,
-            max_y: 10,
-        };
-        let pos3 = GridPosition {
-            x: 9,
-            y: 9,
-            max_x: 10,
-            max_y: 10,
-        };
-        let flat1 = pos1.flatten();
-        let flat2 = pos2.flatten();
-        let flat3 = pos3.flatten();
-
-        assert_eq!(flat1, vec![3.0, 7.0, 10.0, 10.0]);
-        assert_eq!(flat2, vec![0.0, 0.0, 10.0, 10.0]);
-        assert_eq!(flat3, vec![9.0, 9.0, 10.0, 10.0]);
-    }
-
-    /// Test that `GridPosition` numel matches shape product
-    #[test]
-    fn test_grid_position_consistency() {
-        let pos = GridPosition {
-            x: 5,
-            y: 3,
-            max_x: 10,
-            max_y: 10,
-        };
-        let numel = pos.numel();
-        let shape_product: usize = GridPosition::shape().iter().product();
-        assert_eq!(
-            numel, shape_product,
-            "numel should equal shape product for GridPosition"
-        );
-        assert_eq!(numel, 2, "GridPosition should have numel of 2");
-    }
-
-    /// Test State trait const RANK value
-    #[test]
-    fn test_state_rank_constant() {
-        assert_eq!(
-            <GameState as State<1>>::RANK,
-            1,
-            "GameState should have RANK = 1"
-        );
-        assert_eq!(
-            <GridPosition as State<1>>::RANK,
-            1,
-            "GridPosition should have RANK = 1"
-        );
+        assert_eq!(SerdeFreeObservation::shape(), [2, 2]);
+        assert_eq!(obs.clone(), obs);
     }
 
     // ========================================================================

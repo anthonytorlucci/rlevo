@@ -1,14 +1,14 @@
 //! Action space abstractions for reinforcement learning environments.
 //!
 //! This module provides a flexible type system for representing agent actions in RL environments.
-//! Actions can be discrete (finite choices), multi-discrete (multiple independent discrete choices),
-//! or continuous (real-valued vectors).
+//! Actions can be discrete (finite choices) or continuous (real-valued vectors).
 //!
 //! # Design Philosophy
 //!
 //! The action traits follow a layered design:
 //! - [`Action`](crate::base::Action): Base trait providing validation and cloning semantics
-//! - [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`]: Type-specific extensions
+//! - [`DiscreteAction`], [`ContinuousAction`]: Type-specific extensions
+//! - [`BoundedAction`]: a [`ContinuousAction`] with per-component bounds
 //!
 //! # Action Types
 //!
@@ -17,69 +17,10 @@
 //! Discrete actions represent a finite set of mutually exclusive choices (e.g., "move left",
 //! "move right", "jump"). They are indexed from `0` to `ACTION_COUNT - 1`.
 //!
-//! ## Multi-Discrete Actions
-//!
-//! Multi-discrete actions consist of multiple independent discrete choices, such as selecting
-//! both a direction and an attack type simultaneously.
-//!
 //! ## Continuous Actions
 //!
 //! Continuous actions are real-valued vectors, typically used for motor control or
 //! parametrized actions (e.g., steering angle, throttle).
-//!
-//! # Test Suite
-//!
-//! This module includes a comprehensive test suite covering:
-//!
-//! ## DiscreteAction Tests (10 tests)
-//! - `test_discrete_action_shape`: Verifies shape and dimension constants
-//! - `test_discrete_action_count`: Checks action count constant
-//! - `test_discrete_action_from_index`: Tests index-to-action conversion
-//! - `test_discrete_action_from_index_out_of_bounds`: Validates panic on invalid indices
-//! - `test_discrete_action_to_index`: Tests action-to-index conversion
-//! - `test_discrete_action_roundtrip`: Ensures bidirectional conversion consistency
-//! - `test_discrete_action_enumerate`: Verifies all actions are enumerated correctly
-//! - `test_discrete_action_random`: Tests random action generation
-//! - `test_discrete_action_is_valid`: Validates the `is_valid()` predicate
-//! - `test_discrete_action_clone_and_debug`: Tests Debug and Clone trait implementations
-//!
-//! ## MultiDiscreteAction Tests (11 tests)
-//! - `test_multidiscrete_action_shape`: Verifies multi-dimensional shape
-//! - `test_multidiscrete_action_from_indices`: Tests multi-index conversion
-//! - `test_multidiscrete_action_from_indices_*_out_of_bounds`: Validates panic on invalid indices
-//! - `test_multidiscrete_action_to_indices`: Tests reverse conversion
-//! - `test_multidiscrete_action_roundtrip`: Ensures bidirectional consistency
-//! - `test_multidiscrete_action_enumerate`: Verifies all action combinations are enumerated
-//! - `test_multidiscrete_action_enumerate_large_space`: Tests scalability with large action spaces
-//! - `test_multidiscrete_action_random`: Tests random sampling
-//! - `test_multidiscrete_action_is_valid`: Validates constraints
-//! - `test_multidiscrete_action_clone_and_debug`: Tests trait implementations
-//!
-//! ## ContinuousAction Tests (15 tests)
-//! - `test_continuous_action_shape`: Verifies shape specification
-//! - `test_continuous_action_as_slice`: Tests slice view access
-//! - `test_continuous_action_from_slice`: Tests construction from slice
-//! - `test_continuous_action_from_slice_wrong_size`: Validates dimension checking
-//! - `test_continuous_action_roundtrip`: Ensures slice conversion consistency
-//! - `test_continuous_action_clip_*`: Tests clipping behavior (within, exceeds max/min, mixed, extreme)
-//! - `test_continuous_action_clip_chaining`: Verifies method chaining
-//! - `test_continuous_action_random`: Tests random action generation
-//! - `test_continuous_action_is_valid_*`: Tests validity checking (finite, NaN, Inf)
-//! - `test_continuous_action_with_zero_values`: Tests edge case with zero values
-//! - `test_continuous_action_clone_and_debug`: Tests trait implementations
-//!
-//! ## InvalidActionError Tests (6 tests)
-//! - `test_invalid_action_error_creation`: Tests error instantiation
-//! - `test_invalid_action_error_display`: Tests Display trait formatting
-//! - `test_invalid_action_error_debug`: Tests Debug trait formatting
-//! - `test_invalid_action_error_clone`: Tests Clone implementation
-//! - `test_invalid_action_error_equality`: Tests PartialEq implementation
-//! - `test_invalid_action_error_is_error`: Tests std::error::Error trait compatibility
-//!
-//! ## Integration Tests (4 tests)
-//! - `test_large_discrete_action_space`: Tests with 256 actions
-//! - `test_continuous_action_extreme_clip_bounds`: Tests edge cases in clipping
-//! - Various clone/debug/trait tests across different action types
 
 use crate::base::Action;
 use std::fmt::Debug;
@@ -99,12 +40,6 @@ use std::fmt::Debug;
 /// \forall i \in [0, \text{ACTION\_COUNT}): i = \text{from\_index}(i).\text{to\_index}()
 /// \forall a: \text{Action}: a = \text{from\_index}(a.\text{to\_index}())
 /// ```
-///
-/// # Performance
-///
-/// For performance-critical code, prefer `from_index()` over `random()` when you
-/// already have an index (e.g., from a neural network's argmax). The `random()`
-/// method allocates a thread-local RNG on each call.
 pub trait DiscreteAction<const R: usize>: Action<R> {
     /// The total number of distinct actions in this action space.
     ///
@@ -127,155 +62,6 @@ pub trait DiscreteAction<const R: usize>: Action<R> {
     /// The returned index must be in the range `[0, ACTION_COUNT)` and must be
     /// the inverse of [`from_index()`](DiscreteAction::from_index).
     fn to_index(&self) -> usize;
-
-    /// Samples a uniformly random action from this action space.
-    ///
-    /// This is a convenience method for exploration in reinforcement learning.
-    /// It uses thread-local RNG state, so it's safe to call from multiple threads
-    /// but will produce different sequences per thread.
-    ///
-    /// # Performance
-    ///
-    /// If you already have an index from another source (e.g., a neural network
-    /// output), use `from_index()` directly instead of this method.
-    #[must_use]
-    fn random() -> Self
-    where
-        Self: Sized,
-    {
-        use rand::RngExt;
-        let mut rng = rand::rng();
-        let index = rng.random_range(0..Self::ACTION_COUNT);
-        Self::from_index(index)
-    }
-
-    /// Returns a vector containing all possible actions in index order.
-    ///
-    /// This is useful for tabular RL methods (e.g., Q-learning) that need to
-    /// iterate over the entire action space. The returned vector has length
-    /// `ACTION_COUNT` with actions ordered by their index.
-    ///
-    /// # Performance
-    ///
-    /// This allocates a vector of size `ACTION_COUNT`. For large action spaces,
-    /// consider using an iterator pattern instead (not currently provided).
-    fn enumerate() -> Vec<Self>
-    where
-        Self: Sized,
-    {
-        (0..Self::ACTION_COUNT).map(Self::from_index).collect()
-    }
-}
-
-/// Trait for actions with multiple independent discrete dimensions.
-///
-/// Multi-discrete actions represent scenarios where an agent must make several
-/// independent categorical choices simultaneously. Each dimension can have a
-/// different number of options. This is common in:
-/// - Strategy games (select unit + select action + select target)
-/// - Multi-agent coordination (each agent picks a discrete action)
-/// - Parameterized actions (choose action type + intensity level)
-///
-/// # Dimensionality
-///
-/// The const generic `R` (the rank) specifies the number of axes. Each axis
-/// can have a different cardinality, defined by [`shape()`](Action::shape).
-///
-/// The total number of action combinations is the product of all dimension sizes:
-/// ```math
-/// \text{total\_actions} = \prod_i \text{shape}()[i]
-/// ```
-///
-/// # Caution: Combinatorial Explosion
-///
-/// Be careful with [`enumerate()`](MultiDiscreteAction::enumerate) on large action spaces.
-/// A 3D action space with dimensions [10, 10, 10] produces 1000 actions, but
-/// [100, 100, 100] produces 1,000,000!
-pub trait MultiDiscreteAction<const R: usize>: Action<R> {
-    /// Constructs an action from multi-dimensional indices.
-    ///
-    /// Each index must be in the range `[0, shape()[i])` for axis `i`.
-    ///
-    /// # Panics
-    ///
-    /// Implementations should panic if any index is out of bounds for its axis.
-    fn from_indices(indices: [usize; R]) -> Self;
-
-    /// Converts this action to its multi-dimensional index representation.
-    ///
-    /// The returned array must satisfy: each element `i` is in `[0, shape()[i])`.
-    /// This method must be the inverse of [`from_indices()`](MultiDiscreteAction::from_indices).
-    fn to_indices(&self) -> [usize; R];
-
-    /// Samples a uniformly random action from this multi-discrete action space.
-    ///
-    /// Each dimension is sampled independently and uniformly from its valid range.
-    /// This is useful for exploration in reinforcement learning.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let random_action = StrategyAction::random();
-    /// assert!(random_action.is_valid());
-    /// ```
-    #[must_use]
-    fn random() -> Self
-    where
-        Self: Sized,
-    {
-        use rand::RngExt;
-        let mut rng = rand::rng();
-        let space = Self::shape();
-        let indices = space.map(|dim| rng.random_range(0..dim));
-        Self::from_indices(indices)
-    }
-
-    /// Returns all possible action combinations in this space.
-    ///
-    /// # Warning
-    ///
-    /// This method generates **all** combinations across all dimensions. The number
-    /// of actions grows multiplicatively with the product of dimension sizes:
-    ///
-    /// - `[10, 10, 10]` → 1,000 actions (manageable)
-    /// - `[50, 50, 50]` → 125,000 actions (marginal)
-    /// - `[100, 100, 100]` → 1,000,000 actions (likely too large)
-    ///
-    /// Use this method only when you need to iterate over the entire action space
-    /// (e.g., for exact policy evaluation in tabular methods).
-    ///
-    /// # Panics
-    ///
-    /// May panic or run out of memory if the action space is too large.
-    #[must_use]
-    fn enumerate() -> Vec<Self>
-    where
-        Self: Sized,
-    {
-        fn generate<const R: usize, T: MultiDiscreteAction<R>>(
-            space: &[usize; R],
-            current: &mut [usize; R],
-            axis: usize,
-            actions: &mut Vec<T>,
-        ) {
-            if axis == R {
-                actions.push(T::from_indices(*current));
-                return;
-            }
-            for i in 0..space[axis] {
-                current[axis] = i;
-                generate(space, current, axis + 1, actions);
-            }
-        }
-
-        let space = Self::shape();
-        let total: usize = space.iter().product();
-        let mut actions = Vec::with_capacity(total);
-
-        let mut current = [0; R];
-        generate(&space, &mut current, 0, &mut actions);
-        actions
-    }
 }
 
 /// Trait for continuous-valued actions represented as real-valued vectors.
@@ -289,25 +75,19 @@ pub trait MultiDiscreteAction<const R: usize>: Action<R> {
 /// # Value Range
 ///
 /// Continuous actions typically have bounded ranges (e.g., `[-1, 1]` or `[0, 1]`).
-/// The [`clip()`](ContinuousAction::clip) method enforces these bounds.
-///
-/// # Neural Network Integration
-///
-/// Continuous actions are typically produced by neural networks with `tanh` or
-/// `sigmoid` activation functions. Use [`clip()`](ContinuousAction::clip) to
-/// ensure outputs stay within valid ranges.
+/// A type whose ranges are fixed declares them with [`BoundedAction`].
 pub trait ContinuousAction<const R: usize>: Action<R> {
     /// The number of scalar components in this action's flattened representation —
     /// i.e. the length of the slice returned by [`as_slice`](ContinuousAction::as_slice)
     /// and consumed by [`from_slice`](ContinuousAction::from_slice).
     ///
-    /// This is deliberately distinct from [`Action::RANK`] (the tensor rank) and from
+    /// This is deliberately distinct from the tensor rank `R` and from
     /// `shape().iter().product()`: the workspace carries two encodings of component
     /// count (a rank-1 action with `shape() == [C]`, and a rank-C action with
     /// `shape() == [1; C]`), and neither derived quantity is universally correct.
     /// Implementors MUST declare it explicitly; there is intentionally no default
-    /// (a default of `= R` would silently reproduce the `random()` panic for
-    /// multi-component rank-1 actions). See ADR 0038.
+    /// (a default of `= R` would be wrong for every multi-component rank-1
+    /// action). See ADR 0038.
     const COMPONENTS: usize;
 
     /// Returns a slice view of this action's component values.
@@ -315,48 +95,6 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
     /// The returned slice must have exactly `COMPONENTS` elements. This is used for
     /// efficient serialization and tensor conversion.
     fn as_slice(&self) -> &[f32];
-
-    /// Returns a new action with all components clipped to `[min, max]`.
-    ///
-    /// This is essential for ensuring neural network outputs (which may exceed
-    /// valid ranges due to numerical errors or exploration noise) stay within
-    /// acceptable bounds.
-    ///
-    /// # Common Use Cases
-    ///
-    /// - Enforcing action space bounds after neural network output
-    /// - Adding exploration noise while maintaining validity
-    /// - Recovering from numerical instability
-    #[must_use]
-    fn clip(&self, min: f32, max: f32) -> Self;
-
-    /// Samples a random action with components uniformly distributed in `[-1.0, 1.0)`.
-    ///
-    /// The default implementation draws [`COMPONENTS`](ContinuousAction::COMPONENTS)
-    /// uniform random values in the half-open range `[-1.0, 1.0)` using
-    /// `rand::random_range`, then builds the action via
-    /// [`from_slice`](ContinuousAction::from_slice).
-    ///
-    /// # Warning
-    ///
-    /// The `[-1.0, 1.0)` range assumes **symmetric-unit** component bounds. Types
-    /// with asymmetric bounds (e.g. a `[0, 1]` throttle) MUST override this method,
-    /// otherwise it will sample values outside their valid range and fail
-    /// [`is_valid`](Action::is_valid). Override it also for Gaussian noise,
-    /// domain-specific distributions, or bounds derived from [`BoundedAction`].
-    /// See ADR 0038.
-    #[must_use]
-    fn random() -> Self
-    where
-        Self: Sized,
-    {
-        use rand::RngExt;
-        let mut rng = rand::rng();
-        let values: Vec<f32> = (0..Self::COMPONENTS)
-            .map(|_| rng.random_range(-1.0..1.0))
-            .collect();
-        Self::from_slice(&values)
-    }
 
     /// Constructs an action from a slice of component values.
     ///
@@ -386,8 +124,6 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 ///
 /// - `low().len() == high().len() == Self::COMPONENTS`.
 /// - `low()[i] < high()[i]` for every component `i`.
-/// - [`ContinuousAction::clip`] must be a no-op on an action whose components
-///   already lie in `[low, high]`.
 ///
 /// These are contract obligations on the implementor, not compile-time
 /// guarantees: `&'static [f32]` cannot encode its own length. Consumers that
@@ -411,9 +147,6 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 /// # impl ContinuousAction<1> for Throttle {
 /// #     const COMPONENTS: usize = 2;
 /// #     fn as_slice(&self) -> &[f32] { &self.0 }
-/// #     fn clip(&self, min: f32, max: f32) -> Self {
-/// #         Throttle([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
-/// #     }
 /// #     fn from_slice(values: &[f32]) -> Self {
 /// #         assert_eq!(values.len(), Self::COMPONENTS);
 /// #         Throttle([values[0], values[1]])
@@ -554,46 +287,6 @@ mod tests {
         }
     }
 
-    /// Multi-discrete action with 2 dimensions.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct MultiActionTest {
-        direction: usize, // 0-3
-        intensity: usize, // 0-2
-    }
-
-    impl Action<2> for MultiActionTest {
-        fn shape() -> [usize; 2] {
-            [4, 3]
-        }
-
-        fn is_valid(&self) -> bool {
-            self.direction < 4 && self.intensity < 3
-        }
-    }
-
-    impl MultiDiscreteAction<2> for MultiActionTest {
-        fn from_indices(indices: [usize; 2]) -> Self {
-            assert!(
-                indices[0] < 4,
-                "Direction index out of bounds: {}",
-                indices[0]
-            );
-            assert!(
-                indices[1] < 3,
-                "Intensity index out of bounds: {}",
-                indices[1]
-            );
-            MultiActionTest {
-                direction: indices[0],
-                intensity: indices[1],
-            }
-        }
-
-        fn to_indices(&self) -> [usize; 2] {
-            [self.direction, self.intensity]
-        }
-    }
-
     /// Continuous action with 3 dimensions (e.g., 3D velocity).
     #[derive(Debug, Clone)]
     struct ContinuousActionTest {
@@ -615,17 +308,6 @@ mod tests {
 
         fn as_slice(&self) -> &[f32] {
             &self.values
-        }
-
-        fn clip(&self, min: f32, max: f32) -> Self {
-            let clipped = self
-                .values
-                .iter()
-                .map(|&v| v.max(min).min(max))
-                .collect::<Vec<_>>();
-            ContinuousActionTest {
-                values: [clipped[0], clipped[1], clipped[2]],
-            }
         }
 
         fn from_slice(values: &[f32]) -> Self {
@@ -653,7 +335,6 @@ mod tests {
     #[test]
     fn test_discrete_action_shape() {
         assert_eq!(SimpleDiscreteAction::shape(), [4]);
-        assert_eq!(SimpleDiscreteAction::RANK, 1);
     }
 
     #[test]
@@ -712,163 +393,11 @@ mod tests {
     }
 
     #[test]
-    fn test_discrete_action_enumerate() {
-        let actions = SimpleDiscreteAction::enumerate();
-        assert_eq!(actions.len(), 4);
-        assert_eq!(
-            actions,
-            vec![
-                SimpleDiscreteAction::Left,
-                SimpleDiscreteAction::Right,
-                SimpleDiscreteAction::Up,
-                SimpleDiscreteAction::Down
-            ]
-        );
-    }
-
-    #[test]
-    fn test_discrete_action_random() {
-        for _ in 0..100 {
-            let action = SimpleDiscreteAction::random();
-            let index = action.to_index();
-            assert!(index < SimpleDiscreteAction::ACTION_COUNT);
-        }
-    }
-
-    #[test]
     fn test_discrete_action_is_valid() {
         for i in 0..SimpleDiscreteAction::ACTION_COUNT {
             let action = SimpleDiscreteAction::from_index(i);
             assert!(action.is_valid());
         }
-    }
-
-    // ========================================================================
-    // MultiDiscreteAction Tests
-    // ========================================================================
-
-    #[test]
-    fn test_multidiscrete_action_shape() {
-        assert_eq!(MultiActionTest::shape(), [4, 3]);
-        assert_eq!(MultiActionTest::RANK, 2);
-    }
-
-    #[test]
-    fn test_multidiscrete_action_from_indices() {
-        let action = MultiActionTest::from_indices([0, 0]);
-        assert_eq!(action.direction, 0);
-        assert_eq!(action.intensity, 0);
-
-        let action = MultiActionTest::from_indices([3, 2]);
-        assert_eq!(action.direction, 3);
-        assert_eq!(action.intensity, 2);
-    }
-
-    #[test]
-    #[should_panic(expected = "Direction index out of bounds")]
-    fn test_multidiscrete_action_from_indices_direction_out_of_bounds() {
-        MultiActionTest::from_indices([4, 0]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Intensity index out of bounds")]
-    fn test_multidiscrete_action_from_indices_intensity_out_of_bounds() {
-        MultiActionTest::from_indices([0, 3]);
-    }
-
-    #[test]
-    fn test_multidiscrete_action_to_indices() {
-        let action = MultiActionTest::from_indices([2, 1]);
-        assert_eq!(action.to_indices(), [2, 1]);
-    }
-
-    #[test]
-    fn test_multidiscrete_action_roundtrip() {
-        for d in 0..4 {
-            for i in 0..3 {
-                let action = MultiActionTest::from_indices([d, i]);
-                assert_eq!(action.to_indices(), [d, i]);
-            }
-        }
-    }
-
-    #[test]
-    fn test_multidiscrete_action_enumerate() {
-        let actions = MultiActionTest::enumerate();
-        // 4 directions `$\times$` 3 intensities = 12 total actions
-        assert_eq!(actions.len(), 12);
-
-        // Verify all combinations are present
-        for (idx, action) in actions.iter().enumerate() {
-            let expected_d = idx / 3;
-            let expected_i = idx % 3;
-            assert_eq!(action.direction, expected_d);
-            assert_eq!(action.intensity, expected_i);
-        }
-    }
-
-    #[test]
-    fn test_multidiscrete_action_enumerate_large_space() {
-        // Test with 3D space: [5, 5, 5] = 125 total actions
-        #[derive(Debug, Clone)]
-        struct LargeMultiAction([usize; 3]);
-
-        impl Action<3> for LargeMultiAction {
-            fn shape() -> [usize; 3] {
-                [5, 5, 5]
-            }
-
-            fn is_valid(&self) -> bool {
-                self.0.iter().enumerate().all(|(i, &v)| v < [5, 5, 5][i])
-            }
-        }
-
-        impl MultiDiscreteAction<3> for LargeMultiAction {
-            fn from_indices(indices: [usize; 3]) -> Self {
-                for (i, &idx) in indices.iter().enumerate() {
-                    assert!(idx < 5, "Index {i} out of bounds");
-                }
-                LargeMultiAction(indices)
-            }
-
-            fn to_indices(&self) -> [usize; 3] {
-                self.0
-            }
-        }
-
-        let actions = LargeMultiAction::enumerate();
-        assert_eq!(actions.len(), 125);
-    }
-
-    #[test]
-    fn test_multidiscrete_action_random() {
-        for _ in 0..100 {
-            let action = MultiActionTest::random();
-            assert!(action.is_valid());
-            let indices = action.to_indices();
-            assert!(indices[0] < 4);
-            assert!(indices[1] < 3);
-        }
-    }
-
-    #[test]
-    fn test_multidiscrete_action_is_valid() {
-        // Valid actions
-        assert!(MultiActionTest::from_indices([0, 0]).is_valid());
-        assert!(MultiActionTest::from_indices([3, 2]).is_valid());
-
-        // Invalid actions created directly
-        let invalid = MultiActionTest {
-            direction: 5,
-            intensity: 0,
-        };
-        assert!(!invalid.is_valid());
-
-        let invalid = MultiActionTest {
-            direction: 0,
-            intensity: 5,
-        };
-        assert!(!invalid.is_valid());
     }
 
     // ========================================================================
@@ -878,7 +407,6 @@ mod tests {
     #[test]
     fn test_continuous_action_shape() {
         assert_eq!(ContinuousActionTest::shape(), [1, 1, 1]);
-        assert_eq!(ContinuousActionTest::RANK, 3);
     }
 
     #[test]
@@ -910,54 +438,6 @@ mod tests {
         let original = [0.5, -0.3, 0.9];
         let action = ContinuousActionTest::from_slice(&original);
         assert_eq!(action.as_slice(), &original);
-    }
-
-    #[test]
-    fn test_continuous_action_clip_within_bounds() {
-        let action = ContinuousActionTest {
-            values: [0.0, 0.5, -0.5],
-        };
-        let clipped = action.clip(-1.0, 1.0);
-        assert_eq!(clipped.values, [0.0, 0.5, -0.5]);
-    }
-
-    #[test]
-    fn test_continuous_action_clip_exceeds_max() {
-        let action = ContinuousActionTest {
-            values: [2.0, 1.5, 3.0],
-        };
-        let clipped = action.clip(-1.0, 1.0);
-        assert_eq!(clipped.values, [1.0, 1.0, 1.0]);
-    }
-
-    #[test]
-    fn test_continuous_action_clip_exceeds_min() {
-        let action = ContinuousActionTest {
-            values: [-2.0, -1.5, -3.0],
-        };
-        let clipped = action.clip(-1.0, 1.0);
-        assert_eq!(clipped.values, [-1.0, -1.0, -1.0]);
-    }
-
-    #[test]
-    fn test_continuous_action_clip_mixed() {
-        let action = ContinuousActionTest {
-            values: [2.0, 0.5, -2.0],
-        };
-        let clipped = action.clip(-1.0, 1.0);
-        assert_eq!(clipped.values, [1.0, 0.5, -1.0]);
-    }
-
-    #[test]
-    fn test_continuous_action_random() {
-        for _ in 0..100 {
-            let action = ContinuousActionTest::random();
-            assert!(action.is_valid());
-            for &value in action.as_slice() {
-                assert!((-1.0..=1.0).contains(&value));
-                assert!(value.is_finite());
-            }
-        }
     }
 
     #[test]
@@ -1068,16 +548,6 @@ mod tests {
     }
 
     #[test]
-    fn test_multidiscrete_action_clone_and_debug() {
-        let action = MultiActionTest::from_indices([1, 2]);
-        let cloned = action;
-        assert_eq!(action, cloned);
-
-        let debug_str = format!("{action:?}");
-        assert!(debug_str.contains("direction"));
-    }
-
-    #[test]
     fn test_continuous_action_clone_and_debug() {
         let action = ContinuousActionTest {
             values: [0.1, 0.2, 0.3],
@@ -1087,15 +557,6 @@ mod tests {
 
         let debug_str = format!("{action:?}");
         assert!(debug_str.contains("values"));
-    }
-
-    #[test]
-    fn test_continuous_action_clip_chaining() {
-        let action = ContinuousActionTest {
-            values: [2.0, -3.0, 0.5],
-        };
-        let clipped = action.clip(-2.0, 2.0).clip(-1.0, 1.0);
-        assert_eq!(clipped.values, [1.0, -1.0, 0.5]);
     }
 
     #[test]
@@ -1127,10 +588,6 @@ mod tests {
             }
         }
 
-        // Enumerate should produce all 256 actions
-        let actions = LargeDiscreteAction::enumerate();
-        assert_eq!(actions.len(), 256);
-
         // Verify roundtrip for a few samples
         for i in [0, 1, 127, 255] {
             let action = LargeDiscreteAction::from_index(i);
@@ -1145,22 +602,6 @@ mod tests {
         };
         assert!(action.is_valid());
         assert_eq!(action.as_slice(), &[0.0, 0.0, 0.0]);
-
-        let clipped = action.clip(-1.0, 1.0);
-        assert_eq!(clipped.values, [0.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn test_continuous_action_extreme_clip_bounds() {
-        let action = ContinuousActionTest {
-            values: [100.0, -100.0, 0.0],
-        };
-
-        let clipped = action.clip(f32::NEG_INFINITY, f32::INFINITY);
-        assert_eq!(clipped.values, [100.0, -100.0, 0.0]);
-
-        let clipped = action.clip(0.0, 0.0);
-        assert_eq!(clipped.values, [0.0, 0.0, 0.0]);
     }
 
     // ========================================================================
@@ -1170,7 +611,7 @@ mod tests {
     #[test]
     fn test_bounded_action_bounds_are_component_keyed() {
         // ADR 0053: bound slices are keyed on COMPONENTS (the flattened scalar
-        // count), not on RANK. For `ContinuousActionTest` these happen to agree
+        // count), not on the rank `R`. For `ContinuousActionTest` these happen to agree
         // (Convention B: rank 3, 3 components), so assert against COMPONENTS
         // explicitly — that is the contract a multi-component rank-1 impl must
         // also satisfy.
@@ -1194,17 +635,5 @@ mod tests {
         for i in 0..ContinuousActionTest::COMPONENTS {
             assert!(low[i] < high[i], "bound {i}: low >= high");
         }
-    }
-
-    #[test]
-    fn test_bounded_action_clip_is_noop_inside_bounds() {
-        // Construct an action at the low/high bounds: clip(low, high) must
-        // return the same components.
-        let low = ContinuousActionTest::low();
-        let high = ContinuousActionTest::high();
-        let at_low = ContinuousActionTest::from_slice(low);
-        let at_high = ContinuousActionTest::from_slice(high);
-        assert_eq!(at_low.clip(low[0], high[0]).as_slice(), low);
-        assert_eq!(at_high.clip(low[0], high[0]).as_slice(), high);
     }
 }

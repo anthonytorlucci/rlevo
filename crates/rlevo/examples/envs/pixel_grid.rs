@@ -2,7 +2,7 @@
 //!
 //! The environment's true latent is a compact rank-1 pair of cell indices `(agent, goal)`, but the
 //! observation the agent receives is a rank-3 `$20 \times 20 \times 3$` RGB image rendered by
-//! `Observable::project`. This example walks the optimal 8-step path to the goal and, at each step,
+//! `PixelGridState::project`. This example walks the optimal 8-step path to the goal and, at each step,
 //! prints:
 //!
 //! - the latent `(agent, goal)` indices (the rank-1 state),
@@ -17,7 +17,7 @@
 //! ```
 
 use rlevo_core::base::Observation;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::pixel_grid::{
     PixelGridAction, PixelGridConfig, PixelGridEnv, PixelObservation,
 };
@@ -39,7 +39,7 @@ fn main() {
     let shape = <PixelObservation as Observation<3>>::shape();
     println!(
         "PixelGridEnv scripted rollout — observation is rank {} {:?} over a rank-1 [2] state",
-        <PixelObservation as Observation<3>>::RANK,
+        shape.len(),
         shape,
     );
 
@@ -54,7 +54,7 @@ fn main() {
     );
     println!(
         "projected image: {} pixels (= {:?})",
-        snap.observation().pixels().len(),
+        snap.observation.pixels().len(),
         shape
     );
     println!("{}", env.state().render_ascii());
@@ -66,11 +66,11 @@ fn main() {
             i + 1,
             env.state().agent(),
             env.state().goal(),
-            snap.observation().pixels().len(),
+            snap.observation.pixels().len(),
         );
         println!("{}", env.state().render_ascii());
-        if snap.is_done() {
-            let reward = f32::from(*snap.reward());
+        if snap.status.is_done() {
+            let reward = f32::from(snap.reward);
             println!("terminated after {} steps with reward = {reward:.4}", i + 1);
             return;
         }

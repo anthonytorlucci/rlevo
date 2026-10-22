@@ -92,8 +92,7 @@ mod common;
 
 use std::collections::HashSet;
 
-use rlevo_core::environment::{Environment, Snapshot};
-use rlevo_core::reward::ScalarReward;
+use rlevo_core::environment::Environment;
 use rlevo_environments::grids::core::GridAction;
 use rlevo_environments::grids::{
     CrossingConfig, CrossingEnv, CrossingKind, DistShiftConfig, DistShiftEnv, DistShiftVariant,
@@ -196,7 +195,7 @@ macro_rules! assert_solvable {
 /// - if the script runs to exhaustion without terminating the episode.
 fn run_script<E>(env: &mut E, script: &[GridAction]) -> f32
 where
-    E: Environment<3, 3, 1, ActionType = GridAction, RewardType = ScalarReward>,
+    E: Environment<3, 1, ActionType = GridAction>,
 {
     assert!(
         !script.is_empty(),
@@ -204,10 +203,10 @@ where
     );
     for (i, &action) in script.iter().enumerate() {
         let snap = env.step(action).expect("step");
-        if !snap.is_done() {
+        if !snap.status.is_done() {
             continue;
         }
-        let reward = f32::from(*snap.reward());
+        let reward = f32::from(snap.reward);
         let trailing = script.len() - i - 1;
         assert_eq!(
             trailing,

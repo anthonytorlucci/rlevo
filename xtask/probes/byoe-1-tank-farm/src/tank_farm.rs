@@ -8,15 +8,14 @@
 //! overflow ends it, and otherwise it runs until a time limit cuts it off.
 //!
 //! The observation is each tank's level over the last four steps. It is a
-//! rank-2 value over a rank-1 state, and it depends on history the state
-//! does not hold.
+//! rank-2 value, and it depends on history the state does not hold.
 //!
 //! This file names nothing outside `rlevo::core`, so every path here is
 //! written in full as `rlevo::core::...`.
 
 use rlevo::core::action::{BoundedAction, ContinuousAction};
-use rlevo::core::base::{Action, Observation, State};
-use rlevo::core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo::core::base::{Action, Observation};
+use rlevo::core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo::core::episode::EpisodeGuard;
 use rlevo::core::reward::ScalarReward;
 
@@ -70,18 +69,6 @@ pub struct TankState {
     pub levels: [f32; 2],
 }
 
-impl State<1> for TankState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.levels
-            .iter()
-            .all(|level| level.is_finite() && (0.0..=1.0).contains(level))
-    }
-}
-
 /// The two pump rates, pump A then pump B, each in `[0, 1]`.
 ///
 /// FINDING: `ContinuousAction::as_slice` returns `&[f32]`, so the rates are
@@ -104,21 +91,11 @@ impl Action<1> for PumpCommand {
     }
 }
 
-// FINDING: `ContinuousAction::random` has a default that samples `[-1, 1)`,
-// outside these bounds, and its documentation says a type with other bounds
-// must override it. It takes no generator, so an override can only draw from
-// an unseeded one. It is left at the default, and nothing here calls it.
 impl ContinuousAction<1> for PumpCommand {
     const COMPONENTS: usize = 2;
 
     fn as_slice(&self) -> &[f32] {
         &self.rates
-    }
-
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self {
-            rates: self.rates.map(|rate| rate.clamp(min, max)),
-        }
     }
 
     fn from_slice(values: &[f32]) -> Self {
@@ -176,26 +153,20 @@ impl TankFarm {
     }
 }
 
-impl Environment<2, 1, 1> for TankFarm {
-    type StateType = TankState;
+impl Environment<2, 1> for TankFarm {
     type ObservationType = TankObs;
     type ActionType = PumpCommand;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<2, TankObs, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<TankObs>, EnvironmentError> {
         self.state = TankState {
             levels: self.initial,
         };
         self.history = self.initial.map(|level| [level; HISTORY]);
         self.guard.reset();
-        Ok(SnapshotBase::running(
-            self.observe(),
-            ScalarReward::new(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward::new(0.0)))
     }
 
-    fn step(&mut self, action: PumpCommand) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: PumpCommand) -> Result<Snapshot<TankObs>, EnvironmentError> {
         // A step after the episode ended is an error and changes nothing.
         self.guard.check()?;
         // So is a command outside the pumps' range: clamping it would hide a
@@ -232,11 +203,11 @@ impl Environment<2, 1, 1> for TankFarm {
         // An overflow is the task's own end, so the episode terminates. Nothing
         // else ends it here: a time limit is the caller's to impose.
         let snapshot = if overflow {
-            SnapshotBase::terminated(self.observe(), reward)
+            Snapshot::terminated(self.observe(), reward)
         } else {
-            SnapshotBase::running(self.observe(), reward)
+            Snapshot::running(self.observe(), reward)
         };
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }

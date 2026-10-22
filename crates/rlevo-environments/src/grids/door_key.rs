@@ -69,7 +69,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = DoorKeyConfig::new(5, 100, 0);
 //! let mut env = DoorKeyEnv::with_config(cfg, false).expect("valid config");
@@ -82,7 +82,7 @@
 //! [`place_obj`]: super::core::place_obj
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     build_snapshot,
     color::Color,
@@ -99,9 +99,8 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -270,8 +269,8 @@ struct Layout {
 
 /// Two-room gridworld requiring key pickup, door toggle, and goal navigation.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// This environment tests long-horizon reasoning: the agent must learn a
 /// strict ordering (pick up key → unlock door → navigate to goal) before any
@@ -282,7 +281,7 @@ struct Layout {
 /// [`Self::door_row`], and [`Self::state`] rather than assuming fixed cells.
 ///
 /// Construct via [`DoorKeyEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 5, 100 steps, seed 0).
+/// [`Default`] for default settings (size 5, 100 steps, seed 0).
 ///
 /// Reaching the goal (or lava) ends the episode; a [`step`](Environment::step)
 /// taken afterwards is rejected with
@@ -292,7 +291,7 @@ struct Layout {
 ///
 /// ```rust
 /// use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = DoorKeyEnv::with_config(
 ///     DoorKeyConfig::new(5, 100, 0),
@@ -341,7 +340,7 @@ impl DoorKeyEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -416,7 +415,10 @@ impl DoorKeyEnv {
     /// Propagates any error from [`reset`](Environment::reset), i.e. a
     /// [`PlacementError`] that exhausted the left room. No legal
     /// [`DoorKeyConfig`] can produce one; see [`with_config`](Self::with_config).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -536,7 +538,12 @@ impl DoorKeyEnv {
         })
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -564,35 +571,22 @@ impl Display for DoorKeyEnv {
     }
 }
 
-impl ConstructableEnv for DoorKeyEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(DoorKeyConfig::default(), render).expect("default config must validate")
+impl Default for DoorKeyEnv {
+    fn default() -> Self {
+        Self::with_config(DoorKeyConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for DoorKeyEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl DoorKeyEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for DoorKeyEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for DoorKeyEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Draws a fresh layout and re-opens the episode.
     ///
@@ -612,7 +606,7 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
     ///
     /// That `Err` path is unreachable for any config this crate accepts (see
     /// `build`), so it carries no test — only this ordering.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Draw first: only a *successful* build actually starts a new episode.
         let layout = Self::build(&self.config, &mut self.rng)?;
         self.guard.reset();
@@ -620,7 +614,7 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
         self.split_col = layout.split_col;
         self.door_row = layout.door_row;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -630,7 +624,10 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances (it is the numerator of
         // `success_reward`, so an illegal call would silently discount every
         // later payout) and before `apply_action` touches the grid or the
@@ -649,12 +646,12 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
 
         // Single exit: the guard is fed the emitted snapshot's own status, so
         // the two cannot disagree about whether the episode is over.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -1089,7 +1086,7 @@ mod tests {
         let mut b = DoorKeyEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     #[test]
@@ -1183,10 +1180,10 @@ mod tests {
             env.state.agent = AgentState::new(far, far - 1, Direction::South);
             let snap = env.step(GridAction::Forward).expect("step");
             assert!(
-                snap.is_done(),
+                snap.status.is_done(),
                 "size {size}: stepping onto the goal ends it"
             );
-            let reward: f32 = (*snap.reward()).into();
+            let reward: f32 = (snap.reward).into();
             assert!(reward > 0.9, "size {size}: reward was {reward}");
         }
     }
@@ -1198,8 +1195,8 @@ mod tests {
         env.reset().unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1349,7 +1346,7 @@ mod tests {
 
         // The agent's own cell: bottom row, centre column.
         let (arow, acol) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
-        let cell = after.observation().view[arow][acol];
+        let cell = after.observation.view[arow][acol];
         assert_eq!(
             cell,
             [Entity::Key(key_color).type_u8(), key_color.to_u8(), 0],
@@ -1376,7 +1373,7 @@ mod tests {
         // Empty-handed, the same cell encodes `Entity::Empty`, never the unseen
         // triple: the agent always observes its own cell.
         assert_eq!(
-            before.observation().view[arow][acol],
+            before.observation.view[arow][acol],
             [Entity::Empty.type_u8(), 0, 0],
             "before the Pickup the agent's own cell must report an empty hand"
         );
@@ -1385,7 +1382,7 @@ mod tests {
         let changed: Vec<(usize, usize)> = (0..VIEW_SIZE)
             .flat_map(|row| (0..VIEW_SIZE).map(move |col| (row, col)))
             .filter(|&(row, col)| {
-                before.observation().view[row][col] != after.observation().view[row][col]
+                before.observation.view[row][col] != after.observation.view[row][col]
             })
             .collect();
         // Two cells, and only two. `(6, 3)` is the agent's own cell gaining the
@@ -1400,7 +1397,7 @@ mod tests {
              and nothing else"
         );
         assert_eq!(
-            after.observation().view[VIEW_SIZE - 2][VIEW_SIZE / 2],
+            after.observation.view[VIEW_SIZE - 2][VIEW_SIZE / 2],
             [Entity::Empty.type_u8(), 0, 0],
             "the key's world tile is empty once the key is in hand"
         );
@@ -1436,7 +1433,7 @@ mod tests {
         // The episode really ended at the goal, so this cannot pass on some
         // mid-episode frame that never stood on a terminal tile.
         assert_eq!(
-            terminal.status(),
+            terminal.status,
             EpisodeStatus::Terminated,
             "the frame under test must be the terminal one"
         );
@@ -1461,7 +1458,7 @@ mod tests {
 
         // The agent's own cell: bottom row, centre column.
         let (arow, acol) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
-        let cell = terminal.observation().view[arow][acol];
+        let cell = terminal.observation.view[arow][acol];
 
         assert_eq!(
             cell,
@@ -1505,7 +1502,7 @@ mod tests {
     ///
     /// The board (see the module docs) is agent `(1, 1)` facing North, key
     /// `(1, 2)`, locked door `(2, 1)`, goal `(3, 3)`.
-    fn drive_to_goal(env: &mut DoorKeyEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut DoorKeyEnv) -> Snapshot<GridObservation> {
         let plan = [
             GridAction::TurnRight, // North → East
             GridAction::TurnRight, // East → South, now facing the key
@@ -1528,7 +1525,7 @@ mod tests {
         }
         let terminal = snapshot.expect("the plan is non-empty");
         assert!(
-            terminal.is_done(),
+            terminal.status.is_done(),
             "the scripted plan must reach the goal; the board or the dynamics moved"
         );
         assert_eq!(
@@ -1570,7 +1567,7 @@ mod tests {
         let mut env = env_seed_3();
         let terminal = drive_to_goal(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "the agent must have reached the goal"
         );
 
@@ -1643,7 +1640,7 @@ mod tests {
             .step(GridAction::TurnRight)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "a turn on the first step of a fresh episode cannot end it"
         );
         assert_eq!(env.steps(), 1, "the step counter must restart at the reset");

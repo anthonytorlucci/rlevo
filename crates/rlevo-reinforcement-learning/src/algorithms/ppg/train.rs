@@ -18,8 +18,8 @@ use rand::Rng;
 
 use burn::tensor::backend::AutodiffBackend;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Observation, Reward, TensorConvertible};
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::environment::Environment;
 
 use crate::algorithms::ppg::ppg_agent::{AuxPhaseStats, PpgAgent, PpgAgentError, PpgMetrics};
 use crate::algorithms::ppg::ppg_policy::PpgAuxValueHead;
@@ -65,20 +65,18 @@ use crate::algorithms::shared::LogWatermark;
 /// - `P` — Policy network: must implement `PpoPolicy<B, BOR>` and
 ///   `PpgAuxValueHead<B, BOR>`.
 /// - `V` — Main value network implementing `PpoValue<B, BOR>`.
-/// - `E` — Environment with `ObservationType = O`, `ActionType = A`,
-///   `RewardType = Rew`, and an action space of rank `1` (discrete).
+/// - `E` — Environment with `ObservationType = O`, `ActionType = A`, and an
+///   action space of rank `1` (discrete).
 /// - `O` — Observation type convertible to a rank-`OR` tensor.
 /// - `A` — Discrete action implementing `DiscreteAction<1>`.
-/// - `Rew` — Scalar reward implementing `Reward + Copy`.
 /// - `OR` — Observation tensor rank.
-/// - `SR` — State tensor rank (consumed by the environment bound only).
 /// - `BOR` — Batched observation tensor rank (`OR + 1`).
 // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
 // f32. This is the intended narrowing point, and the values are hyperparameters
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+pub fn train_discrete<B, P, V, E, O, A, const OR: usize, const BOR: usize>(
     agent: &mut PpgAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -89,10 +87,9 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, 1, ObservationType = O, ActionType = A>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: DiscreteAction<1>,
-    Rew: Reward + Copy,
 {
     let rollout_len = agent.config().ppo.num_steps;
 
@@ -114,13 +111,13 @@ where
 
     while global_step < total_timesteps {
         for _ in 0..rollout_len {
-            let obs_now = snapshot.observation().clone();
+            let obs_now = snapshot.observation.clone();
             let act = agent.act(&obs_now, rng);
 
             let typed_action = A::from_index(act.env_row[0] as usize);
             let next_snapshot = env.step(typed_action).map_err(env_error)?;
-            let reward_f32: f32 = (*next_snapshot.reward()).into();
-            let status = next_snapshot.status();
+            let reward_f32: f32 = (next_snapshot.reward).into();
+            let status = next_snapshot.status;
             let done = status.is_done();
 
             // Continuation state, read *before* the `env.reset()` below — on a
@@ -129,7 +126,7 @@ where
                 obs_now,
                 &act,
                 reward_f32,
-                next_snapshot.observation(),
+                &next_snapshot.observation,
                 status,
             );
             global_step += 1;
@@ -190,7 +187,7 @@ where
         // Borrowed, not cloned: `finalize_rollout` only reads this when the
         // rollout's final step left the episode `Running`, which is exactly
         // when `snapshot` is the genuine continuation state.
-        agent.finalize_rollout(snapshot.observation());
+        agent.finalize_rollout(&snapshot.observation);
         agent.snapshot_into_aux_buffer();
         last_update_stats = agent.policy_phase_update(rng);
         last_aux = agent.maybe_aux_phase(rng);

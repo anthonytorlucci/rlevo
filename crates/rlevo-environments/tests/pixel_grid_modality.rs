@@ -4,31 +4,27 @@
 
 //! Single-crate proof that [`PixelGridEnv`] exposes a modality-changing
 //! observation: the snapshot the agent receives is a rank-3 `[20, 20, 3]` RGB
-//! image while the underlying state is rank-1 `[2]` (ADR 0019/0020).
+//! image while the underlying latent is rank-1 `[2]` (ADR 0020).
 //!
-//! [`PixelGridEnv`] is the first real consumer of `Observable<OR>`, chosen
-//! over a real Atari emulator backend: Atari is the canonical modality-change
-//! environment but pulls a heavy out-of-tree dependency, ROM licensing, and a
-//! high per-step cost. This env instead renders a compact rank-1 grid state
-//! (agent and goal cell indices) to a small rank-2/3 image observation via a
-//! deterministic `Observable::project`, at near-zero cost, with no external
-//! dependency, and fully reproducibly — while exercising the exact `R != SR`
-//! wiring an Atari backend would. It retires `Observable<OR>` from
-//! defined-but-unconsumed status and doubles as a teaching example and
-//! visual-RL smoke test; a real Atari backend remains a separate future
-//! milestone.
+//! [`PixelGridEnv`] was chosen over a real Atari emulator backend: Atari is the
+//! canonical modality-change environment but pulls a heavy out-of-tree
+//! dependency, ROM licensing, and a high per-step cost. This env instead
+//! renders a compact rank-1 grid state (agent and goal cell indices) to a small
+//! rank-3 image observation with the deterministic `PixelGridState::project`,
+//! at near-zero cost, with no external dependency, and fully reproducibly —
+//! while exercising the wiring an Atari backend would. It doubles as a teaching
+//! example and visual-RL smoke test; a real Atari backend remains a separate
+//! future milestone.
 //!
-//! This is the production counterpart to the `MockRam` mock in
-//! `crates/rlevo/tests/observable_modality_change.rs`: a real environment in
-//! `rlevo-environments` driving `R(3) != SR(1)` end-to-end through the public
-//! [`Environment`] API, with every snapshot built from `Observable::project`.
+//! The test drives the modality change end-to-end through the public
+//! [`Environment`] API, with every snapshot built from `PixelGridState::project`.
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Observation, State};
-use rlevo_core::environment::{Environment, EpisodeStatus, Snapshot};
+use rlevo_core::base::Observation;
+use rlevo_core::environment::{Environment, EpisodeStatus};
 
 use rlevo_environments::pixel_grid::{
-    PixelGridAction, PixelGridConfig, PixelGridEnv, PixelGridState, PixelObservation,
+    PixelGridAction, PixelGridConfig, PixelGridEnv, PixelObservation,
 };
 
 /// The observation is rank 3 while the state is rank 1 — the modality change is
@@ -39,19 +35,14 @@ fn reset_yields_rank3_observation_over_rank1_state() {
         .expect("valid config");
     let snap = env.reset().expect("reset succeeds");
 
-    assert_eq!(snap.status(), EpisodeStatus::Running);
+    assert_eq!(snap.status, EpisodeStatus::Running);
     assert_eq!(
         <PixelObservation as Observation<3>>::shape(),
         [20, 20, 3],
         "observation is rank 3"
     );
     assert_eq!(
-        <PixelGridState as State<1>>::shape(),
-        [2],
-        "underlying state is rank 1"
-    );
-    assert_eq!(
-        snap.observation().pixels().len(),
+        snap.observation.pixels().len(),
         20 * 20 * 3,
         "snapshot carries the full rendered image"
     );
@@ -85,12 +76,15 @@ fn optimal_rollout_reaches_goal_with_positive_reward() {
     }
     let snap = last.expect("at least one step ran");
 
-    assert!(snap.is_done(), "reaching the goal terminates the episode");
-    assert_eq!(snap.status(), EpisodeStatus::Terminated);
-    let reward: f32 = (*snap.reward()).into();
+    assert!(
+        snap.status.is_done(),
+        "reaching the goal terminates the episode"
+    );
+    assert_eq!(snap.status, EpisodeStatus::Terminated);
+    let reward: f32 = (snap.reward).into();
     assert!(reward > 0.0, "goal reward must be positive, got {reward}");
     // The terminal observation is still rank-3.
-    assert_eq!(snap.observation().pixels().len(), 20 * 20 * 3);
+    assert_eq!(snap.observation.pixels().len(), 20 * 20 * 3);
 }
 
 /// Exhausting the step budget without reaching the goal truncates with reward
@@ -107,9 +101,9 @@ fn step_limit_truncates_with_zero_reward() {
     env.step(PixelGridAction::Up).unwrap();
     let snap = env.step(PixelGridAction::Up).unwrap();
 
-    assert!(snap.is_done());
-    assert_eq!(snap.status(), EpisodeStatus::Truncated);
-    let reward: f32 = (*snap.reward()).into();
+    assert!(snap.status.is_done());
+    assert_eq!(snap.status, EpisodeStatus::Truncated);
+    let reward: f32 = (snap.reward).into();
     assert_eq!(reward, 0.0);
 }
 
@@ -123,7 +117,7 @@ fn random_policy_never_errors() {
     for i in 0..50 {
         let action = PixelGridAction::from_index(i % PixelGridAction::ACTION_COUNT);
         let snap = env.step(action).expect("step succeeds");
-        if snap.is_done() {
+        if snap.status.is_done() {
             break;
         }
     }

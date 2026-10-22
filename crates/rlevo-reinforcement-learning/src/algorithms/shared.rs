@@ -712,8 +712,8 @@ impl FiniteLossGuard {
 /// poisoned *loss*, never the poisoned reward that produced it.
 ///
 /// [`admit`](Self::admit) closes that at the ingestion boundary: `remember`
-/// takes an already-erased `f32`, so this is the one chokepoint every reward
-/// type in the workspace passes through, whatever [`Reward`] impl produced it.
+/// takes the reward as an `f32`, so this is the one chokepoint every
+/// environment's reward passes through.
 /// A non-finite value is **discarded, not stored** — the transition never enters
 /// the buffer, so no later minibatch can be poisoned by it.
 ///
@@ -740,7 +740,6 @@ impl FiniteLossGuard {
 /// One guard instance owns one ingestion site, mirroring the one-guard-per-loss
 /// site rule above.
 ///
-/// [`Reward`]: rlevo_core::base::Reward
 pub(crate) struct FiniteRewardGuard {
     /// Running count of transitions discarded for a non-finite reward.
     dropped: u64,
@@ -1457,9 +1456,6 @@ mod tests {
 
                 fn as_slice(&self) -> &[f32] {
                     &self.0
-                }
-                fn clip(&self, min: f32, max: f32) -> Self {
-                    Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
                 }
                 fn from_slice(values: &[f32]) -> Self {
                     assert_eq!(values.len(), Self::COMPONENTS);

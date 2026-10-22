@@ -33,11 +33,9 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
@@ -441,17 +439,6 @@ impl TryFrom<(u16, u8, u8)> for FrozenLakeState {
     }
 }
 
-impl State<1> for FrozenLakeState {
-    fn shape() -> [usize; 1] {
-        // Shape is dynamic (depends on map size); return a conservative max.
-        [64] // 8×8 max
-    }
-
-    fn is_valid(&self) -> bool {
-        self.row < self.nrow && self.col < self.ncol
-    }
-}
-
 /// Agent-visible observation: integer state id `$\text{row} \times \text{ncol} + \text{col}$`.
 ///
 /// The shape constant is fixed at 64 (`$8 \times 8$` maximum), even for smaller maps.
@@ -680,43 +667,25 @@ impl FrozenLake {
     }
 }
 
-impl ConstructableEnv for FrozenLake {
-    fn new(_render: bool) -> Self {
+impl Default for FrozenLake {
+    fn default() -> Self {
         Self::with_config(FrozenLakeConfig::default()).expect("default random map must succeed")
     }
 }
 
-impl Sensor<1, 1, 1> for FrozenLake {
-    type Action = FrozenLakeAction;
-    type State = FrozenLakeState;
-    type Observation = FrozenLakeObservation;
-
-    /// Projects the resulting state onto its linear grid id; the observation is a
-    /// pure function of the `(row, col)` position and ignores the action.
-    fn observe(
-        &self,
-        _action: &FrozenLakeAction,
-        next_state: &FrozenLakeState,
-    ) -> FrozenLakeObservation {
+impl FrozenLake {
+    /// Projects the current state onto its linear grid id, a pure function of
+    /// the `(row, col)` position.
+    fn observe(&self) -> FrozenLakeObservation {
         FrozenLakeObservation {
-            state_id: next_state.state_id(),
-        }
-    }
-
-    /// Projects the initial (start) state onto its linear grid id.
-    fn observe_reset(&self, state: &FrozenLakeState) -> FrozenLakeObservation {
-        FrozenLakeObservation {
-            state_id: state.state_id(),
+            state_id: self.state.state_id(),
         }
     }
 }
 
-impl Environment<1, 1, 1> for FrozenLake {
-    type StateType = FrozenLakeState;
+impl Environment<1, 1> for FrozenLake {
     type ObservationType = FrozenLakeObservation;
     type ActionType = FrozenLakeAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, FrozenLakeObservation, ScalarReward>;
 
     /// Starts a new episode: rebuilds the map (random specs only), places the
     /// agent on the start tile, and re-opens the [`EpisodeGuard`].
@@ -730,7 +699,7 @@ impl Environment<1, 1, 1> for FrozenLake {
     /// agent off the terminal tile it is standing on — the very defect the guard
     /// exists to prevent. A failed reset leaves the episode closed; the caller
     /// must reset successfully before stepping again.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<FrozenLakeObservation>, EnvironmentError> {
         // Regenerate map for random spec; reuse preset/custom maps.
         if let FrozenMapSpec::Random {
             nrow,
@@ -749,10 +718,7 @@ impl Environment<1, 1, 1> for FrozenLake {
         };
         // Only after the reset has actually succeeded.
         self.guard.reset();
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Moves the agent one tile, terminating on a `Hole` or `Goal`.
@@ -764,7 +730,10 @@ impl Environment<1, 1, 1> for FrozenLake {
     /// before `resolve_action` draws from the RNG,
     /// so a rejected call leaves both the agent position and the slip stream
     /// untouched — a rejected step must not perturb a seeded run.
-    fn step(&mut self, action: FrozenLakeAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: FrozenLakeAction,
+    ) -> Result<Snapshot<FrozenLakeObservation>, EnvironmentError> {
         self.guard.check()?;
 
         let effective = self.resolve_action(action);
@@ -779,17 +748,13 @@ impl Environment<1, 1, 1> for FrozenLake {
         self.state.col = nc;
 
         let tile = self.tile_at(nr, nc);
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         // Build the snapshot once, then record its own status — no `match` arm
         // can return without the guard seeing what it emitted.
         let snapshot = match tile {
-            Tile::Hole => {
-                SnapshotBase::terminated(obs, ScalarReward(self.config.reward_schedule.hole))
-            }
-            Tile::Goal => {
-                SnapshotBase::terminated(obs, ScalarReward(self.config.reward_schedule.goal))
-            }
-            _ => SnapshotBase::running(obs, ScalarReward(self.config.reward_schedule.frozen)),
+            Tile::Hole => Snapshot::terminated(obs, ScalarReward(self.config.reward_schedule.hole)),
+            Tile::Goal => Snapshot::terminated(obs, ScalarReward(self.config.reward_schedule.goal)),
+            _ => Snapshot::running(obs, ScalarReward(self.config.reward_schedule.frozen)),
         };
         self.guard.record(snapshot.status);
         Ok(snapshot)
@@ -937,7 +902,6 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-    use rlevo_core::environment::Snapshot;
 
     #[test]
     fn default_config_validates() {
@@ -1119,15 +1083,15 @@ mod tests {
         let mut last_snap = None;
         for &a in &path {
             let snap = env.step(a).unwrap();
-            if snap.is_done() {
+            if snap.status.is_done() {
                 last_snap = Some(snap);
                 break;
             }
             last_snap = Some(snap);
         }
         let snap = last_snap.unwrap();
-        assert!(snap.is_terminated(), "goal must terminate");
-        let r: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_terminated(), "goal must terminate");
+        let r: f32 = (snap.reward).into();
         assert!((r - 1.0).abs() < 1e-6, "goal reward must be 1.0, got {r}");
     }
 
@@ -1139,8 +1103,8 @@ mod tests {
         // (0,0) → Down → (1,0). (1,0) is 'F'. → Right → (1,1) is 'H'.
         env.step(FrozenLakeAction::Down).unwrap();
         let snap = env.step(FrozenLakeAction::Right).unwrap();
-        assert!(snap.is_terminated(), "hole must terminate");
-        let r: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_terminated(), "hole must terminate");
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, 0.0, "default hole reward is 0.0");
     }
 
@@ -1162,7 +1126,7 @@ mod tests {
         // Step into hole at (1,1): Down then Right.
         env.step(FrozenLakeAction::Down).unwrap();
         let snap = env.step(FrozenLakeAction::Right).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert!(
             (r - (-10.0)).abs() < 1e-6,
             "custom hole reward -10.0, got {r}"
@@ -1275,9 +1239,9 @@ mod tests {
                 env.reset().unwrap();
                 for _ in 0..20 {
                     let snap = env.step(FrozenLakeAction::Right).unwrap();
-                    let r: f32 = (*snap.reward()).into();
+                    let r: f32 = (snap.reward).into();
                     total += r;
-                    if snap.is_done() {
+                    if snap.status.is_done() {
                         break;
                     }
                 }
@@ -1348,7 +1312,10 @@ mod tests {
                 ];
                 for &a in &path {
                     let snap = env.step(a).expect("the route to the goal is all frozen");
-                    assert!(!snap.is_done(), "the route to the goal must not terminate");
+                    assert!(
+                        !snap.status.is_done(),
+                        "the route to the goal must not terminate"
+                    );
                 }
                 env.step(FrozenLakeAction::Right)
                     .expect("(3,2) → Right → (3,3) is the goal")
@@ -1375,7 +1342,10 @@ mod tests {
         let snap = env
             .step(FrozenLakeAction::Right)
             .expect("(1,0) → Right → (1,1) is a hole");
-        assert!(snap.is_terminated(), "falling into a hole must terminate");
+        assert!(
+            snap.status.is_terminated(),
+            "falling into a hole must terminate"
+        );
         assert!(
             env.step(FrozenLakeAction::Up).is_err(),
             "the episode has ended; a further step must be rejected"
@@ -1386,7 +1356,7 @@ mod tests {
             .step(FrozenLakeAction::Right)
             .expect("reset() must re-open the episode for stepping");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "a re-opened episode steps onto the frozen (0,1) and keeps running"
         );
         assert_eq!(
@@ -1421,7 +1391,7 @@ mod tests {
                 let snap = env
                     .step(FrozenLakeAction::Right)
                     .expect("stepping a running episode must succeed");
-                if snap.is_done() {
+                if snap.status.is_done() {
                     return;
                 }
             }
@@ -1437,7 +1407,7 @@ mod tests {
                     .step(FrozenLakeAction::Right)
                     .expect("stepping a running episode must succeed");
                 path.push((env.state.row, env.state.col));
-                if snap.is_done() {
+                if snap.status.is_done() {
                     break;
                 }
             }

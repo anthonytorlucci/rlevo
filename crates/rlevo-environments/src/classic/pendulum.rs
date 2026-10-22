@@ -82,12 +82,12 @@
 //! ```no_run,ignore
 //! use rlevo_environments::classic::{Pendulum, PendulumConfig, PendulumAction};
 //! use rlevo_environments::wrappers::TimeLimit;
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let env = Pendulum::with_config(PendulumConfig::default()).expect("valid config");
 //! let mut timed = TimeLimit::new(env, 200);
 //! let mut snap = timed.reset().unwrap();
-//! while !snap.is_done() {
+//! while !snap.status.is_done() {
 //!     snap = timed.step(PendulumAction::new(1.0).unwrap()).unwrap();
 //! }
 //! ```
@@ -98,9 +98,9 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -226,10 +226,6 @@ impl ContinuousAction<1> for PendulumAction {
         std::slice::from_ref(&self.0)
     }
 
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self::unchecked(self.0.clamp(min, max))
-    }
-
     /// Constructs a [`PendulumAction`] from a one-element slice.
     ///
     /// # Panics
@@ -238,13 +234,6 @@ impl ContinuousAction<1> for PendulumAction {
     fn from_slice(values: &[f32]) -> Self {
         assert_eq!(values.len(), 1, "PendulumAction expects a 1-element slice");
         Self::unchecked(values[0])
-    }
-
-    fn random() -> Self
-    where
-        Self: Sized,
-    {
-        Self::unchecked(0.0)
     }
 }
 
@@ -269,18 +258,6 @@ pub struct PendulumState {
     pub theta: f32,
     /// Angular velocity (rad/s).
     pub theta_dot: f32,
-}
-
-impl State<1> for PendulumState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-    fn numel(&self) -> usize {
-        2
-    }
-    fn is_valid(&self) -> bool {
-        self.theta.is_finite() && self.theta_dot.is_finite()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -387,7 +364,7 @@ impl Pendulum {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, PendulumObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<PendulumObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -442,27 +419,17 @@ impl fmt::Display for Pendulum {
     }
 }
 
-impl ConstructableEnv for Pendulum {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl Default for Pendulum {
+    fn default() -> Self {
         Self::with_config(PendulumConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for Pendulum {
-    type Action = PendulumAction;
-    type State = PendulumState;
-    type Observation = PendulumObservation;
-
-    /// Projects the resulting state to the 3-D `$[\cos\theta, \sin\theta, \dot\theta]$` observation;
-    /// the observation is a pure function of the state and ignores the torque.
-    fn observe(&self, _action: &PendulumAction, next_state: &PendulumState) -> PendulumObservation {
-        pendulum_observation(*next_state)
-    }
-
-    /// Projects the initial state to the 3-D observation.
-    fn observe_reset(&self, state: &PendulumState) -> PendulumObservation {
-        pendulum_observation(*state)
+impl Pendulum {
+    /// Projects the current state to the 3-D `$[\cos\theta, \sin\theta, \dot\theta]$` observation,
+    /// a pure function of the state.
+    fn observe(&self) -> PendulumObservation {
+        pendulum_observation(self.state)
     }
 }
 
@@ -475,12 +442,9 @@ fn pendulum_observation(state: PendulumState) -> PendulumObservation {
     }
 }
 
-impl Environment<1, 1, 1> for Pendulum {
-    type StateType = PendulumState;
+impl Environment<1, 1> for Pendulum {
     type ObservationType = PendulumObservation;
     type ActionType = PendulumAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, PendulumObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -492,14 +456,11 @@ impl Environment<1, 1, 1> for Pendulum {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<PendulumObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -516,7 +477,10 @@ impl Environment<1, 1, 1> for Pendulum {
     /// condition and the [`EpisodeGuard`] therefore never closes. The variant is
     /// documented because it is the family-wide contract a future termination
     /// rule would activate without touching this signature.
-    fn step(&mut self, action: PendulumAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: PendulumAction,
+    ) -> Result<Snapshot<PendulumObservation>, EnvironmentError> {
         // Guard first: before the integration step and before `steps` advances.
         // Pendulum's dynamics draw no randomness, but `reset` does, so keeping
         // the check ahead of every mutation is what makes a rejected call a true
@@ -530,8 +494,7 @@ impl Environment<1, 1, 1> for Pendulum {
         // Single exit: the only status Pendulum can emit is `Running`, so the
         // guard stays open — recording it regardless keeps the guard and the
         // emitted snapshot in agreement no matter what branches appear later.
-        let snapshot =
-            SnapshotBase::running(self.observe(&action, &self.state), ScalarReward(reward_f));
+        let snapshot = Snapshot::running(self.observe(), ScalarReward(reward_f));
 
         self.guard.record(snapshot.status);
         Ok(snapshot)
@@ -638,7 +601,6 @@ mod tests {
     //! and determinism.
 
     use super::*;
-    use rlevo_core::environment::Snapshot;
 
     fn default_env() -> Pendulum {
         Pendulum::with_config(PendulumConfig::default()).expect("valid config")
@@ -732,8 +694,8 @@ mod tests {
         let action = PendulumAction::new(1.0).unwrap();
         for _ in 0..500 {
             let snap = env.step(action).unwrap();
-            assert!(!snap.is_terminated(), "should never terminate");
-            assert_eq!(snap.status(), EpisodeStatus::Running);
+            assert!(!snap.status.is_terminated(), "should never terminate");
+            assert_eq!(snap.status, EpisodeStatus::Running);
         }
     }
 
@@ -762,7 +724,7 @@ mod tests {
                 .step(action)
                 .unwrap_or_else(|e| panic!("step {i} must succeed; Pendulum never ends: {e:?}"));
             assert_eq!(
-                snap.status(),
+                snap.status,
                 EpisodeStatus::Running,
                 "snapshot at step {i} must be Running"
             );
@@ -804,7 +766,7 @@ mod tests {
         for _ in 0..10 {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -812,7 +774,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let env = Pendulum::new(false);
+        let env = Pendulum::default();
         let plain = env.render_ascii();
         let styled = env.render_styled();
         assert_eq!(styled.lines.len(), 1);
@@ -824,7 +786,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
 
-        let env = Pendulum::new(false);
+        let env = Pendulum::default();
         let styled = env.render_styled();
         let line = &styled.lines[0];
         let label = line
@@ -840,7 +802,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let env = Pendulum::new(false);
+        let env = Pendulum::default();
         for line in env.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,
@@ -856,8 +818,8 @@ mod tests {
         // angle and angular velocity), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -867,10 +829,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"

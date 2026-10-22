@@ -46,11 +46,9 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
@@ -219,16 +217,6 @@ impl TryFrom<u16> for TaxiState {
 impl From<TaxiState> for u16 {
     fn from(s: TaxiState) -> u16 {
         s.encode()
-    }
-}
-
-impl State<1> for TaxiState {
-    fn shape() -> [usize; 1] {
-        [500]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.taxi_row < 5 && self.taxi_col < 5 && self.passenger_loc <= 4 && self.destination < 4
     }
 }
 
@@ -471,52 +459,34 @@ impl Taxi {
     }
 }
 
-impl ConstructableEnv for Taxi {
-    fn new(_render: bool) -> Self {
+impl Default for Taxi {
+    fn default() -> Self {
         Self::with_config(TaxiConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for Taxi {
-    type Action = TaxiAction;
-    type State = TaxiState;
-    type Observation = TaxiObservation;
-
-    /// Projects the resulting state onto its packed 500-state id; the observation
-    /// is a pure function of the taxi/passenger/destination triple and ignores
-    /// which action produced it.
-    fn observe(&self, _action: &TaxiAction, next_state: &TaxiState) -> TaxiObservation {
+impl Taxi {
+    /// Projects the current state onto its packed 500-state id, a pure function
+    /// of the taxi/passenger/destination triple.
+    fn observe(&self) -> TaxiObservation {
         TaxiObservation {
-            state_id: next_state.encode(),
-        }
-    }
-
-    /// Projects the initial sampled state onto its packed state id.
-    fn observe_reset(&self, state: &TaxiState) -> TaxiObservation {
-        TaxiObservation {
-            state_id: state.encode(),
+            state_id: self.state.encode(),
         }
     }
 }
 
-impl Environment<1, 1, 1> for Taxi {
-    type StateType = TaxiState;
+impl Environment<1, 1> for Taxi {
     type ObservationType = TaxiObservation;
     type ActionType = TaxiAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, TaxiObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<TaxiObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_initial_state();
         self.fickle_armed = false;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
-    fn step(&mut self, action: TaxiAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: TaxiAction) -> Result<Snapshot<TaxiObservation>, EnvironmentError> {
         // Must precede every state mutation *and* every RNG draw: `resolve_movement`
         // and the fickle-passenger resample both consume from `self.rng`, so a
         // rejected call that got past this point would advance the stream and break
@@ -571,16 +541,16 @@ impl Environment<1, 1, 1> for Taxi {
             }
         }
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         let snapshot = if terminated {
-            SnapshotBase::terminated(obs, ScalarReward(reward))
+            Snapshot::terminated(obs, ScalarReward(reward))
         } else {
-            SnapshotBase::running(obs, ScalarReward(reward))
+            Snapshot::running(obs, ScalarReward(reward))
         };
 
         // Record from the snapshot we are about to emit, so the guard and the
         // snapshot can never disagree on any path.
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -828,7 +798,7 @@ mod tests {
     /// Resets `env`, pins it one correct `Dropoff` from the goal, and takes it —
     /// returning the terminal snapshot. Consumes RNG only inside `reset()`: the
     /// `Dropoff` branch of `step` makes no draw.
-    fn drive_to_correct_dropoff(env: &mut Taxi) -> SnapshotBase<1, TaxiObservation, ScalarReward> {
+    fn drive_to_correct_dropoff(env: &mut Taxi) -> Snapshot<TaxiObservation> {
         env.reset().expect("reset must succeed");
         env.state = about_to_drop_off();
         env.step(TaxiAction::Dropoff)
@@ -959,7 +929,7 @@ mod tests {
         };
         let pos_before = (env.state.taxi_row, env.state.taxi_col);
         let snap = env.step(TaxiAction::East).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, -1.0);
         assert_eq!((env.state.taxi_row, env.state.taxi_col), pos_before);
     }
@@ -977,7 +947,7 @@ mod tests {
             destination: 1,
         };
         let snap = env.step(TaxiAction::Pickup).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, -10.0);
     }
 
@@ -994,9 +964,9 @@ mod tests {
             destination: 1,
         };
         let snap = env.step(TaxiAction::Dropoff).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, 20.0);
-        assert!(snap.is_terminated());
+        assert!(snap.status.is_terminated());
     }
 
     #[test]
@@ -1082,9 +1052,9 @@ mod tests {
                 env.reset().unwrap();
                 for _ in 0..10 {
                     let snap = env.step(TaxiAction::South).unwrap();
-                    let r: f32 = (*snap.reward()).into();
+                    let r: f32 = (snap.reward).into();
                     total += r;
-                    if snap.is_done() {
+                    if snap.status.is_done() {
                         break;
                     }
                 }
@@ -1112,10 +1082,10 @@ mod tests {
         let mut env = make_env();
         let terminal = drive_to_correct_dropoff(&mut env);
 
-        let r: f32 = (*terminal.reward()).into();
+        let r: f32 = (terminal.reward).into();
         assert_eq!(r, 20.0, "a correct dropoff must pay +20");
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "a correct dropoff must terminate the episode"
         );
 
@@ -1160,7 +1130,7 @@ mod tests {
             .step(TaxiAction::South)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -1178,7 +1148,7 @@ mod tests {
                 let snap = env
                     .step(TaxiAction::South)
                     .expect("movement never terminates the episode");
-                assert!(!snap.is_done(), "South must not end a Taxi episode");
+                assert!(!snap.status.is_done(), "South must not end a Taxi episode");
                 ids.push(env.state.encode());
             }
             ids

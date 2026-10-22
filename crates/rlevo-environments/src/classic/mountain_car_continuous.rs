@@ -80,18 +80,18 @@
 //! ```no_run,ignore
 //! use rlevo_environments::{classic::mountain_car_continuous::MountainCarContinuous, wrappers::TimeLimit};
 //!
-//! let env = TimeLimit::new(MountainCarContinuous::new(false), 999);
+//! let env = TimeLimit::new(MountainCarContinuous::default(), 999);
 //! ```
 //!
 //! ## Quick start
 //!
 //! ```rust
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //! use rlevo_environments::classic::mountain_car_continuous::{
 //!     MountainCarContinuous, MountainCarContinuousAction,
 //! };
 //!
-//! let mut env = MountainCarContinuous::new(false);
+//! let mut env = MountainCarContinuous::default();
 //! let _snap = env.reset().unwrap();
 //! let action = MountainCarContinuousAction::new(0.5).unwrap();
 //! let snap = env.step(action).unwrap();
@@ -104,10 +104,10 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -246,10 +246,6 @@ impl ContinuousAction<1> for MountainCarContinuousAction {
         std::slice::from_ref(&self.0)
     }
 
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self::unchecked(self.0.clamp(min, max))
-    }
-
     /// Constructs a [`MountainCarContinuousAction`] from a one-element slice.
     ///
     /// # Panics
@@ -262,13 +258,6 @@ impl ContinuousAction<1> for MountainCarContinuousAction {
             "MountainCarContinuousAction expects a 1-element slice"
         );
         Self::unchecked(values[0])
-    }
-
-    fn random() -> Self
-    where
-        Self: Sized,
-    {
-        Self::unchecked(0.0) // deterministic fallback; use env.step_with_rng for stochastic
     }
 }
 
@@ -313,18 +302,6 @@ impl MountainCarContinuousObservation {
 impl Observation<1> for MountainCarContinuousObservation {
     fn shape() -> [usize; 1] {
         [2]
-    }
-}
-
-impl State<1> for MountainCarContinuousState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-    fn numel(&self) -> usize {
-        2
-    }
-    fn is_valid(&self) -> bool {
-        self.position.is_finite() && self.velocity.is_finite()
     }
 }
 
@@ -387,8 +364,7 @@ impl MountainCarContinuous {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, MountainCarContinuousObservation, ScalarReward>, EnvironmentError>
-    {
+    ) -> Result<Snapshot<MountainCarContinuousObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -437,35 +413,18 @@ impl fmt::Display for MountainCarContinuous {
     }
 }
 
-impl ConstructableEnv for MountainCarContinuous {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl Default for MountainCarContinuous {
+    fn default() -> Self {
         Self::with_config(MountainCarContinuousConfig::default())
             .expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for MountainCarContinuous {
-    type Action = MountainCarContinuousAction;
-    type State = MountainCarContinuousState;
-    type Observation = MountainCarContinuousObservation;
-
-    /// Projects the resulting state directly onto the 2-D `[position, velocity]`
-    /// observation; the observation ignores the applied force.
-    fn observe(
-        &self,
-        _action: &MountainCarContinuousAction,
-        next_state: &MountainCarContinuousState,
-    ) -> MountainCarContinuousObservation {
-        mountain_car_continuous_observation(*next_state)
-    }
-
-    /// Projects the initial state onto the 2-D observation.
-    fn observe_reset(
-        &self,
-        state: &MountainCarContinuousState,
-    ) -> MountainCarContinuousObservation {
-        mountain_car_continuous_observation(*state)
+impl MountainCarContinuous {
+    /// Projects the current state directly onto the 2-D `[position, velocity]`
+    /// observation.
+    fn observe(&self) -> MountainCarContinuousObservation {
+        mountain_car_continuous_observation(self.state)
     }
 }
 
@@ -480,12 +439,9 @@ fn mountain_car_continuous_observation(
     }
 }
 
-impl Environment<1, 1, 1> for MountainCarContinuous {
-    type StateType = MountainCarContinuousState;
+impl Environment<1, 1> for MountainCarContinuous {
     type ObservationType = MountainCarContinuousObservation;
     type ActionType = MountainCarContinuousAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, MountainCarContinuousObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -497,14 +453,11 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<MountainCarContinuousObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -522,7 +475,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
     fn step(
         &mut self,
         action: MountainCarContinuousAction,
-    ) -> Result<Self::SnapshotType, EnvironmentError> {
+    ) -> Result<Snapshot<MountainCarContinuousObservation>, EnvironmentError> {
         // Guard first: before the physics update and before `steps` advances, so
         // a rejected call leaves position, velocity, step count and the RNG
         // stream exactly as the terminal step left them (ADR 0029).
@@ -539,11 +492,11 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
 
         // Single exit: both branches build exactly one snapshot, and the guard is
         // fed that snapshot's own status, so no branch can forget to record.
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         let snap = if terminated {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
 
         self.guard.record(snap.status);
@@ -689,7 +642,7 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
 
     fn default_env() -> MountainCarContinuous {
         MountainCarContinuous::with_config(MountainCarContinuousConfig::default())
@@ -710,7 +663,7 @@ mod tests {
     /// exercised on the same path an agent takes.
     fn drive_to_goal(
         env: &mut MountainCarContinuous,
-    ) -> SnapshotBase<1, MountainCarContinuousObservation, ScalarReward> {
+    ) -> Snapshot<MountainCarContinuousObservation> {
         let push_right = MountainCarContinuousAction::new(1.0).expect("+1.0 is in [-1, 1]");
         let push_left = MountainCarContinuousAction::new(-1.0).expect("-1.0 is in [-1, 1]");
 
@@ -718,7 +671,7 @@ mod tests {
         for _ in 0..PUMP_STEP_CAP {
             // Velocity 0 (the reset state) pumps right: any direction works, the
             // hill returns the car with more energy either way.
-            let action = if snap.observation().velocity < 0.0 {
+            let action = if snap.observation.velocity < 0.0 {
                 push_left
             } else {
                 push_right
@@ -726,7 +679,7 @@ mod tests {
             snap = env
                 .step(action)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -775,8 +728,8 @@ mod tests {
         let action = MountainCarContinuousAction::new(0.0).unwrap();
         let snap = env.step(action).unwrap();
         // ctrl cost `$= -0.1 \cdot 0^2 = 0$`; no goal bonus
-        if !snap.is_done() {
-            assert!((snap.reward().0 - 0.0).abs() < 1e-6);
+        if !snap.status.is_done() {
+            assert!((snap.reward.0 - 0.0).abs() < 1e-6);
         }
     }
 
@@ -786,12 +739,12 @@ mod tests {
         env.reset().unwrap();
         let action = MountainCarContinuousAction::new(1.0).unwrap();
         let snap = env.step(action).unwrap();
-        if !snap.is_done() {
+        if !snap.status.is_done() {
             let expected = -0.1_f32;
             assert!(
-                (snap.reward().0 - expected).abs() < 1e-5,
+                (snap.reward.0 - expected).abs() < 1e-5,
                 "reward={}",
-                snap.reward().0
+                snap.reward.0
             );
         }
     }
@@ -808,15 +761,15 @@ mod tests {
         let action = MountainCarContinuousAction::new(1.0).unwrap();
         let snap = env.step(action).unwrap();
         assert!(
-            snap.is_terminated(),
+            snap.status.is_terminated(),
             "expected terminated, got {:?}",
-            snap.status()
+            snap.status
         );
         // reward `$= -0.1 \cdot 1^2 + 100 = 99.9$`
         assert!(
-            snap.reward().0 > 90.0,
+            snap.reward.0 > 90.0,
             "expected large positive reward, got {}",
-            snap.reward().0
+            snap.reward.0
         );
     }
 
@@ -838,7 +791,7 @@ mod tests {
         for _ in 0..5 {
             let sa = a.step(act).unwrap();
             let sb = b.step(act).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -901,8 +854,8 @@ mod tests {
         // position from U(-0.6, -0.4)), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -912,10 +865,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -946,7 +899,7 @@ mod tests {
         let mut env = default_env();
         let terminal = drive_to_goal(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "the flag must terminate the episode"
         );
 
@@ -997,7 +950,7 @@ mod tests {
             .step(action)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

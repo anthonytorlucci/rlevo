@@ -69,7 +69,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::unlock_pickup::{UnlockPickupConfig, UnlockPickupEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = UnlockPickupConfig::new(7, 196, 0);
 //! let mut env = UnlockPickupEnv::with_config(cfg, false).expect("valid config");
@@ -81,7 +81,7 @@
 //! [`UnlockPickupEnv`]: https://minigrid.farama.org/environments/minigrid/UnlockPickupEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     build_snapshot,
     color::Color,
@@ -98,9 +98,8 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -305,16 +304,16 @@ struct Layout {
 /// taken afterwards is rejected with
 /// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
+/// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::grids::unlock_pickup::UnlockPickupEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = UnlockPickupEnv::new(false);
+/// let mut env = UnlockPickupEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("target: {:?}", env.target());
 /// ```
@@ -351,7 +350,7 @@ impl UnlockPickupEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -428,9 +427,9 @@ impl UnlockPickupEnv {
     ///
     /// ```rust
     /// use rlevo_environments::grids::unlock_pickup::UnlockPickupEnv;
-    /// use rlevo_core::environment::{ConstructableEnv, Environment};
+    /// use rlevo_core::environment::Environment;
     ///
-    /// let mut env = UnlockPickupEnv::new(false);
+    /// let mut env = UnlockPickupEnv::default();
     /// env.reset_with_seed(11).unwrap();
     /// let (board, target) = (env.ascii(), env.target());
     ///
@@ -439,7 +438,10 @@ impl UnlockPickupEnv {
     /// assert_eq!(board, env.ascii());
     /// assert_eq!(target, env.target());
     /// ```
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -580,7 +582,12 @@ impl UnlockPickupEnv {
         ))
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -621,36 +628,23 @@ impl Display for UnlockPickupEnv {
     }
 }
 
-impl ConstructableEnv for UnlockPickupEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(UnlockPickupConfig::default(), render)
+impl Default for UnlockPickupEnv {
+    fn default() -> Self {
+        Self::with_config(UnlockPickupConfig::default(), false)
             .expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for UnlockPickupEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl UnlockPickupEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
-impl Environment<3, 3, 1> for UnlockPickupEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for UnlockPickupEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Draws a fresh layout from the persistent stream and re-derives every
     /// value that depends on it.
@@ -671,13 +665,13 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
     /// even though the environment never returned to an initial state, leaving
     /// `step()` willing to run on the stale terminal board — the very board that
     /// still has the target box in the agent's hands.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         let (state, layout) = Self::build(&self.config, &mut self.rng)?;
         self.guard.reset();
         self.state = state;
         self.layout = layout;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -687,7 +681,10 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before `apply_action` touches the
         // grid or the agent's hands, and before anything could draw from the
         // persistent stream. A rejected call must leave the environment
@@ -704,11 +701,11 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
         } else {
             (0.0, false)
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch above can forget to record.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -1220,7 +1217,7 @@ mod tests {
         let mut b = UnlockPickupEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     /// The stream advances: `reset` must not re-seed from `config.seed`.
@@ -1251,13 +1248,13 @@ mod tests {
             let mut env = env_of(size, 0);
             for replay_seed in [1u64, 2, 99] {
                 let a = env.reset_with_seed(replay_seed).expect("reset");
-                let board_a = (fingerprint(&env), *a.observation());
+                let board_a = (fingerprint(&env), a.observation);
                 // Advance the persistent stream between the two replays, so the
                 // match cannot be an artefact of the env sitting still.
                 env.reset().expect("reset");
                 env.reset().expect("reset");
                 let b = env.reset_with_seed(replay_seed).expect("reset");
-                let board_b = (fingerprint(&env), *b.observation());
+                let board_b = (fingerprint(&env), b.observation);
                 assert_eq!(
                     board_a, board_b,
                     "size {size}: reset_with_seed({replay_seed}) did not replay"
@@ -1396,7 +1393,7 @@ mod tests {
     }
 
     /// Drive `plan` through the public `step` API and return the last snapshot.
-    fn run(env: &mut UnlockPickupEnv, plan: &[GridAction]) -> GridSnapshot {
+    fn run(env: &mut UnlockPickupEnv, plan: &[GridAction]) -> Snapshot<GridObservation> {
         let mut last = None;
         for &action in plan {
             last = Some(env.step(action).expect("step"));
@@ -1421,10 +1418,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("size {size}: no route to the key:\n{}", env.ascii()));
             let snap = run(&mut env, &to_key);
             assert!(
-                !snap.is_done(),
+                !snap.status.is_done(),
                 "size {size}: picking up the key is not the mission"
             );
-            assert_eq!(f32::from(*snap.reward()), 0.0);
+            assert_eq!(f32::from(snap.reward), 0.0);
             assert_eq!(env.state().agent.carrying, Some(key));
 
             let target = env.target();
@@ -1432,10 +1429,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("size {size}: no route to the box:\n{}", env.ascii()));
             let snap = run(&mut env, &to_box);
             assert!(
-                snap.is_done(),
+                snap.status.is_done(),
                 "size {size}: carrying the box must terminate"
             );
-            let reward = f32::from(*snap.reward());
+            let reward = f32::from(snap.reward);
             assert!(reward > 0.0, "size {size}: reward was {reward}");
             assert_eq!(env.state().agent.carrying, Some(target));
         }
@@ -1449,8 +1446,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1523,7 +1520,7 @@ mod tests {
         );
 
         let masked = mask_view(&env.state().grid, &agent, UnlockPickupEnv::VISIBILITY);
-        let occluded = *snapshot.observation();
+        let occluded = snapshot.observation;
         let see_through = observe_grid(env.state(), Visibility::SeeThrough);
 
         // (row 2, col 5) is the box: four cells ahead, two to the right.
@@ -1623,7 +1620,7 @@ mod tests {
         );
 
         // The step immediately before the winning pickup.
-        let before = *run(&mut env, prefix).observation();
+        let before = run(&mut env, prefix).observation;
         let agent_before = env.state().agent;
         assert_eq!(
             agent_before.carrying, None,
@@ -1637,9 +1634,12 @@ mod tests {
         );
 
         let terminal = env.step(last).expect("the winning pickup");
-        assert!(terminal.is_done(), "carrying the box must end the episode");
+        assert!(
+            terminal.status.is_done(),
+            "carrying the box must end the episode"
+        );
         assert_eq!(env.state().agent.carrying, Some(target), "box in hand");
-        let after = *terminal.observation();
+        let after = terminal.observation;
 
         // The point of the test. The third byte is a literal `0`: carryables
         // inherit `WorldObj.encode`, whose state byte is 0, and only `Door`
@@ -1728,14 +1728,14 @@ mod tests {
     /// The route is planned from the board the env actually drew — seed 3's
     /// layout, the same one `a_planned_rollout_takes_the_key_then_the_box`
     /// solves — because a sampled layout has no fixed action script.
-    fn drive_to_box_pickup(env: &mut UnlockPickupEnv) -> GridSnapshot {
+    fn drive_to_box_pickup(env: &mut UnlockPickupEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(3).expect("reset");
         let target = env.target();
         let route = plan(env.state(), &|agent| agent.carrying == Some(target))
             .unwrap_or_else(|| panic!("seed 3 must be solvable:\n{}", env.ascii()));
         let snapshot = run(env, &route);
         assert!(
-            snapshot.is_done(),
+            snapshot.status.is_done(),
             "carrying the target box must end the episode"
         );
         assert_eq!(
@@ -1771,7 +1771,7 @@ mod tests {
     fn test_unlock_pickup_post_terminal_step_does_not_reopen_the_episode() {
         let mut env = env_7x7();
         let terminal = drive_to_box_pickup(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -1840,7 +1840,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snapshot.is_done(),
+            !snapshot.status.is_done(),
             "a turn on a fresh board must not end the episode"
         );
     }

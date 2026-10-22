@@ -207,6 +207,61 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     removed: the row's shape is `Observation::shape()`. Delete `row_shape`
     from your impls. A `HostRow` impl on an action, a state or any other
     non-observation no longer compiles; nothing converted those to tensors.
+- **The environment contract keeps only what generic code reads**
+  (ADR 0090). An environment author now implements `Observation`, `Action`
+  and `Environment<OR, AR>`, and returns a `Snapshot`:
+
+  ```rust
+  impl Environment<1, 1> for MyEnv {
+      type ObservationType = MyObs;
+      type ActionType = MyAction;
+
+      fn reset(&mut self) -> Result<Snapshot<MyObs>, EnvironmentError> { /* ... */ }
+      fn step(&mut self, a: MyAction) -> Result<Snapshot<MyObs>, EnvironmentError> { /* ... */ }
+  }
+  ```
+
+  - `Environment<OR, SR, AR>` is `Environment<OR, AR>`. The `State` trait,
+    `Environment::StateType` and the state rank are removed: delete your
+    `State` impl and the `type StateType` line, and keep your state as a
+    plain type. Drop the middle rank from every `Environment<_, _, _>`.
+  - The `Snapshot` trait and `SnapshotBase` are one struct, `Snapshot<O>`,
+    and `type RewardType` and `type SnapshotType` are removed. Return
+    `Snapshot<MyObs>` and build it with `Snapshot::running`, `terminated`
+    or `truncated`. The `GridSnapshot`, `GoToDoorSnapshot`,
+    `LunarLanderSnapshot` and `LocomotionSnapshot` aliases are removed.
+  - A snapshot is read through its fields: `snap.observation`,
+    `snap.reward`, `snap.status`, `snap.metadata`. `snap.is_done()` is
+    `snap.status.is_done()`.
+  - The `Reward` trait is removed; `ScalarReward` is the reward.
+    `Reward::zero()` is `ScalarReward::default()`.
+  - `Sensor`, `ConstructableEnv` and `Observable` are removed. Make
+    `observe` an inherent method of your environment; construct an
+    environment with `Default::default()` where you wrote `new(false)`, or
+    with `with_config`. `PixelGridState::project` is an inherent method.
+  - Removed with no replacement, since nothing implemented or called them:
+    `BeliefState`, `StateAggregation`, `TransitionDynamics`,
+    `MultiDiscreteAction`, `PhysicsSnapshot` with `RapierWorld::snapshot`
+    and `restore`; the action traits' `random`, `DiscreteAction::enumerate`
+    and `ContinuousAction::clip`; the `RANK` constants;
+    `util::combinations` and `checked_combinations`;
+    `Validate::validate_all` and `Violations`; `Bounds::clamp_slice`;
+    `StateError::InvalidShape` and `InvalidSize`;
+    `EnvironmentError::IoError`. Delete a `clip` or `random` from your
+    action impls. To sample a valid `CarRacingAction`, call
+    `random_valid` with your own generator.
+  - The ten RL `train` functions lose their `SR` and `Rew` type
+    parameters; drop them from a turbofish.
+  - `GridObservation::agent_direction` and
+    `GoToDoorObservation::agent_direction` are `Direction`, not
+    `Option<Direction>`.
+  - The locomotion environments lose their backend type parameter:
+    `Swimmer<B>` is `Swimmer`, and the four `*Rapier` aliases and the
+    `LocomotionBackend` trait are removed. `Rapier3DBackend`'s functions
+    are unchanged; `ObservationComponents`, `is_finite_state` and
+    `clip_contact_cost`, which nothing called, are removed.
+  - `KArmedBanditState` and `TenArmedBanditState`, a fieldless state that
+    existed only to satisfy `State`, are removed.
 
 ### `rlevo`
 
@@ -251,6 +306,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current version, 0.5.
 
 ### `rlevo-core`
+
+**Changed**
+
+- **`rlevo-core` no longer depends on `rand_distr` or `tracing`**, which
+  it declared and never used. A crate that depends on `rlevo-core` alone
+  now builds 16 packages, where it built 24. Nothing else changes: the
+  crates that use them declare their own.
 
 **Fixed**
 

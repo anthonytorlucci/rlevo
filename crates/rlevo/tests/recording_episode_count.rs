@@ -41,10 +41,10 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
-use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation, CartPoleState};
+use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
@@ -95,25 +95,25 @@ impl FixedLenEnv {
     }
 }
 
-impl Environment<1, 1, 1> for FixedLenEnv {
-    type StateType = CartPoleState;
+impl Environment<1, 1> for FixedLenEnv {
     type ObservationType = CartPoleObservation;
     type ActionType = CartPoleAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, CartPoleObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<CartPoleObservation>, EnvironmentError> {
         self.t = 0;
-        Ok(SnapshotBase::running(Self::obs(), ScalarReward::new(1.0)))
+        Ok(Snapshot::running(Self::obs(), ScalarReward::new(1.0)))
     }
 
-    fn step(&mut self, _action: CartPoleAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        _action: CartPoleAction,
+    ) -> Result<Snapshot<CartPoleObservation>, EnvironmentError> {
         self.t += 1;
         let reward = ScalarReward::new(1.0);
         if self.t >= EP_LEN {
-            Ok(SnapshotBase::terminated(Self::obs(), reward))
+            Ok(Snapshot::terminated(Self::obs(), reward))
         } else {
-            Ok(SnapshotBase::running(Self::obs(), reward))
+            Ok(Snapshot::running(Self::obs(), reward))
         }
     }
 }
@@ -195,7 +195,7 @@ fn run_recording(total_steps: usize) -> RecordedRun {
     // --- env + agent ------------------------------------------------------
     // Headless `Ascii` payload: the count invariant is independent of frame
     // contents, so we avoid wiring a family-specific payload source.
-    let mut env: RecordingTap<FixedLenEnv, 1, 1, 1> =
+    let mut env: RecordingTap<FixedLenEnv, 1, 1> =
         RecordingTap::new_headless(FixedLenEnv::new(), sink.clone(), |_| FamilyPayload::Ascii);
 
     let device = Default::default();

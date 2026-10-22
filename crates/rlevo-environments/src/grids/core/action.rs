@@ -169,14 +169,8 @@ mod tests {
     }
 
     #[test]
-    fn enumerate_returns_all_actions() {
-        let all = GridAction::enumerate();
-        assert_eq!(all.len(), GridAction::ACTION_COUNT);
-    }
-
-    #[test]
     fn every_action_is_valid() {
-        for a in GridAction::enumerate() {
+        for a in (0..GridAction::ACTION_COUNT).map(GridAction::from_index) {
             assert!(a.is_valid());
         }
     }

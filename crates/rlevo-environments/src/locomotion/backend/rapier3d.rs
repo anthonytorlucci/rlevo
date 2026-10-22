@@ -1,4 +1,4 @@
-//! `Rapier3D` implementation of [`LocomotionBackend`].
+//! The `Rapier3D` physics backend of the locomotion environments.
 //!
 //! Wraps the rapier3d simulation pipeline in [`Rapier3DWorld`] and provides a
 //! [`Rapier3DJointHandle`] union covering both impulse and multibody joints.
@@ -16,14 +16,14 @@
 
 use rapier3d::prelude::*;
 
-use super::{BackendError, LocomotionBackend, Pose, Twist};
+use super::{BackendError, Pose, Twist};
 
 /// `Rapier3D` scene for one locomotion environment.
 ///
 /// Holds every set the rapier3d pipeline needs, plus env-level bookkeeping
 /// (`gravity`, `frame_skip`). Fields are `pub(crate)` so env modules can
-/// build skeletons directly; external users interact via the
-/// [`LocomotionBackend`] trait.
+/// build skeletons directly; external users interact through
+/// [`Rapier3DBackend`]'s associated functions.
 pub struct Rapier3DWorld {
     pub(crate) bodies: RigidBodySet,
     pub(crate) colliders: ColliderSet,
@@ -247,7 +247,8 @@ impl From<MultibodyJointHandle> for Rapier3DJointHandle {
     }
 }
 
-/// Backend marker type; implements [`LocomotionBackend`] with `Rapier3D` semantics.
+/// The `Rapier3D` backend: associated functions that step, read and actuate a
+/// [`Rapier3DWorld`].
 #[derive(Debug, Clone, Copy)]
 pub struct Rapier3DBackend;
 
@@ -267,16 +268,16 @@ fn is_revolute_axes(locked: JointAxesMask) -> bool {
     all_lin_locked && free_ang.bits().is_power_of_two()
 }
 
-impl LocomotionBackend for Rapier3DBackend {
-    type World = Rapier3DWorld;
-    type BodyHandle = RigidBodyHandle;
-    type JointHandle = Rapier3DJointHandle;
-
-    fn step(world: &mut Self::World) {
+impl Rapier3DBackend {
+    /// Advance the simulation by one environment step (including any frame-skip
+    /// substepping configured on `world`).
+    pub fn step(world: &mut Rapier3DWorld) {
         world.step_with_frame_skip();
     }
 
-    fn get_pose(world: &Self::World, body: Self::BodyHandle) -> Pose {
+    /// Read a body's pose from the world.
+    #[must_use]
+    pub fn get_pose(world: &Rapier3DWorld, body: RigidBodyHandle) -> Pose {
         world.bodies.get(body).map_or(
             Pose {
                 position: [0.0; 3],
@@ -294,7 +295,9 @@ impl LocomotionBackend for Rapier3DBackend {
         )
     }
 
-    fn get_vel(world: &Self::World, body: Self::BodyHandle) -> Twist {
+    /// Read a body's twist (linear + angular velocity) from the world.
+    #[must_use]
+    pub fn get_vel(world: &Rapier3DWorld, body: RigidBodyHandle) -> Twist {
         world.bodies.get(body).map_or(
             Twist {
                 linear: [0.0; 3],
@@ -311,9 +314,38 @@ impl LocomotionBackend for Rapier3DBackend {
         )
     }
 
-    /// Drive a revolute joint's free axis by a scalar torque (`MuJoCo` `motor`
-    /// analogue). Dispatches on the [`Rapier3DJointHandle`] kind — the maximal-
-    /// vs reduced-coordinate mechanics differ and this split is load-bearing.
+    /// Apply a scalar actuator torque to a revolute joint's single free axis.
+    ///
+    /// `torque` is the **generalized force** on the joint's one free angular degree of freedom —
+    /// the direct analogue of a `MuJoCo` `motor` actuator on a hinge joint, where the generalized
+    /// force is `$\text{gear} \times \text{ctrl}$`. Torque is in world-scale units (newton-metres
+    /// for `Rapier3D`); **gear scaling stays the caller's responsibility** — see
+    /// [`crate::locomotion::common::Gear`].
+    ///
+    /// # Semantics
+    ///
+    /// - **Domain — revolute only.** The torque acts on a single free angular
+    ///   axis, so the joint must be revolute (one free angular DOF, all
+    ///   translation locked). Prismatic, spherical, and fixed joints have no such
+    ///   axis and are rejected (see [`# Errors`](#errors)); linear (cart-force)
+    ///   actuation is a separate seam that envs still drive via a direct body
+    ///   force. See ADR 0041.
+    /// - **Sign convention.** A positive `torque` drives `body2` positively about
+    ///   the joint's free axis `$+\hat{a}$` **relative to** `body1`, where `$\hat{a}$` is the
+    ///   unit hinge axis mapped into world space by `body1`'s rotation. `body1` /
+    ///   `body2` are the first / second bodies of the joint's insertion. (How
+    ///   `$\hat{a}$` is extracted from the joint frame is under Implementation.)
+    /// - **Lifetime — one physics substep** (ADR 0037). Like `add_force` /
+    ///   `add_torque`, the applied torque is integrated once and then cleared, so
+    ///   callers that hold an actuator constant across `frame_skip` must
+    ///   re-apply it every substep (inside the backend's substep-actuation hook,
+    ///   e.g. `Rapier3DWorld::step_actuated`).
+    ///
+    /// # Implementation
+    ///
+    /// Dispatches on the [`Rapier3DJointHandle`] kind — the maximal- vs
+    /// reduced-coordinate mechanics of how the torque reaches the hinge DOF
+    /// differ, and this split is load-bearing.
     ///
     /// - **`Impulse` (maximal coordinates).** Both bodies are free; the hinge is
     ///   enforced by the solver. Apply **equal-and-opposite** world-axis torques:
@@ -340,9 +372,9 @@ impl LocomotionBackend for Rapier3DBackend {
     ///   joint body (or the multibody parent link) cannot be resolved.
     /// - [`BackendError::UnsupportedJoint`] — the joint is not revolute (it lacks
     ///   a single free angular axis), e.g. prismatic, spherical, or fixed.
-    fn apply_joint_torque(
-        world: &mut Self::World,
-        joint: Self::JointHandle,
+    pub fn apply_joint_torque(
+        world: &mut Rapier3DWorld,
+        joint: Rapier3DJointHandle,
         torque: f32,
     ) -> Result<(), BackendError> {
         match joint {
@@ -441,7 +473,47 @@ impl LocomotionBackend for Rapier3DBackend {
         }
     }
 
-    fn contact_force(world: &Self::World, body: Self::BodyHandle) -> [f32; 6] {
+    /// Aggregate the 6D contact wrench on a body from the **last** physics substep.
+    ///
+    /// Returns `[fx, fy, fz, tx, ty, tz]` (force first, then torque), summed over
+    /// every contact manifold touching any collider attached to `body`, with each
+    /// contact's solver impulse divided by the substep `dt`.
+    ///
+    /// # Semantics
+    ///
+    /// - **Instantaneous, last-substep.** This is the per-substep *average* force
+    ///   (`impulse / substep_dt`) from the **last** solved substep — an
+    ///   instantaneous per-timestep quantity, **not** a step-integrated or
+    ///   frame-skip-averaged one. It mirrors Gymnasium's read-after-last-substep
+    ///   semantics: `MuJoCo` recomputes `cfrc_ext` via `mj_rnePostConstraint`
+    ///   *once*, after `mj_step(nstep = frame_skip)`, so it too reflects only the
+    ///   final substep's state. The value is therefore independent of
+    ///   `frame_skip`.
+    /// - **Sign — force ON the queried body.** The wrench is the external
+    ///   contact force-torque acting *on* `body` (the analogue of `MuJoCo`
+    ///   `cfrc_ext` = "external force acting on the body"): a body resting on the
+    ///   ground reports a positive upward vertical force. By Newton's third law
+    ///   the force part of `contact_force(A)` is the negation of that of
+    ///   `contact_force(B)` for a contacting pair (torque parts differ — each is
+    ///   taken about its own body's centre of mass). The sign is independent of
+    ///   collider insertion order.
+    /// - **Layout `[force(3), torque(3)]`** — an intentional deviation from
+    ///   `MuJoCo`'s `cfrc_ext`, which is `[torque(3), force(3)]` ("rotation(3),
+    ///   translation(3)" per `mj_rnePostConstraint`). Consumers packing an
+    ///   observation must map fields accordingly; this layout is **not**
+    ///   `cfrc_ext`-compatible.
+    /// - **Torque reference point: the body's own centre of mass**, whereas
+    ///   `MuJoCo` references its `cfrc_ext` torque to the *kinematic-subtree* `CoM`.
+    ///   These coincide for a leaf body but differ materially for an internal
+    ///   body — a calibration caveat for Ant/Humanoid `contact_cost`.
+    /// - **Content: contact-manifold forces only.** `MuJoCo`'s `cfrc_ext` is the
+    ///   full Recursive-Newton-Euler post-constraint external wrench (all
+    ///   external interactions), a strict superset of contact forces.
+    /// - **Self-contacts never contribute.** Two colliders sharing one rigid body
+    ///   cannot produce a contact pair in rapier 0.32, matching `MuJoCo`'s
+    ///   undisableable same-body geom filter.
+    #[must_use]
+    pub fn contact_force(world: &Rapier3DWorld, body: RigidBodyHandle) -> [f32; 6] {
         // Instantaneous last-substep contact wrench (ADR 0041): aggregate the LAST solve's
         // per-contact impulses over every manifold touching any collider of `body`, dividing each
         // by the substep dt to get the average force over that substep — the analogue of MuJoCo's

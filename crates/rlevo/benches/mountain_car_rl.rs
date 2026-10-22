@@ -44,7 +44,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 
 use rlevo_environments::classic::{
     MountainCar, MountainCarAction, MountainCarConfig, MountainCarObservation,
@@ -245,7 +245,7 @@ fn train_ppg_agent() -> PpgMountainCarAgent {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpgMountainCarAgent =
         PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppg::<Backend_, _, _, _, _, MountainCarAction, _, 1, 1, 2>(
+    train_ppg::<Backend_, _, _, _, _, MountainCarAction, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -270,11 +270,11 @@ fn roll_out(
     let mut snap = env.reset().expect("reset");
     let mut ret = 0.0_f32;
     loop {
-        let action = next_action(snap.observation());
+        let action = next_action(&snap.observation);
         snap = env.step(action).expect("step");
-        ret += f32::from(*snap.reward());
-        if snap.is_done() {
-            return (ret, snap.is_terminated());
+        ret += f32::from(snap.reward);
+        if snap.status.is_done() {
+            return (ret, snap.status.is_terminated());
         }
     }
 }
@@ -303,9 +303,9 @@ fn rollout_steps(
     let mut env = make_env();
     let mut snap = env.reset().expect("reset");
     for _ in 0..steps {
-        let action = next_action(snap.observation());
+        let action = next_action(&snap.observation);
         snap = env.step(action).expect("step");
-        if snap.is_done() {
+        if snap.status.is_done() {
             snap = env.reset().expect("reset");
         }
     }

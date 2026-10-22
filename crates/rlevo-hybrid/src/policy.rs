@@ -34,7 +34,7 @@ type Dev<B> = <B as burn::tensor::backend::BackendTypes>::Device;
 /// [`ReactivePolicy`] for the one-method convenience that supplies this impl for
 /// free. A recurrent policy implements this trait directly with a concrete
 /// `Hidden` (a GRU hidden tensor, an Elman activation, …).
-pub trait StatefulPolicy<B: Backend, E: Environment<1, 1, 1>> {
+pub trait StatefulPolicy<B: Backend, E: Environment<1, 1>> {
     /// Per-episode hidden / recurrent state. `()` for a reactive policy.
     type Hidden;
 
@@ -61,7 +61,7 @@ pub trait StatefulPolicy<B: Backend, E: Environment<1, 1, 1>> {
 ///
 /// A recurrent policy must **never** implement this trait — the blanket impl
 /// would then overlap its direct [`StatefulPolicy`] impl.
-pub trait ReactivePolicy<B: Backend, E: Environment<1, 1, 1>> {
+pub trait ReactivePolicy<B: Backend, E: Environment<1, 1>> {
     /// Map `observation -> action` with no carried state.
     fn act(&self, obs: &E::ObservationType, device: &Dev<B>) -> E::ActionType;
 }
@@ -69,7 +69,7 @@ pub trait ReactivePolicy<B: Backend, E: Environment<1, 1, 1>> {
 impl<B, E, P> StatefulPolicy<B, E> for P
 where
     B: Backend,
-    E: Environment<1, 1, 1>,
+    E: Environment<1, 1>,
     P: ReactivePolicy<B, E>,
 {
     type Hidden = ();

@@ -10,16 +10,14 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
-use rlevo_core::environment::{
-    Environment, EnvironmentError, EpisodeStatus, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::base::{Action, HostRow, Observation};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
+use rlevo_core::reward::ScalarReward;
 use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
 use rlevo_reinforcement_learning::replay::{
     DiscreteTransition, PrioritizedReplay, PrioritizedReplaySettings, ReplayStrategy,
 };
 use serde::{Deserialize, Serialize};
-use std::ops::Add;
 
 // ---------------------------------------------------------------------------
 // Toy environment: 1-D random walk on positions [0, 6]. Start at 3. Reward +1
@@ -50,16 +48,6 @@ impl HostRow<1> for WalkObservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WalkState {
     position: i32,
-}
-
-impl State<1> for WalkState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn is_valid(&self) -> bool {
-        (0..=6).contains(&self.position)
-    }
 }
 
 /// Two-move action space for `RandomWalkEnv`: step left (index 0) or right (index 1).
@@ -97,31 +85,6 @@ impl DiscreteAction<1> for WalkAction {
     }
 }
 
-/// Local scalar reward newtype. Mirrors `rlevo_core::reward::ScalarReward`
-/// but is defined in this crate so we can implement the foreign `HostRow`
-/// trait on it without tripping the orphan rule.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct WalkReward(f32);
-
-impl Reward for WalkReward {
-    fn zero() -> Self {
-        WalkReward(0.0)
-    }
-}
-
-impl Add for WalkReward {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        WalkReward(self.0 + rhs.0)
-    }
-}
-
-impl From<WalkReward> for f32 {
-    fn from(r: WalkReward) -> f32 {
-        r.0
-    }
-}
-
 /// Toy 1-D random-walk environment used across all integration tests.
 ///
 /// The agent starts at position 3 on a lattice `[0, 6]`. Reaching position 6
@@ -138,9 +101,8 @@ impl RandomWalkEnv {
     const GOAL: i32 = 6;
     const MAX_STEPS: usize = 20;
 
-    /// Creates a new `RandomWalkEnv`. The `_render` flag is accepted for API
-    /// symmetry with production environments but has no effect in tests.
-    fn new(_render: bool) -> Self {
+    /// Creates a `RandomWalkEnv` at the start position.
+    fn new() -> Self {
         Self {
             state: WalkState {
                 position: Self::START,
@@ -150,43 +112,27 @@ impl RandomWalkEnv {
     }
 }
 
-impl Sensor<1, 1, 1> for RandomWalkEnv {
-    type Action = WalkAction;
-    type State = WalkState;
-    type Observation = WalkObservation;
-
-    fn observe(&self, _action: &WalkAction, next_state: &WalkState) -> WalkObservation {
+impl RandomWalkEnv {
+    fn observe(&self) -> WalkObservation {
         WalkObservation {
-            position: next_state.position,
-        }
-    }
-
-    fn observe_reset(&self, state: &WalkState) -> WalkObservation {
-        WalkObservation {
-            position: state.position,
+            position: self.state.position,
         }
     }
 }
 
-impl Environment<1, 1, 1> for RandomWalkEnv {
-    type StateType = WalkState;
+impl Environment<1, 1> for RandomWalkEnv {
     type ObservationType = WalkObservation;
     type ActionType = WalkAction;
-    type RewardType = WalkReward;
-    type SnapshotType = SnapshotBase<1, WalkObservation, WalkReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<WalkObservation>, EnvironmentError> {
         self.state = WalkState {
             position: Self::START,
         };
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            WalkReward::zero(),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward::default()))
     }
 
-    fn step(&mut self, action: WalkAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: WalkAction) -> Result<Snapshot<WalkObservation>, EnvironmentError> {
         let delta = match action {
             WalkAction::Left => -1,
             WalkAction::Right => 1,
@@ -196,33 +142,21 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
 
         if next < 0 {
             self.state = WalkState { position: 0 };
-            return Ok(SnapshotBase::terminated(
-                self.observe(&action, &self.state),
-                WalkReward(-1.0),
-            ));
+            return Ok(Snapshot::terminated(self.observe(), ScalarReward(-1.0)));
         }
         if next >= Self::GOAL {
             self.state = WalkState {
                 position: Self::GOAL,
             };
-            return Ok(SnapshotBase::terminated(
-                self.observe(&action, &self.state),
-                WalkReward(1.0),
-            ));
+            return Ok(Snapshot::terminated(self.observe(), ScalarReward(1.0)));
         }
 
         self.state = WalkState { position: next };
 
         if self.steps >= Self::MAX_STEPS {
-            Ok(SnapshotBase::truncated(
-                self.observe(&action, &self.state),
-                WalkReward::zero(),
-            ))
+            Ok(Snapshot::truncated(self.observe(), ScalarReward::default()))
         } else {
-            Ok(SnapshotBase::running(
-                self.observe(&action, &self.state),
-                WalkReward::zero(),
-            ))
+            Ok(Snapshot::running(self.observe(), ScalarReward::default()))
         }
     }
 }
@@ -235,25 +169,25 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
 #[test]
 #[allow(clippy::float_cmp)]
 fn full_episode_loop_reaches_goal() {
-    let mut env = RandomWalkEnv::new(false);
+    let mut env = RandomWalkEnv::new();
 
     let initial = env.reset().expect("reset");
-    assert_eq!(initial.status(), EpisodeStatus::Running);
-    assert_eq!(f32::from(*initial.reward()), 0.0);
-    assert_eq!(initial.observation().position, RandomWalkEnv::START);
+    assert_eq!(initial.status, EpisodeStatus::Running);
+    assert_eq!(f32::from(initial.reward), 0.0);
+    assert_eq!(initial.observation.position, RandomWalkEnv::START);
 
     // Three right-moves take position from 3 to 6 (goal).
     let mut last = env.step(WalkAction::Right).expect("step 1");
-    assert!(!last.is_done());
+    assert!(!last.status.is_done());
     last = env.step(WalkAction::Right).expect("step 2");
-    assert!(!last.is_done());
+    assert!(!last.status.is_done());
     last = env.step(WalkAction::Right).expect("step 3 -> goal");
 
-    assert!(last.is_done());
-    assert!(last.is_terminated());
-    assert!(!last.is_truncated());
-    assert_eq!(f32::from(*last.reward()), 1.0);
-    assert_eq!(last.observation().position, RandomWalkEnv::GOAL);
+    assert!(last.status.is_done());
+    assert!(last.status.is_terminated());
+    assert!(!last.status.is_truncated());
+    assert_eq!(f32::from(last.reward), 1.0);
+    assert_eq!(last.observation.position, RandomWalkEnv::GOAL);
 }
 
 /// Exercises the opt-in prioritized-replay path (ADR 0050) end to end through
@@ -272,7 +206,7 @@ fn prioritized_replay_samples_a_weighted_minibatch() {
     let mut buffer: PrioritizedReplay<DiscreteTransition<i32>> =
         PrioritizedReplay::new(settings.buffer_config(32)).expect("valid replay config");
 
-    let mut env = RandomWalkEnv::new(false);
+    let mut env = RandomWalkEnv::new();
     let mut snapshot = env.reset().expect("reset");
 
     // Fill the buffer with 20 transitions, resetting whenever the episode ends.
@@ -282,16 +216,16 @@ fn prioritized_replay_samples_a_weighted_minibatch() {
         } else {
             WalkAction::Left
         };
-        let obs_before = snapshot.observation().position;
+        let obs_before = snapshot.observation.position;
         let next = env.step(action).expect("step");
         buffer.push(DiscreteTransition {
             obs: obs_before,
             action: i % 2,
-            reward: f32::from(*next.reward()),
-            next_obs: next.observation().position,
-            terminated: next.is_terminated(),
+            reward: f32::from(next.reward),
+            next_obs: next.observation.position,
+            terminated: next.status.is_terminated(),
         });
-        snapshot = if next.is_done() {
+        snapshot = if next.status.is_done() {
             env.reset().expect("reset after done")
         } else {
             next

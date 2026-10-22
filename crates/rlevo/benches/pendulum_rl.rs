@@ -42,7 +42,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::bounds::Bounds;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 
 use rlevo_environments::classic::{Pendulum, PendulumAction, PendulumConfig, PendulumObservation};
 use rlevo_environments::wrappers::TimeLimit;
@@ -210,7 +210,7 @@ fn train_ppo_agent() -> PpoAgent_ {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpoAgent_ =
         PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppo::<Backend_, _, _, _, _, PendulumAction, _, 1, 1, 1, 2>(
+    train_ppo::<Backend_, _, _, _, _, PendulumAction, 1, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -242,7 +242,7 @@ fn train_ddpg_agent() -> DdpgAgent_ {
         .expect("valid config");
     let mut agent: DdpgAgent_ =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
-    train_ddpg::<Backend_, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
+    train_ddpg::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -277,7 +277,7 @@ fn train_td3_agent() -> Td3Agent_ {
         .expect("valid config");
     let mut agent: Td3Agent_ =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
-    train_td3::<Backend_, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
+    train_td3::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -313,7 +313,7 @@ fn train_sac_agent() -> SacAgent_ {
         .expect("valid config");
     let mut agent: SacAgent_ =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
-    train_sac::<Backend_, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
+    train_sac::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -330,7 +330,7 @@ fn train_sac_agent() -> SacAgent_ {
 
 /// Runs a single episode to completion and returns the undiscounted return.
 ///
-/// Drives the environment with `next_action` until `snap.is_done()` is true.
+/// Drives the environment with `next_action` until `snap.status.is_done()` is true.
 /// Because [`Env`] wraps [`Pendulum`] in a [`TimeLimit`] of 200 steps,
 /// termination is always by truncation — there is no natural episode end.
 fn roll_out(
@@ -340,10 +340,10 @@ fn roll_out(
     let mut snap = env.reset().expect("reset");
     let mut ret = 0.0_f32;
     loop {
-        let action = next_action(snap.observation());
+        let action = next_action(&snap.observation);
         snap = env.step(action).expect("step");
-        ret += f32::from(*snap.reward());
-        if snap.is_done() {
+        ret += f32::from(snap.reward);
+        if snap.status.is_done() {
             return ret;
         }
     }
@@ -375,9 +375,9 @@ fn rollout_steps(
     let mut env = make_env();
     let mut snap = env.reset().expect("reset");
     for _ in 0..steps {
-        let action = next_action(snap.observation());
+        let action = next_action(&snap.observation);
         snap = env.step(action).expect("step");
-        if snap.is_done() {
+        if snap.status.is_done() {
             snap = env.reset().expect("reset");
         }
     }
