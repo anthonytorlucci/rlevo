@@ -6743,8 +6743,6 @@ dependencies = [
  "rand_distr 0.6.0",
  "rayon",
  "rlevo-core",
- "serde",
- "thiserror 2.0.21",
  "tracing",
 ]
 

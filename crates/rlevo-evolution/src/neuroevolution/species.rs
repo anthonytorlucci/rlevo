@@ -1121,9 +1121,9 @@ mod tests {
         /// counterpart and the share quotients are bit-identical. The assertion is
         /// therefore `==` on the counts, with no tolerance to hide a drift.
         ///
-        /// There is **no lower** bound to state here, unlike the `z_score`
-        /// property: apportionment compares each species' share against a total
-        /// that shrinks with it, so it has no absolute-scale floor to trip over.
+        /// There is **no lower** bound to state here: apportionment compares
+        /// each species' share against a total that shrinks with it, so it has
+        /// no absolute-scale floor to trip over.
         /// Generated fitness stays at or above `1`, so a small `c` cannot reach
         /// the subnormal range either.
         ///

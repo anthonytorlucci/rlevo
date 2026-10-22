@@ -219,9 +219,8 @@ where
 ///   [`StrategyMetrics::from_host_fitness`](crate::strategy::StrategyMetrics::from_host_fitness)
 ///   does so for the statistics a `tell` reports, which is the reduction a
 ///   strategy written outside the crate needs. A reduction performed by a
-///   Burn device op cannot widen its accumulator and instead bounds its
-///   terms, as [`shaping::z_score`](crate::shaping::z_score) does (ADR 0069,
-///   Decision 4).
+///   Burn device op cannot widen its accumulator and must instead bound its
+///   terms (ADR 0069, Decision 4).
 /// - `$-\infty$` passes through: it is the worst-value sentinel *and* the
 ///   uninitialized `best_fitness_ever` seed, and it must stay non-finite so the
 ///   mean-over-finite statistic in

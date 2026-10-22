@@ -30,7 +30,6 @@
 //!   the scalar `tracing` events (full fitness vector, best-individual
 //!   index, lineage).
 //! - [`rng`] — deterministic seed streams (splitmix64) for reproducibility.
-//! - [`shaping`] — fitness shaping transforms (centered rank, z-score).
 //! - [`ops`] — selection, crossover, mutation, and replacement operators.
 //! - [`local_search`] — host-side, gradient-free refinement
 //!   ([`LocalSearch`] and the four reference
@@ -58,7 +57,6 @@ pub mod probability_model;
 pub mod probe;
 pub mod rng;
 pub(crate) mod sampling;
-pub mod shaping;
 pub mod strategy;
 
 pub use algorithms::eda::{
@@ -90,5 +88,4 @@ pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObser
 pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;
 pub use rlevo_core::evaluation::GenerationProbe;
-pub use shaping::ShapingError;
 pub use strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};
