@@ -47,7 +47,7 @@ use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::utils::PolyakError;
@@ -200,8 +200,8 @@ fn run_recording(total_steps: usize) -> RecordedRun {
 
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
-    let config = DqnTrainingConfigBuilder::new()
-        .batch_size(8)
+    let config = DqnTrainingConfig {
+        batch_size: 8,
         // Keep the whole run in the pre-learning window: no gradient steps and
         // therefore no target updates either — we are testing the loop's
         // episode bookkeeping only.
@@ -211,10 +211,10 @@ fn run_recording(total_steps: usize) -> RecordedRun {
         // sync that was *already* inert under the default `tau = 0.005`; there
         // is no second knob to suppress now, and the target update sits behind
         // the same `can_learn()` gate this line closes (ADR 0059).
-        .learning_starts(total_steps + 1)
-        .replay_buffer_capacity(1_000)
-        .build()
-        .expect("valid config");
+        learning_starts: total_steps + 1,
+        replay_buffer_capacity: 1_000,
+        ..Default::default()
+    };
     let model: DqnMlp<Be> = DqnMlp::new(&device);
     let mut agent: DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2> =
         DqnAgent::new(model, config, device).expect("valid config");

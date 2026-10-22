@@ -20,7 +20,7 @@ use rand::rngs::StdRng;
 
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
-use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 use rlevo_reinforcement_learning::algorithms::qrdqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
@@ -115,21 +115,21 @@ type Agent = QrDqnAgent<Be, QrDqnMlp<Be>, CartPoleObservation, CartPoleAction, 1
 fn fresh_agent(seed: u64) -> Agent {
     let device = seeded_device::<Be>(seed);
     let num_quantiles = 21; // smaller than canonical 200; see doc comment above
-    let config = QrDqnTrainingConfigBuilder::new()
-        .batch_size(64)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .learning_rate(5e-4)
-        .epsilon_start(1.0)
-        .epsilon_end(0.05)
-        .epsilon_decay(0.9995)
-        .learning_starts(1_000)
-        .train_frequency(4)
-        .replay_buffer_capacity(50_000)
-        .num_quantiles(num_quantiles)
-        .kappa(1.0)
-        .build()
-        .expect("valid config");
+    let config = QrDqnTrainingConfig {
+        batch_size: 64,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        learning_rate: 5e-4,
+        epsilon_start: 1.0,
+        epsilon_end: 0.05,
+        epsilon_decay: 0.9995,
+        learning_starts: 1_000,
+        train_frequency: 4,
+        replay_buffer_capacity: 50_000,
+        num_quantiles,
+        kappa: 1.0,
+        ..Default::default()
+    };
     let model: QrDqnMlp<Be> = QrDqnMlp::new(num_quantiles, &device);
     QrDqnAgent::new(model, config, device).expect("valid config")
 }

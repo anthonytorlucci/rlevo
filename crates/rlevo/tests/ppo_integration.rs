@@ -31,9 +31,7 @@ use rlevo_reinforcement_learning::algorithms::ppo::policies::{
     TanhGaussianPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::{
-    PpoTrainingConfig, PpoTrainingConfigBuilder,
-};
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 use rlevo_reinforcement_learning::algorithms::ppo::train::{train_continuous, train_discrete};
 
@@ -110,19 +108,19 @@ fn make_cart_pole_agent(
     .expect("valid head config");
     let value = ValueMlp::new(4, 64, &device);
 
-    let config = PpoTrainingConfigBuilder::new()
-        .num_envs(1)
-        .num_steps(num_steps)
-        .num_minibatches(4)
-        .update_epochs(4)
-        .learning_rate(2.5e-4)
-        .clip_coef(0.2)
-        .entropy_coef(0.01)
-        .value_coef(0.5)
-        .gamma(0.99)
-        .gae_lambda(0.95)
-        .build()
-        .expect("valid config");
+    let config = PpoTrainingConfig {
+        num_envs: 1,
+        num_steps,
+        num_minibatches: 4,
+        update_epochs: 4,
+        learning_rate: 2.5e-4,
+        clip_coef: 0.2,
+        entropy_coef: 0.01,
+        value_coef: 0.5,
+        gamma: 0.99,
+        gae_lambda: 0.95,
+        ..Default::default()
+    };
     let total_iterations = total_timesteps / config.batch_size().max(1);
     PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config")
 }
@@ -168,8 +166,7 @@ rl_reproducibility_test! {
 }
 
 /// `PpoAgent::new` rejects `num_envs != 1` (v1 supports sequential rollout
-/// only). The config is assembled directly so the agent-level validation seam
-/// is what rejects it, not the builder.
+/// only).
 #[test]
 fn ppo_agent_new_rejects_multiple_envs() {
     let _guard = flex_guard();
@@ -256,19 +253,19 @@ fn make_pendulum_agent(
     .expect("valid head config");
     let value = ValueMlp::new(3, 64, &device);
 
-    let config = PpoTrainingConfigBuilder::new()
-        .num_envs(1)
-        .num_steps(num_steps)
-        .num_minibatches(4)
-        .update_epochs(4)
-        .learning_rate(3e-4)
-        .clip_coef(0.2)
-        .entropy_coef(0.0)
-        .value_coef(0.5)
-        .gamma(0.9)
-        .gae_lambda(0.95)
-        .build()
-        .expect("valid config");
+    let config = PpoTrainingConfig {
+        num_envs: 1,
+        num_steps,
+        num_minibatches: 4,
+        update_epochs: 4,
+        learning_rate: 3e-4,
+        clip_coef: 0.2,
+        entropy_coef: 0.0,
+        value_coef: 0.5,
+        gamma: 0.9,
+        gae_lambda: 0.95,
+        ..Default::default()
+    };
     let total_iterations = total_timesteps / config.batch_size().max(1);
     PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config")
 }

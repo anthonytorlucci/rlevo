@@ -19,9 +19,7 @@ use rand::rngs::StdRng;
 
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
-use rlevo_reinforcement_learning::algorithms::c51::c51_config::{
-    C51TrainingConfig, C51TrainingConfigBuilder,
-};
+use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig;
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
@@ -112,22 +110,22 @@ type Agent = C51Agent<Be, C51Mlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>
 fn fresh_agent(seed: u64) -> Agent {
     let device = seeded_device::<Be>(seed);
     let num_atoms = 51;
-    let config = C51TrainingConfigBuilder::new()
-        .batch_size(64)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .learning_rate(5e-4)
-        .epsilon_start(1.0)
-        .epsilon_end(0.05)
-        .epsilon_decay(0.9995)
-        .learning_starts(1_000)
-        .train_frequency(4)
-        .replay_buffer_capacity(50_000)
-        .num_atoms(num_atoms)
-        .v_min(0.0)
-        .v_max(500.0)
-        .build()
-        .expect("valid config");
+    let config = C51TrainingConfig {
+        batch_size: 64,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        learning_rate: 5e-4,
+        epsilon_start: 1.0,
+        epsilon_end: 0.05,
+        epsilon_decay: 0.9995,
+        learning_starts: 1_000,
+        train_frequency: 4,
+        replay_buffer_capacity: 50_000,
+        num_atoms,
+        v_min: 0.0,
+        v_max: 500.0,
+        ..Default::default()
+    };
     let model: C51Mlp<Be> = C51Mlp::new(num_atoms, &device);
     C51Agent::new(model, config, device).expect("valid config")
 }
@@ -181,8 +179,7 @@ fn c51_cartpole_produces_finite_rewards() {
 }
 
 /// `C51Agent::new` rejects a degenerate support (`v_min == v_max`) at
-/// construction time. The config is assembled directly (bypassing the builder's
-/// own validation) so the check being exercised is the agent-level one.
+/// construction time.
 #[test]
 fn c51_agent_new_rejects_degenerate_support() {
     let _guard = flex_guard();

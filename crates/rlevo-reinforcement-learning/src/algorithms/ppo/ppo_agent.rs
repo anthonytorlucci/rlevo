@@ -926,7 +926,6 @@ mod tests {
 
     use crate::algorithms::ppo::policies::CategoricalPolicyHeadConfig;
     use crate::algorithms::ppo::policies::categorical::CategoricalPolicyHead;
-    use crate::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
 
     type TestAdBackend = Autodiff<Flex>;
     type TestAgent = PpoAgent<
@@ -986,10 +985,10 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpoTrainingConfigBuilder::new()
-            .clip_grad(clip_grad)
-            .build()
-            .expect("valid config");
+        let config = PpoTrainingConfig {
+            clip_grad,
+            ..Default::default()
+        };
         TestAgent::new(policy, value, config, device, 1).expect("valid config")
     }
 
@@ -1102,18 +1101,18 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpoTrainingConfigBuilder::new()
-            .num_envs(1)
-            .num_steps(4)
-            .num_minibatches(num_minibatches)
-            .update_epochs(update_epochs)
-            .anneal_lr(false)
+        let config = PpoTrainingConfig {
+            num_envs: 1,
+            num_steps: 4,
+            num_minibatches,
+            update_epochs,
+            anneal_lr: false,
             // Left at the `None` default explicitly: a `target_kl` trip would
             // break the epoch loop early and make the pinned skip counts below
             // depend on the KL trajectory rather than on the configured product.
-            .target_kl(None)
-            .build()
-            .expect("valid config");
+            target_kl: None,
+            ..Default::default()
+        };
         let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
 
         let mut rng = StdRng::seed_from_u64(0);

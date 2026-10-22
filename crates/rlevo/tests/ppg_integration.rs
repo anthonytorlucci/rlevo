@@ -24,9 +24,9 @@ use rlevo_reinforcement_learning::algorithms::ppg::policies::{
     PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppg::ppg_agent::PpgAgent;
-use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfig;
 use rlevo_reinforcement_learning::algorithms::ppg::train::train_discrete;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 
 use rlevo_test_support::assert::assert_all_finite;
@@ -106,27 +106,26 @@ fn make_cart_pole_agent(
     .expect("valid head config");
     let value = ValueMlp::new(4, 64, &device);
 
-    let ppo = PpoTrainingConfigBuilder::new()
-        .num_envs(1)
-        .num_steps(num_steps)
-        .num_minibatches(4)
-        .update_epochs(4)
-        .learning_rate(2.5e-4)
-        .clip_coef(0.2)
-        .entropy_coef(0.01)
-        .value_coef(0.5)
-        .gamma(0.99)
-        .gae_lambda(0.95)
-        .build()
-        .expect("valid config");
-    let config = PpgConfigBuilder::new()
-        .ppo(ppo)
-        .n_iteration(n_iteration)
-        .e_aux(6)
-        .beta_clone(1.0)
-        .aux_batch_size(128)
-        .build()
-        .expect("valid config");
+    let ppo = PpoTrainingConfig {
+        num_envs: 1,
+        num_steps,
+        num_minibatches: 4,
+        update_epochs: 4,
+        learning_rate: 2.5e-4,
+        clip_coef: 0.2,
+        entropy_coef: 0.01,
+        value_coef: 0.5,
+        gamma: 0.99,
+        gae_lambda: 0.95,
+        ..Default::default()
+    };
+    let config = PpgConfig {
+        ppo,
+        n_iteration,
+        e_aux: 6,
+        beta_clone: 1.0,
+        aux_batch_size: 128,
+    };
     let total_iterations = total_timesteps / config.batch_size().max(1);
     PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config")
 }

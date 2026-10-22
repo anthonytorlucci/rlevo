@@ -23,7 +23,7 @@ use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
-use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
 use rlevo_reinforcement_learning::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 
 #[derive(Module, Debug)]
@@ -150,13 +150,13 @@ fn build_agent() -> Agent {
     let actor: ActorMlp<Be> = ActorMlp::new(3, 256, 1, 2.0, &device);
     let critic_1: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
     let critic_2: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
-    let config = Td3TrainingConfigBuilder::new()
-        .replay_buffer_capacity(10_000)
-        .batch_size(256)
-        .learning_starts(0)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = Td3TrainingConfig {
+        replay_buffer_capacity: 10_000,
+        batch_size: 256,
+        learning_starts: 0,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config")
 }
 

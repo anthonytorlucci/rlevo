@@ -167,7 +167,7 @@ use rlevo_environments::box2d::lunar_lander::{
     LunarLanderConfig, LunarLanderDiscrete, LunarLanderDiscreteAction, LunarLanderObservation,
 };
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
@@ -632,13 +632,13 @@ where
     M: DqnModel<B, DB>,
     O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
 {
-    let config = DqnTrainingConfigBuilder::new()
-        .batch_size(batch_size)
-        .replay_buffer_capacity(capacity)
-        .learning_starts(0)
-        .train_frequency(1)
-        .build()
-        .expect("valid config");
+    let config = DqnTrainingConfig {
+        batch_size,
+        replay_buffer_capacity: capacity,
+        learning_starts: 0,
+        train_frequency: 1,
+        ..Default::default()
+    };
     let mut agent: DqnAgent<B, M, O, BenchAction, DO, DB> =
         DqnAgent::new(model, config, device.clone()).expect("valid config");
     for i in 0..capacity {

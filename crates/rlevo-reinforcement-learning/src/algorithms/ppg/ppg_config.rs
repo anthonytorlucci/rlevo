@@ -90,83 +90,6 @@ impl Validate for PpgConfig {
     }
 }
 
-/// Fluent builder for [`PpgConfig`]. Mirrors
-/// [`PpoTrainingConfigBuilder`](crate::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder)
-/// for the PPG-specific fields; access the inner `PpoTrainingConfig` via
-/// [`PpgConfigBuilder::with_ppo`] to tweak policy-phase knobs.
-#[derive(Debug)]
-pub struct PpgConfigBuilder {
-    config: PpgConfig,
-}
-
-impl Default for PpgConfigBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PpgConfigBuilder {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            config: PpgConfig::default(),
-        }
-    }
-
-    /// Replaces the wrapped PPO config wholesale.
-    #[must_use]
-    pub fn ppo(mut self, ppo: PpoTrainingConfig) -> Self {
-        self.config.ppo = ppo;
-        self
-    }
-
-    /// Mutates the wrapped PPO config in place.
-    #[must_use]
-    pub fn with_ppo<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(PpoTrainingConfig) -> PpoTrainingConfig,
-    {
-        self.config.ppo = f(self.config.ppo);
-        self
-    }
-
-    #[must_use]
-    pub fn n_iteration(mut self, n: usize) -> Self {
-        self.config.n_iteration = n;
-        self
-    }
-
-    #[must_use]
-    pub fn e_aux(mut self, e: usize) -> Self {
-        self.config.e_aux = e;
-        self
-    }
-
-    #[must_use]
-    pub fn beta_clone(mut self, b: f32) -> Self {
-        self.config.beta_clone = b;
-        self
-    }
-
-    #[must_use]
-    pub fn aux_batch_size(mut self, s: usize) -> Self {
-        self.config.aux_batch_size = s;
-        self
-    }
-
-    /// Consumes the builder and returns the assembled [`PpgConfig`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config (including the wrapped
-    /// [`PpoTrainingConfig`]) violates any invariant checked by
-    /// [`PpgConfig::validate`].
-    pub fn build(self) -> Result<PpgConfig, ConfigError> {
-        self.config.validate()?;
-        Ok(self.config)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,32 +105,15 @@ mod tests {
     }
 
     #[test]
-    fn test_ppg_config_builder_round_trips() {
-        let cfg = PpgConfigBuilder::new()
-            .n_iteration(8)
-            .e_aux(3)
-            .beta_clone(0.5)
-            .aux_batch_size(64)
-            .with_ppo(|p| PpoTrainingConfig { num_steps: 64, ..p })
-            .build()
-            .expect("valid config");
-        assert_eq!(cfg.n_iteration, 8);
-        assert_eq!(cfg.e_aux, 3);
-        assert!((cfg.beta_clone - 0.5).abs() < 1e-6);
-        assert_eq!(cfg.aux_batch_size, 64);
-        assert_eq!(cfg.ppo.num_steps, 64);
-    }
-
-    #[test]
     fn test_ppg_config_batch_size_delegates() {
-        let cfg = PpgConfigBuilder::new()
-            .with_ppo(|p| PpoTrainingConfig {
+        let cfg = PpgConfig {
+            ppo: PpoTrainingConfig {
                 num_envs: 1,
                 num_steps: 128,
-                ..p
-            })
-            .build()
-            .expect("valid config");
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         assert_eq!(cfg.batch_size(), 128);
     }
 
@@ -218,16 +124,26 @@ mod tests {
 
     #[test]
     fn test_ppg_config_rejects_zero_e_aux() {
-        let err = PpgConfigBuilder::new().e_aux(0).build().unwrap_err();
+        let err = PpgConfig {
+            e_aux: 0,
+            ..Default::default()
+        }
+        .validate()
+        .unwrap_err();
         assert_eq!(err.field, "e_aux");
     }
 
     #[test]
     fn test_ppg_config_delegates_to_wrapped_ppo() {
-        let err = PpgConfigBuilder::new()
-            .with_ppo(|p| PpoTrainingConfig { num_envs: 2, ..p })
-            .build()
-            .unwrap_err();
+        let err = PpgConfig {
+            ppo: PpoTrainingConfig {
+                num_envs: 2,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .validate()
+        .unwrap_err();
         assert_eq!(err.field, "num_envs");
     }
 }

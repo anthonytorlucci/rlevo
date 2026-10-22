@@ -26,7 +26,7 @@ use rlevo_environments::classic::pendulum::{
 };
 use rlevo_environments::wrappers::TimeLimit;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
-use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     ContinuousQ, DeterministicPolicy,
 };
@@ -165,18 +165,18 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
 
     let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
     let critic: Critic<Be> = Critic::new(1, 1, 32, &device);
-    let config = DdpgTrainingConfigBuilder::new()
-        .replay_buffer_capacity(20_000)
-        .batch_size(32)
-        .learning_starts(500)
-        .actor_lr(1e-3)
-        .critic_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.02, 2))
-        .exploration_noise(0.2)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = DdpgTrainingConfig {
+        replay_buffer_capacity: 20_000,
+        batch_size: 32,
+        learning_starts: 500,
+        actor_lr: 1e-3,
+        critic_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.02, 2),
+        exploration_noise: 0.2,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: LinearAgent =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
@@ -250,18 +250,18 @@ fn ddpg_act_with_matches_deterministic_act() {
 
     let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
     let critic: Critic<Be> = Critic::new(1, 1, 32, &device);
-    let config = DdpgTrainingConfigBuilder::new()
-        .replay_buffer_capacity(20_000)
-        .batch_size(32)
-        .learning_starts(500)
-        .actor_lr(1e-3)
-        .critic_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.02, 2))
-        .exploration_noise(0.2)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = DdpgTrainingConfig {
+        replay_buffer_capacity: 20_000,
+        batch_size: 32,
+        learning_starts: 500,
+        actor_lr: 1e-3,
+        critic_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.02, 2),
+        exploration_noise: 0.2,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let agent: LinearAgent = DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
     let net = agent.inference_net();
@@ -305,18 +305,18 @@ fn ddpg_pendulum_improves_over_random() {
 
     let actor: Actor<Be> = Actor::new(3, 64, 1, 2.0, &device);
     let critic: Critic<Be> = Critic::new(3, 1, 64, &device);
-    let config = DdpgTrainingConfigBuilder::new()
-        .replay_buffer_capacity(20_000)
-        .batch_size(64)
-        .learning_starts(1_000)
-        .actor_lr(1e-4)
-        .critic_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 2))
-        .exploration_noise(0.1)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = DdpgTrainingConfig {
+        replay_buffer_capacity: 20_000,
+        batch_size: 64,
+        learning_starts: 1_000,
+        actor_lr: 1e-4,
+        critic_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 2),
+        exploration_noise: 0.1,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: DdpgAgent<
         Be,
         Actor<Be>,

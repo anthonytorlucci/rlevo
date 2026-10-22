@@ -979,7 +979,6 @@ mod tests {
     use rlevo_core::base::HostRow;
     use serde::{Deserialize, Serialize};
 
-    use crate::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
@@ -1101,16 +1100,16 @@ mod tests {
     #[allow(clippy::cast_precision_loss)]
     fn primed_prioritized_agent() -> TestAgent {
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
-        let config = DqnTrainingConfigBuilder::new()
-            .batch_size(2)
-            .learning_starts(0)
-            .learning_rate(0.05)
-            .prioritized_replay(PrioritizedReplaySettings {
+        let config = DqnTrainingConfig {
+            batch_size: 2,
+            learning_starts: 0,
+            learning_rate: 0.05,
+            prioritized_replay: Some(PrioritizedReplaySettings {
                 beta_anneal_steps: 100,
                 ..PrioritizedReplaySettings::default()
-            })
-            .build()
-            .expect("valid prioritized config");
+            }),
+            ..Default::default()
+        };
         let policy: TestNet<TestAdBackend> = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
@@ -1221,13 +1220,13 @@ mod tests {
     #[allow(clippy::cast_precision_loss)]
     fn primed_uniform_agent_with(rule: TargetUpdate) -> TestAgent {
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
-        let config = DqnTrainingConfigBuilder::new()
-            .batch_size(2)
-            .learning_starts(0)
-            .learning_rate(0.05)
-            .target_update(rule)
-            .build()
-            .expect("valid config");
+        let config = DqnTrainingConfig {
+            batch_size: 2,
+            learning_starts: 0,
+            learning_rate: 0.05,
+            target_update: rule,
+            ..Default::default()
+        };
         let policy: TestNet<TestAdBackend> = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
@@ -1801,11 +1800,6 @@ mod tests {
     /// run first. This pins the observable contract so a reordering — or a
     /// seventh agent copied from this one — cannot quietly turn it back into
     /// a panic.
-    ///
-    /// The config is built by struct literal rather than through the builder
-    /// on purpose: `build()` runs `validate()`, so a builder physically cannot
-    /// hand `new` a bad capacity, and a test that went through it would be
-    /// asserting on the builder instead of on this constructor.
     #[test]
     fn test_dqn_agent_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;

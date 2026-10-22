@@ -1215,7 +1215,6 @@ mod tests {
     use crate::algorithms::ppg::policies::{
         PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
     };
-    use crate::algorithms::ppg::ppg_config::PpgConfigBuilder;
     use crate::algorithms::ppo::ppo_config::PpoTrainingConfig;
 
     type TestAdBackend = Autodiff<Flex>;
@@ -1276,10 +1275,13 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpgConfigBuilder::new()
-            .with_ppo(|p| PpoTrainingConfig { clip_grad, ..p })
-            .build()
-            .expect("valid config");
+        let config = PpgConfig {
+            ppo: PpoTrainingConfig {
+                clip_grad,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         TestAgent::new(policy, value, config, device, 1).expect("valid config")
     }
 
@@ -1407,20 +1409,20 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpgConfigBuilder::new()
-            .n_iteration(1)
-            .e_aux(1)
-            .aux_batch_size(4)
-            .with_ppo(|p| PpoTrainingConfig {
+        let config = PpgConfig {
+            n_iteration: 1,
+            e_aux: 1,
+            aux_batch_size: 4,
+            ppo: PpoTrainingConfig {
                 num_envs: 1,
                 num_steps: 4,
                 num_minibatches: 1,
                 update_epochs: 1,
                 anneal_lr: false,
-                ..p
-            })
-            .build()
-            .expect("valid config");
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -1580,21 +1582,21 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpgConfigBuilder::new()
-            .n_iteration(1)
-            .e_aux(1)
-            .aux_batch_size(aux_batch_size)
-            .with_ppo(|p| PpoTrainingConfig {
+        let config = PpgConfig {
+            n_iteration: 1,
+            e_aux: 1,
+            aux_batch_size,
+            ppo: PpoTrainingConfig {
                 num_envs: 1,
                 num_steps: 4,
                 num_minibatches,
                 update_epochs,
                 anneal_lr: false,
                 target_kl: None,
-                ..p
-            })
-            .build()
-            .expect("valid config");
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -1806,20 +1808,20 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpgConfigBuilder::new()
-            .n_iteration(1)
-            .e_aux(1)
-            .aux_batch_size(4)
-            .with_ppo(|p| PpoTrainingConfig {
+        let config = PpgConfig {
+            n_iteration: 1,
+            e_aux: 1,
+            aux_batch_size: 4,
+            ppo: PpoTrainingConfig {
                 num_envs: 1,
                 num_steps: 4,
                 num_minibatches: 1,
                 update_epochs: 1,
                 anneal_lr: true,
-                ..p
-            })
-            .build()
-            .expect("valid config");
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         TestAgent::new(policy, value, config, device, total_iterations).expect("valid config")
     }
 

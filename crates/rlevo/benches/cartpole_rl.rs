@@ -46,20 +46,20 @@ use rlevo_environments::classic::{CartPole, CartPoleAction, CartPoleConfig, Cart
 use rlevo_environments::wrappers::TimeLimit;
 
 use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
-use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig;
 use rlevo_reinforcement_learning::algorithms::c51::train::train as train_c51;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train as train_dqn;
 use rlevo_reinforcement_learning::algorithms::ppg::policies::{
     PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppg::ppg_agent::PpgAgent;
-use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfig;
 use rlevo_reinforcement_learning::algorithms::ppg::train::train_discrete as train_ppg;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
-use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::qrdqn::train::train as train_qrdqn;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
@@ -117,20 +117,20 @@ fn train_dqn_agent() -> DqnCartPoleAgent {
     <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let config = DqnTrainingConfigBuilder::new()
-        .batch_size(64)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .learning_rate(5e-4)
-        .epsilon_start(1.0)
-        .epsilon_end(0.05)
-        .epsilon_decay(0.9995)
-        .learning_starts(1_000)
-        .train_frequency(4)
-        .replay_buffer_capacity(50_000)
-        .double_q(false)
-        .build()
-        .expect("valid config");
+    let config = DqnTrainingConfig {
+        batch_size: 64,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        learning_rate: 5e-4,
+        epsilon_start: 1.0,
+        epsilon_end: 0.05,
+        epsilon_decay: 0.9995,
+        learning_starts: 1_000,
+        train_frequency: 4,
+        replay_buffer_capacity: 50_000,
+        double_q: false,
+        ..Default::default()
+    };
     let model: VecMlpDqn<Backend_> = VecMlpDqn::new(OBS_FEATURES, HIDDEN, ACTIONS, &device);
     let mut agent: DqnCartPoleAgent = DqnAgent::new(model, config, device).expect("valid config");
     train_dqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training");
@@ -142,22 +142,22 @@ fn train_c51_agent() -> C51CartPoleAgent {
     <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let config = C51TrainingConfigBuilder::new()
-        .batch_size(64)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .learning_rate(5e-4)
-        .epsilon_start(1.0)
-        .epsilon_end(0.05)
-        .epsilon_decay(0.9995)
-        .learning_starts(1_000)
-        .train_frequency(4)
-        .replay_buffer_capacity(50_000)
-        .num_atoms(NUM_ATOMS)
-        .v_min(0.0)
-        .v_max(500.0)
-        .build()
-        .expect("valid config");
+    let config = C51TrainingConfig {
+        batch_size: 64,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        learning_rate: 5e-4,
+        epsilon_start: 1.0,
+        epsilon_end: 0.05,
+        epsilon_decay: 0.9995,
+        learning_starts: 1_000,
+        train_frequency: 4,
+        replay_buffer_capacity: 50_000,
+        num_atoms: NUM_ATOMS,
+        v_min: 0.0,
+        v_max: 500.0,
+        ..Default::default()
+    };
     let model: C51Mlp<Backend_> = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
     let mut agent: C51CartPoleAgent = C51Agent::new(model, config, device).expect("valid config");
     train_c51(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("c51 training");
@@ -169,21 +169,21 @@ fn train_qrdqn_agent() -> QrDqnCartPoleAgent {
     <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let config = QrDqnTrainingConfigBuilder::new()
-        .batch_size(64)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .learning_rate(5e-4)
-        .epsilon_start(1.0)
-        .epsilon_end(0.05)
-        .epsilon_decay(0.9995)
-        .learning_starts(1_000)
-        .train_frequency(4)
-        .replay_buffer_capacity(50_000)
-        .num_quantiles(NUM_QUANTILES)
-        .kappa(1.0)
-        .build()
-        .expect("valid config");
+    let config = QrDqnTrainingConfig {
+        batch_size: 64,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        learning_rate: 5e-4,
+        epsilon_start: 1.0,
+        epsilon_end: 0.05,
+        epsilon_decay: 0.9995,
+        learning_starts: 1_000,
+        train_frequency: 4,
+        replay_buffer_capacity: 50_000,
+        num_quantiles: NUM_QUANTILES,
+        kappa: 1.0,
+        ..Default::default()
+    };
     let model: QrDqnMlp<Backend_> =
         QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
     let mut agent: QrDqnCartPoleAgent =
@@ -205,28 +205,25 @@ fn train_ppg_agent() -> PpgCartPoleAgent {
     .try_init::<Backend_>(&device)
     .expect("valid head config");
     let value: ValueMlp<Backend_> = ValueMlp::new(OBS_FEATURES, HIDDEN, &device);
-    let config = PpgConfigBuilder::new()
-        .with_ppo(|p| {
-            PpoTrainingConfigBuilder::new()
-                .num_envs(1)
-                .num_steps(128)
-                .num_minibatches(4)
-                .update_epochs(4)
-                .learning_rate(2.5e-4)
-                .clip_coef(0.2)
-                .entropy_coef(0.01)
-                .value_coef(0.5)
-                .gamma(0.99)
-                .gae_lambda(0.95)
-                .anneal_lr(p.anneal_lr)
-                .build()
-                .expect("valid config")
-        })
-        .n_iteration(32)
-        .e_aux(6)
-        .beta_clone(1.0)
-        .build()
-        .expect("valid config");
+    let config = PpgConfig {
+        ppo: PpoTrainingConfig {
+            num_envs: 1,
+            num_steps: 128,
+            num_minibatches: 4,
+            update_epochs: 4,
+            learning_rate: 2.5e-4,
+            clip_coef: 0.2,
+            entropy_coef: 0.01,
+            value_coef: 0.5,
+            gamma: 0.99,
+            gae_lambda: 0.95,
+            ..Default::default()
+        },
+        n_iteration: 32,
+        e_aux: 6,
+        beta_clone: 1.0,
+        ..Default::default()
+    };
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpgCartPoleAgent =
         PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config");

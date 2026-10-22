@@ -42,7 +42,7 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     ContinuousQ, DeterministicPolicy,
 };
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
-use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
@@ -163,13 +163,13 @@ type CarAgent =
 /// or a `shape()` disagreeing with `COMPONENTS`, panics here.
 fn build_agent(learning_starts: usize) -> CarAgent {
     let device = seeded_device::<Be>(0xCA5);
-    let config = Td3TrainingConfigBuilder::default()
-        .learning_starts(learning_starts)
-        .batch_size(4)
-        .replay_buffer_capacity(32)
-        .policy_frequency(1)
-        .build()
-        .expect("valid TD3 config");
+    let config = Td3TrainingConfig {
+        learning_starts,
+        batch_size: 4,
+        replay_buffer_capacity: 32,
+        policy_frequency: 1,
+        ..Default::default()
+    };
     CarAgent::new(
         Actor::<Be>::new(&device),
         Critic::<Be>::new(&device),

@@ -12,6 +12,23 @@ use crate::replay::UniformReplayConfig;
 use crate::target::TargetUpdate;
 
 /// Configuration for training a Deep Deterministic Policy Gradient agent.
+///
+/// # Examples
+///
+/// Tune it with struct-update syntax; the agent's constructor validates it.
+///
+/// ```rust
+/// use rlevo_core::config::Validate;
+/// use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
+///
+/// let cfg = DdpgTrainingConfig {
+///     batch_size: 128,
+///     actor_lr: 1e-4,
+///     critic_lr: 1e-3,
+///     ..Default::default()
+/// };
+/// assert!(cfg.validate().is_ok());
+/// ```
 #[derive(Clone, Debug)]
 pub struct DdpgTrainingConfig {
     /// Maximum number of transitions stored in the replay buffer.
@@ -122,151 +139,6 @@ impl Validate for DdpgTrainingConfig {
     }
 }
 
-/// Fluent builder for [`DdpgTrainingConfig`].
-///
-/// All unset fields default to [`DdpgTrainingConfig::default`].
-///
-/// # Examples
-///
-/// ```rust
-/// use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
-///
-/// let cfg = DdpgTrainingConfigBuilder::new()
-///     .batch_size(128)
-///     .actor_lr(1e-4)
-///     .critic_lr(1e-3)
-///     .build()
-///     .expect("valid config");
-/// ```
-#[derive(Debug)]
-pub struct DdpgTrainingConfigBuilder {
-    config: DdpgTrainingConfig,
-}
-
-impl Default for DdpgTrainingConfigBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DdpgTrainingConfigBuilder {
-    /// Creates a new builder initialised with default configuration.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            config: DdpgTrainingConfig::default(),
-        }
-    }
-
-    /// Sets the replay-buffer capacity.
-    #[must_use]
-    pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
-        self.config.replay_buffer_capacity = capacity;
-        self
-    }
-
-    /// Sets the mini-batch size.
-    #[must_use]
-    pub fn batch_size(mut self, batch_size: usize) -> Self {
-        self.config.batch_size = batch_size;
-        self
-    }
-
-    /// Sets the number of warm-up steps before learning begins.
-    #[must_use]
-    pub fn learning_starts(mut self, learning_starts: usize) -> Self {
-        self.config.learning_starts = learning_starts;
-        self
-    }
-
-    /// Sets the actor learning rate.
-    #[must_use]
-    pub fn actor_lr(mut self, lr: f64) -> Self {
-        self.config.actor_lr = lr;
-        self
-    }
-
-    /// Sets the critic learning rate.
-    #[must_use]
-    pub fn critic_lr(mut self, lr: f64) -> Self {
-        self.config.critic_lr = lr;
-        self
-    }
-
-    /// Sets the discount factor `$\gamma$`.
-    #[must_use]
-    pub fn gamma(mut self, gamma: f32) -> Self {
-        self.config.gamma = gamma;
-        self
-    }
-
-    /// Sets the Gaussian exploration-noise standard deviation.
-    #[must_use]
-    pub fn exploration_noise(mut self, sigma: f32) -> Self {
-        self.config.exploration_noise = sigma;
-        self
-    }
-
-    /// Sets the **actor**-update cadence, in critic steps. Since ADR 0058 this
-    /// no longer moves the target networks — see
-    /// [`target_update`](Self::target_update).
-    #[must_use]
-    pub fn policy_frequency(mut self, frequency: usize) -> Self {
-        self.config.policy_frequency = frequency;
-        self
-    }
-
-    /// Sets both target networks' update rule: the Polyak coefficient `$\tau$` and the
-    /// critic-update cadence at which it fires.
-    ///
-    /// ```rust
-    /// use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
-    /// use rlevo_reinforcement_learning::target::TargetUpdate;
-    ///
-    /// // Actor every critic step, targets every second one — a pairing that
-    /// // was unexpressible while `policy_frequency` drove both.
-    /// let cfg = DdpgTrainingConfigBuilder::new()
-    ///     .policy_frequency(1)
-    ///     .target_update(TargetUpdate::polyak(0.005, 2))
-    ///     .build()
-    ///     .expect("valid config");
-    /// assert_eq!(cfg.policy_frequency, 1);
-    /// assert_eq!(cfg.target_update.every(), 2);
-    /// ```
-    #[must_use]
-    pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
-        self.config.target_update = target_update;
-        self
-    }
-
-    /// Sets the gradient-clipping configuration applied to both actor and
-    /// critic gradients.
-    #[must_use]
-    pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
-        self.config.clip_grad = config;
-        self
-    }
-
-    /// Overrides the base Adam optimiser configuration.
-    #[must_use]
-    pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
-        self.config.optimizer = optimizer;
-        self
-    }
-
-    /// Consumes the builder and returns the final config.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config violates any invariant
-    /// checked by [`DdpgTrainingConfig::validate`] (e.g. a zero `batch_size` or
-    /// a non-positive learning rate).
-    pub fn build(self) -> Result<DdpgTrainingConfig, ConfigError> {
-        self.config.validate()?;
-        Ok(self.config)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,10 +153,12 @@ mod tests {
     /// using `#[should_panic]`: a panic here would be the bug, not the fix.
     #[test]
     fn test_ddpg_config_rejects_replay_buffer_capacity_above_ceiling() {
-        let err = DdpgTrainingConfigBuilder::new()
-            .replay_buffer_capacity(usize::MAX)
-            .build()
-            .expect_err("usize::MAX capacity must be rejected, not allocated");
+        let err = DdpgTrainingConfig {
+            replay_buffer_capacity: usize::MAX,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("usize::MAX capacity must be rejected, not allocated");
         assert_eq!(err.field, "replay_buffer_capacity");
         let max = u64::try_from(MAX_BUFFER_CAPACITY).expect("the ceiling fits in u64");
         let got = u64::try_from(usize::MAX).expect("usize::MAX fits in u64 on this target");
@@ -295,11 +169,11 @@ mod tests {
     /// unallocatable) capacity, so the guard cannot be off by one.
     #[test]
     fn test_ddpg_config_accepts_replay_buffer_capacity_at_ceiling() {
-        let cfg = DdpgTrainingConfigBuilder::new()
-            .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
-            .build()
-            .expect("the ceiling itself must validate");
-        assert_eq!(cfg.replay_buffer_capacity, MAX_BUFFER_CAPACITY);
+        let cfg = DdpgTrainingConfig {
+            replay_buffer_capacity: MAX_BUFFER_CAPACITY,
+            ..Default::default()
+        };
+        cfg.validate().expect("the ceiling itself must validate");
     }
 
     #[test]
@@ -354,30 +228,16 @@ mod tests {
     /// and a target cadence that differ.
     #[test]
     fn test_ddpg_config_actor_delay_and_target_cadence_are_independently_settable() {
-        let cfg = DdpgTrainingConfigBuilder::new()
-            .policy_frequency(1)
-            .target_update(TargetUpdate::polyak(0.005, 2))
-            .build()
-            .expect("valid config");
+        let cfg = DdpgTrainingConfig {
+            policy_frequency: 1,
+            target_update: TargetUpdate::polyak(0.005, 2),
+            ..Default::default()
+        };
+        cfg.validate().expect("valid config");
         assert_eq!(cfg.policy_frequency, 1);
         assert_eq!(cfg.target_update.every(), 2);
         assert!(cfg.target_update.fires_at(1).is_none());
         assert!(cfg.target_update.fires_at(2).is_some());
-    }
-
-    #[test]
-    fn test_ddpg_config_builder_overrides_propagate() {
-        let cfg = DdpgTrainingConfigBuilder::new()
-            .batch_size(64)
-            .actor_lr(1e-4)
-            .exploration_noise(0.2)
-            .build()
-            .expect("valid config");
-        assert_eq!(cfg.batch_size, 64);
-        assert!((cfg.actor_lr - 1e-4).abs() < 1e-12);
-        assert!((cfg.exploration_noise - 0.2).abs() < 1e-6);
-        // Untouched fields retain defaults.
-        assert_eq!(cfg.policy_frequency, 2);
     }
 
     #[test]
@@ -387,10 +247,12 @@ mod tests {
 
     #[test]
     fn test_ddpg_config_rejects_zero_batch_size() {
-        let err = DdpgTrainingConfigBuilder::new()
-            .batch_size(0)
-            .build()
-            .unwrap_err();
+        let err = DdpgTrainingConfig {
+            batch_size: 0,
+            ..Default::default()
+        }
+        .validate()
+        .unwrap_err();
         assert_eq!(err.field, "batch_size");
     }
 
@@ -415,9 +277,8 @@ mod tests {
         );
     }
 
-    /// The builder is not the only way in: `target_update` is a `pub` field, so
-    /// struct-update syntax bypasses `DdpgTrainingConfigBuilder` entirely. It is
-    /// still safe, and the load-bearing reason is that `TargetUpdate`'s inner
+    /// `target_update` is a `pub` field, so struct-update syntax sets it with no
+    /// setter in between. That is safe, and the load-bearing reason is that `TargetUpdate`'s inner
     /// `tau`/`every` fields are **private** (`target.rs`): a caller cannot
     /// construct an invalid `TargetUpdate` *value* to assign into the public
     /// field, so there is nothing for `validate` to catch on this route.
