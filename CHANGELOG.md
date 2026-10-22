@@ -307,6 +307,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### `rlevo-core`
 
+**Changed**
+
+- **`rlevo-core` no longer depends on `rand_distr` or `tracing`**, which
+  it declared and never used. A crate that depends on `rlevo-core` alone
+  now builds 16 packages, where it built 24. Nothing else changes: the
+  crates that use them declare their own.
+
 **Fixed**
 
 - **`FitnessEvaluable`'s docs named a consumer that does not exist**,

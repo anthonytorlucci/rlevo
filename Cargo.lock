@@ -6710,10 +6710,8 @@ dependencies = [
  "approx",
  "burn",
  "rand 0.10.3",
- "rand_distr 0.6.0",
  "serde",
  "thiserror 2.0.21",
- "tracing",
 ]
 
 [[package]]

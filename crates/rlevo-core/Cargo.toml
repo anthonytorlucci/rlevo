@@ -17,8 +17,6 @@ burn = { workspace = true, optional = true }
 rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
-rand_distr = {workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }
