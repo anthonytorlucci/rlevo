@@ -20,10 +20,6 @@
 //! - [`function_set`] — the shared [`FunctionSet`] opcode contract (and the
 //!   default [`ArithmeticFunctionSet`]) used by both Cartesian GP and Gene
 //!   Expression Programming.
-//! - [`genome`] — zero-sized marker types (`Real`, `Binary`, `Integer`,
-//!   `Tree`, `Permutation`) that parameterize the operator set.
-//! - [`population`] — [`Population<B, K>`](population::Population), a thin
-//!   wrapper around `Tensor<B, 2>` carrying shape metadata.
 //! - [`fitness`] — [`BatchFitnessFn`](fitness::BatchFitnessFn), and the
 //!   [`FromLandscape`](fitness::FromLandscape) adapter for landscapes that
 //!   carry their own `evaluate` method.
@@ -52,14 +48,12 @@ pub mod algorithms;
 pub mod coevolution;
 pub mod fitness;
 pub mod function_set;
-pub mod genome;
 pub mod local_search;
 pub mod module_eval_fn;
 pub mod neuroevolution;
 pub mod observer;
 pub mod ops;
 pub mod param_reshaper;
-pub mod population;
 pub mod probability_model;
 pub mod probe;
 pub mod rng;
