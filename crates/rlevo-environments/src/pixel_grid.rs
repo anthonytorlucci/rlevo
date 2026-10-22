@@ -59,7 +59,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
@@ -618,7 +618,7 @@ impl PixelGridEnv {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<3, PixelObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<PixelObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -681,16 +681,16 @@ impl PixelGridEnv {
         observation: PixelObservation,
         reward: f32,
         status: SnapshotStatus,
-    ) -> SnapshotBase<3, PixelObservation, ScalarReward> {
+    ) -> Snapshot<PixelObservation> {
         if self.render {
             // Render is a debug side effect; drop the string when internal.
             let _ = self.state.render_ascii();
         }
         let reward = ScalarReward::new(reward);
         match status {
-            SnapshotStatus::Running => SnapshotBase::running(observation, reward),
-            SnapshotStatus::Terminated => SnapshotBase::terminated(observation, reward),
-            SnapshotStatus::Truncated => SnapshotBase::truncated(observation, reward),
+            SnapshotStatus::Running => Snapshot::running(observation, reward),
+            SnapshotStatus::Terminated => Snapshot::terminated(observation, reward),
+            SnapshotStatus::Truncated => Snapshot::truncated(observation, reward),
         }
     }
 }
@@ -722,8 +722,6 @@ impl Default for PixelGridEnv {
 impl Environment<3, 1> for PixelGridEnv {
     type ObservationType = PixelObservation;
     type ActionType = PixelGridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<3, PixelObservation, ScalarReward>;
 
     /// Starts a new episode: re-places agent and goal, clears the step counter,
     /// and returns the initial `Running` snapshot with reward `0.0`.
@@ -735,7 +733,7 @@ impl Environment<3, 1> for PixelGridEnv {
     ///
     /// This implementation does not currently return an error; the signature
     /// reflects the `Environment` trait contract.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<PixelObservation>, EnvironmentError> {
         // The re-placement below is infallible, so there is no partial-reset
         // window in which clearing the guard would re-open an episode over a
         // state that never returned to its initial placement (ADR 0044 §6).
@@ -767,7 +765,10 @@ impl Environment<3, 1> for PixelGridEnv {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended (the agent reached the goal, or `steps` reached
     /// `config.max_steps`); call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<PixelObservation>, EnvironmentError> {
         // Guard first, ahead of every mutation. A rejected step must leave the
         // step counter and the latent placement exactly as the terminal step
         // left them — and, because the counter cannot climb past `max_steps`,
@@ -844,9 +845,7 @@ mod tests {
     }
 
     /// Resets, places the agent one cell left of the goal, and steps onto it.
-    fn drive_to_termination(
-        env: &mut PixelGridEnv,
-    ) -> SnapshotBase<3, PixelObservation, ScalarReward> {
+    fn drive_to_termination(env: &mut PixelGridEnv) -> Snapshot<PixelObservation> {
         env.reset().expect("reset must succeed");
         env.state = PixelGridState::new(23, 24).expect("valid cell indices");
         env.step(PixelGridAction::Right)
@@ -855,9 +854,7 @@ mod tests {
 
     /// Resets and bumps the top-left wall until the step budget runs out. `Up`
     /// from cell `0` is a no-op, so the goal is never reached.
-    fn drive_to_truncation(
-        env: &mut PixelGridEnv,
-    ) -> SnapshotBase<3, PixelObservation, ScalarReward> {
+    fn drive_to_truncation(env: &mut PixelGridEnv) -> Snapshot<PixelObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env
             .step(PixelGridAction::Up)

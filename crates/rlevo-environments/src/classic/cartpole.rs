@@ -146,7 +146,7 @@ use rlevo_core::{
     action::DiscreteAction,
     base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -507,7 +507,7 @@ impl CartPole {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, CartPoleObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<CartPoleObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -632,8 +632,6 @@ fn cartpole_observation(state: &CartPoleState) -> CartPoleObservation {
 impl Environment<1, 1> for CartPole {
     type ObservationType = CartPoleObservation;
     type ActionType = CartPoleAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, CartPoleObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -645,11 +643,11 @@ impl Environment<1, 1> for CartPole {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<CartPoleObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -662,7 +660,10 @@ impl Environment<1, 1> for CartPole {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: CartPoleAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: CartPoleAction,
+    ) -> Result<Snapshot<CartPoleObservation>, EnvironmentError> {
         // Guard first: before the integrator runs, before `steps` advances, and
         // before anything touches `self.rng`. A rejected call must leave the
         // physics state, the step counter, and the RNG stream untouched, or the
@@ -688,9 +689,9 @@ impl Environment<1, 1> for CartPole {
         // fed that snapshot's own status, so no branch can forget to record.
         let obs = self.observe();
         let snap = if terminated {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
 
         self.guard.record(snap.status);
@@ -903,7 +904,6 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::Snapshot;
 
     fn default_env() -> CartPole {
         CartPole::with_config(CartPoleConfig::default()).expect("valid config")
@@ -913,9 +913,7 @@ mod tests {
     /// returning the terminal snapshot. Pushing one direction from a near-upright start topples the
     /// pole in a few dozen steps, so this reaches a *real* termination rather than a hand-written
     /// terminal state.
-    fn drive_to_pole_fall(
-        env: &mut CartPole,
-    ) -> SnapshotBase<1, CartPoleObservation, ScalarReward> {
+    fn drive_to_pole_fall(env: &mut CartPole) -> Snapshot<CartPoleObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..1_000 {
             let snap = env

@@ -5,18 +5,10 @@
 //!   z, ...).
 //! * [`Gear`] is a type-level gear-ratio vector, size-checked against the
 //!   per-env actuator count.
-//! * [`LocomotionSnapshot`] is the shared snapshot type every locomotion env
-//!   returns — an alias for [`SnapshotBase`] generic in the per-env observation
-//!   type, carrying an optional [`SnapshotMetadata`] (reward components +
-//!   positions).
 //! * Small helpers: [`ctrl_cost`] for the quadratic control cost that every
 //!   locomotion env pays, and [`wrap_to_pi`] for a unique angle branch cut.
-//!
-//! [`SnapshotMetadata`]: rlevo_core::environment::SnapshotMetadata
 
 use rlevo_core::bounds::Bounds;
-use rlevo_core::environment::SnapshotBase;
-use rlevo_core::reward::ScalarReward;
 
 /// Healthy-state check for envs with an "unhealthy → terminate" condition.
 ///
@@ -148,27 +140,6 @@ pub fn wrap_to_pi(angle: f32) -> f32 {
     }
     a
 }
-
-/// Shared snapshot type for every locomotion environment.
-///
-/// This is an alias for [`SnapshotBase`], not a bespoke type: the four
-/// locomotion environments (`InvertedPendulum`, `InvertedDoublePendulum`,
-/// `Reacher`, `Swimmer`) all return `SnapshotBase<1, O, ScalarReward>`, generic
-/// in the per-env [`Observation`] so each env's snapshot keeps a precise
-/// observation type at the type level.
-///
-/// Each env attaches a [`SnapshotMetadata`] via
-/// [`SnapshotBase::with_metadata`] (or by writing the `metadata` field
-/// directly): its `components` map records decomposed reward contributions and
-/// its `positions` map records torso / centre-of-mass / fingertip coordinates.
-///
-/// Because the snapshot is a plain `SnapshotBase`, these environments compose
-/// with wrappers bound to that type — notably [`TimeLimit`].
-///
-/// [`Observation`]: rlevo_core::base::Observation
-/// [`SnapshotMetadata`]: rlevo_core::environment::SnapshotMetadata
-/// [`TimeLimit`]: crate::wrappers::TimeLimit
-pub type LocomotionSnapshot<O> = SnapshotBase<1, O, ScalarReward>;
 
 #[cfg(test)]
 mod tests {

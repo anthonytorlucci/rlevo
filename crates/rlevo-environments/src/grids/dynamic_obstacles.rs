@@ -57,7 +57,7 @@
 //! [`Ball`]: super::core::entity::Entity::Ball
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -75,9 +75,8 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot as _};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
@@ -355,7 +354,10 @@ impl DynamicObstaclesEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -438,7 +440,12 @@ impl DynamicObstaclesEnv {
         (GridState::new(grid, agent), obstacles)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -589,8 +596,6 @@ impl DynamicObstaclesEnv {
 impl Environment<3, 1> for DynamicObstaclesEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Rebuilds the grid, respawns the obstacles, and re-opens the
     /// [`EpisodeGuard`] for a new episode.
@@ -598,7 +603,7 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (state, obstacles) = Self::build(&self.config, &mut self.rng);
         self.state = state;
@@ -614,7 +619,10 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Self::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first — before the step counter, before `apply_action`, and
         // critically before `move_obstacles` draws from `self.rng`. ADR 0029
         // makes the persistent RNG an observable part of this environment's
@@ -663,7 +671,6 @@ mod tests {
 
     use super::*;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
 
     fn env_no_obstacles() -> DynamicObstaclesEnv {
         DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(5, 0, 100, 0), false)
@@ -1039,7 +1046,7 @@ mod tests {
     /// Drives a fresh episode to its **collision**-terminal snapshot through
     /// real `step()` calls, and asserts the ending really was a collision (the
     /// `$-1.0$` reward) rather than the step budget running out.
-    fn drive_to_collision(env: &mut DynamicObstaclesEnv) -> GridSnapshot {
+    fn drive_to_collision(env: &mut DynamicObstaclesEnv) -> Snapshot<GridObservation> {
         let cfg = *env.config();
         env.reset().expect("reset must succeed");
         for _ in 1..=cfg.max_steps {

@@ -61,7 +61,7 @@
 //! [`UnlockEnv`]: https://minigrid.farama.org/environments/minigrid/UnlockEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -79,7 +79,6 @@ use super::core::{
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -232,7 +231,7 @@ impl FromStr for UnlockConfig {
 /// exhausted first.
 ///
 /// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
-/// [`ScalarReward`].
+/// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// # Examples
 ///
@@ -369,7 +368,12 @@ impl UnlockEnv {
         (GridState::new(grid, agent), door_pos)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -420,15 +424,13 @@ impl UnlockEnv {
 impl Environment<3, 1> for UnlockEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Rebuilds the fixed board and re-opens the episode.
     ///
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (state, door_pos) = Self::build(&self.config);
         self.state = state;
@@ -445,7 +447,10 @@ impl Environment<3, 1> for UnlockEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances and before `apply_action` touches
         // the grid, so a rejected call leaves the board, the step counter, and
         // the door state exactly as the terminal snapshot described them. Making
@@ -961,7 +966,7 @@ mod tests {
     /// value target for any bootstrapping agent. A timeout-driven conformance
     /// test would bake in that wrong status. Opening the door is a genuine
     /// termination.
-    fn drive_to_open_door(env: &mut UnlockEnv) -> GridSnapshot {
+    fn drive_to_open_door(env: &mut UnlockEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         let script = [
             GridAction::Pickup,   // grab the key

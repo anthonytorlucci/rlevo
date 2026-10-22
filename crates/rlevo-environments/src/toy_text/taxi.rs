@@ -48,7 +48,7 @@ use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
@@ -478,17 +478,15 @@ impl Taxi {
 impl Environment<1, 1> for Taxi {
     type ObservationType = TaxiObservation;
     type ActionType = TaxiAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, TaxiObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<TaxiObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_initial_state();
         self.fickle_armed = false;
-        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
-    fn step(&mut self, action: TaxiAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: TaxiAction) -> Result<Snapshot<TaxiObservation>, EnvironmentError> {
         // Must precede every state mutation *and* every RNG draw: `resolve_movement`
         // and the fickle-passenger resample both consume from `self.rng`, so a
         // rejected call that got past this point would advance the stream and break
@@ -545,9 +543,9 @@ impl Environment<1, 1> for Taxi {
 
         let obs = self.observe();
         let snapshot = if terminated {
-            SnapshotBase::terminated(obs, ScalarReward(reward))
+            Snapshot::terminated(obs, ScalarReward(reward))
         } else {
-            SnapshotBase::running(obs, ScalarReward(reward))
+            Snapshot::running(obs, ScalarReward(reward))
         };
 
         // Record from the snapshot we are about to emit, so the guard and the
@@ -800,7 +798,7 @@ mod tests {
     /// Resets `env`, pins it one correct `Dropoff` from the goal, and takes it —
     /// returning the terminal snapshot. Consumes RNG only inside `reset()`: the
     /// `Dropoff` branch of `step` makes no draw.
-    fn drive_to_correct_dropoff(env: &mut Taxi) -> SnapshotBase<1, TaxiObservation, ScalarReward> {
+    fn drive_to_correct_dropoff(env: &mut Taxi) -> Snapshot<TaxiObservation> {
         env.reset().expect("reset must succeed");
         env.state = about_to_drop_off();
         env.step(TaxiAction::Dropoff)

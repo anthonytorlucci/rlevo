@@ -22,7 +22,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::ContinuousAction;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
@@ -182,7 +182,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut agent: LinearAgent =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, LinearAction, _, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+    train::<Be, _, _, _, _, LinearAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
         .expect("training");
 
     let stats = agent.stats();
@@ -408,10 +408,8 @@ fn td3_pendulum_improves_over_random() {
         2,
     > = Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, PendulumAction, _, 1, 2, 1, 2>(
-        &mut agent, &mut env, &mut rng, 500_000, 0,
-    )
-    .expect("training");
+    train::<Be, _, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 500_000, 0)
+        .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
     // TD3 should comfortably clear a uniform-random torque policy after 500k steps (it reaches

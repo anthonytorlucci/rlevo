@@ -94,7 +94,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 
 use rlevo_environments::grids::core::{GridObservation, OBS_CHANNELS, VIEW_SIZE};
 use rlevo_environments::grids::{GridAction, MemoryConfig, MemoryEnv};

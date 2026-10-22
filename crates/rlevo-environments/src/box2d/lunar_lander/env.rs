@@ -38,7 +38,7 @@ use rand::rngs::StdRng;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -48,7 +48,7 @@ use super::action_continuous::LunarLanderContinuousAction;
 use super::action_discrete::LunarLanderDiscreteAction;
 use super::config::{LunarLanderConfig, WindMode};
 use super::observation::LunarLanderObservation;
-use super::snapshot::{LunarLanderSnapshot, shaping_metadata};
+use super::snapshot::shaping_metadata;
 use super::state::LunarLanderState;
 
 // ─── Physical constants ───────────────────────────────────────────────────────
@@ -398,12 +398,11 @@ impl LunarLanderCore {
 /// `LunarLander` with a 4-way discrete action space.
 ///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
-/// The snapshot type is a plain [`SnapshotBase`] alias ([`LunarLanderSnapshot`])
-/// carrying the shaping potential as metadata, so wrapping with
+/// Its [`Snapshot`] carries the shaping potential as metadata, so wrapping with
 /// [`TimeLimit`](crate::wrappers::TimeLimit) composes and preserves that
 /// metadata.
 ///
-/// [`SnapshotBase`]: rlevo_core::environment::SnapshotBase
+/// [`Snapshot`]: rlevo_core::environment::Snapshot
 ///
 /// All four [`LunarLanderDiscreteAction`] variants are always valid, so the only
 /// error [`step`](Environment::step) can return is
@@ -441,18 +440,16 @@ impl Default for LunarLanderDiscrete {
 impl Environment<1, 1> for LunarLanderDiscrete {
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderDiscreteAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LunarLanderSnapshot;
 
     /// Rebuild the physics world and return the initial observation.
     ///
     /// The reward in the returned snapshot is always `0.0`. The shaping potential
     /// is reset to the value computed from the spawn position so that the first
     /// `step` call produces a meaningful potential difference.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<LunarLanderObservation>, EnvironmentError> {
         self.core.rebuild();
         let obs = self.core.compute_obs();
-        Ok(LunarLanderSnapshot::running(obs, ScalarReward(0.0))
+        Ok(Snapshot::running(obs, ScalarReward(0.0))
             .with_metadata(shaping_metadata(self.core.shaping_value())))
     }
 
@@ -474,7 +471,7 @@ impl Environment<1, 1> for LunarLanderDiscrete {
     fn step(
         &mut self,
         action: LunarLanderDiscreteAction,
-    ) -> Result<LunarLanderSnapshot, EnvironmentError> {
+    ) -> Result<Snapshot<LunarLanderObservation>, EnvironmentError> {
         // Guard first: before `step_common` touches the Rapier world, `steps`,
         // `prev_shaping`, or the stochastic-wind stream. `step_common` calls
         // `apply_wind` as its first act, which under `WindMode::Stochastic`
@@ -493,9 +490,9 @@ impl Environment<1, 1> for LunarLanderDiscrete {
         // Single exit: every branch builds exactly one snapshot, and the guard
         // is fed that snapshot's own status, so no branch can forget to record.
         let snap = match status {
-            EpisodeStatus::Running => LunarLanderSnapshot::running(obs, ScalarReward(reward)),
-            EpisodeStatus::Terminated => LunarLanderSnapshot::terminated(obs, ScalarReward(reward)),
-            EpisodeStatus::Truncated => LunarLanderSnapshot::truncated(obs, ScalarReward(reward)),
+            EpisodeStatus::Running => Snapshot::running(obs, ScalarReward(reward)),
+            EpisodeStatus::Terminated => Snapshot::terminated(obs, ScalarReward(reward)),
+            EpisodeStatus::Truncated => Snapshot::truncated(obs, ScalarReward(reward)),
         }
         .with_metadata(meta);
 
@@ -520,12 +517,11 @@ impl Environment<1, 1> for LunarLanderDiscrete {
 /// component drives the side engines symmetrically.
 ///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
-/// The snapshot type is a plain [`SnapshotBase`] alias ([`LunarLanderSnapshot`])
-/// carrying the shaping potential as metadata, so wrapping with
+/// Its [`Snapshot`] carries the shaping potential as metadata, so wrapping with
 /// [`TimeLimit`](crate::wrappers::TimeLimit) composes and preserves that
 /// metadata.
 ///
-/// [`SnapshotBase`]: rlevo_core::environment::SnapshotBase
+/// [`Snapshot`]: rlevo_core::environment::Snapshot
 #[derive(Debug)]
 pub struct LunarLanderContinuous {
     core: LunarLanderCore,
@@ -557,17 +553,15 @@ impl Default for LunarLanderContinuous {
 impl Environment<1, 1> for LunarLanderContinuous {
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderContinuousAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LunarLanderSnapshot;
 
     /// Rebuild the physics world and return the initial observation.
     ///
     /// Identical in behaviour to [`LunarLanderDiscrete::reset`]: reward is `0.0`
     /// and the shaping potential is initialised from the spawn position.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<LunarLanderObservation>, EnvironmentError> {
         self.core.rebuild();
         let obs = self.core.compute_obs();
-        Ok(LunarLanderSnapshot::running(obs, ScalarReward(0.0))
+        Ok(Snapshot::running(obs, ScalarReward(0.0))
             .with_metadata(shaping_metadata(self.core.shaping_value())))
     }
 
@@ -589,7 +583,7 @@ impl Environment<1, 1> for LunarLanderContinuous {
     fn step(
         &mut self,
         action: LunarLanderContinuousAction,
-    ) -> Result<LunarLanderSnapshot, EnvironmentError> {
+    ) -> Result<Snapshot<LunarLanderObservation>, EnvironmentError> {
         // Guard first — ahead of the D5 bounds check. Episode-over is a fact
         // about the call *sequence*, independent of whether this particular
         // action is well-formed, so it is the stronger and earlier rejection.
@@ -615,9 +609,9 @@ impl Environment<1, 1> for LunarLanderContinuous {
         // Single exit: every branch builds exactly one snapshot, and the guard
         // is fed that snapshot's own status, so no branch can forget to record.
         let snap = match status {
-            EpisodeStatus::Running => LunarLanderSnapshot::running(obs, ScalarReward(reward)),
-            EpisodeStatus::Terminated => LunarLanderSnapshot::terminated(obs, ScalarReward(reward)),
-            EpisodeStatus::Truncated => LunarLanderSnapshot::truncated(obs, ScalarReward(reward)),
+            EpisodeStatus::Running => Snapshot::running(obs, ScalarReward(reward)),
+            EpisodeStatus::Terminated => Snapshot::terminated(obs, ScalarReward(reward)),
+            EpisodeStatus::Truncated => Snapshot::truncated(obs, ScalarReward(reward)),
         }
         .with_metadata(meta);
 
@@ -837,7 +831,6 @@ mod tests {
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     #[test]
     fn test_discrete_action_count() {
@@ -870,12 +863,8 @@ mod tests {
         );
     }
 
-    /// `LunarLanderSnapshot` used to be a hand-rolled `impl Snapshot`,
-    /// byte-for-byte identical to the generic `LocomotionSnapshot<O>`;
-    /// consolidating it into a `SnapshotBase` type alias is what makes this
-    /// test possible at all — before the alias, `LunarLanderEnv` could not
-    /// compose with [`TimeLimit`] (which is generically bound to
-    /// `SnapshotType = SnapshotBase`); it simply did not compile. The wrapper
+    /// Every environment returns a [`Snapshot`], so [`TimeLimit`] wraps
+    /// `LunarLander` like any other. The wrapper
     /// must truncate at its own cap *and* preserve the shaping metadata the
     /// inner env attached.
     #[test]
@@ -1152,7 +1141,7 @@ mod tests {
     /// guard is status-based, not reward-based — it records
     /// `snap.status()`, which is `Terminated` on both paths — so covering the
     /// crash terminal covers the landing terminal's guard behaviour too.
-    fn crash_discrete(env: &mut LunarLanderDiscrete) -> LunarLanderSnapshot {
+    fn crash_discrete(env: &mut LunarLanderDiscrete) -> Snapshot<LunarLanderObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..FREE_FALL_CAP {
             let snap = env
@@ -1167,7 +1156,7 @@ mod tests {
 
     /// Continuous counterpart of [`crash_discrete`]; a zero action is the
     /// continuous no-op, so the trajectory is the same free fall.
-    fn crash_continuous(env: &mut LunarLanderContinuous) -> LunarLanderSnapshot {
+    fn crash_continuous(env: &mut LunarLanderContinuous) -> Snapshot<LunarLanderObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..FREE_FALL_CAP {
             let snap = env

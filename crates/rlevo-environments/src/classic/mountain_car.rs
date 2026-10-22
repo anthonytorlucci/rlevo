@@ -89,7 +89,7 @@ use rlevo_core::{
     base::{Action, HostRow, Observation},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -308,7 +308,7 @@ impl MountainCar {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, MountainCarObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<MountainCarObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -390,8 +390,6 @@ fn mountain_car_observation(state: MountainCarState) -> MountainCarObservation {
 impl Environment<1, 1> for MountainCar {
     type ObservationType = MountainCarObservation;
     type ActionType = MountainCarAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, MountainCarObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -403,11 +401,11 @@ impl Environment<1, 1> for MountainCar {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<MountainCarObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -422,7 +420,10 @@ impl Environment<1, 1> for MountainCar {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first. The physics
     /// themselves are infallible.
-    fn step(&mut self, action: MountainCarAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: MountainCarAction,
+    ) -> Result<Snapshot<MountainCarObservation>, EnvironmentError> {
         // Guard first: before the physics update and before `steps` advances, so
         // a rejected call leaves position, velocity, step count and the RNG
         // stream exactly as the terminal step left them (ADR 0029).
@@ -436,9 +437,9 @@ impl Environment<1, 1> for MountainCar {
         let terminated = Self::is_terminal(self.state, &self.config);
         let obs = self.observe();
         let snap = if terminated {
-            SnapshotBase::terminated(obs, ScalarReward(-1.0))
+            Snapshot::terminated(obs, ScalarReward(-1.0))
         } else {
-            SnapshotBase::running(obs, ScalarReward(-1.0))
+            Snapshot::running(obs, ScalarReward(-1.0))
         };
 
         self.guard.record(snap.status);
@@ -583,7 +584,7 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
 
     fn default_env() -> MountainCar {
         MountainCar::with_config(MountainCarConfig::default()).expect("valid config")
@@ -601,9 +602,7 @@ mod tests {
     /// snapshot. This reaches the goal *legitimately*, through the real physics,
     /// rather than by writing `state` directly, so the guard is exercised on the
     /// same path an agent takes.
-    fn drive_to_goal(
-        env: &mut MountainCar,
-    ) -> SnapshotBase<1, MountainCarObservation, ScalarReward> {
+    fn drive_to_goal(env: &mut MountainCar) -> Snapshot<MountainCarObservation> {
         let mut snap = env.reset().expect("reset must succeed");
         for _ in 0..PUMP_STEP_CAP {
             // Velocity 0 (the reset state) pumps right: any direction works, the

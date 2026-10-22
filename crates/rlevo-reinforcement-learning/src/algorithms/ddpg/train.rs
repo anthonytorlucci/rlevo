@@ -19,8 +19,8 @@ use burn::tensor::backend::AutodiffBackend;
 use rand::Rng;
 
 use rlevo_core::action::BoundedAction;
-use rlevo_core::base::{Observation, Reward, TensorConvertible};
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::environment::Environment;
 
 use crate::algorithms::ddpg::ddpg_agent::{DdpgAgent, DdpgAgentError, DdpgMetrics};
 use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
@@ -64,7 +64,6 @@ pub fn train<
     E,
     O,
     A,
-    Rew,
     const OR: usize,
     const BOR: usize,
     const AR: usize,
@@ -80,10 +79,9 @@ where
     B: AutodiffBackend,
     Actor: DeterministicPolicy<B, BOR, BAR>,
     Critic: ContinuousQ<B, BOR, BAR>,
-    E: Environment<OR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, AR, ObservationType = O, ActionType = A>,
     O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
     A: BoundedAction<AR>,
-    Rew: Reward + Copy,
 {
     let mut snapshot = env.reset().map_err(env_to_err)?;
     let mut episode_reward = 0.0_f32;

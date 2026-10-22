@@ -17,7 +17,7 @@ use rand::rngs::StdRng;
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::Observation;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::classic::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
 use rlevo_environments::wrappers::TimeLimit;
 

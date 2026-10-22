@@ -55,7 +55,7 @@ use rand::rngs::StdRng;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -380,8 +380,6 @@ impl CarRacing {
 impl Environment<3, 1> for CarRacing {
     type ObservationType = CarRacingObservation;
     type ActionType = CarRacingAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<3, CarRacingObservation, ScalarReward>;
 
     /// Generates a fresh procedural track, rebuilds the physics world, and
     /// returns the first snapshot of a new episode.
@@ -395,7 +393,7 @@ impl Environment<3, 1> for CarRacing {
     ///
     /// Currently infallible; always returns `Ok`. Track generation and world
     /// construction cannot fail once the config has validated.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<CarRacingObservation>, EnvironmentError> {
         self.guard.reset();
         self.track = Track::generate(&self.config, &mut self.rng);
         self.state.total_tiles = self.track.tiles.len();
@@ -405,7 +403,7 @@ impl Environment<3, 1> for CarRacing {
             self.state.is_valid(),
             "CarRacingState invariant violated after reset"
         );
-        Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)))
     }
 
     /// Applies the car controls, advances the physics world by one fixed
@@ -426,7 +424,10 @@ impl Environment<3, 1> for CarRacing {
     ///   [`reset`](Environment::reset) first.
     /// - [`EnvironmentError::InvalidAction`] if `action` violates the asymmetric
     ///   bounds `$\text{steer} \in [-1, 1]$`, `$\text{gas} \in [0, 1]$`, `$\text{brake} \in [0, 1]$`.
-    fn step(&mut self, action: CarRacingAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: CarRacingAction,
+    ) -> Result<Snapshot<CarRacingObservation>, EnvironmentError> {
         // Guard first — ahead of the action check, the force application, the
         // world integration, the step counter and the tile-visit sweep. Whether
         // the episode is over is a call-sequence fact independent of the action's
@@ -466,7 +467,7 @@ impl Environment<3, 1> for CarRacing {
         );
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot disagree.
-        let snap = SnapshotBase {
+        let snap = Snapshot {
             observation: obs,
             reward: ScalarReward(reward),
             status,
@@ -600,7 +601,6 @@ mod tests {
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
     use std::sync::Arc;
 
     /// Creates a default seeded `CarRacing` environment for use in tests.
@@ -640,9 +640,7 @@ mod tests {
     }
 
     /// Coasts until the step budget runs out and returns the truncated snapshot.
-    fn drive_to_truncation(
-        env: &mut CarRacing,
-    ) -> SnapshotBase<3, CarRacingObservation, ScalarReward> {
+    fn drive_to_truncation(env: &mut CarRacing) -> Snapshot<CarRacingObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env.step(coast()).expect("first step must succeed");
         while !snap.is_done() {

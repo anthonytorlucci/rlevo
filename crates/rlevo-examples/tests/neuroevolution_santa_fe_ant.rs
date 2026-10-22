@@ -15,7 +15,7 @@ use burn::backend::Flex;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::classic::santa_fe_ant::{SantaFeAnt, SantaFeAntAction, SantaFeAntConfig};
 use rlevo_test_support::baseline::{random_return, uniform_discrete};
 use rlevo_test_support::flex::flex_guard;

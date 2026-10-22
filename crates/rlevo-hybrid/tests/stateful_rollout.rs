@@ -23,7 +23,7 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Tensor, backend::Backend};
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction, SantaFeAntObservation};
 use rlevo_evolution::fitness::BatchFitnessFn;
@@ -67,26 +67,27 @@ impl AlternatingEnv {
 impl Environment<1, 1> for AlternatingEnv {
     type ObservationType = SantaFeAntObservation;
     type ActionType = SantaFeAntAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, SantaFeAntObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<SantaFeAntObservation>, EnvironmentError> {
         self.steps = 0;
-        Ok(SnapshotBase::running(
+        Ok(Snapshot::running(
             SantaFeAntObservation { food_ahead: false },
             ScalarReward::new(0.0),
         ))
     }
 
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<SantaFeAntObservation>, EnvironmentError> {
         let matches = action.to_index() % 2 == self.steps % 2;
         let reward = ScalarReward::new(if matches { 1.0 } else { 0.0 });
         self.steps += 1;
         let obs = SantaFeAntObservation { food_ahead: false };
         let snapshot = if self.steps >= self.max_steps {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
         Ok(snapshot)
     }

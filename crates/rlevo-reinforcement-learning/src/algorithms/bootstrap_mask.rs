@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
 use rlevo_core::base::{Action, HostRow, Observation};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
@@ -203,12 +203,10 @@ impl<A> MaskEnv<A> {
 impl<A: Action<1> + Clone> Environment<1, 1> for MaskEnv<A> {
     type ObservationType = MaskObservation;
     type ActionType = A;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, MaskObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<MaskObservation>, EnvironmentError> {
         self.state = MaskState { steps: 0 };
-        Ok(SnapshotBase {
+        Ok(Snapshot {
             observation: Self::observation(self.state),
             reward: ScalarReward::new(0.0),
             status: EpisodeStatus::Running,
@@ -216,7 +214,10 @@ impl<A: Action<1> + Clone> Environment<1, 1> for MaskEnv<A> {
         })
     }
 
-    fn step(&mut self, _action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        _action: Self::ActionType,
+    ) -> Result<Snapshot<MaskObservation>, EnvironmentError> {
         self.state.steps += 1;
         self.calls += 1;
         let status = if self.state.steps.is_multiple_of(self.period) {
@@ -229,7 +230,7 @@ impl<A: Action<1> + Clone> Environment<1, 1> for MaskEnv<A> {
         } else {
             1.0
         };
-        Ok(SnapshotBase {
+        Ok(Snapshot {
             observation: Self::observation(self.state),
             reward: ScalarReward::new(reward),
             status,

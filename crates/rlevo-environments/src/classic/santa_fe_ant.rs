@@ -40,7 +40,7 @@
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 
@@ -384,8 +384,6 @@ fn santa_fe_ant_observation(state: &SantaFeAntState) -> SantaFeAntObservation {
 impl Environment<1, 1> for SantaFeAnt {
     type ObservationType = SantaFeAntObservation;
     type ActionType = SantaFeAntAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, SantaFeAntObservation, ScalarReward>;
 
     /// Restores the pristine trail, pose, and step counter, and re-opens the
     /// [`EpisodeGuard`] for a new episode.
@@ -393,14 +391,11 @@ impl Environment<1, 1> for SantaFeAnt {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<SantaFeAntObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = Self::fresh_state();
         self.maybe_render();
-        Ok(SnapshotBase::running(
-            self.observe(),
-            ScalarReward::new(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward::new(0.0)))
     }
 
     /// Applies one motor primitive and returns the resulting snapshot.
@@ -412,7 +407,10 @@ impl Environment<1, 1> for SantaFeAnt {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already terminated or truncated.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<SantaFeAntObservation>, EnvironmentError> {
         // Guard first: before the heading/pose mutation and the step counter, so
         // a rejected call leaves the ant exactly where the terminal snapshot left
         // it. The dynamics draw no randomness, but the ordering rule is the same
@@ -449,14 +447,14 @@ impl Environment<1, 1> for SantaFeAnt {
         // Single exit: all three routes build exactly one snapshot, and the guard
         // is fed that snapshot's own status, so no branch can forget to record —
         // and the guard cannot disagree with what the caller was handed.
-        let snapshot: Self::SnapshotType = if self.state.pellets_remaining == 0 {
+        let snapshot: Snapshot<SantaFeAntObservation> = if self.state.pellets_remaining == 0 {
             // Goal reached — the whole trail is cleared.
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else if self.state.steps >= limit {
             // Time-limit reached — truncation, not a true terminal state.
-            SnapshotBase::truncated(obs, reward)
+            Snapshot::truncated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
 
         self.guard.record(snapshot.status);
@@ -743,7 +741,7 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
 
     #[test]
     fn default_config_validates() {
@@ -956,9 +954,7 @@ mod tests {
 
     /// Clears the trail down to the single pellet directly ahead of the ant and
     /// eats it, so the returned snapshot is `Terminated` (white-box: same module).
-    fn drive_to_last_pellet(
-        e: &mut SantaFeAnt,
-    ) -> SnapshotBase<1, SantaFeAntObservation, ScalarReward> {
+    fn drive_to_last_pellet(e: &mut SantaFeAnt) -> Snapshot<SantaFeAntObservation> {
         let _ = <SantaFeAnt as Environment<1, 1>>::reset(e).expect("reset");
         e.state.food = [[false; GRID_SIZE]; GRID_SIZE];
         e.state.food[0][1] = true;
@@ -969,9 +965,7 @@ mod tests {
     /// Spins in place until the step budget truncates the episode, so the
     /// returned snapshot is `Truncated` (turning never eats, so the trail
     /// cannot clear first).
-    fn drive_to_truncation(
-        e: &mut SantaFeAnt,
-    ) -> SnapshotBase<1, SantaFeAntObservation, ScalarReward> {
+    fn drive_to_truncation(e: &mut SantaFeAnt) -> Snapshot<SantaFeAntObservation> {
         let mut snap = <SantaFeAnt as Environment<1, 1>>::reset(e).expect("reset");
         while !snap.is_done() {
             snap = <SantaFeAnt as Environment<1, 1>>::step(e, SantaFeAntAction::TurnRight)

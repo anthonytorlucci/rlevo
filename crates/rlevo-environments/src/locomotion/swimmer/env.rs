@@ -9,11 +9,13 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
+use rlevo_core::environment::{
+    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotMetadata,
+};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{Rapier3DBackend, Rapier3DWorld};
-use crate::locomotion::common::{LocomotionSnapshot, ctrl_cost, wrap_to_pi};
+use crate::locomotion::common::{ctrl_cost, wrap_to_pi};
 use rlevo_core::episode::EpisodeGuard;
 
 use super::action::SwimmerAction;
@@ -96,7 +98,7 @@ impl Swimmer {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<LocomotionSnapshot<SwimmerObservation>, EnvironmentError> {
+    ) -> Result<Snapshot<SwimmerObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -331,8 +333,6 @@ impl Default for Swimmer {
 impl Environment<1, 1> for Swimmer {
     type ObservationType = SwimmerObservation;
     type ActionType = SwimmerAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LocomotionSnapshot<SwimmerObservation>;
 
     /// Reset the episode to a freshly sampled initial state.
     ///
@@ -352,7 +352,7 @@ impl Environment<1, 1> for Swimmer {
     ///
     /// This implementation does not currently return an error; the signature
     /// reflects the `Environment` trait contract.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<SwimmerObservation>, EnvironmentError> {
         // The rebuild below is infallible, so there is no partial-reset window
         // in which clearing the guard would re-open an episode over a world
         // that never returned to its initial state (ADR 0044 §6).
@@ -373,7 +373,7 @@ impl Environment<1, 1> for Swimmer {
             .with_position("torso", torso_pos)
             .with_position("com", torso_pos)
             .with_position("main_body", torso_pos);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advance the simulation by one env step.
@@ -398,7 +398,10 @@ impl Environment<1, 1> for Swimmer {
     ///   call-sequence bug it is even when the replayed action is malformed.
     /// - [`EnvironmentError::InvalidAction`] if any element of `action` is
     ///   non-finite (`NaN` or `$\pm\infty$`).
-    fn step(&mut self, action: SwimmerAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: SwimmerAction,
+    ) -> Result<Snapshot<SwimmerObservation>, EnvironmentError> {
         // Guard first — ahead of the action check, the torque application and
         // the physics substeps. Whether the episode is over is a call-sequence
         // fact independent of the action's validity, and a rejected step must
@@ -443,7 +446,7 @@ impl Environment<1, 1> for Swimmer {
             .with_position("main_body", torso_pos);
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot disagree.
-        let snapshot = LocomotionSnapshot {
+        let snapshot = Snapshot {
             observation: obs,
             reward: ScalarReward(total),
             status,
@@ -503,7 +506,6 @@ mod tests {
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     fn cfg(seed: u64) -> SwimmerConfig {
         SwimmerConfig {
@@ -560,7 +562,7 @@ mod tests {
     }
 
     /// Idles until the step budget runs out and returns the truncated snapshot.
-    fn drive_to_truncation(env: &mut Swimmer) -> LocomotionSnapshot<SwimmerObservation> {
+    fn drive_to_truncation(env: &mut Swimmer) -> Snapshot<SwimmerObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env.step(idle()).expect("first step must succeed");
         while !snap.is_done() {

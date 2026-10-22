@@ -134,7 +134,7 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, 128, total);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -202,7 +202,7 @@ fn ppo_cartpole_produces_finite_rewards() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -288,7 +288,7 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
     );
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_pendulum_agent(seed, 512, total);
-    train_continuous::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2>(
+    train_continuous::<Be, _, _, _, _, PendulumAction, 1, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -319,7 +319,7 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
 /// learning, so it runs in CI rather than behind `#[ignore]`.
 #[test]
 fn ppo_pendulum_update_reports_log_std_extrema() {
-    use rlevo_core::environment::{Environment, Snapshot};
+    use rlevo_core::environment::Environment;
     use rlevo_reinforcement_learning::algorithms::ppo::policies::gaussian::continuous_action_from_row;
 
     let _guard = flex_guard();
@@ -412,7 +412,7 @@ fn ppo_pendulum_update_reports_log_std_extrema() {
 /// `None` rather than a meaningless number.
 #[test]
 fn ppo_cartpole_update_reports_no_min_log_std() {
-    use rlevo_core::environment::{Environment, Snapshot};
+    use rlevo_core::environment::Environment;
     use rlevo_reinforcement_learning::algorithms::ppo::policies::categorical::discrete_action_from_row;
 
     let _guard = flex_guard();
@@ -527,7 +527,7 @@ fn ppo_progress_logs_when_log_every_does_not_divide_num_steps() {
         let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL);
-        train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+        train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
             &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
         )
         .expect("training");

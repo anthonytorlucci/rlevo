@@ -35,7 +35,7 @@ use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
@@ -686,8 +686,6 @@ impl FrozenLake {
 impl Environment<1, 1> for FrozenLake {
     type ObservationType = FrozenLakeObservation;
     type ActionType = FrozenLakeAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, FrozenLakeObservation, ScalarReward>;
 
     /// Starts a new episode: rebuilds the map (random specs only), places the
     /// agent on the start tile, and re-opens the [`EpisodeGuard`].
@@ -701,7 +699,7 @@ impl Environment<1, 1> for FrozenLake {
     /// agent off the terminal tile it is standing on — the very defect the guard
     /// exists to prevent. A failed reset leaves the episode closed; the caller
     /// must reset successfully before stepping again.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<FrozenLakeObservation>, EnvironmentError> {
         // Regenerate map for random spec; reuse preset/custom maps.
         if let FrozenMapSpec::Random {
             nrow,
@@ -720,7 +718,7 @@ impl Environment<1, 1> for FrozenLake {
         };
         // Only after the reset has actually succeeded.
         self.guard.reset();
-        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Moves the agent one tile, terminating on a `Hole` or `Goal`.
@@ -732,7 +730,10 @@ impl Environment<1, 1> for FrozenLake {
     /// before `resolve_action` draws from the RNG,
     /// so a rejected call leaves both the agent position and the slip stream
     /// untouched — a rejected step must not perturb a seeded run.
-    fn step(&mut self, action: FrozenLakeAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: FrozenLakeAction,
+    ) -> Result<Snapshot<FrozenLakeObservation>, EnvironmentError> {
         self.guard.check()?;
 
         let effective = self.resolve_action(action);
@@ -751,13 +752,9 @@ impl Environment<1, 1> for FrozenLake {
         // Build the snapshot once, then record its own status — no `match` arm
         // can return without the guard seeing what it emitted.
         let snapshot = match tile {
-            Tile::Hole => {
-                SnapshotBase::terminated(obs, ScalarReward(self.config.reward_schedule.hole))
-            }
-            Tile::Goal => {
-                SnapshotBase::terminated(obs, ScalarReward(self.config.reward_schedule.goal))
-            }
-            _ => SnapshotBase::running(obs, ScalarReward(self.config.reward_schedule.frozen)),
+            Tile::Hole => Snapshot::terminated(obs, ScalarReward(self.config.reward_schedule.hole)),
+            Tile::Goal => Snapshot::terminated(obs, ScalarReward(self.config.reward_schedule.goal)),
+            _ => Snapshot::running(obs, ScalarReward(self.config.reward_schedule.frozen)),
         };
         self.guard.record(snapshot.status);
         Ok(snapshot)
@@ -905,7 +902,6 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-    use rlevo_core::environment::Snapshot;
 
     #[test]
     fn default_config_validates() {

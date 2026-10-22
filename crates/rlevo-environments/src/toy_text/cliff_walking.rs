@@ -51,7 +51,7 @@ use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
@@ -400,19 +400,20 @@ impl CliffWalking {
 impl Environment<1, 1> for CliffWalking {
     type ObservationType = CliffWalkingObservation;
     type ActionType = CliffWalkingAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, CliffWalkingObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<CliffWalkingObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = CliffWalkingState {
             row: START.0,
             col: START.1,
         };
-        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
-    fn step(&mut self, action: CliffWalkingAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: CliffWalkingAction,
+    ) -> Result<Snapshot<CliffWalkingObservation>, EnvironmentError> {
         // Guard first: before any state mutation and — critically — before
         // `resolve_action`, which draws from `self.rng` in slippery mode. A rejected
         // call must leave both the position and the RNG stream untouched, or the
@@ -429,15 +430,15 @@ impl Environment<1, 1> for CliffWalking {
             // keep the episode running.
             self.state.row = START.0;
             self.state.col = START.1;
-            SnapshotBase::running(self.observe(), ScalarReward(-100.0))
+            Snapshot::running(self.observe(), ScalarReward(-100.0))
         } else {
             self.state.row = nr;
             self.state.col = nc;
 
             if (nr, nc) == GOAL {
-                SnapshotBase::terminated(self.observe(), ScalarReward(-1.0))
+                Snapshot::terminated(self.observe(), ScalarReward(-1.0))
             } else {
-                SnapshotBase::running(self.observe(), ScalarReward(-1.0))
+                Snapshot::running(self.observe(), ScalarReward(-1.0))
             }
         };
 
@@ -581,7 +582,7 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
 
     fn make_env() -> CliffWalking {
         CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config")
@@ -589,9 +590,7 @@ mod tests {
 
     /// Walks the optimal path `$\text{Up}, \text{Right}\times 11, \text{Down}$` from the start onto
     /// the goal and returns the terminal snapshot. Deterministic mode only.
-    fn drive_to_goal(
-        env: &mut CliffWalking,
-    ) -> SnapshotBase<1, CliffWalkingObservation, ScalarReward> {
+    fn drive_to_goal(env: &mut CliffWalking) -> Snapshot<CliffWalkingObservation> {
         env.reset().expect("reset must succeed");
         env.step(CliffWalkingAction::Up)
             .expect("step off the cliff row must succeed");

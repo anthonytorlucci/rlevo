@@ -5,11 +5,13 @@ use rand::{RngExt, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
+use rlevo_core::environment::{
+    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotMetadata,
+};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{Pose, Rapier3DBackend, Rapier3DWorld};
-use crate::locomotion::common::{LocomotionSnapshot, TerminationMode, wrap_to_pi};
+use crate::locomotion::common::{TerminationMode, wrap_to_pi};
 use rlevo_core::episode::EpisodeGuard;
 
 use super::action::InvertedDoublePendulumAction;
@@ -97,7 +99,7 @@ impl InvertedDoublePendulum {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<LocomotionSnapshot<InvertedDoublePendulumObservation>, EnvironmentError> {
+    ) -> Result<Snapshot<InvertedDoublePendulumObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -312,8 +314,6 @@ impl Default for InvertedDoublePendulum {
 impl Environment<1, 1> for InvertedDoublePendulum {
     type ObservationType = InvertedDoublePendulumObservation;
     type ActionType = InvertedDoublePendulumAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LocomotionSnapshot<InvertedDoublePendulumObservation>;
 
     /// Reset the environment to a freshly sampled initial state and return an
     /// opening snapshot with zero reward.
@@ -334,7 +334,7 @@ impl Environment<1, 1> for InvertedDoublePendulum {
     ///
     /// This implementation does not currently return an error; the signature
     /// is required by the `Environment` trait.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<InvertedDoublePendulumObservation>, EnvironmentError> {
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
         self.world = world;
         state.last_obs = InvertedDoublePendulumObservation::default();
@@ -355,7 +355,7 @@ impl Environment<1, 1> for InvertedDoublePendulum {
                 [obs.cart_position(), 0.0, self.config.cart_half_extents[2]],
             )
             .with_position("tip", tip);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advance the simulation by one step (or `frame_skip` Rapier substeps)
@@ -379,7 +379,7 @@ impl Environment<1, 1> for InvertedDoublePendulum {
     fn step(
         &mut self,
         action: InvertedDoublePendulumAction,
-    ) -> Result<Self::SnapshotType, EnvironmentError> {
+    ) -> Result<Snapshot<InvertedDoublePendulumObservation>, EnvironmentError> {
         // Guard first — ahead of even the finiteness check: the episode being
         // over is a fact about the *call sequence*, independent of whether the
         // action itself is well-formed, so a caller replaying a malformed action
@@ -453,7 +453,7 @@ impl Environment<1, 1> for InvertedDoublePendulum {
             .with_position("tip", tip);
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
-        let snapshot = LocomotionSnapshot {
+        let snapshot = Snapshot {
             observation: obs,
             reward: ScalarReward(total),
             status,
@@ -504,7 +504,6 @@ mod tests {
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     fn deterministic_cfg() -> InvertedDoublePendulumConfig {
         InvertedDoublePendulumConfig {
@@ -884,7 +883,7 @@ mod tests {
     /// same physics path an agent would hit.
     fn drive_to_tip_drop(
         env: &mut InvertedDoublePendulum,
-    ) -> LocomotionSnapshot<InvertedDoublePendulumObservation> {
+    ) -> Snapshot<InvertedDoublePendulumObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..FALL_STEP_CAP {
             let snap = env

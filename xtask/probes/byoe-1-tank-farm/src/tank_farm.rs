@@ -15,7 +15,7 @@
 
 use rlevo::core::action::{BoundedAction, ContinuousAction};
 use rlevo::core::base::{Action, Observation};
-use rlevo::core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo::core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo::core::episode::EpisodeGuard;
 use rlevo::core::reward::ScalarReward;
 
@@ -156,22 +156,17 @@ impl TankFarm {
 impl Environment<2, 1> for TankFarm {
     type ObservationType = TankObs;
     type ActionType = PumpCommand;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<2, TankObs, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<TankObs>, EnvironmentError> {
         self.state = TankState {
             levels: self.initial,
         };
         self.history = self.initial.map(|level| [level; HISTORY]);
         self.guard.reset();
-        Ok(SnapshotBase::running(
-            self.observe(),
-            ScalarReward::new(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward::new(0.0)))
     }
 
-    fn step(&mut self, action: PumpCommand) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: PumpCommand) -> Result<Snapshot<TankObs>, EnvironmentError> {
         // A step after the episode ended is an error and changes nothing.
         self.guard.check()?;
         // So is a command outside the pumps' range: clamping it would hide a
@@ -208,9 +203,9 @@ impl Environment<2, 1> for TankFarm {
         // An overflow is the task's own end, so the episode terminates. Nothing
         // else ends it here: a time limit is the caller's to impose.
         let snapshot = if overflow {
-            SnapshotBase::terminated(self.observe(), reward)
+            Snapshot::terminated(self.observe(), reward)
         } else {
-            SnapshotBase::running(self.observe(), reward)
+            Snapshot::running(self.observe(), reward)
         };
         self.guard.record(snapshot.status());
         Ok(snapshot)

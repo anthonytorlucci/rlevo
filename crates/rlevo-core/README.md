@@ -27,7 +27,6 @@ The primitive building blocks of the RL abstraction.
 |---|---|
 | `Observation<R>` | What the agent perceives (may be a partial view of state) |
 | `Action<R>` | Base action constraint (`is_valid()`) |
-| `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
 | `HostRow<R>` | An observation's flat `f32` row (`write_host_row`), in the shape `shape()` reports |
 | `TensorConvertible<R, B>` | With the `burn` feature: uploads a `HostRow` as a Burn tensor; implemented for every `HostRow` |
 
@@ -54,9 +53,8 @@ Layered action abstractions cover the standard taxonomy:
 | Item | Description |
 |---|---|
 | `Environment<OR, AR>` | Core trait: `reset()`, `step(action)` |
-| `Snapshot<R>` | Per-step result: `observation()`, `reward()`, `status()` |
+| `Snapshot<O>` | Per-step result returned by `reset` and `step`: observation, `ScalarReward`, status, optional metadata; named constructors `running()`, `terminated()`, `truncated()` |
 | `EpisodeStatus` | `Running \| Terminated \| Truncated` — distinguishes natural episode ends from step-limit truncations (important for value bootstrapping) |
-| `SnapshotBase<R, ObservationType, RewardType>` | Default `Snapshot` implementation with named constructors: `running()`, `terminated()`, `truncated()` |
 | `SnapshotMetadata` | Builder for named reward components and 3-D positions (visualization / debugging) |
 
 ### `episode` — Episode-Lifecycle Guard
@@ -65,7 +63,7 @@ Layered action abstractions cover the standard taxonomy:
 
 ### `reward` — Concrete Reward Types
 
-`ScalarReward(f32)` is a thin newtype implementing `Reward`. It covers the vast majority of environments. Custom reward types can implement `Reward` directly.
+`ScalarReward(f32)` is the reward every environment emits; it is a type, not a trait.
 
 ### `evaluation` — Drive Seam for Self-Paced Work
 
@@ -172,7 +170,7 @@ The example below uses `EpisodeGuard`, which is on `main` and ships with the nex
 ```rust
 use rlevo_core::{
     base::{Action, Observation, Reward, State},
-    environment::{Environment, EnvironmentError, Snapshot, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     episode::EpisodeGuard,
     reward::ScalarReward,
 };
@@ -182,20 +180,18 @@ struct MyEnv { guard: EpisodeGuard, /* ... */ }
 impl Environment<1, 1> for MyEnv {
     type ObservationType = MyObservation;
     type ActionType = MyAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, MyObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<MyObservation>, EnvironmentError> {
         self.guard.reset();
         // reset internal state, return initial snapshot
-        Ok(SnapshotBase::running(MyObservation::default(), ScalarReward::new(0.0)))
+        Ok(Snapshot::running(MyObservation::default(), ScalarReward::new(0.0)))
     }
 
-    fn step(&mut self, action: MyAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: MyAction) -> Result<Snapshot<MyObservation>, EnvironmentError> {
         // first: a step after the episode ended is an error and changes nothing
         self.guard.check()?;
         // apply action, compute reward
-        let snapshot = SnapshotBase::terminated(MyObservation::default(), ScalarReward::new(1.0));
+        let snapshot = Snapshot::terminated(MyObservation::default(), ScalarReward::new(1.0));
         self.guard.record(snapshot.status());
         Ok(snapshot)
     }
@@ -214,7 +210,7 @@ README for the API and the config-level PER opt-in.
 
 The following papers directly informed the algorithms and concepts in this crate:
 
-- Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — foundational framework for the `Environment` / `Snapshot` / `Reward` trait design and the Terminated vs. Truncated episode status distinction.
+- Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — foundational framework for the `Environment` / `Snapshot` / `ScalarReward` design and the Terminated vs. Truncated episode status distinction.
 
 - Puterman, M. L. (1994). **Markov Decision Processes: Discrete Stochastic Dynamic Programming**. Wiley [acm digital library](https://dl.acm.org/doi/10.5555/528623). — theoretical grounding for the MDP formalism the `Environment` contract follows.
 

@@ -42,7 +42,7 @@ use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 
@@ -429,13 +429,11 @@ fn blackjack_observation(state: &BlackjackState) -> BlackjackObservation {
 impl Environment<1, 1> for Blackjack {
     type ObservationType = BlackjackObservation;
     type ActionType = BlackjackAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, BlackjackObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<BlackjackObservation>, EnvironmentError> {
         self.guard.reset();
         self.deal_initial();
-        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Applies one action and settles the hand.
@@ -445,7 +443,10 @@ impl Environment<1, 1> for Blackjack {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended. The check runs before any card is drawn, so a rejected
     /// call leaves both the hands and the RNG stream untouched.
-    fn step(&mut self, action: BlackjackAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: BlackjackAction,
+    ) -> Result<Snapshot<BlackjackObservation>, EnvironmentError> {
         // Before any mutation *and* before any RNG draw: a rejected step must not
         // advance the stream, or determinism would depend on the caller's mistakes.
         self.guard.check()?;
@@ -506,9 +507,9 @@ impl Environment<1, 1> for Blackjack {
         // Build the snapshot once and record *its* status, so the guard can never
         // disagree with the snapshot the caller was handed.
         let snapshot = if done {
-            SnapshotBase::terminated(obs, ScalarReward(reward))
+            Snapshot::terminated(obs, ScalarReward(reward))
         } else {
-            SnapshotBase::running(obs, ScalarReward(reward))
+            Snapshot::running(obs, ScalarReward(reward))
         };
         self.guard.record(snapshot.status());
         Ok(snapshot)
@@ -904,7 +905,7 @@ mod tests {
     // these fixtures terminate the episode without searching for a seed.
 
     /// Drives `env` to a bust on `Hit`, returning the terminal snapshot.
-    fn bust_on_hit(env: &mut Blackjack) -> SnapshotBase<1, BlackjackObservation, ScalarReward> {
+    fn bust_on_hit(env: &mut Blackjack) -> Snapshot<BlackjackObservation> {
         env.reset().expect("reset must succeed");
         env.set_hands(vec![10, 7, 4], vec![6, 5]); // hard 21 — any card busts it
         env.step(BlackjackAction::Hit)

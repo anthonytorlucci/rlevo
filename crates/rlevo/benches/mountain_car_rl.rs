@@ -44,7 +44,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 
 use rlevo_environments::classic::{
     MountainCar, MountainCarAction, MountainCarConfig, MountainCarObservation,
@@ -245,7 +245,7 @@ fn train_ppg_agent() -> PpgMountainCarAgent {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpgMountainCarAgent =
         PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppg::<Backend_, _, _, _, _, MountainCarAction, _, 1, 2>(
+    train_ppg::<Backend_, _, _, _, _, MountainCarAction, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,

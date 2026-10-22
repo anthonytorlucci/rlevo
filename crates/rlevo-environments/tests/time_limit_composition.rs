@@ -42,7 +42,7 @@
 //! single-crate integration test, so it lives here rather than in either
 //! module's in-source `#[cfg(test)]` block.
 
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus};
 use rlevo_environments::toy_text::cliff_walking::{
     CliffWalking, CliffWalkingAction, CliffWalkingConfig,
 };

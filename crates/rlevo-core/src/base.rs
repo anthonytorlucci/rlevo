@@ -1,70 +1,13 @@
 //! Core traits for reinforcement learning abstractions.
 //!
 //! This module defines the foundational vocabulary used throughout `rlevo-core`:
-//! rewards, observations, actions, and the host row a tensor is built from. The conversion to a Burn tensor itself,
+//! observations, actions, and the host row a tensor is built from. The conversion to a Burn tensor itself,
 //! `TensorConvertible`, exists only under the `burn` feature. All other modules
 //! depend on these primitives.
 
 #[cfg(feature = "burn")]
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use std::fmt::Debug;
-
-/// A scalar reward signal emitted by an environment each step.
-///
-/// # Finiteness
-///
-/// Implementors **should** yield finite values. `Reward: Into<f32>` erases every
-/// reward to an `f32` at the framework's ingestion points, so a `NaN` or an
-/// infinity arriving there is an environment bug — not user input that some
-/// layer is expected to sanitise.
-///
-/// `rlevo-core` enforces none of this. There is no `is_finite` check on this
-/// trait, no bound that could express one, and no validation in
-/// [`ScalarReward::new`](crate::reward::ScalarReward::new) (ADR 0065 closed that
-/// question). What follows is what the framework *actually does* when the
-/// obligation is broken, and it is three different things at three places:
-///
-/// - **Dropped at replay ingestion.** The reinforcement-learning crate's reward
-///   guard (`FiniteRewardGuard`) refuses to store a transition whose reward is
-///   non-finite, counts every such drop, and logs a warning on an escalating
-///   schedule. The transition never reaches the buffer, so learning is not
-///   poisoned. (ADR 0065.)
-/// - **Transited, deliberately, by the reported score.** Episode return
-///   accumulates the raw value, so an affected episode reports a non-finite
-///   return and `AgentStats::avg_score` transits it rather than sanitising it.
-///   This is intentional: a non-finite return is a true statement about a run
-///   whose environment emitted a non-finite reward, and hiding it would make the
-///   bug harder to find, not rarer. (ADR 0065 and ADR 0070.)
-/// - **Counted and reported by the evaluation harness.** The evaluator
-///   accumulates raw (matching the above), logs a warning, and records a
-///   `return/non_finite_steps` counter on the trial report. (ADR 0078.)
-///
-/// ## Both signs corrupt a report, and neither announces itself
-///
-/// This is not a `NaN`-only hazard. For trial returns `[1, 5, X, 20, 100]` with a
-/// success threshold of `10`, the harness's own aggregates come out as:
-///
-/// | `X`     | mean | median | std   | min | max   | success rate |
-/// | ------- | ---- | ------ | ----- | --- | ----- | ------------ |
-/// | finite  | 27.0 | 9.0    | 41.42 | 1   | 100   | 0.40         |
-/// | `NaN`   | NaN  | 20.0   | NaN   | 1   | 100   | 0.40         |
-/// | `+inf`  | inf  | 20.0   | NaN   | 1   | inf   | 0.60         |
-///
-/// `NaN` is scored as a *failure* the agent may not have earned; `+inf` is scored
-/// as a *success* it certainly did not, and poisons `max` besides. In both cases
-/// the median silently shifts (9.0 to 20.0) while min stays finite-looking, so a
-/// report can present a poisoned aggregate next to plausible order statistics
-/// with no single tell. Treat a non-finite reward as a defect to fix upstream in
-/// the environment, not as a condition to detect downstream.
-///
-/// The enforcement that does exist lives at the points where the reward has
-/// already been erased to `f32` — by then the type that produced it is gone, and
-/// with it any chance of a useful diagnostic. This section is the obligation;
-/// meeting it is the implementor's job.
-pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
-    /// Returns the additive identity for this reward type (typically `0.0`).
-    fn zero() -> Self;
-}
 
 /// The `Observation` trait defines how an agent perceives the world. It
 /// represents something that can be observed from the environment.
@@ -88,8 +31,8 @@ pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
 ///
 /// Concrete observation types are still expected to derive `Serialize` /
 /// `Deserialize` (`docs/rules.md` §8) — this removes a universal *obligation*,
-/// not the capability. `Action` and `Reward` are likewise deliberately
-/// serde-free. (ADR 0064.)
+/// not the capability. `Action` is likewise deliberately serde-free.
+/// (ADR 0064.)
 pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
     /// Returns the size of each axis in this observation space.
     ///
@@ -377,199 +320,6 @@ mod tests {
         };
         assert_eq!(SerdeFreeObservation::shape(), [2, 2]);
         assert_eq!(obs.clone(), obs);
-    }
-
-    /// Simple scalar reward implementation for testing
-    #[derive(Clone, Debug, PartialEq)]
-    struct TestReward(f32);
-
-    impl Reward for TestReward {
-        fn zero() -> Self {
-            TestReward(0.0)
-        }
-    }
-
-    impl std::ops::Add for TestReward {
-        type Output = Self;
-
-        fn add(self, other: Self) -> Self {
-            TestReward(self.0 + other.0)
-        }
-    }
-
-    impl From<TestReward> for f32 {
-        fn from(reward: TestReward) -> f32 {
-            reward.0
-        }
-    }
-
-    // ===== Basic Reward Trait Tests =====
-
-    /// Test that `zero()` creates a neutral element for addition
-    #[test]
-    fn test_reward_zero_is_additive_identity() {
-        let zero = TestReward::zero();
-        let reward = TestReward(42.5);
-
-        // zero + reward should equal reward
-        let result = zero.clone() + reward.clone();
-        assert_eq!(result, reward);
-
-        // reward + zero should equal reward
-        let result = reward.clone() + zero.clone();
-        assert_eq!(result, reward);
-    }
-
-    /// Test that rewards can be added together
-    #[test]
-    fn test_reward_addition() {
-        let reward1 = TestReward(10.0);
-        let reward2 = TestReward(25.5);
-        let result = reward1 + reward2;
-
-        assert_eq!(result, TestReward(35.5));
-    }
-
-    /// Test that negative rewards can be added
-    #[test]
-    fn test_reward_negative_addition() {
-        let positive = TestReward(100.0);
-        let negative = TestReward(-30.0);
-        let result = positive + negative;
-
-        assert_eq!(result, TestReward(70.0));
-    }
-
-    /// Test that rewards can be converted to f32
-    #[test]
-    fn test_reward_into_f32() {
-        let reward = TestReward(42.5);
-        let as_f32: f32 = reward.into();
-
-        assert_eq!(as_f32, 42.5);
-    }
-
-    /// Test that zero reward converts to 0.0
-    #[test]
-    fn test_reward_zero_into_f32() {
-        let zero = TestReward::zero();
-        let as_f32: f32 = zero.into();
-
-        assert_eq!(as_f32, 0.0);
-    }
-
-    /// Test that rewards are cloneable
-    #[test]
-    fn test_reward_clone() {
-        let original = TestReward(123.456);
-        let cloned = original.clone();
-
-        assert_eq!(original, cloned);
-    }
-
-    /// Test that rewards implement Debug
-    #[test]
-    fn test_reward_debug() {
-        let reward = TestReward(42.0);
-        let debug_str = format!("{reward:?}");
-
-        assert!(!debug_str.is_empty(), "debug_str must not be empty");
-        assert!(debug_str.contains("TestReward"));
-    }
-
-    // ===== Arithmetic Properties Tests =====
-
-    /// Test accumulated reward through chained additions
-    #[test]
-    fn test_reward_accumulation() {
-        let mut accumulated = TestReward::zero();
-        let rewards = vec![TestReward(10.0), TestReward(20.0), TestReward(15.0)];
-
-        for reward in rewards {
-            accumulated = accumulated + reward;
-        }
-
-        assert_eq!(accumulated, TestReward(45.0));
-    }
-
-    /// Test reward trait with floating point precision
-    #[test]
-    fn test_reward_floating_point_precision() {
-        let r1 = TestReward(0.1);
-        let r2 = TestReward(0.2);
-        let result = r1 + r2;
-
-        // Account for floating point imprecision
-        let expected = 0.3;
-        let as_f32: f32 = result.into();
-        assert!((as_f32 - expected).abs() < 1e-6);
-    }
-
-    /// Test addition associativity: (a + b) + c == a + (b + c)
-    #[test]
-    fn test_reward_addition_associativity() {
-        let r1 = TestReward(5.0);
-        let r2 = TestReward(10.0);
-        let r3 = TestReward(15.0);
-
-        let left = (r1.clone() + r2.clone()) + r3.clone();
-        let right = r1 + (r2 + r3);
-
-        assert_eq!(left, right);
-    }
-
-    /// Test addition commutativity: a + b == b + a
-    #[test]
-    fn test_reward_addition_commutativity() {
-        let r1 = TestReward(7.5);
-        let r2 = TestReward(12.5);
-
-        let left = r1.clone() + r2.clone();
-        let right = r2 + r1;
-
-        assert_eq!(left, right);
-    }
-
-    // ===== Special Values Tests =====
-
-    /// Test reward arithmetic with large values
-    #[test]
-    fn test_reward_large_values() {
-        let large1 = TestReward(1e6);
-        let large2 = TestReward(1e6);
-
-        let result = large1 + large2;
-        let result_f32: f32 = result.into();
-
-        assert_eq!(result_f32, 2e6);
-    }
-
-    /// Test reward arithmetic with small values
-    #[test]
-    fn test_reward_small_values() {
-        let small1 = TestReward(1e-6);
-        let small2 = TestReward(1e-6);
-
-        let result = small1 + small2;
-        let result_f32: f32 = result.into();
-
-        assert!((result_f32 - 2e-6).abs() < 1e-7);
-    }
-
-    /// Test mixed positive and negative rewards
-    #[test]
-    fn test_reward_mixed_signs() {
-        let positive = TestReward(10.0);
-        let negative = TestReward(-5.0);
-
-        let pos_then_neg = positive.clone() + negative.clone();
-        let pos_then_neg_f32: f32 = pos_then_neg.into();
-
-        let neg_then_pos = negative.clone() + positive.clone();
-        let neg_then_pos_f32: f32 = neg_then_pos.into();
-
-        assert_eq!(pos_then_neg_f32, 5.0);
-        assert_eq!(neg_then_pos_f32, 5.0);
     }
 
     // ========================================================================

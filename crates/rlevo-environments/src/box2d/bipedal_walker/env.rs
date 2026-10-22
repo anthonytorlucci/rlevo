@@ -21,7 +21,7 @@ use rand::rngs::StdRng;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -512,8 +512,6 @@ impl BipedalWalker {
 impl Environment<1, 1> for BipedalWalker {
     type ObservationType = BipedalWalkerObservation;
     type ActionType = BipedalWalkerAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, BipedalWalkerObservation, ScalarReward>;
 
     /// Rebuild the physics world, reset counters, and return the initial
     /// observation with reward 0 and status `Running`.
@@ -531,7 +529,7 @@ impl Environment<1, 1> for BipedalWalker {
     /// *old* physics world — the environment would happily step a state it never
     /// returned to its initial condition (ADR 0044 §6, the same rule
     /// `TimeLimit::reset` follows).
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<BipedalWalkerObservation>, EnvironmentError> {
         self.rebuild_world()?;
         self.guard.reset();
         self.steps = 0;
@@ -546,7 +544,7 @@ impl Environment<1, 1> for BipedalWalker {
             self.state.is_valid(),
             "BipedalWalkerState invariant violated after reset"
         );
-        Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)))
     }
 
     /// Advance the simulation by one timestep and return the resulting snapshot.
@@ -557,7 +555,10 @@ impl Environment<1, 1> for BipedalWalker {
     /// already ended; call [`reset`](Environment::reset) first. Returns
     /// [`EnvironmentError::InvalidAction`] if any component of `action` is
     /// outside `[-1, 1]` or is non-finite.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<BipedalWalkerObservation>, EnvironmentError> {
         // Guard first — ahead of even the action-validity check: the episode
         // being over is a fact about the *call sequence*, independent of whether
         // the action itself is well-formed, so the caller must hear about the
@@ -614,7 +615,7 @@ impl Environment<1, 1> for BipedalWalker {
         let final_reward = if hull_down { reward - 100.0 } else { reward };
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
-        let snapshot = SnapshotBase {
+        let snapshot = Snapshot {
             observation: obs,
             reward: ScalarReward(final_reward),
             status,
@@ -714,7 +715,6 @@ mod tests {
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     /// Creates a default flat-terrain environment for use in tests.
     fn make_env() -> BipedalWalker {
@@ -1096,9 +1096,7 @@ mod tests {
     /// unactuated walker topples and the hull contacts the ground. The episode
     /// ends through the genuine physics path an agent would hit, not by writing
     /// state directly.
-    fn drive_to_fall(
-        env: &mut BipedalWalker,
-    ) -> SnapshotBase<1, BipedalWalkerObservation, ScalarReward> {
+    fn drive_to_fall(env: &mut BipedalWalker) -> Snapshot<BipedalWalkerObservation> {
         env.reset().expect("reset must succeed");
         for _ in 0..FALL_STEP_CAP {
             let snap = env

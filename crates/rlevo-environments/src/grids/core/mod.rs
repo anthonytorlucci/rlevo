@@ -14,7 +14,7 @@
 //! The observation is the one block that is not universal:
 //! [`GoToDoorEnv`](crate::grids::go_to_door::GoToDoorEnv) is goal-conditioned and emits a
 //! `$7 \times 7 \times 4$` view whose fourth channel carries the episode mission, so it uses
-//! neither [`GridObservation`] nor [`GridSnapshot`]. Everything else on this list — grid, agent,
+//! neither [`GridObservation`] nor its `Snapshot<GridObservation>`. Everything else on this list — grid, agent,
 //! actions, dynamics — it shares. See ADR 0043 (`docs/adr/0043-grid-observation-contract.md`).
 //!
 //! What an observation carries is the masked window **plus the carried item
@@ -71,26 +71,8 @@ pub use reward::success_reward;
 pub use state::GridState;
 
 use grid::{egocentric_view, stamp_carried};
-use rlevo_core::environment::SnapshotBase;
+use rlevo_core::environment::Snapshot;
 use rlevo_core::reward::ScalarReward;
-
-/// Canonical snapshot type produced by the
-/// [`Environment::step`](rlevo_core::environment::Environment::step) of every
-/// grid environment **except
-/// [`GoToDoorEnv`](crate::grids::go_to_door::GoToDoorEnv)**.
-///
-/// Those envs pair the shared 3-D [`GridObservation`] (`[7, 7, 3]`) with a
-/// scalar reward, so this alias saves typing in every per-env `impl`.
-///
-/// `GoToDoorEnv` is the one exception: it is goal-conditioned, so it carries the
-/// mission colour in a fourth observation channel
-/// ([`GoToDoorObservation`](crate::grids::go_to_door::GoToDoorObservation),
-/// `[7, 7, 4]`) and emits a
-/// [`GoToDoorSnapshot`](crate::grids::go_to_door::GoToDoorSnapshot) instead. The
-/// rank stays 3, so its `Environment<3, 1>` bound is unchanged; only the
-/// channel count differs. ADR 0043 (`docs/adr/0043-grid-observation-contract.md`)
-/// records why the shared observation was not widened for all twelve envs.
-pub type GridSnapshot = SnapshotBase<3, GridObservation, ScalarReward>;
 
 /// Per-environment emission-model policy: does the agent see through opaque
 /// cells?
@@ -209,22 +191,26 @@ pub(super) fn mask_view(
     stamp_carried(masked, agent)
 }
 
-/// Build a [`GridSnapshot`] from an already-produced [`GridObservation`] plus a
+/// Build a `Snapshot<GridObservation>` from an already-produced [`GridObservation`] plus a
 /// raw reward and done flag.
 ///
 /// The observation is passed in rather than projected here so that the
 /// [`Visibility`] decision stays with the environment that owns it; callers
 /// produce it with [`observe_grid`].
 ///
-/// Every env whose snapshot is a [`GridSnapshot`] routes its `step()` through
-/// here; `GoToDoorEnv` builds its own [`SnapshotBase`] because its observation
-/// needs the episode mission (see the [`GridSnapshot`] docs and ADR 0043).
+/// Every env whose snapshot is a `Snapshot<GridObservation>` routes its `step()` through
+/// here; `GoToDoorEnv` builds its own [`Snapshot`] because its observation
+/// needs the episode mission (see ADR 0043).
 #[must_use]
-pub fn build_snapshot(observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+pub fn build_snapshot(
+    observation: GridObservation,
+    reward: f32,
+    done: bool,
+) -> Snapshot<GridObservation> {
     if done {
-        SnapshotBase::terminated(observation, ScalarReward::new(reward))
+        Snapshot::terminated(observation, ScalarReward::new(reward))
     } else {
-        SnapshotBase::running(observation, ScalarReward::new(reward))
+        Snapshot::running(observation, ScalarReward::new(reward))
     }
 }
 

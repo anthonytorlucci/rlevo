@@ -149,7 +149,7 @@ use rlevo_core::{
     action::DiscreteAction,
     base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -672,7 +672,7 @@ impl<D: AcrobotDynamicsFn + Default> Acrobot<D> {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, AcrobotObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<AcrobotObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -784,8 +784,6 @@ fn acrobot_observation(state: &AcrobotState) -> AcrobotObservation {
 impl<D: AcrobotDynamicsFn + Default> Environment<1, 1> for Acrobot<D> {
     type ObservationType = AcrobotObservation;
     type ActionType = AcrobotAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, AcrobotObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -797,11 +795,11 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1> for Acrobot<D> {
     /// # Errors
     ///
     /// Currently infallible; returns `Ok` in all cases.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<AcrobotObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -816,7 +814,10 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1> for Acrobot<D> {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode already
     /// ended; call [`reset`](Environment::reset) first. No other failure is
     /// possible.
-    fn step(&mut self, action: AcrobotAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: AcrobotAction,
+    ) -> Result<Snapshot<AcrobotObservation>, EnvironmentError> {
         // Guard first: before the state integrates and — critically — before the
         // torque-noise draw below, which consumes from `self.rng` whenever
         // `torque_noise_max > 0`. A rejected call must leave both the physical
@@ -844,9 +845,9 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1> for Acrobot<D> {
         // Single exit: both branches build exactly one snapshot, and the guard is
         // fed that snapshot's own status, so no branch can forget to record.
         let snap = if terminated {
-            SnapshotBase::terminated(obs, ScalarReward(0.0))
+            Snapshot::terminated(obs, ScalarReward(0.0))
         } else {
-            SnapshotBase::running(obs, ScalarReward(-1.0))
+            Snapshot::running(obs, ScalarReward(-1.0))
         };
 
         self.guard.record(snap.status);
@@ -970,7 +971,6 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::environment::Snapshot;
 
     type DefaultAcrobot = Acrobot<BookDynamics>;
 
@@ -981,9 +981,7 @@ mod tests {
     /// in the direction the elbow is already turning — which drives the real
     /// dynamics through `step()` rather than hand-placing a terminal state, so
     /// the termination the guard records is one the environment produced itself.
-    fn swing_up_to_terminal(
-        env: &mut DefaultAcrobot,
-    ) -> SnapshotBase<1, AcrobotObservation, ScalarReward> {
+    fn swing_up_to_terminal(env: &mut DefaultAcrobot) -> Snapshot<AcrobotObservation> {
         const MAX_STEPS: usize = 2_000;
 
         env.reset().expect("reset must succeed");

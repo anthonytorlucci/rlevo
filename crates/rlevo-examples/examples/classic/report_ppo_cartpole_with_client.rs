@@ -62,7 +62,6 @@ use rlevo_harness::record::{
 use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 
 use rlevo_core::environment::Environment;
-use rlevo_core::reward::ScalarReward;
 
 use rlevo_environments::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
@@ -286,7 +285,7 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 /// all.
 ///
 /// The const generics `<1, 1>` and the turbofish in
-/// `train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>` encode
+/// `train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>` encode
 /// type-level facts:
 /// - observation rank `1` and action rank `1`
 /// - `2` at the end, the batched observation rank (`OR + 1`)
@@ -303,15 +302,9 @@ pub fn train<E>(
     total_timesteps: usize,
 ) -> Result<(), PpoAgentError>
 where
-    E: Environment<
-            1,
-            1,
-            ObservationType = CartPoleObservation,
-            ActionType = CartPoleAction,
-            RewardType = ScalarReward,
-        >,
+    E: Environment<1, 1, ObservationType = CartPoleObservation, ActionType = CartPoleAction>,
 {
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         agent,
         env,
         rng,

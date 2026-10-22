@@ -34,9 +34,9 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
-use rlevo_core::base::{Action, HostRow, Observation, Reward};
+use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -438,8 +438,6 @@ impl<const C: usize, const K: usize> ContextualBandit<C, K> {
 impl<const C: usize, const K: usize> Environment<1, 1> for ContextualBandit<C, K> {
     type ObservationType = ContextualBanditObservation<C>;
     type ActionType = KArmedBanditAction<K>;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, ContextualBanditObservation<C>, ScalarReward>;
 
     /// Reset episode state and reveal a fresh first context.
     ///
@@ -449,11 +447,11 @@ impl<const C: usize, const K: usize> Environment<1, 1> for ContextualBandit<C, K
     /// vary independently each episode (host-RNG seeding convention,
     /// `docs/rules.md` §8). For a reproducible problem, construct with a fixed
     /// seed.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<ContextualBanditObservation<C>>, EnvironmentError> {
         self.guard.reset();
         self.state.context = self.rng.random_range(0..C);
         self.steps = 0;
-        Ok(SnapshotBase::running(self.observe(), ScalarReward::zero()))
+        Ok(Snapshot::running(self.observe(), ScalarReward::default()))
     }
 
     /// # Errors
@@ -463,7 +461,10 @@ impl<const C: usize, const K: usize> Environment<1, 1> for ContextualBandit<C, K
     /// before the reward draw or the next-context draw, so a rejected call
     /// advances neither the environment nor its RNG stream. Returns
     /// [`EnvironmentError::InvalidAction`] when the arm index is out of range.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<ContextualBanditObservation<C>>, EnvironmentError> {
         self.guard.check()?;
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -478,9 +479,9 @@ impl<const C: usize, const K: usize> Environment<1, 1> for ContextualBandit<C, K
         self.state.context = self.rng.random_range(0..C);
         let obs = self.observe();
         let snap = if self.steps >= self.config.max_steps {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
         self.guard.record(snap.status());
         Ok(snap)
@@ -711,7 +712,7 @@ mod tests {
     /// Resets, then steps arm 0 until the step budget terminates the episode.
     fn drive_to_termination(
         env: &mut ContextualBandit<C, K>,
-    ) -> SnapshotBase<1, ContextualBanditObservation<C>, ScalarReward> {
+    ) -> Snapshot<ContextualBanditObservation<C>> {
         <ContextualBandit<C, K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <ContextualBandit<C, K> as Environment<1, 1>>::step(env, action)

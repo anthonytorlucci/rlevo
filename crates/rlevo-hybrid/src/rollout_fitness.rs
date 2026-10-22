@@ -45,7 +45,7 @@ use std::sync::Arc;
 use burn::module::Module;
 use burn::tensor::{Tensor, backend::Backend};
 
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::module_eval_fn::ModuleEvalFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
@@ -93,7 +93,7 @@ where
         }
         let action = StatefulPolicy::act(module, &mut hidden, snapshot.observation(), device);
         snapshot = env.step(action).expect("environment step failed");
-        let reward: f32 = snapshot.reward().clone().into();
+        let reward: f32 = snapshot.reward().value();
         total += reward;
     }
     total

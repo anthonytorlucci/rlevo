@@ -44,9 +44,9 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::base::{Action, Reward};
+use rlevo_core::base::Action;
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
@@ -286,19 +286,17 @@ impl<const K: usize> Default for AdversarialBandit<K> {
 impl<const K: usize> Environment<1, 1> for AdversarialBandit<K> {
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
 
     /// Reset episode state. The per-arm phase offsets (the fixed reward
     /// schedule) are sampled once at construction and preserved; the reward is
     /// deterministic in the step index, so every episode replays the same
     /// schedule by design (host-RNG seeding convention, `docs/rules.md` §8).
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<KArmedBanditObservation>, EnvironmentError> {
         self.guard.reset();
         self.steps = 0;
-        Ok(SnapshotBase::running(
+        Ok(Snapshot::running(
             KArmedBanditObservation,
-            ScalarReward::zero(),
+            ScalarReward::default(),
         ))
     }
 
@@ -309,7 +307,10 @@ impl<const K: usize> Environment<1, 1> for AdversarialBandit<K> {
     /// rejected call leaves the environment untouched and the reward schedule
     /// un-advanced. Returns [`EnvironmentError::InvalidAction`] when the arm
     /// index is out of range.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<KArmedBanditObservation>, EnvironmentError> {
         self.guard.check()?;
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -321,9 +322,9 @@ impl<const K: usize> Environment<1, 1> for AdversarialBandit<K> {
         self.steps += 1;
         let obs = KArmedBanditObservation;
         let snap = if self.steps >= self.config.max_steps {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
         self.guard.record(snap.status());
         Ok(snap)
@@ -504,9 +505,7 @@ mod tests {
     }
 
     /// Resets, then steps arm 0 until the step budget terminates the episode.
-    fn drive_to_termination(
-        env: &mut AdversarialBandit<K>,
-    ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
+    fn drive_to_termination(env: &mut AdversarialBandit<K>) -> Snapshot<KArmedBanditObservation> {
         <AdversarialBandit<K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <AdversarialBandit<K> as Environment<1, 1>>::step(env, action)

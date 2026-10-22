@@ -228,7 +228,7 @@
 //! [`Color::Green`]: super::core::color::Color::Green
 
 use super::core::{
-    GridSnapshot, VIEW_SIZE, Visibility,
+    VIEW_SIZE, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -248,7 +248,6 @@ use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -558,7 +557,7 @@ impl FromStr for MemoryConfig {
 /// way to score above chance is to remember the cue.
 ///
 /// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`]
-/// / [`ScalarReward`].
+/// / [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// The episode ends on the first [`GridAction::Done`] (or at the step budget);
 /// a [`step`](Environment::step) taken afterwards is rejected with
@@ -693,7 +692,10 @@ impl MemoryEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -810,7 +812,12 @@ impl MemoryEnv {
         (GridState::new(grid, agent), cue, match_pos)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -868,8 +875,6 @@ impl MemoryEnv {
 impl Environment<3, 1> for MemoryEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Samples a fresh episode from the **persistent** RNG.
     ///
@@ -877,7 +882,7 @@ impl Environment<3, 1> for MemoryEnv {
     /// doing so would replay a bit-identical cue every episode and hand any
     /// reactive policy the answer for free. Use
     /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (state, cue, match_pos) = Self::build(self.layout, &mut self.rng);
         self.state = state;
@@ -895,7 +900,10 @@ impl Environment<3, 1> for MemoryEnv {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended — the agent has answered, or the step budget ran out. Call
     /// [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before the action is applied,
         // and before anything can touch `self.rng`. A rejected call must leave
         // the grid, the agent, and the step counter untouched — and must not
@@ -961,7 +969,7 @@ mod tests {
 
     /// Walk East from the start cell to the fork junction `(fork_x, mid)`.
     /// Returns the snapshot observed *at* the junction, still facing East.
-    fn drive_to_junction(env: &mut MemoryEnv) -> GridSnapshot {
+    fn drive_to_junction(env: &mut MemoryEnv) -> Snapshot<GridObservation> {
         let steps = env.layout.fork_x - env.layout.start_pos().0;
         let mut last = None;
         for _ in 0..steps {
@@ -1949,7 +1957,7 @@ mod tests {
     /// mislabels the value-function bootstrap target: a truncated episode
     /// still has future value, a true terminal has none (`docs/rules.md`
     /// §10, `EpisodeStatus`).
-    fn drive_to_commit(env: &mut MemoryEnv, correct: bool) -> GridSnapshot {
+    fn drive_to_commit(env: &mut MemoryEnv, correct: bool) -> Snapshot<GridObservation> {
         env.reset().expect("reset");
         drive_to_junction(env);
         let turn = match (oracle_turn(env), correct) {

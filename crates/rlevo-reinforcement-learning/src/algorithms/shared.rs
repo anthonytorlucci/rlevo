@@ -712,8 +712,8 @@ impl FiniteLossGuard {
 /// poisoned *loss*, never the poisoned reward that produced it.
 ///
 /// [`admit`](Self::admit) closes that at the ingestion boundary: `remember`
-/// takes an already-erased `f32`, so this is the one chokepoint every reward
-/// type in the workspace passes through, whatever [`Reward`] impl produced it.
+/// takes the reward as an `f32`, so this is the one chokepoint every
+/// environment's reward passes through.
 /// A non-finite value is **discarded, not stored** — the transition never enters
 /// the buffer, so no later minibatch can be poisoned by it.
 ///
@@ -740,7 +740,6 @@ impl FiniteLossGuard {
 /// One guard instance owns one ingestion site, mirroring the one-guard-per-loss
 /// site rule above.
 ///
-/// [`Reward`]: rlevo_core::base::Reward
 pub(crate) struct FiniteRewardGuard {
     /// Running count of transitions discarded for a non-finite reward.
     dropped: u64,

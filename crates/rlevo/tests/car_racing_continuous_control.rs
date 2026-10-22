@@ -34,7 +34,7 @@ use rand::rngs::StdRng;
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::box2d::car_racing::{
     CarRacing, CarRacingAction, CarRacingConfig, CarRacingObservation,
 };

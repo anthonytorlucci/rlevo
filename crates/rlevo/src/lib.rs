@@ -2,7 +2,7 @@
 //!
 //! # Modules
 //!
-//! - [`core`] — foundational traits: `Environment`, `Observation`, `Action`, `Reward`, `TensorConvertible`
+//! - [`core`] — foundational traits and types: `Environment`, `Observation`, `Action`, `Snapshot`, `ScalarReward`, `TensorConvertible`
 //! - [`envs`] — benchmark environments: classic control, gridworlds, `Box2D` physics, locomotion
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay and metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, CMA-ES, DE, EP, GP, swarm metaheuristics, EDAs, memetic, neuroevolution, co-evolution
@@ -72,14 +72,13 @@ pub use burn;
 ///
 /// **Core base traits** (`rlevo::core::base`):
 /// [`Observation`](core::base::Observation),
-/// [`Action`](core::base::Action), [`Reward`](core::base::Reward),
+/// [`Action`](core::base::Action),
 /// [`HostRow`](core::base::HostRow),
 /// [`TensorConvertible`](core::base::TensorConvertible)
 ///
 /// **Environment** (`rlevo::core::environment`):
 /// [`Environment`](core::environment::Environment),
 /// [`Snapshot`](core::environment::Snapshot),
-/// [`SnapshotBase`](core::environment::SnapshotBase),
 /// [`EpisodeStatus`](core::environment::EpisodeStatus),
 /// [`EnvironmentError`](core::environment::EnvironmentError)
 ///
@@ -101,12 +100,10 @@ pub use burn;
 /// [`Population`](evo::population::Population)
 pub mod prelude {
     // Base traits
-    pub use rlevo_core::base::{Action, HostRow, Observation, Reward, TensorConvertible};
+    pub use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
 
     // Environment protocol
-    pub use rlevo_core::environment::{
-        Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
-    };
+    pub use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 
     // Reward
     pub use rlevo_core::reward::ScalarReward;

@@ -11,6 +11,7 @@
 //! smoke-tests it. The module is compiled for tests only.
 
 use rlevo_core::environment::EnvironmentError;
+use rlevo_core::environment::Snapshot;
 
 /// Asserts that `env` rejects a `step()` taken after its episode has ended.
 ///
@@ -38,10 +39,8 @@ pub(crate) fn assert_rejects_post_terminal_step<const R: usize, const AR: usize,
     replay_action: E::ActionType,
 ) where
     E: rlevo_core::environment::Environment<R, AR>,
-    F: FnOnce(&mut E) -> E::SnapshotType,
+    F: FnOnce(&mut E) -> Snapshot<E::ObservationType>,
 {
-    use rlevo_core::environment::Snapshot;
-
     let terminal = drive_to_done(env);
     let ended = terminal.status();
     assert!(
@@ -66,7 +65,7 @@ mod tests {
     use super::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::{Action, Observation};
-    use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+    use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
     use rlevo_core::episode::EpisodeGuard;
     use rlevo_core::reward::ScalarReward;
     use serde::{Deserialize, Serialize};
@@ -147,24 +146,25 @@ mod tests {
     impl Environment<1, 1> for MockGuardedEnv {
         type ObservationType = MockObservation;
         type ActionType = MockAction;
-        type RewardType = ScalarReward;
-        type SnapshotType = SnapshotBase<1, MockObservation, ScalarReward>;
 
-        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn reset(&mut self) -> Result<Snapshot<MockObservation>, EnvironmentError> {
             self.guard.reset();
             self.state = MockState { steps: 0 };
-            Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+            Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
         }
 
-        fn step(&mut self, _action: MockAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn step(
+            &mut self,
+            _action: MockAction,
+        ) -> Result<Snapshot<MockObservation>, EnvironmentError> {
             self.guard.check()?;
 
             self.state.steps += 1;
             let obs = self.observe();
             let snapshot = if self.state.steps >= Self::TERMINAL_STEP {
-                SnapshotBase::terminated(obs, ScalarReward(1.0))
+                Snapshot::terminated(obs, ScalarReward(1.0))
             } else {
-                SnapshotBase::running(obs, ScalarReward(0.0))
+                Snapshot::running(obs, ScalarReward(0.0))
             };
 
             self.guard.record(snapshot.status());

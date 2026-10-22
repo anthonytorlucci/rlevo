@@ -81,7 +81,7 @@
 //! [`UnlockPickupEnv`]: https://minigrid.farama.org/environments/minigrid/UnlockPickupEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     build_snapshot,
     color::Color,
@@ -100,7 +100,6 @@ use rand::{Rng, RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -306,7 +305,7 @@ struct Layout {
 /// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 ///
 /// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
-/// [`ScalarReward`].
+/// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// # Examples
 ///
@@ -439,7 +438,10 @@ impl UnlockPickupEnv {
     /// assert_eq!(board, env.ascii());
     /// assert_eq!(target, env.target());
     /// ```
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -580,7 +582,12 @@ impl UnlockPickupEnv {
         ))
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -638,8 +645,6 @@ impl UnlockPickupEnv {
 impl Environment<3, 1> for UnlockPickupEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Draws a fresh layout from the persistent stream and re-derives every
     /// value that depends on it.
@@ -660,7 +665,7 @@ impl Environment<3, 1> for UnlockPickupEnv {
     /// even though the environment never returned to an initial state, leaving
     /// `step()` willing to run on the stale terminal board — the very board that
     /// still has the target box in the agent's hands.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         let (state, layout) = Self::build(&self.config, &mut self.rng)?;
         self.guard.reset();
         self.state = state;
@@ -676,7 +681,10 @@ impl Environment<3, 1> for UnlockPickupEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before `apply_action` touches the
         // grid or the agent's hands, and before anything could draw from the
         // persistent stream. A rejected call must leave the environment
@@ -1385,7 +1393,7 @@ mod tests {
     }
 
     /// Drive `plan` through the public `step` API and return the last snapshot.
-    fn run(env: &mut UnlockPickupEnv, plan: &[GridAction]) -> GridSnapshot {
+    fn run(env: &mut UnlockPickupEnv, plan: &[GridAction]) -> Snapshot<GridObservation> {
         let mut last = None;
         for &action in plan {
             last = Some(env.step(action).expect("step"));
@@ -1717,7 +1725,7 @@ mod tests {
     /// The route is planned from the board the env actually drew — seed 3's
     /// layout, the same one `a_planned_rollout_takes_the_key_then_the_box`
     /// solves — because a sampled layout has no fixed action script.
-    fn drive_to_box_pickup(env: &mut UnlockPickupEnv) -> GridSnapshot {
+    fn drive_to_box_pickup(env: &mut UnlockPickupEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(3).expect("reset");
         let target = env.target();
         let route = plan(env.state(), &|agent| agent.carrying == Some(target))

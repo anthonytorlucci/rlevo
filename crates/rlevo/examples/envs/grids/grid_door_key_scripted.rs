@@ -27,7 +27,7 @@
 //! cargo run -p rlevo --example grid_door_key_scripted
 //! ```
 
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::grids::core::GridAction;
 use rlevo_environments::grids::{DoorKeyConfig, DoorKeyEnv};
 

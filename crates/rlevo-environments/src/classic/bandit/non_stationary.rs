@@ -35,9 +35,9 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
-use rlevo_core::base::{Action, Reward};
+use rlevo_core::base::Action;
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -269,8 +269,6 @@ impl<const K: usize> Default for NonStationaryBandit<K> {
 impl<const K: usize> Environment<1, 1> for NonStationaryBandit<K> {
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
 
     /// Reset episode state and restore the drifting arm means to their fixed
     /// construction baseline.
@@ -280,13 +278,13 @@ impl<const K: usize> Environment<1, 1> for NonStationaryBandit<K> {
     /// realisations advance independently each episode (host-RNG seeding
     /// convention, `docs/rules.md` §8). For a reproducible problem, construct
     /// with a fixed seed.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<KArmedBanditObservation>, EnvironmentError> {
         self.guard.reset();
         self.arm_means = self.initial_arm_means;
         self.steps = 0;
-        Ok(SnapshotBase::running(
+        Ok(Snapshot::running(
             KArmedBanditObservation,
-            ScalarReward::zero(),
+            ScalarReward::default(),
         ))
     }
 
@@ -297,7 +295,10 @@ impl<const K: usize> Environment<1, 1> for NonStationaryBandit<K> {
     /// before the reward draw or the random-walk drift, so a rejected call
     /// advances neither the arm means nor the RNG stream. Returns
     /// [`EnvironmentError::InvalidAction`] when the arm index is out of range.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<KArmedBanditObservation>, EnvironmentError> {
         self.guard.check()?;
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -310,9 +311,9 @@ impl<const K: usize> Environment<1, 1> for NonStationaryBandit<K> {
         self.steps += 1;
         let obs = KArmedBanditObservation;
         let snap = if self.steps >= self.config.max_steps {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
         self.guard.record(snap.status());
         Ok(snap)
@@ -426,9 +427,7 @@ mod tests {
     }
 
     /// Resets, then steps arm 0 until the step budget terminates the episode.
-    fn drive_to_termination(
-        env: &mut NonStationaryBandit<K>,
-    ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
+    fn drive_to_termination(env: &mut NonStationaryBandit<K>) -> Snapshot<KArmedBanditObservation> {
         <NonStationaryBandit<K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)

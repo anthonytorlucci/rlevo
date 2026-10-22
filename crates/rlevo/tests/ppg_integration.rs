@@ -138,7 +138,7 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, 128, total, 32);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -163,7 +163,7 @@ fn ppg_without_aux_phase_matches_ppo_baseline() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, 10_000);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -215,7 +215,7 @@ fn ppg_aux_phase_actually_runs() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, n_iteration);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -278,7 +278,7 @@ fn ppg_cartpole_produces_finite_rewards() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, 4);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -324,7 +324,7 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
         &mut agent, &mut env, &mut rng, TOTAL, 0,
     )
     .expect("training");
@@ -471,7 +471,7 @@ fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
         let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
-        train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
+        train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
             &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
         )
         .expect("training");

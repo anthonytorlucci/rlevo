@@ -31,9 +31,9 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, Observation, Reward};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -384,7 +384,7 @@ impl<const K: usize> KArmedBandit<K> {
     ///
     /// It is a non-trait entry point and returns no snapshot. Prefer the
     /// [`Environment::reset`] trait method for new code — it returns a
-    /// [`SnapshotBase`] for composition with wrappers, and it is the method
+    /// [`Snapshot`] for composition with wrappers, and it is the method
     /// generic code, the evaluation harness included, calls.
     ///
     /// The episode guard is re-opened here, so both reset lanes (this one and
@@ -428,16 +428,13 @@ impl<const K: usize> KArmedBandit<K> {
     /// The single place the episode advances: shared by [`Environment::step`]
     /// and [`Self::pull`] so the guard cannot drift from the emitted snapshot
     /// (ADR 0044 §5).
-    fn advance(
-        &mut self,
-        reward: ScalarReward,
-    ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
+    fn advance(&mut self, reward: ScalarReward) -> Snapshot<KArmedBanditObservation> {
         self.steps += 1;
         let obs = KArmedBanditObservation;
         let snap = if self.steps >= self.config.max_steps {
-            SnapshotBase::terminated(obs, reward)
+            Snapshot::terminated(obs, reward)
         } else {
-            SnapshotBase::running(obs, reward)
+            Snapshot::running(obs, reward)
         };
         self.guard.record(snap.status());
         snap
@@ -475,14 +472,12 @@ impl<const K: usize> Default for KArmedBandit<K> {
 impl<const K: usize> Environment<1, 1> for KArmedBandit<K> {
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<KArmedBanditObservation>, EnvironmentError> {
         KArmedBandit::reset(self);
-        Ok(SnapshotBase::running(
+        Ok(Snapshot::running(
             KArmedBanditObservation,
-            ScalarReward::zero(),
+            ScalarReward::default(),
         ))
     }
 
@@ -493,7 +488,10 @@ impl<const K: usize> Environment<1, 1> for KArmedBandit<K> {
     /// before any RNG draw, so a rejected call leaves the environment (and its
     /// reward stream) untouched. Returns
     /// [`EnvironmentError::InvalidAction`] when the arm index is out of range.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<KArmedBanditObservation>, EnvironmentError> {
         self.guard.check()?;
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -698,9 +696,7 @@ mod tests {
     }
 
     /// Resets, then steps arm 0 until the step budget terminates the episode.
-    fn drive_to_termination(
-        env: &mut KArmedBandit<K>,
-    ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
+    fn drive_to_termination(env: &mut KArmedBandit<K>) -> Snapshot<KArmedBanditObservation> {
         <KArmedBandit<K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <KArmedBandit<K> as Environment<1, 1>>::step(env, action)

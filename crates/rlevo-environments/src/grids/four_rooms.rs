@@ -79,7 +79,7 @@
 //! [`FourRoomsEnv`]: https://minigrid.farama.org/environments/minigrid/FourRoomsEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     build_snapshot,
     dynamics::{StepOutcome, apply_action},
@@ -95,9 +95,8 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot as _};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -444,7 +443,10 @@ impl FourRoomsEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -573,7 +575,12 @@ impl FourRoomsEnv {
         Ok((GridState::new(grid, agent), openings))
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -618,8 +625,6 @@ impl FourRoomsEnv {
 impl Environment<3, 1> for FourRoomsEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Samples a fresh board — four openings, agent pose, goal — from the
     /// persistent RNG, letting the stream advance (ADR 0029). Never re-seeds;
@@ -637,7 +642,7 @@ impl Environment<3, 1> for FourRoomsEnv {
     /// a finished episode over the *old* board — the environment would happily
     /// step a state it never returned to its initial condition (ADR 0044 §6,
     /// the same rule `TimeLimit::reset` follows).
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         let (state, openings) = Self::build(&self.config, &mut self.rng)?;
         self.guard.reset();
         self.state = state;
@@ -651,7 +656,10 @@ impl Environment<3, 1> for FourRoomsEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before `apply_action` touches
         // the grid or the agent pose, and before any RNG draw. A rejected call
         // must leave the board, the counter, and the stream untouched, or the
@@ -698,7 +706,6 @@ mod tests {
     use crate::episode::assert_rejects_post_terminal_step;
     use crate::grids::core::UNSEEN_TYPE;
     use crate::grids::core::agent::AgentState;
-    use rlevo_core::environment::Snapshot;
     use std::collections::{HashSet, VecDeque};
 
     /// How many distinct episodes every seed loop must clear.
@@ -1380,7 +1387,7 @@ mod tests {
     /// that status, since the status itself is the defect a future fix is
     /// expected to change. The route is derived from the board the env
     /// actually drew, so this does not encode one seed's geometry.
-    fn drive_to_goal(env: &mut FourRoomsEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut FourRoomsEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(3).expect("reset must succeed");
         let agent = env.state().agent;
         let goal = goal_of(&env.state().grid);

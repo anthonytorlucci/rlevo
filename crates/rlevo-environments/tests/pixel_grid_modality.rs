@@ -21,7 +21,7 @@
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::Observation;
-use rlevo_core::environment::{Environment, EpisodeStatus, Snapshot};
+use rlevo_core::environment::{Environment, EpisodeStatus};
 
 use rlevo_environments::pixel_grid::{
     PixelGridAction, PixelGridConfig, PixelGridEnv, PixelObservation,

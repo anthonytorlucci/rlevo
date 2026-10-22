@@ -11,7 +11,7 @@
 //! written in full as `rlevo::core::...`.
 
 use rlevo::core::base::{Action, Observation};
-use rlevo::core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo::core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo::core::episode::EpisodeGuard;
 use rlevo::core::reward::ScalarReward;
 
@@ -109,22 +109,17 @@ impl Thermostat {
 impl Environment<1, 1> for Thermostat {
     type ObservationType = RoomObs;
     type ActionType = Boiler;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, RoomObs, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<RoomObs>, EnvironmentError> {
         self.state = RoomState {
             indoor_c: self.outdoor_c,
             hour: 0,
         };
         self.guard.reset();
-        Ok(SnapshotBase::running(
-            self.observe(),
-            ScalarReward::new(0.0),
-        ))
+        Ok(Snapshot::running(self.observe(), ScalarReward::new(0.0)))
     }
 
-    fn step(&mut self, action: Boiler) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: Boiler) -> Result<Snapshot<RoomObs>, EnvironmentError> {
         // A step after the episode ended is an error and changes nothing.
         self.guard.check()?;
 
@@ -145,9 +140,9 @@ impl Environment<1, 1> for Thermostat {
         // The horizon is the task's own, so the episode terminates; it is
         // never truncated.
         let snapshot = if self.state.hour >= HORIZON {
-            SnapshotBase::terminated(self.observe(), reward)
+            Snapshot::terminated(self.observe(), reward)
         } else {
-            SnapshotBase::running(self.observe(), reward)
+            Snapshot::running(self.observe(), reward)
         };
         self.guard.record(snapshot.status());
         Ok(snapshot)

@@ -17,7 +17,7 @@
 //! ```
 
 use rlevo_core::base::Observation;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_environments::pixel_grid::{
     PixelGridAction, PixelGridConfig, PixelGridEnv, PixelObservation,
 };

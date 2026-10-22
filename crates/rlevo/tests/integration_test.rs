@@ -10,16 +10,14 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, HostRow, Observation, Reward};
-use rlevo_core::environment::{
-    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
-};
+use rlevo_core::base::{Action, HostRow, Observation};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
+use rlevo_core::reward::ScalarReward;
 use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
 use rlevo_reinforcement_learning::replay::{
     DiscreteTransition, PrioritizedReplay, PrioritizedReplaySettings, ReplayStrategy,
 };
 use serde::{Deserialize, Serialize};
-use std::ops::Add;
 
 // ---------------------------------------------------------------------------
 // Toy environment: 1-D random walk on positions [0, 6]. Start at 3. Reward +1
@@ -87,31 +85,6 @@ impl DiscreteAction<1> for WalkAction {
     }
 }
 
-/// Local scalar reward newtype. Mirrors `rlevo_core::reward::ScalarReward`
-/// but is defined in this crate so we can implement the foreign `HostRow`
-/// trait on it without tripping the orphan rule.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct WalkReward(f32);
-
-impl Reward for WalkReward {
-    fn zero() -> Self {
-        WalkReward(0.0)
-    }
-}
-
-impl Add for WalkReward {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        WalkReward(self.0 + rhs.0)
-    }
-}
-
-impl From<WalkReward> for f32 {
-    fn from(r: WalkReward) -> f32 {
-        r.0
-    }
-}
-
 /// Toy 1-D random-walk environment used across all integration tests.
 ///
 /// The agent starts at position 3 on a lattice `[0, 6]`. Reaching position 6
@@ -150,18 +123,16 @@ impl RandomWalkEnv {
 impl Environment<1, 1> for RandomWalkEnv {
     type ObservationType = WalkObservation;
     type ActionType = WalkAction;
-    type RewardType = WalkReward;
-    type SnapshotType = SnapshotBase<1, WalkObservation, WalkReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<WalkObservation>, EnvironmentError> {
         self.state = WalkState {
             position: Self::START,
         };
         self.steps = 0;
-        Ok(SnapshotBase::running(self.observe(), WalkReward::zero()))
+        Ok(Snapshot::running(self.observe(), ScalarReward::default()))
     }
 
-    fn step(&mut self, action: WalkAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: WalkAction) -> Result<Snapshot<WalkObservation>, EnvironmentError> {
         let delta = match action {
             WalkAction::Left => -1,
             WalkAction::Right => 1,
@@ -171,21 +142,21 @@ impl Environment<1, 1> for RandomWalkEnv {
 
         if next < 0 {
             self.state = WalkState { position: 0 };
-            return Ok(SnapshotBase::terminated(self.observe(), WalkReward(-1.0)));
+            return Ok(Snapshot::terminated(self.observe(), ScalarReward(-1.0)));
         }
         if next >= Self::GOAL {
             self.state = WalkState {
                 position: Self::GOAL,
             };
-            return Ok(SnapshotBase::terminated(self.observe(), WalkReward(1.0)));
+            return Ok(Snapshot::terminated(self.observe(), ScalarReward(1.0)));
         }
 
         self.state = WalkState { position: next };
 
         if self.steps >= Self::MAX_STEPS {
-            Ok(SnapshotBase::truncated(self.observe(), WalkReward::zero()))
+            Ok(Snapshot::truncated(self.observe(), ScalarReward::default()))
         } else {
-            Ok(SnapshotBase::running(self.observe(), WalkReward::zero()))
+            Ok(Snapshot::running(self.observe(), ScalarReward::default()))
         }
     }
 }

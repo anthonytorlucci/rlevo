@@ -76,7 +76,7 @@
 //! [`Lava`]: super::core::entity::Entity::Lava
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -97,7 +97,6 @@ use rand::{Rng, RngExt as _, SeedableRng, rngs::StdRng};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -267,7 +266,7 @@ impl FromStr for LavaGapConfig {
 /// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 ///
 /// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
-/// [`ScalarReward`].
+/// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// # Examples
 ///
@@ -397,7 +396,10 @@ impl LavaGapEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -493,7 +495,12 @@ impl LavaGapEnv {
         (GridState::new(grid, agent), lava_col, gap_row)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -537,15 +544,13 @@ impl LavaGapEnv {
 impl Environment<3, 1> for LavaGapEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Samples a fresh board from the **persistent** RNG stream.
     ///
     /// Per ADR 0029 the stream is *not* re-seeded here: successive resets draw
     /// independent lava columns and gap rows. Use
     /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (state, lava_col, gap_row) = Self::build(&self.config, &mut self.rng);
         self.state = state;
@@ -562,7 +567,10 @@ impl Environment<3, 1> for LavaGapEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `self.steps` advances, before the dynamics move
         // the agent, and before anything can touch `self.rng`. A rejected call
         // must leave the board, the step counter and the RNG stream untouched,
@@ -712,7 +720,7 @@ mod tests {
     /// The derived scripts above may overshoot by design (a route that reaches
     /// the goal early, a walk that hits lava early); stopping on `done` keeps
     /// the tests from stepping a finished episode.
-    fn run_to_completion(env: &mut LavaGapEnv, script: &[GridAction]) -> GridSnapshot {
+    fn run_to_completion(env: &mut LavaGapEnv, script: &[GridAction]) -> Snapshot<GridObservation> {
         let mut last = None;
         for &action in script {
             let snap = env.step(action).unwrap();
@@ -1244,7 +1252,7 @@ mod tests {
     /// Fixing that is out of scope here; a budget-driven ending would just
     /// bake the mislabeling into these assertions, so the tests below drive
     /// to a real terminal instead.
-    fn drive_to_goal(env: &mut LavaGapEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut LavaGapEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(0).expect("reset");
         let script = route_to_goal(env);
         run_to_completion(env, &script)
@@ -1252,7 +1260,7 @@ mod tests {
 
     /// Reset to a known board and walk the derived route **into the lava**,
     /// returning the terminal snapshot.
-    fn drive_into_lava(env: &mut LavaGapEnv) -> GridSnapshot {
+    fn drive_into_lava(env: &mut LavaGapEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(0).expect("reset");
         let script = route_into_lava(env);
         run_to_completion(env, &script)

@@ -33,7 +33,7 @@ use parking_lot::Mutex;
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 use rlevo_harness::record::{RecordSink, RecordWriter, RecordingConfig, RecordingTap};
 use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 

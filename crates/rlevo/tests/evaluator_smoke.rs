@@ -2,7 +2,7 @@
 
 use rand::Rng;
 use rlevo_core::base::{Action, Observation};
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::fitness::BenchableAgent;
 use rlevo_core::reward::ScalarReward;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
@@ -53,23 +53,21 @@ impl Action<1> for ToyAction {
 impl Environment<1, 1> for ToyEnv {
     type ObservationType = ToyObs;
     type ActionType = ToyAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, ToyObs, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<ToyObs>, EnvironmentError> {
         self.t = 0;
-        Ok(SnapshotBase::running(ToyObs, ScalarReward(0.0)))
+        Ok(Snapshot::running(ToyObs, ScalarReward(0.0)))
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn step(&mut self, action: ToyAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: ToyAction) -> Result<Snapshot<ToyObs>, EnvironmentError> {
         self.t += 1;
         let reward = ScalarReward((action.0 + self.offset) as f32);
         let obs = ToyObs;
         if self.t >= 3 {
-            Ok(SnapshotBase::terminated(obs, reward))
+            Ok(Snapshot::terminated(obs, reward))
         } else {
-            Ok(SnapshotBase::running(obs, reward))
+            Ok(Snapshot::running(obs, reward))
         }
     }
 }

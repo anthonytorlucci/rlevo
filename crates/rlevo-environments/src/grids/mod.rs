@@ -41,8 +41,8 @@
 //! [`GoToDoorObservation`]: `$7 \times 7 \times 4$`, where channels `0..3` are byte-identical to
 //! the shared entity encoding and channel [`MISSION_CHANNEL`] (`3`) broadcasts the mission's colour
 //! byte to every cell, in the *same* ordinal encoding the perceived door colour uses in channel 1 —
-//! so a network can learn equality between the two. Its snapshot alias is [`GoToDoorSnapshot`], not
-//! [`GridSnapshot`](core::GridSnapshot).
+//! so a network can learn equality between the two. Its snapshot is `Snapshot<GoToDoorObservation>`, not
+//! `Snapshot<GridObservation>`.
 //!
 //! The rank is still 3, so `Environment<3, 1>` is unchanged — but any harness that runs *one
 //! model across all grid envs* must handle both `$7 \times 7 \times 3$` and
@@ -74,7 +74,7 @@ pub use empty::{EmptyConfig, EmptyEnv};
 pub use four_rooms::{FourRoomsConfig, FourRoomsEnv};
 pub use go_to_door::{
     DOOR_COUNT, GO_TO_DOOR_OBS_CHANNELS, GoToDoorConfig, GoToDoorEnv, GoToDoorObservation,
-    GoToDoorSnapshot, MISSION_CHANNEL, Mission,
+    MISSION_CHANNEL, Mission,
 };
 pub use lava_gap::{LavaGapConfig, LavaGapEnv};
 pub use memory::{MemoryConfig, MemoryEnv};

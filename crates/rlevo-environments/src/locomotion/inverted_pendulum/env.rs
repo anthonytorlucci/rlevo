@@ -4,11 +4,13 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
+use rlevo_core::environment::{
+    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotMetadata,
+};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{Rapier3DBackend, Rapier3DWorld};
-use crate::locomotion::common::{LocomotionSnapshot, TerminationMode, wrap_to_pi};
+use crate::locomotion::common::{TerminationMode, wrap_to_pi};
 use rlevo_core::episode::EpisodeGuard;
 
 use super::action::InvertedPendulumAction;
@@ -80,7 +82,7 @@ impl InvertedPendulum {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<LocomotionSnapshot<InvertedPendulumObservation>, EnvironmentError> {
+    ) -> Result<Snapshot<InvertedPendulumObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -230,8 +232,6 @@ impl Default for InvertedPendulum {
 impl Environment<1, 1> for InvertedPendulum {
     type ObservationType = InvertedPendulumObservation;
     type ActionType = InvertedPendulumAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = LocomotionSnapshot<InvertedPendulumObservation>;
 
     /// Resets the environment to a new initial state sampled from
     /// `U(-reset_noise_scale, reset_noise_scale)` on each of the four state
@@ -255,7 +255,7 @@ impl Environment<1, 1> for InvertedPendulum {
     ///
     /// This implementation is currently infallible, but returns `Result` for
     /// trait conformance.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<InvertedPendulumObservation>, EnvironmentError> {
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
         self.world = world;
         state.last_obs = InvertedPendulumObservation::default();
@@ -266,7 +266,7 @@ impl Environment<1, 1> for InvertedPendulum {
         let obs = self.observe();
         self.state.last_obs = obs;
         let meta = SnapshotMetadata::new().with(METADATA_KEY_ALIVE, 0.0);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
+        Ok(Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advances the simulation by one timestep (`dt * frame_skip` seconds).
@@ -296,7 +296,7 @@ impl Environment<1, 1> for InvertedPendulum {
     fn step(
         &mut self,
         action: InvertedPendulumAction,
-    ) -> Result<Self::SnapshotType, EnvironmentError> {
+    ) -> Result<Snapshot<InvertedPendulumObservation>, EnvironmentError> {
         // Guard first — ahead of even the finiteness check: the episode being
         // over is a fact about the *call sequence*, independent of whether the
         // action itself is well-formed, so a caller replaying a malformed action
@@ -355,7 +355,7 @@ impl Environment<1, 1> for InvertedPendulum {
             );
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
-        let snapshot = LocomotionSnapshot {
+        let snapshot = Snapshot {
             observation: obs,
             reward,
             status,
@@ -427,7 +427,6 @@ mod tests {
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
 
     #[test]
     fn action_shape_and_validity() {
@@ -694,9 +693,7 @@ mod tests {
     /// a short +x kick on the cart topples the pole, gravity carries `$|\theta|$`
     /// past the healthy band `(-0.2, 0.2)`, and the `OnUnhealthy` rule ends
     /// the episode through the same physics path an agent would hit.
-    fn drive_to_pole_fall(
-        env: &mut InvertedPendulum,
-    ) -> LocomotionSnapshot<InvertedPendulumObservation> {
+    fn drive_to_pole_fall(env: &mut InvertedPendulum) -> Snapshot<InvertedPendulumObservation> {
         env.reset().expect("reset must succeed");
         for i in 0..FALL_STEP_CAP {
             let force = if i < 20 { 3.0 } else { 0.0 };

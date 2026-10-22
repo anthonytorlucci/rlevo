@@ -58,7 +58,7 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -333,16 +333,16 @@ impl EmptyEnv {
         observation: GridObservation,
         reward: f32,
         done: bool,
-    ) -> SnapshotBase<3, GridObservation, ScalarReward> {
+    ) -> Snapshot<GridObservation> {
         if self.render {
             // Render is a debug side effect; return the string so callers can
             // capture it if they wish, or drop it when invoked internally.
             let _ = super::core::render::render_ascii(&self.state.grid, &self.state.agent);
         }
         if done {
-            SnapshotBase::terminated(observation, ScalarReward::new(reward))
+            Snapshot::terminated(observation, ScalarReward::new(reward))
         } else {
-            SnapshotBase::running(observation, ScalarReward::new(reward))
+            Snapshot::running(observation, ScalarReward::new(reward))
         }
     }
 }
@@ -383,8 +383,6 @@ impl EmptyEnv {
 impl Environment<3, 1> for EmptyEnv {
     type ObservationType = GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<3, GridObservation, ScalarReward>;
 
     /// Rebuilds the fixed layout, clears the step counter, and re-opens the
     /// episode guard so a terminated environment becomes steppable again.
@@ -392,7 +390,7 @@ impl Environment<3, 1> for EmptyEnv {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (grid, agent) = Self::build(&self.config);
         self.state = GridState::new(grid, agent);
@@ -408,7 +406,10 @@ impl Environment<3, 1> for EmptyEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances and before `apply_action` touches
         // the grid or the agent. A rejected call must leave the environment
         // bit-identical — and this env draws no randomness, but the ordering is
@@ -662,7 +663,7 @@ mod tests {
     /// any bootstrapping agent. A timeout-driven test here would bake that
     /// wrong status into the assertion instead of exercising the intended
     /// termination path.
-    fn drive_to_goal(env: &mut EmptyEnv) -> SnapshotBase<3, GridObservation, ScalarReward> {
+    fn drive_to_goal(env: &mut EmptyEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         // Agent at (1,1) facing East, goal at (3,3).
         let script = [

@@ -100,7 +100,7 @@ use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
     base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -364,7 +364,7 @@ impl Pendulum {
     pub fn reset_with_seed(
         &mut self,
         seed: u64,
-    ) -> Result<SnapshotBase<1, PendulumObservation, ScalarReward>, EnvironmentError> {
+    ) -> Result<Snapshot<PendulumObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -445,8 +445,6 @@ fn pendulum_observation(state: PendulumState) -> PendulumObservation {
 impl Environment<1, 1> for Pendulum {
     type ObservationType = PendulumObservation;
     type ActionType = PendulumAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, PendulumObservation, ScalarReward>;
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
@@ -458,11 +456,11 @@ impl Environment<1, 1> for Pendulum {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<PendulumObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
+        Ok(Snapshot::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -479,7 +477,10 @@ impl Environment<1, 1> for Pendulum {
     /// condition and the [`EpisodeGuard`] therefore never closes. The variant is
     /// documented because it is the family-wide contract a future termination
     /// rule would activate without touching this signature.
-    fn step(&mut self, action: PendulumAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: PendulumAction,
+    ) -> Result<Snapshot<PendulumObservation>, EnvironmentError> {
         // Guard first: before the integration step and before `steps` advances.
         // Pendulum's dynamics draw no randomness, but `reset` does, so keeping
         // the check ahead of every mutation is what makes a rejected call a true
@@ -493,7 +494,7 @@ impl Environment<1, 1> for Pendulum {
         // Single exit: the only status Pendulum can emit is `Running`, so the
         // guard stays open — recording it regardless keeps the guard and the
         // emitted snapshot in agreement no matter what branches appear later.
-        let snapshot = SnapshotBase::running(self.observe(), ScalarReward(reward_f));
+        let snapshot = Snapshot::running(self.observe(), ScalarReward(reward_f));
 
         self.guard.record(snapshot.status);
         Ok(snapshot)
@@ -600,7 +601,6 @@ mod tests {
     //! and determinism.
 
     use super::*;
-    use rlevo_core::environment::Snapshot;
 
     fn default_env() -> Pendulum {
         Pendulum::with_config(PendulumConfig::default()).expect("valid config")

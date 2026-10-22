@@ -24,7 +24,7 @@ use rlevo_harness::record::{EnvFamily, RecordSink, RecordWriter, RecordingConfig
 use rlevo_harness::report::{EmitConfig, RecordedRun, emit_static_html};
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::environment::Environment;
 
 use rlevo_environments::classic::{CartPole, CartPoleAction, CartPoleConfig};
 

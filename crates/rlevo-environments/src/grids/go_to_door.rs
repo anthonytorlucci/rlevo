@@ -89,7 +89,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot as _, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -125,13 +125,6 @@ pub const MISSION_CHANNEL: usize = super::core::OBS_CHANNELS;
 /// Per-cell channel count of a [`GoToDoorObservation`]: the three shared
 /// entity-encoding channels plus the mission channel.
 pub const GO_TO_DOOR_OBS_CHANNELS: usize = super::core::OBS_CHANNELS + 1;
-
-/// Snapshot type produced by [`GoToDoorEnv`].
-///
-/// A plain [`SnapshotBase`] over the 4-channel [`GoToDoorObservation`] (ADR
-/// 0042: `SnapshotBase` is the only `Snapshot` implementation in the workspace;
-/// a family that needs a named snapshot shape defines a local alias).
-pub type GoToDoorSnapshot = SnapshotBase<3, GoToDoorObservation, ScalarReward>;
 
 /// Instruction the agent must fulfil in a given episode.
 ///
@@ -625,7 +618,10 @@ impl GoToDoorEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GoToDoorSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GoToDoorObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -750,15 +746,20 @@ impl GoToDoorEnv {
         )
     }
 
-    fn emit(&self, observation: GoToDoorObservation, reward: f32, done: bool) -> GoToDoorSnapshot {
+    fn emit(
+        &self,
+        observation: GoToDoorObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GoToDoorObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
         let reward = ScalarReward::new(reward);
         if done {
-            SnapshotBase::terminated(observation, reward)
+            Snapshot::terminated(observation, reward)
         } else {
-            SnapshotBase::running(observation, reward)
+            Snapshot::running(observation, reward)
         }
     }
 
@@ -809,15 +810,13 @@ impl GoToDoorEnv {
 impl Environment<3, 1> for GoToDoorEnv {
     type ObservationType = GoToDoorObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GoToDoorSnapshot;
 
     /// Samples a fresh episode from the **persistent** RNG stream.
     ///
     /// Per ADR 0029 the stream is *not* re-seeded here: successive resets draw
     /// independent door colors and missions. Use
     /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<GoToDoorObservation>, EnvironmentError> {
         // Re-open the episode first, so no later statement can return early and
         // strand a latched guard. `build` is infallible and this body has no `?`,
         // so `reset` never leaves here on an `Err` path today; should `build`
@@ -841,7 +840,10 @@ impl Environment<3, 1> for GoToDoorEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<GoToDoorObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before `apply_action` touches
         // the grid or the agent pose, and before anything reads `self.rng`. A
         // rejected call must leave the environment bit-identical — `step` draws
@@ -889,7 +891,7 @@ mod tests {
     // The env no longer cuts the raw window itself (it goes through `mask_view`),
     // but the encoding tests still compare against the *unoccluded* view.
     use crate::grids::core::grid::egocentric_view;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
     use std::collections::HashSet;
 
     /// Wall order used by `GoToDoorEnv::doors` and by the scripts below.
@@ -1541,7 +1543,7 @@ mod tests {
     /// is reported identically to a win (out of scope here) — the
     /// conformance check must not be written against a status the env is
     /// known to be reporting wrongly.
-    fn drive_to_mission_done(env: &mut GoToDoorEnv) -> GoToDoorSnapshot {
+    fn drive_to_mission_done(env: &mut GoToDoorEnv) -> Snapshot<GoToDoorObservation> {
         let snap = env.reset().expect("reset must succeed");
         let wall = target_wall(env, snap.observation());
         let mut last = None;

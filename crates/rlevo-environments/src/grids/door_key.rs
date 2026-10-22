@@ -82,7 +82,7 @@
 //! [`place_obj`]: super::core::place_obj
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     build_snapshot,
     color::Color,
@@ -101,7 +101,6 @@ use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -416,7 +415,10 @@ impl DoorKeyEnv {
     /// Propagates any error from [`reset`](Environment::reset), i.e. a
     /// [`PlacementError`] that exhausted the left room. No legal
     /// [`DoorKeyConfig`] can produce one; see [`with_config`](Self::with_config).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -536,7 +538,12 @@ impl DoorKeyEnv {
         })
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -580,8 +587,6 @@ impl DoorKeyEnv {
 impl Environment<3, 1> for DoorKeyEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Draws a fresh layout and re-opens the episode.
     ///
@@ -601,7 +606,7 @@ impl Environment<3, 1> for DoorKeyEnv {
     ///
     /// That `Err` path is unreachable for any config this crate accepts (see
     /// `build`), so it carries no test — only this ordering.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Draw first: only a *successful* build actually starts a new episode.
         let layout = Self::build(&self.config, &mut self.rng)?;
         self.guard.reset();
@@ -619,7 +624,10 @@ impl Environment<3, 1> for DoorKeyEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances (it is the numerator of
         // `success_reward`, so an illegal call would silently discount every
         // later payout) and before `apply_action` touches the grid or the
@@ -1494,7 +1502,7 @@ mod tests {
     ///
     /// The board (see the module docs) is agent `(1, 1)` facing North, key
     /// `(1, 2)`, locked door `(2, 1)`, goal `(3, 3)`.
-    fn drive_to_goal(env: &mut DoorKeyEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut DoorKeyEnv) -> Snapshot<GridObservation> {
         let plan = [
             GridAction::TurnRight, // North → East
             GridAction::TurnRight, // East → South, now facing the key

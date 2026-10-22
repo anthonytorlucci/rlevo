@@ -18,8 +18,8 @@ use rand::Rng;
 
 use burn::tensor::backend::AutodiffBackend;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Observation, Reward, TensorConvertible};
-use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::environment::Environment;
 
 use crate::algorithms::ppg::ppg_agent::{AuxPhaseStats, PpgAgent, PpgAgentError, PpgMetrics};
 use crate::algorithms::ppg::ppg_policy::PpgAuxValueHead;
@@ -65,11 +65,10 @@ use crate::algorithms::shared::LogWatermark;
 /// - `P` — Policy network: must implement `PpoPolicy<B, BOR>` and
 ///   `PpgAuxValueHead<B, BOR>`.
 /// - `V` — Main value network implementing `PpoValue<B, BOR>`.
-/// - `E` — Environment with `ObservationType = O`, `ActionType = A`,
-///   `RewardType = Rew`, and an action space of rank `1` (discrete).
+/// - `E` — Environment with `ObservationType = O`, `ActionType = A`, and an
+///   action space of rank `1` (discrete).
 /// - `O` — Observation type convertible to a rank-`OR` tensor.
 /// - `A` — Discrete action implementing `DiscreteAction<1>`.
-/// - `Rew` — Scalar reward implementing `Reward + Copy`.
 /// - `OR` — Observation tensor rank.
 /// - `BOR` — Batched observation tensor rank (`OR + 1`).
 // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
@@ -77,7 +76,7 @@ use crate::algorithms::shared::LogWatermark;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const BOR: usize>(
+pub fn train_discrete<B, P, V, E, O, A, const OR: usize, const BOR: usize>(
     agent: &mut PpgAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -88,10 +87,9 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, 1, ObservationType = O, ActionType = A>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: DiscreteAction<1>,
-    Rew: Reward + Copy,
 {
     let rollout_len = agent.config().ppo.num_steps;
 

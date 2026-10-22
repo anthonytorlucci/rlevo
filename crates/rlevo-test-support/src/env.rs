@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::{Action, HostRow, Observation};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
 
@@ -144,15 +144,13 @@ impl LinearEnv {
 impl Environment<1, 1> for LinearEnv {
     type ObservationType = LinearObservation;
     type ActionType = LinearAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, LinearObservation, ScalarReward>;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<LinearObservation>, EnvironmentError> {
         self.state = LinearState {
             x: Self::sample_x(&mut self.rng),
             steps: 0,
         };
-        Ok(SnapshotBase {
+        Ok(Snapshot {
             observation: self.observe(),
             reward: ScalarReward::new(0.0),
             status: EpisodeStatus::Running,
@@ -160,7 +158,10 @@ impl Environment<1, 1> for LinearEnv {
         })
     }
 
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<LinearObservation>, EnvironmentError> {
         let a = action.0.clamp(-1.0, 1.0);
         let err = a - self.state.x;
         let reward = -(err * err);
@@ -174,7 +175,7 @@ impl Environment<1, 1> for LinearEnv {
         } else {
             EpisodeStatus::Running
         };
-        Ok(SnapshotBase {
+        Ok(Snapshot {
             observation: self.observe(),
             reward: ScalarReward::new(reward),
             status,

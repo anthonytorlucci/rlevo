@@ -49,7 +49,7 @@
 //! [`DistShiftEnv`]: https://minigrid.farama.org/environments/minigrid/DistShiftEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -66,7 +66,6 @@ use super::core::{
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -366,7 +365,12 @@ impl DistShiftEnv {
         GridState::new(grid, agent)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -410,8 +414,6 @@ impl DistShiftEnv {
 impl Environment<3, 1> for DistShiftEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Rebuilds the fixed board, re-opens the episode, and returns the initial
     /// observation.
@@ -419,7 +421,7 @@ impl Environment<3, 1> for DistShiftEnv {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = Self::build(&self.config);
         self.steps = 0;
@@ -434,7 +436,10 @@ impl Environment<3, 1> for DistShiftEnv {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended (goal reached, lava entered, or step limit hit); call
     /// [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances and before `apply_action` touches
         // the grid or the agent, so a rejected call leaves the environment
         // bit-for-bit unchanged. This env draws no randomness, but the guard
@@ -640,7 +645,7 @@ mod tests {
 
     /// Drives a default env to the goal at `(7, 1)` with six `Forward`s, through
     /// real `step()` calls only.
-    fn drive_to_goal(env: &mut DistShiftEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut DistShiftEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         let mut snapshot = env
             .step(GridAction::Forward)
@@ -655,7 +660,7 @@ mod tests {
 
     /// Drives a default env (variant One, lava at row 3) onto the lava strip at
     /// `(3, 3)`, through real `step()` calls only.
-    fn drive_into_lava(env: &mut DistShiftEnv) -> GridSnapshot {
+    fn drive_into_lava(env: &mut DistShiftEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         for action in [
             GridAction::Forward,   // (2, 1)

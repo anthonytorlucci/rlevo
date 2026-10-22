@@ -61,7 +61,7 @@
 //! [`MultiRoomEnv`]: https://minigrid.farama.org/environments/minigrid/MultiRoomEnv/
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -79,7 +79,6 @@ use super::core::{
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -286,7 +285,7 @@ impl FromStr for MultiRoomConfig {
 /// making this suitable for testing long-horizon planning and credit assignment.
 ///
 /// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
-/// [`ScalarReward`].
+/// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// Reaching the goal (or exhausting `max_steps`) ends the episode; a
 /// [`step`](Environment::step) taken afterwards is rejected with
@@ -461,7 +460,12 @@ impl MultiRoomEnv {
         GridState::new(grid, agent)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -505,15 +509,13 @@ impl MultiRoomEnv {
 impl Environment<3, 1> for MultiRoomEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Rebuilds the fixed strip, re-closes every door, and re-opens the episode.
     ///
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         self.state = Self::build(&self.config);
         self.steps = 0;
@@ -527,7 +529,10 @@ impl Environment<3, 1> for MultiRoomEnv {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended; call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances and before `apply_action` touches
         // the grid or the agent. A rejected call must leave the environment
         // bit-identical — and it must precede any future random draw, or the
@@ -613,7 +618,7 @@ mod tests {
     /// future value; a terminated one does not). A timeout-driven test here
     /// would bake that collapsed signal into an assertion instead of exercising
     /// the intended termination path.
-    fn drive_to_goal(env: &mut MultiRoomEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut MultiRoomEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         let mut last = None;
         for action in OPTIMAL_ROLLOUT {

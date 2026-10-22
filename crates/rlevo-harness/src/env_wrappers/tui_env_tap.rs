@@ -155,10 +155,8 @@ where
 {
     type ObservationType = E::ObservationType;
     type ActionType = E::ActionType;
-    type RewardType = E::RewardType;
-    type SnapshotType = E::SnapshotType;
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<E::ObservationType>, EnvironmentError> {
         let snap = self.inner.reset()?;
         self.step = 0;
         self.episode_return = 0.0;
@@ -166,12 +164,15 @@ where
         Ok(snap)
     }
 
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<E::ObservationType>, EnvironmentError> {
         let snap = self.inner.step(action)?;
         self.step = self.step.saturating_add(1);
         // `Reward: Into<f32>` is part of the trait definition in `rlevo-core`;
         // call it as a method to avoid the inverse `From` bound on `f32`.
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = snap.reward().value();
         self.episode_return += f64::from(r);
         self.episode_length = self.episode_length.saturating_add(1);
         if snap.is_done() {
@@ -196,7 +197,7 @@ mod tests {
     use std::sync::mpsc::Receiver;
 
     use rlevo_core::base::{Action, Observation};
-    use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+    use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
     use rlevo_core::render::AsciiRenderable;
     use rlevo_core::reward::ScalarReward;
 
@@ -282,16 +283,14 @@ mod tests {
     impl Environment<1, 1> for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
-        type RewardType = ScalarReward;
-        type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
 
-        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn reset(&mut self) -> Result<Snapshot<StubObs>, EnvironmentError> {
             self.pos = 0;
             self.step = 0;
-            Ok(SnapshotBase::running(StubObs { pos: 0 }, ScalarReward(0.0)))
+            Ok(Snapshot::running(StubObs { pos: 0 }, ScalarReward(0.0)))
         }
 
-        fn step(&mut self, _action: StubAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn step(&mut self, _action: StubAction) -> Result<Snapshot<StubObs>, EnvironmentError> {
             self.pos += 1;
             self.step += 1;
             let status = match self.termination {
@@ -302,9 +301,9 @@ mod tests {
             let obs = StubObs { pos: self.pos };
             let r = ScalarReward(self.reward);
             Ok(match status {
-                EpisodeStatus::Running => SnapshotBase::running(obs, r),
-                EpisodeStatus::Terminated => SnapshotBase::terminated(obs, r),
-                EpisodeStatus::Truncated => SnapshotBase::truncated(obs, r),
+                EpisodeStatus::Running => Snapshot::running(obs, r),
+                EpisodeStatus::Terminated => Snapshot::terminated(obs, r),
+                EpisodeStatus::Truncated => Snapshot::truncated(obs, r),
             })
         }
     }

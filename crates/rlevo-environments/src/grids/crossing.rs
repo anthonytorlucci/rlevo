@@ -87,7 +87,7 @@
 //! [`Wall`]: super::core::entity::Entity::Wall
 
 use super::core::{
-    GridSnapshot, Visibility,
+    Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -112,8 +112,7 @@ use rlevo_core::episode::EpisodeGuard;
 // `Snapshot` is imported anonymously: `step()` needs its `status()` method to
 // feed the guard, but re-exporting the name through this module's `use super::*`
 // in the test module would shadow the test module's own explicit import.
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot as _};
-use rlevo_core::reward::ScalarReward;
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -483,7 +482,10 @@ impl CrossingEnv {
     /// # Errors
     ///
     /// Propagates any error from [`reset`](Environment::reset) (currently none).
-    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<Snapshot<GridObservation>, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(seed);
         self.reset()
     }
@@ -685,7 +687,12 @@ impl CrossingEnv {
         (GridState::new(grid, agent), layout)
     }
 
-    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
@@ -729,8 +736,6 @@ impl CrossingEnv {
 impl Environment<3, 1> for CrossingEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = GridSnapshot;
 
     /// Samples a fresh layout and returns the first snapshot of a new episode.
     ///
@@ -740,7 +745,7 @@ impl Environment<3, 1> for CrossingEnv {
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn reset(&mut self) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         self.guard.reset();
         let (state, layout) = Self::build(&self.config, &mut self.rng);
         self.state = state;
@@ -757,7 +762,10 @@ impl Environment<3, 1> for CrossingEnv {
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
     /// already ended (goal reached, lava entered, or the step budget spent);
     /// call [`reset`](Environment::reset) first.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: Self::ActionType,
+    ) -> Result<Snapshot<super::core::GridObservation>, EnvironmentError> {
         // Guard first: before `steps` advances, before the grid or the agent is
         // touched, and before any draw from `self.rng`. A rejected call must
         // leave the board, the step counter and the RNG stream exactly as they
@@ -807,7 +815,6 @@ mod tests {
     use super::super::core::grid::egocentric_view;
     use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
     use std::collections::{HashMap, HashSet, VecDeque};
 
     /// The four facings, for the occlusion sweeps.
@@ -1438,7 +1445,7 @@ mod tests {
     ///
     /// Returns the terminal snapshot. The layout is sampled fresh every reset,
     /// so the route is re-planned from the board rather than scripted.
-    fn drive_to_goal(env: &mut CrossingEnv) -> GridSnapshot {
+    fn drive_to_goal(env: &mut CrossingEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset");
         let path = safe_path(env.state()).expect("every sampled board is solvable");
         let mut last = None;
@@ -1451,7 +1458,7 @@ mod tests {
     /// Reset until lava sits directly south of the start, then walk into it.
     ///
     /// Returns the terminal snapshot.
-    fn drive_into_lava(env: &mut CrossingEnv) -> GridSnapshot {
+    fn drive_into_lava(env: &mut CrossingEnv) -> Snapshot<GridObservation> {
         assert!(
             reset_until_blocker_south(env, 512),
             "no episode in 512 put lava directly south of the start"
