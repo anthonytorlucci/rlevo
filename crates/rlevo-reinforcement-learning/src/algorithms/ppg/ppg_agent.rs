@@ -1210,6 +1210,7 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::base::HostRow;
+    use rlevo_core::config::ConstraintKind;
     use serde::{Deserialize, Serialize};
 
     use crate::algorithms::ppg::policies::{
@@ -1283,6 +1284,62 @@ mod tests {
             ..Default::default()
         };
         TestAgent::new(policy, value, config, device, 1).expect("valid config")
+    }
+
+    /// An invalid config comes back as an `Err` from `new`, naming the config
+    /// and field that rejected it: two of PPG's own fields, and one of the PPO
+    /// config it wraps. `config.validate()?` is the only check a config passes
+    /// on its way into the agent, so dropping its error must fail here.
+    #[test]
+    fn test_ppg_agent_new_rejects_invalid_config() {
+        let cases = [
+            (
+                PpgConfig {
+                    e_aux: 0,
+                    ..Default::default()
+                },
+                ("PpgConfig", "e_aux", ConstraintKind::Zero),
+            ),
+            (
+                PpgConfig {
+                    aux_batch_size: 0,
+                    ..Default::default()
+                },
+                ("PpgConfig", "aux_batch_size", ConstraintKind::Zero),
+            ),
+            (
+                PpgConfig {
+                    ppo: PpoTrainingConfig {
+                        num_envs: 2,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                (
+                    "PpoTrainingConfig",
+                    "num_envs",
+                    ConstraintKind::Custom("v1 supports num_envs == 1 only"),
+                ),
+            ),
+        ];
+
+        for (config, (name, field, kind)) in cases {
+            let device = Default::default();
+            let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
+                obs_dim: 2,
+                hidden: 4,
+                num_actions: 2,
+            }
+            .try_init::<TestAdBackend>(&device)
+            .expect("valid head config");
+            let value = TestValue::<TestAdBackend>::init(&device);
+            let Err(err) = TestAgent::new(policy, value, config, device, 1) else {
+                panic!("{name}.{field} must be rejected by PpgAgent::new");
+            };
+            assert_eq!(err.config, name);
+            assert_eq!(err.field, field);
+            assert_eq!(err.kind, kind);
+        }
     }
 
     #[test]
