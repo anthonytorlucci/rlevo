@@ -42,7 +42,7 @@ pub(crate) fn assert_rejects_post_terminal_step<const R: usize, const AR: usize,
     F: FnOnce(&mut E) -> Snapshot<E::ObservationType>,
 {
     let terminal = drive_to_done(env);
-    let ended = terminal.status();
+    let ended = terminal.status;
     assert!(
         ended.is_done(),
         "drive_to_done must leave the environment on a done snapshot, got {ended:?}"
@@ -167,7 +167,7 @@ mod tests {
                 Snapshot::running(obs, ScalarReward(0.0))
             };
 
-            self.guard.record(snapshot.status());
+            self.guard.record(snapshot.status);
             Ok(snapshot)
         }
     }
@@ -180,7 +180,7 @@ mod tests {
             |env| {
                 env.reset().expect("reset must succeed");
                 let mut snapshot = env.step(MockAction).expect("first step must succeed");
-                while !snapshot.is_done() {
+                while !snapshot.status.is_done() {
                     snapshot = env.step(MockAction).expect("step must succeed until done");
                 }
                 snapshot

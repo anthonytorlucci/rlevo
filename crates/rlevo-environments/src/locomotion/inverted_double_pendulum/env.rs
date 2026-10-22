@@ -551,8 +551,8 @@ mod tests {
         let mut env =
             InvertedDoublePendulum::with_config(deterministic_cfg()).expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
-        let obs = snap.observation();
+        assert!(!snap.status.is_done());
+        let obs = snap.observation;
         // With zero reset noise both poles start upright: `$\sin \approx 0$`, `$\cos \approx 1$`.
         assert!(obs.cart_position().abs() < 1e-5);
         assert!(obs.sin_theta1().abs() < 1e-5);
@@ -577,14 +577,14 @@ mod tests {
             // Deterministic, non-trivial action trace.
             let a = ((i as f32) * 0.17).sin() * 0.5;
             let snap = env.step(InvertedDoublePendulumAction::new(a)).unwrap();
-            let meta = snap.metadata().unwrap();
+            let meta = snap.metadata.as_ref().unwrap();
             let sum: f32 = meta.components.values().sum();
             assert!(
-                (sum - snap.reward().0).abs() < 1e-5,
+                (sum - snap.reward.0).abs() < 1e-5,
                 "components sum ({sum}) must equal reward ({}) at step {i}",
-                snap.reward().0
+                snap.reward.0
             );
-            if snap.is_done() {
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -596,7 +596,7 @@ mod tests {
             InvertedDoublePendulum::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(InvertedDoublePendulumAction::new(0.0)).unwrap();
-        let alive = snap.metadata().unwrap().components[METADATA_KEY_ALIVE];
+        let alive = snap.metadata.as_ref().unwrap().components[METADATA_KEY_ALIVE];
         assert!(
             (alive - 10.0).abs() < 1e-5,
             "expected alive=10 while healthy, got {alive}"
@@ -606,8 +606,9 @@ mod tests {
         let mut terminated_alive = None;
         for _ in 0..2000 {
             let snap = env.step(InvertedDoublePendulumAction::new(1.0)).unwrap();
-            if snap.is_terminated() {
-                terminated_alive = Some(snap.metadata().unwrap().components[METADATA_KEY_ALIVE]);
+            if snap.status.is_terminated() {
+                terminated_alive =
+                    Some(snap.metadata.as_ref().unwrap().components[METADATA_KEY_ALIVE]);
                 break;
             }
         }
@@ -631,12 +632,12 @@ mod tests {
         let mut min_y_tip = f32::INFINITY;
         for _ in 0..500 {
             let snap = env.step(InvertedDoublePendulumAction::new(1.0)).unwrap();
-            if let Some(meta) = snap.metadata()
+            if let Some(meta) = snap.metadata.as_ref()
                 && let Some(pos) = meta.positions.get("tip")
             {
                 min_y_tip = min_y_tip.min(pos[2]);
             }
-            if snap.is_terminated() {
+            if snap.status.is_terminated() {
                 terminated = true;
                 break;
             }
@@ -682,7 +683,7 @@ mod tests {
         for _ in 0..5 {
             let snap = env.step(InvertedDoublePendulumAction::new(0.5)).unwrap();
             assert!(
-                snap.observation().constraint_force_x().is_finite(),
+                snap.observation.constraint_force_x().is_finite(),
                 "constraint_force_x must always be finite"
             );
         }
@@ -704,7 +705,7 @@ mod tests {
             status = env
                 .step(InvertedDoublePendulumAction::new(0.0))
                 .unwrap()
-                .status();
+                .status;
         }
         assert_eq!(status, EpisodeStatus::Truncated);
     }
@@ -721,8 +722,8 @@ mod tests {
             let mut last = InvertedDoublePendulumObservation::default();
             for &a in actions {
                 if let Ok(snap) = env.step(InvertedDoublePendulumAction::new(a)) {
-                    last = *snap.observation();
-                    if snap.is_done() {
+                    last = snap.observation;
+                    if snap.status.is_done() {
                         break;
                     }
                 }
@@ -754,8 +755,8 @@ mod tests {
         env.reset().unwrap();
         for _ in 0..50 {
             let snap = env.step(InvertedDoublePendulumAction::new(0.1)).unwrap();
-            assert!(snap.observation().is_finite());
-            if snap.is_done() {
+            assert!(snap.observation.is_finite());
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -786,8 +787,8 @@ mod tests {
         let mut deltas: Vec<f32> = Vec::new();
         for _ in 0..40 {
             let snap = env.step(InvertedDoublePendulumAction::new(1.0)).unwrap();
-            assert!(snap.observation().is_finite(), "obs must stay finite");
-            let vx = snap.observation().cart_velocity();
+            assert!(snap.observation.is_finite(), "obs must stay finite");
+            let vx = snap.observation.cart_velocity();
             deltas.push(vx - prev_vx);
             prev_vx = vx;
         }
@@ -813,8 +814,8 @@ mod tests {
             ..Default::default()
         })
         .expect("valid config");
-        let first = env.reset().unwrap().observation().0;
-        let second = env.reset().unwrap().observation().0;
+        let first = env.reset().unwrap().observation.0;
+        let second = env.reset().unwrap().observation.0;
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -828,10 +829,10 @@ mod tests {
             ..Default::default()
         })
         .expect("valid config");
-        let a = env.reset_with_seed(999).unwrap().observation().0;
+        let a = env.reset_with_seed(999).unwrap().observation.0;
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().0;
+        let b = env.reset_with_seed(999).unwrap().observation.0;
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -889,9 +890,9 @@ mod tests {
             let snap = env
                 .step(InvertedDoublePendulumAction::new(1.0))
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 assert!(
-                    snap.is_terminated(),
+                    snap.status.is_terminated(),
                     "this fixture must end by termination, not truncation"
                 );
                 return snap;
@@ -926,9 +927,9 @@ mod tests {
     fn test_inverted_double_pendulum_post_terminal_step_does_not_mutate_state() {
         let mut env = InvertedDoublePendulum::with_config(terminating_cfg()).expect("valid config");
         let terminal = drive_to_tip_drop(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
-        let obs_at_end = terminal.observation().0;
+        let obs_at_end = terminal.observation.0;
         let steps_at_end = env.steps;
 
         let err = env
@@ -996,6 +997,7 @@ mod tests {
                 if env
                     .step(InvertedDoublePendulumAction::new(1.0))
                     .unwrap()
+                    .status
                     .is_done()
                 {
                     return;
@@ -1009,12 +1011,12 @@ mod tests {
             drive(&mut env);
             env.step(InvertedDoublePendulumAction::new(0.0))
                 .expect_err("the post-terminal step must be rejected");
-            env.reset().unwrap().observation().0
+            env.reset().unwrap().observation.0
         };
         let without_replay = {
             let mut env = InvertedDoublePendulum::with_config(cfg()).expect("valid config");
             drive(&mut env);
-            env.reset().unwrap().observation().0
+            env.reset().unwrap().observation.0
         };
         assert_eq!(
             with_replay, without_replay,
@@ -1034,7 +1036,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after termination");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -1044,7 +1049,7 @@ mod tests {
             .step(InvertedDoublePendulumAction::new(0.0))
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -1068,7 +1073,7 @@ mod tests {
             last = Some(env.step(InvertedDoublePendulumAction::new(0.0)).unwrap());
         }
         assert_eq!(
-            last.expect("five steps were taken").status(),
+            last.expect("five steps were taken").status,
             EpisodeStatus::Truncated
         );
 

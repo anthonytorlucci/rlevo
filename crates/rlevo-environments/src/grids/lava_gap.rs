@@ -592,7 +592,7 @@ impl Environment<3, 1> for LavaGapEnv {
         // Single exit: the guard is fed the emitted snapshot's own status, so
         // the two cannot drift apart.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -724,7 +724,7 @@ mod tests {
         let mut last = None;
         for &action in script {
             let snap = env.step(action).unwrap();
-            let done = snap.is_done();
+            let done = snap.status.is_done();
             last = Some(snap);
             if done {
                 break;
@@ -1004,8 +1004,7 @@ mod tests {
 
             let again = env.reset_with_seed(7).expect("reset");
             assert_eq!(
-                first.observation(),
-                again.observation(),
+                first.observation, again.observation,
                 "size {size}: reset_with_seed(7) did not replay its observation"
             );
             assert_eq!(
@@ -1093,7 +1092,7 @@ mod tests {
         let mut b = LavaGapEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     /// Walking into the strip anywhere other than the gap ends the episode for
@@ -1123,11 +1122,11 @@ mod tests {
 
                 let snap = run_to_completion(&mut env, &script);
                 assert!(
-                    snap.is_done(),
+                    snap.status.is_done(),
                     "size {size} seed {seed}: walking into the strip did not terminate:\n{}",
                     env.ascii()
                 );
-                let reward: f32 = (*snap.reward()).into();
+                let reward: f32 = (snap.reward).into();
                 assert_eq!(reward, 0.0, "size {size} seed {seed}: lava paid {reward}");
             }
         }
@@ -1147,11 +1146,11 @@ mod tests {
                 let script = route_to_goal(&env);
                 let snap = run_to_completion(&mut env, &script);
                 assert!(
-                    snap.is_done(),
+                    snap.status.is_done(),
                     "size {size} seed {seed}: the derived route did not terminate:\n{}",
                     env.ascii()
                 );
-                let reward: f32 = (*snap.reward()).into();
+                let reward: f32 = (snap.reward).into();
                 assert!(
                     reward > 0.0,
                     "size {size} seed {seed}: the derived route paid {reward}:\n{}",
@@ -1169,8 +1168,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1292,8 +1291,11 @@ mod tests {
     fn test_lava_gap_post_terminal_step_does_not_resurrect_the_agent() {
         let mut env = env_5x5();
         let terminal = drive_into_lava(&mut env);
-        assert!(terminal.is_done(), "the agent must have died in the lava");
-        let ended = terminal.status();
+        assert!(
+            terminal.status.is_done(),
+            "the agent must have died in the lava"
+        );
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -1364,7 +1366,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "a turn on the first step of a fresh episode must not end it"
         );
     }
@@ -1440,7 +1442,7 @@ mod tests {
                     "size {size} seed {seed}: the start pose this clause names has moved"
                 );
                 let masked = mask_view(&grid, &start, LavaGapEnv::VISIBILITY);
-                let occluded = *snapshot.observation();
+                let occluded = snapshot.observation;
                 let see_through = observe_grid(env.state(), Visibility::SeeThrough);
                 let hidden = masked.iter().flatten().filter(|c| c.is_none()).count();
                 assert!(

@@ -1083,15 +1083,15 @@ mod tests {
         let mut last_snap = None;
         for &a in &path {
             let snap = env.step(a).unwrap();
-            if snap.is_done() {
+            if snap.status.is_done() {
                 last_snap = Some(snap);
                 break;
             }
             last_snap = Some(snap);
         }
         let snap = last_snap.unwrap();
-        assert!(snap.is_terminated(), "goal must terminate");
-        let r: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_terminated(), "goal must terminate");
+        let r: f32 = (snap.reward).into();
         assert!((r - 1.0).abs() < 1e-6, "goal reward must be 1.0, got {r}");
     }
 
@@ -1103,8 +1103,8 @@ mod tests {
         // (0,0) → Down → (1,0). (1,0) is 'F'. → Right → (1,1) is 'H'.
         env.step(FrozenLakeAction::Down).unwrap();
         let snap = env.step(FrozenLakeAction::Right).unwrap();
-        assert!(snap.is_terminated(), "hole must terminate");
-        let r: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_terminated(), "hole must terminate");
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, 0.0, "default hole reward is 0.0");
     }
 
@@ -1126,7 +1126,7 @@ mod tests {
         // Step into hole at (1,1): Down then Right.
         env.step(FrozenLakeAction::Down).unwrap();
         let snap = env.step(FrozenLakeAction::Right).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert!(
             (r - (-10.0)).abs() < 1e-6,
             "custom hole reward -10.0, got {r}"
@@ -1239,9 +1239,9 @@ mod tests {
                 env.reset().unwrap();
                 for _ in 0..20 {
                     let snap = env.step(FrozenLakeAction::Right).unwrap();
-                    let r: f32 = (*snap.reward()).into();
+                    let r: f32 = (snap.reward).into();
                     total += r;
-                    if snap.is_done() {
+                    if snap.status.is_done() {
                         break;
                     }
                 }
@@ -1312,7 +1312,10 @@ mod tests {
                 ];
                 for &a in &path {
                     let snap = env.step(a).expect("the route to the goal is all frozen");
-                    assert!(!snap.is_done(), "the route to the goal must not terminate");
+                    assert!(
+                        !snap.status.is_done(),
+                        "the route to the goal must not terminate"
+                    );
                 }
                 env.step(FrozenLakeAction::Right)
                     .expect("(3,2) → Right → (3,3) is the goal")
@@ -1339,7 +1342,10 @@ mod tests {
         let snap = env
             .step(FrozenLakeAction::Right)
             .expect("(1,0) → Right → (1,1) is a hole");
-        assert!(snap.is_terminated(), "falling into a hole must terminate");
+        assert!(
+            snap.status.is_terminated(),
+            "falling into a hole must terminate"
+        );
         assert!(
             env.step(FrozenLakeAction::Up).is_err(),
             "the episode has ended; a further step must be rejected"
@@ -1350,7 +1356,7 @@ mod tests {
             .step(FrozenLakeAction::Right)
             .expect("reset() must re-open the episode for stepping");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "a re-opened episode steps onto the frozen (0,1) and keeps running"
         );
         assert_eq!(
@@ -1385,7 +1391,7 @@ mod tests {
                 let snap = env
                     .step(FrozenLakeAction::Right)
                     .expect("stepping a running episode must succeed");
-                if snap.is_done() {
+                if snap.status.is_done() {
                     return;
                 }
             }
@@ -1401,7 +1407,7 @@ mod tests {
                     .step(FrozenLakeAction::Right)
                     .expect("stepping a running episode must succeed");
                 path.push((env.state.row, env.state.col));
-                if snap.is_done() {
+                if snap.status.is_done() {
                     break;
                 }
             }

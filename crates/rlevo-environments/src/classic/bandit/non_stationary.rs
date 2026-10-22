@@ -315,7 +315,7 @@ impl<const K: usize> Environment<1, 1> for NonStationaryBandit<K> {
         } else {
             Snapshot::running(obs, reward)
         };
-        self.guard.record(snap.status());
+        self.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -377,8 +377,8 @@ mod tests {
         let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default())
             .expect("valid config");
         let snap = <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).expect("reset");
-        assert!(!snap.is_done());
-        assert_eq!(f32::from(*snap.reward()), 0.0);
+        assert!(!snap.status.is_done());
+        assert_eq!(f32::from(snap.reward), 0.0);
     }
 
     #[test]
@@ -391,10 +391,10 @@ mod tests {
         .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
         let s1 = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-        assert!(!s1.is_done());
+        assert!(!s1.status.is_done());
         let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         let s3 = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-        assert!(s3.is_terminated());
+        assert!(s3.status.is_terminated());
     }
 
     // ── post-terminal step guard ──────────────────────────────────────────
@@ -432,7 +432,7 @@ mod tests {
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
             .expect("first step must succeed");
-        while !snap.is_done() {
+        while !snap.status.is_done() {
             snap = <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
                 .expect("step must succeed while the episode is running");
         }
@@ -463,8 +463,7 @@ mod tests {
             .expect_err("a step after termination must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
-                status,
-                terminal.status(),
+                status, terminal.status,
                 "the error must carry the status that ended the episode"
             ),
             other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
@@ -523,9 +522,9 @@ mod tests {
             (0..GUARD_MAX_STEPS)
                 .map(|_| {
                     f32::from(
-                        *<NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
+                        <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
                             .unwrap()
-                            .reward(),
+                            .reward,
                     )
                 })
                 .collect()
@@ -556,6 +555,7 @@ mod tests {
         assert!(
             !<NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action)
                 .expect("reset() must re-open the environment")
+                .status
                 .is_done(),
             "the first step of a fresh episode must not be done"
         );
@@ -618,7 +618,7 @@ mod tests {
                 <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut a, action).unwrap();
             let snap_b =
                 <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut b, action).unwrap();
-            assert_eq!(f32::from(*snap_a.reward()), f32::from(*snap_b.reward()));
+            assert_eq!(f32::from(snap_a.reward), f32::from(snap_b.reward));
         }
         assert_eq!(a.arm_means(), b.arm_means());
     }
@@ -662,9 +662,9 @@ mod tests {
             (0..16)
                 .map(|_| {
                     f32::from(
-                        *<NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
+                        <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
                             .unwrap()
-                            .reward(),
+                            .reward,
                     )
                 })
                 .collect()

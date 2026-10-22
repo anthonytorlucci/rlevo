@@ -650,7 +650,7 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
         // handed.
         let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -770,8 +770,8 @@ mod tests {
             last = Some(env.step(a).unwrap());
         }
         let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.9);
     }
 
@@ -792,7 +792,7 @@ mod tests {
         // Manually place a ball directly in front of the agent.
         env.state.grid.set(2, 1, Entity::Ball(OBSTACLE_COLOR));
         let snap = env.step(GridAction::Forward).unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
         assert_eq!(env.state().agent.x, 1, "ball should have blocked movement");
     }
 
@@ -805,7 +805,7 @@ mod tests {
         let mut done = false;
         for _ in 0..60 {
             let snap = env.step(GridAction::TurnLeft).unwrap();
-            if snap.is_done() {
+            if snap.status.is_done() {
                 done = true;
                 break;
             }
@@ -830,8 +830,11 @@ mod tests {
         // for collision we need the ball to step west onto the agent at
         // (1, 1). The agent stays put with TurnLeft.
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done(), "collision should terminate the episode");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(
+            snap.status.is_done(),
+            "collision should terminate the episode"
+        );
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, COLLISION_REWARD);
     }
 
@@ -931,7 +934,7 @@ mod tests {
             for step in 1..=cfg.max_steps {
                 let snap = env.step(GridAction::TurnLeft).unwrap();
                 assert_distinct(&env, cfg, step);
-                if snap.is_done() {
+                if snap.status.is_done() {
                     break;
                 }
             }
@@ -962,7 +965,7 @@ mod tests {
             env.reset().unwrap();
             for step in 1..=cfg.max_steps {
                 let snap = env.step(GridAction::TurnLeft).unwrap();
-                if snap.is_done() {
+                if snap.status.is_done() {
                     break;
                 }
                 assert_eq!(
@@ -1015,7 +1018,7 @@ mod tests {
 
         // TurnLeft leaves the agent at (1, 1), far from both balls.
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
         assert_eq!(
             env.obstacles(),
             &[(3, 2), (3, 3)],
@@ -1053,8 +1056,8 @@ mod tests {
             let snapshot = env
                 .step(GridAction::TurnLeft)
                 .expect("step must succeed until the episode ends");
-            if snapshot.is_done() {
-                let reward: f32 = (*snapshot.reward()).into();
+            if snapshot.status.is_done() {
+                let reward: f32 = (snapshot.reward).into();
                 assert_eq!(
                     reward, COLLISION_REWARD,
                     "this fixture must end by collision, not by exhausting the step budget"
@@ -1088,7 +1091,7 @@ mod tests {
         // at (1, 1).
         let mut env = DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
         let terminal = drive_to_collision(&mut env);
-        assert!(terminal.is_done());
+        assert!(terminal.status.is_done());
         let frozen = env.obstacles().to_vec();
 
         let err = env
@@ -1149,13 +1152,13 @@ mod tests {
         for _ in 0..5 {
             let a = rejected.step(GridAction::TurnLeft).expect("step");
             let b = clean.step(GridAction::TurnLeft).expect("step");
-            assert_eq!(a.is_done(), b.is_done());
+            assert_eq!(a.status.is_done(), b.status.is_done());
             assert_eq!(
                 rejected.obstacles(),
                 clean.obstacles(),
                 "the two streams must stay in lockstep after the rejected call"
             );
-            if a.is_done() {
+            if a.status.is_done() {
                 break;
             }
         }

@@ -730,7 +730,7 @@ mod tests {
     fn test_reset_returns_running() {
         let mut env = make_env();
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
     }
 
     #[test]
@@ -741,7 +741,7 @@ mod tests {
             let action = BipedalWalkerAction([0.0; 4]);
             let snap = env.step(action).unwrap();
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "observation must be all-finite after every step"
             );
         }
@@ -774,7 +774,7 @@ mod tests {
             let mut last_obs = BipedalWalkerObservation::default();
             for a in actions {
                 if let Ok(snap) = env.step(a.clone()) {
-                    last_obs = snap.observation().clone();
+                    last_obs = snap.observation.clone();
                 }
             }
             last_obs.values
@@ -795,7 +795,7 @@ mod tests {
         let mut env =
             BipedalWalker::with_terrain(cfg, Box::new(FlatTerrain)).expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(snap.observation().is_finite());
+        assert!(snap.observation.is_finite());
     }
 
     #[test]
@@ -835,7 +835,7 @@ mod tests {
         // joint speeds.
         let mut env = make_env();
         let reset_snap = env.reset().unwrap();
-        let reset_obs = reset_snap.observation().values;
+        let reset_obs = reset_snap.observation.values;
 
         // Drive asymmetric motor targets so joints move differently. The
         // asymmetric drive topples the walker well inside 30 steps, and since
@@ -847,8 +847,8 @@ mod tests {
         for _ in 0..30 {
             let action = BipedalWalkerAction([1.0, -1.0, -1.0, 1.0]);
             let snap = env.step(action).unwrap();
-            moved_obs = snap.observation().values;
-            if snap.is_done() {
+            moved_obs = snap.observation.values;
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -903,7 +903,7 @@ mod tests {
             let mut v = [0.0f32; 24];
             for _ in 0..8 {
                 let snap = env.step(BipedalWalkerAction([0.0; 4])).unwrap();
-                v = snap.observation().values;
+                v = snap.observation.values;
             }
             (v[5], v[10])
         };
@@ -950,7 +950,7 @@ mod tests {
             );
             let snap = env.reset().unwrap();
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "reset obs must be finite for terrain {terrain:?}"
             );
         }
@@ -1061,7 +1061,7 @@ mod tests {
             let mut env = BipedalWalker::with_config(cfg).expect("valid config");
             let snap = env.reset().expect("reset must succeed");
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "reset obs must be finite for {terrain:?}"
             );
         }
@@ -1075,7 +1075,7 @@ mod tests {
             let mut env = BipedalWalker::with_config(cfg).expect("valid config");
             let snap = env.reset().expect("hardcore reset must succeed");
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "hardcore reset obs must be finite for seed {seed}"
             );
         }
@@ -1102,7 +1102,7 @@ mod tests {
             let snap = env
                 .step(BipedalWalkerAction([0.0; 4]))
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -1129,10 +1129,10 @@ mod tests {
     fn test_bipedal_walker_post_terminal_step_does_not_mutate_state() {
         let mut env = make_env();
         let terminal = drive_to_fall(&mut env);
-        assert!(terminal.is_done(), "the fall must end the episode");
-        let ended = terminal.status();
+        assert!(terminal.status.is_done(), "the fall must end the episode");
+        let ended = terminal.status;
 
-        let obs_at_end = terminal.observation().values;
+        let obs_at_end = terminal.observation.values;
         let steps_at_end = env.steps;
         let total_reward_at_end = env.total_reward;
 
@@ -1181,7 +1181,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after termination");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -1191,7 +1194,7 @@ mod tests {
             .step(BipedalWalkerAction([0.0; 4]))
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

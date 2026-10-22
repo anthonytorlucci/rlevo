@@ -133,7 +133,7 @@
 //! let env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
 //! let mut timed = TimeLimit::new(env, 500);
 //! let mut snap = timed.reset().unwrap();
-//! while !snap.is_done() {
+//! while !snap.status.is_done() {
 //!     snap = timed.step(CartPoleAction::Right).unwrap();
 //! }
 //! ```
@@ -919,7 +919,7 @@ mod tests {
             let snap = env
                 .step(CartPoleAction::Right)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -976,9 +976,9 @@ mod tests {
 
         let mut env = default_env();
         let snap = env.reset().unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Running);
-        assert!(!snap.is_done());
-        let obs = snap.observation();
+        assert_eq!(snap.status, EpisodeStatus::Running);
+        assert!(!snap.status.is_done());
+        let obs = snap.observation;
         for v in obs.to_array() {
             assert!(v.abs() <= 0.05 + f32::EPSILON, "init obs {v} out of range");
         }
@@ -1007,9 +1007,9 @@ mod tests {
         // Set pole way past threshold
         env.state.theta = 0.3;
         let snap = env.step(CartPoleAction::Left).unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Terminated);
-        assert!(snap.is_terminated());
-        assert!(!snap.is_truncated());
+        assert_eq!(snap.status, EpisodeStatus::Terminated);
+        assert!(snap.status.is_terminated());
+        assert!(!snap.status.is_truncated());
     }
 
     #[test]
@@ -1018,7 +1018,7 @@ mod tests {
         env.reset().unwrap();
         env.state.x = 2.5;
         let snap = env.step(CartPoleAction::Left).unwrap();
-        assert!(snap.is_terminated());
+        assert!(snap.status.is_terminated());
     }
 
     #[test]
@@ -1026,8 +1026,8 @@ mod tests {
         let mut env = default_env();
         env.reset().unwrap();
         let snap = env.step(CartPoleAction::Right).unwrap();
-        if !snap.is_done() {
-            assert_eq!(*snap.reward(), ScalarReward(1.0));
+        if !snap.status.is_done() {
+            assert_eq!(snap.reward, ScalarReward(1.0));
         }
     }
 
@@ -1042,8 +1042,8 @@ mod tests {
         // Force termination next step
         env.state.theta = 0.3;
         let snap = env.step(CartPoleAction::Left).unwrap();
-        assert!(snap.is_done());
-        assert_eq!(*snap.reward(), ScalarReward(-1.0));
+        assert!(snap.status.is_done());
+        assert_eq!(snap.reward, ScalarReward(-1.0));
     }
 
     #[test]
@@ -1055,8 +1055,8 @@ mod tests {
         let mut env = CartPole::with_config(config).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(CartPoleAction::Right).unwrap();
-        if !snap.is_done() {
-            assert_eq!(*snap.reward(), ScalarReward(0.0));
+        if !snap.status.is_done() {
+            assert_eq!(snap.reward, ScalarReward(0.0));
         }
     }
 
@@ -1083,7 +1083,7 @@ mod tests {
         for action in actions {
             let sa = env_a.step(action).unwrap();
             let sb = env_b.step(action).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -1208,8 +1208,8 @@ mod tests {
         // on all four state variables), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -1219,10 +1219,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -1252,7 +1252,7 @@ mod tests {
 
         let mut env = default_env();
         let terminal = drive_to_pole_fall(&mut env);
-        assert!(terminal.is_terminated(), "the pole must have fallen");
+        assert!(terminal.status.is_terminated(), "the pole must have fallen");
 
         let steps_at_end = env.steps();
         let state_at_end = env.state;
@@ -1309,7 +1309,7 @@ mod tests {
             .step(CartPoleAction::Right)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -1329,8 +1329,8 @@ mod tests {
             .step(CartPoleAction::Right)
             .expect_err("a step after termination must be rejected");
 
-        let after = rejected.reset().unwrap().observation().to_array();
-        let baseline = untouched.reset().unwrap().observation().to_array();
+        let after = rejected.reset().unwrap().observation.to_array();
+        let baseline = untouched.reset().unwrap().observation.to_array();
         assert_eq!(
             after, baseline,
             "a rejected step must draw no randomness; the next episode must start where it would have"

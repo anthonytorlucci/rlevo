@@ -115,7 +115,7 @@ pub enum EnvironmentError {
     /// `step()` was called after the episode already ended.
     ///
     /// The action itself was legal; the *call sequence* was not. An episode that
-    /// has emitted a snapshot with [`Snapshot::is_done`] `== true` is over — the
+    /// has emitted a snapshot with [`EpisodeStatus::is_done`] `== true` is over — the
     /// only valid next lifecycle call is [`Environment::reset`]. Stepping again
     /// would silently resurrect a finished episode (re-entering the MDP from a
     /// terminal state, emitting rewards on a `Running` snapshot), so it is an
@@ -152,7 +152,7 @@ pub enum EnvironmentError {
 /// # struct Obs(f32);
 /// let snap = Snapshot::running(Obs(0.0), ScalarReward(1.0))
 ///     .with_metadata(SnapshotMetadata::new().with("ctrl", -0.25));
-/// assert_eq!(snap.metadata().unwrap().components["ctrl"], -0.25);
+/// assert_eq!(snap.metadata.as_ref().unwrap().components["ctrl"], -0.25);
 /// ```
 #[derive(Debug, Clone)]
 pub struct Snapshot<O> {
@@ -205,46 +205,6 @@ impl<O> Snapshot<O> {
     pub fn with_metadata(mut self, metadata: SnapshotMetadata) -> Self {
         self.metadata = Some(metadata);
         self
-    }
-
-    /// Access the observation.
-    pub fn observation(&self) -> &O {
-        &self.observation
-    }
-
-    /// Consume the snapshot and yield its observation by value.
-    pub fn into_observation(self) -> O {
-        self.observation
-    }
-
-    /// Access the reward received.
-    pub fn reward(&self) -> &ScalarReward {
-        &self.reward
-    }
-
-    /// Episode lifecycle status for this step.
-    pub fn status(&self) -> EpisodeStatus {
-        self.status
-    }
-
-    /// `true` when the episode loop should stop.
-    pub fn is_done(&self) -> bool {
-        self.status.is_done()
-    }
-
-    /// `true` only for intrinsic MDP termination.
-    pub fn is_terminated(&self) -> bool {
-        self.status.is_terminated()
-    }
-
-    /// `true` only for extrinsic step-limit truncation.
-    pub fn is_truncated(&self) -> bool {
-        self.status.is_truncated()
-    }
-
-    /// Optional named reward components and position data.
-    pub fn metadata(&self) -> Option<&SnapshotMetadata> {
-        self.metadata.as_ref()
     }
 }
 
@@ -315,13 +275,13 @@ pub trait Environment<const OR: usize, const AR: usize> {
     ///
     /// Applies `action` to the current state, updates internal state, and
     /// returns a snapshot containing the next observation, the immediate reward,
-    /// and the new [`EpisodeStatus`]. When [`Snapshot::is_done`] returns `true`
+    /// and the new [`EpisodeStatus`]. When [`EpisodeStatus::is_done`] returns `true`
     /// the episode is over; call [`reset`](Self::reset) to begin a new one.
     ///
     /// # Post-terminal contract
     ///
     /// Implementations **must** return [`EnvironmentError::StepAfterEpisodeEnd`]
-    /// when `step()` is called after a snapshot whose [`Snapshot::is_done`] is
+    /// when `step()` is called after a snapshot whose [`EpisodeStatus::is_done`] is
     /// `true`. A finished episode is not silently resumed, and the terminal
     /// snapshot is not silently repeated: the call sequence is the caller's bug
     /// and is reported as one. Call [`reset`](Self::reset) to begin a new
@@ -526,10 +486,10 @@ mod tests {
         let obs = MockObservation { position: 42 };
         let snapshot = Snapshot::running(obs, ScalarReward(1.5));
 
-        assert_eq!(snapshot.observation(), &obs);
-        assert_eq!(snapshot.reward(), &ScalarReward(1.5));
-        assert!(!snapshot.is_done());
-        assert_eq!(snapshot.status(), EpisodeStatus::Running);
+        assert_eq!(snapshot.observation, obs);
+        assert_eq!(snapshot.reward, ScalarReward(1.5));
+        assert!(!snapshot.status.is_done());
+        assert_eq!(snapshot.status, EpisodeStatus::Running);
     }
 
     #[test]
@@ -537,10 +497,10 @@ mod tests {
         let obs = MockObservation { position: 0 };
         let snapshot = Snapshot::terminated(obs, ScalarReward(-1.0));
 
-        assert!(snapshot.is_done());
-        assert!(snapshot.is_terminated());
-        assert!(!snapshot.is_truncated());
-        assert_eq!(snapshot.reward(), &ScalarReward(-1.0));
+        assert!(snapshot.status.is_done());
+        assert!(snapshot.status.is_terminated());
+        assert!(!snapshot.status.is_truncated());
+        assert_eq!(snapshot.reward, ScalarReward(-1.0));
     }
 
     #[test]
@@ -549,9 +509,9 @@ mod tests {
         let snapshot1 = Snapshot::running(obs, ScalarReward(0.5));
         let snapshot2 = snapshot1.clone();
 
-        assert_eq!(snapshot1.observation(), snapshot2.observation());
-        assert_eq!(snapshot1.reward(), snapshot2.reward());
-        assert_eq!(snapshot1.is_done(), snapshot2.is_done());
+        assert_eq!(snapshot1.observation, snapshot2.observation);
+        assert_eq!(snapshot1.reward, snapshot2.reward);
+        assert_eq!(snapshot1.status.is_done(), snapshot2.status.is_done());
     }
 
     #[test]
@@ -578,9 +538,9 @@ mod tests {
         let mut env = MockEnvironment::default();
         let snapshot = env.reset().expect("Reset should succeed");
 
-        assert_eq!(snapshot.observation().position, 3);
-        assert_eq!(snapshot.reward(), &ScalarReward(0.0));
-        assert!(!snapshot.is_done());
+        assert_eq!(snapshot.observation.position, 3);
+        assert_eq!(snapshot.reward, ScalarReward(0.0));
+        assert!(!snapshot.status.is_done());
     }
 
     #[test]
@@ -593,8 +553,8 @@ mod tests {
             .step(action)
             .expect("Step with valid action should succeed");
 
-        assert_eq!(snapshot.observation().position, 4);
-        assert_eq!(snapshot.reward(), &ScalarReward(0.0));
+        assert_eq!(snapshot.observation.position, 4);
+        assert_eq!(snapshot.reward, ScalarReward(0.0));
     }
 
     #[test]
@@ -610,12 +570,12 @@ mod tests {
 
             if i < 5 {
                 assert!(
-                    !snapshot.is_done(),
+                    !snapshot.status.is_done(),
                     "Episode should not be done before reaching goal"
                 );
             } else {
                 assert!(
-                    snapshot.is_done(),
+                    snapshot.status.is_done(),
                     "Episode should be done upon reaching goal"
                 );
             }
@@ -635,8 +595,8 @@ mod tests {
 
         // Reset and verify state is cleared
         let snapshot = env.reset().expect("Second reset should succeed");
-        assert_eq!(snapshot.observation().position, 3);
-        assert!(!snapshot.is_done());
+        assert_eq!(snapshot.observation.position, 3);
+        assert!(!snapshot.status.is_done());
     }
 
     #[test]
@@ -700,7 +660,7 @@ mod tests {
             let mut snapshot = env.reset().expect("Reset should succeed");
             let mut step = 0;
 
-            while !snapshot.is_done() && step < 5 {
+            while !snapshot.status.is_done() && step < 5 {
                 let action = MockAction::MoveRight;
                 snapshot = env.step(action).expect("Step should succeed");
                 step += 1;
@@ -714,7 +674,7 @@ mod tests {
         let snapshot = Snapshot::running(observation, ScalarReward(42.5));
 
         // ScalarReward converts into f32
-        let reward_as_f32: f32 = (*snapshot.reward()).into();
+        let reward_as_f32: f32 = (snapshot.reward).into();
         assert_eq!(reward_as_f32, 42.5);
     }
 
@@ -723,7 +683,7 @@ mod tests {
         let obs = MockObservation { position: 1 };
         let snapshot = Snapshot::running(obs, ScalarReward(0.0));
         assert!(
-            snapshot.metadata().is_none(),
+            snapshot.metadata.as_ref().is_none(),
             "named constructors must leave metadata unset"
         );
     }
@@ -738,7 +698,7 @@ mod tests {
             Snapshot::terminated(obs, ScalarReward(0.0)).with_metadata(meta()),
             Snapshot::truncated(obs, ScalarReward(0.0)).with_metadata(meta()),
         ] {
-            let m = snapshot.metadata().expect("metadata must be Some");
+            let m = snapshot.metadata.as_ref().expect("metadata must be Some");
             assert_eq!(m.components.get("shaping"), Some(&-1.5));
         }
     }

@@ -550,7 +550,7 @@ impl Environment<1, 1> for Taxi {
 
         // Record from the snapshot we are about to emit, so the guard and the
         // snapshot can never disagree on any path.
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -929,7 +929,7 @@ mod tests {
         };
         let pos_before = (env.state.taxi_row, env.state.taxi_col);
         let snap = env.step(TaxiAction::East).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, -1.0);
         assert_eq!((env.state.taxi_row, env.state.taxi_col), pos_before);
     }
@@ -947,7 +947,7 @@ mod tests {
             destination: 1,
         };
         let snap = env.step(TaxiAction::Pickup).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, -10.0);
     }
 
@@ -964,9 +964,9 @@ mod tests {
             destination: 1,
         };
         let snap = env.step(TaxiAction::Dropoff).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, 20.0);
-        assert!(snap.is_terminated());
+        assert!(snap.status.is_terminated());
     }
 
     #[test]
@@ -1052,9 +1052,9 @@ mod tests {
                 env.reset().unwrap();
                 for _ in 0..10 {
                     let snap = env.step(TaxiAction::South).unwrap();
-                    let r: f32 = (*snap.reward()).into();
+                    let r: f32 = (snap.reward).into();
                     total += r;
-                    if snap.is_done() {
+                    if snap.status.is_done() {
                         break;
                     }
                 }
@@ -1082,10 +1082,10 @@ mod tests {
         let mut env = make_env();
         let terminal = drive_to_correct_dropoff(&mut env);
 
-        let r: f32 = (*terminal.reward()).into();
+        let r: f32 = (terminal.reward).into();
         assert_eq!(r, 20.0, "a correct dropoff must pay +20");
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "a correct dropoff must terminate the episode"
         );
 
@@ -1130,7 +1130,7 @@ mod tests {
             .step(TaxiAction::South)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -1148,7 +1148,7 @@ mod tests {
                 let snap = env
                     .step(TaxiAction::South)
                     .expect("movement never terminates the episode");
-                assert!(!snap.is_done(), "South must not end a Taxi episode");
+                assert!(!snap.status.is_done(), "South must not end a Taxi episode");
                 ids.push(env.state.encode());
             }
             ids

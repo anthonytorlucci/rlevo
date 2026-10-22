@@ -495,7 +495,7 @@ mod tests {
     fn drive_to_truncation(env: &mut Reacher) -> Snapshot<ReacherObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env.step(idle()).expect("first step must succeed");
-        while !snap.is_done() {
+        while !snap.status.is_done() {
             snap = env
                 .step(idle())
                 .expect("step must succeed while the episode is running");
@@ -522,7 +522,7 @@ mod tests {
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = truncating_env();
         let terminal = drive_to_truncation(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
         assert_eq!(
             ended,
             EpisodeStatus::Truncated,
@@ -600,7 +600,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after truncation");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -676,7 +679,7 @@ mod tests {
             env.reset().expect("reset");
             env.step(action)
                 .expect("a boundary action of the static space must be accepted")
-                .observation()
+                .observation
                 .0
         }
 
@@ -713,8 +716,8 @@ mod tests {
     fn reset_returns_running() {
         let mut env = Reacher::with_config(cfg(7)).expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
-        assert!(snap.observation().is_finite());
+        assert!(!snap.status.is_done());
+        assert!(snap.observation.is_finite());
     }
 
     #[test]
@@ -724,12 +727,12 @@ mod tests {
         for i in 0..20 {
             let a = ReacherAction::new(0.3 * (i as f32).sin(), -0.2);
             let snap = env.step(a).unwrap();
-            let meta = snap.metadata().unwrap();
+            let meta = snap.metadata.as_ref().unwrap();
             let sum: f32 = meta.components.values().sum();
             assert!(
-                (sum - snap.reward().0).abs() < 1e-5,
+                (sum - snap.reward.0).abs() < 1e-5,
                 "Σ components ({sum}) must equal reward ({}) at step {i}",
-                snap.reward().0
+                snap.reward.0
             );
         }
     }
@@ -751,7 +754,7 @@ mod tests {
             let mut last = ReacherObservation::default();
             for a in actions {
                 if let Ok(snap) = env.step(ReacherAction(*a)) {
-                    last = *snap.observation();
+                    last = snap.observation;
                 }
             }
             last
@@ -793,7 +796,7 @@ mod tests {
         let mut status = EpisodeStatus::Running;
         for _ in 0..5 {
             let snap = env.step(ReacherAction::new(0.0, 0.0)).unwrap();
-            status = snap.status();
+            status = snap.status;
         }
         assert_eq!(status, EpisodeStatus::Truncated);
     }
@@ -813,8 +816,8 @@ mod tests {
         for i in 0..50 {
             let a = ReacherAction::new(0.5 * (i as f32 * 0.3).sin(), 0.5 * (i as f32 * 0.4).cos());
             let snap = env.step(a).unwrap();
-            assert!(snap.observation().is_finite(), "non-finite obs at step {i}");
-            if snap.is_done() {
+            assert!(snap.observation.is_finite(), "non-finite obs at step {i}");
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -825,7 +828,7 @@ mod tests {
         let mut env = Reacher::with_config(cfg(3)).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(ReacherAction::new(0.2, -0.1)).unwrap();
-        let obs = snap.observation().0;
+        let obs = snap.observation.0;
         // `$\cos^2 + \sin^2 \approx 1$` for each joint
         assert!((obs[0].powi(2) + obs[2].powi(2) - 1.0).abs() < 1e-4);
         assert!((obs[1].powi(2) + obs[3].powi(2) - 1.0).abs() < 1e-4);
@@ -853,7 +856,7 @@ mod tests {
         let mut env = Reacher::with_config(cfg(5)).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(ReacherAction::new(0.1, -0.1)).unwrap();
-        let obs = snap.observation();
+        let obs = snap.observation;
 
         // Re-derive fingertip from link2's pose and the half-length offset.
         let p2 = Rapier3DBackend::get_pose(&env.world, env.state.link2);
@@ -886,7 +889,7 @@ mod tests {
                 -0.3 * (i as f32 * 0.23).cos(),
             );
             let snap = env.step(a).unwrap();
-            let d = snap.metadata().unwrap().components[METADATA_KEY_REWARD_DISTANCE];
+            let d = snap.metadata.as_ref().unwrap().components[METADATA_KEY_REWARD_DISTANCE];
             assert!(d <= 0.0, "reward_distance must be ≤ 0, got {d} at step {i}");
         }
     }
@@ -899,7 +902,7 @@ mod tests {
             let a =
                 ReacherAction::new(0.6 * (i as f32 * 0.31).cos(), 0.9 * (i as f32 * 0.11).sin());
             let snap = env.step(a).unwrap();
-            let c = snap.metadata().unwrap().components[METADATA_KEY_REWARD_CONTROL];
+            let c = snap.metadata.as_ref().unwrap().components[METADATA_KEY_REWARD_CONTROL];
             assert!(c <= 0.0, "reward_control must be ≤ 0, got {c} at step {i}");
         }
     }
@@ -960,10 +963,10 @@ mod tests {
         for i in 0..STEPS {
             let snap = env.step(ReacherAction::new(0.5, 0.0)).unwrap();
             assert!(
-                snap.observation().is_finite(),
+                snap.observation.is_finite(),
                 "obs must stay finite at step {i}"
             );
-            moved |= snap.observation().theta1_dot().abs() > 0.0;
+            moved |= snap.observation.theta1_dot().abs() > 0.0;
         }
 
         // link1 (shoulder) carries the actuated torque
@@ -993,8 +996,8 @@ mod tests {
         // The persistent RNG advances across resets (default reset noise > 0),
         // so back-to-back resets must sample independent initial states.
         let mut env = Reacher::with_config(cfg(7)).expect("valid config");
-        let first = env.reset().unwrap().observation().0;
-        let second = env.reset().unwrap().observation().0;
+        let first = env.reset().unwrap().observation.0;
+        let second = env.reset().unwrap().observation.0;
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -1004,10 +1007,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = Reacher::with_config(cfg(7)).expect("valid config");
-        let a = env.reset_with_seed(999).unwrap().observation().0;
+        let a = env.reset_with_seed(999).unwrap().observation.0;
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().0;
+        let b = env.reset_with_seed(999).unwrap().observation.0;
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"

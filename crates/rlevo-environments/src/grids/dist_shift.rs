@@ -462,7 +462,7 @@ impl Environment<3, 1> for DistShiftEnv {
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -573,8 +573,8 @@ mod tests {
             last = Some(env.step(GridAction::Forward).unwrap());
         }
         let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.9);
     }
 
@@ -589,8 +589,8 @@ mod tests {
         env.step(GridAction::TurnRight).unwrap();
         env.step(GridAction::Forward).unwrap(); // (3,2)
         let snap = env.step(GridAction::Forward).unwrap(); // (3,3) = lava
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -650,7 +650,7 @@ mod tests {
         let mut snapshot = env
             .step(GridAction::Forward)
             .expect("the first step must succeed");
-        while !snapshot.is_done() {
+        while !snapshot.status.is_done() {
             snapshot = env
                 .step(GridAction::Forward)
                 .expect("stepping east along the safe corridor must succeed until the goal");
@@ -672,7 +672,7 @@ mod tests {
                 .step(action)
                 .expect("the approach must not end the episode");
             assert!(
-                !snapshot.is_done(),
+                !snapshot.status.is_done(),
                 "the approach to the lava must stay running"
             );
         }
@@ -717,7 +717,7 @@ mod tests {
         let mut env =
             DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
         let terminal = drive_to_goal(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -781,7 +781,7 @@ mod tests {
             .step(GridAction::Forward)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snapshot.is_done(),
+            !snapshot.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

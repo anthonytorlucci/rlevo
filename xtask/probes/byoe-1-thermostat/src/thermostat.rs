@@ -144,7 +144,7 @@ impl Environment<1, 1> for Thermostat {
         } else {
             Snapshot::running(self.observe(), reward)
         };
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }

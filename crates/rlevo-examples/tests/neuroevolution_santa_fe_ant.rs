@@ -52,14 +52,14 @@ fn reflex_plateau() -> f32 {
     let mut snap = env.reset().expect("reset");
     let mut eaten = 0.0_f32;
     loop {
-        let action = if snap.observation().food_ahead {
+        let action = if snap.observation.food_ahead {
             SantaFeAntAction::Move
         } else {
             SantaFeAntAction::TurnRight
         };
         snap = env.step(action).expect("step");
-        eaten += f32::from(*snap.reward());
-        if snap.is_done() {
+        eaten += f32::from(snap.reward);
+        if snap.status.is_done() {
             break;
         }
     }

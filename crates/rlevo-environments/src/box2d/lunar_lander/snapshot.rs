@@ -6,7 +6,7 @@ use rlevo_core::environment::SnapshotMetadata;
 ///
 /// # What the value *is*
 ///
-/// `snap.metadata().unwrap().components[METADATA_KEY_SHAPING]` is `$\Phi(t)$` — the potential of
+/// `snap.metadata.as_ref().unwrap().components[METADATA_KEY_SHAPING]` is `$\Phi(t)$` — the potential of
 /// the state observed at this step, as computed by `LunarLanderCore::shaping`:
 ///
 /// ```math
@@ -77,7 +77,7 @@ mod tests {
     fn test_metadata_shaping_key_present() {
         let obs = LunarLanderObservation::default();
         let snap = Snapshot::running(obs, ScalarReward(1.0)).with_metadata(shaping_metadata(42.5));
-        let meta = snap.metadata().expect("metadata must be Some");
+        let meta = snap.metadata.as_ref().expect("metadata must be Some");
         assert!(
             meta.components.contains_key(METADATA_KEY_SHAPING),
             "metadata must contain the shaping key"
@@ -98,7 +98,7 @@ mod tests {
             Snapshot::truncated(obs, ScalarReward(0.0)).with_metadata(shaping_metadata(-1.5)),
         ];
         for snap in &snapshots {
-            let meta = snap.metadata().expect("metadata must be Some");
+            let meta = snap.metadata.as_ref().expect("metadata must be Some");
             assert_relative_eq!(meta.components[METADATA_KEY_SHAPING], -1.5, epsilon = 1e-6);
         }
     }
@@ -110,19 +110,19 @@ mod tests {
         assert!(
             !Snapshot::running(obs.clone(), ScalarReward(0.0))
                 .with_metadata(meta.clone())
-                .status()
+                .status
                 .is_done()
         );
         assert!(
             Snapshot::terminated(obs.clone(), ScalarReward(0.0))
                 .with_metadata(meta.clone())
-                .status()
+                .status
                 .is_terminated()
         );
         assert!(
             Snapshot::truncated(obs, ScalarReward(0.0))
                 .with_metadata(meta)
-                .status()
+                .status
                 .is_truncated()
         );
     }

@@ -87,7 +87,7 @@
 //! let env = Pendulum::with_config(PendulumConfig::default()).expect("valid config");
 //! let mut timed = TimeLimit::new(env, 200);
 //! let mut snap = timed.reset().unwrap();
-//! while !snap.is_done() {
+//! while !snap.status.is_done() {
 //!     snap = timed.step(PendulumAction::new(1.0).unwrap()).unwrap();
 //! }
 //! ```
@@ -694,8 +694,8 @@ mod tests {
         let action = PendulumAction::new(1.0).unwrap();
         for _ in 0..500 {
             let snap = env.step(action).unwrap();
-            assert!(!snap.is_terminated(), "should never terminate");
-            assert_eq!(snap.status(), EpisodeStatus::Running);
+            assert!(!snap.status.is_terminated(), "should never terminate");
+            assert_eq!(snap.status, EpisodeStatus::Running);
         }
     }
 
@@ -724,7 +724,7 @@ mod tests {
                 .step(action)
                 .unwrap_or_else(|e| panic!("step {i} must succeed; Pendulum never ends: {e:?}"));
             assert_eq!(
-                snap.status(),
+                snap.status,
                 EpisodeStatus::Running,
                 "snapshot at step {i} must be Running"
             );
@@ -766,7 +766,7 @@ mod tests {
         for _ in 0..10 {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -818,8 +818,8 @@ mod tests {
         // angle and angular velocity), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -829,10 +829,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"

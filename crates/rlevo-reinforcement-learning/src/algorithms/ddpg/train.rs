@@ -90,11 +90,11 @@ where
     let mut last_q_mean = 0.0_f32;
 
     for step in 0..total_steps {
-        let obs_current = snapshot.observation().clone();
+        let obs_current = snapshot.observation.clone();
         let action = agent.act(&obs_current, true, rng);
 
         let next_snapshot = env.step(action.clone()).map_err(env_to_err)?;
-        let reward_f32: f32 = (*next_snapshot.reward()).into();
+        let reward_f32: f32 = (next_snapshot.reward).into();
         // Two distinct masks — do NOT collapse these back into one.
         //
         // `done` drives episode bookkeeping (metrics, `env.reset()`): the
@@ -106,9 +106,9 @@ where
         // target. Masking on `done` here would zero the bootstrap at every timeout and bias Q
         // downward on any time-limited env (Pardo et al., "Time Limits in Reinforcement Learning",
         // ICML 2018, Eq. 6 — partial-episode bootstrapping).
-        let done = next_snapshot.is_done();
-        let terminated = next_snapshot.is_terminated();
-        let next_obs = next_snapshot.observation().clone();
+        let done = next_snapshot.status.is_done();
+        let terminated = next_snapshot.status.is_terminated();
+        let next_obs = next_snapshot.observation.clone();
 
         agent.remember(obs_current, &action, reward_f32, next_obs, terminated);
         agent.on_env_step();

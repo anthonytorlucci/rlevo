@@ -473,7 +473,7 @@ impl Environment<3, 1> for UnlockEnv {
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status rather than a re-derived literal.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -492,8 +492,6 @@ mod tests {
     // `test_unlock_occlusion_is_carried_entirely_by_the_locked_door`.
     use super::super::core::grid::egocentric_view;
     use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
-    // `Snapshot` arrives through `super::*`: `step()` reads `status()` off the
-    // snapshot it emits, so the trait is now in scope crate-side.
     use rlevo_core::config::ConstraintKind;
 
     /// The four facings, for the occlusion sweep.
@@ -618,7 +616,7 @@ mod tests {
         let mut b = UnlockEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
         assert_eq!(a.door_pos(), b.door_pos());
     }
 
@@ -629,7 +627,7 @@ mod tests {
         // Face the door (north) without picking up the key first.
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::Toggle).unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
         assert!(matches!(
             env.state().grid.get(1, 0),
             Entity::Door(_, DoorState::Locked)
@@ -652,8 +650,8 @@ mod tests {
             last = Some(env.step(a).unwrap());
         }
         let snap = last.unwrap();
-        assert!(snap.is_done(), "unlocking the door should terminate");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done(), "unlocking the door should terminate");
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.9, "reward was {reward}");
     }
 
@@ -762,7 +760,7 @@ mod tests {
         // is a literal `0`: carryables inherit `WorldObj.encode` and only
         // `Door` writes a state byte.
         assert_eq!(
-            picked.observation().view[VIEW_SIZE - 1][VIEW_SIZE / 2],
+            picked.observation.view[VIEW_SIZE - 1][VIEW_SIZE / 2],
             [Entity::Key(DOOR_COLOR).type_u8(), DOOR_COLOR.to_u8(), 0],
             "the carried key — colour included — must reach the agent's own view cell"
         );
@@ -782,7 +780,7 @@ mod tests {
         );
 
         let masked = mask_view(&env.state().grid, &agent, UnlockEnv::VISIBILITY);
-        let occluded = *locked.observation();
+        let occluded = locked.observation;
         let see_through = observe_grid(env.state(), Visibility::SeeThrough);
 
         assert_eq!(
@@ -845,7 +843,7 @@ mod tests {
 
         // Opening it hands back precisely the three cells behind it.
         let opened = env.step(GridAction::Toggle).expect("open");
-        assert!(opened.is_done(), "opening the door ends the episode");
+        assert!(opened.status.is_done(), "opening the door ends the episode");
         let after = mask_view(&env.state().grid, &env.state().agent, UnlockEnv::VISIBILITY);
         for (row, col) in BEHIND_THE_DOOR {
             assert_eq!(
@@ -897,17 +895,17 @@ mod tests {
         const KEY_CELL: (usize, usize) = (VIEW_SIZE - 2, VIEW_SIZE / 2);
 
         let mut env = test_env();
-        let before = *env.reset().expect("reset").observation();
+        let before = env.reset().expect("reset").observation;
         assert_eq!(
             env.state().agent.carrying,
             None,
             "the agent starts empty-handed"
         );
 
-        let after = *env
+        let after = env
             .step(GridAction::Pickup)
             .expect("take the key")
-            .observation();
+            .observation;
         assert_eq!(
             env.state().agent.carrying,
             Some(Entity::Key(DOOR_COLOR)),
@@ -1009,8 +1007,8 @@ mod tests {
 
         let mut env = test_env();
         let terminal = drive_to_open_door(&mut env);
-        assert!(terminal.is_done(), "opening the door must terminate");
-        let paid: f32 = (*terminal.reward()).into();
+        assert!(terminal.status.is_done(), "opening the door must terminate");
+        let paid: f32 = (terminal.reward).into();
         assert!(paid > 0.0, "the unlock reward was {paid}");
 
         let steps_at_end = env.steps();
@@ -1027,8 +1025,7 @@ mod tests {
             .expect_err("a step after the door opened must return Err, not another payout");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
-                status,
-                terminal.status(),
+                status, terminal.status,
                 "the error must carry the status that ended the episode"
             ),
             other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
@@ -1089,7 +1086,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

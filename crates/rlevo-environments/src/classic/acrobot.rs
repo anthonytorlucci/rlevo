@@ -138,7 +138,7 @@
 //! let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(AcrobotAction::TorquePos).unwrap();
-//! println!("terminated: {}", snap.is_terminated());
+//! println!("terminated: {}", snap.status.is_terminated());
 //! ```
 use std::fmt;
 
@@ -629,7 +629,7 @@ impl DiscreteAction<1> for AcrobotAction {
 /// env.reset().unwrap();
 /// loop {
 ///     let snap = env.step(AcrobotAction::TorquePos).unwrap();
-///     if snap.is_terminated() { break; }
+///     if snap.status.is_terminated() { break; }
 /// }
 /// ```
 pub struct Acrobot<D: AcrobotDynamicsFn = BookDynamics> {
@@ -994,7 +994,7 @@ mod tests {
             let snap = env
                 .step(action)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -1037,7 +1037,7 @@ mod tests {
 
         let mut env = default_env();
         let snap = env.reset().unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Running);
+        assert_eq!(snap.status, EpisodeStatus::Running);
     }
 
     #[test]
@@ -1101,7 +1101,7 @@ mod tests {
         ] {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -1126,7 +1126,7 @@ mod tests {
         for _ in 0..20 {
             let sb = book.step(AcrobotAction::TorquePos).unwrap();
             let sn = nips.step(AcrobotAction::TorquePos).unwrap();
-            if sb.observation().to_array() != sn.observation().to_array() {
+            if sb.observation.to_array() != sn.observation.to_array() {
                 any_diff = true;
                 break;
             }
@@ -1154,10 +1154,10 @@ mod tests {
         let mut env = default_env();
         env.reset().unwrap();
         let snap = env.step(AcrobotAction::TorquePos).unwrap();
-        if snap.is_terminated() {
-            assert_eq!(*snap.reward(), ScalarReward(0.0));
+        if snap.status.is_terminated() {
+            assert_eq!(snap.reward, ScalarReward(0.0));
         } else {
-            assert_eq!(*snap.reward(), ScalarReward(-1.0));
+            assert_eq!(snap.reward, ScalarReward(-1.0));
         }
     }
 
@@ -1211,8 +1211,8 @@ mod tests {
         // on all four state variables), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -1244,7 +1244,7 @@ mod tests {
 
         let mut env = default_env();
         let terminal = swing_up_to_terminal(&mut env);
-        assert!(terminal.is_terminated(), "swing-up must terminate");
+        assert!(terminal.status.is_terminated(), "swing-up must terminate");
 
         let state_before = env.state;
         let steps_before = env.steps;
@@ -1289,7 +1289,7 @@ mod tests {
             .step(AcrobotAction::TorqueZero)
             .expect("the first step must succeed");
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "an upright acrobot must terminate on the next step"
         );
 
@@ -1352,7 +1352,10 @@ mod tests {
             let snap = env
                 .step(AcrobotAction::TorqueZero)
                 .expect("the first step must succeed");
-            assert!(snap.is_terminated(), "an upright acrobot must terminate");
+            assert!(
+                snap.status.is_terminated(),
+                "an upright acrobot must terminate"
+            );
             env
         };
 
@@ -1377,10 +1380,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"

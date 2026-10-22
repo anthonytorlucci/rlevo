@@ -321,15 +321,15 @@ fn td3_delayed_update_skips_actor_step() {
     // Prime the buffer past both the batch-size and warm-up thresholds.
     let mut snap = env.reset().expect("reset");
     for _ in 0..64 {
-        let obs = *snap.observation();
+        let obs = snap.observation;
         let action = agent.act(&obs, true, &mut rng);
         let next = env.step(action).expect("step");
-        let reward: f32 = (*next.reward()).into();
+        let reward: f32 = (next.reward).into();
         // `done` drives the episode reset; `terminated` is the Bellman
         // bootstrap mask. `LinearEnv` only ever truncates, so these differ.
-        let done = next.is_done();
-        let terminated = next.is_terminated();
-        let next_obs = *next.observation();
+        let done = next.status.is_done();
+        let terminated = next.status.is_terminated();
+        let next_obs = next.observation;
         agent.remember(obs, &action, reward, next_obs, terminated);
         agent.on_env_step();
         snap = if done {

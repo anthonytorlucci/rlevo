@@ -179,7 +179,7 @@ let env = CartPole::with_config(CartPoleConfig::default()).expect("valid config"
 let mut env = TimeLimit::new(env, 500);
 
 let mut snap = env.reset().expect("reset");
-while !snap.is_done() {
+while !snap.status.is_done() {
     snap = env.step(CartPoleAction::Right).expect("step");
 }
 ```
@@ -193,7 +193,7 @@ use rlevo_environments::grids::core::GridAction;
 
 let mut env = EmptyEnv::with_config(EmptyConfig::default(), false).expect("valid config");
 let mut snap = env.reset().expect("reset");
-while !snap.is_done() {
+while !snap.status.is_done() {
     snap = env.step(GridAction::Forward).expect("step");
 }
 ```
@@ -246,7 +246,7 @@ To replay one specific episode bit-for-bit, call the inherent `reset_with_seed(s
 
 ### Episode Status
 
-`Snapshot::status()` returns one of three variants:
+`Snapshot::status` holds one of three variants:
 
 - `Running` — episode continues
 - `Terminated` — natural episode end (goal reached, fell over, game over)

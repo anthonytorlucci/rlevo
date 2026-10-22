@@ -511,7 +511,7 @@ impl Environment<1, 1> for Blackjack {
         } else {
             Snapshot::running(obs, ScalarReward(reward))
         };
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -718,9 +718,9 @@ mod tests {
             env.set_hands(vec![10, 10], vec![6, 5]);
             env.rng = StdRng::seed_from_u64(seed);
             let snap = env.step(BlackjackAction::Hit).unwrap();
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             if r == -1.0 {
-                assert!(snap.is_done());
+                assert!(snap.status.is_done());
                 return;
             }
         }
@@ -737,9 +737,9 @@ mod tests {
             env.set_hands(vec![9, 9], vec![10, 6]);
             env.rng = StdRng::seed_from_u64(seed);
             let snap = env.step(BlackjackAction::Stick).unwrap();
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             if r == 1.0 {
-                assert!(snap.is_done());
+                assert!(snap.status.is_done());
                 return;
             }
         }
@@ -754,9 +754,9 @@ mod tests {
         // Player 18, dealer 18 (10+8) → no draw needed (`$18 \geq 17$`).
         env.set_hands(vec![9, 9], vec![10, 8]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, 0.0, "equal sums must push (reward 0), got {r}");
-        assert!(snap.is_done());
+        assert!(snap.status.is_done());
     }
 
     #[test]
@@ -773,9 +773,9 @@ mod tests {
         // Natural player [1,10]=21, dealer [8,9]=17 (not natural, no draw).
         env.set_hands(vec![1, 10], vec![8, 9]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert!((r - 1.5).abs() < 1e-6, "natural pays 1.5, got {r}");
-        assert!(snap.is_done());
+        assert!(snap.status.is_done());
     }
 
     #[test]
@@ -790,12 +790,12 @@ mod tests {
         // SAB: player natural [1,10], dealer non-natural [8,9] → reward = 1.0.
         env.set_hands(vec![1, 10], vec![8, 9]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert!(
             (r - 1.0).abs() < 1e-6,
             "SAB player natural must pay 1.0, got {r}"
         );
-        assert!(snap.is_done());
+        assert!(snap.status.is_done());
     }
 
     #[test]
@@ -810,12 +810,12 @@ mod tests {
         // SAB: dealer natural [1,10], player non-natural [9,7] → reward = -1.0.
         env.set_hands(vec![9, 7], vec![1, 10]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert!(
             (r - (-1.0)).abs() < 1e-6,
             "SAB dealer natural costs -1.0, got {r}"
         );
-        assert!(snap.is_done());
+        assert!(snap.status.is_done());
     }
 
     #[test]
@@ -837,9 +837,9 @@ mod tests {
                         BlackjackAction::Stick
                     };
                     let snap = env.step(a).unwrap();
-                    let r: f32 = (*snap.reward()).into();
+                    let r: f32 = (snap.reward).into();
                     total += r;
-                    if snap.is_done() {
+                    if snap.status.is_done() {
                         break;
                     }
                 }
@@ -925,7 +925,7 @@ mod tests {
         let mut env = make_env();
         let snapshot = bust_on_hit(&mut env);
         assert!(
-            snapshot.is_done(),
+            snapshot.status.is_done(),
             "hitting a hard 21 must bust and terminate the episode"
         );
 
@@ -977,7 +977,10 @@ mod tests {
     fn test_blackjack_reset_reopens_terminated_episode() {
         let mut env = make_env();
         let snapshot = bust_on_hit(&mut env);
-        assert!(snapshot.is_done(), "the episode must have terminated");
+        assert!(
+            snapshot.status.is_done(),
+            "the episode must have terminated"
+        );
         assert!(
             env.step(BlackjackAction::Hit).is_err(),
             "the guard must be closed before reset()"
@@ -1021,14 +1024,14 @@ mod tests {
                 let snapshot = env
                     .step(action)
                     .expect("a running episode must accept a step");
-                let reward: f32 = (*snapshot.reward()).into();
+                let reward: f32 = (snapshot.reward).into();
                 trace.push((
                     env.state.player_hand.clone(),
                     env.state.dealer_hand.clone(),
                     reward.to_bits(),
-                    snapshot.is_done(),
+                    snapshot.status.is_done(),
                 ));
-                if snapshot.is_done() {
+                if snapshot.status.is_done() {
                     break;
                 }
             }
@@ -1056,7 +1059,7 @@ mod tests {
         for env in [&mut probed, &mut clean] {
             let terminal = bust_on_hit(env);
             assert!(
-                terminal.is_done(),
+                terminal.status.is_done(),
                 "hitting a hard 21 must bust and terminate the episode"
             );
         }

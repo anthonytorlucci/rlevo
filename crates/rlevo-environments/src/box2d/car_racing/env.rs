@@ -643,7 +643,7 @@ mod tests {
     fn drive_to_truncation(env: &mut CarRacing) -> Snapshot<CarRacingObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env.step(coast()).expect("first step must succeed");
-        while !snap.is_done() {
+        while !snap.status.is_done() {
             snap = env
                 .step(coast())
                 .expect("step must succeed while the episode is running");
@@ -698,7 +698,7 @@ mod tests {
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = truncating_env();
         let terminal = drive_to_truncation(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
         assert_eq!(
             ended,
             EpisodeStatus::Truncated,
@@ -708,7 +708,7 @@ mod tests {
         let steps_at_end = env.steps;
         let visited_at_end = env.state_for_test().tiles_visited();
         let tile_at_end = env.state_for_test().current_tile();
-        let frame_at_end = Arc::clone(&terminal.observation().pixels);
+        let frame_at_end = Arc::clone(&terminal.observation.pixels);
 
         let err = env
             .step(coast())
@@ -761,7 +761,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after truncation");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -772,7 +775,7 @@ mod tests {
             .step(coast())
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -786,7 +789,7 @@ mod tests {
     fn test_reset_returns_running() {
         let mut env = make_env();
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
     }
 
     #[test]
@@ -804,7 +807,7 @@ mod tests {
         let total = env.state_for_test().total_tiles();
         let before = env.state_for_test().tiles_visited();
         let snap = env.step(CarRacingAction::new(0.0, 0.0, 0.0)).unwrap();
-        let reward: f32 = (*snap.reward()).into();
+        let reward: f32 = (snap.reward).into();
         let newly = env.state_for_test().tiles_visited() - before;
 
         // Reward decomposes exactly as: newly-marked tiles `$\times$` per-tile reward (lap_reward /
@@ -842,7 +845,7 @@ mod tests {
             let mut reward_sum = 0.0f32;
             for _ in 0..5 {
                 if let Ok(snap) = env.step(a.clone()) {
-                    let r: f32 = (*snap.reward()).into();
+                    let r: f32 = (snap.reward).into();
                     reward_sum += r;
                 }
             }
@@ -1070,7 +1073,7 @@ mod tests {
 
         let snap = env.step(CarRacingAction::new(0.0, 0.0, 0.0)).unwrap();
         assert!(
-            matches!(snap.status(), EpisodeStatus::Terminated),
+            matches!(snap.status, EpisodeStatus::Terminated),
             "a completed lap must report Terminated"
         );
     }

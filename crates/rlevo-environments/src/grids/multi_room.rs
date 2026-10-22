@@ -554,7 +554,7 @@ impl Environment<3, 1> for MultiRoomEnv {
         // Single exit: the guard is fed the emitted snapshot's own status, so it
         // cannot disagree with what the caller received.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -755,7 +755,7 @@ mod tests {
         env.step(GridAction::Forward).unwrap(); // (3, 2)
         env.step(GridAction::Forward).unwrap(); // (4, 2)
         let snap = env.step(GridAction::Forward).unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
         assert_eq!(env.state().agent.x, 4);
     }
 
@@ -786,8 +786,8 @@ mod tests {
             last = Some(env.step(a).unwrap());
         }
         let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.9, "reward was {reward}");
     }
 
@@ -798,7 +798,7 @@ mod tests {
         let mut b = MultiRoomEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     #[test]
@@ -815,8 +815,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -888,7 +888,7 @@ mod tests {
         );
 
         let masked = mask_view(&env.state().grid, &agent, MultiRoomEnv::VISIBILITY);
-        let occluded = *snapshot.observation();
+        let occluded = snapshot.observation;
         let see_through = observe_grid(env.state(), Visibility::SeeThrough);
 
         // (row 1, col 3) is the goal: five cells straight ahead.
@@ -965,7 +965,10 @@ mod tests {
     fn test_multi_room_post_terminal_step_does_not_refarm_the_goal() {
         let mut env = default_env();
         let terminal = drive_to_goal(&mut env);
-        assert!(terminal.is_done(), "reaching the goal must end the episode");
+        assert!(
+            terminal.status.is_done(),
+            "reaching the goal must end the episode"
+        );
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -981,8 +984,7 @@ mod tests {
             .expect_err("a step after the goal must return Err, not another payout");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
-                status,
-                terminal.status(),
+                status, terminal.status,
                 "the error must carry the status that ended the episode"
             ),
             other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
@@ -1004,7 +1006,7 @@ mod tests {
         );
         assert_eq!(
             env.guard.status(),
-            terminal.status(),
+            terminal.status,
             "a rejected step must not reopen the episode"
         );
     }
@@ -1031,7 +1033,7 @@ mod tests {
             .step(GridAction::Forward)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
         assert_eq!(env.steps(), 1, "reset() must restart the step counter");

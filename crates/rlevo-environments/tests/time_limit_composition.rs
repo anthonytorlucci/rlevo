@@ -86,8 +86,8 @@ fn drive_until_done(env: &mut TimeLimit<CliffWalking>) -> EpisodeStatus {
         let snapshot = env
             .step(action)
             .expect("every step inside the episode must succeed");
-        if snapshot.is_done() {
-            return snapshot.status();
+        if snapshot.status.is_done() {
+            return snapshot.status;
         }
     }
     panic!(
@@ -213,7 +213,7 @@ fn test_time_limit_over_cliff_walking_reset_reopens_after_truncation() {
         .step(CliffWalkingAction::Up)
         .expect("reset() must re-open the composed pair for a new episode");
     assert_eq!(
-        snapshot.status(),
+        snapshot.status,
         EpisodeStatus::Running,
         "the fresh episode gets the full budget again, so its first step is Running"
     );

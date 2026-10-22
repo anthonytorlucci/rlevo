@@ -108,11 +108,8 @@ use rand::seq::SliceRandom;
 // every `R: Rng + ?Sized`. Imported anonymously — only its methods are wanted.
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::episode::EpisodeGuard;
-// `Snapshot` is imported anonymously: `step()` needs its `status()` method to
-// feed the guard, but re-exporting the name through this module's `use super::*`
-// in the test module would shadow the test module's own explicit import.
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::episode::EpisodeGuard;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -788,7 +785,7 @@ impl Environment<3, 1> for CrossingEnv {
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot drift apart.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -1213,7 +1210,7 @@ mod tests {
         }
         let sa = a.reset_with_seed(99).expect("reset_with_seed");
         let sb = b.reset_with_seed(99).expect("reset_with_seed");
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
         assert_eq!(a.ascii(), b.ascii(), "same seed, bit-identical board");
     }
 
@@ -1235,7 +1232,7 @@ mod tests {
         let mut b = CrossingEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     // -----------------------------------------------------------------------
@@ -1275,8 +1272,8 @@ mod tests {
                         last = Some(env.step(action).expect("step"));
                     }
                     let snap = last.expect("plan must contain at least one action");
-                    assert!(snap.is_done(), "plan did not terminate the episode");
-                    let reward: f32 = (*snap.reward()).into();
+                    assert!(snap.status.is_done(), "plan did not terminate the episode");
+                    let reward: f32 = (snap.reward).into();
                     assert!(reward > 0.0, "reward was {reward} at size {size}, {kind:?}");
                 }
             }
@@ -1308,8 +1305,8 @@ mod tests {
         // (1,1) E → TurnRight → S → Forward → (1,2) = Lava
         env.step(GridAction::TurnRight).unwrap();
         let snap = env.step(GridAction::Forward).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1322,7 +1319,10 @@ mod tests {
         );
         env.step(GridAction::TurnRight).unwrap();
         let snap = env.step(GridAction::Forward).unwrap();
-        assert!(!snap.is_done(), "walls should not terminate the episode");
+        assert!(
+            !snap.status.is_done(),
+            "walls should not terminate the episode"
+        );
         assert_eq!(env.state().agent.y, 1, "agent should not have moved");
     }
 
@@ -1497,7 +1497,7 @@ mod tests {
         // touches the grid or the agent, and before any RNG draw (ADR 0029).
         let mut env = default_env(CrossingKind::Lava);
         let terminal = drive_into_lava(&mut env);
-        assert!(terminal.is_done(), "the drive must end the episode");
+        assert!(terminal.status.is_done(), "the drive must end the episode");
 
         let steps = env.steps();
         let agent = env.state().agent;
@@ -1538,7 +1538,7 @@ mod tests {
 
         for env in [&mut guarded, &mut clean] {
             let terminal = drive_to_goal(env);
-            assert!(terminal.is_done(), "the drive must end the episode");
+            assert!(terminal.status.is_done(), "the drive must end the episode");
         }
         for _ in 0..3 {
             guarded
@@ -1559,13 +1559,13 @@ mod tests {
     fn test_crossing_reset_reopens_a_terminated_episode() {
         let mut env = default_env(CrossingKind::Lava);
         let terminal = drive_into_lava(&mut env);
-        assert!(terminal.is_done(), "the drive must end the episode");
+        assert!(terminal.status.is_done(), "the drive must end the episode");
         env.step(GridAction::TurnLeft)
             .expect_err("the episode has ended; a further step must be rejected");
 
         let snapshot = env.reset().expect("reset");
         assert!(
-            !snapshot.is_done(),
+            !snapshot.status.is_done(),
             "reset() must hand back a running snapshot"
         );
         assert_eq!(env.steps(), 0, "reset() must clear the step counter");

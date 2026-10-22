@@ -207,7 +207,7 @@ impl Environment<2, 1> for TankFarm {
         } else {
             Snapshot::running(self.observe(), reward)
         };
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }

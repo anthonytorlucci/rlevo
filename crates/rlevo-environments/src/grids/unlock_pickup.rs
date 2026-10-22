@@ -705,7 +705,7 @@ impl Environment<3, 1> for UnlockPickupEnv {
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch above can forget to record.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -1217,7 +1217,7 @@ mod tests {
         let mut b = UnlockPickupEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     /// The stream advances: `reset` must not re-seed from `config.seed`.
@@ -1248,13 +1248,13 @@ mod tests {
             let mut env = env_of(size, 0);
             for replay_seed in [1u64, 2, 99] {
                 let a = env.reset_with_seed(replay_seed).expect("reset");
-                let board_a = (fingerprint(&env), *a.observation());
+                let board_a = (fingerprint(&env), a.observation);
                 // Advance the persistent stream between the two replays, so the
                 // match cannot be an artefact of the env sitting still.
                 env.reset().expect("reset");
                 env.reset().expect("reset");
                 let b = env.reset_with_seed(replay_seed).expect("reset");
-                let board_b = (fingerprint(&env), *b.observation());
+                let board_b = (fingerprint(&env), b.observation);
                 assert_eq!(
                     board_a, board_b,
                     "size {size}: reset_with_seed({replay_seed}) did not replay"
@@ -1418,10 +1418,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("size {size}: no route to the key:\n{}", env.ascii()));
             let snap = run(&mut env, &to_key);
             assert!(
-                !snap.is_done(),
+                !snap.status.is_done(),
                 "size {size}: picking up the key is not the mission"
             );
-            assert_eq!(f32::from(*snap.reward()), 0.0);
+            assert_eq!(f32::from(snap.reward), 0.0);
             assert_eq!(env.state().agent.carrying, Some(key));
 
             let target = env.target();
@@ -1429,10 +1429,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("size {size}: no route to the box:\n{}", env.ascii()));
             let snap = run(&mut env, &to_box);
             assert!(
-                snap.is_done(),
+                snap.status.is_done(),
                 "size {size}: carrying the box must terminate"
             );
-            let reward = f32::from(*snap.reward());
+            let reward = f32::from(snap.reward);
             assert!(reward > 0.0, "size {size}: reward was {reward}");
             assert_eq!(env.state().agent.carrying, Some(target));
         }
@@ -1446,8 +1446,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1520,7 +1520,7 @@ mod tests {
         );
 
         let masked = mask_view(&env.state().grid, &agent, UnlockPickupEnv::VISIBILITY);
-        let occluded = *snapshot.observation();
+        let occluded = snapshot.observation;
         let see_through = observe_grid(env.state(), Visibility::SeeThrough);
 
         // (row 2, col 5) is the box: four cells ahead, two to the right.
@@ -1620,7 +1620,7 @@ mod tests {
         );
 
         // The step immediately before the winning pickup.
-        let before = *run(&mut env, prefix).observation();
+        let before = run(&mut env, prefix).observation;
         let agent_before = env.state().agent;
         assert_eq!(
             agent_before.carrying, None,
@@ -1634,9 +1634,12 @@ mod tests {
         );
 
         let terminal = env.step(last).expect("the winning pickup");
-        assert!(terminal.is_done(), "carrying the box must end the episode");
+        assert!(
+            terminal.status.is_done(),
+            "carrying the box must end the episode"
+        );
         assert_eq!(env.state().agent.carrying, Some(target), "box in hand");
-        let after = *terminal.observation();
+        let after = terminal.observation;
 
         // The point of the test. The third byte is a literal `0`: carryables
         // inherit `WorldObj.encode`, whose state byte is 0, and only `Door`
@@ -1732,7 +1735,7 @@ mod tests {
             .unwrap_or_else(|| panic!("seed 3 must be solvable:\n{}", env.ascii()));
         let snapshot = run(env, &route);
         assert!(
-            snapshot.is_done(),
+            snapshot.status.is_done(),
             "carrying the target box must end the episode"
         );
         assert_eq!(
@@ -1768,7 +1771,7 @@ mod tests {
     fn test_unlock_pickup_post_terminal_step_does_not_reopen_the_episode() {
         let mut env = env_7x7();
         let terminal = drive_to_box_pickup(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -1837,7 +1840,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snapshot.is_done(),
+            !snapshot.status.is_done(),
             "a turn on a fresh board must not end the episode"
         );
     }

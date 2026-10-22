@@ -79,9 +79,9 @@ where
         loop {
             let action = sample(rng);
             let snap = env.step(action).expect("step");
-            total += snap.reward().value();
+            total += snap.reward.value();
             steps += 1;
-            if snap.is_done() || steps >= max_steps {
+            if snap.status.is_done() || steps >= max_steps {
                 break;
             }
         }

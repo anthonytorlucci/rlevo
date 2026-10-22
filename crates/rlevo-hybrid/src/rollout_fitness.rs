@@ -88,12 +88,12 @@ where
     let mut hidden = StatefulPolicy::reset(module, device);
     let mut total = 0.0_f32;
     for _ in 0..max_steps {
-        if snapshot.is_done() {
+        if snapshot.status.is_done() {
             break;
         }
-        let action = StatefulPolicy::act(module, &mut hidden, snapshot.observation(), device);
+        let action = StatefulPolicy::act(module, &mut hidden, &snapshot.observation, device);
         snapshot = env.step(action).expect("environment step failed");
-        let reward: f32 = snapshot.reward().value();
+        let reward: f32 = snapshot.reward.value();
         total += reward;
     }
     total

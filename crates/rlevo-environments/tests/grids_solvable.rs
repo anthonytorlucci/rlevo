@@ -203,10 +203,10 @@ where
     );
     for (i, &action) in script.iter().enumerate() {
         let snap = env.step(action).expect("step");
-        if !snap.is_done() {
+        if !snap.status.is_done() {
             continue;
         }
-        let reward = f32::from(*snap.reward());
+        let reward = f32::from(snap.reward);
         let trailing = script.len() - i - 1;
         assert_eq!(
             trailing,

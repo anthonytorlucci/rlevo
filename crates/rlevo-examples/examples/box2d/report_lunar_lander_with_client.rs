@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => LunarLanderDiscreteAction::RightEngine,
             };
             let snap = tap.step(action)?;
-            if snap.is_done() {
+            if snap.status.is_done() {
                 break;
             }
         }

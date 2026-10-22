@@ -847,7 +847,7 @@ mod tests {
         let mut env =
             LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
+        assert!(!snap.status.is_done());
     }
 
     #[test]
@@ -856,7 +856,7 @@ mod tests {
             LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(LunarLanderDiscreteAction::MainEngine).unwrap();
-        let meta = snap.metadata().expect("metadata must be Some");
+        let meta = snap.metadata.as_ref().expect("metadata must be Some");
         assert!(
             meta.components.contains_key(METADATA_KEY_SHAPING),
             "shaping key must be in metadata"
@@ -878,18 +878,23 @@ mod tests {
         timed.reset().unwrap();
 
         let s1 = timed.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-        assert!(!s1.is_done(), "step 1 is below the TimeLimit cap");
+        assert!(!s1.status.is_done(), "step 1 is below the TimeLimit cap");
         assert!(
-            s1.metadata()
+            s1.metadata
+                .as_ref()
                 .expect("metadata must survive the wrapper")
                 .components
                 .contains_key(METADATA_KEY_SHAPING)
         );
 
         let s2 = timed.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-        assert!(s2.is_truncated(), "TimeLimit must truncate at its cap");
         assert!(
-            s2.metadata()
+            s2.status.is_truncated(),
+            "TimeLimit must truncate at its cap"
+        );
+        assert!(
+            s2.metadata
+                .as_ref()
                 .expect("metadata must survive the truncation path")
                 .components
                 .contains_key(METADATA_KEY_SHAPING),
@@ -927,10 +932,10 @@ mod tests {
         let mut obs_wind = [0.0f32; 8];
         for _ in 0..20 {
             if let Ok(snap) = env_no_wind.step(LunarLanderDiscreteAction::DoNothing) {
-                obs_no_wind = snap.observation().values;
+                obs_no_wind = snap.observation.values;
             }
             if let Ok(snap) = env_wind.step(LunarLanderDiscreteAction::DoNothing) {
-                obs_wind = snap.observation().values;
+                obs_wind = snap.observation.values;
             }
         }
         assert_ne!(
@@ -958,7 +963,7 @@ mod tests {
             let mut last = [0.0f32; 8];
             for &a in acts {
                 if let Ok(snap) = env.step(a) {
-                    last = snap.observation().values;
+                    last = snap.observation.values;
                 }
             }
             last
@@ -1034,17 +1039,17 @@ mod tests {
         env.reset().unwrap();
 
         let snap1 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-        assert!(!snap1.is_done(), "step 1 should still be running");
+        assert!(!snap1.status.is_done(), "step 1 should still be running");
         let snap2 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-        assert!(!snap2.is_done(), "step 2 should still be running");
+        assert!(!snap2.status.is_done(), "step 2 should still be running");
         let snap3 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
 
         assert!(
-            snap3.is_truncated(),
+            snap3.status.is_truncated(),
             "3rd step at max_steps=3 must truncate"
         );
         assert!(
-            !snap3.is_terminated(),
+            !snap3.status.is_terminated(),
             "step-limit truncation must not report terminated"
         );
     }
@@ -1080,12 +1085,12 @@ mod tests {
         let mut terminal: Option<(usize, f32)> = None;
         for i in 0..max_steps {
             let snap = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
-            if snap.is_terminated() {
-                terminal = Some((i + 1, snap.reward().0));
+            if snap.status.is_terminated() {
+                terminal = Some((i + 1, snap.reward.0));
                 break;
             }
             assert!(
-                !snap.is_truncated(),
+                !snap.status.is_truncated(),
                 "must terminate (crash) before truncating at step {i}"
             );
         }
@@ -1139,7 +1144,7 @@ mod tests {
     /// policy that nulls out velocity and angle and lets both legs settle, and
     /// no fixed hand-written action script achieves it without flakiness. The
     /// guard is status-based, not reward-based — it records
-    /// `snap.status()`, which is `Terminated` on both paths — so covering the
+    /// `snap.status`, which is `Terminated` on both paths — so covering the
     /// crash terminal covers the landing terminal's guard behaviour too.
     fn crash_discrete(env: &mut LunarLanderDiscrete) -> Snapshot<LunarLanderObservation> {
         env.reset().expect("reset must succeed");
@@ -1147,7 +1152,7 @@ mod tests {
             let snap = env
                 .step(LunarLanderDiscreteAction::DoNothing)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -1162,7 +1167,7 @@ mod tests {
             let snap = env
                 .step(LunarLanderContinuousAction([0.0, 0.0]))
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -1213,11 +1218,11 @@ mod tests {
         let mut env = LunarLanderDiscrete::with_config(guard_cfg()).expect("valid config");
         let terminal = crash_discrete(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "free fall must crash the hull, got {:?}",
-            terminal.status()
+            terminal.status
         );
-        approx::assert_relative_eq!(terminal.reward().0, -100.0, epsilon = 1e-4);
+        approx::assert_relative_eq!(terminal.reward.0, -100.0, epsilon = 1e-4);
 
         for i in 1..=5 {
             let err = env
@@ -1245,8 +1250,11 @@ mod tests {
     fn test_lunar_lander_continuous_post_terminal_step_does_not_repay_crash_penalty() {
         let mut env = LunarLanderContinuous::with_config(guard_cfg()).expect("valid config");
         let terminal = crash_continuous(&mut env);
-        assert!(terminal.is_terminated(), "free fall must crash the hull");
-        approx::assert_relative_eq!(terminal.reward().0, -100.0, epsilon = 1e-4);
+        assert!(
+            terminal.status.is_terminated(),
+            "free fall must crash the hull"
+        );
+        approx::assert_relative_eq!(terminal.reward.0, -100.0, epsilon = 1e-4);
 
         for i in 1..=5 {
             let err = env
@@ -1273,7 +1281,8 @@ mod tests {
         let mut env = LunarLanderDiscrete::with_config(guard_cfg()).expect("valid config");
         let terminal = crash_discrete(&mut env);
         let terminal_shaping = terminal
-            .metadata()
+            .metadata
+            .as_ref()
             .expect("the terminal snapshot carries shaping metadata")
             .components[METADATA_KEY_SHAPING];
 
@@ -1321,7 +1330,7 @@ mod tests {
             .step(LunarLanderDiscreteAction::DoNothing)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
 

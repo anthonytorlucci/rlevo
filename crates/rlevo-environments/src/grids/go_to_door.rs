@@ -201,7 +201,7 @@ impl Mission {
 /// let mut env = GoToDoorEnv::with_config(GoToDoorConfig::new(6, 100, 7), false).unwrap();
 /// let snap = env.reset().unwrap();
 /// let mission_byte = env.mission().color_u8();
-/// assert_eq!(snap.observation().view[0][0][MISSION_CHANNEL], mission_byte);
+/// assert_eq!(snap.observation.view[0][0][MISSION_CHANNEL], mission_byte);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GoToDoorObservation {
@@ -868,7 +868,7 @@ impl Environment<3, 1> for GoToDoorEnv {
         // snapshot's own status, so no branch above can disagree with it.
         let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -929,10 +929,10 @@ mod tests {
         }
         let snap = last.expect("script must be non-empty");
         assert!(
-            snap.is_done(),
+            snap.status.is_done(),
             "a Done-terminated script must end the episode"
         );
-        (*snap.reward()).into()
+        (snap.reward).into()
     }
 
     /// Index of the wall whose door carries the mission color, read *only* from
@@ -1116,7 +1116,7 @@ mod tests {
         for _ in 0..20 {
             let snap = env.reset().expect("reset must succeed");
             let expected = env.mission().target_color.to_u8();
-            for (r, row) in snap.observation().view.iter().enumerate() {
+            for (r, row) in snap.observation.view.iter().enumerate() {
                 for (c, cell) in row.iter().enumerate() {
                     assert_eq!(
                         cell[MISSION_CHANNEL], expected,
@@ -1236,12 +1236,12 @@ mod tests {
             let snap = env.reset().expect("reset must succeed");
             let mission = env.mission().target_color.to_u8();
             assert_eq!(
-                snap.observation().view[agent_row][agent_col],
+                snap.observation.view[agent_row][agent_col],
                 [Entity::Empty.type_u8(), 0, 0, mission],
                 "the agent cell must be an empty hand plus the mission byte"
             );
             assert_eq!(
-                snap.observation().mission_color_u8(),
+                snap.observation.mission_color_u8(),
                 mission,
                 "the mission accessor reads cell (0, 0), which the stamp never touches"
             );
@@ -1349,7 +1349,7 @@ mod tests {
         let mut counts = [0usize; DOOR_COUNT];
         for _ in 0..200 {
             let snap = env.reset().expect("reset must succeed");
-            counts[target_wall(&env, snap.observation())] += 1;
+            counts[target_wall(&env, &snap.observation)] += 1;
         }
         for (wall, &n) in counts.iter().enumerate() {
             assert!(
@@ -1429,7 +1429,7 @@ mod tests {
         let mut env = env_6x6(31);
         for episode in 0..100 {
             let snap = env.reset().expect("reset must succeed");
-            let wall = target_wall(&env, snap.observation());
+            let wall = target_wall(&env, &snap.observation);
             let reward = run(&mut env, script_for(wall));
             assert!(
                 reward > 0.9,
@@ -1465,7 +1465,7 @@ mod tests {
     fn test_done_at_wrong_color_door_scores_zero() {
         let mut env = env_6x6(6);
         let snap = env.reset().expect("reset must succeed");
-        let target = target_wall(&env, snap.observation());
+        let target = target_wall(&env, &snap.observation);
         let wrong = (target + 1) % DOOR_COUNT;
         let reward = run(&mut env, script_for(wrong));
         assert_eq!(
@@ -1480,8 +1480,8 @@ mod tests {
         env.reset().expect("reset must succeed");
         // From (2, 2) facing East the cell in front is empty interior.
         let snap = env.step(GridAction::Done).expect("step must succeed");
-        assert!(snap.is_done(), "Done always terminates the episode");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done(), "Done always terminates the episode");
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0, "Done facing no door must pay nothing");
     }
 
@@ -1494,7 +1494,10 @@ mod tests {
         env.step(GridAction::TurnLeft).expect("step"); // face North
         env.step(GridAction::Forward).expect("step"); // → (3, 1)
         let snap = env.step(GridAction::Forward).expect("step"); // bump
-        assert!(!snap.is_done(), "bumping a door does not end the episode");
+        assert!(
+            !snap.status.is_done(),
+            "bumping a door does not end the episode"
+        );
         assert_eq!(
             env.state().agent.y,
             1,
@@ -1513,8 +1516,11 @@ mod tests {
             last = Some(env.step(GridAction::TurnLeft).expect("step must succeed"));
         }
         let snap = last.expect("max_steps > 0");
-        assert!(snap.is_done(), "the episode must end at the step budget");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(
+            snap.status.is_done(),
+            "the episode must end at the step budget"
+        );
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0, "a timeout must pay nothing");
         assert_eq!(env.steps(), max_steps);
     }
@@ -1545,7 +1551,7 @@ mod tests {
     /// known to be reporting wrongly.
     fn drive_to_mission_done(env: &mut GoToDoorEnv) -> Snapshot<GoToDoorObservation> {
         let snap = env.reset().expect("reset must succeed");
-        let wall = target_wall(env, snap.observation());
+        let wall = target_wall(env, &snap.observation);
         let mut last = None;
         for &a in script_for(wall) {
             last = Some(env.step(a).expect("the scripted route must step cleanly"));
@@ -1588,10 +1594,10 @@ mod tests {
         let mut env = env_6x6(31);
         let terminal = drive_to_mission_done(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "the scripted route must end on the mission-completing Done"
         );
-        let won: f32 = (*terminal.reward()).into();
+        let won: f32 = (terminal.reward).into();
         assert!(won > 0.9, "the oracle must be paid for the win, got {won}");
 
         let steps_at_end = env.steps();
@@ -1642,7 +1648,7 @@ mod tests {
     fn test_wrong_door_done_cannot_be_retried_within_the_episode() {
         let mut env = env_6x6(6);
         let snap = env.reset().expect("reset must succeed");
-        let target = target_wall(&env, snap.observation());
+        let target = target_wall(&env, &snap.observation);
         let wrong = (target + 1) % DOOR_COUNT;
         let forfeit = run(&mut env, script_for(wrong));
         assert_eq!(forfeit, 0.0, "a wrong-color Done pays nothing");
@@ -1680,9 +1686,9 @@ mod tests {
             EpisodeStatus::Running,
             "reset() must return the guard to Running"
         );
-        assert!(!snap.is_done(), "a reset snapshot is not done");
+        assert!(!snap.status.is_done(), "a reset snapshot is not done");
         assert_mission_channel_is(
-            snap.observation(),
+            &snap.observation,
             env.mission().color_u8(),
             "reset snapshot",
         );
@@ -1691,11 +1697,11 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !stepped.is_done(),
+            !stepped.status.is_done(),
             "a turn on the first step of a fresh episode must not end it"
         );
         assert_mission_channel_is(
-            stepped.observation(),
+            &stepped.observation,
             env.mission().color_u8(),
             "first step of the new episode",
         );

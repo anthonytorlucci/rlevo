@@ -87,7 +87,7 @@ fn record_run(root: &Path) -> PathBuf {
     loop {
         let idx = rng.random_range(0..CartPoleAction::ACTION_COUNT);
         let snapshot = tap.step(CartPoleAction::from_index(idx)).expect("step");
-        if snapshot.is_done() {
+        if snapshot.status.is_done() {
             episodes += 1;
             // Stop on the final done *without* resetting — a trailing
             // reset would open a phantom episode that the manifest count

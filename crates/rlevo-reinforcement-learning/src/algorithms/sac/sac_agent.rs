@@ -691,15 +691,15 @@ where
     ///
     /// # Arguments
     ///
-    /// - `terminated` — pass [`Snapshot::is_terminated`], **not**
-    ///   [`Snapshot::is_done`]. Only a true environmental termination may zero
+    /// - `terminated` — pass [`EpisodeStatus::is_terminated`], **not**
+    ///   [`EpisodeStatus::is_done`]. Only a true environmental termination may zero
     ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
     ///   is a genuine continuation state whose value must still be
     ///   bootstrapped. See [`Transition::terminated`].
     ///
     /// [`Transition::terminated`]: crate::replay::Transition::terminated
-    /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
-    /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+    /// [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
+    /// [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
     ///
     /// # Behavior
     ///

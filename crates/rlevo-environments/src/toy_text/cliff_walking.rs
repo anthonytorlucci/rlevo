@@ -717,9 +717,9 @@ mod tests {
         env.reset().unwrap();
         // Start (3,0): move right → (3,1) = cliff.
         let snap = env.step(CliffWalkingAction::Right).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, -100.0);
-        assert!(!snap.is_done(), "cliff must not terminate episode");
+        assert!(!snap.status.is_done(), "cliff must not terminate episode");
         // Agent should be back at start.
         assert_eq!(
             env.state.state_id(),
@@ -736,9 +736,9 @@ mod tests {
         // Better: place at (2,11) and step down.
         env.state = CliffWalkingState { row: 2, col: 11 };
         let snap = env.step(CliffWalkingAction::Down).unwrap();
-        let r: f32 = (*snap.reward()).into();
+        let r: f32 = (snap.reward).into();
         assert_eq!(r, -1.0);
-        assert!(snap.is_terminated());
+        assert!(snap.status.is_terminated());
     }
 
     #[test]
@@ -768,22 +768,22 @@ mod tests {
         // One step up from (3,0) → (2,0)
         let snap = env.step(CliffWalkingAction::Up).unwrap();
         {
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             total += r;
         }
         // Eleven steps right: (2,0) → … → (2,11)
         for _ in 0..11 {
             let snap = env.step(CliffWalkingAction::Right).unwrap();
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             total += r;
         }
         // One step down (2,11) → (3,11) = GOAL
         let snap = env.step(CliffWalkingAction::Down).unwrap();
         {
-            let r: f32 = (*snap.reward()).into();
+            let r: f32 = (snap.reward).into();
             total += r;
         }
-        assert!(snap.is_done(), "goal must terminate episode");
+        assert!(snap.status.is_done(), "goal must terminate episode");
         assert!(
             (total - (-13.0)).abs() < 1e-5,
             "optimal path must yield -13, got {total}"
@@ -837,9 +837,9 @@ mod tests {
             let mut total = 0.0_f32;
             for _ in 0..20 {
                 let snap = env.step(CliffWalkingAction::Right).unwrap();
-                let r: f32 = (*snap.reward()).into();
+                let r: f32 = (snap.reward).into();
                 total += r;
-                if snap.is_done() {
+                if snap.status.is_done() {
                     break;
                 }
             }
@@ -941,7 +941,7 @@ mod tests {
         let mut env = make_env();
         let terminal = drive_to_goal(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "reaching the goal must terminate the episode"
         );
         let goal_id = CliffWalkingState::from(GOAL).state_id();
@@ -998,7 +998,7 @@ mod tests {
             .step(CliffWalkingAction::Up)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -1014,7 +1014,7 @@ mod tests {
         let fall = env
             .step(CliffWalkingAction::Right)
             .expect("stepping into the cliff must succeed");
-        assert!(!fall.is_done(), "cliff must not terminate episode");
+        assert!(!fall.status.is_done(), "cliff must not terminate episode");
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -1025,7 +1025,7 @@ mod tests {
             .step(CliffWalkingAction::Up)
             .expect("the episode continues after a cliff fall");
         assert!(
-            !next.is_done(),
+            !next.status.is_done(),
             "a step following a cliff fall must still be running"
         );
     }
@@ -1050,6 +1050,7 @@ mod tests {
                 if env
                     .step(CliffWalkingAction::Down)
                     .expect("step must succeed while the episode is running")
+                    .status
                     .is_done()
                 {
                     return env;

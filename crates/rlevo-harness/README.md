@@ -140,7 +140,7 @@ Four producers share one `Arc<Mutex<dyn RecordSink>>`:
 
 | Producer | Role |
 |----------|------|
-| `RecordingTap<E>` | Wraps `Environment`; emits per-step `FrameRecord` (subject to `frame_stride`) + closes the episode on `Snapshot::is_done` |
+| `RecordingTap<E>` | Wraps `Environment`; emits per-step `FrameRecord` (subject to `frame_stride`) + closes the episode when the snapshot's status is done |
 | `RecordingReporter` | Drives the suite lifecycle; finalises `run.toml` at `on_suite_end`. Two modes: with or without per-episode signals |
 | `PopulationReporter` | `PopulationObserver` attached with `EvolutionaryLoop::with_observer`; writes one `PopulationSample` (fitnesses, diversity, best) per generation |
 | `RecordingLayer` | `tracing_subscriber::Layer` that captures canonical metric fields (matches the `tui::log_layer` registry) |

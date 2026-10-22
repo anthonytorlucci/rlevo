@@ -651,7 +651,7 @@ impl Environment<3, 1> for DoorKeyEnv {
         // Single exit: the guard is fed the emitted snapshot's own status, so
         // the two cannot disagree about whether the episode is over.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -1086,7 +1086,7 @@ mod tests {
         let mut b = DoorKeyEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     #[test]
@@ -1180,10 +1180,10 @@ mod tests {
             env.state.agent = AgentState::new(far, far - 1, Direction::South);
             let snap = env.step(GridAction::Forward).expect("step");
             assert!(
-                snap.is_done(),
+                snap.status.is_done(),
                 "size {size}: stepping onto the goal ends it"
             );
-            let reward: f32 = (*snap.reward()).into();
+            let reward: f32 = (snap.reward).into();
             assert!(reward > 0.9, "size {size}: reward was {reward}");
         }
     }
@@ -1195,8 +1195,8 @@ mod tests {
         env.reset().unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1346,7 +1346,7 @@ mod tests {
 
         // The agent's own cell: bottom row, centre column.
         let (arow, acol) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
-        let cell = after.observation().view[arow][acol];
+        let cell = after.observation.view[arow][acol];
         assert_eq!(
             cell,
             [Entity::Key(key_color).type_u8(), key_color.to_u8(), 0],
@@ -1373,7 +1373,7 @@ mod tests {
         // Empty-handed, the same cell encodes `Entity::Empty`, never the unseen
         // triple: the agent always observes its own cell.
         assert_eq!(
-            before.observation().view[arow][acol],
+            before.observation.view[arow][acol],
             [Entity::Empty.type_u8(), 0, 0],
             "before the Pickup the agent's own cell must report an empty hand"
         );
@@ -1382,7 +1382,7 @@ mod tests {
         let changed: Vec<(usize, usize)> = (0..VIEW_SIZE)
             .flat_map(|row| (0..VIEW_SIZE).map(move |col| (row, col)))
             .filter(|&(row, col)| {
-                before.observation().view[row][col] != after.observation().view[row][col]
+                before.observation.view[row][col] != after.observation.view[row][col]
             })
             .collect();
         // Two cells, and only two. `(6, 3)` is the agent's own cell gaining the
@@ -1397,7 +1397,7 @@ mod tests {
              and nothing else"
         );
         assert_eq!(
-            after.observation().view[VIEW_SIZE - 2][VIEW_SIZE / 2],
+            after.observation.view[VIEW_SIZE - 2][VIEW_SIZE / 2],
             [Entity::Empty.type_u8(), 0, 0],
             "the key's world tile is empty once the key is in hand"
         );
@@ -1433,7 +1433,7 @@ mod tests {
         // The episode really ended at the goal, so this cannot pass on some
         // mid-episode frame that never stood on a terminal tile.
         assert_eq!(
-            terminal.status(),
+            terminal.status,
             EpisodeStatus::Terminated,
             "the frame under test must be the terminal one"
         );
@@ -1458,7 +1458,7 @@ mod tests {
 
         // The agent's own cell: bottom row, centre column.
         let (arow, acol) = (VIEW_SIZE - 1, VIEW_SIZE / 2);
-        let cell = terminal.observation().view[arow][acol];
+        let cell = terminal.observation.view[arow][acol];
 
         assert_eq!(
             cell,
@@ -1525,7 +1525,7 @@ mod tests {
         }
         let terminal = snapshot.expect("the plan is non-empty");
         assert!(
-            terminal.is_done(),
+            terminal.status.is_done(),
             "the scripted plan must reach the goal; the board or the dynamics moved"
         );
         assert_eq!(
@@ -1567,7 +1567,7 @@ mod tests {
         let mut env = env_seed_3();
         let terminal = drive_to_goal(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "the agent must have reached the goal"
         );
 
@@ -1640,7 +1640,7 @@ mod tests {
             .step(GridAction::TurnRight)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "a turn on the first step of a fresh episode cannot end it"
         );
         assert_eq!(env.steps(), 1, "the step counter must restart at the reset");

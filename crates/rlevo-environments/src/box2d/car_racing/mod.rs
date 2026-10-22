@@ -37,7 +37,7 @@
 //! let mut env = CarRacing::with_config(CarRacingConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(CarRacingAction::new(0.0, 0.5, 0.0)).unwrap();
-//! println!("reward: {:?}", snap.reward());
+//! println!("reward: {:?}", snap.reward);
 //! ```
 
 pub mod action;

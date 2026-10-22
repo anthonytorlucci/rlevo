@@ -2,7 +2,7 @@
 //! guard shared by the six off-policy `train` loops.
 //!
 //! Every off-policy training loop must feed the *Bellman bootstrap mask* from
-//! [`Snapshot::is_terminated`], not [`Snapshot::is_done`]. A truncation (time
+//! [`EpisodeStatus::is_terminated`], not [`EpisodeStatus::is_done`]. A truncation (time
 //! limit) ends the episode but not the MDP, so `$\gamma \cdot V(\text{next\_obs})$` must survive
 //! in the target; zeroing it there biases every Q-value downward (Pardo et
 //! al., "Time Limits in Reinforcement Learning", ICML 2018, Eq. 6).
@@ -14,8 +14,8 @@
 //! `learning_starts` set past the budget, so no gradient work runs and the
 //! whole guard costs milliseconds.
 //!
-//! [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
-//! [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+//! [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
+//! [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
 
 use std::marker::PhantomData;
 

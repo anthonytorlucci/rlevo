@@ -326,7 +326,7 @@ impl<const K: usize> Environment<1, 1> for AdversarialBandit<K> {
         } else {
             Snapshot::running(obs, reward)
         };
-        self.guard.record(snap.status());
+        self.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -391,8 +391,8 @@ mod tests {
         let mut env = AdversarialBandit::<K>::with_config(AdversarialBanditConfig::default())
             .expect("valid config");
         let snap = <AdversarialBandit<K> as Environment<1, 1>>::reset(&mut env).expect("reset");
-        assert!(!snap.is_done());
-        assert_eq!(f32::from(*snap.reward()), 0.0);
+        assert!(!snap.status.is_done());
+        assert_eq!(f32::from(snap.reward), 0.0);
     }
 
     #[test]
@@ -408,7 +408,7 @@ mod tests {
         for step in 0..50 {
             let action = KArmedBanditAction::<K>::from_index(step % K);
             let snap = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-            let r = f32::from(*snap.reward());
+            let r = f32::from(snap.reward);
             assert!(
                 (0.0..=1.0).contains(&r),
                 "reward {r} outside [0, 1] at step {step}"
@@ -433,7 +433,7 @@ mod tests {
             let action = KArmedBanditAction::<K>::from_index(step % K);
             let snap_a = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut a, action).unwrap();
             let snap_b = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut b, action).unwrap();
-            assert_eq!(f32::from(*snap_a.reward()), f32::from(*snap_b.reward()));
+            assert_eq!(f32::from(snap_a.reward), f32::from(snap_b.reward));
         }
     }
 
@@ -467,10 +467,10 @@ mod tests {
         .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
         let s1 = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-        assert!(!s1.is_done());
+        assert!(!s1.status.is_done());
         let _ = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         let s3 = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-        assert!(s3.is_terminated());
+        assert!(s3.status.is_terminated());
     }
 
     // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
@@ -510,7 +510,7 @@ mod tests {
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <AdversarialBandit<K> as Environment<1, 1>>::step(env, action)
             .expect("first step must succeed");
-        while !snap.is_done() {
+        while !snap.status.is_done() {
             snap = <AdversarialBandit<K> as Environment<1, 1>>::step(env, action)
                 .expect("step must succeed while the episode is running");
         }
@@ -541,8 +541,7 @@ mod tests {
             .expect_err("a step after termination must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
-                status,
-                terminal.status(),
+                status, terminal.status,
                 "the error must carry the status that ended the episode"
             ),
             other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
@@ -590,6 +589,7 @@ mod tests {
         assert!(
             !<AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action)
                 .expect("reset() must re-open the environment")
+                .status
                 .is_done(),
             "the first step of a fresh episode must not be done"
         );

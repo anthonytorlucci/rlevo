@@ -339,7 +339,7 @@ where
     /// step bookkeeping is not disrupted. Call [`RecordSink::take_error`] after
     /// the episode to detect encode failures.
     ///
-    /// On termination or truncation ([`Snapshot::is_done`] is true),
+    /// On termination or truncation ([`EpisodeStatus::is_done`](rlevo_core::environment::EpisodeStatus::is_done) is true),
     /// [`RecordSink::on_episode_end`] is called with the cumulative episode
     /// return and length before this method returns.
     ///
@@ -372,11 +372,11 @@ where
             };
         let snap = self.inner.step(action)?;
         self.step = self.step.saturating_add(1);
-        let r: f32 = snap.reward().value();
+        let r: f32 = snap.reward.value();
         self.episode_return += f64::from(r);
         self.episode_length = self.episode_length.saturating_add(1);
         self.capture_frame(action_bytes, r);
-        if snap.is_done() {
+        if snap.status.is_done() {
             self.sink
                 .lock()
                 .on_episode_end(self.episode_return, self.episode_length);

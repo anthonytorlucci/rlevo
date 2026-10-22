@@ -270,11 +270,11 @@ fn roll_out(
     let mut snap = env.reset().expect("reset");
     let mut ret = 0.0_f32;
     loop {
-        let action = next_action(snap.observation());
+        let action = next_action(&snap.observation);
         snap = env.step(action).expect("step");
-        ret += f32::from(*snap.reward());
-        if snap.is_done() {
-            return (ret, snap.is_terminated());
+        ret += f32::from(snap.reward);
+        if snap.status.is_done() {
+            return (ret, snap.status.is_terminated());
         }
     }
 }
@@ -303,9 +303,9 @@ fn rollout_steps(
     let mut env = make_env();
     let mut snap = env.reset().expect("reset");
     for _ in 0..steps {
-        let action = next_action(snap.observation());
+        let action = next_action(&snap.observation);
         snap = env.step(action).expect("step");
-        if snap.is_done() {
+        if snap.status.is_done() {
             snap = env.reset().expect("reset");
         }
     }

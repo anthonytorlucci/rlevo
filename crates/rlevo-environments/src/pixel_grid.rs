@@ -802,7 +802,7 @@ impl Environment<3, 1> for PixelGridEnv {
         // Single exit: the guard is fed the emitted snapshot's *own*
         // `EpisodeStatus` — the single source of truth for done-ness — not the
         // private `SnapshotStatus` display selector, so the two cannot disagree.
-        self.guard.record(snap.status());
+        self.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -859,7 +859,7 @@ mod tests {
         let mut snap = env
             .step(PixelGridAction::Up)
             .expect("first step must succeed");
-        while !snap.is_done() {
+        while !snap.status.is_done() {
             snap = env
                 .step(PixelGridAction::Up)
                 .expect("step must succeed while the episode is running");
@@ -893,7 +893,7 @@ mod tests {
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = guard_env();
         let terminal = drive_to_termination(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
         assert_eq!(
             ended,
             EpisodeStatus::Terminated,
@@ -948,7 +948,7 @@ mod tests {
         let mut env = guard_env();
         let terminal = drive_to_truncation(&mut env);
         assert_eq!(
-            terminal.status(),
+            terminal.status,
             EpisodeStatus::Truncated,
             "the step budget must truncate the episode"
         );
@@ -986,7 +986,7 @@ mod tests {
         // non-negative: the goal reach happens at or before the budget.
         let mut env = guard_env();
         let snap = drive_to_termination(&mut env);
-        let reward: f32 = (*snap.reward()).into();
+        let reward: f32 = (snap.reward).into();
         assert!(
             reward >= 0.0,
             "a reachable goal reward must be non-negative, got {reward}"
@@ -1005,7 +1005,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after termination");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -1328,7 +1331,7 @@ mod tests {
         let cfg = PixelGridConfig::new(100, 0, false);
         let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         let snap = env.reset().unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Running);
+        assert_eq!(snap.status, EpisodeStatus::Running);
         assert_eq!(env.state().agent(), 0);
         assert_eq!(env.state().goal(), 24);
     }
@@ -1378,9 +1381,9 @@ mod tests {
         // Override placement for a one-step solve.
         env.state = PixelGridState::new(23, 24).expect("valid cell indices");
         let snap = env.step(PixelGridAction::Right).unwrap();
-        assert!(snap.is_done());
-        assert_eq!(snap.status(), EpisodeStatus::Terminated);
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Terminated);
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.0, "goal reward must be positive, got {reward}");
         // 1 step / 100 max → 1 - 0.9 * 0.01 = 0.991.
         assert!((reward - 0.991).abs() < 1e-4, "reward was {reward}");
@@ -1396,9 +1399,9 @@ mod tests {
         env.step(PixelGridAction::Up).unwrap();
         env.step(PixelGridAction::Up).unwrap();
         let snap = env.step(PixelGridAction::Up).unwrap();
-        assert!(snap.is_done());
-        assert_eq!(snap.status(), EpisodeStatus::Truncated);
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1407,7 +1410,7 @@ mod tests {
         let cfg = PixelGridConfig::new(100, 0, false);
         let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         let snap = env.reset().unwrap();
-        assert_eq!(snap.observation().pixels().len(), PIXEL_COUNT);
+        assert_eq!(snap.observation.pixels().len(), PIXEL_COUNT);
         assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
     }
 

@@ -54,7 +54,7 @@ fn main() {
     );
     println!(
         "projected image: {} pixels (= {:?})",
-        snap.observation().pixels().len(),
+        snap.observation.pixels().len(),
         shape
     );
     println!("{}", env.state().render_ascii());
@@ -66,11 +66,11 @@ fn main() {
             i + 1,
             env.state().agent(),
             env.state().goal(),
-            snap.observation().pixels().len(),
+            snap.observation.pixels().len(),
         );
         println!("{}", env.state().render_ascii());
-        if snap.is_done() {
-            let reward = f32::from(*snap.reward());
+        if snap.status.is_done() {
+            let reward = f32::from(snap.reward);
             println!("terminated after {} steps with reward = {reward:.4}", i + 1);
             return;
         }

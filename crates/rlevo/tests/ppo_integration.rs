@@ -339,23 +339,23 @@ fn ppo_pendulum_update_reports_log_std_extrema() {
 
     let mut snapshot = env.reset().expect("reset");
     for _ in 0..num_steps {
-        let obs_now = *snapshot.observation();
+        let obs_now = snapshot.observation;
         let act = agent.act(&obs_now, &mut rng);
         let next = env
             .step(continuous_action_from_row::<1, PendulumAction>(
                 &act.env_row,
             ))
             .expect("step");
-        let reward: f32 = (*next.reward()).into();
-        let status = next.status();
-        agent.record_step(obs_now, &act, reward, next.observation(), status);
+        let reward: f32 = (next.reward).into();
+        let status = next.status;
+        agent.record_step(obs_now, &act, reward, &next.observation, status);
         snapshot = if status.is_done() {
             env.reset().expect("reset")
         } else {
             next
         };
     }
-    agent.finalize_rollout(snapshot.observation());
+    agent.finalize_rollout(&snapshot.observation);
 
     let stats = agent.update(&mut rng);
     let min_log_std = stats
@@ -425,21 +425,21 @@ fn ppo_cartpole_update_reports_no_min_log_std() {
 
     let mut snapshot = env.reset().expect("reset");
     for _ in 0..num_steps {
-        let obs_now = *snapshot.observation();
+        let obs_now = snapshot.observation;
         let act = agent.act(&obs_now, &mut rng);
         let next = env
             .step(discrete_action_from_row::<1, CartPoleAction>(&act.env_row))
             .expect("step");
-        let reward: f32 = (*next.reward()).into();
-        let status = next.status();
-        agent.record_step(obs_now, &act, reward, next.observation(), status);
+        let reward: f32 = (next.reward).into();
+        let status = next.status;
+        agent.record_step(obs_now, &act, reward, &next.observation, status);
         snapshot = if status.is_done() {
             env.reset().expect("reset")
         } else {
             next
         };
     }
-    agent.finalize_rollout(snapshot.observation());
+    agent.finalize_rollout(&snapshot.observation);
 
     let stats = agent.update(&mut rng);
     assert!(

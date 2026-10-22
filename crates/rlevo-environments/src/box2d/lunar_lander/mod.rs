@@ -35,7 +35,7 @@
 //! let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(LunarLanderDiscreteAction::MainEngine).unwrap();
-//! println!("reward: {:?}", snap.reward());
+//! println!("reward: {:?}", snap.reward);
 //! ```
 
 pub mod action_continuous;

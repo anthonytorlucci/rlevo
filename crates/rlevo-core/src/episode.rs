@@ -1,7 +1,7 @@
 //! The episode-lifecycle guard an [`Environment`] holds.
 //!
 //! An episode that has emitted a snapshot with
-//! [`Snapshot::is_done`](crate::environment::Snapshot::is_done) `== true` is
+//! [`EpisodeStatus::is_done`](crate::environment::EpisodeStatus::is_done) `== true` is
 //! over. Calling [`step`](crate::environment::Environment::step) again must
 //! not silently resurrect it: the contract on `Environment::step` is that the
 //! second call returns [`EnvironmentError::StepAfterEpisodeEnd`].

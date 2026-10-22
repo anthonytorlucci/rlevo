@@ -140,13 +140,13 @@ where
     while global_step < total_timesteps {
         // -------- Collect rollout --------
         for _ in 0..rollout_len {
-            let obs_now = snapshot.observation().clone();
+            let obs_now = snapshot.observation.clone();
             let act = agent.act(&obs_now, rng);
 
             let typed_action = action_from_row(&act.env_row);
             let next_snapshot = env.step(typed_action).map_err(env_error)?;
-            let reward_f32: f32 = (*next_snapshot.reward()).into();
-            let status = next_snapshot.status();
+            let reward_f32: f32 = (next_snapshot.reward).into();
+            let status = next_snapshot.status;
             let done = status.is_done();
 
             // `next_snapshot.observation()` is the continuation state, read
@@ -157,7 +157,7 @@ where
                 obs_now,
                 &act,
                 reward_f32,
-                next_snapshot.observation(),
+                &next_snapshot.observation,
                 status,
             );
             global_step += 1;
@@ -212,7 +212,7 @@ where
         // Borrowed, not cloned: `finalize_rollout` only reads this when the
         // rollout's final step left the episode `Running`, which is exactly
         // when `snapshot` is the genuine continuation state.
-        agent.finalize_rollout(snapshot.observation());
+        agent.finalize_rollout(&snapshot.observation);
         last_update_stats = agent.update(rng);
 
         if log_watermark.should_log(global_step) {

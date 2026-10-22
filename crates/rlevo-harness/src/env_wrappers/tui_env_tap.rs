@@ -172,10 +172,10 @@ where
         self.step = self.step.saturating_add(1);
         // `Reward: Into<f32>` is part of the trait definition in `rlevo-core`;
         // call it as a method to avoid the inverse `From` bound on `f32`.
-        let r: f32 = snap.reward().value();
+        let r: f32 = snap.reward.value();
         self.episode_return += f64::from(r);
         self.episode_length = self.episode_length.saturating_add(1);
-        if snap.is_done() {
+        if snap.status.is_done() {
             let _ = self
                 .handle
                 .try_push_episode_return(self.episode_return, self.episode_length);

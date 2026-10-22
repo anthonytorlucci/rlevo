@@ -291,12 +291,12 @@ where
     let mut h = policy.init_hidden(device);
     let mut eaten = 0.0_f32;
     loop {
-        let food_ahead = snap.observation().food_ahead;
+        let food_ahead = snap.observation.food_ahead;
         let logits = policy.step(food_ahead, &mut h, device);
         let action = SantaFeAntAction::from_index(select(&logits, rng));
         snap = env.step(action).expect("step");
-        eaten += f32::from(*snap.reward());
-        if snap.is_done() {
+        eaten += f32::from(snap.reward);
+        if snap.status.is_done() {
             break;
         }
     }

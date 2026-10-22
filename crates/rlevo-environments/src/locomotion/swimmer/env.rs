@@ -565,7 +565,7 @@ mod tests {
     fn drive_to_truncation(env: &mut Swimmer) -> Snapshot<SwimmerObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env.step(idle()).expect("first step must succeed");
-        while !snap.is_done() {
+        while !snap.status.is_done() {
             snap = env
                 .step(idle())
                 .expect("step must succeed while the episode is running");
@@ -592,7 +592,7 @@ mod tests {
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = truncating_env();
         let terminal = drive_to_truncation(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
         assert_eq!(
             ended,
             EpisodeStatus::Truncated,
@@ -670,7 +670,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after truncation");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -746,7 +749,7 @@ mod tests {
             env.reset().expect("reset");
             env.step(action)
                 .expect("a boundary action of the static space must be accepted")
-                .observation()
+                .observation
                 .0
         }
 
@@ -783,15 +786,15 @@ mod tests {
     fn reset_returns_running() {
         let mut env = Swimmer::with_config(cfg(7)).expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
-        assert!(snap.observation().is_finite());
+        assert!(!snap.status.is_done());
+        assert!(snap.observation.is_finite());
     }
 
     #[test]
     fn reset_with_zero_noise_is_upright() {
         let mut env = Swimmer::with_config(deterministic_cfg()).expect("valid config");
         let snap = env.reset().unwrap();
-        let obs = snap.observation();
+        let obs = snap.observation;
         assert!(obs.body_angle().abs() < 1e-5);
         assert!(obs.joint1_angle().abs() < 1e-5);
         assert!(obs.joint2_angle().abs() < 1e-5);
@@ -810,14 +813,14 @@ mod tests {
             let a =
                 SwimmerAction::new(0.5 * (i as f32 * 0.17).sin(), 0.5 * (i as f32 * 0.23).cos());
             let snap = env.step(a).unwrap();
-            let meta = snap.metadata().unwrap();
+            let meta = snap.metadata.as_ref().unwrap();
             let sum: f32 = meta.components.values().sum();
             assert!(
-                (sum - snap.reward().0).abs() < 1e-5,
+                (sum - snap.reward.0).abs() < 1e-5,
                 "Σ components ({sum}) must equal reward ({}) at step {i}",
-                snap.reward().0
+                snap.reward.0
             );
-            if snap.is_done() {
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -840,7 +843,7 @@ mod tests {
             let a =
                 SwimmerAction::new(0.6 * (i as f32 * 0.31).cos(), 0.9 * (i as f32 * 0.11).sin());
             let snap = env.step(a).unwrap();
-            let c = snap.metadata().unwrap().components[METADATA_KEY_CTRL];
+            let c = snap.metadata.as_ref().unwrap().components[METADATA_KEY_CTRL];
             assert!(c <= 0.0, "ctrl must be ≤ 0, got {c} at step {i}");
         }
     }
@@ -853,8 +856,8 @@ mod tests {
             let mut last = SwimmerObservation::default();
             for a in actions {
                 if let Ok(snap) = env.step(SwimmerAction(*a)) {
-                    last = *snap.observation();
-                    if snap.is_done() {
+                    last = snap.observation;
+                    if snap.status.is_done() {
                         break;
                     }
                 }
@@ -882,8 +885,8 @@ mod tests {
         // The persistent RNG advances across resets (default reset noise > 0),
         // so back-to-back resets must sample independent initial states.
         let mut env = Swimmer::with_config(cfg(7)).expect("valid config");
-        let first = *env.reset().unwrap().observation();
-        let second = *env.reset().unwrap().observation();
+        let first = env.reset().unwrap().observation;
+        let second = env.reset().unwrap().observation;
         assert_ne!(
             obs_key(&first),
             obs_key(&second),
@@ -894,10 +897,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = Swimmer::with_config(cfg(7)).expect("valid config");
-        let a = *env.reset_with_seed(999).unwrap().observation();
+        let a = env.reset_with_seed(999).unwrap().observation;
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = *env.reset_with_seed(999).unwrap().observation();
+        let b = env.reset_with_seed(999).unwrap().observation;
         assert_eq!(
             obs_key(&a),
             obs_key(&b),
@@ -942,7 +945,7 @@ mod tests {
         let mut status = EpisodeStatus::Running;
         for step in 0..5 {
             let snap = env.step(SwimmerAction::new(0.0, 0.0)).unwrap();
-            status = snap.status();
+            status = snap.status;
             if step < 4 {
                 assert_eq!(
                     status,
@@ -971,8 +974,8 @@ mod tests {
         for i in 0..100 {
             let a = SwimmerAction::new(0.5 * (i as f32 * 0.3).sin(), 0.5 * (i as f32 * 0.4).cos());
             let snap = env.step(a).unwrap();
-            assert!(snap.observation().is_finite(), "non-finite obs at step {i}");
-            if snap.is_done() {
+            assert!(snap.observation.is_finite(), "non-finite obs at step {i}");
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -1029,7 +1032,7 @@ mod tests {
             let t = i as f32 * TAU / 10.0;
             let a = SwimmerAction::new(t.sin(), (t - std::f32::consts::FRAC_PI_2).sin());
             let snap = env.step(a).unwrap();
-            peak_vx_mag = peak_vx_mag.max(snap.observation().vx_com().abs());
+            peak_vx_mag = peak_vx_mag.max(snap.observation.vx_com().abs());
         }
         assert!(
             peak_vx_mag > 0.1,
@@ -1039,7 +1042,7 @@ mod tests {
         let mut final_vx_mag = 0.0f32;
         for _ in 0..100 {
             let snap = env.step(SwimmerAction::new(0.0, 0.0)).unwrap();
-            final_vx_mag = snap.observation().vx_com().abs();
+            final_vx_mag = snap.observation.vx_com().abs();
             if final_vx_mag < 0.5 * peak_vx_mag {
                 decayed = true;
                 break;
@@ -1095,7 +1098,7 @@ mod tests {
         let mut moved = false;
         for i in 0..STEPS {
             let snap = env.step(SwimmerAction::new(1.0, -1.0)).unwrap();
-            let obs = snap.observation();
+            let obs = snap.observation;
             assert!(obs.is_finite(), "obs must stay finite at step {i}");
             moved |= obs.joint1_dot().abs() > 0.0 || obs.joint2_dot().abs() > 0.0;
         }
@@ -1142,7 +1145,7 @@ mod tests {
             let t = i as f32 * TAU / 10.0;
             let a = SwimmerAction::new(t.sin(), (t - FRAC_PI_2).sin());
             let snap = env.step(a).unwrap();
-            total_forward += snap.metadata().unwrap().components[METADATA_KEY_FORWARD];
+            total_forward += snap.metadata.as_ref().unwrap().components[METADATA_KEY_FORWARD];
         }
         assert!(
             total_forward > 0.0,

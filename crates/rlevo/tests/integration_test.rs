@@ -172,22 +172,22 @@ fn full_episode_loop_reaches_goal() {
     let mut env = RandomWalkEnv::new();
 
     let initial = env.reset().expect("reset");
-    assert_eq!(initial.status(), EpisodeStatus::Running);
-    assert_eq!(f32::from(*initial.reward()), 0.0);
-    assert_eq!(initial.observation().position, RandomWalkEnv::START);
+    assert_eq!(initial.status, EpisodeStatus::Running);
+    assert_eq!(f32::from(initial.reward), 0.0);
+    assert_eq!(initial.observation.position, RandomWalkEnv::START);
 
     // Three right-moves take position from 3 to 6 (goal).
     let mut last = env.step(WalkAction::Right).expect("step 1");
-    assert!(!last.is_done());
+    assert!(!last.status.is_done());
     last = env.step(WalkAction::Right).expect("step 2");
-    assert!(!last.is_done());
+    assert!(!last.status.is_done());
     last = env.step(WalkAction::Right).expect("step 3 -> goal");
 
-    assert!(last.is_done());
-    assert!(last.is_terminated());
-    assert!(!last.is_truncated());
-    assert_eq!(f32::from(*last.reward()), 1.0);
-    assert_eq!(last.observation().position, RandomWalkEnv::GOAL);
+    assert!(last.status.is_done());
+    assert!(last.status.is_terminated());
+    assert!(!last.status.is_truncated());
+    assert_eq!(f32::from(last.reward), 1.0);
+    assert_eq!(last.observation.position, RandomWalkEnv::GOAL);
 }
 
 /// Exercises the opt-in prioritized-replay path (ADR 0050) end to end through
@@ -216,16 +216,16 @@ fn prioritized_replay_samples_a_weighted_minibatch() {
         } else {
             WalkAction::Left
         };
-        let obs_before = snapshot.observation().position;
+        let obs_before = snapshot.observation.position;
         let next = env.step(action).expect("step");
         buffer.push(DiscreteTransition {
             obs: obs_before,
             action: i % 2,
-            reward: f32::from(*next.reward()),
-            next_obs: next.observation().position,
-            terminated: next.is_terminated(),
+            reward: f32::from(next.reward),
+            next_obs: next.observation.position,
+            terminated: next.status.is_terminated(),
         });
-        snapshot = if next.is_done() {
+        snapshot = if next.status.is_done() {
             env.reset().expect("reset after done")
         } else {
             next

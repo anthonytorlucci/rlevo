@@ -928,7 +928,7 @@ impl Environment<3, 1> for MemoryEnv {
         // snapshot's own status, so no branch can record something the caller
         // was not handed.
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -1004,8 +1004,8 @@ mod tests {
         env.step(turn).expect("turn");
         env.step(GridAction::Forward).expect("forward");
         let snap = env.step(GridAction::Done).expect("done");
-        assert!(snap.is_done(), "Done must terminate the episode");
-        (*snap.reward()).into()
+        assert!(snap.status.is_done(), "Done must terminate the episode");
+        (snap.reward).into()
     }
 
     /// Every passable cell at or beyond the corridor's mouth — the region from
@@ -1653,7 +1653,7 @@ mod tests {
         for seed in [key_seed, ball_seed] {
             env.reset_with_seed(seed).expect("reset");
             let snap = drive_to_junction(&mut env);
-            observations.push(*snap.observation());
+            observations.push(snap.observation);
             oracle_actions.push(oracle_turn(&env));
         }
 
@@ -1864,8 +1864,8 @@ mod tests {
         let mut env = env_default();
         env.reset().expect("reset");
         let snap = env.step(GridAction::Done).expect("done");
-        assert!(snap.is_done(), "Done always terminates");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done(), "Done always terminates");
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0, "Done away from the fork pays nothing");
     }
 
@@ -1885,7 +1885,7 @@ mod tests {
             "…and the cell in front really is the cue entity"
         );
         let snap = env.step(GridAction::Done).expect("done");
-        let reward: f32 = (*snap.reward()).into();
+        let reward: f32 = (snap.reward).into();
         assert_eq!(
             reward, 0.0,
             "the cue itself is not a valid answer — only fork objects are"
@@ -1899,8 +1899,11 @@ mod tests {
         env.step(GridAction::TurnLeft).expect("step");
         env.step(GridAction::TurnLeft).expect("step");
         let snap = env.step(GridAction::TurnLeft).expect("step");
-        assert!(snap.is_done(), "the step budget must truncate the episode");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(
+            snap.status.is_done(),
+            "the step budget must truncate the episode"
+        );
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0, "a timeout pays nothing");
         assert_eq!(env.steps(), 3, "step counter tracks the budget");
     }
@@ -1968,7 +1971,10 @@ mod tests {
         env.step(turn).expect("turn");
         env.step(GridAction::Forward).expect("forward");
         let snap = env.step(GridAction::Done).expect("done");
-        assert!(snap.is_done(), "Done at the fork must end the episode");
+        assert!(
+            snap.status.is_done(),
+            "Done at the fork must end the episode"
+        );
         snap
     }
 
@@ -2008,7 +2014,7 @@ mod tests {
 
         let mut env = env_default();
         let terminal = drive_to_commit(&mut env, true);
-        let paid: f32 = (*terminal.reward()).into();
+        let paid: f32 = (terminal.reward).into();
         assert!(paid > 0.0, "the correct answer must have been paid once");
 
         let steps_at_end = env.steps();
@@ -2071,7 +2077,7 @@ mod tests {
             .step(GridAction::Forward)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

@@ -398,7 +398,7 @@ where
 
         'episodes: for episode_idx in 0..cfg.num_episodes {
             let mut obs = match self.env.reset() {
-                Ok(snap) => snap.into_observation(),
+                Ok(snap) => snap.observation,
                 Err(e) => {
                     report.errored = true;
                     report.error_message = Some(e.to_string());
@@ -418,7 +418,7 @@ where
                         break 'episodes;
                     }
                 };
-                let reward = f64::from(snap.reward().value());
+                let reward = f64::from(snap.reward.value());
                 // A non-finite reward is counted and reported, never asserted
                 // on and never filtered out. Accumulation stays raw and
                 // unconditional: a non-finite return is a *true* statement
@@ -441,10 +441,10 @@ where
                 total_reward += reward;
                 length += 1;
 
-                // Read `is_done()` before consuming the snapshot: `into_observation`
-                // takes `self` by value and must be its last use.
-                let done = snap.is_done();
-                obs = snap.into_observation();
+                // Read the status before moving the observation out of the
+                // snapshot.
+                let done = snap.status.is_done();
+                obs = snap.observation;
                 if done {
                     break;
                 }

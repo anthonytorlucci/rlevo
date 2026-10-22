@@ -607,7 +607,7 @@ mod tests {
         for _ in 0..PUMP_STEP_CAP {
             // Velocity 0 (the reset state) pumps right: any direction works, the
             // hill returns the car with more energy either way.
-            let action = if snap.observation().velocity < 0.0 {
+            let action = if snap.observation.velocity < 0.0 {
                 MountainCarAction::Left
             } else {
                 MountainCarAction::Right
@@ -615,7 +615,7 @@ mod tests {
             snap = env
                 .step(action)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -644,8 +644,8 @@ mod tests {
 
         let mut env = default_env();
         let snap = env.reset().unwrap();
-        assert_eq!(snap.status(), EpisodeStatus::Running);
-        let obs = snap.observation();
+        assert_eq!(snap.status, EpisodeStatus::Running);
+        let obs = snap.observation;
         assert!(
             obs.position >= -0.6 && obs.position <= -0.4,
             "position {}",
@@ -687,7 +687,7 @@ mod tests {
             velocity: 0.01,
         };
         let snap = env.step(MountainCarAction::Right).unwrap();
-        assert!(snap.is_terminated());
+        assert!(snap.status.is_terminated());
     }
 
     #[test]
@@ -695,7 +695,7 @@ mod tests {
         let mut env = default_env();
         env.reset().unwrap();
         let snap = env.step(MountainCarAction::NoAccel).unwrap();
-        assert_eq!(*snap.reward(), ScalarReward(-1.0));
+        assert_eq!(snap.reward, ScalarReward(-1.0));
     }
 
     #[test]
@@ -719,7 +719,7 @@ mod tests {
         ] {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -782,8 +782,8 @@ mod tests {
         // position from U(-0.6, -0.4)), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -793,10 +793,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -822,7 +822,7 @@ mod tests {
         let mut env = default_env();
         let terminal = drive_to_goal(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "the flag must terminate the episode"
         );
 
@@ -864,7 +864,7 @@ mod tests {
             .step(MountainCarAction::Right)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

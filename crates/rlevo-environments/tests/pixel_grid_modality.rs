@@ -35,14 +35,14 @@ fn reset_yields_rank3_observation_over_rank1_state() {
         .expect("valid config");
     let snap = env.reset().expect("reset succeeds");
 
-    assert_eq!(snap.status(), EpisodeStatus::Running);
+    assert_eq!(snap.status, EpisodeStatus::Running);
     assert_eq!(
         <PixelObservation as Observation<3>>::shape(),
         [20, 20, 3],
         "observation is rank 3"
     );
     assert_eq!(
-        snap.observation().pixels().len(),
+        snap.observation.pixels().len(),
         20 * 20 * 3,
         "snapshot carries the full rendered image"
     );
@@ -76,12 +76,15 @@ fn optimal_rollout_reaches_goal_with_positive_reward() {
     }
     let snap = last.expect("at least one step ran");
 
-    assert!(snap.is_done(), "reaching the goal terminates the episode");
-    assert_eq!(snap.status(), EpisodeStatus::Terminated);
-    let reward: f32 = (*snap.reward()).into();
+    assert!(
+        snap.status.is_done(),
+        "reaching the goal terminates the episode"
+    );
+    assert_eq!(snap.status, EpisodeStatus::Terminated);
+    let reward: f32 = (snap.reward).into();
     assert!(reward > 0.0, "goal reward must be positive, got {reward}");
     // The terminal observation is still rank-3.
-    assert_eq!(snap.observation().pixels().len(), 20 * 20 * 3);
+    assert_eq!(snap.observation.pixels().len(), 20 * 20 * 3);
 }
 
 /// Exhausting the step budget without reaching the goal truncates with reward
@@ -98,9 +101,9 @@ fn step_limit_truncates_with_zero_reward() {
     env.step(PixelGridAction::Up).unwrap();
     let snap = env.step(PixelGridAction::Up).unwrap();
 
-    assert!(snap.is_done());
-    assert_eq!(snap.status(), EpisodeStatus::Truncated);
-    let reward: f32 = (*snap.reward()).into();
+    assert!(snap.status.is_done());
+    assert_eq!(snap.status, EpisodeStatus::Truncated);
+    let reward: f32 = (snap.reward).into();
     assert_eq!(reward, 0.0);
 }
 
@@ -114,7 +117,7 @@ fn random_policy_never_errors() {
     for i in 0..50 {
         let action = PixelGridAction::from_index(i % PixelGridAction::ACTION_COUNT);
         let snap = env.step(action).expect("step succeeds");
-        if snap.is_done() {
+        if snap.status.is_done() {
             break;
         }
     }

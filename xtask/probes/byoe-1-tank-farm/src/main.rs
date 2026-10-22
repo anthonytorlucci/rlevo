@@ -139,9 +139,9 @@ fn invalid_commands_change_nothing() -> Result<(), String> {
     let expected = fresh
         .step(valid)
         .map_err(|e| format!("the first step on a fresh farm failed: {e}"))?;
-    if after.observation() != expected.observation()
-        || after.reward() != expected.reward()
-        || after.status() != expected.status()
+    if after.observation != expected.observation
+        || after.reward != expected.reward
+        || after.status != expected.status
     {
         return Err(
             "a rejected command changed the farm: the next step differs from the same step \
@@ -168,8 +168,8 @@ where
         let snapshot = env
             .step(command)
             .map_err(|e| format!("step {steps} failed: {e}"))?;
-        if snapshot.is_done() {
-            return Ok((steps, snapshot.status()));
+        if snapshot.status.is_done() {
+            return Ok((steps, snapshot.status));
         }
     }
     Err(format!(

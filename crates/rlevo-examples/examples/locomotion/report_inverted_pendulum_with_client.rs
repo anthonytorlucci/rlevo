@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for _ in 0..MAX_STEPS_PER_EPISODE {
             let force: f32 = rng.random_range(-2.0..2.0);
             let snap = tap.step(InvertedPendulumAction::new(force))?;
-            if snap.is_done() {
+            if snap.status.is_done() {
                 break;
             }
         }

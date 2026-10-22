@@ -671,7 +671,7 @@ mod tests {
         for _ in 0..PUMP_STEP_CAP {
             // Velocity 0 (the reset state) pumps right: any direction works, the
             // hill returns the car with more energy either way.
-            let action = if snap.observation().velocity < 0.0 {
+            let action = if snap.observation.velocity < 0.0 {
                 push_left
             } else {
                 push_right
@@ -679,7 +679,7 @@ mod tests {
             snap = env
                 .step(action)
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 return snap;
             }
         }
@@ -728,8 +728,8 @@ mod tests {
         let action = MountainCarContinuousAction::new(0.0).unwrap();
         let snap = env.step(action).unwrap();
         // ctrl cost `$= -0.1 \cdot 0^2 = 0$`; no goal bonus
-        if !snap.is_done() {
-            assert!((snap.reward().0 - 0.0).abs() < 1e-6);
+        if !snap.status.is_done() {
+            assert!((snap.reward.0 - 0.0).abs() < 1e-6);
         }
     }
 
@@ -739,12 +739,12 @@ mod tests {
         env.reset().unwrap();
         let action = MountainCarContinuousAction::new(1.0).unwrap();
         let snap = env.step(action).unwrap();
-        if !snap.is_done() {
+        if !snap.status.is_done() {
             let expected = -0.1_f32;
             assert!(
-                (snap.reward().0 - expected).abs() < 1e-5,
+                (snap.reward.0 - expected).abs() < 1e-5,
                 "reward={}",
-                snap.reward().0
+                snap.reward.0
             );
         }
     }
@@ -761,15 +761,15 @@ mod tests {
         let action = MountainCarContinuousAction::new(1.0).unwrap();
         let snap = env.step(action).unwrap();
         assert!(
-            snap.is_terminated(),
+            snap.status.is_terminated(),
             "expected terminated, got {:?}",
-            snap.status()
+            snap.status
         );
         // reward `$= -0.1 \cdot 1^2 + 100 = 99.9$`
         assert!(
-            snap.reward().0 > 90.0,
+            snap.reward.0 > 90.0,
             "expected large positive reward, got {}",
-            snap.reward().0
+            snap.reward.0
         );
     }
 
@@ -791,7 +791,7 @@ mod tests {
         for _ in 0..5 {
             let sa = a.step(act).unwrap();
             let sb = b.step(act).unwrap();
-            assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+            assert_eq!(sa.observation.to_array(), sb.observation.to_array());
         }
     }
 
@@ -854,8 +854,8 @@ mod tests {
         // position from U(-0.6, -0.4)), so back-to-back resets must sample
         // independent initial states.
         let mut env = default_env();
-        let first = env.reset().unwrap().observation().to_array();
-        let second = env.reset().unwrap().observation().to_array();
+        let first = env.reset().unwrap().observation.to_array();
+        let second = env.reset().unwrap().observation.to_array();
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -865,10 +865,10 @@ mod tests {
     #[test]
     fn reset_with_seed_is_reproducible() {
         let mut env = default_env();
-        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        let a = env.reset_with_seed(999).unwrap().observation.to_array();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        let b = env.reset_with_seed(999).unwrap().observation.to_array();
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -899,7 +899,7 @@ mod tests {
         let mut env = default_env();
         let terminal = drive_to_goal(&mut env);
         assert!(
-            terminal.is_terminated(),
+            terminal.status.is_terminated(),
             "the flag must terminate the episode"
         );
 
@@ -950,7 +950,7 @@ mod tests {
             .step(action)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

@@ -451,8 +451,8 @@ mod tests {
         })
         .expect("valid config");
         let snap = env.reset().unwrap();
-        assert!(!snap.is_done());
-        for v in snap.observation().0 {
+        assert!(!snap.status.is_done());
+        for v in snap.observation.0 {
             assert!(v.abs() < 1e-5, "zero reset noise should give ~zero obs");
         }
     }
@@ -465,8 +465,8 @@ mod tests {
         env.reset().unwrap();
         let snap = env.step(InvertedPendulumAction::new(3.0)).unwrap();
         // Reward is +1 per step while healthy regardless of action magnitude.
-        let total: f32 = snap.metadata().unwrap().components.values().sum();
-        assert!((total - snap.reward().0).abs() < 1e-5);
+        let total: f32 = snap.metadata.as_ref().unwrap().components.values().sum();
+        assert!((total - snap.reward.0).abs() < 1e-5);
     }
 
     #[test]
@@ -476,12 +476,12 @@ mod tests {
         env.reset().unwrap();
         for _ in 0..5 {
             let snap = env.step(InvertedPendulumAction::new(0.0)).unwrap();
-            let meta = snap.metadata().unwrap();
+            let meta = snap.metadata.as_ref().unwrap();
             let total: f32 = meta.components.values().sum();
             assert!(
-                (total - snap.reward().0).abs() < 1e-5,
+                (total - snap.reward.0).abs() < 1e-5,
                 "components sum ({total}) must equal reward ({})",
-                snap.reward().0
+                snap.reward.0
             );
         }
     }
@@ -505,9 +505,9 @@ mod tests {
         for i in 0..2000 {
             let action = if i < 20 { 3.0 } else { 0.0 };
             let snap = env.step(InvertedPendulumAction::new(action)).unwrap();
-            max_abs_angle = max_abs_angle.max(snap.observation().pole_angle().abs());
-            cart_x_max = cart_x_max.max(snap.observation().cart_position().abs());
-            if snap.is_terminated() {
+            max_abs_angle = max_abs_angle.max(snap.observation.pole_angle().abs());
+            cart_x_max = cart_x_max.max(snap.observation.cart_position().abs());
+            if snap.status.is_terminated() {
                 terminated = true;
                 break;
             }
@@ -532,7 +532,7 @@ mod tests {
         let mut status = EpisodeStatus::Running;
         for _ in 0..5 {
             let snap = env.step(InvertedPendulumAction::new(0.0)).unwrap();
-            status = snap.status();
+            status = snap.status;
         }
         assert_eq!(status, EpisodeStatus::Truncated);
     }
@@ -549,7 +549,7 @@ mod tests {
             let mut last = InvertedPendulumObservation::default();
             for &a in actions {
                 if let Ok(snap) = env.step(InvertedPendulumAction::new(a)) {
-                    last = *snap.observation();
+                    last = snap.observation;
                 }
             }
             last
@@ -574,8 +574,8 @@ mod tests {
         env.reset().unwrap();
         for _ in 0..50 {
             let snap = env.step(InvertedPendulumAction::new(0.1)).unwrap();
-            assert!(snap.observation().is_finite());
-            if snap.is_done() {
+            assert!(snap.observation.is_finite());
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -603,8 +603,8 @@ mod tests {
         let mut deltas: Vec<f32> = Vec::new();
         for _ in 0..40 {
             let snap = env.step(InvertedPendulumAction::new(1.0)).unwrap();
-            assert!(snap.observation().is_finite(), "obs must stay finite");
-            let vx = snap.observation().cart_velocity();
+            assert!(snap.observation.is_finite(), "obs must stay finite");
+            let vx = snap.observation.cart_velocity();
             deltas.push(vx - prev_vx);
             prev_vx = vx;
         }
@@ -632,8 +632,8 @@ mod tests {
             ..Default::default()
         })
         .expect("valid config");
-        let first = env.reset().unwrap().observation().0;
-        let second = env.reset().unwrap().observation().0;
+        let first = env.reset().unwrap().observation.0;
+        let second = env.reset().unwrap().observation.0;
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
@@ -647,10 +647,10 @@ mod tests {
             ..Default::default()
         })
         .expect("valid config");
-        let a = env.reset_with_seed(999).unwrap().observation().0;
+        let a = env.reset_with_seed(999).unwrap().observation.0;
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
-        let b = env.reset_with_seed(999).unwrap().observation().0;
+        let b = env.reset_with_seed(999).unwrap().observation.0;
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
@@ -700,9 +700,9 @@ mod tests {
             let snap = env
                 .step(InvertedPendulumAction::new(force))
                 .expect("step must succeed while the episode is running");
-            if snap.is_done() {
+            if snap.status.is_done() {
                 assert!(
-                    snap.is_terminated(),
+                    snap.status.is_terminated(),
                     "this fixture must end by termination, not truncation"
                 );
                 return snap;
@@ -736,9 +736,9 @@ mod tests {
     fn test_inverted_pendulum_post_terminal_step_does_not_mutate_state() {
         let mut env = InvertedPendulum::with_config(terminating_cfg()).expect("valid config");
         let terminal = drive_to_pole_fall(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
-        let obs_at_end = terminal.observation().0;
+        let obs_at_end = terminal.observation.0;
         let steps_at_end = env.steps;
 
         let err = env
@@ -798,12 +798,12 @@ mod tests {
             drive_to_pole_fall(&mut env);
             env.step(InvertedPendulumAction::new(0.0))
                 .expect_err("the post-terminal step must be rejected");
-            env.reset().unwrap().observation().0
+            env.reset().unwrap().observation.0
         };
         let without_replay = {
             let mut env = InvertedPendulum::with_config(terminating_cfg()).expect("valid config");
             drive_to_pole_fall(&mut env);
-            env.reset().unwrap().observation().0
+            env.reset().unwrap().observation.0
         };
         assert_eq!(
             with_replay, without_replay,
@@ -823,7 +823,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after termination");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -833,7 +836,7 @@ mod tests {
             .step(InvertedPendulumAction::new(0.0))
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }
@@ -856,7 +859,7 @@ mod tests {
             last = Some(env.step(InvertedPendulumAction::new(0.0)).unwrap());
         }
         assert_eq!(
-            last.expect("five steps were taken").status(),
+            last.expect("five steps were taken").status,
             EpisodeStatus::Truncated
         );
 

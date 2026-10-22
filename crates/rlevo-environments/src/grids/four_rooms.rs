@@ -680,7 +680,7 @@ impl Environment<3, 1> for FourRoomsEnv {
         // snapshot's own status, so no branch can forget to record.
         let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -1126,7 +1126,7 @@ mod tests {
         let mut b = FourRoomsEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
-        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(sa.observation, sb.observation);
     }
 
     /// The persistent stream advances, so successive episodes are fresh boards.
@@ -1164,8 +1164,7 @@ mod tests {
             env.reset().expect("reset");
             let second = env.reset_with_seed(7).expect("reset");
             assert_eq!(
-                first.observation(),
-                second.observation(),
+                first.observation, second.observation,
                 "size {size}: reset_with_seed(7) did not replay"
             );
             assert_eq!(first_layout, layout_of(&env));
@@ -1205,7 +1204,7 @@ mod tests {
                     let before = (env.state().agent.x, env.state().agent.y);
                     let snap = env.step(GridAction::Forward).expect("step");
                     let agent = env.state().agent;
-                    if snap.is_done() {
+                    if snap.status.is_done() {
                         verdict = Some(true); // walked onto the goal; nothing to block
                         break;
                     }
@@ -1330,10 +1329,10 @@ mod tests {
                 }
                 let snap = last.expect("non-empty route");
                 assert!(
-                    snap.is_done(),
+                    snap.status.is_done(),
                     "size {size} seed {seed}: the derived route did not end the episode"
                 );
-                let reward: f32 = (*snap.reward()).into();
+                let reward: f32 = (snap.reward).into();
                 assert!(
                     reward > 0.0,
                     "size {size} seed {seed}: reward was {reward}, expected > 0.0"
@@ -1350,8 +1349,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -1405,7 +1404,7 @@ mod tests {
         }
         let snapshot = last.expect("the route is non-empty");
         assert!(
-            snapshot.is_done(),
+            snapshot.status.is_done(),
             "walking the derived route must end the episode at the goal"
         );
         snapshot
@@ -1433,7 +1432,7 @@ mod tests {
     fn test_four_rooms_post_terminal_step_does_not_resume_the_episode() {
         let mut env = env_11();
         let terminal = drive_to_goal(&mut env);
-        let ended = terminal.status();
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let agent_at_end = env.state().agent;
@@ -1500,7 +1499,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "a single turn on a fresh board must not end the episode"
         );
     }

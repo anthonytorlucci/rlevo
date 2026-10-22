@@ -432,7 +432,7 @@ impl Environment<3, 1> for EmptyEnv {
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot drift apart.
         let snapshot = self.snapshot(observation, reward, done);
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -558,8 +558,8 @@ mod tests {
         let mut b = EmptyEnv::with_config(cfg, false).expect("valid config");
         let snap_a = a.reset().unwrap();
         let snap_b = b.reset().unwrap();
-        assert_eq!(snap_a.observation(), snap_b.observation());
-        assert!(!snap_a.is_done());
+        assert_eq!(snap_a.observation, snap_b.observation);
+        assert!(!snap_a.status.is_done());
     }
 
     #[test]
@@ -601,8 +601,8 @@ mod tests {
             last = Some(env.step(action).unwrap());
         }
         let snap = last.expect("at least one step");
-        assert!(snap.is_done(), "reaching the goal should terminate");
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done(), "reaching the goal should terminate");
+        let reward: f32 = (snap.reward).into();
         assert!(reward > 0.0, "goal reward must be positive, got {reward}");
         // 5 steps out of 100 → 1 - 0.9 * 0.05 = 0.955.
         assert!((reward - 0.955).abs() < 1e-4, "reward was {reward}");
@@ -617,8 +617,8 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
+        assert!(snap.status.is_done());
+        let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
 
@@ -644,7 +644,7 @@ mod tests {
         for i in 0..50 {
             let action = GridAction::from_index(i % GridAction::ACTION_COUNT);
             let snap = env.step(action).unwrap();
-            if snap.is_done() {
+            if snap.status.is_done() {
                 break;
             }
         }
@@ -702,8 +702,11 @@ mod tests {
     fn post_terminal_step_does_not_mutate_state() {
         let mut env = goal_env();
         let terminal = drive_to_goal(&mut env);
-        assert!(terminal.is_done(), "reaching the goal must end the episode");
-        let ended = terminal.status();
+        assert!(
+            terminal.status.is_done(),
+            "reaching the goal must end the episode"
+        );
+        let ended = terminal.status;
 
         let steps_at_end = env.steps();
         let pos_at_end = (env.state().agent.x, env.state().agent.y);
@@ -754,7 +757,10 @@ mod tests {
         );
 
         let first = env.reset().expect("reset must succeed after termination");
-        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert!(
+            !first.status.is_done(),
+            "a fresh episode must not start done"
+        );
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
@@ -765,7 +771,7 @@ mod tests {
             .step(GridAction::TurnLeft)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
-            !snap.is_done(),
+            !snap.status.is_done(),
             "the first step of a fresh episode must not be done"
         );
     }

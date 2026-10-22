@@ -192,7 +192,7 @@ impl Environment<1, 1> for MyEnv {
         self.guard.check()?;
         // apply action, compute reward
         let snapshot = Snapshot::terminated(MyObservation::default(), ScalarReward::new(1.0));
-        self.guard.record(snapshot.status());
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }

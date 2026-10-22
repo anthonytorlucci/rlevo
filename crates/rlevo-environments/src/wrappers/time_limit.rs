@@ -290,9 +290,9 @@ mod tests {
 
         let s3 = timed.step(StubAction).unwrap();
         assert_eq!(s3.status, EpisodeStatus::Truncated);
-        assert!(s3.is_truncated());
-        assert!(!s3.is_terminated());
-        assert!(s3.is_done());
+        assert!(s3.status.is_truncated());
+        assert!(!s3.status.is_terminated());
+        assert!(s3.status.is_done());
     }
 
     #[test]
@@ -306,7 +306,7 @@ mod tests {
 
         let s2 = timed.step(StubAction).unwrap();
         assert_eq!(s2.status, EpisodeStatus::Terminated);
-        assert!(!s2.is_truncated());
+        assert!(!s2.status.is_truncated());
     }
 
     #[test]
@@ -347,7 +347,7 @@ mod tests {
                 let mut snap = env
                     .step(StubAction)
                     .expect("step must succeed until the cap");
-                while !snap.is_done() {
+                while !snap.status.is_done() {
                     snap = env
                         .step(StubAction)
                         .expect("step must succeed until the cap");
@@ -375,7 +375,7 @@ mod tests {
                 let mut snap = env
                     .step(StubAction)
                     .expect("step must succeed until termination");
-                while !snap.is_done() {
+                while !snap.status.is_done() {
                     snap = env
                         .step(StubAction)
                         .expect("step must succeed until termination");

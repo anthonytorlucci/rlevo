@@ -931,19 +931,19 @@ fn bench_env_cycle_lunar(c: &mut Criterion) {
                     snap = env.reset().expect("reset");
                     done = false;
                 }
-                let obs = snap.observation().clone();
+                let obs = snap.observation.clone();
                 let env_action = LunarLanderDiscreteAction::from_index(i % ACTIONS);
                 let action = BenchAction::from_index(i % ACTIONS);
                 i = i.wrapping_add(1);
 
                 let t0 = Instant::now();
                 let next = env.step(env_action).expect("step");
-                let reward: f32 = (*next.reward()).into();
-                let terminated = next.is_terminated();
-                agent.remember(obs, &action, reward, next.observation().clone(), terminated);
+                let reward: f32 = (next.reward).into();
+                let terminated = next.status.is_terminated();
+                agent.remember(obs, &action, reward, next.observation.clone(), terminated);
                 total += t0.elapsed();
 
-                done = next.is_done();
+                done = next.status.is_done();
                 snap = next;
             }
             total
@@ -984,19 +984,19 @@ fn bench_env_cycle_car(c: &mut Criterion) {
                     snap = env.reset().expect("reset");
                     done = false;
                 }
-                let obs = snap.observation().clone();
+                let obs = snap.observation.clone();
                 let env_action = CarRacingAction::from_slice(&[0.0, 0.4, 0.0]);
                 let action = BenchAction::from_index(i % ACTIONS);
                 i = i.wrapping_add(1);
 
                 let t0 = Instant::now();
                 let next = env.step(env_action).expect("step");
-                let reward: f32 = (*next.reward()).into();
-                let terminated = next.is_terminated();
-                agent.remember(obs, &action, reward, next.observation().clone(), terminated);
+                let reward: f32 = (next.reward).into();
+                let terminated = next.status.is_terminated();
+                agent.remember(obs, &action, reward, next.observation.clone(), terminated);
                 total += t0.elapsed();
 
-                done = next.is_done();
+                done = next.status.is_done();
                 snap = next;
             }
             total
