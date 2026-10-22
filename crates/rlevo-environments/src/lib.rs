@@ -101,20 +101,19 @@ pub mod direction;
 /// checks for is [`rlevo_core::episode::EpisodeGuard`].
 #[cfg(test)]
 mod episode;
-/// Board-game environments — **stub, no `Environment` impls yet**.
+/// Board-game environments — **stub, no `Environment` impl yet**.
 ///
-/// The submodules compile but do not yet implement the [`rlevo_core::environment::Environment`]
-/// trait. They are hidden from the rendered docs until the `Environment` impls land.
+/// `chess` compiles but does not yet implement the [`rlevo_core::environment::Environment`]
+/// trait. It is hidden from the rendered docs until that impl lands.
 /// Internal dead-code and doc-lint warnings are suppressed here because the
 /// contained code is scaffolding for those impls.
 #[doc(hidden)]
 // TODO: the board-state and move-encoding scaffolding under this module has no
-// non-test caller until the Chess and ConnectFour `Environment` impls land;
-// drop these allows once it does.
+// non-test caller until the Chess `Environment` impl lands; drop these allows
+// once it does.
 #[allow(dead_code, clippy::doc_lazy_continuation, clippy::needless_range_loop)]
 pub mod games {
     pub mod chess;
-    pub mod connect_four;
 }
 pub mod grids;
 pub mod locomotion;
