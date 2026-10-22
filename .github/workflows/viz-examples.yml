@@ -31,6 +31,10 @@ jobs:
   build-examples:
     name: build + clippy (viz examples, all features)
     runs-on: ubuntu-latest
+    # The slowest of 194 runs (2026-07-19 to 2026-10-18) took 5.8 minutes.
+    # This is a required check: without a bound, a hung runner holds a pull
+    # request for GitHub's 6-hour default.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -43,10 +47,16 @@ jobs:
       # The examples pull rapier2d (box2d), rapier3d (locomotion), and
       # burn-wgpu. None need a GPU to *compile*; libudev is the only
       # build-time system dep on a headless runner.
+      #
+      # The step took 84 seconds at most over the same runs and once hung
+      # for more than 40 minutes. A stalled mirror is retried, and the step
+      # fails in minutes rather than waiting out the job's bound.
       - name: Install system dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libudev-dev
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+            install -y --no-install-recommends libudev-dev
 
       - name: Install just
         uses: taiki-e/install-action@2b818c67b359d9778206f1396bde7f4381ebfeda # just
