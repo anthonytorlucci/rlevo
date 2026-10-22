@@ -91,15 +91,11 @@ setting changes the contract rather than just the syntax:
 
 - **One contract spans the whole EA taxonomy, not just ES.** evosax is
   organised around evolution strategies over real vectors. `rlevo`'s `Strategy`
-  is generic over the genome *kind* — `Real`, `Binary`, `Integer`, and the
-  roadmap `Permutation`/`Tree` kinds are zero-sized marker types implementing a
-  `GenomeKind` trait, so operators specialise at compile time (Gaussian
-  mutation only typechecks against a real genome, bit-flip only against a
-  binary one) with no runtime dispatch or tag byte. A `Population<B, K>`
-  wrapper welds that marker to its storage tensor so a wrong-tensor-for-this-kind
-  population is unrepresentable. That kind marker is what varies across the
-  *same* ask/tell trait backing the GA, ES, EP, DE, EDA, and CGP families — the
-  associated `type Genome` changes, not the protocol.
+  is generic over its genome type: a real-valued strategy's `type Genome` is a
+  `Tensor<B, 2>`, a binary, integer or CGP one a `Tensor<B, 2, Int>`, so an
+  operator written for one kind of tensor does not accept the other. The
+  associated `type Genome` is what varies across the *same* ask/tell trait
+  backing the GA, ES, EP, DE, EDA, and CGP families, not the protocol.
 - **Fitness is a backend tensor, with a fixed direction.** `tell` consumes a
   Burn `Tensor<B, 1>` on whatever backend the run uses, rather than a host
   array — selection arithmetic stays on-device. And where evosax leaves the
@@ -366,8 +362,8 @@ while !evo_loop.is_done() {
   fitness.
 
 `EvolutionaryLoop` calls your `BatchFitnessFn` once per generation; it does not
-parallelize the population evaluation itself (the shipped `FromLandscape` and
-`FromFitnessEvaluable` adapters evaluate a batch with a plain, serial loop —
+parallelize the population evaluation itself (the shipped `FromLandscape`
+adapter evaluates a batch with a plain, serial loop —
 `Send + Sync` on your landscape is a bound the trait asks for, not a signal
 that triggers `rayon`). If you need per-individual parallelism, implement it
 inside your `BatchFitnessFn`.

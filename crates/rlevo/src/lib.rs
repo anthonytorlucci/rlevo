@@ -95,9 +95,7 @@ pub use burn;
 /// [`InvalidActionError`](core::action::InvalidActionError)
 ///
 /// **Evolution** (`rlevo::evo`):
-/// [`Strategy`](evo::strategy::Strategy),
-/// [`FitnessFn`](evo::fitness::FitnessFn),
-/// [`Population`](evo::population::Population)
+/// [`Strategy`](evo::strategy::Strategy)
 pub mod prelude {
     // Base traits
     pub use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
@@ -117,7 +115,5 @@ pub mod prelude {
     pub use rlevo_core::state::StateError;
 
     // Evolution
-    pub use rlevo_evolution::fitness::FitnessFn;
-    pub use rlevo_evolution::population::Population;
     pub use rlevo_evolution::strategy::Strategy;
 }

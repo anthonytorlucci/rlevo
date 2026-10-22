@@ -1,26 +1,18 @@
 //! Fitness evaluation traits and adapters.
 //!
-//! Two traits model the two evaluation shapes strategies expect:
+//! [`BatchFitnessFn`] is the evaluation shape strategies expect: it scores an
+//! entire population in one call and returns a device-resident
+//! `Tensor<B, 1>` of shape `(pop_size,)`, once per generation. (A local
+//! searcher scores one member at a time through a closure,
+//! `&mut dyn FnMut(&[f32]) -> f32`; see [`crate::local_search`].)
 //!
-//! - [`FitnessFn`] — evaluates a single member. Callers hand the fitness
-//!   function a host-side genome row (typically `Vec<f32>`) and receive a
-//!   scalar. Useful for simple benchmarks and for unit-testing operators.
-//! - [`BatchFitnessFn`] — evaluates an entire population in one call and
-//!   returns a device-resident `Tensor<B, 1>` of shape `(pop_size,)`. This
-//!   is the hot path — strategies call it once per generation.
+//! [`FromLandscape`] bridges host-side scalar fitness code into
+//! [`BatchFitnessFn`]: it wraps any `rlevo-core::fitness::Landscape`, a
+//! bundled one (Sphere, Ackley, Rastrigin) or a type of your own that
+//! implements `evaluate(&self, x: &[f64]) -> f64`.
 //!
-//! Two adapters bridge host-side scalar fitness code into [`BatchFitnessFn`]:
-//!
-//! - [`FromFitnessEvaluable`] — wraps
-//!   `rlevo-core::fitness::FitnessEvaluable<Individual = Vec<f64>, Landscape = L>`.
-//!   Use this when an evaluator and a landscape type are already defined
-//!   separately (e.g. `RastriginEvaluator` + `RastriginLandscape`).
-//! - [`FromLandscape`] — wraps `rlevo-core::fitness::Landscape` directly.
-//!   Use this when the landscape is self-evaluating (Sphere, Ackley, Rastrigin)
-//!   and a separate evaluator shim would add no value.
-//!
-//! Both adapters pull each population row to host as `f32`, widen to `f64`,
-//! evaluate on the CPU, and re-upload the results as a `Tensor<B, 1>`.
+//! The adapter pulls each population row to host as `f32`, widens to `f64`,
+//! evaluates on the CPU, and re-uploads the results as a `Tensor<B, 1>`.
 //! Purpose-built batched-on-device landscapes should implement
 //! [`BatchFitnessFn`] directly to avoid that round-trip.
 //!
@@ -39,17 +31,8 @@
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 
-use rlevo_core::fitness::{FitnessEvaluable, Landscape};
+use rlevo_core::fitness::Landscape;
 use rlevo_core::objective::ObjectiveSense;
-
-/// Single-member fitness evaluation.
-///
-/// Implementors may hold mutable state (e.g. a counter for number of
-/// evaluations) and are therefore `&mut self`.
-pub trait FitnessFn<G>: Send {
-    /// Evaluates one genome and returns its scalar fitness.
-    fn evaluate_one(&mut self, member: &G) -> f32;
-}
 
 /// Batched fitness evaluation over a population genome container `G`.
 ///
@@ -85,124 +68,26 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// It is **required, with no default**, so a reward/accuracy objective
     /// cannot silently inherit the wrong direction by omission — declare it
     /// explicitly ([`ObjectiveSense::Maximize`] for a reward,
-    /// [`ObjectiveSense::Minimize`] for a cost). The bundled landscape adapters
-    /// ([`FromLandscape`], [`FromFitnessEvaluable`]) forward the landscape's
-    /// declared sense.
+    /// [`ObjectiveSense::Minimize`] for a cost). The bundled landscape adapter,
+    /// [`FromLandscape`], forwards the landscape's declared sense.
     fn sense(&self) -> ObjectiveSense;
-}
-
-/// Adapter from `FitnessEvaluable` to [`BatchFitnessFn<B, Tensor<B, 2>>`].
-///
-/// Each row of the population is pulled to host, converted to `Vec<f64>`,
-/// and passed to the underlying evaluator with the configured landscape.
-/// Fitness is computed on the host and then re-uploaded as a single
-/// `Tensor<B, 1>`.
-///
-/// # Precision
-///
-/// Populations are read as `f32` and widened to `f64` for the evaluator
-/// call; the returned `f64` fitness is narrowed back to `f32` before it
-/// is uploaded as a `Tensor<B, 1>`. Fitness values that exceed `f32`
-/// range (or rely on sub-ulp precision) will lose information at the
-/// narrowing step. Purpose-built batched-on-device landscapes should
-/// implement [`BatchFitnessFn`] directly to avoid the round-trip.
-///
-/// # Type Parameters
-///
-/// - `FE`: Concrete [`FitnessEvaluable`] implementation.
-/// - `L`: Landscape type; must match `FE::Landscape`.
-///
-/// # Panics
-///
-/// `evaluate_batch` panics if the supplied population tensor is not rank
-/// 2, or if its data cannot be read as `f32` (e.g. an integer backend).
-#[derive(Debug)]
-pub struct FromFitnessEvaluable<FE, L> {
-    evaluator: FE,
-    landscape: L,
-    sense: ObjectiveSense,
-}
-
-impl<FE, L> FromFitnessEvaluable<FE, L> {
-    /// Builds the adapter from an evaluator and a landscape, defaulting the
-    /// objective sense to [`ObjectiveSense::Minimize`] (the cost convention a
-    /// [`FitnessEvaluable`] follows).
-    ///
-    /// Use [`with_sense`](Self::with_sense) to declare a maximisation objective
-    /// (reward, accuracy) explicitly.
-    pub fn new(evaluator: FE, landscape: L) -> Self {
-        Self::with_sense(evaluator, landscape, ObjectiveSense::Minimize)
-    }
-
-    /// Builds the adapter with an explicit [`ObjectiveSense`].
-    pub fn with_sense(evaluator: FE, landscape: L, sense: ObjectiveSense) -> Self {
-        Self {
-            evaluator,
-            landscape,
-            sense,
-        }
-    }
-
-    /// Returns a reference to the wrapped landscape.
-    pub fn landscape(&self) -> &L {
-        &self.landscape
-    }
-}
-
-impl<FE, L, B> BatchFitnessFn<B, Tensor<B, 2>> for FromFitnessEvaluable<FE, L>
-where
-    B: Backend,
-    FE: FitnessEvaluable<Individual = Vec<f64>, Landscape = L> + Send,
-    L: Send + Sync,
-{
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<B, 2>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
-        let dims = population.dims();
-        assert_eq!(dims.len(), 2, "population tensor must be rank 2");
-        let pop_size = dims[0];
-        let genome_dim = dims[1];
-
-        let flat = population
-            .clone()
-            .into_data()
-            .into_vec::<f32>()
-            .expect("tensor data must be readable as f32");
-        debug_assert_eq!(flat.len(), pop_size * genome_dim);
-
-        let mut fitness = Vec::with_capacity(pop_size);
-        let mut individual = Vec::with_capacity(genome_dim);
-        for row in 0..pop_size {
-            individual.clear();
-            let start = row * genome_dim;
-            individual.extend(
-                flat[start..start + genome_dim]
-                    .iter()
-                    .map(|&v| f64::from(v)),
-            );
-            let f = self.evaluator.evaluate(&individual, &self.landscape);
-            #[allow(clippy::cast_possible_truncation)]
-            fitness.push(f as f32);
-        }
-
-        let data = TensorData::new(fitness, [pop_size]);
-        Tensor::<B, 1>::from_data(data, device)
-    }
-
-    fn sense(&self) -> ObjectiveSense {
-        self.sense
-    }
 }
 
 /// Adapter from [`Landscape`] to [`BatchFitnessFn<B, Tensor<B, 2>>`].
 ///
-/// Use this when the landscape carries its own `evaluate(&[f64]) -> f64`
-/// (Sphere, Ackley, Rastrigin) so the example does not need a separate
-/// `FitnessEvaluable` shim. Each row is pulled to host as `f32`, widened
-/// to `f64`, evaluated, and re-uploaded as a `Tensor<B, 1>` — same
-/// precision caveats as [`FromFitnessEvaluable`] apply.
+/// Wraps any type that carries its own `evaluate(&[f64]) -> f64`: a bundled
+/// landscape (Sphere, Ackley, Rastrigin) or a type of your own. Each row is
+/// pulled to host as `f32`, widened to `f64`, evaluated, and re-uploaded as a
+/// `Tensor<B, 1>`.
+///
+/// # Precision
+///
+/// Populations are read as `f32` and widened to `f64` for the landscape
+/// call; the returned `f64` fitness is narrowed back to `f32` before it is
+/// uploaded as a `Tensor<B, 1>`. Fitness values that exceed `f32` range (or
+/// rely on sub-ulp precision) lose information at the narrowing step.
+/// Purpose-built batched-on-device landscapes should implement
+/// [`BatchFitnessFn`] directly to avoid the round-trip.
 ///
 /// # Panics
 ///
@@ -334,9 +219,8 @@ where
 ///   [`StrategyMetrics::from_host_fitness`](crate::strategy::StrategyMetrics::from_host_fitness)
 ///   does so for the statistics a `tell` reports, which is the reduction a
 ///   strategy written outside the crate needs. A reduction performed by a
-///   Burn device op cannot widen its accumulator and instead bounds its
-///   terms, as [`shaping::z_score`](crate::shaping::z_score) does (ADR 0069,
-///   Decision 4).
+///   Burn device op cannot widen its accumulator and must instead bound its
+///   terms (ADR 0069, Decision 4, as restated by ADR 0091).
 /// - `$-\infty$` passes through: it is the worst-value sentinel *and* the
 ///   uninitialized `best_fitness_ever` seed, and it must stay non-finite so the
 ///   mean-over-finite statistic in
@@ -542,40 +426,6 @@ mod tests {
     use super::*;
     use burn::backend::Flex;
     type TestBackend = Flex;
-
-    #[derive(Debug, Clone, Copy)]
-    struct Sphere;
-
-    struct SphereFit;
-    impl FitnessEvaluable for SphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = Sphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
-            x.iter().map(|v| v * v).sum()
-        }
-    }
-
-    #[test]
-    fn from_fitness_evaluable_preserves_row_order() {
-        let device = Default::default();
-        let data = TensorData::new(
-            vec![1.0_f32, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0],
-            [3, 3],
-        );
-        let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
-
-        let mut adapter = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let fitness = adapter.evaluate_batch(&pop, &device);
-
-        let values = fitness
-            .into_data()
-            .into_vec::<f32>()
-            .expect("fitness host-read of a tensor this test just built");
-        assert_eq!(values.len(), 3);
-        approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
-        approx::assert_relative_eq!(values[1], 4.0, epsilon = 1e-6);
-        approx::assert_relative_eq!(values[2], 9.0, epsilon = 1e-6);
-    }
 
     #[test]
     fn from_landscape_preserves_row_order() {
@@ -826,10 +676,9 @@ mod tests {
         approx::assert_relative_eq!(sanitized_mean([-7.25_f32]), -7.25, epsilon = 1e-6);
     }
 
-    /// Regression test for the load-bearing `BatchFitnessFn` invariant
-    /// documented in the fitness chapter of the user-book: `evaluate_batch`
-    /// returns a `Tensor<B, 1>` of shape `(pop_size,)` with row order
-    /// preserved.
+    /// Regression test for the load-bearing `BatchFitnessFn` invariant its
+    /// docs state: `evaluate_batch` returns a `Tensor<B, 1>` of shape
+    /// `(pop_size,)` with row order preserved.
     ///
     /// The population is deliberately **non-square** (`pop_size != genome_dim`)
     /// so a row/column transposition — reading the genome axis as the
@@ -837,34 +686,6 @@ mod tests {
     /// length is asserted against `pop_size` (the rows), not `genome_dim`.
     /// Row `i` is `[i + 1, 0]`, so Sphere fitness is `(i + 1)^2`: a permuted
     /// mapping yields a different, detectable vector.
-    #[test]
-    fn from_fitness_evaluable_output_is_pop_size_shaped_and_row_aligned() {
-        let device = Default::default();
-        // 4 individuals, 2 genes each.
-        let data = TensorData::new(vec![1.0_f32, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0], [4, 2]);
-        let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
-
-        let mut adapter = FromFitnessEvaluable::new(SphereFit, Sphere);
-        let fitness = adapter.evaluate_batch(&pop, &device);
-
-        // Shape `(pop_size,)`: rank 1, exactly `pop_size` (4) elements —
-        // not `genome_dim` (2).
-        assert_eq!(fitness.dims(), [4]);
-
-        let values = fitness
-            .into_data()
-            .into_vec::<f32>()
-            .expect("fitness host-read of a tensor this test just built");
-        for (i, &v) in values.iter().enumerate() {
-            #[allow(clippy::cast_precision_loss)]
-            let expected = ((i + 1) * (i + 1)) as f32;
-            approx::assert_relative_eq!(v, expected, epsilon = 1e-6);
-        }
-    }
-
-    /// Same invariant for [`FromLandscape`] — the two adapters carry
-    /// independent copies of the row-walking loop, so each pins the shape and
-    /// row alignment separately.
     #[test]
     fn from_landscape_output_is_pop_size_shaped_and_row_aligned() {
         let device = Default::default();

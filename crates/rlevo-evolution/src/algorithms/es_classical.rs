@@ -675,10 +675,10 @@ fn update_best<B: Backend>(state: &mut EsState<B>, pop: &Tensor<B, 2>, fitness: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromFitnessEvaluable;
+    use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
-    use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::fitness::Landscape;
     type TestBackend = Flex;
 
     #[test]
@@ -905,11 +905,8 @@ mod tests {
     }
 
     struct Sphere;
-    struct SphereFit;
-    impl FitnessEvaluable for SphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = Sphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+    impl Landscape for Sphere {
+        fn evaluate(&self, x: &[f64]) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
     }
@@ -918,7 +915,7 @@ mod tests {
         let device = Default::default();
         let strategy = EvolutionStrategy::<TestBackend>::new();
         let params = EsConfig::default_for(kind, dim);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,

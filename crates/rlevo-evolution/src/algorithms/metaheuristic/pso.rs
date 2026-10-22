@@ -441,12 +441,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::{BatchFitnessFn, FromFitnessEvaluable};
+    use crate::fitness::{BatchFitnessFn, FromLandscape};
     use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::fitness::Landscape;
     use rlevo_core::objective::ObjectiveSense;
 
     type TestBackend = Flex;
@@ -499,11 +499,8 @@ mod tests {
     }
 
     struct Sphere;
-    struct SphereFit;
-    impl FitnessEvaluable for SphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = Sphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+    impl Landscape for Sphere {
+        fn evaluate(&self, x: &[f64]) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
     }
@@ -518,7 +515,7 @@ mod tests {
             params.c1 = 2.05;
             params.c2 = 2.05;
         }
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy,
             params,
@@ -584,7 +581,7 @@ mod tests {
         let device = Default::default();
         let strategy = ParticleSwarm::<TestBackend>::new();
         let params = PsoConfig::default_for(1, 1);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
                 .expect("valid params");

@@ -14,10 +14,10 @@ use crate::strategy::{Strategy, StrategyMetrics};
 
 use super::alphabet::Alphabet;
 use super::config::GepConfig;
-use super::decode::{GenotypePhenotypeMap, GepDecoder};
 use super::operators::{
     is_transposition, one_point_crossover, point_mutation, ris_transposition, two_point_crossover,
 };
+use super::tree::ExpressionTree;
 
 /// Generation state for [`GepStrategy`].
 ///
@@ -418,7 +418,7 @@ where
 /// Holds the target dataset (input rows and expected outputs) and the alphabet
 /// to decode against. [`evaluate_batch`](BatchFitnessFn::evaluate_batch) pulls
 /// the population to host and, in parallel across rows (`rayon`), decodes each
-/// chromosome to an [`ExpressionTree`](super::ExpressionTree) and scores it by
+/// chromosome to an [`ExpressionTree`] and scores it by
 /// mean squared error. Decoding is deterministic, so the row-parallel order
 /// does not affect results.
 #[derive(Debug, Clone)]
@@ -488,7 +488,7 @@ impl<B: Backend, F: FunctionSet> BatchFitnessFn<B, Tensor<B, 2, Int>> for GepSym
         let fitness: Vec<f32> = rows
             .par_iter()
             .map(|genome| {
-                let tree = GepDecoder.decode(&self.alphabet, genome);
+                let tree = ExpressionTree::decode(&self.alphabet, genome);
                 let mut sse = 0.0f32;
                 for (input, &target) in self.inputs.iter().zip(self.targets.iter()) {
                     let pred = tree.eval(&self.alphabet, input);

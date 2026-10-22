@@ -24,8 +24,8 @@
 //! [`StatefulPolicy`]: `rollout_once` calls
 //! [`reset`](StatefulPolicy::reset) once at episode start and threads
 //! `&mut Hidden` through the step loop, so **recurrent / memory policies are
-//! first-class**. A memoryless classic-control policy is the `Hidden = ()` case
-//! supplied for free by [`ReactivePolicy`](crate::policy::ReactivePolicy).
+//! first-class**. A memoryless classic-control policy is the `Hidden = ()`
+//! case.
 //!
 //! # Rank fixing
 //!
@@ -62,7 +62,7 @@ type EnvFactory<E> = Arc<dyn Fn() -> E + Send + Sync>;
 /// Host-side scorer stored inside the inner [`ModuleEvalFn`].
 ///
 /// `Box<dyn Fn>` (not `Arc`) because `Box<F>` implements `Fn` — satisfying
-/// [`ModuleEvalFn`]'s `F: Fn(&R::Module) -> f32 + Send` bound — whereas `Arc<F>`
+/// [`ModuleEvalFn`]'s `F: Fn(&M) -> f32 + Send` bound — whereas `Arc<F>`
 /// does not. `+ Send` matches the [`BatchFitnessFn`] supertrait; `Sync` is not
 /// required.
 type RolloutScorer<M> = Box<dyn Fn(&M) -> f32 + Send>;
@@ -72,26 +72,20 @@ type RolloutScorer<M> = Box<dyn Fn(&M) -> f32 + Send>;
 ///
 /// [`StatefulPolicy::reset`] is called once at episode start; each step advances
 /// the hidden state via [`StatefulPolicy::act`].
-fn rollout_once<B, M, E>(
-    module: &M,
-    env_factory: &EnvFactory<E>,
-    max_steps: usize,
-    device: &Dev<B>,
-) -> f32
+fn rollout_once<M, E>(module: &M, env_factory: &EnvFactory<E>, max_steps: usize) -> f32
 where
-    B: Backend,
-    M: StatefulPolicy<B, E>,
+    M: StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1>,
 {
     let mut env = env_factory();
     let mut snapshot = env.reset().expect("environment reset failed");
-    let mut hidden = StatefulPolicy::reset(module, device);
+    let mut hidden = StatefulPolicy::reset(module);
     let mut total = 0.0_f32;
     for _ in 0..max_steps {
         if snapshot.status.is_done() {
             break;
         }
-        let action = StatefulPolicy::act(module, &mut hidden, &snapshot.observation, device);
+        let action = StatefulPolicy::act(module, &mut hidden, &snapshot.observation);
         snapshot = env.step(action).expect("environment step failed");
         let reward: f32 = snapshot.reward.value();
         total += reward;
@@ -105,18 +99,17 @@ where
 /// # Type Parameters
 ///
 /// - `B`: Burn backend (non-autodiff).
-/// - `M`: the policy network module; must implement [`StatefulPolicy`] (a
-///   reactive module gets this for free via [`ReactivePolicy`]).
+/// - `M`: the policy network module; must implement [`StatefulPolicy`] over
+///   `E`'s observation and action types (a reactive module with
+///   `Hidden = ()`).
 /// - `E`: a rank-1 [`Environment`].
-///
-/// [`ReactivePolicy`]: crate::policy::ReactivePolicy
 pub struct RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1>,
 {
-    inner: ModuleEvalFn<B, ModuleReshaper<B, M>, RolloutScorer<M>>,
+    inner: ModuleEvalFn<B, M, RolloutScorer<M>>,
     episodes_per_eval: usize,
     max_steps_per_episode: usize,
     _env: PhantomData<fn() -> E>,
@@ -125,7 +118,7 @@ where
 impl<B, M, E> std::fmt::Debug for RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -139,7 +132,7 @@ where
 impl<B, M, E> RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1>,
 {
     /// Build a rollout-based fitness function.
@@ -153,14 +146,13 @@ where
     /// - `max_steps_per_episode`: hard per-episode step cap. Required because
     ///   environments such as `CartPole` have no intrinsic terminal step limit;
     ///   the cap guarantees evaluation terminates regardless of policy skill.
-    /// - `device`: captured into the rollout scorer (the inner [`ModuleEvalFn`]
-    ///   scorer takes no device parameter). Must equal the `device` later
-    ///   handed to [`evaluate_batch`](BatchFitnessFn::evaluate_batch) — the
-    ///   single-device convention `ModuleEvalFn` already documents.
     ///
-    /// The policy is the module itself: `M` implements [`StatefulPolicy`]
-    /// (recurrent) or [`ReactivePolicy`](crate::policy::ReactivePolicy)
-    /// (memoryless), so there is no policy closure argument.
+    /// The policy is the module itself: `M` implements [`StatefulPolicy`], with
+    /// `Hidden = ()` when it is memoryless, so there is no policy closure
+    /// argument. It runs on the device its weights live on: each row is
+    /// unflattened where the population tensor handed to
+    /// [`evaluate_batch`](BatchFitnessFn::evaluate_batch) lives, and that call's
+    /// `device` is only where the fitness tensor is uploaded.
     ///
     /// # Panics
     ///
@@ -173,7 +165,6 @@ where
         env_factory: FacFn,
         episodes_per_eval: usize,
         max_steps_per_episode: usize,
-        device: Dev<B>,
     ) -> Self
     where
         FacFn: Fn() -> E + Send + Sync + 'static,
@@ -191,8 +182,7 @@ where
             let episodes = episodes_per_eval as f32;
             let mut total = 0.0_f32;
             for _ in 0..episodes_per_eval {
-                total +=
-                    rollout_once::<B, M, E>(module, &env_factory, max_steps_per_episode, &device);
+                total += rollout_once::<M, E>(module, &env_factory, max_steps_per_episode);
             }
             // Natural mean episode return — the engine is maximise-native and
             // policy return is a maximisation, so there is no hand-negation.
@@ -210,7 +200,7 @@ where
 impl<B, M, E> BatchFitnessFn<B, Tensor<B, 2>> for RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1> + Send,
 {
     fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &Dev<B>) -> Tensor<B, 1> {

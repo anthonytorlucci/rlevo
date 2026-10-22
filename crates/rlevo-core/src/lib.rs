@@ -16,7 +16,7 @@
 //! | [`episode`] | [`EpisodeGuard`] — the state machine behind `Environment::step`'s post-terminal contract, held by every implementor |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`GenerationProbe`] — drive seam for self-paced work (evolutionary generation loops) |
-//! | [`fitness`] | [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
+//! | [`fitness`] | [`BenchableAgent`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
 //! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
 //! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
 //! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
@@ -81,7 +81,6 @@
 //! [`ScalarReward`]: crate::reward::ScalarReward
 //! [`GenerationProbe`]: crate::evaluation::GenerationProbe
 //! [`BenchableAgent`]: crate::fitness::BenchableAgent
-//! [`FitnessEvaluable`]: crate::fitness::FitnessEvaluable
 //! [`Landscape`]: crate::fitness::Landscape
 //! [`Metric`]: crate::fitness::Metric
 //! [`MetricsProvider`]: crate::fitness::MetricsProvider
@@ -181,11 +180,10 @@ pub mod evaluation;
 
 /// Inference-only agent and fitness-evaluation traits.
 ///
-/// Provides [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`],
-/// [`Metric`], and [`MetricsProvider`].
+/// Provides [`BenchableAgent`], [`Landscape`], [`Metric`], and
+/// [`MetricsProvider`].
 ///
 /// [`BenchableAgent`]: crate::fitness::BenchableAgent
-/// [`FitnessEvaluable`]: crate::fitness::FitnessEvaluable
 /// [`Landscape`]: crate::fitness::Landscape
 /// [`Metric`]: crate::fitness::Metric
 /// [`MetricsProvider`]: crate::fitness::MetricsProvider

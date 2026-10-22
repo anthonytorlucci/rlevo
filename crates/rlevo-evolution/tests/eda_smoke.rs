@@ -8,25 +8,22 @@
 
 use burn::backend::Flex;
 use rlevo_core::bounds::Bounds;
-use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_core::fitness::Landscape;
 
 use rlevo_evolution::algorithms::eda::{
     CompactGenetic, CompactGeneticParams, DependencyChain, DependencyChainParams, EdaParams,
     EdaStrategy, UnivariateBernoulli, UnivariateBernoulliParams, UnivariateGaussian,
     UnivariateGaussianParams,
 };
-use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
+use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::probability_model::ProbabilityModel;
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
 struct Sphere;
-struct SphereFit;
-impl FitnessEvaluable for SphereFit {
-    type Individual = Vec<f64>;
-    type Landscape = Sphere;
-    fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+impl Landscape for Sphere {
+    fn evaluate(&self, x: &[f64]) -> f64 {
         x.iter().map(|v| v * v).sum()
     }
 }
@@ -40,15 +37,14 @@ where
             Genome = burn::tensor::Tensor<B, 2>,
             Params = EdaParams<<M as ProbabilityModel<B>>::Params>,
         >,
-    FromFitnessEvaluable<SphereFit, Sphere>:
-        BatchFitnessFn<B, <EdaStrategy<B, M> as Strategy<B>>::Genome>,
+    FromLandscape<Sphere>: BatchFitnessFn<B, <EdaStrategy<B, M> as Strategy<B>>::Genome>,
 {
     let device = Default::default();
     let strategy = EdaStrategy::<B, M>::new(model);
     let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         7,
         device,
         10,

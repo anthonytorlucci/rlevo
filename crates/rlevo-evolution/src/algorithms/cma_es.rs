@@ -21,9 +21,8 @@
 //! keeps the path-based momentum and CSA, so it does **not** fit the
 //! [`ProbabilityModel`](crate::ProbabilityModel) `fit → sample` seam — the CSA and path updates
 //! live in [`Strategy::tell`], not in a model fit. Per ADR 0021 this strategy is a self-contained
-//! [`Strategy`]; `ProbabilityModel<B>` is available but deliberately unused (research note
-//! `eda-vs-cma-es-boundary`). For the path-free sibling that self-adapts `$\sigma$` per individual,
-//! see [`crate::algorithms::cmsa_es`].
+//! [`Strategy`]; `ProbabilityModel<B>` is available but deliberately unused. For the path-free
+//! sibling that self-adapts `$\sigma$` per individual, see [`crate::algorithms::cmsa_es`].
 //!
 //! # References
 //!

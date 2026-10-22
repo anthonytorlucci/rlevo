@@ -28,7 +28,7 @@ use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction, SantaFeAntObservation};
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
-use rlevo_hybrid::{ReactivePolicy, RolloutFitness, StatefulPolicy};
+use rlevo_hybrid::{RolloutFitness, StatefulPolicy};
 
 type TestBackend = Flex;
 type Dev = <TestBackend as burn::tensor::backend::BackendTypes>::Device;
@@ -114,19 +114,14 @@ impl<B: Backend> AlternatingPolicy<B> {
     }
 }
 
-impl StatefulPolicy<TestBackend, AlternatingEnv> for AlternatingPolicy<TestBackend> {
+impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for AlternatingPolicy<TestBackend> {
     type Hidden = usize;
 
-    fn reset(&self, _device: &Dev) -> usize {
+    fn reset(&self) -> usize {
         0
     }
 
-    fn act(
-        &self,
-        hidden: &mut usize,
-        _obs: &SantaFeAntObservation,
-        _device: &Dev,
-    ) -> SantaFeAntAction {
+    fn act(&self, hidden: &mut usize, _obs: &SantaFeAntObservation) -> SantaFeAntAction {
         let action = SantaFeAntAction::from_index(*hidden % 2);
         *hidden += 1;
         action
@@ -147,8 +142,12 @@ impl<B: Backend> ConstantPolicy<B> {
     }
 }
 
-impl ReactivePolicy<TestBackend, AlternatingEnv> for ConstantPolicy<TestBackend> {
-    fn act(&self, _obs: &SantaFeAntObservation, _device: &Dev) -> SantaFeAntAction {
+impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for ConstantPolicy<TestBackend> {
+    type Hidden = ();
+
+    fn reset(&self) {}
+
+    fn act(&self, _hidden: &mut (), _obs: &SantaFeAntObservation) -> SantaFeAntAction {
         SantaFeAntAction::Move
     }
 }
@@ -157,7 +156,10 @@ impl ReactivePolicy<TestBackend, AlternatingEnv> for ConstantPolicy<TestBackend>
 /// weights) through the refactored `RolloutFitness` and return its fitness.
 fn score_one<M>(template: M, env_max: usize, episodes: usize) -> f32
 where
-    M: Module<TestBackend> + Sync + StatefulPolicy<TestBackend, AlternatingEnv> + 'static,
+    M: Module<TestBackend>
+        + Sync
+        + StatefulPolicy<SantaFeAntObservation, SantaFeAntAction>
+        + 'static,
 {
     let dev = device();
     let reshaper = ModuleReshaper::new(template);
@@ -167,7 +169,6 @@ where
         move || AlternatingEnv::new(env_max),
         episodes,
         env_max,
-        dev,
     );
     let pop = Tensor::<TestBackend, 2>::zeros([1, num_params], &dev);
     let out = fitness.evaluate_batch(&pop, &dev);
@@ -207,7 +208,7 @@ fn evaluate_batch_preserves_shape_and_averaging() {
     let dev = device();
     let reshaper = ModuleReshaper::new(AlternatingPolicy::<TestBackend>::new(&dev));
     let num_params = reshaper.num_params();
-    let mut fitness = RolloutFitness::new(reshaper, || AlternatingEnv::new(4), 2, 4, dev);
+    let mut fitness = RolloutFitness::new(reshaper, || AlternatingEnv::new(4), 2, 4);
     let pop = Tensor::<TestBackend, 2>::zeros([3, num_params], &dev);
     let out = fitness.evaluate_batch(&pop, &dev);
     let values = out.into_data().into_vec::<f32>().unwrap();
@@ -268,20 +269,19 @@ impl<B: Backend> GruPolicy<B> {
     }
 }
 
-impl StatefulPolicy<TestBackend, SantaFeAnt> for GruPolicy<TestBackend> {
+impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for GruPolicy<TestBackend> {
     type Hidden = Tensor<TestBackend, 2>;
 
-    fn reset(&self, device: &Dev) -> Tensor<TestBackend, 2> {
-        Tensor::zeros([1, H], device)
+    fn reset(&self) -> Tensor<TestBackend, 2> {
+        Tensor::zeros([1, H], &self.head.weight.device())
     }
 
     fn act(
         &self,
         hidden: &mut Tensor<TestBackend, 2>,
         obs: &SantaFeAntObservation,
-        device: &Dev,
     ) -> SantaFeAntAction {
-        let logits = self.forward_logits(obs.food_ahead, hidden, device);
+        let logits = self.forward_logits(obs.food_ahead, hidden, &self.head.weight.device());
         SantaFeAntAction::from_index(argmax3(&logits))
     }
 }
@@ -293,7 +293,7 @@ fn gru_recurrence_is_load_bearing_on_the_seam() {
     // logits — impossible for a reactive map.
     let dev = device();
     let policy = GruPolicy::<TestBackend>::new(&dev);
-    let mut h_zero = StatefulPolicy::<TestBackend, SantaFeAnt>::reset(&policy, &dev);
+    let mut h_zero = StatefulPolicy::<SantaFeAntObservation, SantaFeAntAction>::reset(&policy);
     let mut h_warm = Tensor::<TestBackend, 2>::ones([1, H], &dev) * 0.5;
     let from_zero = policy.forward_logits(false, &mut h_zero, &dev);
     let from_warm = policy.forward_logits(false, &mut h_warm, &dev);
@@ -310,7 +310,7 @@ fn rollout_fitness_hosts_recurrent_gru_on_santa_fe() {
     let dev = device();
     let reshaper = ModuleReshaper::new(GruPolicy::<TestBackend>::new(&dev));
     let num_params = reshaper.num_params();
-    let mut fitness = RolloutFitness::new(reshaper, SantaFeAnt::default, 1, 50, dev);
+    let mut fitness = RolloutFitness::new(reshaper, SantaFeAnt::default, 1, 50);
     let pop = Tensor::<TestBackend, 2>::zeros([2, num_params], &dev);
     let out = fitness.evaluate_batch(&pop, &dev);
     let values = out.into_data().into_vec::<f32>().unwrap();

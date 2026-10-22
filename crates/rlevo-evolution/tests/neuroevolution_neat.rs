@@ -17,10 +17,7 @@ use burn::tensor::{Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_evolution::neuroevolution::phenotype::{
-    BatchPhenotypeEvaluator, DensePaddedEvaluator, InterpretedBuilder, InterpretedPhenotype,
-    Phenotype, PhenotypeBuilder,
-};
+use rlevo_evolution::neuroevolution::phenotype::{DensePaddedEvaluator, InterpretedPhenotype};
 use rlevo_evolution::neuroevolution::topology::{
     ActivationFn, ConnectionGene, InnovationId, NodeGene, NodeId, NodeKind, TopologyGenome,
 };
@@ -55,13 +52,12 @@ impl GraphFitnessFn<B> for XorFitness {
     fn evaluate(
         &self,
         population: &[TopologyGenome],
-        builder: &dyn PhenotypeBuilder<B>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Vec<f32> {
         population
             .iter()
             .map(|genome| {
-                let phenotype = builder.build(genome, device);
+                let phenotype = InterpretedPhenotype::<B>::new(genome);
                 let out = phenotype.forward(self.inputs.clone());
                 let values = out.into_data().into_vec::<f32>().unwrap();
                 let sse: f32 = values
@@ -98,7 +94,6 @@ fn test_neat_solves_xor_with_speciation() {
     let device = Default::default();
     let params = xor_params(150);
     let strat = NeatStrategy::<B>::new();
-    let builder = InterpretedBuilder;
     let fitness_fn = XorFitness::new(&device);
 
     let mut rng = StdRng::seed_from_u64(42);
@@ -110,7 +105,7 @@ fn test_neat_solves_xor_with_speciation() {
 
     for _ in 0..MAX_GENERATIONS {
         let (population, next) = strat.ask(&params, &state, &mut rng);
-        let fitness = fitness_fn.evaluate(&population, &builder, &device);
+        let fitness = fitness_fn.evaluate(&population, &device);
         state = strat.tell(&params, population, fitness, next, &mut rng);
 
         total_gens += 1;
@@ -139,7 +134,7 @@ fn test_neat_solves_xor_with_speciation() {
 
     // The recovered champion really solves XOR through the phenotype.
     let (best_genome, best_fitness) = strat.best(&state).expect("a best genome exists");
-    let recomputed = fitness_fn.evaluate(std::slice::from_ref(best_genome), &builder, &device);
+    let recomputed = fitness_fn.evaluate(std::slice::from_ref(best_genome), &device);
     approx::assert_relative_eq!(recomputed[0], best_fitness, epsilon = 1e-4);
     assert!(
         recomputed[0] >= SOLVE_THRESHOLD,
@@ -154,7 +149,6 @@ fn test_neat_run_is_reproducible_under_fixed_seed() {
     let device = Default::default();
     let params = xor_params(64);
     let strat = NeatStrategy::<B>::new();
-    let builder = InterpretedBuilder;
     let fitness_fn = XorFitness::new(&device);
 
     let run = || {
@@ -162,7 +156,7 @@ fn test_neat_run_is_reproducible_under_fixed_seed() {
         let mut state = strat.init(&params, &mut rng, &device);
         for _ in 0..30 {
             let (population, next) = strat.ask(&params, &state, &mut rng);
-            let fitness = fitness_fn.evaluate(&population, &builder, &device);
+            let fitness = fitness_fn.evaluate(&population, &device);
             state = strat.tell(&params, population, fitness, next, &mut rng);
         }
         (state.best_fitness, state.species.len(), state.generation)
@@ -489,8 +483,7 @@ fn test_batch_graph_fitness_matches_interpreted_fitness() {
     let targets = [0.0f32, 1.0, 1.0, 0.0];
 
     // Interpreted per-genome fitness: `$4 - \sum(\text{out} - \text{target})^2$`.
-    let builder = InterpretedBuilder;
-    let interpreted_fitness = XorFitness::new(&device).evaluate(&genomes, &builder, &device);
+    let interpreted_fitness = XorFitness::new(&device).evaluate(&genomes, &device);
 
     // The same scoring, but reduced over the batched evaluator's output slab.
     let batched = BatchGraphFitness::new(
@@ -505,7 +498,7 @@ fn test_batch_graph_fitness_matches_interpreted_fitness() {
             4.0 - sse
         },
     );
-    let batched_fitness = batched.evaluate(&genomes, &builder, &device);
+    let batched_fitness = batched.evaluate(&genomes, &device);
 
     assert_eq!(batched_fitness.len(), interpreted_fitness.len());
     for (b, i) in batched_fitness.iter().zip(interpreted_fitness.iter()) {

@@ -6,9 +6,9 @@ optimisation.
 
 It exists because the fitness layer is the part of `rlevo` most likely to look
 like a thicket of generics on first contact: `BatchFitnessFn<B, G>`,
-`FromLandscape<L>`, `FromFitnessEvaluable<FE, L>`, `ModuleEvalFn`,
-`RolloutFitness`. The thicket dissolves once you see that **they are not five
-competing concepts — they are one trait and four on-ramps to it.**
+`FromLandscape<L>`, `ModuleEvalFn`, `RolloutFitness`. The thicket dissolves
+once you see that **they are not four competing concepts — they are one trait
+and three on-ramps to it.**
 
 > **Coming from Python?** In DEAP, PyGAD, or a hand-rolled numpy loop, "the
 > objective" is a single callable: `def fitness(x): return ...`. `rlevo` splits
@@ -65,7 +65,6 @@ whose input shape matches the objective you *already* have:
 | You already have… | Reach for | What the adapter does for you |
 | ----------------- | --------- | ----------------------------- |
 | a pure scalar function `f(&[f64]) -> f64` | **`FromLandscape<L>`** | pulls each genome row to host, calls `f`, re-uploads the costs |
-| an evaluator type and a *separate* landscape type | **`FromFitnessEvaluable<FE, L>`** | same round-trip, for when scorer and problem are defined apart |
 | a neural-network **module** plus a way to score it | **`ModuleEvalFn`** | unflattens each genome row into a Burn `Module`, runs your scorer |
 | a **policy** to run inside an environment | **`RolloutFitness`** (in `rlevo-hybrid`) | rolls out episodes per genome, returns the natural mean return (declares `Maximize`) |
 | a bespoke, fully on-device objective | **`impl BatchFitnessFn` yourself** | the fast path — no host transfer, one kernel sweep |
@@ -77,22 +76,16 @@ Two things worth internalising from the table:
   for an objective you can only express on the CPU (a simulator, a `Vec<f64>`
   formula). When throughput matters and your objective is expressible in tensor
   ops, implement the trait directly and keep the whole generation on device.
-- **`FromLandscape` vs. `FromFitnessEvaluable` is a code-organisation choice, not
-  a capability one.** Use `FromLandscape` when the problem *is* the function
-  (`Sphere`, `Ackley`). Use `FromFitnessEvaluable` when your design already keeps a
-  reusable evaluator separate from a marker landscape type. They produce identical
-  per-row behaviour.
 
-### The single-member trait, and where it fits
+### Single-member evaluation, and where it fits
 
-There is a second, smaller trait — `FitnessFn<G>`, with `evaluate_one(&mut self,
-member: &G) -> f32`. **`EvolutionaryLoop` never calls it.** Its job is *single-point*
-evaluation for **memetic local search**: the hill-climbing / Nelder–Mead /
-simulated-annealing refiners probe one candidate at a time. `MemeticWrapper`
-bridges the two itself, scoring each probe as a one-row `evaluate_batch`, so
-local search and the population loop share a single objective definition and you
-write only the batch one. Unless you are writing a local-search operator of your
-own, you can ignore `FitnessFn`.
+**Memetic local search** scores one candidate at a time: the hill-climbing /
+Nelder–Mead / simulated-annealing refiners take their objective as a closure,
+`&mut dyn FnMut(&[f32]) -> f32`. **`EvolutionaryLoop` never calls it.**
+`MemeticWrapper` builds that closure itself, scoring each probe as a one-row
+`evaluate_batch`, so local search and the population loop share a single
+objective definition and you write only the batch one. Unless you are writing a
+local-search operator of your own, you never write the closure.
 
 ### How it all reaches the strategy
 
@@ -273,16 +266,15 @@ are scored in a single kernel sweep. The loop cannot tell the difference: it
 still just calls `evaluate_batch` and reads `sense()`.
 
 > **Precision.** Genomes and fitness are `f32` tensors throughout. `FromLandscape`
-> and `FromFitnessEvaluable` widen each gene to `f64` for your function and narrow
+> widens each gene to `f64` for your function and narrows
 > its result back to `f32`, and every metric is an `f32`. A comparison at
 > tolerances near `1e-7` relative is measuring the tensor type, not the optimiser.
 
 > **The decision in one line.** Express it on the host and wrap it
 > (`FromLandscape`) when the objective is naturally a CPU formula or a simulator;
 > implement `BatchFitnessFn` directly when it is naturally tensor math and you want
-> the throughput. Everything else — `FromFitnessEvaluable`, `ModuleEvalFn`,
-> `RolloutFitness` — is the same choice specialised to objectives that arrive as an
-> evaluator, a network, or a policy.
+> the throughput. Everything else — `ModuleEvalFn`, `RolloutFitness` — is the same
+> choice specialised to objectives that arrive as a network or a policy.
 
 ---
 
@@ -293,10 +285,8 @@ still just calls `evaluate_batch` and reads `sense()`.
   maximise convention / `ObjectiveSense` contract this page assumes.
 - The genome type `G` in `BatchFitnessFn<B, G>` is the bare population
   tensor — `Tensor<B, 2>` for real-valued genomes, `Tensor<B, 2, Int>` for
-  binary/integer ones — tagged by a zero-sized `GenomeKind` marker so the
-  right operators apply at compile time with no runtime dispatch. For
-  weight-only neuroevolution, `ParamReshaper` is the bridge `ModuleEvalFn` and
-  `RolloutFitness` rely on: `flatten` walks a Burn `Module`'s float leaves in
-  declaration order into one `Tensor<B, 1>` genome, and `unflatten` clones a
-  template module and refills its leaves from a flat vector in the same
-  order, so $\text{unflatten}(\text{flatten}(m)) \approx m$.
+  binary/integer ones. For weight-only neuroevolution, `ModuleReshaper` is the
+  bridge `ModuleEvalFn` and `RolloutFitness` rely on: `flatten` walks a Burn
+  `Module`'s float leaves in declaration order into one `Tensor<B, 1>` genome,
+  and `unflatten` clones a template module and refills its leaves from a flat
+  vector in the same order, so $\text{unflatten}(\text{flatten}(m)) \approx m$.

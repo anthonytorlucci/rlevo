@@ -31,10 +31,9 @@
 //! ```ignore
 //! let strat = NeatStrategy::<B>::new();
 //! let mut state = strat.init(&params, &mut rng, &device);
-//! let builder = InterpretedBuilder;
 //! for _ in 0..generations {
 //!     let (population, next) = strat.ask(&params, &state, &mut rng);
-//!     let fitness = graph_fitness.evaluate(&population, &builder, &device);
+//!     let fitness = graph_fitness.evaluate(&population, &device);
 //!     state = strat.tell(&params, population, fitness, next, &mut rng);
 //!     if let Some((_, best)) = strat.best(&state) { if best >= target { break; } }
 //! }
@@ -66,7 +65,7 @@ use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 
 use crate::neuroevolution::innovation::InnovationRegistry;
-use crate::neuroevolution::phenotype::{BatchPhenotypeEvaluator, PhenotypeBuilder};
+use crate::neuroevolution::phenotype::DensePaddedEvaluator;
 use crate::neuroevolution::species::{self, Species, SpeciesId};
 use crate::neuroevolution::topology::{
     ActivationFn, ConnectionGene, NodeGene, NodeId, NodeKind, TopologyGenome,
@@ -401,10 +400,9 @@ impl<B: Backend> NeatStrategy<B> {
 /// ```ignore
 /// struct SumOutputs<B: Backend> { inputs: Tensor<B, 2> }
 /// impl<B: Backend> GraphFitnessFn<B> for SumOutputs<B> {
-///     fn evaluate(&self, pop: &[TopologyGenome], builder: &dyn PhenotypeBuilder<B>,
-///                 device: &B::Device) -> Vec<f32> {
+///     fn evaluate(&self, pop: &[TopologyGenome], device: &B::Device) -> Vec<f32> {
 ///         pop.iter().map(|g| {
-///             let net = builder.build(g, device);
+///             let net = InterpretedPhenotype::<B>::new(g);
 ///             let out = net.forward(self.inputs.clone());
 ///             out.into_data().into_vec::<f32>().expect("output tensor must be readable as f32").iter().sum() // higher = better
 ///         }).collect()
@@ -417,42 +415,42 @@ pub trait GraphFitnessFn<B: Backend>: Send + Sync {
     /// Score every genome in `population`, returning one **maximization**
     /// fitness per genome (higher is better, matching the crate-wide canonical
     /// convention). Fitness sharing assumes the values are non-negative. The
-    /// returned `Vec` has one entry per input genome, in order. Build each
-    /// genome's network with `builder` on `device`.
+    /// returned `Vec` has one entry per input genome, in order. An interpreted
+    /// fitness builds each genome's network with
+    /// [`InterpretedPhenotype::new`](crate::neuroevolution::phenotype::InterpretedPhenotype::new);
+    /// `device` is where its scoring tensors live.
     fn evaluate(
         &self,
         population: &[TopologyGenome],
-        builder: &dyn PhenotypeBuilder<B>,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Vec<f32>;
 }
 
 /// A [`GraphFitnessFn`] that scores the whole population in **one** device-resident
-/// pass via a [`BatchPhenotypeEvaluator`], instead of the per-genome interpreted
+/// pass via a [`DensePaddedEvaluator`], instead of the per-genome interpreted
 /// loop.
 ///
 /// It is a drop-in alternative to an interpreted `GraphFitnessFn` in the same
-/// manual `init → ask → evaluate → tell` loop: the `builder` argument is ignored
-/// (the batched evaluator owns evaluation), so the strategy stays
+/// manual `init → ask → evaluate → tell` loop, so the strategy stays
 /// evaluation-agnostic and `NeatStrategy`'s determinism is untouched.
 ///
 /// The `reducer` maps one genome's `$\text{batch} \times \text{action\_dim}$` output slab (row-major,
-/// as produced by [`BatchPhenotypeEvaluator::evaluate_population`]) to a single
+/// as produced by [`DensePaddedEvaluator::evaluate_population`]) to a single
 /// **maximization** fitness — the batched analogue of the per-genome scoring an
 /// interpreted `GraphFitnessFn` does on `phenotype.forward(...)`.
-pub struct BatchGraphFitness<B: Backend, E> {
-    evaluator: E,
+pub struct BatchGraphFitness<B: Backend> {
+    evaluator: DensePaddedEvaluator,
     obs: Tensor<B, 2>,
     #[allow(clippy::type_complexity)]
     reducer: Box<dyn Fn(&[f32]) -> f32 + Send + Sync>,
 }
 
-impl<B: Backend, E> BatchGraphFitness<B, E> {
+impl<B: Backend> BatchGraphFitness<B> {
     /// Build a batched fitness from an evaluator, a shared `[batch, obs_dim]`
     /// observation tensor, and a per-genome `reducer` over the
     /// `$\text{batch} \times \text{action\_dim}$` output slab (row-major).
     pub fn new(
-        evaluator: E,
+        evaluator: DensePaddedEvaluator,
         obs: Tensor<B, 2>,
         reducer: impl Fn(&[f32]) -> f32 + Send + Sync + 'static,
     ) -> Self {
@@ -464,7 +462,7 @@ impl<B: Backend, E> BatchGraphFitness<B, E> {
     }
 }
 
-impl<B: Backend, E> std::fmt::Debug for BatchGraphFitness<B, E> {
+impl<B: Backend> std::fmt::Debug for BatchGraphFitness<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BatchGraphFitness")
             .field("obs", &self.obs)
@@ -472,11 +470,10 @@ impl<B: Backend, E> std::fmt::Debug for BatchGraphFitness<B, E> {
     }
 }
 
-impl<B: Backend, E: BatchPhenotypeEvaluator<B>> GraphFitnessFn<B> for BatchGraphFitness<B, E> {
+impl<B: Backend> GraphFitnessFn<B> for BatchGraphFitness<B> {
     fn evaluate(
         &self,
         population: &[TopologyGenome],
-        _builder: &dyn PhenotypeBuilder<B>,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Vec<f32> {
         if population.is_empty() {
@@ -1221,7 +1218,6 @@ mod tests {
             fn evaluate(
                 &self,
                 population: &[TopologyGenome],
-                _builder: &dyn PhenotypeBuilder<TestBackend>,
                 _device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
             ) -> Vec<f32> {
                 // Cast: enabled-connection counts are tiny in this smoke test.
@@ -1241,7 +1237,6 @@ mod tests {
         let strat = NeatStrategy::<TestBackend>::new();
         let mut rng = StdRng::seed_from_u64(11);
         let mut state = strat.init(&params, &mut rng, &device);
-        let builder = crate::neuroevolution::phenotype::InterpretedBuilder;
         let fitness_fn = ConnCountFitness;
 
         for _ in 0..8 {
@@ -1251,7 +1246,7 @@ mod tests {
                 params.pop_size,
                 "ask returns pop_size genomes"
             );
-            let fitness = fitness_fn.evaluate(&population, &builder, &device);
+            let fitness = fitness_fn.evaluate(&population, &device);
             state = strat.tell(&params, population, fitness, next, &mut rng);
             assert!(
                 !state.species.is_empty(),

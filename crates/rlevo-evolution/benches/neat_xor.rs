@@ -28,9 +28,7 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 
-use rlevo_evolution::neuroevolution::phenotype::{
-    BatchPhenotypeEvaluator, DensePaddedEvaluator, InterpretedBuilder, PhenotypeBuilder,
-};
+use rlevo_evolution::neuroevolution::phenotype::{DensePaddedEvaluator, InterpretedPhenotype};
 use rlevo_evolution::neuroevolution::topology::{
     ActivationFn, ConnectionGene, InnovationId, NodeGene, NodeId, NodeKind, TopologyGenome,
 };
@@ -64,13 +62,12 @@ impl GraphFitnessFn<B> for XorFitness {
     fn evaluate(
         &self,
         population: &[TopologyGenome],
-        builder: &dyn PhenotypeBuilder<B>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Vec<f32> {
         population
             .iter()
             .map(|genome| {
-                let phenotype = builder.build(genome, device);
+                let phenotype = InterpretedPhenotype::<B>::new(genome);
                 let out = phenotype.forward(self.inputs.clone());
                 let values = out.into_data().into_vec::<f32>().unwrap();
                 let sse: f32 = values
@@ -96,7 +93,6 @@ fn neat_xor_generation(c: &mut Criterion) {
     let device = Default::default();
     let params = xor_params();
     let strat = NeatStrategy::<B>::new();
-    let builder = InterpretedBuilder;
     let fitness_fn = XorFitness::new(&device);
     // Same XOR objective, but scored over the dense-batched evaluator's output.
     let batched_fitness = BatchGraphFitness::new(
@@ -123,7 +119,7 @@ fn neat_xor_generation(c: &mut Criterion) {
     let mut state = strat.init(&params, &mut rng, &device);
     for _ in 0..15 {
         let (population, next) = strat.ask(&params, &state, &mut rng);
-        let fitness = fitness_fn.evaluate(&population, &builder, &device);
+        let fitness = fitness_fn.evaluate(&population, &device);
         state = strat.tell(&params, population, fitness, next, &mut rng);
     }
     let warm_state = state;
@@ -135,7 +131,7 @@ fn neat_xor_generation(c: &mut Criterion) {
             || (warm_state.clone(), StdRng::seed_from_u64(123)),
             |(state, mut rng)| {
                 let (population, next) = strat.ask(&params, &state, &mut rng);
-                let fitness = fitness_fn.evaluate(&population, &builder, &device);
+                let fitness = fitness_fn.evaluate(&population, &device);
                 let next = strat.tell(&params, population, fitness, next, &mut rng);
                 black_box(next.best_fitness)
             },
@@ -147,7 +143,7 @@ fn neat_xor_generation(c: &mut Criterion) {
             || (warm_state.clone(), StdRng::seed_from_u64(123)),
             |(state, mut rng)| {
                 let (population, next) = strat.ask(&params, &state, &mut rng);
-                let fitness = batched_fitness.evaluate(&population, &builder, &device);
+                let fitness = batched_fitness.evaluate(&population, &device);
                 let next = strat.tell(&params, population, fitness, next, &mut rng);
                 black_box(next.best_fitness)
             },
@@ -217,7 +213,6 @@ fn wide_genome(num_hidden: usize, rng: &mut StdRng) -> TopologyGenome {
 /// loop vs. one dense-batched pass, at `P = 256` and growing hidden width.
 fn neat_eval_scale(c: &mut Criterion) {
     let device = Default::default();
-    let builder = InterpretedBuilder;
     let evaluator = DensePaddedEvaluator::default();
     // A 16-row observation batch gives the device a non-trivial amount of work.
     let obs_rows: Vec<f32> = [0.0f32, 0.5, 0.25]
@@ -240,7 +235,7 @@ fn neat_eval_scale(c: &mut Criterion) {
             b.iter(|| {
                 let mut acc = 0.0f32;
                 for genome in &pop {
-                    let net = PhenotypeBuilder::<B>::build(&builder, genome, &device);
+                    let net = InterpretedPhenotype::<B>::new(genome);
                     let out = net.forward(obs.clone());
                     acc += out
                         .into_data()

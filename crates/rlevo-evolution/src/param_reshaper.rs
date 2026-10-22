@@ -3,17 +3,17 @@
 //! Weight-only neuroevolution evolves a `Tensor<B, 2>` population of shape
 //! `(pop_size, num_params)` and must, per population member, splat one flat
 //! parameter row back into a concrete network to score it. The
-//! [`ParamReshaper`] trait captures that bidirectional bridge:
+//! [`ModuleReshaper`] is that bidirectional bridge:
 //!
-//! - [`flatten`](ParamReshaper::flatten) walks a module's float leaves in a
+//! - [`flatten`](ModuleReshaper::flatten) walks a module's float leaves in a
 //!   deterministic order and concatenates them into a 1-D tensor.
-//! - [`unflatten`](ParamReshaper::unflatten) clones a template module and
+//! - [`unflatten`](ModuleReshaper::unflatten) clones a template module and
 //!   replaces each float leaf with the matching slice of a flat tensor, in the
 //!   *same* order. The reconstructed leaves are **views into the flat tensor's
-//!   storage**, not copies — see [`unflatten`](ParamReshaper::unflatten)'s
+//!   storage**, not copies — see [`unflatten`](ModuleReshaper::unflatten)'s
 //!   `# Aliasing` note.
 //!
-//! [`ModuleReshaper`] is the concrete implementation. It relies on the fact
+//! It relies on the fact
 //! that Burn's `#[derive(Module)]` generates `visit`/`map` traversals that
 //! visit fields in declaration order, recursively — so `flatten` (a
 //! [`ModuleVisitor`]) and `unflatten` (a [`ModuleMapper`]) agree leaf-for-leaf.
@@ -30,12 +30,12 @@
 //! and re-splatted like any weight. For fixed-topology MLP policies (the v1
 //! target) this is moot — there are no running buffers. Callers that evolve
 //! batch-normalized networks should reset running statistics after
-//! [`unflatten`](ParamReshaper::unflatten).
+//! [`unflatten`](ModuleReshaper::unflatten).
 //!
 //! # Gradient isolation
 //!
 //! This module is generic over `B: Backend`, **not** `AutodiffBackend`.
-//! Tensors produced by [`unflatten`](ParamReshaper::unflatten) do not require
+//! Tensors produced by [`unflatten`](ModuleReshaper::unflatten) do not require
 //! gradients. Callers holding an autodiff module call `.valid()` before
 //! constructing a [`ModuleReshaper`], so the constraint is enforced at the
 //! type level rather than by convention.
@@ -45,76 +45,27 @@ use std::marker::PhantomData;
 use burn::module::{Module, ModuleMapper, ModuleVisitor, Param};
 use burn::tensor::{Tensor, backend::Backend};
 
-/// Bridges a Burn [`Module`] and a flat `Tensor<B, 1>` parameter vector.
-///
-/// Lives entirely in `rlevo-evolution` and depends only on `burn` — no
-/// `rlevo-core` coupling.
-///
-/// # Invariants
-///
-/// - [`flatten`](Self::flatten) and [`unflatten`](Self::unflatten) must visit
-///   float leaves in the *same* deterministic order, so that
-///   `unflatten(flatten(m))` reconstructs `m` leaf-for-leaf.
-/// - [`num_params`](Self::num_params) equals the total element count produced
-///   by [`flatten`](Self::flatten).
-///
-/// Implementors are `Send + Sync` so a single reshaper can be shared across
-/// parallel fitness evaluations.
-pub trait ParamReshaper<B: Backend>: Send + Sync {
-    /// The Burn module type this reshaper flattens and reconstructs.
-    type Module: Module<B>;
-
-    /// Total number of trainable float parameters (the flat-vector length).
-    fn num_params(&self) -> usize;
-
-    /// Flatten all float `Param` leaves of `module` into a 1-D tensor.
-    ///
-    /// The returned tensor is moved onto `device` and has length
-    /// [`num_params`](Self::num_params). Leaf visitation order is
-    /// deterministic and matches [`unflatten`](Self::unflatten).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `module` has no float leaves (the underlying tensor
-    /// concatenation requires at least one part).
-    fn flatten(&self, module: &Self::Module, device: &B::Device) -> Tensor<B, 1>;
-
-    /// Clone the template module and replace its float leaves with slices of
-    /// `flat`, in the same order as [`flatten`](Self::flatten).
-    ///
-    /// # Aliasing
-    ///
-    /// The returned module's leaves are **views into `flat`'s storage** (Burn
-    /// `Tensor::clone` is a refcount bump; `slice`/`reshape` are view ops). This
-    /// is allocation-free and safe for the forward-only scoring this bridge
-    /// exists for. Do **not** mutate `flat` or the returned module's weights in
-    /// place while the other is live — they share backing storage. The output
-    /// module inherits `flat`'s device.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `flat.dims()[0] != self.num_params()`.
-    fn unflatten(&self, flat: Tensor<B, 1>) -> Self::Module;
-}
-
-/// A [`ParamReshaper`] backed by a cloned template module.
+/// Bridges a Burn [`Module`] and a flat `Tensor<B, 1>` parameter vector,
+/// through a cloned template module.
 ///
 /// Construction clones the supplied module once and counts its float leaves.
-/// Each [`unflatten`](ParamReshaper::unflatten) call clones that template and
-/// maps the flat buffer into the clone's leaves; each
-/// [`flatten`](ParamReshaper::flatten) call visits a module's leaves and
-/// concatenates them.
+/// Each [`unflatten`](Self::unflatten) call clones that template and maps the
+/// flat buffer into the clone's leaves; each [`flatten`](Self::flatten) call
+/// visits a module's leaves and concatenates them. The two visit float leaves
+/// in the *same* deterministic order, so `unflatten(flatten(m))` reconstructs
+/// `m` leaf-for-leaf, and [`num_params`](Self::num_params) equals the element
+/// count `flatten` produces.
 ///
 /// # Single-source width convention
 ///
 /// A reshaper *is* the genome-width source of truth. Build **one** reshaper for
 /// the width, then hand `reshaper.clone()` (this type is [`Clone`]) to the
 /// fitness adapter — the strategy and its evaluator then agree on
-/// [`num_params`](ParamReshaper::num_params) *by construction*. Prefer this over
+/// [`num_params`](Self::num_params) *by construction*. Prefer this over
 /// building two `ModuleReshaper::new(template.clone())` instances whose widths
 /// match only by convention: a silent divergence surfaces late as the
 /// documented width-mismatch panic in
-/// [`unflatten`](ParamReshaper::unflatten) / `evaluate_batch`. Where a
+/// [`unflatten`](Self::unflatten) / `evaluate_batch`. Where a
 /// [`WeightOnly`](crate::algorithms::neuroevolution::WeightOnly) wrapper already
 /// owns a reshaper, clone *its* via `strategy.reshaper().clone()`.
 ///
@@ -158,7 +109,7 @@ impl<B: Backend, M: Module<B>> ModuleReshaper<B, M> {
     /// Build a reshaper from a template module.
     ///
     /// The template is cloned and retained; its float-leaf count is computed
-    /// once and cached as [`num_params`](ParamReshaper::num_params).
+    /// once and cached as [`num_params`](Self::num_params).
     #[must_use]
     pub fn new(template: M) -> Self {
         let mut counter = CountVisitor { count: 0 };
@@ -176,31 +127,24 @@ impl<B: Backend, M: Module<B>> ModuleReshaper<B, M> {
         &self.template
     }
 
-    /// Number of float parameters (flat-vector length).
-    ///
-    /// Inherent mirror of [`ParamReshaper::num_params`] so callers can read the
-    /// width without the `M: Sync` bound the trait requires.
+    /// Total number of trainable float parameters (the flat-vector length).
     #[must_use]
     pub fn num_params(&self) -> usize {
         self.num_params
     }
-}
 
-impl<B, M> ParamReshaper<B> for ModuleReshaper<B, M>
-where
-    B: Backend,
-    // `Sync` is required by the `ParamReshaper` supertrait so the reshaper can
-    // be shared across parallel evaluations; Burn modules built from
-    // `Param<Tensor>` leaves satisfy it.
-    M: Module<B> + Sync,
-{
-    type Module = M;
-
-    fn num_params(&self) -> usize {
-        self.num_params
-    }
-
-    fn flatten(&self, module: &M, device: &B::Device) -> Tensor<B, 1> {
+    /// Flatten all float `Param` leaves of `module` into a 1-D tensor.
+    ///
+    /// The returned tensor is moved onto `device` and has length
+    /// [`num_params`](Self::num_params). Leaf visitation order is
+    /// deterministic and matches [`unflatten`](Self::unflatten).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `module` has no float leaves (the underlying tensor
+    /// concatenation requires at least one part).
+    #[must_use]
+    pub fn flatten(&self, module: &M, device: &B::Device) -> Tensor<B, 1> {
         let mut visitor: FlattenVisitor<B> = FlattenVisitor { parts: Vec::new() };
         module.visit(&mut visitor);
         assert!(
@@ -210,7 +154,23 @@ where
         Tensor::cat(visitor.parts, 0).to_device(device)
     }
 
-    fn unflatten(&self, flat: Tensor<B, 1>) -> M {
+    /// Clone the template module and replace its float leaves with slices of
+    /// `flat`, in the same order as [`flatten`](Self::flatten).
+    ///
+    /// # Aliasing
+    ///
+    /// The returned module's leaves are **views into `flat`'s storage** (Burn
+    /// `Tensor::clone` is a refcount bump; `slice`/`reshape` are view ops). This
+    /// is allocation-free and safe for the forward-only scoring this bridge
+    /// exists for. Do **not** mutate `flat` or the returned module's weights in
+    /// place while the other is live — they share backing storage. The output
+    /// module inherits `flat`'s device.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `flat.dims()[0] != self.num_params()`.
+    #[must_use]
+    pub fn unflatten(&self, flat: Tensor<B, 1>) -> M {
         let len = flat.dims()[0];
         assert_eq!(
             len, self.num_params,

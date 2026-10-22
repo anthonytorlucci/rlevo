@@ -144,9 +144,9 @@ real-valued families, `Tensor<B, 2, Int>` for binary / integer / CGP.
 The fitness function is a separate trait
 ([`BatchFitnessFn`](src/fitness.rs)), so users plug in any
 device-resident evaluator; the
-[`FromFitnessEvaluable`](src/fitness.rs) adapter lifts any
-`rlevo_core::fitness::FitnessEvaluable` (host-side `Vec<f64>` in,
-`f64` out) onto a device tensor.
+[`FromLandscape`](src/fitness.rs) adapter lifts any
+`rlevo_core::fitness::Landscape` (host-side `&[f64]` in, `f64` out)
+onto a device tensor.
 
 A strategy holds nothing between calls, so
 [`EvolutionaryLoop<B, S, F>`](src/strategy.rs) holds it: the state, the RNG,

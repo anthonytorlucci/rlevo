@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicU32;
 
 use burn::backend::Flex;
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::{FitnessEvaluable, Landscape, MetricsProvider};
+use rlevo_core::fitness::MetricsProvider;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_harness::reporter::logging::LoggingReporter;
 
@@ -24,7 +24,7 @@ use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrat
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use rlevo_evolution::fitness::FromFitnessEvaluable;
+use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryLoop;
 
 type B = Flex;
@@ -32,20 +32,9 @@ type B = Flex;
 const DIM: usize = 10;
 const MAX_GENS: usize = 80;
 
-struct Minimizer;
-impl FitnessEvaluable for Minimizer {
-    type Individual = Vec<f64>;
-    type Landscape = Rastrigin;
-    fn evaluate(&self, x: &Self::Individual, l: &Self::Landscape) -> f64 {
-        l.evaluate(x)
-    }
-}
-
 /// Creates a GA loop on Rastrigin-D10 with tournament selection, BLX-`$\alpha$` crossover, and
 /// elitist replacement.
-fn ga_factory(
-    seed: u64,
-) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+fn ga_factory(seed: u64) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, FromLandscape<Rastrigin>> {
     let device = Default::default();
     let params = GaConfig {
         pop_size: 64,
@@ -61,8 +50,7 @@ fn ga_factory(
     EvolutionaryLoop::new(
         GeneticAlgorithm::<B>::new(),
         params,
-        FromFitnessEvaluable::with_sense(
-            Minimizer,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -74,16 +62,13 @@ fn ga_factory(
 }
 
 /// Creates a (5+30)-ES loop on Rastrigin-D10 with self-adaptive step sizes.
-fn es_factory(
-    seed: u64,
-) -> EvolutionaryLoop<B, EvolutionStrategy<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+fn es_factory(seed: u64) -> EvolutionaryLoop<B, EvolutionStrategy<B>, FromLandscape<Rastrigin>> {
     let device = Default::default();
     let params = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 30 }, DIM);
     EvolutionaryLoop::new(
         EvolutionStrategy::<B>::new(),
         params,
-        FromFitnessEvaluable::with_sense(
-            Minimizer,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -97,14 +82,13 @@ fn es_factory(
 /// Creates an EP loop on Rastrigin-D10 with population size 30.
 fn ep_factory(
     seed: u64,
-) -> EvolutionaryLoop<B, EvolutionaryProgramming<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+) -> EvolutionaryLoop<B, EvolutionaryProgramming<B>, FromLandscape<Rastrigin>> {
     let device = Default::default();
     let params = EpConfig::default_for(30, DIM);
     EvolutionaryLoop::new(
         EvolutionaryProgramming::<B>::new(),
         params,
-        FromFitnessEvaluable::with_sense(
-            Minimizer,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -118,7 +102,7 @@ fn ep_factory(
 /// Creates a DE/Rand/1/bin loop on Rastrigin-D10 with F=0.5 and CR=0.9.
 fn de_factory(
     seed: u64,
-) -> EvolutionaryLoop<B, DifferentialEvolution<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+) -> EvolutionaryLoop<B, DifferentialEvolution<B>, FromLandscape<Rastrigin>> {
     let device = Default::default();
     let mut params = DeConfig::default_for(40, DIM);
     params.variant = DeVariant::Rand1Bin;
@@ -127,8 +111,7 @@ fn de_factory(
     EvolutionaryLoop::new(
         DifferentialEvolution::<B>::new(),
         params,
-        FromFitnessEvaluable::with_sense(
-            Minimizer,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),

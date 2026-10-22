@@ -567,12 +567,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromFitnessEvaluable;
+    use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::fitness::Landscape;
 
     type TestBackend = Flex;
 
@@ -637,11 +637,8 @@ mod tests {
     }
 
     struct Sphere;
-    struct SphereFit;
-    impl FitnessEvaluable for SphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = Sphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+    impl Landscape for Sphere {
+        fn evaluate(&self, x: &[f64]) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
     }
@@ -679,7 +676,7 @@ mod tests {
         let device = Default::default();
         let strategy = ArtificialBeeColony::<TestBackend>::new();
         let params = AbcConfig::default_for(30, 10);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 13, device, 400,
         )
@@ -751,7 +748,7 @@ mod tests {
         let device = Default::default();
         let strategy = ArtificialBeeColony::<TestBackend>::new();
         let params = AbcConfig::default_for(2, 3);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 5, device, 8)
                 .expect("valid params");
@@ -776,7 +773,7 @@ mod tests {
         let device = Default::default();
         let strategy = ArtificialBeeColony::<TestBackend>::new();
         let params = AbcConfig::default_for(6, 1);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 8, device, 8)
                 .expect("valid params");

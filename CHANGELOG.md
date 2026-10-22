@@ -262,6 +262,49 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     `clip_contact_cost`, which nothing called, are removed.
   - `KArmedBanditState` and `TenArmedBanditState`, a fieldless state that
     existed only to satisfy `State`, are removed.
+- **The scoring, genome and rollout-policy seams keep only what generic
+  code reads** (ADR 0091).
+  - `FitnessEvaluable` and `FromFitnessEvaluable` are removed. Implement
+    `Landscape` (`fn evaluate(&self, x: &[f64]) -> f64`) on your scoring
+    type and wrap it in `FromLandscape::new`, or `FromLandscape::with_sense`
+    where you passed a sense. An evaluator that forwarded to a landscape
+    goes: wrap the landscape itself.
+  - `FitnessFn` is removed. `LocalSearch::refine` and
+    `refine_with_known_fitness` take the fitness as
+    `&mut dyn FnMut(&[f32]) -> f32`: pass `&mut |x| ...` or `&mut your_fn`
+    where you passed a `FitnessFn` value.
+  - `Population`, `GenomeKind`, `TensorGenome` and the `Real`, `Binary`,
+    `Integer`, `Tree` and `Permutation` markers are removed, with the
+    `genome` and `population` modules. A population is its tensor:
+    `let population: Tensor<B, 2> = ...`.
+  - The `shaping` module (`z_score`, `centered_rank`, `ShapingError`) is
+    removed; nothing called it. `rlevo-evolution` no longer depends on
+    `thiserror`, whose one user was `ShapingError`, or on `serde`, which
+    nothing used.
+  - `ParamReshaper` is removed: `ModuleReshaper`'s `num_params`,
+    `flatten` and `unflatten` are inherent methods, and `ModuleEvalFn<B, R,
+    F>` is `ModuleEvalFn<B, M, F>` (write the module type where you wrote
+    `ModuleReshaper<B, M>`).
+  - `GenotypePhenotypeMap` and `GepDecoder` are removed: call
+    `ExpressionTree::decode(&alphabet, &genome)` where you wrote
+    `GepDecoder.decode(&alphabet, &genome)`. The `gep::decode` module,
+    which then holds no public item, is private.
+  - `Phenotype`, `PhenotypeBuilder` and `InterpretedBuilder` are removed:
+    build an interpreted network with `InterpretedPhenotype::new(&genome)`
+    and call its inherent `forward`. `BatchPhenotypeEvaluator` is removed:
+    `DensePaddedEvaluator::evaluate_population` is inherent, and
+    `BatchGraphFitness<B, E>` is `BatchGraphFitness<B>`.
+  - `GraphFitnessFn::evaluate` loses its `builder` argument:
+    `evaluate(&self, population, device)`.
+  - `ReactivePolicy` is removed, and `StatefulPolicy<B, E>` is
+    `StatefulPolicy<Obs, Act>` with `reset(&self) -> Hidden` and
+    `act(&self, &mut Hidden, &Obs) -> Act`: neither takes a device. A
+    memoryless policy implements `StatefulPolicy` with `type Hidden = ()`;
+    a policy that builds a tensor takes the device from its weights
+    (`self.layer.weight.device()`). `RolloutFitness::new` loses its
+    `device` argument, and `RolloutFitness` no longer requires the policy
+    module to be `Sync`.
+  - The `rlevo` prelude no longer exports `FitnessFn` or `Population`.
 
 ### `rlevo`
 

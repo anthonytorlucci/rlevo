@@ -20,14 +20,7 @@
 //! - [`function_set`] — the shared [`FunctionSet`] opcode contract (and the
 //!   default [`ArithmeticFunctionSet`]) used by both Cartesian GP and Gene
 //!   Expression Programming.
-//! - [`genome`] — zero-sized marker types (`Real`, `Binary`, `Integer`,
-//!   `Tree`, `Permutation`) that parameterize the operator set.
-//! - [`population`] — [`Population<B, K>`](population::Population), a thin
-//!   wrapper around `Tensor<B, 2>` carrying shape metadata.
-//! - [`fitness`] — [`FitnessFn`](fitness::FitnessFn) /
-//!   [`BatchFitnessFn`](fitness::BatchFitnessFn), the
-//!   [`FromFitnessEvaluable`](fitness::FromFitnessEvaluable) adapter for
-//!   `rlevo-core::fitness::FitnessEvaluable`, and the
+//! - [`fitness`] — [`BatchFitnessFn`](fitness::BatchFitnessFn), and the
 //!   [`FromLandscape`](fitness::FromLandscape) adapter for landscapes that
 //!   carry their own `evaluate` method.
 //! - [`observer`] — [`PopulationObserver`] /
@@ -37,7 +30,6 @@
 //!   the scalar `tracing` events (full fitness vector, best-individual
 //!   index, lineage).
 //! - [`rng`] — deterministic seed streams (splitmix64) for reproducibility.
-//! - [`shaping`] — fitness shaping transforms (centered rank, z-score).
 //! - [`ops`] — selection, crossover, mutation, and replacement operators.
 //! - [`local_search`] — host-side, gradient-free refinement
 //!   ([`LocalSearch`] and the four reference
@@ -55,19 +47,16 @@ pub mod algorithms;
 pub mod coevolution;
 pub mod fitness;
 pub mod function_set;
-pub mod genome;
 pub mod local_search;
 pub mod module_eval_fn;
 pub mod neuroevolution;
 pub mod observer;
 pub mod ops;
 pub mod param_reshaper;
-pub mod population;
 pub mod probability_model;
 pub mod probe;
 pub mod rng;
 pub(crate) mod sampling;
-pub mod shaping;
 pub mod strategy;
 
 pub use algorithms::eda::{
@@ -90,14 +79,12 @@ pub use function_set::{ArithmeticFunctionSet, FunctionSet, Symbol};
 pub use local_search::{HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing};
 pub use module_eval_fn::ModuleEvalFn;
 pub use neuroevolution::{
-    ActivationFn, BatchPhenotypeEvaluator, ConnectionGene, DensePaddedEvaluator, InnovationId,
-    InnovationRegistry, InterpretedBuilder, InterpretedPhenotype, NodeGene, NodeId, NodeKind,
-    NodeSplit, Phenotype, PhenotypeBuilder, Species, SpeciesId, TopologyGenome,
-    compatibility_distance,
+    ActivationFn, ConnectionGene, DensePaddedEvaluator, InnovationId, InnovationRegistry,
+    InterpretedPhenotype, NodeGene, NodeId, NodeKind, NodeSplit, Species, SpeciesId,
+    TopologyGenome, compatibility_distance,
 };
 pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
-pub use param_reshaper::{ModuleReshaper, ParamReshaper};
+pub use param_reshaper::ModuleReshaper;
 pub use probability_model::ProbabilityModel;
 pub use rlevo_core::evaluation::GenerationProbe;
-pub use shaping::ShapingError;
 pub use strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};

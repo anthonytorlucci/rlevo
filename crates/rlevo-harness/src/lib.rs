@@ -4,7 +4,7 @@
 //! was named `rlevo-benchmarks` (ADR 0088).
 //!
 //! The shared trait surface (`Environment`, `GenerationProbe`,
-//! `BenchableAgent`, `FitnessEvaluable`, `Landscape`, `SeedStream`) lives in
+//! `BenchableAgent`, `Landscape`, `SeedStream`) lives in
 //! `rlevo-core`. This crate provides everything needed to drive those traits
 //! and produce structured reports:
 //!

@@ -20,9 +20,9 @@ Three modules ship today:
   evolutionary strategy with `RolloutFitness` inside an
   `EvolutionaryLoop`, evolving the weights of a fixed-topology policy
   network directly against environment return.
-- `policy::{StatefulPolicy, ReactivePolicy}` — the rollout contract by
-  which a policy module carries per-episode (recurrent or stateless) state
-  across a `RolloutFitness` rollout.
+- `policy::StatefulPolicy` — the rollout contract by which a policy module
+  carries per-episode state across a `RolloutFitness` rollout (`Hidden = ()`
+  for a memoryless policy).
 
 Exercised end-to-end by `tests/cartpole_smoke.rs` (evolves a real CartPole
 MLP policy) and `tests/stateful_rollout.rs`. Population-based training,

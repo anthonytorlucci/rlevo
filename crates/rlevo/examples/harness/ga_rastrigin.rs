@@ -2,9 +2,9 @@
 //!
 //! Exercises two trait contracts in one binary:
 //!
-//! 1. `FitnessEvaluable` — the "optimizer-on-landscape" trait, implemented
-//!    for a local wrapper around
-//!    `rlevo::envs::landscapes::rastrigin::Rastrigin`.
+//! 1. `Landscape` — the self-evaluating fitness trait, implemented by
+//!    `rlevo::envs::landscapes::rastrigin::Rastrigin`; the GA scores each
+//!    candidate with the landscape's own `evaluate`.
 //! 2. `GenerationProbe` — the GA implements the drive seam directly, so
 //!    `Evaluator::run_trials` drives it as a `GenerationTrial` and produces a
 //!    `BenchmarkReport` alongside RL trials.
@@ -51,25 +51,12 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal, Uniform};
 use rlevo::core::evaluation::GenerationProbe;
-use rlevo::core::fitness::{FitnessEvaluable, Landscape, MetricsProvider};
+use rlevo::core::fitness::{Landscape, MetricsProvider};
 use rlevo::envs::landscapes::rastrigin::Rastrigin;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo::harness::metrics::Metric;
 use rlevo::harness::metrics::ea;
 use rlevo::harness::reporter::logging::LoggingReporter;
-
-// --- FitnessEvaluable wiring -------------------------------------------
-
-struct Minimizer;
-
-impl FitnessEvaluable for Minimizer {
-    type Individual = Vec<f64>;
-    type Landscape = Rastrigin;
-
-    fn evaluate(&self, individual: &Self::Individual, landscape: &Self::Landscape) -> f64 {
-        landscape.evaluate(individual)
-    }
-}
 
 // --- GA state driven as a GenerationProbe ------------------------------
 
@@ -105,11 +92,10 @@ impl GaEnv {
 
     /// Tournament selection + Gaussian mutation. One-generation step.
     fn evolve(&mut self) -> f64 {
-        let evaluator = Minimizer;
         let fitnesses: Vec<f64> = self
             .population
             .iter()
-            .map(|x| evaluator.evaluate(x, &self.landscape))
+            .map(|x| self.landscape.evaluate(x))
             .collect();
 
         let pop_size = self.population.len();

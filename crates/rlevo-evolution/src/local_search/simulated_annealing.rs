@@ -23,7 +23,6 @@
 use burn::tensor::backend::Backend;
 use rand::{Rng, RngExt};
 
-use crate::fitness::FitnessFn;
 use crate::local_search::{BudgetedEval, LocalSearch, clamp_vec, sanitize_fitness};
 use rlevo_core::bounds::Bounds;
 
@@ -51,7 +50,7 @@ pub enum CoolingSchedule {
 pub struct SimulatedAnnealingParams {
     /// Inclusive search-space bounds `(lo, hi)`; proposals are clamped here.
     bounds: Bounds,
-    /// Hard cap on the **total** number of `evaluate_one` calls per `refine`,
+    /// Hard cap on the **total** number of fitness calls per `refine`,
     /// including the initial evaluation of the input genome. Default `200`.
     max_iters: usize,
     /// Starting temperature. Default `1.0`.
@@ -229,21 +228,17 @@ impl SimulatedAnnealingParams {
 /// ```
 /// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, SeedableRng};
-/// use rlevo_evolution::fitness::FitnessFn;
 /// use rlevo_core::bounds::Bounds;
 /// use rlevo_evolution::local_search::{LocalSearch, SimulatedAnnealing, SimulatedAnnealingParams};
 ///
 /// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
-/// struct NegSphere;
-/// impl FitnessFn<Vec<f32>> for NegSphere {
-///     fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-///         -x.iter().map(|v| v * v).sum::<f32>()
-///     }
+/// fn neg_sphere(x: &[f32]) -> f32 {
+///     -x.iter().map(|v| v * v).sum::<f32>()
 /// }
 ///
 /// let searcher = SimulatedAnnealing;
 /// let params = SimulatedAnnealingParams::default_for(Bounds::new(-5.12, 5.12));
-/// let mut fitness = NegSphere;
+/// let mut fitness = neg_sphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
 /// let start = vec![2.5_f32, -1.5];
@@ -275,7 +270,7 @@ impl SimulatedAnnealing {
         params: &SimulatedAnnealingParams,
         genome: Vec<f32>,
         known: Option<f32>,
-        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        fitness_fn: &mut dyn FnMut(&[f32]) -> f32,
         rng: &mut dyn Rng,
     ) -> (Vec<f32>, f32) {
         assert!(
@@ -372,7 +367,7 @@ impl<B: Backend> LocalSearch<B> for SimulatedAnnealing {
         &self,
         params: &SimulatedAnnealingParams,
         genome: Vec<f32>,
-        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        fitness_fn: &mut dyn FnMut(&[f32]) -> f32,
         rng: &mut dyn Rng,
     ) -> (Vec<f32>, f32) {
         Self::refine_impl(params, genome, None, fitness_fn, rng)
@@ -389,7 +384,7 @@ impl<B: Backend> LocalSearch<B> for SimulatedAnnealing {
         params: &SimulatedAnnealingParams,
         genome: Vec<f32>,
         known_fitness: f32,
-        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        fitness_fn: &mut dyn FnMut(&[f32]) -> f32,
         rng: &mut dyn Rng,
     ) -> (Vec<f32>, f32) {
         Self::refine_impl(params, genome, Some(known_fitness), fitness_fn, rng)
@@ -429,45 +424,36 @@ mod tests {
 
     /// Negated sphere `$f(x) = -\sum x_i^2$` — concave bump; global maximum 0 at the
     /// origin.
-    struct NegSphere;
-    impl FitnessFn<Vec<f32>> for NegSphere {
-        fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            -x.iter().map(|v| v * v).sum::<f32>()
-        }
+    fn neg_sphere(x: &[f32]) -> f32 {
+        -x.iter().map(|v| v * v).sum::<f32>()
     }
 
     /// Negated 2-D Rosenbrock — curved ridge; global maximum 0 at `(1, 1)`.
-    struct NegRosenbrock;
-    impl FitnessFn<Vec<f32>> for NegRosenbrock {
-        fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            let a = 1.0 - x[0];
-            let b = x[1] - x[0] * x[0];
-            -(a * a + 100.0 * b * b)
-        }
+    fn neg_rosenbrock(x: &[f32]) -> f32 {
+        let a = 1.0 - x[0];
+        let b = x[1] - x[0] * x[0];
+        -(a * a + 100.0 * b * b)
     }
 
     /// Constant 1.0 — perfectly flat; no probe ever improves.
-    struct Flat;
-    impl FitnessFn<Vec<f32>> for Flat {
-        fn evaluate_one(&mut self, _x: &Vec<f32>) -> f32 {
-            1.0
-        }
+    fn flat(_x: &[f32]) -> f32 {
+        1.0
     }
 
-    /// Wraps a fitness function and counts `evaluate_one` calls.
+    /// Wraps a fitness function and counts fitness calls.
     struct Counting<'a> {
-        inner: &'a mut dyn FitnessFn<Vec<f32>>,
+        inner: &'a mut dyn FnMut(&[f32]) -> f32,
         calls: usize,
     }
     impl<'a> Counting<'a> {
-        fn new(inner: &'a mut dyn FitnessFn<Vec<f32>>) -> Self {
+        fn new(inner: &'a mut dyn FnMut(&[f32]) -> f32) -> Self {
             Self { inner, calls: 0 }
         }
     }
-    impl FitnessFn<Vec<f32>> for Counting<'_> {
-        fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
+    impl Counting<'_> {
+        fn eval(&mut self, x: &[f32]) -> f32 {
             self.calls += 1;
-            self.inner.evaluate_one(x)
+            (self.inner)(x)
         }
     }
 
@@ -476,20 +462,20 @@ mod tests {
     /// reaching the acceptance test; combined with a tiny step it pins that
     /// the walker actually accepts some of them at high temperature.
     struct Recording<'a> {
-        inner: &'a mut dyn FitnessFn<Vec<f32>>,
+        inner: &'a mut dyn FnMut(&[f32]) -> f32,
         fitnesses: Vec<f32>,
     }
     impl<'a> Recording<'a> {
-        fn new(inner: &'a mut dyn FitnessFn<Vec<f32>>) -> Self {
+        fn new(inner: &'a mut dyn FnMut(&[f32]) -> f32) -> Self {
             Self {
                 inner,
                 fitnesses: Vec::new(),
             }
         }
     }
-    impl FitnessFn<Vec<f32>> for Recording<'_> {
-        fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            let f = self.inner.evaluate_one(x);
+    impl Recording<'_> {
+        fn eval(&mut self, x: &[f32]) -> f32 {
+            let f = (self.inner)(x);
             self.fitnesses.push(f);
             f
         }
@@ -508,7 +494,7 @@ mod tests {
     fn sphere_d2_improves_substantially() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(1);
         let start = random_start(&mut rng, 2, BOUNDS);
         let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
@@ -527,7 +513,7 @@ mod tests {
     fn sphere_d10_strictly_improves() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(2);
         let start = random_start(&mut rng, 10, BOUNDS);
         let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
@@ -540,7 +526,7 @@ mod tests {
     fn output_len_equals_input_len() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(3);
         for dim in [1_usize, 2, 5, 10] {
             let start = random_start(&mut rng, dim, BOUNDS);
@@ -559,12 +545,12 @@ mod tests {
     fn returned_fitness_matches_fresh_eval() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(4);
         let start = random_start(&mut rng, 4, BOUNDS);
         let (g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
-        let fresh = fitness.evaluate_one(&g);
+        let fresh = fitness(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
 
@@ -577,8 +563,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(5);
         for _ in 0..6 {
             let start = random_start(&mut rng, 2, BOUNDS);
-            let mut fitness = NegRosenbrock;
-            let start_fit = fitness.evaluate_one(&start);
+            let mut fitness = neg_rosenbrock;
+            let start_fit = fitness(&start);
             let (_g, fit) = LocalSearch::<TestBackend>::refine(
                 &searcher,
                 &params,
@@ -596,7 +582,7 @@ mod tests {
         let searcher = SimulatedAnnealing;
         let mut params = SimulatedAnnealingParams::default_for(BOUNDS);
         params.max_iters = 37;
-        let mut base = Flat;
+        let mut base = flat;
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(6);
         let start = vec![1.0_f32, 2.0, 3.0];
@@ -604,7 +590,7 @@ mod tests {
             &searcher,
             &params,
             start.clone(),
-            &mut counting,
+            &mut |x: &[f32]| counting.eval(x),
             &mut rng,
         );
         assert!(
@@ -626,7 +612,7 @@ mod tests {
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
         let start = vec![2.0_f32, -3.0, 1.5];
 
-        let mut fitness_a = NegSphere;
+        let mut fitness_a = neg_sphere;
         let mut rng_a = StdRng::seed_from_u64(123);
         let (g_a, f_a) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -636,7 +622,7 @@ mod tests {
             &mut rng_a,
         );
 
-        let mut fitness_b = NegSphere;
+        let mut fitness_b = neg_sphere;
         let mut rng_b = StdRng::seed_from_u64(123);
         let (g_b, f_b) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -651,7 +637,7 @@ mod tests {
         assert_eq!(g_a, g_b);
         assert_eq!(f_a, f_b);
 
-        let mut fitness_c = NegSphere;
+        let mut fitness_c = neg_sphere;
         let mut rng_c = StdRng::seed_from_u64(999);
         let (g_c, _f_c) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -674,12 +660,17 @@ mod tests {
         params.initial_temp = 1e-3;
         params.min_temp = 1e-1;
         params.cooling = CoolingSchedule::Geometric { factor: 0.5 };
-        let mut base = NegSphere;
+        let mut base = neg_sphere;
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(7);
         let start = vec![1.0_f32, -1.0];
-        let _ =
-            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut counting, &mut rng);
+        let _ = LocalSearch::<TestBackend>::refine(
+            &searcher,
+            &params,
+            start,
+            &mut |x: &[f32]| counting.eval(x),
+            &mut rng,
+        );
         assert!(
             counting.calls < params.max_iters,
             "min_temp early stop: evals {} should be < budget {}",
@@ -694,7 +685,7 @@ mod tests {
         let mut params = SimulatedAnnealingParams::default_for(BOUNDS);
         // Large step relative to range pushes proposals hard against bounds.
         params.step_size = 4.0;
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(8);
         // Start at the upper boundary in every coordinate.
         let start = vec![BOUNDS.hi(); 4];
@@ -723,12 +714,17 @@ mod tests {
         params.initial_temp = 1e9;
         params.min_temp = 1e-9;
         params.step_size = 0.5;
-        let mut base = NegSphere;
+        let mut base = neg_sphere;
         let mut recording = Recording::new(&mut base);
         let mut rng = StdRng::seed_from_u64(11);
         let start = vec![0.05_f32, -0.05];
-        let _ =
-            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut recording, &mut rng);
+        let _ = LocalSearch::<TestBackend>::refine(
+            &searcher,
+            &params,
+            start,
+            &mut |x: &[f32]| recording.eval(x),
+            &mut rng,
+        );
 
         // Count evaluations that were strictly worse than the best-so-far at the
         // time they were seen. A pure greedy ascent (no worsening acceptance) can
@@ -765,28 +761,28 @@ mod tests {
         let start = vec![1.0_f32, 2.0, 3.0];
 
         let refine_evals = {
-            let mut base = Flat;
+            let mut base = flat;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(31);
             let _ = LocalSearch::<TestBackend>::refine(
                 &searcher,
                 &params,
                 start.clone(),
-                &mut counting,
+                &mut |x: &[f32]| counting.eval(x),
                 &mut rng,
             );
             counting.calls
         };
         let hint_evals = {
-            let mut base = Flat;
+            let mut base = flat;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(31);
             let _ = LocalSearch::<TestBackend>::refine_with_known_fitness(
                 &searcher,
                 &params,
                 start.clone(),
-                1.0, // Flat fitness of the start
-                &mut counting,
+                1.0, // flat fitness of the start
+                &mut |x: &[f32]| counting.eval(x),
                 &mut rng,
             );
             counting.calls
@@ -802,7 +798,7 @@ mod tests {
     fn nan_hint_does_not_propagate() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(32);
         let start = vec![2.0_f32, -1.0];
         let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
@@ -814,7 +810,7 @@ mod tests {
             &mut rng,
         );
         assert!(fit.is_finite(), "NaN hint must be sanitized, got {fit}");
-        let fresh = fitness.evaluate_one(&g);
+        let fresh = fitness(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
 }

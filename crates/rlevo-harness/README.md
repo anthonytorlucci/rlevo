@@ -55,7 +55,7 @@ The traits a trial drives are part of the contract, so they live in `rlevo-core`
 | Trait | Description |
 |-------|-------------|
 | `BenchableAgent<Obs, Act>` | Inference-only (frozen policy): `act(&mut self, obs, rng) → Act`; optional `emit_metrics()` hook |
-| `FitnessEvaluable` | For optimizer-on-landscape scenarios; `evaluate(individual, landscape) → f64` |
+| `Landscape` | For optimizer-on-landscape scenarios; `evaluate(x) → f64`, the landscape being the fitness function |
 
 ### `evaluator` — Suite Runner
 
@@ -232,7 +232,7 @@ rlevo-harness = { path = "../rlevo-harness" }
 
 ### Moving from `rlevo-benchmarks`
 
-Through 0.5.0 this crate was published as `rlevo-benchmarks` (ADR 0088). A project that depends on it directly changes three things: the dependency line, every feature that names the crate (`rlevo-benchmarks/tui`, `rlevo-benchmarks/record`, `dep:rlevo-benchmarks`), and the first segment of its paths, from `rlevo_benchmarks::` to `rlevo_harness::`. Cargo's `package` key keeps the old local name, so the paths and feature entries go on working until they are changed, except the paths through `agent` and `seed`: those two modules were aliases for traits and a type that moved to `rlevo-core` under ADR 0004, and the rename removed them (ADR 0088). Import `BenchableAgent`, `FitnessEvaluable` and `Landscape` from `rlevo_core::fitness`, and `SeedStream` from `rlevo_core::util::seed`.
+Through 0.5.0 this crate was published as `rlevo-benchmarks` (ADR 0088). A project that depends on it directly changes three things: the dependency line, every feature that names the crate (`rlevo-benchmarks/tui`, `rlevo-benchmarks/record`, `dep:rlevo-benchmarks`), and the first segment of its paths, from `rlevo_benchmarks::` to `rlevo_harness::`. Cargo's `package` key keeps the old local name, so the paths and feature entries go on working until they are changed, except the paths through `agent` and `seed`: those two modules were aliases for traits and a type that moved to `rlevo-core` under ADR 0004, and the rename removed them (ADR 0088). Import `BenchableAgent` and `Landscape` from `rlevo_core::fitness` (an evaluator written against `FitnessEvaluable` implements `Landscape` instead; ADR 0091), and `SeedStream` from `rlevo_core::util::seed`.
 
 ```toml
 [dependencies]
