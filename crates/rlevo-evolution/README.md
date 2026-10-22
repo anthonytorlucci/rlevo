@@ -28,7 +28,7 @@ backend the caller selects; this crate selects none.
 | Gene Expression Programming | `algorithms::gep::strategy::GepStrategy` | linear chromosome → expression tree | see `GepSymRegression` |
 | Estimation of Distribution (EDA) | `algorithms::eda::EdaStrategy` | `Tensor<B, 2>` | 5 model variants: univariate Gaussian/Bernoulli, compact GA, dependency-chain, Bayesian network |
 | Memetic wrapper | `algorithms::memetic::MemeticWrapper` | wraps any `Strategy<B>` | hybridizes a population strategy with local search |
-| Neuroevolution — weight-only | `algorithms::neuroevolution::weight_only::WeightOnly` | fixed-topology network weights | evolves weights of a fixed architecture (used by `rlevo-hybrid`) |
+| Neuroevolution — weight-only | any flat-genome `Strategy<B>` with `param_reshaper::ModuleReshaper` and `module_eval_fn::ModuleEvalFn` | fixed-topology network weights | evolves weights of a fixed architecture; `rlevo-hybrid`'s `RolloutFitness` scores them by rollout |
 
 Every row above implements [`Strategy<B>`](src/strategy.rs) and is run by
 `EvolutionaryLoop`.

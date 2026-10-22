@@ -98,7 +98,6 @@ Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram
 |------------|----------|
 | `metrics::core` | `return/{mean,median,std,min,max}`, `episode_length/mean`, `throughput/steps_per_sec`, `wall_clock_seconds`, `success_rate` |
 | `metrics::ea` | `ea/population_diversity`, `ea/best_fitness`, `ea/generations_to_converge`, `ea/fitness_variance` |
-| `metrics::rl` | Metric name constants for RL agents: `rl/policy_loss`, `rl/value_loss`, `rl/approx_kl`, `rl/entropy`, `rl/epsilon`, `rl/learning_rate` |
 
 ### `metrics_registry` — Canonical Metric Names
 
@@ -282,7 +281,7 @@ let cfg = EvaluatorConfig {
     base_seed: 42,
     ..Default::default()
 };
-let suite: Suite<MyEnv> = Suite::new("my-suite", cfg.clone())
+let suite: Suite<MyEnv> = Suite::new("my-suite")
     .with_env("env-a", |_seed| MyEnv { /* ... */ });
 
 let mut reporter = LoggingReporter::default();

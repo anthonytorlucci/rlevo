@@ -101,7 +101,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `rlevo_environments::bench::suites::{cartpole_suite, pendulum_suite,
   ten_armed_bandit_suite}`. Each was one call, and an environment has been
   registrable as itself since ADR 0076, so write the call:
-  `Suite::new("cartpole", cfg).with_env("cartpole-default", |seed| ...)`.
+  `Suite::new("cartpole").with_env("cartpole-default", |seed| ...)`.
   A manifest that asks for `features = ["bench"]` no longer resolves. Drop
   the feature if the presets were all you used; ask for `record` if you use
   the `RecordedEnvFamily` impls, which keep their path,
@@ -140,8 +140,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   alias is kept. Constructors, type parameters and every method but `step`
   are unchanged.
 - **`step` takes no argument and returns nothing, and `is_done()` is a
-  method of its own**, on both loops and on
-  `rlevo_hybrid::PolicyNeuroevolution` (ADR 0085). `GenerationStep` is
+  method of its own**, on both loops (ADR 0085). `GenerationStep` is
   removed. `while !harness.step(()).done {}` becomes
 
   ```rust
@@ -305,6 +304,52 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     `device` argument, and `RolloutFitness` no longer requires the policy
     module to be `Sync`.
   - The `rlevo` prelude no longer exports `FitnessFn` or `Population`.
+- **Forwarding wrappers, unread items and the config builders are
+  removed** (ADR 0092).
+  - `rlevo_evolution::WeightOnly` and `rlevo_hybrid::PolicyNeuroevolution`
+    are removed, with the modules `algorithms::neuroevolution::weight_only`
+    and `policy_neuroevolution`; every method of each forwarded to what it
+    wrapped. Pass the inner strategy to `EvolutionaryLoop::new` with a
+    `ModuleEvalFn` or `RolloutFitness` built over one `ModuleReshaper`, and
+    size the strategy's parameters with that reshaper's `num_params()`.
+    Replace `run()` with `reset()` and a `while !is_done() { step() }`
+    loop. The loop implements `GenerationProbe`, so the evaluation harness
+    can run a policy search.
+  - `Suite::new` takes only the name, and `Suite::default_config` is
+    removed: `Evaluator::run_suite` never read it. Write
+    `Suite::new("my-suite")` where you wrote `Suite::new("my-suite", cfg)`;
+    the evaluator's config is the one that applies.
+  - `rlevo_harness::metrics::rl` and its six key constants are removed; no
+    agent emitted them. The `rl/*` namespace stays agent-owned: write the
+    key, such as `"rl/epsilon"`.
+  - The eight RL config builders are removed: `DqnTrainingConfigBuilder`,
+    `C51TrainingConfigBuilder`, `QrDqnTrainingConfigBuilder`,
+    `PpoTrainingConfigBuilder`, `PpgConfigBuilder`,
+    `DdpgTrainingConfigBuilder`, `Td3TrainingConfigBuilder` and
+    `SacTrainingConfigBuilder`. Use struct-update syntax, one field per
+    setter: `DqnTrainingConfig { batch_size: 64, ..Default::default() }`.
+    `prioritized_replay(s)` is `prioritized_replay: Some(s)`, and PPG's
+    `with_ppo(|p| ...)` is `ppo: PpoTrainingConfig { ..,
+    ..Default::default() }`. The agent's constructor validates the config,
+    as it did; call `validate()` where you relied on `build()` to fail
+    early.
+  - The nine environment config builders are removed, with their
+    `XConfig::builder()` constructors: `CartPoleConfigBuilder`,
+    `AcrobotConfigBuilder`, `LunarLanderConfigBuilder`,
+    `BipedalWalkerConfigBuilder`, `CarRacingConfigBuilder`,
+    `BlackjackConfigBuilder`, `CliffWalkingConfigBuilder`,
+    `FrozenLakeConfigBuilder` and `TaxiConfigBuilder`. Write
+    `CartPoleConfig { seed: 42, ..Default::default() }`; `with_config`
+    validates. `FrozenLakeConfig::builder()` started from
+    `is_slippery: false`, not the config's default of `true`, so a lake
+    built without `.is_slippery(..)` was not slippery. A struct literal
+    over `Default::default()` is slippery unless it says otherwise.
+  - `rlevo-hybrid` no longer depends on `rand` or `serde`, and
+    `rlevo-harness` no longer depends on `rand_distr`; no source file used
+    them.
+  - `rlevo_environments::games::connect_four`, a hidden module that held
+    no item, is removed. `games::chess` stays, hidden until its
+    `Environment` impl lands.
 
 ### `rlevo`
 
@@ -548,13 +593,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Changed**
 
-- **`PolicyNeuroevolution::step` returns nothing, and
-  `PolicyNeuroevolution::is_done` is added** (ADR 0085), following the loop
-  it wraps. `step` used to return `bool`, `true` once the generation budget
-  was spent; ask `is_done()` instead. `run` is unchanged.
 - **`rlevo-hybrid` no longer depends on `rlevo-reinforcement-learning`.**
-  No file in the crate used it: the three modules that ship
-  (`RolloutFitness`, `PolicyNeuroevolution`, `StatefulPolicy`) are built on
+  No file in the crate used it: the modules that ship
+  (`RolloutFitness`, `StatefulPolicy`) are built on
   `rlevo-core` and `rlevo-evolution`. A consumer that depends on
   `rlevo-hybrid` alone no longer compiles the RL crate, and nothing else in
   its dependency tree changes. No public item changes. The dependency

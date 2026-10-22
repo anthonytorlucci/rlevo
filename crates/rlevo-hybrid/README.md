@@ -11,15 +11,13 @@ built on [Burn](https://burn.dev/) tensor operations.
 boundary between pure evolution (`rlevo-evolution`, which never names an
 `Environment`) and anything that couples an evolutionary strategy to an
 `Environment` rollout. It depends on `rlevo-core` and `rlevo-evolution`.
-Three modules ship today:
+Two modules ship today:
 
 - `rollout_fitness::RolloutFitness` — a `BatchFitnessFn` that scores a
   population of flat policy parameters by running episodes against an
-  `Environment`.
-- `policy_neuroevolution::PolicyNeuroevolution` — pairs a `WeightOnly`
-  evolutionary strategy with `RolloutFitness` inside an
-  `EvolutionaryLoop`, evolving the weights of a fixed-topology policy
-  network directly against environment return.
+  `Environment`. Hand it to an `EvolutionaryLoop` with any flat-genome
+  strategy to evolve the weights of a fixed-topology policy network
+  directly against environment return.
 - `policy::StatefulPolicy` — the rollout contract by which a policy module
   carries per-episode state across a `RolloutFitness` rollout (`Hidden = ()`
   for a memoryless policy).
@@ -32,21 +30,21 @@ ERL-style concurrent evolution + gradient RL, and CEM-RL remain future work.
 
 | Strategy | Description | Status |
 |---|---|---|
-| Evolution-Guided Policy Init | Evolve policy weights directly against rollout fitness (`WeightOnly` + `RolloutFitness`) | **Shipped** — `PolicyNeuroevolution` |
+| Evolution-Guided Policy Init | Evolve policy weights directly against rollout fitness (`RolloutFitness` in an `EvolutionaryLoop`) | **Shipped** |
 | Population-Based Training (PBT) | Jaderberg et al.'s hyperparameter and weight exploitation/exploration schedule | Planned |
 | ERL (Evolutionary RL) | Khadka & Tumer: concurrent evolutionary population + gradient-trained RL actor | Planned |
 | CEM-RL | Pourchot & Sigaud: interleaved CMA-ES population + TD3 actor | Planned |
 
 ## Design intent
 
-`PolicyNeuroevolution<B, S, M, E>` wires `rlevo-evolution`'s `WeightOnly`
-strategy and `RolloutFitness` into an `EvolutionaryLoop`, so a
-fixed-topology policy module `M` is optimized purely by black-box search
-against environment `E`'s return — no gradients. Planned strategies that
-interleave gradient-based RL with the evolutionary loop (PBT, ERL, CEM-RL)
-will build on this same rollout/fitness seam. The first of them brings a
-dependency on `rlevo-reinforcement-learning` with it; the crate has none
-today, because nothing in it uses that crate.
+`RolloutFitness<B, M, E>` scores flat policy weights by rollout, so any
+flat-genome strategy in an `EvolutionaryLoop` optimizes a fixed-topology
+policy module `M` purely by black-box search against environment `E`'s
+return — no gradients. Planned strategies that interleave gradient-based RL
+with the evolutionary loop (PBT, ERL, CEM-RL) will build on this same
+rollout/fitness seam. The first of them brings a dependency on
+`rlevo-reinforcement-learning` with it; the crate has none today, because
+nothing in it uses that crate.
 
 ## Related crates
 

@@ -100,7 +100,7 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 
 ### Hybrid RL + Evolution
 
-`rlevo-hybrid` ships an evolution-guided policy pipeline (`PolicyNeuroevolution`, `RolloutFitness`) that evolves policy weights against environment rollout fitness. Gradient-RL-in-the-loop strategies (population-based training, ERL-style actor injection, CEM-RL) are still on the roadmap.
+`rlevo-hybrid` ships an evolution-guided policy pipeline (`RolloutFitness` in an `EvolutionaryLoop`) that evolves policy weights against environment rollout fitness. Gradient-RL-in-the-loop strategies (population-based training, ERL-style actor injection, CEM-RL) are still on the roadmap.
 
 ## Quick Start
 

@@ -22,7 +22,7 @@ Key components:
 
 | File | Purpose |
 |------|---------|
-| `dqn_config.rs` | `DqnTrainingConfig` + `DqnTrainingConfigBuilder` |
+| `dqn_config.rs` | `DqnTrainingConfig` |
 | `dqn_model.rs` | `DqnModel` Burn `Module` trait |
 | `dqn_agent.rs` | `DqnAgent` — `act` / `remember` / `learn_step` |
 | `exploration.rs` | `EpsilonGreedy` schedule (shared with C51, QR-DQN) |
@@ -60,7 +60,7 @@ Key components:
 
 | File | Purpose |
 |------|---------|
-| `c51_config.rs` | `C51TrainingConfig` + `C51TrainingConfigBuilder` |
+| `c51_config.rs` | `C51TrainingConfig` |
 | `c51_model.rs` | `C51Model` Burn `Module` trait |
 | `c51_agent.rs` | `C51Agent` — `act` / `remember` / `learn_step` |
 | `projection.rs` | `project_distribution` — Bellman projection onto atom support |
@@ -94,7 +94,7 @@ Key components:
 
 | File | Purpose |
 |------|---------|
-| `qrdqn_config.rs` | `QrDqnTrainingConfig` + `QrDqnTrainingConfigBuilder` |
+| `qrdqn_config.rs` | `QrDqnTrainingConfig` |
 | `qrdqn_model.rs` | `QrDqnModel` Burn `Module` trait |
 | `qrdqn_agent.rs` | `QrDqnAgent` — `act` / `remember` / `learn_step` |
 | `quantile_loss.rs` | `quantile_huber_loss_per_sample` |
@@ -134,7 +134,7 @@ Key components:
 
 | File | Purpose |
 |------|---------|
-| `ppo_config.rs` | `PpoTrainingConfig` + `PpoTrainingConfigBuilder` + `annealed_learning_rate` |
+| `ppo_config.rs` | `PpoTrainingConfig` + `annealed_learning_rate` |
 | `ppo_policy.rs` | `PpoPolicy` trait with associated `ActionTensor` type |
 | `ppo_value.rs` | `PpoValue` trait |
 | `policies/categorical.rs` | `CategoricalPolicyHead` (discrete) |
@@ -201,7 +201,7 @@ Key components:
 
 | File | Purpose |
 |------|---------|
-| `ppg_config.rs` | `PpgConfig` + `PpgConfigBuilder` (wraps `PpoTrainingConfig`) |
+| `ppg_config.rs` | `PpgConfig` (wraps `PpoTrainingConfig`) |
 | `ppg_policy.rs` | `PpgAuxValueHead` trait — `aux_value` head + raw `logits` for the distillation KL |
 | `policies/categorical.rs` | `PpgCategoricalPolicyHead` (currently discrete-only) |
 | `aux_buffer.rs` | `AuxRolloutBuffer` accumulating rollouts between auxiliary phases |
@@ -235,7 +235,7 @@ Key components:
 
 | File | Purpose |
 |------|---------|
-| `ddpg_config.rs` | `DdpgTrainingConfig` + `DdpgTrainingConfigBuilder` |
+| `ddpg_config.rs` | `DdpgTrainingConfig` |
 | `ddpg_model.rs` | `DeterministicPolicy` actor trait + `ContinuousQ` critic trait |
 | `exploration.rs` | `GaussianNoise` (shared with TD3) |
 | `ddpg_agent.rs` | `DdpgAgent` — `act` / `remember` / `learn_step` |
@@ -272,7 +272,7 @@ Key components:
 
 | File | Purpose |
 |------|---------|
-| `td3_config.rs` | `Td3TrainingConfig` + `Td3TrainingConfigBuilder` |
+| `td3_config.rs` | `Td3TrainingConfig` |
 | `td3_model.rs` | Re-exports `DeterministicPolicy` + `ContinuousQ` from `ddpg::ddpg_model` |
 | `target_smoothing.rs` | `smoothed_target_action` — clipped Gaussian noise on target actor |
 | `td3_agent.rs` | `Td3Agent` — twin critics + delayed actor update |
@@ -303,7 +303,7 @@ Key components:
 
 | File | Purpose |
 |------|---------|
-| `sac_config.rs` | `SacTrainingConfig` + `SacTrainingConfigBuilder` |
+| `sac_config.rs` | `SacTrainingConfig` |
 | `sac_model.rs` | `SquashedGaussianPolicy` actor trait + `SampleOutput`; re-exports the `ContinuousQ` critic trait (SAC uses twin critics) |
 | `sac_policy.rs` | `SquashedGaussianPolicyHead` stochastic actor |
 | `sac_alpha.rs` | `LogAlpha` — learnable log-temperature with auto-tuning toward `target_entropy` |
@@ -386,16 +386,16 @@ The replay-strategy seam (ADR 0050): off-policy transition storage shared across
 PER is enabled through the agent config, not by hand-constructing a buffer:
 
 ```rust
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::replay::PrioritizedReplaySettings;
 
 // Uniform replay is the default; opt into PER with Schaul's proportional
 // defaults (α = 0.6, β: 0.4 → 1.0).
-let cfg = DqnTrainingConfigBuilder::new()
-    .replay_buffer_capacity(100_000)
-    .prioritized_replay(PrioritizedReplaySettings::default())
-    .build()
-    .expect("valid config");
+let cfg = DqnTrainingConfig {
+    replay_buffer_capacity: 100_000,
+    prioritized_replay: Some(PrioritizedReplaySettings::default()),
+    ..Default::default()
+};
 
 assert!(cfg.prioritized_replay.is_some());
 ```
@@ -425,15 +425,17 @@ Every algorithm follows the same config pattern:
 // Default config (CleanRL reference values)
 let cfg = DqnTrainingConfig::default();
 
-// Builder for custom overrides; `build()` validates the config and returns
-// `Result<DqnTrainingConfig, ConfigError>`
-let cfg = DqnTrainingConfigBuilder::new()
-    .learning_rate(0.0005)
-    .batch_size(64)
-    .double_q(true)
-    .build()
-    .expect("valid config");
+// Struct-update syntax for custom overrides (ADR 0055)
+let cfg = DqnTrainingConfig {
+    learning_rate: 0.0005,
+    batch_size: 64,
+    double_q: true,
+    ..Default::default()
+};
 ```
+
+The agent's constructor validates the config and returns
+`Result<_, ConfigError>`; call `cfg.validate()` to check it earlier.
 
 All config structs are `Clone + Debug`. The replay configs (`UniformReplayConfig`, `PrioritizedReplayConfig`) and `PrioritizedReplaySettings` also derive `Serialize` / `Deserialize`; the training configs and the policy-head configs do not.
 
