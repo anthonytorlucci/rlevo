@@ -1,13 +1,10 @@
 //! Fitness evaluation traits and adapters.
 //!
-//! Two traits model the two evaluation shapes strategies expect:
-//!
-//! - [`FitnessFn`] — evaluates a single member. Callers hand the fitness
-//!   function a host-side genome row (typically `Vec<f32>`) and receive a
-//!   scalar. Useful for simple benchmarks and for unit-testing operators.
-//! - [`BatchFitnessFn`] — evaluates an entire population in one call and
-//!   returns a device-resident `Tensor<B, 1>` of shape `(pop_size,)`. This
-//!   is the hot path — strategies call it once per generation.
+//! [`BatchFitnessFn`] is the evaluation shape strategies expect: it scores an
+//! entire population in one call and returns a device-resident
+//! `Tensor<B, 1>` of shape `(pop_size,)`, once per generation. (A local
+//! searcher scores one member at a time through a closure,
+//! `&mut dyn FnMut(&[f32]) -> f32`; see [`crate::local_search`].)
 //!
 //! [`FromLandscape`] bridges host-side scalar fitness code into
 //! [`BatchFitnessFn`]: it wraps any `rlevo-core::fitness::Landscape`, a
@@ -36,15 +33,6 @@ use burn::tensor::{Tensor, TensorData, backend::Backend};
 
 use rlevo_core::fitness::Landscape;
 use rlevo_core::objective::ObjectiveSense;
-
-/// Single-member fitness evaluation.
-///
-/// Implementors may hold mutable state (e.g. a counter for number of
-/// evaluations) and are therefore `&mut self`.
-pub trait FitnessFn<G>: Send {
-    /// Evaluates one genome and returns its scalar fitness.
-    fn evaluate_one(&mut self, member: &G) -> f32;
-}
 
 /// Batched fitness evaluation over a population genome container `G`.
 ///

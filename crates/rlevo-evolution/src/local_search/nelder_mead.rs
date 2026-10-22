@@ -33,7 +33,6 @@
 use burn::tensor::backend::Backend;
 use rand::Rng;
 
-use crate::fitness::FitnessFn;
 use crate::local_search::{BudgetedEval, LocalSearch, clamp_vec, sanitize_fitness};
 use rlevo_core::bounds::Bounds;
 
@@ -43,7 +42,7 @@ pub struct NelderMeadParams {
     /// Inclusive search-space bounds `(lo, hi)`; refined genomes are clamped
     /// here and simplex vertices are flipped inward at the boundary.
     pub bounds: Bounds,
-    /// Hard cap on the **total** number of `evaluate_one` calls per `refine`,
+    /// Hard cap on the **total** number of fitness calls per `refine`,
     /// counting the up-to-`n + 1` simplex-initialization evaluations.
     /// Default `200`.
     pub max_iters: usize,
@@ -100,21 +99,17 @@ impl NelderMeadParams {
 /// ```
 /// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, SeedableRng};
-/// use rlevo_evolution::fitness::FitnessFn;
 /// use rlevo_core::bounds::Bounds;
 /// use rlevo_evolution::local_search::{LocalSearch, NelderMead, NelderMeadParams};
 ///
 /// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
-/// struct NegSphere;
-/// impl FitnessFn<Vec<f32>> for NegSphere {
-///     fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-///         -x.iter().map(|v| v * v).sum::<f32>()
-///     }
+/// fn neg_sphere(x: &[f32]) -> f32 {
+///     -x.iter().map(|v| v * v).sum::<f32>()
 /// }
 ///
 /// let searcher = NelderMead;
 /// let params = NelderMeadParams::default_for(Bounds::new(-5.12, 5.12));
-/// let mut fitness = NegSphere;
+/// let mut fitness = neg_sphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
 /// let start = vec![2.5_f32, -1.5];
@@ -164,7 +159,7 @@ impl NelderMead {
         params: &NelderMeadParams,
         genome: Vec<f32>,
         known: Option<f32>,
-        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        fitness_fn: &mut dyn FnMut(&[f32]) -> f32,
     ) -> (Vec<f32>, f32) {
         assert!(
             params.max_iters >= 1,
@@ -363,7 +358,7 @@ impl<B: Backend> LocalSearch<B> for NelderMead {
         &self,
         params: &NelderMeadParams,
         genome: Vec<f32>,
-        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        fitness_fn: &mut dyn FnMut(&[f32]) -> f32,
         _rng: &mut dyn Rng,
     ) -> (Vec<f32>, f32) {
         Self::refine_impl(params, genome, None, fitness_fn)
@@ -385,7 +380,7 @@ impl<B: Backend> LocalSearch<B> for NelderMead {
         params: &NelderMeadParams,
         genome: Vec<f32>,
         known_fitness: f32,
-        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        fitness_fn: &mut dyn FnMut(&[f32]) -> f32,
         _rng: &mut dyn Rng,
     ) -> (Vec<f32>, f32) {
         Self::refine_impl(params, genome, Some(known_fitness), fitness_fn)
@@ -467,45 +462,36 @@ mod tests {
 
     /// Negated sphere `$f(x) = -\sum x_i^2$` — concave bump; global maximum 0 at the
     /// origin.
-    struct NegSphere;
-    impl FitnessFn<Vec<f32>> for NegSphere {
-        fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            -x.iter().map(|v| v * v).sum::<f32>()
-        }
+    fn neg_sphere(x: &[f32]) -> f32 {
+        -x.iter().map(|v| v * v).sum::<f32>()
     }
 
     /// Negated 2-D Rosenbrock — curved ridge; global maximum 0 at `(1, 1)`.
-    struct NegRosenbrock;
-    impl FitnessFn<Vec<f32>> for NegRosenbrock {
-        fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            let a = 1.0 - x[0];
-            let b = x[1] - x[0] * x[0];
-            -(a * a + 100.0 * b * b)
-        }
+    fn neg_rosenbrock(x: &[f32]) -> f32 {
+        let a = 1.0 - x[0];
+        let b = x[1] - x[0] * x[0];
+        -(a * a + 100.0 * b * b)
     }
 
     /// Constant 1.0 — perfectly flat; no probe ever improves.
-    struct Flat;
-    impl FitnessFn<Vec<f32>> for Flat {
-        fn evaluate_one(&mut self, _x: &Vec<f32>) -> f32 {
-            1.0
-        }
+    fn flat(_x: &[f32]) -> f32 {
+        1.0
     }
 
-    /// Wraps a fitness function and counts `evaluate_one` calls.
+    /// Wraps a fitness function and counts fitness calls.
     struct Counting<'a> {
-        inner: &'a mut dyn FitnessFn<Vec<f32>>,
+        inner: &'a mut dyn FnMut(&[f32]) -> f32,
         calls: usize,
     }
     impl<'a> Counting<'a> {
-        fn new(inner: &'a mut dyn FitnessFn<Vec<f32>>) -> Self {
+        fn new(inner: &'a mut dyn FnMut(&[f32]) -> f32) -> Self {
             Self { inner, calls: 0 }
         }
     }
-    impl FitnessFn<Vec<f32>> for Counting<'_> {
-        fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
+    impl Counting<'_> {
+        fn eval(&mut self, x: &[f32]) -> f32 {
             self.calls += 1;
-            self.inner.evaluate_one(x)
+            (self.inner)(x)
         }
     }
 
@@ -522,7 +508,7 @@ mod tests {
     fn sphere_d2_converges_below_threshold() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(1);
         let start = random_start(&mut rng, 2, BOUNDS);
         let (_g, fit) =
@@ -534,7 +520,7 @@ mod tests {
     fn sphere_d10_strictly_improves() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(2);
         let start = random_start(&mut rng, 10, BOUNDS);
         let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
@@ -547,7 +533,7 @@ mod tests {
     fn output_len_equals_input_len() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(3);
         for dim in [1_usize, 2, 5, 10] {
             let start = random_start(&mut rng, dim, BOUNDS);
@@ -566,12 +552,12 @@ mod tests {
     fn returned_fitness_matches_fresh_eval() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(4);
         let start = random_start(&mut rng, 4, BOUNDS);
         let (g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
-        let fresh = fitness.evaluate_one(&g);
+        let fresh = fitness(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
 
@@ -582,8 +568,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(5);
         for _ in 0..6 {
             let start = random_start(&mut rng, 2, BOUNDS);
-            let mut fitness = NegRosenbrock;
-            let start_fit = fitness.evaluate_one(&start);
+            let mut fitness = neg_rosenbrock;
+            let start_fit = fitness(&start);
             let (_g, fit) = LocalSearch::<TestBackend>::refine(
                 &searcher,
                 &params,
@@ -600,7 +586,7 @@ mod tests {
         let searcher = NelderMead;
         let mut params = NelderMeadParams::default_for(BOUNDS);
         params.max_iters = 37;
-        let mut base = Flat;
+        let mut base = flat;
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(6);
         let start = vec![1.0_f32, 2.0, 3.0, 4.0];
@@ -608,7 +594,7 @@ mod tests {
             &searcher,
             &params,
             start.clone(),
-            &mut counting,
+            &mut |x: &[f32]| counting.eval(x),
             &mut rng,
         );
         assert!(
@@ -627,7 +613,7 @@ mod tests {
         let searcher = NelderMead;
         let mut params = NelderMeadParams::default_for(BOUNDS);
         params.max_iters = 2;
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(7);
         let start = random_start(&mut rng, 5, BOUNDS);
         let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
@@ -647,12 +633,17 @@ mod tests {
         let searcher = NelderMead;
         let mut params = NelderMeadParams::default_for(BOUNDS);
         params.max_iters = 1000;
-        let mut base = NegSphere;
+        let mut base = neg_sphere;
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(8);
         let start = vec![1.0_f32, -0.5];
-        let (_g, _f) =
-            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut counting, &mut rng);
+        let (_g, _f) = LocalSearch::<TestBackend>::refine(
+            &searcher,
+            &params,
+            start,
+            &mut |x: &[f32]| counting.eval(x),
+            &mut rng,
+        );
         assert!(
             counting.calls < params.max_iters,
             "tolerance should early-stop: evals {} < budget {}",
@@ -665,7 +656,7 @@ mod tests {
     fn boundary_start_stays_within_bounds() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(9);
         // Start at the upper boundary in every coordinate, so the forward axis
         // nudge would leave bounds and must flip inward.
@@ -687,7 +678,7 @@ mod tests {
         let params = NelderMeadParams::default_for(BOUNDS);
         let start = vec![2.0_f32, -3.0, 1.5];
 
-        let mut fitness_a = NegSphere;
+        let mut fitness_a = neg_sphere;
         let mut rng_a = StdRng::seed_from_u64(123);
         let (g_a, f_a) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -697,7 +688,7 @@ mod tests {
             &mut rng_a,
         );
 
-        let mut fitness_b = NegSphere;
+        let mut fitness_b = neg_sphere;
         let mut rng_b = StdRng::seed_from_u64(123);
         let (g_b, f_b) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -722,28 +713,28 @@ mod tests {
         let start = vec![1.0_f32, 2.0, 3.0]; // in bounds
 
         let refine_evals = {
-            let mut base = Flat;
+            let mut base = flat;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(41);
             let _ = LocalSearch::<TestBackend>::refine(
                 &searcher,
                 &params,
                 start.clone(),
-                &mut counting,
+                &mut |x: &[f32]| counting.eval(x),
                 &mut rng,
             );
             counting.calls
         };
         let hint_evals = {
-            let mut base = Flat;
+            let mut base = flat;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(41);
             let _ = LocalSearch::<TestBackend>::refine_with_known_fitness(
                 &searcher,
                 &params,
                 start.clone(),
-                1.0, // Flat fitness of the start
-                &mut counting,
+                1.0, // flat fitness of the start
+                &mut |x: &[f32]| counting.eval(x),
                 &mut rng,
             );
             counting.calls
@@ -766,28 +757,28 @@ mod tests {
         let start = vec![100.0_f32, 100.0]; // far above the upper bound
 
         let refine_evals = {
-            let mut base = NegSphere;
+            let mut base = neg_sphere;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(42);
             let _ = LocalSearch::<TestBackend>::refine(
                 &searcher,
                 &params,
                 start.clone(),
-                &mut counting,
+                &mut |x: &[f32]| counting.eval(x),
                 &mut rng,
             );
             counting.calls
         };
         let (g, fit, hint_evals) = {
-            let mut base = NegSphere;
+            let mut base = neg_sphere;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(42);
             let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
                 &searcher,
                 &params,
                 start.clone(),
-                999.0, // bogus: must never be returned (NegSphere fitness is <= 0)
-                &mut counting,
+                999.0, // bogus: must never be returned (neg_sphere fitness is <= 0)
+                &mut |x: &[f32]| counting.eval(x),
                 &mut rng,
             );
             (g, fit, counting.calls)
@@ -796,8 +787,7 @@ mod tests {
             hint_evals, refine_evals,
             "out-of-bounds hint must fall back to evaluating vertex 0"
         );
-        let mut fresh_fn = NegSphere;
-        let fresh = fresh_fn.evaluate_one(&g);
+        let fresh = neg_sphere(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
         assert!(
             fit <= 0.0,
@@ -809,7 +799,7 @@ mod tests {
     fn nan_hint_does_not_propagate() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = NegSphere;
+        let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(43);
         let start = vec![2.0_f32, -1.0]; // in bounds
         let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
@@ -821,7 +811,7 @@ mod tests {
             &mut rng,
         );
         assert!(fit.is_finite(), "NaN hint must be sanitized, got {fit}");
-        let fresh = fitness.evaluate_one(&g);
+        let fresh = fitness(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
 }

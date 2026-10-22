@@ -34,10 +34,11 @@
 //! no interior mutability so many instances can run in parallel without locks.
 //! **This wrapper deliberately breaks that convention.** It holds a
 //! [`parking_lot::Mutex`] around its fitness function because local search needs
-//! `&mut F` (an [`FitnessFn`] is `&mut self`) while `tell` only has `&self`. The
-//! lock is wrapper-private and uncontended in the single-loop driving model
-//! (one `tell` in flight at a time), so it costs an uncontended lock/unlock per
-//! generation and never blocks. A reader writing code generic over
+//! `&mut F` (the fitness closure it hands a searcher is `FnMut`) while `tell`
+//! only has `&self`. The lock is wrapper-private and uncontended in the
+//! single-loop driving model (one `tell` in flight at a time), so it costs an
+//! uncontended lock/unlock per generation and never blocks. A reader writing
+//! code generic over
 //! `S: Strategy<B>` should be aware that `MemeticWrapper` is *not* a pure,
 //! lock-free strategy like the others in this crate.
 //!
@@ -56,7 +57,7 @@ use burn::tensor::{Tensor, TensorData, backend::Backend};
 use parking_lot::Mutex;
 use rand::{Rng, RngExt};
 
-use crate::fitness::{BatchFitnessFn, FitnessFn};
+use crate::fitness::BatchFitnessFn;
 use crate::local_search::LocalSearch;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -343,10 +344,10 @@ where
     }
 }
 
-/// Adapts a population-level [`BatchFitnessFn`] into a single-row
-/// [`FitnessFn`] for local search, in **canonical (maximise)** space.
+/// Adapts a population-level [`BatchFitnessFn`] into the single-row fitness
+/// closure a local searcher takes, in **canonical (maximise)** space.
 ///
-/// Each [`evaluate_one`](FitnessFn::evaluate_one) builds a `[1, D]` tensor from
+/// Each [`eval`](Self::eval) builds a `[1, D]` tensor from
 /// the host-side row, calls `evaluate_batch`, pulls the single scalar back, and
 /// maps it into canonical space via the wrapped fn's
 /// [`sense`](BatchFitnessFn::sense). Local searchers maximise, and the seed
@@ -360,14 +361,14 @@ struct RowFitness<'a, B: Backend, F> {
     sense: ObjectiveSense,
 }
 
-impl<B, F> FitnessFn<Vec<f32>> for RowFitness<'_, B, F>
+impl<B, F> RowFitness<'_, B, F>
 where
     B: Backend,
     F: BatchFitnessFn<B, Tensor<B, 2>>,
 {
-    fn evaluate_one(&mut self, member: &Vec<f32>) -> f32 {
+    fn eval(&mut self, member: &[f32]) -> f32 {
         let dim: usize = member.len();
-        let data: TensorData = TensorData::new(member.clone(), [1, dim]);
+        let data: TensorData = TensorData::new(member.to_vec(), [1, dim]);
         let row: Tensor<B, 2> = Tensor::<B, 2>::from_data(data, self.device);
         let fitness: Tensor<B, 1> = self.inner.evaluate_batch(&row, self.device);
         let values: Vec<f32> = fitness
@@ -525,7 +526,7 @@ where
                     &params.local,
                     row,
                     known_fit,
-                    &mut row_fitness,
+                    &mut |x: &[f32]| row_fitness.eval(x),
                     &mut ls_rng,
                 );
                 debug_assert_eq!(
@@ -766,7 +767,7 @@ mod tests {
 
     /// Negated-sphere fitness (a maximise objective with optimum 0 at the
     /// origin) counting the total number of evaluated ROWS. Each
-    /// `RowFitness::evaluate_one` is one `[1, D]` batch, so refinement evals are
+    /// `RowFitness::eval` is one `[1, D]` batch, so refinement evals are
     /// counted too.
     #[derive(Debug, Default)]
     struct CountingBatchFitness {
