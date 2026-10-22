@@ -77,12 +77,11 @@ Lives in core so `rlevo-evolution` (which implements it) and `rlevo-harness` (wh
 
 ### `fitness` — Evaluation & Fitness Traits
 
-The agent/landscape side of the benchmark harness, also hoisted into core per ADR 0004. (Note: the `FitnessFn`/`BatchFitnessFn`/`GenomeKind` evolutionary traits now live in `rlevo-evolution` per ADR 0002 — they are **not** in this crate.)
+The agent/landscape side of the benchmark harness, also hoisted into core per ADR 0004. (Note: the `BatchFitnessFn` evolutionary trait lives in `rlevo-evolution` per ADR 0002 — it is **not** in this crate.)
 
 | Trait / Type | Description |
 |---|---|
 | `BenchableAgent<Obs, Act>` | Minimal inference interface (`act`) for an externally-driven evaluator; deterministic given a harness-owned RNG |
-| `FitnessEvaluable` | Optimizer-vs-landscape evaluation, used when the benchmark *is* the fitness function |
 | `Landscape` | Self-evaluating numerical landscape (Sphere, Ackley, Rastrigin) carrying both parameters and `f(x)` |
 | `MetricsProvider` | Reports method-specific `Metric` values at trial boundaries |
 | `Metric` | Method-specific signal emitted by an agent or aggregator |

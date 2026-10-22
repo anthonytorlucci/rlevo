@@ -30,7 +30,7 @@
 //! it does not instantiate [`ProbabilityModel`](crate::ProbabilityModel). The rank-`$\mu$`
 //! covariance blend is closer to an EMNA-style maximum-likelihood update than CMA-ES's path-driven
 //! adaptation, but the per-individual `$\sigma$` self-adaptation keeps it on the ES side of the
-//! boundary (research note `eda-vs-cma-es-boundary`).
+//! boundary.
 //!
 //! # References
 //!

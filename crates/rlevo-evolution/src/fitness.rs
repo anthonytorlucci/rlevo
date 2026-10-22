@@ -220,7 +220,7 @@ where
 ///   does so for the statistics a `tell` reports, which is the reduction a
 ///   strategy written outside the crate needs. A reduction performed by a
 ///   Burn device op cannot widen its accumulator and must instead bound its
-///   terms (ADR 0069, Decision 4).
+///   terms (ADR 0069, Decision 4, as restated by ADR 0091).
 /// - `$-\infty$` passes through: it is the worst-value sentinel *and* the
 ///   uninitialized `best_fitness_ever` seed, and it must stay non-finite so the
 ///   mean-over-finite statistic in
@@ -676,10 +676,9 @@ mod tests {
         approx::assert_relative_eq!(sanitized_mean([-7.25_f32]), -7.25, epsilon = 1e-6);
     }
 
-    /// Regression test for the load-bearing `BatchFitnessFn` invariant
-    /// documented in the fitness chapter of the user-book: `evaluate_batch`
-    /// returns a `Tensor<B, 1>` of shape `(pop_size,)` with row order
-    /// preserved.
+    /// Regression test for the load-bearing `BatchFitnessFn` invariant its
+    /// docs state: `evaluate_batch` returns a `Tensor<B, 1>` of shape
+    /// `(pop_size,)` with row order preserved.
     ///
     /// The population is deliberately **non-square** (`pop_size != genome_dim`)
     /// so a row/column transposition — reading the genome axis as the

@@ -3,11 +3,11 @@
 //! CMA-ES and CMSA-ES need a symmetric eigendecomposition (for the sampling transform
 //! `$B \cdot \mathrm{diag}(\sqrt{\Lambda})$` and the conditioning matrix `C^{-1/2}`) and a Cholesky
 //! factor (for CMSA-ES sampling). Burn 0.21 ships **no** Cholesky or eigendecomposition primitive,
-//! and the workspace deliberately avoids a `nalgebra` dependency (ADR 0021 §3 / research note
-//! `cma-es-sampling-and-numerics` §L4: the logged `nalgebra` `$4 \times 4$` symmetric-eigen bug and
-//! its non-portable LAPACK path do not justify the dependency for the `$D \leq 30$` regime these
-//! strategies target). Both routines therefore run on host `Vec<f32>` buffers — covariance matrices
-//! are tiny, so the device round-trip would dominate any on-device kernel anyway.
+//! and the workspace deliberately avoids a `nalgebra` dependency (ADR 0021): a logged `nalgebra`
+//! `$4 \times 4$` symmetric-eigen bug and its non-portable LAPACK path do not justify the
+//! dependency for the `$D \leq 30$` regime these strategies target. Both routines therefore run
+//! on host `Vec<f32>` buffers — covariance matrices are tiny, so the device round-trip would
+//! dominate any on-device kernel anyway.
 //!
 //! All matrices are **row-major** `$n \times n$`: entry `(i, j)` lives at index `i * n + j`.
 
