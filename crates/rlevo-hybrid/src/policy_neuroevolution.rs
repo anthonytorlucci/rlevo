@@ -37,7 +37,7 @@ pub struct PolicyNeuroevolution<B, S, M, E>
 where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + Sync + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1> + Send,
 {
     evo_loop: EvolutionaryLoop<B, WeightOnly<B, S, M>, RolloutFitness<B, M, E>>,
@@ -47,7 +47,7 @@ impl<B, S, M, E> std::fmt::Debug for PolicyNeuroevolution<B, S, M, E>
 where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + Sync + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1> + Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,7 +61,7 @@ impl<B, S, M, E> PolicyNeuroevolution<B, S, M, E>
 where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + Sync + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1> + Send,
 {
     /// Assemble the driver.
