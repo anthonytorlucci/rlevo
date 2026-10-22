@@ -1,11 +1,9 @@
-//! `Suite` groups environments under a shared evaluator configuration.
+//! `Suite` names a group of environments to evaluate together.
 //!
 //! Environments are built lazily per-trial via an [`EnvFactory`] so that
 //! rayon workers can own their own instance and receive a deterministic seed.
 
 use std::sync::Arc;
-
-use crate::evaluator::EvaluatorConfig;
 
 /// Factory that constructs a fresh environment instance from a seed.
 ///
@@ -18,14 +16,13 @@ pub type EnvFactory<E> = Arc<dyn Fn(u64) -> E + Send + Sync>;
 /// Constructed via [`Suite::new`] and extended with [`Suite::with_env`] in a
 /// builder style. Each environment is stored as an [`EnvFactory`] closure so
 /// that parallel workers can instantiate independent, deterministically seeded
-/// copies at trial time.
+/// copies at trial time. How the suite runs is the
+/// [`Evaluator`](crate::evaluator::Evaluator)'s configuration, not the suite's.
 pub struct Suite<E> {
     /// Display name of the suite, used as a label in reports and checkpoints.
     pub name: String,
     /// Registered environments: `(display_name, factory)` pairs in insertion order.
     pub envs: Vec<(String, EnvFactory<E>)>,
-    /// Default evaluator configuration applied when the suite is run.
-    pub default_config: EvaluatorConfig,
 }
 
 impl<E> std::fmt::Debug for Suite<E> {
@@ -36,18 +33,16 @@ impl<E> std::fmt::Debug for Suite<E> {
                 "envs",
                 &self.envs.iter().map(|(n, _)| n).collect::<Vec<_>>(),
             )
-            .field("default_config", &self.default_config)
             .finish()
     }
 }
 
 impl<E> Suite<E> {
-    /// Creates an empty suite with the given name and default evaluator config.
-    pub fn new(name: impl Into<String>, default_config: EvaluatorConfig) -> Self {
+    /// Creates an empty suite with the given name.
+    pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             envs: Vec::new(),
-            default_config,
         }
     }
 
@@ -79,7 +74,7 @@ pub struct SuiteInfo {
     pub num_trials_per_env: usize,
     /// Success threshold from the evaluator config, surfaced so recording
     /// reporters can stamp it onto the run manifest without reaching into
-    /// [`EvaluatorConfig`]. `None` when the
+    /// [`EvaluatorConfig`](crate::evaluator::EvaluatorConfig). `None` when the
     /// suite defines no success criterion.
     pub success_threshold: Option<f64>,
 }
@@ -108,31 +103,17 @@ pub struct TrialInfo {
 #[cfg(test)]
 mod tests {
     use super::{Suite, SuiteInfo, TrialKey};
-    use crate::evaluator::EvaluatorConfig;
-
-    fn minimal_config() -> EvaluatorConfig {
-        EvaluatorConfig {
-            num_episodes: 1,
-            num_trials_per_env: 1,
-            max_steps: 10,
-            base_seed: 0,
-            num_threads: None,
-            checkpoint_dir: None,
-            fail_fast: false,
-            success_threshold: None,
-        }
-    }
 
     #[test]
     fn new_suite_is_empty() {
-        let suite: Suite<()> = Suite::new("my-suite", minimal_config());
+        let suite: Suite<()> = Suite::new("my-suite");
         assert_eq!(suite.name, "my-suite");
         assert!(suite.envs.is_empty());
     }
 
     #[test]
     fn with_env_appends_names_in_order() {
-        let suite: Suite<u32> = Suite::new("s", minimal_config())
+        let suite: Suite<u32> = Suite::new("s")
             .with_env("alpha", |_seed| 1_u32)
             .with_env("beta", |_seed| 2_u32);
 
@@ -142,7 +123,7 @@ mod tests {
 
     #[test]
     fn factory_receives_the_seed() {
-        let suite: Suite<u64> = Suite::new("s", minimal_config()).with_env("seeded", |seed| seed);
+        let suite: Suite<u64> = Suite::new("s").with_env("seeded", |seed| seed);
 
         let (_, factory) = &suite.envs[0];
         assert_eq!(factory(42), 42);
@@ -151,7 +132,7 @@ mod tests {
 
     #[test]
     fn debug_impl_lists_env_names() {
-        let suite: Suite<u32> = Suite::new("s", minimal_config()).with_env("env-a", |_| 0_u32);
+        let suite: Suite<u32> = Suite::new("s").with_env("env-a", |_| 0_u32);
         let debug = format!("{suite:?}");
         assert!(debug.contains("Suite"));
         assert!(debug.contains("env-a"));

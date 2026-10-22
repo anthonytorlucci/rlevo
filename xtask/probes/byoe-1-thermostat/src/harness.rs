@@ -28,7 +28,7 @@ pub fn run() -> Result<String, String> {
         num_threads: Some(2),
         ..EvaluatorConfig::default()
     };
-    let suite = Suite::new("byoe-1", config.clone()).with_env(ENV_ID, Thermostat::with_seed);
+    let suite = Suite::new("byoe-1").with_env(ENV_ID, Thermostat::with_seed);
     let mut reporter = LoggingReporter::default();
     let report = Evaluator::new(config).run_suite(&suite, |_seed| BangBang, &mut reporter);
 

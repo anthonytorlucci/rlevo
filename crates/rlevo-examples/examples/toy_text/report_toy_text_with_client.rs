@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let suite = {
         let sink = sink.clone();
-        Suite::new("frozen-lake-report-client", cfg.clone()).with_env("frozen_lake", move |seed| {
+        Suite::new("frozen-lake-report-client").with_env("frozen_lake", move |seed| {
             let env = FrozenLake::with_config(FrozenLakeConfig {
                 map: FrozenMapSpec::Preset(FrozenPreset::Four4x4),
                 is_slippery: false,
