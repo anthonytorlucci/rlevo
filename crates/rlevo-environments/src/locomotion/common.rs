@@ -1,7 +1,5 @@
 //! Shared primitives for MuJoCo-style locomotion environments.
 //!
-//! * [`ObservationComponents`] bundles the Gymnasium `include_*_in_observation`
-//!   and `exclude_current_positions_from_observation` toggles into one struct.
 //! * [`HealthyCheck`] and [`TerminationMode`] centralise the healthy-state
 //!   termination logic (Hopper's torso z + angle, Walker2d's z + angle, Ant's
 //!   z, ...).
@@ -12,88 +10,13 @@
 //!   type, carrying an optional [`SnapshotMetadata`] (reward components +
 //!   positions).
 //! * Small helpers: [`ctrl_cost`] for the quadratic control cost that every
-//!   locomotion env pays, and [`is_finite_state`] for the `np.isfinite(state).all()`
-//!   gate Gymnasium uses.
+//!   locomotion env pays, and [`wrap_to_pi`] for a unique angle branch cut.
 //!
 //! [`SnapshotMetadata`]: rlevo_core::environment::SnapshotMetadata
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::environment::SnapshotBase;
 use rlevo_core::reward::ScalarReward;
-
-/// Which optional components are included in an environment's observation
-/// vector.
-///
-/// Defaults capture the Gymnasium v5 defaults:
-/// * Current-step `xy` position of the torso is excluded (`include_xy_position = false`),
-///   because including it makes the env non-stationary w.r.t. the forward-reward goal.
-/// * Ant includes the 78-dim `cfrc_ext`; Humanoid additionally includes
-///   `cinert` / `cvel` / `qfrc_actuator`.
-///
-/// Envs whose Gymnasium counterpart doesn't expose a given toggle simply
-/// ignore the corresponding field.
-//
-// One independent toggle per optional observation block, mirroring the MuJoCo
-// observation spec these environments reproduce. A bitfield or enum set would
-// break the one-field-per-spec-entry correspondence that makes this readable.
-#[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ObservationComponents {
-    /// Include the torso's world-frame `(x, y)` in the observation.
-    pub include_xy_position: bool,
-    /// Include per-body centre-of-mass inertia (`cinert`, 10 per body).
-    pub include_cinert: bool,
-    /// Include per-body centre-of-mass velocity (`cvel`, 6 per body).
-    pub include_cvel: bool,
-    /// Include per-joint actuator torque (`qfrc_actuator`).
-    pub include_qfrc_actuator: bool,
-    /// Include per-body external contact force-torque (`cfrc_ext`, 6 per body).
-    pub include_cfrc_ext: bool,
-}
-
-impl ObservationComponents {
-    /// Nothing optional included.
-    #[must_use]
-    pub const fn minimal() -> Self {
-        Self {
-            include_xy_position: false,
-            include_cinert: false,
-            include_cvel: false,
-            include_qfrc_actuator: false,
-            include_cfrc_ext: false,
-        }
-    }
-
-    /// Ant-v5 defaults: exclude xy, include `cfrc_ext` (no cinert / cvel / qfrc).
-    #[must_use]
-    pub const fn ant_default() -> Self {
-        Self {
-            include_xy_position: false,
-            include_cinert: false,
-            include_cvel: false,
-            include_qfrc_actuator: false,
-            include_cfrc_ext: true,
-        }
-    }
-
-    /// Humanoid-v5 defaults: exclude xy, include all remaining components.
-    #[must_use]
-    pub const fn humanoid_default() -> Self {
-        Self {
-            include_xy_position: false,
-            include_cinert: true,
-            include_cvel: true,
-            include_qfrc_actuator: true,
-            include_cfrc_ext: true,
-        }
-    }
-}
-
-impl Default for ObservationComponents {
-    fn default() -> Self {
-        Self::minimal()
-    }
-}
 
 /// Healthy-state check for envs with an "unhealthy → terminate" condition.
 ///
@@ -209,20 +132,6 @@ pub fn ctrl_cost<const N: usize>(weight: f32, action: &[f32; N]) -> f32 {
     weight * sum
 }
 
-/// Gymnasium's `is_finite(state).all()` guard — trips the unhealthy flag when
-/// the simulator diverges.
-#[must_use]
-pub fn is_finite_state(state: &[f32]) -> bool {
-    state.iter().all(|v| v.is_finite())
-}
-
-/// Clamp a contact-cost scalar into the env's allowed range, matching
-/// Gymnasium's `np.clip(contact_cost, lo, hi)` pattern.
-#[must_use]
-pub fn clip_contact_cost(contact_cost: f32, range: Bounds) -> f32 {
-    range.clamp(contact_cost)
-}
-
 /// Normalise an angle (radians) to the half-open interval `$(-\pi, \pi]$`.
 ///
 /// Used by any env that extracts a joint angle from a quaternion and needs a
@@ -272,24 +181,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn observation_components_ant_default_matches_spec() {
-        let comps = ObservationComponents::ant_default();
-        assert!(!comps.include_xy_position);
-        assert!(comps.include_cfrc_ext);
-        assert!(!comps.include_cinert);
-    }
-
-    #[test]
-    fn observation_components_humanoid_default_includes_everything_but_xy() {
-        let comps = ObservationComponents::humanoid_default();
-        assert!(!comps.include_xy_position);
-        assert!(comps.include_cinert);
-        assert!(comps.include_cvel);
-        assert!(comps.include_qfrc_actuator);
-        assert!(comps.include_cfrc_ext);
-    }
-
-    #[test]
     fn healthy_check_none_is_always_healthy() {
         let check = HealthyCheck::none();
         assert!(check.is_healthy(1e9, 1e9, &[1e9]));
@@ -337,20 +228,6 @@ mod tests {
             (c2 - 4.0 * c1).abs() < 1e-5,
             "ctrl_cost(2a) must equal 4·ctrl_cost(a); got {c1} vs {c2}"
         );
-    }
-
-    #[test]
-    fn is_finite_state_trips_on_nan_inf() {
-        assert!(is_finite_state(&[0.0, 1.0, -1.0]));
-        assert!(!is_finite_state(&[0.0, f32::NAN]));
-        assert!(!is_finite_state(&[0.0, f32::INFINITY]));
-    }
-
-    #[test]
-    fn clip_contact_cost_respects_range() {
-        assert_eq!(clip_contact_cost(5.0, Bounds::new(0.0, 10.0)), 5.0);
-        assert_eq!(clip_contact_cost(15.0, Bounds::new(0.0, 10.0)), 10.0);
-        assert_eq!(clip_contact_cost(-1.0, Bounds::new(0.0, 10.0)), 0.0);
     }
 
     #[test]

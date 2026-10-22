@@ -87,6 +87,6 @@ pub mod state;
 
 pub use action::SwimmerAction;
 pub use config::SwimmerConfig;
-pub use env::{METADATA_KEY_CTRL, METADATA_KEY_FORWARD, Swimmer, SwimmerRapier};
+pub use env::{METADATA_KEY_CTRL, METADATA_KEY_FORWARD, Swimmer};
 pub use observation::SwimmerObservation;
 pub use state::SwimmerState;

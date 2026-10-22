@@ -58,6 +58,6 @@ pub mod state;
 
 pub use action::ReacherAction;
 pub use config::ReacherConfig;
-pub use env::{METADATA_KEY_REWARD_CONTROL, METADATA_KEY_REWARD_DISTANCE, Reacher, ReacherRapier};
+pub use env::{METADATA_KEY_REWARD_CONTROL, METADATA_KEY_REWARD_DISTANCE, Reacher};
 pub use observation::ReacherObservation;
 pub use state::ReacherState;

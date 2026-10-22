@@ -4,12 +4,6 @@
 //! [`ConstructableEnv`] impls. Physics setup, drag application, and action
 //! integration are kept private; the public surface is the two trait methods
 //! [`Environment::reset`] and [`Environment::step`].
-//!
-//! The type alias [`SwimmerRapier`] is the only concretisation shipped at
-//! present; the backend type parameter exists to allow a future mock or
-//! alternative physics backend without changing the public API.
-
-use std::marker::PhantomData;
 
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
@@ -20,7 +14,7 @@ use rlevo_core::environment::{
 };
 use rlevo_core::reward::ScalarReward;
 
-use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
+use crate::locomotion::backend::{Rapier3DBackend, Rapier3DWorld};
 use crate::locomotion::common::{LocomotionSnapshot, ctrl_cost, wrap_to_pi};
 use rlevo_core::episode::EpisodeGuard;
 
@@ -35,12 +29,10 @@ pub const METADATA_KEY_FORWARD: &str = "forward";
 /// Reward-component key: `$-\text{ctrl\_cost\_weight} \cdot \|\text{action}\|^2$` (`$\leq 0$`).
 pub const METADATA_KEY_CTRL: &str = "ctrl";
 
-/// A 3-segment planar swimmer with viscous drag, generic over the physics
-/// backend.
+/// A 3-segment planar swimmer with viscous drag, simulated on `Rapier3D`.
 ///
 /// The swimmer chain is described in detail in the
-/// [`crate::locomotion::swimmer`] module doc. The only shipped backend is
-/// `B = Rapier3DBackend`, accessible through the [`SwimmerRapier`] type alias.
+/// [`crate::locomotion::swimmer`] module doc.
 ///
 /// Construct with [`ConstructableEnv::new`] (uses [`SwimmerConfig::default`])
 /// or with [`Swimmer::with_config`] for a custom configuration.
@@ -53,8 +45,8 @@ pub const METADATA_KEY_CTRL: &str = "ctrl";
 /// [`EnvironmentError::StepAfterEpisodeEnd`] until [`reset`](Environment::reset)
 /// is called (see the [`EpisodeGuard`] field).
 #[derive(Debug)]
-pub struct Swimmer<B: LocomotionBackend = Rapier3DBackend> {
-    world: B::World,
+pub struct Swimmer {
+    world: Rapier3DWorld,
     state: SwimmerState,
     config: SwimmerConfig,
     rng: StdRng,
@@ -66,15 +58,9 @@ pub struct Swimmer<B: LocomotionBackend = Rapier3DBackend> {
     /// budget the caller asked for, and re-emit `Truncated` with a fresh
     /// forward/ctrl reward — for as many calls as the caller makes.
     guard: EpisodeGuard,
-    _marker: PhantomData<B>,
 }
 
-/// Convenience alias: [`Swimmer`] using the `Rapier3D` backend.
-///
-/// This is the recommended concrete type for all production use.
-pub type SwimmerRapier = Swimmer<Rapier3DBackend>;
-
-impl Swimmer<Rapier3DBackend> {
+impl Swimmer {
     /// Create with an explicit configuration.
     ///
     /// # Errors
@@ -93,7 +79,6 @@ impl Swimmer<Rapier3DBackend> {
             rng,
             steps: 0,
             guard: EpisodeGuard::new(),
-            _marker: PhantomData,
         })
     }
 
@@ -327,7 +312,7 @@ impl Swimmer<Rapier3DBackend> {
     }
 }
 
-impl Sensor<1, 1, 1> for Swimmer<Rapier3DBackend> {
+impl Sensor<1, 1, 1> for Swimmer {
     type Action = SwimmerAction;
     type State = SwimmerState;
     type Observation = SwimmerObservation;
@@ -346,7 +331,7 @@ impl Sensor<1, 1, 1> for Swimmer<Rapier3DBackend> {
     }
 }
 
-impl ConstructableEnv for Swimmer<Rapier3DBackend> {
+impl ConstructableEnv for Swimmer {
     /// Create a [`Swimmer`] with [`SwimmerConfig::default`].
     ///
     /// The `render` parameter is accepted for trait compatibility but has no
@@ -356,7 +341,7 @@ impl ConstructableEnv for Swimmer<Rapier3DBackend> {
     }
 }
 
-impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
+impl Environment<1, 1, 1> for Swimmer {
     type StateType = SwimmerState;
     type ObservationType = SwimmerObservation;
     type ActionType = SwimmerAction;
@@ -580,8 +565,8 @@ mod tests {
     }
 
     /// Environment whose episodes truncate after [`GUARD_MAX_STEPS`] steps.
-    fn truncating_env() -> SwimmerRapier {
-        SwimmerRapier::with_config(SwimmerConfig {
+    fn truncating_env() -> Swimmer {
+        Swimmer::with_config(SwimmerConfig {
             max_steps: GUARD_MAX_STEPS,
             ..deterministic_cfg()
         })
@@ -589,7 +574,7 @@ mod tests {
     }
 
     /// Idles until the step budget runs out and returns the truncated snapshot.
-    fn drive_to_truncation(env: &mut SwimmerRapier) -> LocomotionSnapshot<SwimmerObservation> {
+    fn drive_to_truncation(env: &mut Swimmer) -> LocomotionSnapshot<SwimmerObservation> {
         env.reset().expect("reset must succeed");
         let mut snap = env.step(idle()).expect("first step must succeed");
         while !snap.is_done() {
@@ -769,7 +754,7 @@ mod tests {
             }
         }
         fn rollout(config: SwimmerConfig, action: SwimmerAction) -> [f32; 8] {
-            let mut env = SwimmerRapier::with_config(config).expect("valid config");
+            let mut env = Swimmer::with_config(config).expect("valid config");
             env.reset().expect("reset");
             env.step(action)
                 .expect("a boundary action of the static space must be accepted")
@@ -808,7 +793,7 @@ mod tests {
 
     #[test]
     fn reset_returns_running() {
-        let mut env = SwimmerRapier::with_config(cfg(7)).expect("valid config");
+        let mut env = Swimmer::with_config(cfg(7)).expect("valid config");
         let snap = env.reset().unwrap();
         assert!(!snap.is_done());
         assert!(snap.observation().is_finite());
@@ -816,7 +801,7 @@ mod tests {
 
     #[test]
     fn reset_with_zero_noise_is_upright() {
-        let mut env = SwimmerRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env = Swimmer::with_config(deterministic_cfg()).expect("valid config");
         let snap = env.reset().unwrap();
         let obs = snap.observation();
         assert!(obs.body_angle().abs() < 1e-5);
@@ -831,7 +816,7 @@ mod tests {
 
     #[test]
     fn reward_decomposition_sums_to_total() {
-        let mut env = SwimmerRapier::with_config(cfg(11)).expect("valid config");
+        let mut env = Swimmer::with_config(cfg(11)).expect("valid config");
         env.reset().unwrap();
         for i in 0..100 {
             let a =
@@ -861,7 +846,7 @@ mod tests {
 
     #[test]
     fn ctrl_component_nonpositive() {
-        let mut env = SwimmerRapier::with_config(cfg(13)).expect("valid config");
+        let mut env = Swimmer::with_config(cfg(13)).expect("valid config");
         env.reset().unwrap();
         for i in 0..50 {
             let a =
@@ -875,7 +860,7 @@ mod tests {
     #[test]
     fn determinism_across_reset() {
         let rollout = |actions: &[[f32; 2]]| {
-            let mut env = SwimmerRapier::with_config(cfg(123)).expect("valid config");
+            let mut env = Swimmer::with_config(cfg(123)).expect("valid config");
             env.reset().unwrap();
             let mut last = SwimmerObservation::default();
             for a in actions {
@@ -908,7 +893,7 @@ mod tests {
     fn two_successive_resets_differ() {
         // The persistent RNG advances across resets (default reset noise > 0),
         // so back-to-back resets must sample independent initial states.
-        let mut env = SwimmerRapier::with_config(cfg(7)).expect("valid config");
+        let mut env = Swimmer::with_config(cfg(7)).expect("valid config");
         let first = *env.reset().unwrap().observation();
         let second = *env.reset().unwrap().observation();
         assert_ne!(
@@ -920,7 +905,7 @@ mod tests {
 
     #[test]
     fn reset_with_seed_is_reproducible() {
-        let mut env = SwimmerRapier::with_config(cfg(7)).expect("valid config");
+        let mut env = Swimmer::with_config(cfg(7)).expect("valid config");
         let a = *env.reset_with_seed(999).unwrap().observation();
         // Advance the stream with an ordinary reset, then re-seed identically.
         env.reset().unwrap();
@@ -935,7 +920,7 @@ mod tests {
     #[test]
     fn init_noise_bounded() {
         for seed in 0..50 {
-            let env = SwimmerRapier::with_config(cfg(seed)).expect("valid config");
+            let env = Swimmer::with_config(cfg(seed)).expect("valid config");
             let obs = env.state.last_obs;
             assert!(obs.is_finite(), "seed {seed} produced non-finite obs");
             // Reset noise is `$\pm 0.1$`; body_angle and joint angles are pulled directly from the
@@ -960,7 +945,7 @@ mod tests {
 
     #[test]
     fn truncates_at_max_steps() {
-        let mut env = SwimmerRapier::with_config(SwimmerConfig {
+        let mut env = Swimmer::with_config(SwimmerConfig {
             max_steps: 5,
             ..Default::default()
         })
@@ -983,7 +968,7 @@ mod tests {
 
     #[test]
     fn invalid_action_is_error() {
-        let mut env = SwimmerRapier::with_config(SwimmerConfig::default()).expect("valid config");
+        let mut env = Swimmer::with_config(SwimmerConfig::default()).expect("valid config");
         env.reset().unwrap();
         let bad = SwimmerAction::new(f32::NAN, 0.0);
         assert!(env.step(bad).is_err());
@@ -993,7 +978,7 @@ mod tests {
 
     #[test]
     fn obs_is_finite_after_rollout() {
-        let mut env = SwimmerRapier::with_config(cfg(42)).expect("valid config");
+        let mut env = Swimmer::with_config(cfg(42)).expect("valid config");
         env.reset().unwrap();
         for i in 0..100 {
             let a = SwimmerAction::new(0.5 * (i as f32 * 0.3).sin(), 0.5 * (i as f32 * 0.4).cos());
@@ -1010,7 +995,7 @@ mod tests {
         // With zero reset noise then a deliberate angular velocity on each
         // segment, every observation slot is a named function of the state
         // that we can verify independently.
-        let mut env = SwimmerRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env = Swimmer::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
         // Forcibly set angular velocities on the three segments.
         if let Some(b) = env.world.bodies_mut().get_mut(env.state.segment0) {
@@ -1049,7 +1034,7 @@ mod tests {
         // multibody solver tracks the chain's state in reduced coordinates
         // and overrides direct body-level velocity writes.)
         use std::f32::consts::TAU;
-        let mut env = SwimmerRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env = Swimmer::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
         let mut peak_vx_mag = 0.0f32;
         for i in 0..60 {
@@ -1114,7 +1099,7 @@ mod tests {
         const STEPS: usize = 3;
         const RESIDUAL_TOL: f32 = 1e-3;
 
-        let mut env = SwimmerRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env = Swimmer::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
 
         // Clipped action `$\pm 1.0 \times$` gear 5 `$\Rightarrow \pm 5\ \text{N}\cdot\text{m}$`
@@ -1162,7 +1147,7 @@ mod tests {
         // ~300 steps but the sinusoidal version converges faster and gives
         // the test tighter tolerance.)
         use std::f32::consts::{FRAC_PI_2, TAU};
-        let mut env = SwimmerRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env = Swimmer::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
         let mut total_forward = 0.0f32;
         for i in 0..300 {

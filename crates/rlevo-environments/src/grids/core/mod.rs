@@ -121,7 +121,7 @@ pub type GridSnapshot = SnapshotBase<3, GridObservation, ScalarReward>;
 /// grid.draw_walls();
 /// let state = GridState::new(grid, AgentState::new(1, 1, Direction::East));
 /// let obs = observe_grid(&state, Visibility::SeeThrough);
-/// assert_eq!(obs.agent_direction, Some(Direction::East));
+/// assert_eq!(obs.agent_direction, Direction::East);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {

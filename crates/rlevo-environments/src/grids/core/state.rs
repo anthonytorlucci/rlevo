@@ -82,7 +82,7 @@ mod tests {
         let agent = AgentState::new(1, 1, Direction::East);
         let state = GridState::new(grid, agent);
         let obs = observe_grid(&state, Visibility::SeeThrough);
-        assert_eq!(obs.agent_direction, Some(Direction::East));
+        assert_eq!(obs.agent_direction, Direction::East);
     }
 
     #[test]

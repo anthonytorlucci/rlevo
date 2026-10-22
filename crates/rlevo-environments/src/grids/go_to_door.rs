@@ -216,8 +216,7 @@ impl Mission {
 pub struct GoToDoorObservation {
     /// Encoded view, indexed as `view[row][col][channel]`.
     pub view: [[[u8; GO_TO_DOOR_OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE],
-    /// Agent's absolute facing when the observation was produced, or `None`
-    /// when the facing is genuinely unknown.
+    /// Agent's absolute facing when the observation was produced.
     ///
     /// Typed as [`Direction`] rather than a raw byte so that no illegal
     /// encoding is representable — a raw `u8` permitted values like `200`
@@ -237,19 +236,7 @@ pub struct GoToDoorObservation {
     /// RIDE) discards it before the network. The mission is the one piece of
     /// out-of-image information this env *does* fold into the row, via
     /// [`MISSION_CHANNEL`] (ADR 0043).
-    ///
-    /// # What `None` means
-    ///
-    /// `None` means *the facing is genuinely unknown* — **not** "the agent
-    /// faces some default". A value produced by
-    /// [`from_entity_view`](Self::from_entity_view) or
-    /// [`from_masked_view`](Self::from_masked_view) — i.e. by `GoToDoorEnv`'s
-    /// own projection — is always `Some`; `None` arrives only from a caller
-    /// that builds or deserializes an observation without one. When the true
-    /// facing is needed, read it from the full state
-    /// ([`GridState::agent`](super::core::GridState::agent)), which is where
-    /// the allocentric heading lives.
-    pub agent_direction: Option<Direction>,
+    pub agent_direction: Direction,
 }
 
 impl GoToDoorObservation {
@@ -303,7 +290,7 @@ impl GoToDoorObservation {
         }
         Self {
             view: encoded,
-            agent_direction: Some(direction),
+            agent_direction: direction,
         }
     }
 
@@ -1338,8 +1325,7 @@ mod tests {
         }
     }
 
-    /// The facing is not in the row: every facing, and none, writes the same
-    /// row.
+    /// The facing is not in the row: every facing writes the same row.
     #[test]
     fn test_observation_host_row_ignores_agent_direction() {
         let env = env_6x6(9);
@@ -1348,11 +1334,10 @@ mod tests {
         obs.write_host_row(&mut expected);
 
         for agent_direction in [
-            Some(Direction::North),
-            Some(Direction::East),
-            Some(Direction::South),
-            Some(Direction::West),
-            None,
+            Direction::North,
+            Direction::East,
+            Direction::South,
+            Direction::West,
         ] {
             let mut row = Vec::new();
             GoToDoorObservation {

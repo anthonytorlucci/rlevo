@@ -1,4 +1,4 @@
-//! [`InvertedPendulumRapier`] recording → static-HTML report that mounts the
+//! [`InvertedPendulum`] recording → static-HTML report that mounts the
 //! Leptos/WASM client with the **locomotion SVG adapter** (sagittal-plane
 //! stick figure).
 //!
@@ -38,7 +38,7 @@ use rlevo_harness::record::{RecordSink, RecordWriter, RecordingConfig, Recording
 use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 
 use rlevo_environments::locomotion::inverted_pendulum::{
-    InvertedPendulumAction, InvertedPendulumConfig, InvertedPendulumRapier,
+    InvertedPendulum, InvertedPendulumAction, InvertedPendulumConfig,
 };
 
 const SEED: u64 = 2026;
@@ -47,7 +47,7 @@ const MAX_STEPS_PER_EPISODE: usize = 200;
 const CLIENT_DIST: &str = "crates/rlevo-benchmarks-report-client/dist";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let record_cfg = RecordingConfig::for_env::<InvertedPendulumRapier>(SEED);
+    let record_cfg = RecordingConfig::for_env::<InvertedPendulum>(SEED);
     let writer = RecordWriter::open_default(record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
     // v6 manifest provenance: a random forcing policy (no learner), plus
@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_build_provenance();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
-    let env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+    let env = InvertedPendulum::with_config(InvertedPendulumConfig {
         seed: SEED,
         ..InvertedPendulumConfig::default()
     })
