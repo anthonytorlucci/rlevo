@@ -103,8 +103,31 @@ struct RunResult {
     /// Total fitness-row evaluations consumed at the first crossing of
     /// `best_fitness_ever < target`, or `None` if never reached.
     evals_at_target: Option<usize>,
+    /// At that crossing, the cost the loop reports for its best genome and
+    /// that genome's cost on the landscape itself: `(reported, actual)`.
+    best_at_target: Option<(f32, f32)>,
     /// Per-generation `best_fitness_ever` trajectory.
     trajectory: Vec<f32>,
+}
+
+/// A genome's Rastrigin cost, computed as [`CountingRastrigin`] computes it
+/// but without counting an evaluation.
+fn rastrigin_cost(genome: Tensor<B, 2>) -> f32 {
+    let row: Vec<f64> = genome
+        .into_data()
+        .into_vec::<f32>()
+        .unwrap()
+        .into_iter()
+        .map(f64::from)
+        .collect();
+    assert_eq!(
+        row.len(),
+        DIM,
+        "the best genome must be one row of D values"
+    );
+    #[allow(clippy::cast_possible_truncation)]
+    let cost: f32 = Rastrigin::new(DIM).expect("dim >= 1").evaluate(&row) as f32;
+    cost
 }
 
 /// Drive bare DE to a target Rastrigin fitness, counting evaluations.
@@ -120,16 +143,20 @@ fn de_evals_to_target(seed: u64, de: &DeConfig, target: f32, max_gens: usize) ->
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
+    let mut best_at_target: Option<(f32, f32)> = None;
     while !evo_loop.is_done() {
         evo_loop.step();
         let best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         trajectory.push(best);
         if evals_at_target.is_none() && best < target {
             evals_at_target = Some(evals.load(Ordering::Relaxed));
+            let (genome, reported) = evo_loop.best().expect("a stepped loop has a best");
+            best_at_target = Some((reported, rastrigin_cost(genome)));
         }
     }
     RunResult {
         evals_at_target,
+        best_at_target,
         trajectory,
     }
 }
@@ -171,16 +198,20 @@ fn memetic_evals_to_target(
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
+    let mut best_at_target: Option<(f32, f32)> = None;
     while !evo_loop.is_done() {
         evo_loop.step();
         let best: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
         trajectory.push(best);
         if evals_at_target.is_none() && best < target {
             evals_at_target = Some(evals.load(Ordering::Relaxed));
+            let (genome, reported) = evo_loop.best().expect("a stepped loop has a best");
+            best_at_target = Some((reported, rastrigin_cost(genome)));
         }
     }
     RunResult {
         evals_at_target,
+        best_at_target,
         trajectory,
     }
 }
@@ -380,6 +411,28 @@ fn memetic_beats_bare_de_on_rastrigin_evals_to_target() {
     let memetic_evals: usize = mem
         .evals_at_target
         .unwrap_or_else(|| panic!("memetic never reached target {TARGET} in {MAX_GENS} gens"));
+
+    //     Each reaches it for real: the genome the loop reports as best costs
+    //     less than the target on the landscape itself, and costs what the
+    //     loop reports. The eval counts below cannot show this. If the wrapper
+    //     hands its local search the natural cost instead of the canonical
+    //     value, the searcher climbs the cost surface, the costs it finds are
+    //     written back as fitness, and the target looks reached after the
+    //     first generation: memetic then wins by more, not less.
+    for (name, run) in [("bare DE", &bare), ("memetic", &mem)] {
+        let (reported, actual): (f32, f32) = run
+            .best_at_target
+            .expect("recorded with the eval count at the crossing");
+        assert!(
+            actual < TARGET,
+            "{name}'s best genome costs {actual} on Rastrigin, not below {TARGET}; \
+             the loop reported {reported}"
+        );
+        assert!(
+            (actual - reported).abs() <= 1e-3,
+            "{name}'s best genome costs {actual} on Rastrigin, but the loop reported {reported}"
+        );
+    }
 
     println!("bare_evals={bare_evals} memetic_evals={memetic_evals} target={TARGET}");
 
