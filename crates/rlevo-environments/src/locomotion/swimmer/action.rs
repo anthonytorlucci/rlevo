@@ -43,11 +43,6 @@ impl ContinuousAction<1> for SwimmerAction {
         &self.0
     }
 
-    /// Returns a new action with both torque targets clamped to `[min, max]`.
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
-    }
-
     /// Construct from a slice of exactly `COMPONENTS` values
     /// `[joint1, joint2]`.
     ///
@@ -63,15 +58,6 @@ impl ContinuousAction<1> for SwimmerAction {
             values.len(),
         );
         Self([values[0], values[1]])
-    }
-
-    /// Sample both torque targets uniformly from `[-1.0, 1.0]` using the
-    /// thread-local RNG.
-    fn random() -> Self {
-        Self([
-            rand::random::<f32>() * 2.0 - 1.0,
-            rand::random::<f32>() * 2.0 - 1.0,
-        ])
     }
 }
 

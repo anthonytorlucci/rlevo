@@ -102,78 +102,6 @@ pub trait Validate {
     /// Returns a [`ConfigError`] naming the offending field and the violated
     /// [`ConstraintKind`] as soon as any invariant fails.
     fn validate(&self) -> Result<(), ConfigError>;
-
-    /// Returns *every* violated invariant rather than just the first.
-    ///
-    /// The default implementation defers to [`validate`](Self::validate),
-    /// yielding at most one error wrapped in a `Vec`. Override it for configs
-    /// with several **independent** derived fields — CMA-ES recombination
-    /// weights and covariance learning rates being the motivating case — where
-    /// surfacing all violations at once spares the caller a fix-recheck-repeat
-    /// cycle. Accumulate the checks with [`Violations`], and keep [`validate`](Self::validate)
-    /// consistent by deriving it from the first collected error.
-    ///
-    /// # Errors
-    ///
-    /// Returns a non-empty `Vec<ConfigError>` — one entry per violated
-    /// invariant — if any invariant fails.
-    fn validate_all(&self) -> Result<(), Vec<ConfigError>> {
-        self.validate().map_err(|e| vec![e])
-    }
-}
-
-/// Accumulator for [`Validate::validate_all`] implementations.
-///
-/// Feed each check into [`check`](Self::check): a failing [`ConfigError`] is
-/// recorded and evaluation continues, so one pass collects *every* violation.
-/// [`into_result`](Self::into_result) then yields `Ok(())` when nothing failed
-/// or the full list otherwise.
-///
-/// ```
-/// use rlevo_core::config::{self, Violations};
-///
-/// let mut v = Violations::new();
-/// v.check(config::positive("Demo", "a", -1.0)); // fails
-/// v.check(config::nonzero("Demo", "b", 3)); // ok
-/// v.check(config::in_range("Demo", "c", 0.0, 1.0, 2.0)); // fails
-/// let errs = v.into_result().unwrap_err();
-/// assert_eq!(errs.len(), 2);
-/// assert_eq!(errs[0].field, "a");
-/// assert_eq!(errs[1].field, "c");
-/// ```
-#[derive(Debug, Default)]
-pub struct Violations {
-    errors: Vec<ConfigError>,
-}
-
-impl Violations {
-    /// Creates an empty accumulator.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Records `check` when it failed; a passing check is a no-op. Either way
-    /// evaluation continues, so callers list all their invariants back to back.
-    pub fn check(&mut self, check: Result<(), ConfigError>) {
-        if let Err(e) = check {
-            self.errors.push(e);
-        }
-    }
-
-    /// Consumes the accumulator: `Ok(())` if nothing failed, otherwise every
-    /// collected violation.
-    ///
-    /// # Errors
-    ///
-    /// Returns the non-empty `Vec<ConfigError>` of all recorded violations.
-    pub fn into_result(self) -> Result<(), Vec<ConfigError>> {
-        if self.errors.is_empty() {
-            Ok(())
-        } else {
-            Err(self.errors)
-        }
-    }
 }
 
 /// A single violated configuration invariant.
@@ -574,8 +502,8 @@ pub fn at_most(
 #[cfg(test)]
 mod tests {
     use super::{
-        Bounds, ConfigError, ConstraintKind, Validate, Violations, at_least, at_most, distinct,
-        in_range, nondegenerate_bounds, nonzero, ordered, positive,
+        Bounds, ConfigError, ConstraintKind, at_least, at_most, distinct, in_range,
+        nondegenerate_bounds, nonzero, ordered, positive,
     };
 
     const C: &str = "TestConfig";
@@ -889,39 +817,6 @@ mod tests {
         assert_eq!(err.config, C);
         assert_eq!(err.field, "capacity");
         assert_eq!(err.kind, ConstraintKind::TooLarge { max: 8, got: 9 });
-    }
-
-    #[test]
-    fn violations_accumulate_every_failure() {
-        let mut v = Violations::new();
-        v.check(positive(C, "a", -1.0));
-        v.check(nonzero(C, "b", 4));
-        v.check(in_range(C, "c", 0.0, 1.0, 2.0));
-        let errs = v.into_result().unwrap_err();
-        assert_eq!(errs.len(), 2);
-        assert_eq!(errs[0].field, "a");
-        assert_eq!(errs[1].field, "c");
-    }
-
-    #[test]
-    fn violations_all_ok_is_ok() {
-        let mut v = Violations::new();
-        v.check(positive(C, "a", 1.0));
-        v.check(nonzero(C, "b", 4));
-        assert!(v.into_result().is_ok());
-    }
-
-    #[test]
-    fn validate_all_default_wraps_first_error() {
-        struct One;
-        impl Validate for One {
-            fn validate(&self) -> Result<(), ConfigError> {
-                positive(C, "x", 0.0)
-            }
-        }
-        let errs = One.validate_all().unwrap_err();
-        assert_eq!(errs.len(), 1);
-        assert_eq!(errs[0].field, "x");
     }
 
     #[test]

@@ -1458,9 +1458,6 @@ mod tests {
                 fn as_slice(&self) -> &[f32] {
                     &self.0
                 }
-                fn clip(&self, min: f32, max: f32) -> Self {
-                    Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
-                }
                 fn from_slice(values: &[f32]) -> Self {
                     assert_eq!(values.len(), Self::COMPONENTS);
                     Self([values[0], values[1]])

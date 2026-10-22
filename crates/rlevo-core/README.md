@@ -31,30 +31,27 @@ The primitive building blocks of the RL abstraction.
 | `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
 | `HostRow<R>` | An observation's flat `f32` row (`write_host_row`), in the shape `shape()` reports |
 | `TensorConvertible<R, B>` | With the `burn` feature: uploads a `HostRow` as a Burn tensor; implemented for every `HostRow` |
-| `TransitionDynamics<SR, AR, S, A>` | Deterministic state-transition function |
 
 To feed an observation to a neural-network agent, implement `HostRow` on it. `TensorConvertible` comes with the `burn` feature, which `rlevo-reinforcement-learning` turns on, and needs no impl of its own. Without the feature the crate does not depend on Burn.
 
 ### `action` — Action Spaces
 
-Three orthogonal action abstractions cover the standard taxonomy:
+Layered action abstractions cover the standard taxonomy:
 
 | Trait | Use Case |
 |---|---|
-| `DiscreteAction<R>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index`, `to_index`, `enumerate`, `random`. |
-| `MultiDiscreteAction<R>` | Multiple independent discrete dimensions (e.g., direction $\times$ attack). Combinatorial enumeration and uniform random sampling. |
-| `ContinuousAction<R>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[$-$1, 1)). |
+| `DiscreteAction<R>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index` and `to_index`. |
+| `ContinuousAction<R>` | Real-valued vectors with `from_slice` and `as_slice`, of `COMPONENTS` values. |
 | `BoundedAction<R>` | Extends `ContinuousAction<R>` with per-component `low()` / `high()` bounds. |
 
 ### `state` — Advanced State Abstractions
 
-Extensions to `State<R>` for partial observability and hierarchy:
+Extensions to `State<R>`:
 
 | Trait | Purpose |
 |---|---|
 | `Observable<OR>` | Optional pure state→observation projection (`project()`) that a `Sensor` may delegate to (ADR 0047); `OR` is independent of `SR` (`OR == SR` included), so it can also change modality, e.g. RAM bytes viewed as pixels (ADR 0019) |
-| `BeliefState<OR, SR, AR, S, A>` | POMDP belief distribution over latent states, updated from action `A` and an `Observation<OR>` |
-| `StateAggregation<SR, S>` | Maps concrete states to abstract representatives for hierarchical RL |
+| `StateError` | Why a value is not a legal state |
 
 ### `environment` — Environment Protocol
 
@@ -102,7 +99,6 @@ The agent/landscape side of the benchmark harness, also hoisted into core per AD
 
 | Item | Description |
 |---|---|
-| `combinations(n, k)` | Binomial coefficient (folded in from the former `rlevo-utils` crate per ADR 0003) |
 | `seed::SeedStream` | Reproducible host-side seed source for downstream RNGs |
 
 ### `bounds`, `config`, `objective`, `probability`, `rate` — Validated Value Types
@@ -112,8 +108,8 @@ Small validated newtypes and helpers shared across config validation in environm
 | Item | Description |
 |---|---|
 | `Bounds` / `BoundsError` | Validated `[low, high]` interval type |
-| `Validate` | Trait for config structs to self-check: `validate()` returns the first `ConfigError`, `validate_all()` every one (collected with `Violations`) |
-| `ConfigError` / `ConstraintKind` / `Violations` | Structured config-validation error reporting, plus helper checks (`positive`, `in_range`, `ordered`, `distinct`, `nonzero`, `at_least`, `at_most`) |
+| `Validate` | Trait for config structs to self-check: `validate()` returns the first `ConfigError` |
+| `ConfigError` / `ConstraintKind` | Structured config-validation error reporting, plus helper checks (`positive`, `in_range`, `ordered`, `distinct`, `nonzero`, `at_least`, `at_most`) |
 | `ObjectiveSense` | `Minimize \| Maximize`, used to disambiguate landscape/fitness direction |
 | `Probability` / `ProbabilityError` | Validated `[0, 1]` newtype |
 | `NonNegativeRate` / `NonNegativeRateError` | Validated non-negative `f32` newtype (learning rates, decay rates, etc.) |
@@ -231,7 +227,7 @@ The following papers directly informed the algorithms and concepts in this crate
 
 - Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — foundational framework for the `Environment` / `Snapshot` / `Reward` trait design and the Terminated vs. Truncated episode status distinction.
 
-- Puterman, M. L. (1994). **Markov Decision Processes: Discrete Stochastic Dynamic Programming**. Wiley [acm digital library](https://dl.acm.org/doi/10.5555/528623). — theoretical grounding for `BeliefState` and `TransitionDynamics`.
+- Puterman, M. L. (1994). **Markov Decision Processes: Discrete Stochastic Dynamic Programming**. Wiley [acm digital library](https://dl.acm.org/doi/10.5555/528623). — theoretical grounding for the MDP formalism the `Environment` contract follows.
 
 ## License
 

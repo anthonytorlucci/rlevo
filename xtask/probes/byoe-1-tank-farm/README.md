@@ -58,15 +58,10 @@ Step 2's finding is the thermostat's: `rand`, for `BenchableAgent::act`.
 
 ## Findings in the source
 
-Two `FINDING:` comments in `src/tank_farm.rs` record friction that compiles:
-
-- `ContinuousAction::as_slice` returns `&[f32]`, so the command stores its
-  rates as an array. Two named fields cannot return a slice without
-  `#[repr(C)]` and `unsafe`.
-- `ContinuousAction::random` has a default that samples `[-1, 1)`, outside
-  the pumps' range, and its documentation says such a type must override it.
-  It takes no generator, so an override could only draw from an unseeded one.
-  The probe leaves the default and never calls it.
+One `FINDING:` comment in `src/tank_farm.rs` records friction that compiles:
+`ContinuousAction::as_slice` returns `&[f32]`, so the command stores its
+rates as an array. Two named fields cannot return a slice without
+`#[repr(C)]` and `unsafe`.
 
 ## Files
 

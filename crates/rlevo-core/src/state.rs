@@ -1,117 +1,31 @@
 //! State abstraction traits beyond the base [`State`] contract.
 //!
-//! - [`BeliefState`] — probability distribution over possible states (POMDP)
-//! - [`StateAggregation`] — maps concrete states to abstract representatives
+//! - [`StateError`] — why a value is not a legal state
 //! - [`Observable`] — optional pure-projection helper an env-side
 //!   [`Sensor`](crate::environment::Sensor) may delegate to (e.g. `OR != SR`)
 //!
 //! [`State`]: crate::base::State
 
-use crate::base::{Action, Observation, State};
+use crate::base::Observation;
 
 /// Error type for state validation failures.
 ///
-/// Returned by validation logic when a state's shape, contents, or element
-/// count do not match the expectations of the calling code.
+/// Returned by a constructor or conversion when a value's contents do not
+/// make a legal state.
 ///
 /// # Examples
 ///
 /// ```
 /// use rlevo_core::state::StateError;
 ///
-/// let err = StateError::InvalidShape {
-///     expected: vec![4, 4],
-///     got: vec![4, 3],
-/// };
-/// assert!(err.to_string().contains("Invalid shape"));
-///
 /// let err = StateError::InvalidData("NaN in position field".into());
 /// assert!(err.to_string().contains("NaN in position field"));
-///
-/// let err = StateError::InvalidSize { expected: 16, got: 12 };
-/// assert!(err.to_string().contains("Invalid size"));
 /// ```
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum StateError {
-    /// Shape dimensions do not match expectations.
-    #[error("Invalid shape: expected {expected:?}, got {got:?}")]
-    InvalidShape {
-        expected: Vec<usize>,
-        got: Vec<usize>,
-    },
     /// Data contents violate invariants.
     #[error("Invalid data: {0}")]
     InvalidData(String),
-    /// Total element count does not match expectations.
-    #[error("Invalid size: expected {expected}, got {got}")]
-    InvalidSize { expected: usize, got: usize },
-}
-
-/// A probability distribution over possible environment states (POMDP belief).
-///
-/// Belief states are used in partially-observable settings where the agent
-/// cannot observe the true state directly. The belief is updated via Bayes'
-/// rule as the most recent action and new observation arrive.
-///
-/// # Observation type
-///
-/// The belief carries its own [`Observation`] associated type at rank `OR`.
-/// Before ADR 0047 this was `State::Observation`, but observation production
-/// moved off [`State`] to the env-side [`Sensor`](crate::environment::Sensor),
-/// so the belief now names the observation it is updated from independently of
-/// its state type — and, like the [`Environment`](crate::environment::Environment)
-/// contract, admits an observation rank `OR` decoupled from the state rank `SR`.
-///
-/// # Type Parameters
-///
-/// - `OR`: Rank of the observation space tensor the belief is updated from.
-/// - `SR`: Rank of the state space tensor (number of axes).
-/// - `AR`: Rank of the action space tensor (number of axes).
-/// - `S`: The underlying environment [`State`] type.
-/// - `A`: The [`Action`] type taken by the agent.
-pub trait BeliefState<
-    const OR: usize,
-    const SR: usize,
-    const AR: usize,
-    S: State<SR>,
-    A: Action<AR>,
->: Clone
-{
-    /// The observation type this belief is updated from, at tensor order `OR`.
-    type Observation: Observation<OR>;
-
-    /// Updates the belief distribution given the last action taken and the
-    /// newly received observation.
-    #[must_use]
-    fn update(&self, action: &A, observation: &Self::Observation) -> Self;
-
-    /// Draws a state sample from the current belief distribution.
-    fn sample(&self) -> S;
-
-    /// Returns the probability (or unnormalized weight) assigned to `state`.
-    fn probability(&self, state: &S) -> f64;
-}
-
-/// Maps concrete states to abstract representatives for state aggregation.
-///
-/// State aggregation is used in function approximation and hierarchical RL to
-/// group similar states under a shared abstract representation.
-///
-/// # Type Parameters
-///
-/// - `SR`: Rank of the concrete state space tensor.
-/// - `S`: The concrete [`State`] type being aggregated.
-pub trait StateAggregation<const SR: usize, S: State<SR>> {
-    /// The abstract state type produced by aggregation.
-    type AbstractState: Clone + Eq;
-
-    /// Returns the abstract representative for `state`.
-    fn aggregate(&self, state: &S) -> Self::AbstractState;
-
-    /// Returns `true` when `state1` and `state2` map to the same abstract state.
-    fn same_aggregate(&self, state1: &S, state2: &S) -> bool {
-        self.aggregate(state1) == self.aggregate(state2)
-    }
 }
 
 /// Optional pure-projection helper: derives an observation directly from a state
@@ -119,7 +33,7 @@ pub trait StateAggregation<const SR: usize, S: State<SR>> {
 ///
 /// `Observable` is a convenience for the case where an observation is a **pure
 /// function of the state** — no world / simulator context is needed. Since ADR
-/// 0047 moved observation production off [`State`] to the env-side
+/// 0047 moved observation production off [`State`](crate::base::State) to the env-side
 /// [`Sensor`](crate::environment::Sensor), `Observable` is no longer the home
 /// for observation and is no longer required: it is a helper an environment's
 /// [`Sensor`](crate::environment::Sensor) *may* delegate to when its observation
@@ -188,7 +102,7 @@ pub trait StateAggregation<const SR: usize, S: State<SR>> {
 ///
 /// let obs = Ram { byte: 0b1011 }.project();
 /// assert_eq!(Pixels::shape(), [2, 2]);
-/// assert_eq!(<Pixels as Observation<2>>::RANK, 2);
+/// assert_eq!(<Pixels as Observation<2>>::shape().len(), 2);
 /// assert_eq!(obs.0, [[1, 1], [0, 1]]);
 /// ```
 pub trait Observable<const OR: usize> {
@@ -196,7 +110,7 @@ pub trait Observable<const OR: usize> {
     type Observation: Observation<OR>;
 
     /// Projects `self` into an observation whose order `OR` may differ from any
-    /// [`State<SR>`](State) order the type also implements.
+    /// [`State<SR>`](crate::base::State) order the type also implements.
     ///
     /// The projection is a pure function of the state and is total over valid
     /// states (see the trait [Invariants](Observable#invariants)). An
@@ -208,6 +122,7 @@ pub trait Observable<const OR: usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::base::State;
 
     /// A rank-2 pixel observation: a 2x2 grid of bits.
     ///
@@ -273,7 +188,7 @@ mod tests {
             "state is rank 1"
         );
         assert_eq!(
-            <MockRamState as Observable<2>>::Observation::RANK,
+            <MockRamState as Observable<2>>::Observation::shape().len(),
             2,
             "projected observation is rank 2"
         );

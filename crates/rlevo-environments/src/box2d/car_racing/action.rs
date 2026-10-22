@@ -72,8 +72,8 @@ impl CarRacingAction {
     /// Generate a random valid action sampled uniformly within the asymmetric bounds:
     /// `$\text{steer} \in [-1, 1]$`, `$\text{gas} \in [0, 1]$`, `$\text{brake} \in [0, 1]$`.
     ///
-    /// Generic over the RNG so it can back both the deterministic seeded path
-    /// and the [`ContinuousAction::random`] override (ADR 0038).
+    /// Draws from the caller's generator, so a seeded run stays reproducible
+    /// (ADR 0029).
     pub fn random_valid<R: rand::Rng + ?Sized>(rng: &mut R) -> Self {
         use rand::RngExt;
         Self::new(
@@ -102,17 +102,6 @@ impl ContinuousAction<1> for CarRacingAction {
         &self.components
     }
 
-    /// Clamps all three components to `[min, max]`.
-    ///
-    /// Note that clamping `gas` or `brake` with a negative `min` will produce a
-    /// value that fails `is_valid`. Prefer [`CarRacingAction::as_array`] and manual
-    /// per-component clamping when asymmetric bounds matter.
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self {
-            components: self.components.map(|v| v.clamp(min, max)),
-        }
-    }
-
     /// Construct from a slice of exactly `COMPONENTS` values
     /// `[steer, gas, brake]`.
     ///
@@ -128,13 +117,6 @@ impl ContinuousAction<1> for CarRacingAction {
             values.len(),
         );
         Self::new(values[0], values[1], values[2])
-    }
-
-    /// Samples a uniformly-random **valid** action within `CarRacing`'s asymmetric
-    /// bounds. Overrides the trait default, whose symmetric `[-1, 1)` range would
-    /// sample negative gas/brake and fail [`Action::is_valid`] (ADR 0038).
-    fn random() -> Self {
-        Self::random_valid(&mut rand::rng())
     }
 }
 
@@ -267,12 +249,14 @@ mod tests {
     }
 
     #[test]
-    fn test_random_is_valid() {
-        // The overridden `random()` respects the asymmetric bounds, so every
-        // draw must satisfy `is_valid` (the trait default's `[-1, 1)` range
-        // would sample negative gas/brake and fail here).
+    fn test_random_valid_is_valid() {
+        // `random_valid` respects the asymmetric bounds, so every draw must
+        // satisfy `is_valid`: a symmetric `[-1, 1)` range would sample
+        // negative gas/brake and fail here.
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
         for _ in 0..100 {
-            let a = CarRacingAction::random();
+            let a = CarRacingAction::random_valid(&mut rng);
             assert!(a.is_valid(), "random action must be valid: {a:?}");
         }
     }

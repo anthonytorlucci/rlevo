@@ -132,9 +132,6 @@ impl ContinuousAction<1> for MaskContinuousAction {
     fn as_slice(&self) -> &[f32] {
         std::slice::from_ref(&self.0)
     }
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self(self.0.clamp(min, max))
-    }
     fn from_slice(values: &[f32]) -> Self {
         assert_eq!(values.len(), 1, "continuous action width");
         Self(values[0])

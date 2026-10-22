@@ -107,7 +107,7 @@ impl Display for KArmedBanditState {
 ///
 /// - [`Action<1>`]: validity check + shape reporting (`[K]`).
 /// - [`DiscreteAction<1>`]: `ACTION_COUNT = K`, plus `from_index` /
-///   `to_index` / `random` / `enumerate` (the last three via trait defaults).
+///   `to_index`.
 /// - [`Display`]: renders as `"KArmedBanditAction<K>(arm=N)"`.
 ///
 /// # Examples
@@ -119,9 +119,7 @@ impl Display for KArmedBanditState {
 /// let a = KArmedBanditAction::<10>::new(5).expect("5 is in range");
 /// assert_eq!(a.arm(), 5);
 /// assert_eq!(a.to_index(), 5);
-///
-/// let all = KArmedBanditAction::<10>::enumerate();
-/// assert_eq!(all.len(), KArmedBanditAction::<10>::ACTION_COUNT);
+/// assert_eq!(KArmedBanditAction::<10>::ACTION_COUNT, 10);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct KArmedBanditAction<const K: usize> {
@@ -672,11 +670,9 @@ mod tests {
     }
 
     #[test]
-    fn action_enumerate_covers_all_arms() {
-        let all = KArmedBanditAction::<K>::enumerate();
-        assert_eq!(all.len(), K);
-        for (i, a) in all.iter().enumerate() {
-            assert_eq!(a.to_index(), i);
+    fn action_index_round_trips_on_every_arm() {
+        for i in 0..K {
+            assert_eq!(KArmedBanditAction::<K>::from_index(i).to_index(), i);
         }
     }
 

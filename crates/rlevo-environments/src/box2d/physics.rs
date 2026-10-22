@@ -1,9 +1,8 @@
 //! Shared `Rapier2D` physics backend for Box2D-style environments.
 //!
 //! [`RapierWorld`] wraps the full rapier2d pipeline and exposes a minimal
-//! public surface: `step`, `snapshot`, `restore`, body/collider/joint
-//! insertion, and ray-casting for lidar. All rapier2d sets are private
-//! (design decision D4).
+//! public surface: `step`, body/collider/joint insertion, and ray-casting for
+//! lidar. All rapier2d sets are private (design decision D4).
 //!
 //! **Note**: rapier2d 0.32 uses glam (`Vec2`) for math types, not nalgebra.
 //! Use [`rapier2d::math::Vector`] (= `glam::Vec2`) for vectors.
@@ -11,31 +10,10 @@
 use rapier2d::parry::query::DefaultQueryDispatcher;
 use rapier2d::prelude::*;
 
-/// Opaque physics snapshot used for deterministic rollout and restore.
-///
-/// Stores a flat copy of every rigid body's isometry and velocity so the
-/// world can be restored to an earlier state without re-serialising the
-/// full broad-phase / narrow-phase state.
-#[derive(Debug, Clone)]
-pub struct PhysicsSnapshot {
-    records: Vec<BodyRecord>,
-}
-
-#[derive(Debug, Clone)]
-struct BodyRecord {
-    handle: RigidBodyHandle,
-    pos: [f32; 2],
-    rot: f32,
-    linvel: [f32; 2],
-    angvel: f32,
-}
-
 /// Encapsulated `Rapier2D` simulation world.
 ///
 /// Create one per environment via [`RapierWorld::new`], add bodies and
 /// colliders, then call [`RapierWorld::step`] each environment step.
-/// Use [`RapierWorld::snapshot`] / [`RapierWorld::restore`] for
-/// deterministic rollouts (design decision D4).
 pub struct RapierWorld {
     bodies: RigidBodySet,
     colliders: ColliderSet,
@@ -123,44 +101,6 @@ impl RapierWorld {
         for (_, body) in self.bodies.iter_mut() {
             body.reset_forces(false);
             body.reset_torques(false);
-        }
-    }
-
-    /// Capture the current state of all rigid bodies.
-    #[must_use]
-    pub fn snapshot(&self) -> PhysicsSnapshot {
-        let records = self
-            .bodies
-            .iter()
-            .map(|(handle, body)| {
-                let pos = body.translation();
-                let rot = body.rotation().angle();
-                let vel = body.linvel();
-                let angvel = body.angvel();
-                BodyRecord {
-                    handle,
-                    pos: [pos.x, pos.y],
-                    rot,
-                    linvel: [vel.x, vel.y],
-                    angvel,
-                }
-            })
-            .collect();
-        PhysicsSnapshot { records }
-    }
-
-    /// Restore rigid body positions and velocities from a prior snapshot.
-    ///
-    /// Bodies present at snapshot time but removed since are silently
-    /// skipped. Bodies added after the snapshot are not affected.
-    pub fn restore(&mut self, snap: &PhysicsSnapshot) {
-        for rec in &snap.records {
-            if let Some(body) = self.bodies.get_mut(rec.handle) {
-                body.set_translation(Vector::new(rec.pos[0], rec.pos[1]), true);
-                body.set_rotation(Rotation::new(rec.rot), true);
-                body.set_linvel(Vector::new(rec.linvel[0], rec.linvel[1]), true);
-                body.set_angvel(rec.angvel, true);
-            }
         }
     }
 
@@ -284,27 +224,6 @@ mod tests {
         }
         let y1 = world.bodies().get(handle).unwrap().translation().y;
         assert!(y1 < y0, "body should fall under gravity");
-    }
-
-    #[test]
-    fn test_snapshot_restore_roundtrip() {
-        let mut world = make_world();
-        let handle =
-            world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(0.0, 10.0)));
-        for _ in 0..10 {
-            world.step();
-        }
-        let snap = world.snapshot();
-        let pos_at_snap = world.bodies().get(handle).unwrap().translation().y;
-        for _ in 0..20 {
-            world.step();
-        }
-        world.restore(&snap);
-        let pos_after_restore = world.bodies().get(handle).unwrap().translation().y;
-        assert!(
-            (pos_at_snap - pos_after_restore).abs() < 1e-5,
-            "restore should return body to snapshot position"
-        );
     }
 
     #[test]

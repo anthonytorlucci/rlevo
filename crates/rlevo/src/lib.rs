@@ -88,7 +88,6 @@ pub use burn;
 ///
 /// **Action extensions** (`rlevo::core::action`):
 /// [`DiscreteAction`](core::action::DiscreteAction),
-/// [`MultiDiscreteAction`](core::action::MultiDiscreteAction),
 /// [`ContinuousAction`](core::action::ContinuousAction),
 /// [`BoundedAction`](core::action::BoundedAction)
 ///
@@ -114,7 +113,7 @@ pub mod prelude {
 
     // Action extensions
     pub use rlevo_core::action::{
-        BoundedAction, ContinuousAction, DiscreteAction, InvalidActionError, MultiDiscreteAction,
+        BoundedAction, ContinuousAction, DiscreteAction, InvalidActionError,
     };
 
     // State and action errors

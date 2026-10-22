@@ -534,7 +534,6 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::action::ContinuousAction;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
@@ -794,14 +793,6 @@ mod tests {
                 break;
             }
         }
-    }
-
-    #[test]
-    fn action_clip_at_boundaries() {
-        let a = InvertedDoublePendulumAction::new(10.0).clip(-1.0, 1.0);
-        assert_eq!(a.0[0], 1.0);
-        let a = InvertedDoublePendulumAction::new(-10.0).clip(-1.0, 1.0);
-        assert_eq!(a.0[0], -1.0);
     }
 
     #[test]

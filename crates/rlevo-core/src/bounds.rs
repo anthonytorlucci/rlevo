@@ -184,13 +184,6 @@ impl Bounds {
     pub fn clamp(&self, x: f32) -> f32 {
         x.clamp(self.lo, self.hi)
     }
-
-    /// Clamps every element of `xs` into the range in place.
-    pub fn clamp_slice(&self, xs: &mut [f32]) {
-        for x in xs.iter_mut() {
-            *x = self.clamp(*x);
-        }
-    }
 }
 
 impl TryFrom<(f32, f32)> for Bounds {
@@ -291,14 +284,6 @@ mod tests {
         let b = Bounds::new(3.0, 3.0);
         assert_eq!(b.clamp(0.0), 3.0);
         assert_eq!(b.clamp(9.0), 3.0);
-    }
-
-    #[test]
-    fn clamp_slice_clamps_in_place() {
-        let b = Bounds::new(0.0, 10.0);
-        let mut xs = [-5.0, 3.0, 42.0, 10.0];
-        b.clamp_slice(&mut xs);
-        assert_eq!(xs, [0.0, 3.0, 10.0, 10.0]);
     }
 
     #[test]

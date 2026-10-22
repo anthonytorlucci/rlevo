@@ -100,9 +100,6 @@ pub enum EnvironmentError {
     /// Rendering or display failed.
     #[error("Render failed: {0}")]
     RenderFailed(String),
-    /// An I/O operation failed (wraps `std::io::Error`).
-    #[error("IO operation failed: {0}")]
-    IoError(#[from] std::io::Error),
     /// A configuration-domain invariant failed during a lifecycle operation.
     ///
     /// A `reset()` may re-run construction-time work (e.g. rebuilding a
@@ -359,7 +356,7 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// # Errors
     ///
     /// Returns [`EnvironmentError`] if the environment cannot be initialised (e.g.
-    /// an I/O failure when loading level data).
+    /// a configuration invariant that fails when the episode is rebuilt).
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError>;
 
     /// Execute one transition of the environment with the given action.
@@ -938,19 +935,6 @@ mod tests {
     }
 
     #[test]
-    fn test_environment_error_io_conversion() {
-        let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-        let env_error = EnvironmentError::from(io_error);
-
-        match env_error {
-            EnvironmentError::IoError(_) => {
-                // Expected
-            }
-            _ => panic!("Expected IoError variant"),
-        }
-    }
-
-    #[test]
     fn test_environment_error_step_after_episode_end_carries_status() {
         for status in [EpisodeStatus::Terminated, EpisodeStatus::Truncated] {
             let error = EnvironmentError::StepAfterEpisodeEnd { status };
@@ -990,8 +974,8 @@ mod tests {
     fn test_environment_error_source() {
         use std::error::Error;
 
-        let io_error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
-        let env_error = EnvironmentError::IoError(io_error);
+        let config_error = crate::config::positive("TestConfig", "rate", 0.0).unwrap_err();
+        let env_error = EnvironmentError::from(config_error);
         assert!(env_error.source().is_some());
     }
 

@@ -50,11 +50,6 @@ impl ContinuousAction<1> for BipedalWalkerAction {
         &self.0
     }
 
-    /// Returns a new action with every component clamped to `[min, max]`.
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self(self.0.map(|v| v.clamp(min, max)))
-    }
-
     /// Constructs an action from exactly `COMPONENTS` motor targets.
     ///
     /// # Panics
@@ -150,13 +145,6 @@ mod tests {
     }
 
     #[test]
-    fn test_clip() {
-        let a = BipedalWalkerAction([2.0, -3.0, 0.5, 0.0]);
-        let clipped = a.clip(-1.0, 1.0);
-        assert_eq!(clipped.0, [1.0, -1.0, 0.5, 0.0]);
-    }
-
-    #[test]
     fn test_from_slice() {
         let a = BipedalWalkerAction::from_slice(&[0.1, 0.2, 0.3, 0.4]);
         assert_eq!(a.0, [0.1, 0.2, 0.3, 0.4]);
@@ -174,20 +162,6 @@ mod tests {
     #[should_panic(expected = "needs exactly 4 components, got 3")]
     fn test_from_slice_rejects_a_short_slice() {
         let _ = BipedalWalkerAction::from_slice(&[0.1, 0.2, 0.3]);
-    }
-
-    #[test]
-    fn test_random_is_valid() {
-        // Regression test for the default-`random()` panic: the trait default
-        // used to sample `RANK` values (1) instead of `COMPONENTS` (4) and
-        // hand that short slice to `from_slice`, which panics on a length
-        // mismatch. The corrected default samples `COMPONENTS` values, so
-        // `from_slice` no longer panics; symmetric `[-1, 1)` sampling keeps
-        // every draw valid.
-        for _ in 0..100 {
-            let a = BipedalWalkerAction::random();
-            assert!(a.is_valid(), "random action must be valid: {a:?}");
-        }
     }
 
     #[test]

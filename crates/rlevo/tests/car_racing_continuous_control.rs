@@ -229,9 +229,9 @@ fn car_racing_bounds_match_the_gymnasium_box() {
     assert_eq!(CarRacingAction::high(), &[1.0, 1.0, 1.0]);
     assert_eq!(CarRacingAction::low().len(), CarRacingAction::COMPONENTS);
     assert_eq!(CarRacingAction::high().len(), CarRacingAction::COMPONENTS);
-    assert_eq!(CarRacingAction::RANK, 1);
+    assert_eq!(CarRacingAction::shape().len(), 1);
     assert_ne!(
-        CarRacingAction::RANK,
+        CarRacingAction::shape().len(),
         CarRacingAction::COMPONENTS,
         "the witness is only a witness while rank and component count disagree"
     );

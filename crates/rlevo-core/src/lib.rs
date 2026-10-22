@@ -10,8 +10,8 @@
 //! | Module | What it provides |
 //! |---|---|
 //! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`] — the primitive trait vocabulary; `TensorConvertible` with the `burn` feature |
-//! | [`action`] | [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`] — layered action-space extensions |
-//! | [`state`] | [`BeliefState`], [`StateAggregation`], [`Observable`] — POMDP belief, state aggregation and the state-to-observation projection |
+//! | [`action`] | [`DiscreteAction`], [`ContinuousAction`], [`BoundedAction`] — layered action-space extensions |
+//! | [`state`] | [`StateError`], [`Observable`] — why a value is not a legal state, and the state-to-observation projection |
 //! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
 //! | [`episode`] | [`EpisodeGuard`] — the state machine behind `Environment::step`'s post-terminal contract, held by every implementor |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
@@ -32,7 +32,7 @@
 //! |---|---|---|
 //! | `burn` | off | `base::TensorConvertible`, implemented for every [`HostRow`] type, which uploads the row as a Burn tensor. Without it the crate does not depend on Burn |
 //!
-//! # Const-generic `RANK`
+//! # Const-generic rank `R`
 //!
 //! Several traits — [`Observation`], [`State`], [`Action`] — are parameterized
 //! by a const generic `R` (rank) that denotes the *number of tensor axes*
@@ -70,10 +70,9 @@
 //! [`Action`]: crate::base::Action
 //! [`HostRow`]: crate::base::HostRow
 //! [`DiscreteAction`]: crate::action::DiscreteAction
-//! [`MultiDiscreteAction`]: crate::action::MultiDiscreteAction
 //! [`ContinuousAction`]: crate::action::ContinuousAction
-//! [`BeliefState`]: crate::state::BeliefState
-//! [`StateAggregation`]: crate::state::StateAggregation
+//! [`BoundedAction`]: crate::action::BoundedAction
+//! [`StateError`]: crate::state::StateError
 //! [`Observable`]: crate::state::Observable
 //! [`Environment`]: crate::environment::Environment
 //! [`Sensor`]: crate::environment::Sensor
@@ -112,12 +111,12 @@
 /// [`HostRow`]: crate::base::HostRow
 pub mod base;
 
-/// Layered action-space traits: [`DiscreteAction`], [`MultiDiscreteAction`],
-/// and [`ContinuousAction`].
+/// Layered action-space traits: [`DiscreteAction`], [`ContinuousAction`] and
+/// [`BoundedAction`].
 ///
 /// [`DiscreteAction`]: crate::action::DiscreteAction
-/// [`MultiDiscreteAction`]: crate::action::MultiDiscreteAction
 /// [`ContinuousAction`]: crate::action::ContinuousAction
+/// [`BoundedAction`]: crate::action::BoundedAction
 pub mod action;
 
 /// Reserved for a future unified agent trait hierarchy.
@@ -259,13 +258,11 @@ pub mod reward;
 
 /// State abstractions beyond the base contract.
 ///
-/// Extends [`base::State`] with [`BeliefState`], [`StateAggregation`], and
-/// [`Observable`] (the modality-changing state→observation projection for
-/// `OR != SR`).
+/// Extends [`base::State`] with [`StateError`] and [`Observable`] (the
+/// modality-changing state→observation projection for `OR != SR`).
 ///
 /// [`base::State`]: crate::base::State
-/// [`BeliefState`]: crate::state::BeliefState
-/// [`StateAggregation`]: crate::state::StateAggregation
+/// [`StateError`]: crate::state::StateError
 /// [`Observable`]: crate::state::Observable
 pub mod state;
 

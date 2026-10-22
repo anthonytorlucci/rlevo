@@ -1,8 +1,8 @@
 //! Core traits for reinforcement learning abstractions.
 //!
 //! This module defines the foundational vocabulary used throughout `rlevo-core`:
-//! rewards, observations, states, actions, transition dynamics, and the host
-//! row a tensor is built from. The conversion to a Burn tensor itself,
+//! rewards, observations, states, actions, and the host row a tensor is
+//! built from. The conversion to a Burn tensor itself,
 //! `TensorConvertible`, exists only under the `burn` feature. All other modules
 //! depend on these primitives.
 
@@ -92,14 +92,6 @@ pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
 /// not the capability. `Action` and `Reward` are likewise deliberately
 /// serde-free. (ADR 0064.)
 pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
-    /// The rank of this observation space — i.e. the number of axes (tensor
-    /// order), *not* the size of any axis.
-    ///
-    /// "Rank" here means the count of indices needed to address an element
-    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
-    /// rank. This is automatically set to match the const generic parameter `R`.
-    const RANK: usize = R;
-
     /// Returns the size of each axis in this observation space.
     ///
     /// The returned array has length `R` (the rank), where each element is the
@@ -123,17 +115,9 @@ pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
 /// not of a state value, so it lives on the env-side
 /// [`Sensor`](crate::environment::Sensor) trait with the canonical signature
 /// `O(a, s')`. `State` retains only what genuinely belongs to a point in state
-/// space: its rank, [`shape`](State::shape), [`numel`](State::numel), and
+/// space: [`shape`](State::shape), [`numel`](State::numel), and
 /// [`is_valid`](State::is_valid). (ADR 0047, superseding ADR 0019.)
 pub trait State<const R: usize>: Debug + Clone + Send + Sync {
-    /// The rank of this state space — i.e. the number of axes (tensor order),
-    /// *not* the size of any axis.
-    ///
-    /// "Rank" here means the count of indices needed to address an element
-    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
-    /// rank. This is automatically set to match the const generic parameter `R`.
-    const RANK: usize = R;
-
     /// Returns the size of each axis in this state space.
     ///
     /// The returned array has length `R` (the rank), where each element is the
@@ -194,14 +178,6 @@ pub trait State<const R: usize>: Debug + Clone + Send + Sync {
 /// - Structural invariants (e.g., array dimensions)
 /// - Environment-specific rules (e.g., available moves in a game state)
 pub trait Action<const R: usize>: Debug + Clone + Sized {
-    /// The rank of this action space — i.e. the number of axes (tensor order),
-    /// *not* the size of any axis.
-    ///
-    /// "Rank" here means the count of indices needed to address an element
-    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
-    /// rank. This is automatically set to match the const generic parameter `R`.
-    const RANK: usize = R;
-
     /// Returns the size of each axis in this action space.
     ///
     /// The returned array has length `R` (the rank), where each element is the
@@ -230,21 +206,6 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
     ///
     /// Returns `true` if the action satisfies all structural constraints, `false` otherwise.
     fn is_valid(&self) -> bool;
-}
-
-/// Deterministic environment transition dynamics.
-///
-/// ```math
-/// s_{t+1} = f(s_t, a_t)
-/// ```
-///
-/// This trait covers only **deterministic** transitions. Stochastic dynamics
-/// (where the successor state is drawn from a distribution) are not modeled
-/// here; environments with stochastic transitions implement that logic internally
-/// inside [`crate::environment::Environment::step`].
-pub trait TransitionDynamics<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>> {
-    /// Returns the successor state after applying `action` to `state`.
-    fn transition(&self, state: &S, action: &A) -> S;
 }
 
 /// Host-side, backend-independent row serialization of an observation.
@@ -915,21 +876,6 @@ mod tests {
             "numel should equal shape product for GridPosition"
         );
         assert_eq!(numel, 2, "GridPosition should have numel of 2");
-    }
-
-    /// Test State trait const RANK value
-    #[test]
-    fn test_state_rank_constant() {
-        assert_eq!(
-            <GameState as State<1>>::RANK,
-            1,
-            "GameState should have RANK = 1"
-        );
-        assert_eq!(
-            <GridPosition as State<1>>::RANK,
-            1,
-            "GridPosition should have RANK = 1"
-        );
     }
 
     // ========================================================================

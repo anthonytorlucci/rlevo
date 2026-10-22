@@ -226,10 +226,6 @@ impl ContinuousAction<1> for PendulumAction {
         std::slice::from_ref(&self.0)
     }
 
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self::unchecked(self.0.clamp(min, max))
-    }
-
     /// Constructs a [`PendulumAction`] from a one-element slice.
     ///
     /// # Panics
@@ -238,13 +234,6 @@ impl ContinuousAction<1> for PendulumAction {
     fn from_slice(values: &[f32]) -> Self {
         assert_eq!(values.len(), 1, "PendulumAction expects a 1-element slice");
         Self::unchecked(values[0])
-    }
-
-    fn random() -> Self
-    where
-        Self: Sized,
-    {
-        Self::unchecked(0.0)
     }
 }
 

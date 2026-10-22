@@ -27,7 +27,7 @@ approx = { workspace = true }
 # (Flex with `simd` and `rayon`), which the facade cannot enable one by one.
 burn = { workspace = true, features = ["default", "flex"] }
 
-# Render LaTeX in docs (e.g. TransitionDynamics) via KaTeX on docs.rs.
+# Render LaTeX in docs (e.g. the POMDP tuple) via KaTeX on docs.rs.
 # The header must live inside this crate's own directory — docs.rs builds
 # from the packaged tarball, which cannot contain files outside the crate
 # root, so a `../../` path here silently works locally but 404s on docs.rs.

@@ -38,15 +38,7 @@ impl ContinuousAction<1> for InvertedDoublePendulumAction {
         &self.0
     }
 
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self([self.0[0].clamp(min, max)])
-    }
-
     fn from_slice(values: &[f32]) -> Self {
         Self([values[0]])
-    }
-
-    fn random() -> Self {
-        Self([rand::random::<f32>() * 2.0 - 1.0])
     }
 }

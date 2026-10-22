@@ -87,14 +87,6 @@ impl ContinuousAction<1> for CarLikeAction {
         &self.0
     }
 
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self([
-            self.0[0].clamp(min, max),
-            self.0[1].clamp(min, max),
-            self.0[2].clamp(min, max),
-        ])
-    }
-
     fn from_slice(values: &[f32]) -> Self {
         // This is the assertion that fires against the pre-fix agents: they
         // hand over `RANK == 1` value where `COMPONENTS == 3` are required.
@@ -238,7 +230,7 @@ fn assert_within_per_component_bounds(action: &CarLikeAction) {
     assert_eq!(
         values.len(),
         CarLikeAction::COMPONENTS,
-        "action must carry COMPONENTS values, not RANK"
+        "action must carry COMPONENTS values, not one per tensor axis"
     );
     for (i, v) in values.iter().enumerate() {
         assert!(
@@ -254,17 +246,17 @@ fn assert_within_per_component_bounds(action: &CarLikeAction) {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// The trait's own contract, on a fixture where `RANK != COMPONENTS`.
+/// The trait's own contract, on a fixture whose rank is not its `COMPONENTS`.
 ///
 /// This is the assertion that distinguishes ADR 0053's design from the one it
 /// replaced: `low()` has three entries because the action has three
 /// *components*, not because it has rank 3 (it has rank 1).
 #[test]
 fn bounds_are_keyed_on_components_not_rank() {
-    assert_eq!(CarLikeAction::RANK, 1);
+    assert_eq!(CarLikeAction::shape().len(), 1);
     assert_eq!(CarLikeAction::COMPONENTS, 3);
     assert_ne!(
-        CarLikeAction::RANK,
+        CarLikeAction::shape().len(),
         CarLikeAction::COMPONENTS,
         "fixture is pointless unless rank and component count disagree"
     );
@@ -455,7 +447,7 @@ fn build_sac_agent(learning_starts: usize, gain: f32) -> CarSacAgent {
 /// SAC warm-up path: `act(.., training = true)` below `learning_starts` draws
 /// a uniform sample per component (`sac_agent.rs:378`).
 ///
-/// Reverting that loop to `0..A::RANK` yields a 1-element `Vec` where
+/// Reverting that loop to the rank (`0..1`) yields a 1-element `Vec` where
 /// `CarLikeAction::from_slice` demands 3, so the fix is load-bearing for this
 /// test to run at all — and the per-component bound assertion below then pins
 /// that each sampled component used *its own* range rather than component 0's.

@@ -742,13 +742,6 @@ mod tests {
         assert_eq!(SwimmerObservation::shape(), [8]);
     }
 
-    #[test]
-    fn action_clip_at_boundaries() {
-        use rlevo_core::action::ContinuousAction;
-        let a = SwimmerAction::new(10.0, -10.0).clip(-1.0, 1.0);
-        assert_eq!(a.0, [1.0, -1.0]);
-    }
-
     /// A **narrowed** `action_clip` must still accept a boundary action of the
     /// static [`BoundedAction`] space, and must saturate it at the narrower
     /// limit.

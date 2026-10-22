@@ -1128,13 +1128,11 @@ mod tests {
         for (agent, goal) in [(25, 0), (0, 25)] {
             let err = PixelGridState::new(agent, goal)
                 .expect_err("an index past the last cell must be rejected");
-            match err {
-                StateError::InvalidData(msg) => assert!(
-                    msg.contains("out of range"),
-                    "error must name the violated range, got {msg}"
-                ),
-                other => panic!("expected InvalidData, got {other:?}"),
-            }
+            let StateError::InvalidData(msg) = err;
+            assert!(
+                msg.contains("out of range"),
+                "error must name the violated range, got {msg}"
+            );
         }
     }
 
@@ -1336,7 +1334,6 @@ mod tests {
     #[test]
     fn observation_ranks_and_shapes() {
         assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
-        assert_eq!(<PixelObservation as Observation<3>>::RANK, 3);
     }
 
     #[test]

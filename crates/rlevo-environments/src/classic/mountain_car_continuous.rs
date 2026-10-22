@@ -246,10 +246,6 @@ impl ContinuousAction<1> for MountainCarContinuousAction {
         std::slice::from_ref(&self.0)
     }
 
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self::unchecked(self.0.clamp(min, max))
-    }
-
     /// Constructs a [`MountainCarContinuousAction`] from a one-element slice.
     ///
     /// # Panics
@@ -262,13 +258,6 @@ impl ContinuousAction<1> for MountainCarContinuousAction {
             "MountainCarContinuousAction expects a 1-element slice"
         );
         Self::unchecked(values[0])
-    }
-
-    fn random() -> Self
-    where
-        Self: Sized,
-    {
-        Self::unchecked(0.0) // deterministic fallback; use env.step_with_rng for stochastic
     }
 }
 

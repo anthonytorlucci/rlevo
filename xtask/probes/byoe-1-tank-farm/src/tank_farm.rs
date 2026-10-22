@@ -104,21 +104,11 @@ impl Action<1> for PumpCommand {
     }
 }
 
-// FINDING: `ContinuousAction::random` has a default that samples `[-1, 1)`,
-// outside these bounds, and its documentation says a type with other bounds
-// must override it. It takes no generator, so an override can only draw from
-// an unseeded one. It is left at the default, and nothing here calls it.
 impl ContinuousAction<1> for PumpCommand {
     const COMPONENTS: usize = 2;
 
     fn as_slice(&self) -> &[f32] {
         &self.rates
-    }
-
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self {
-            rates: self.rates.map(|rate| rate.clamp(min, max)),
-        }
     }
 
     fn from_slice(values: &[f32]) -> Self {
