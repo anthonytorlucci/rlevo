@@ -48,7 +48,7 @@ pub mod state;
 
 pub use action_continuous::LunarLanderContinuousAction;
 pub use action_discrete::LunarLanderDiscreteAction;
-pub use config::{LunarLanderConfig, LunarLanderConfigBuilder, WindMode};
+pub use config::{LunarLanderConfig, WindMode};
 pub use env::{LunarLanderContinuous, LunarLanderDiscrete};
 pub use observation::LunarLanderObservation;
 pub use snapshot::{METADATA_KEY_SHAPING, shaping_metadata};

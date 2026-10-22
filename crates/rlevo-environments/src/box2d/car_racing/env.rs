@@ -632,10 +632,10 @@ mod tests {
     /// [`lap_completes_via_scripted_contiguous_sweep`], which teleports rather
     /// than drives.
     fn truncating_env() -> CarRacing {
-        let config = CarRacingConfig::builder()
-            .max_steps(GUARD_MAX_STEPS)
-            .build()
-            .expect("valid config");
+        let config = CarRacingConfig {
+            max_steps: GUARD_MAX_STEPS,
+            ..Default::default()
+        };
         CarRacing::with_config(config).expect("valid config")
     }
 
@@ -833,10 +833,10 @@ mod tests {
 
     #[test]
     fn test_determinism() {
-        let cfg = CarRacingConfig::builder()
-            .seed(5)
-            .build()
-            .expect("valid config");
+        let cfg = CarRacingConfig {
+            seed: 5,
+            ..Default::default()
+        };
         let action = CarRacingAction::new(0.1, 0.5, 0.0);
 
         let run = |a: &CarRacingAction| {

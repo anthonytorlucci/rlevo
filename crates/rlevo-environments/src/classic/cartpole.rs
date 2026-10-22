@@ -167,20 +167,20 @@ pub enum Integrator {
 
 /// Configuration for [`CartPole`].
 ///
-/// All defaults match `CartPole-v1` in Gymnasium. Use [`CartPoleConfig::builder()`]
-/// for a fluent construction style.
+/// All defaults match `CartPole-v1` in Gymnasium; override fields with
+/// struct-update syntax.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::classic::cartpole::CartPoleConfig;
 ///
-/// let cfg = CartPoleConfig::builder()
-///     .gravity(9.81)
-///     .masscart(2.0)
-///     .seed(42)
-///     .build();
-/// assert!((cfg.gravity - 9.81).abs() < 1e-5);
+/// let cfg = CartPoleConfig {
+///     gravity: 9.81,
+///     masscart: 2.0,
+///     seed: 42,
+///     ..Default::default()
+/// };
 /// ```
 #[derive(Debug, Clone)]
 pub struct CartPoleConfig {
@@ -242,99 +242,6 @@ impl Validate for CartPoleConfig {
         )?;
         config::positive(C, "x_threshold", f64::from(self.x_threshold))?;
         Ok(())
-    }
-}
-
-/// Builder for [`CartPoleConfig`].
-///
-/// Construct via [`CartPoleConfig::builder()`] then call setters and `.build()`.
-#[derive(Debug, Default)]
-pub struct CartPoleConfigBuilder {
-    inner: CartPoleConfig,
-}
-
-impl CartPoleConfig {
-    /// Create a builder seeded from this config's defaults.
-    #[must_use]
-    pub fn builder() -> CartPoleConfigBuilder {
-        CartPoleConfigBuilder {
-            inner: CartPoleConfig::default(),
-        }
-    }
-}
-
-impl CartPoleConfigBuilder {
-    /// Sets gravitational acceleration (`$\text{m/s}^2$`).
-    #[must_use]
-    pub fn gravity(mut self, v: f32) -> Self {
-        self.inner.gravity = v;
-        self
-    }
-    /// Sets the mass of the cart (kg).
-    #[must_use]
-    pub fn masscart(mut self, v: f32) -> Self {
-        self.inner.masscart = v;
-        self
-    }
-    /// Sets the mass of the pole (kg).
-    #[must_use]
-    pub fn masspole(mut self, v: f32) -> Self {
-        self.inner.masspole = v;
-        self
-    }
-    /// Sets half the pole length (m).
-    #[must_use]
-    pub fn length(mut self, v: f32) -> Self {
-        self.inner.length = v;
-        self
-    }
-    /// Sets the magnitude of the force applied to the cart (N).
-    #[must_use]
-    pub fn force_mag(mut self, v: f32) -> Self {
-        self.inner.force_mag = v;
-        self
-    }
-    /// Sets the time step between updates (s).
-    #[must_use]
-    pub fn tau(mut self, v: f32) -> Self {
-        self.inner.tau = v;
-        self
-    }
-    /// Sets the pole angle termination threshold (rad).
-    #[must_use]
-    pub fn theta_threshold_radians(mut self, v: f32) -> Self {
-        self.inner.theta_threshold_radians = v;
-        self
-    }
-    /// Sets the cart position termination threshold (m).
-    #[must_use]
-    pub fn x_threshold(mut self, v: f32) -> Self {
-        self.inner.x_threshold = v;
-        self
-    }
-    /// Sets the integration scheme.
-    #[must_use]
-    pub fn integrator(mut self, v: Integrator) -> Self {
-        self.inner.integrator = v;
-        self
-    }
-    /// Enables the Sutton-Barto reward schedule (`0` per step, `-1` on failure).
-    #[must_use]
-    pub fn sutton_barto_reward(mut self, v: bool) -> Self {
-        self.inner.sutton_barto_reward = v;
-        self
-    }
-    /// Sets the RNG seed used by [`CartPole::reset`].
-    #[must_use]
-    pub fn seed(mut self, v: u64) -> Self {
-        self.inner.seed = v;
-        self
-    }
-
-    /// Finalises and returns the config.
-    #[must_use]
-    pub fn build(self) -> CartPoleConfig {
-        self.inner
     }
 }
 
@@ -1126,18 +1033,6 @@ mod tests {
             diff > 0.0,
             "Euler and SemiImplicit produced identical states"
         );
-    }
-
-    #[test]
-    fn config_builder_roundtrip() {
-        let cfg = CartPoleConfig::builder()
-            .gravity(9.81)
-            .masscart(2.0)
-            .seed(99)
-            .build();
-        assert!((cfg.gravity - 9.81).abs() < 1e-6);
-        assert!((cfg.masscart - 2.0).abs() < 1e-6);
-        assert_eq!(cfg.seed, 99);
     }
 
     #[test]

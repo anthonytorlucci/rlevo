@@ -66,18 +66,18 @@ const GOAL: (u8, u8) = (3, 11);
 
 /// Configuration for the [`CliffWalking`] environment.
 ///
-/// Build with [`CliffWalkingConfig::default`] for the standard deterministic variant, or use
-/// [`CliffWalkingConfig::builder`] to customise slipperiness and the RNG seed.
+/// Build with [`CliffWalkingConfig::default`] for the standard deterministic variant, or set
+/// slipperiness and the RNG seed in a struct literal.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::toy_text::cliff_walking::CliffWalkingConfig;
 ///
-/// let cfg = CliffWalkingConfig::builder()
-///     .is_slippery(true)
-///     .seed(7)
-///     .build();
+/// let cfg = CliffWalkingConfig {
+///     is_slippery: true,
+///     seed: 7,
+/// };
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct CliffWalkingConfig {
@@ -88,51 +88,11 @@ pub struct CliffWalkingConfig {
     pub seed: u64,
 }
 
-impl CliffWalkingConfig {
-    /// Returns a builder for constructing a `CliffWalkingConfig`.
-    #[must_use]
-    pub fn builder() -> CliffWalkingConfigBuilder {
-        CliffWalkingConfigBuilder::default()
-    }
-}
-
 impl Validate for CliffWalkingConfig {
     /// [`CliffWalkingConfig`] carries only a boolean toggle and a seed, so it
     /// has no numeric invariant to check; validation always succeeds.
     fn validate(&self) -> Result<(), ConfigError> {
         Ok(())
-    }
-}
-
-/// Builder for [`CliffWalkingConfig`].
-#[derive(Debug, Default)]
-pub struct CliffWalkingConfigBuilder {
-    is_slippery: bool,
-    seed: u64,
-}
-
-impl CliffWalkingConfigBuilder {
-    /// Enables or disables the stochastic slipping behaviour.
-    #[must_use]
-    pub fn is_slippery(mut self, v: bool) -> Self {
-        self.is_slippery = v;
-        self
-    }
-
-    /// Sets the RNG seed.
-    #[must_use]
-    pub fn seed(mut self, s: u64) -> Self {
-        self.seed = s;
-        self
-    }
-
-    /// Builds the [`CliffWalkingConfig`].
-    #[must_use]
-    pub fn build(self) -> CliffWalkingConfig {
-        CliffWalkingConfig {
-            is_slippery: self.is_slippery,
-            seed: self.seed,
-        }
     }
 }
 
@@ -793,10 +753,10 @@ mod tests {
     #[test]
     /// Verifies the slippery-mode slip distribution is approximately uniform (1/3 each direction).
     fn slippery_distribution_matches_1_3() {
-        let cfg = CliffWalkingConfig::builder()
-            .is_slippery(true)
-            .seed(7)
-            .build();
+        let cfg = CliffWalkingConfig {
+            is_slippery: true,
+            seed: 7,
+        };
         let mut env = CliffWalking::with_config(cfg).expect("valid config");
         env.reset().unwrap();
         // Place at (1, 6): move Right; count how often we end up at (1,7), (0,6), (2,6).
@@ -827,10 +787,10 @@ mod tests {
     #[test]
     /// Verifies that two slippery environments seeded identically produce the same cumulative reward.
     fn determinism() {
-        let cfg = CliffWalkingConfig::builder()
-            .is_slippery(true)
-            .seed(3)
-            .build();
+        let cfg = CliffWalkingConfig {
+            is_slippery: true,
+            seed: 3,
+        };
         let run = || {
             let mut env = CliffWalking::with_config(cfg.clone()).expect("valid config");
             env.reset().unwrap();
@@ -1038,10 +998,10 @@ mod tests {
         // Two envs on the same seed, driven identically to the goal, hold identical RNG
         // streams. Only one of them then takes a (rejected) post-terminal step.
         let slippery_env_at_goal = || {
-            let cfg = CliffWalkingConfig::builder()
-                .is_slippery(true)
-                .seed(11)
-                .build();
+            let cfg = CliffWalkingConfig {
+                is_slippery: true,
+                seed: 11,
+            };
             let mut env = CliffWalking::with_config(cfg).expect("valid config");
             env.reset().expect("reset must succeed");
             // Slippery: re-place at (2,11) and press Down until the intended move lands.

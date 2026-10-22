@@ -1,8 +1,8 @@
 //! Configuration for the `BipedalWalker` environment.
 //!
-//! [`BipedalWalkerConfig`] groups all tunable parameters. Use
-//! [`BipedalWalkerConfig::builder`] for ergonomic construction; call
-//! [`Default::default`] for a flat-terrain, 1600-step episode.
+//! [`BipedalWalkerConfig`] groups all tunable parameters. Call
+//! [`Default::default`] for a flat-terrain, 1600-step episode, and override
+//! fields with struct-update syntax.
 
 use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
@@ -23,8 +23,8 @@ pub enum BipedalTerrain {
 
 /// Configuration for [`super::BipedalWalker`].
 ///
-/// Construct via [`BipedalWalkerConfig::builder`] for named-field ergonomics,
-/// or use [`Default`] which produces a flat-terrain, seeded-at-zero, 1600-step
+/// Override fields of [`Default`] with struct-update syntax. The default is a
+/// flat-terrain, seeded-at-zero, 1600-step
 /// episode with `motors_torque = 80`, `speed_hip = 4`, `speed_knee = 6`,
 /// `lidar_range = 160`, `dt = 1/50 s`, and `gravity = -9.8`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,70 +98,6 @@ impl Validate for BipedalWalkerConfig {
     }
 }
 
-impl BipedalWalkerConfig {
-    /// Return a builder for configuring a `BipedalWalkerConfig`.
-    #[must_use]
-    pub fn builder() -> BipedalWalkerConfigBuilder {
-        BipedalWalkerConfigBuilder {
-            inner: BipedalWalkerConfig::default(),
-        }
-    }
-}
-
-/// Builder for [`BipedalWalkerConfig`].
-#[derive(Debug, Clone)]
-pub struct BipedalWalkerConfigBuilder {
-    inner: BipedalWalkerConfig,
-}
-
-impl BipedalWalkerConfigBuilder {
-    /// Sets the terrain difficulty variant.
-    #[must_use]
-    pub fn terrain(mut self, terrain: BipedalTerrain) -> Self {
-        self.inner.terrain = terrain;
-        self
-    }
-
-    /// Sets the RNG seed for terrain generation and initial state.
-    #[must_use]
-    pub fn seed(mut self, seed: u64) -> Self {
-        self.inner.seed = seed;
-        self
-    }
-
-    /// Sets the maximum steps per episode before truncation.
-    #[must_use]
-    pub fn max_steps(mut self, max_steps: usize) -> Self {
-        self.inner.max_steps = max_steps;
-        self
-    }
-
-    /// Sets the maximum torque applied by each leg motor.
-    #[must_use]
-    pub fn motors_torque(mut self, torque: f32) -> Self {
-        self.inner.motors_torque = torque;
-        self
-    }
-
-    /// Sets the lidar sensing range in world units.
-    #[must_use]
-    pub fn lidar_range(mut self, range: f32) -> Self {
-        self.inner.lidar_range = range;
-        self
-    }
-
-    /// Consumes the builder and returns the configured [`BipedalWalkerConfig`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config fails [`Validate`]
-    /// (e.g. non-positive `motors_torque`, `dt`, or `max_steps == 0`).
-    pub fn build(self) -> Result<BipedalWalkerConfig, ConfigError> {
-        self.inner.validate()?;
-        Ok(self.inner)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,19 +108,6 @@ mod tests {
         assert_eq!(cfg.terrain, BipedalTerrain::Flat);
         assert_eq!(cfg.max_steps, 1600);
         assert!(cfg.dt > 0.0);
-    }
-
-    #[test]
-    fn test_builder() {
-        let cfg = BipedalWalkerConfig::builder()
-            .terrain(BipedalTerrain::Hardcore)
-            .seed(42)
-            .max_steps(500)
-            .build()
-            .expect("valid config");
-        assert_eq!(cfg.terrain, BipedalTerrain::Hardcore);
-        assert_eq!(cfg.seed, 42);
-        assert_eq!(cfg.max_steps, 500);
     }
 
     #[test]

@@ -49,7 +49,7 @@ pub mod state;
 pub mod track;
 
 pub use action::CarRacingAction;
-pub use config::{CarRacingConfig, CarRacingConfigBuilder};
+pub use config::CarRacingConfig;
 pub use env::CarRacing;
 pub use observation::CarRacingObservation;
 pub use rasterizer::Rasterizer;

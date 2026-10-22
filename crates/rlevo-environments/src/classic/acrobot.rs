@@ -287,20 +287,20 @@ fn scale4(a: [f32; 4], s: f32) -> [f32; 4] {
 
 /// Configuration for [`Acrobot`].
 ///
-/// All defaults match Gymnasium `Acrobot-v1` with [`BookDynamics`]. Use
-/// [`AcrobotConfig::builder()`] for a fluent construction style.
+/// All defaults match Gymnasium `Acrobot-v1` with [`BookDynamics`]; override
+/// fields with struct-update syntax.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::classic::acrobot::AcrobotConfig;
 ///
-/// let cfg = AcrobotConfig::builder()
-///     .gravity(9.81)
-///     .dt(0.05)
-///     .seed(42)
-///     .build();
-/// assert!((cfg.gravity - 9.81).abs() < 1e-5);
+/// let cfg = AcrobotConfig {
+///     gravity: 9.81,
+///     dt: 0.05,
+///     seed: 42,
+///     ..Default::default()
+/// };
 /// ```
 #[derive(Debug, Clone)]
 pub struct AcrobotConfig {
@@ -385,96 +385,6 @@ impl Validate for AcrobotConfig {
             f64::from(self.torque_noise_max),
         )?;
         Ok(())
-    }
-}
-
-/// Fluent builder for [`AcrobotConfig`].
-///
-/// Obtain via [`AcrobotConfig::builder()`]. All unset fields retain their
-/// default values from [`AcrobotConfig::default()`].
-#[derive(Debug, Default)]
-pub struct AcrobotConfigBuilder {
-    inner: AcrobotConfig,
-}
-
-impl AcrobotConfig {
-    #[must_use]
-    pub fn builder() -> AcrobotConfigBuilder {
-        AcrobotConfigBuilder {
-            inner: AcrobotConfig::default(),
-        }
-    }
-}
-
-impl AcrobotConfigBuilder {
-    #[must_use]
-    pub fn dt(mut self, v: f32) -> Self {
-        self.inner.dt = v;
-        self
-    }
-    #[must_use]
-    pub fn link_length_1(mut self, v: f32) -> Self {
-        self.inner.link_length_1 = v;
-        self
-    }
-    #[must_use]
-    pub fn link_length_2(mut self, v: f32) -> Self {
-        self.inner.link_length_2 = v;
-        self
-    }
-    #[must_use]
-    pub fn link_mass_1(mut self, v: f32) -> Self {
-        self.inner.link_mass_1 = v;
-        self
-    }
-    #[must_use]
-    pub fn link_mass_2(mut self, v: f32) -> Self {
-        self.inner.link_mass_2 = v;
-        self
-    }
-    #[must_use]
-    pub fn link_com_pos_1(mut self, v: f32) -> Self {
-        self.inner.link_com_pos_1 = v;
-        self
-    }
-    #[must_use]
-    pub fn link_com_pos_2(mut self, v: f32) -> Self {
-        self.inner.link_com_pos_2 = v;
-        self
-    }
-    #[must_use]
-    pub fn link_moi(mut self, v: f32) -> Self {
-        self.inner.link_moi = v;
-        self
-    }
-    #[must_use]
-    pub fn gravity(mut self, v: f32) -> Self {
-        self.inner.gravity = v;
-        self
-    }
-    #[must_use]
-    pub fn max_vel_1(mut self, v: f32) -> Self {
-        self.inner.max_vel_1 = v;
-        self
-    }
-    #[must_use]
-    pub fn max_vel_2(mut self, v: f32) -> Self {
-        self.inner.max_vel_2 = v;
-        self
-    }
-    #[must_use]
-    pub fn torque_noise_max(mut self, v: f32) -> Self {
-        self.inner.torque_noise_max = v;
-        self
-    }
-    #[must_use]
-    pub fn seed(mut self, v: u64) -> Self {
-        self.inner.seed = v;
-        self
-    }
-    #[must_use]
-    pub fn build(self) -> AcrobotConfig {
-        self.inner
     }
 }
 
@@ -1138,18 +1048,6 @@ mod tests {
     }
 
     #[test]
-    fn config_builder() {
-        let cfg = AcrobotConfig::builder()
-            .gravity(9.81)
-            .dt(0.1)
-            .seed(42)
-            .build();
-        assert!((cfg.gravity - 9.81).abs() < 1e-5);
-        assert!((cfg.dt - 0.1).abs() < 1e-5);
-        assert_eq!(cfg.seed, 42);
-    }
-
-    #[test]
     fn reward_minus_one_until_terminal() {
         let mut env = default_env();
         env.reset().unwrap();
@@ -1337,10 +1235,11 @@ mod tests {
     /// and desynchronise replay (ADR 0029).
     fn test_acrobot_rejected_step_does_not_advance_rng() {
         let noisy_env_at_terminal = || {
-            let cfg = AcrobotConfig::builder()
-                .torque_noise_max(0.1)
-                .seed(17)
-                .build();
+            let cfg = AcrobotConfig {
+                torque_noise_max: 0.1,
+                seed: 17,
+                ..Default::default()
+            };
             let mut env = DefaultAcrobot::with_config(cfg).expect("valid config");
             env.reset().expect("reset must succeed");
             env.state = AcrobotState {

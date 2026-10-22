@@ -31,8 +31,8 @@ pub mod pendulum;
 pub mod santa_fe_ant;
 
 pub use acrobot::{
-    Acrobot, AcrobotAction, AcrobotConfig, AcrobotConfigBuilder, AcrobotDynamicsFn,
-    AcrobotObservation, AcrobotState, BookDynamics, NipsDynamics,
+    Acrobot, AcrobotAction, AcrobotConfig, AcrobotDynamicsFn, AcrobotObservation, AcrobotState,
+    BookDynamics, NipsDynamics,
 };
 pub use bandit::{
     AdversarialBandit, AdversarialBanditConfig, ContextualBandit, ContextualBanditConfig,
@@ -41,8 +41,7 @@ pub use bandit::{
     TenArmedBandit, TenArmedBanditAction, TenArmedBanditConfig, TenArmedBanditObservation,
 };
 pub use cartpole::{
-    CartPole, CartPoleAction, CartPoleConfig, CartPoleConfigBuilder, CartPoleObservation,
-    CartPoleState, Integrator,
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation, CartPoleState, Integrator,
 };
 pub use mountain_car::{
     MountainCar, MountainCarAction, MountainCarConfig, MountainCarObservation, MountainCarState,
