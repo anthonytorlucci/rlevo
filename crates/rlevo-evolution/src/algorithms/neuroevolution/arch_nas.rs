@@ -20,9 +20,8 @@
 //!
 //! # Architecture dispatch — closure-erased registry
 //!
-//! Because [`ParamReshaper`] carries an
-//! associated `type Module`, a `dyn ParamReshaper` is not object-safe and a
-//! `Vec` of heterogeneous-variant reshapers is impossible. Instead each variant
+//! Because each variant's reshaper is a different type, a `Vec` of
+//! heterogeneous-variant reshapers is impossible. Instead each variant
 //! is type-erased into a [`VariantEvaluator`]: a boxed closure that owns a
 //! concrete [`ModuleReshaper<B, Vi>`](crate::param_reshaper::ModuleReshaper),
 //! slices the active prefix of a (padded) flat weight row, unflattens it into
@@ -57,7 +56,7 @@ use rand_distr::{Distribution as _, Normal};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::ops::selection::{argmax_host, tournament_indices_host, truncation_indices_host};
-use crate::param_reshaper::{ModuleReshaper, ParamReshaper};
+use crate::param_reshaper::ModuleReshaper;
 use crate::rng::{SeedPurpose, seed_stream};
 
 /// One population's worth of architecture-NAS genomes.

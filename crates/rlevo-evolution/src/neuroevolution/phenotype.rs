@@ -1,18 +1,15 @@
 //! Phenotype construction — turning a [`TopologyGenome`] into a callable network.
 //!
-//! [`PhenotypeBuilder`] abstracts *how* a genome becomes a network so a future
-//! CPPN/`HyperNEAT` builder is a new impl, not a trait change. The reference
-//! builder, [`InterpretedBuilder`], produces an [`InterpretedPhenotype`]: a
-//! host-side **feedforward** evaluator built from bare `Tensor<B, 2>` arithmetic
-//! over the genome's enabled connections in topological order — **no Burn
-//! `Module`**, no autodiff, no `Recorder`. NEAT phenotypes need only a forward
-//! pass, so skipping Burn's `Module` (whose `#[derive]` needs a static field
-//! structure a data-defined topology cannot supply) costs nothing.
+//! [`InterpretedPhenotype::new`] compiles a genome into a host-side
+//! **feedforward** evaluator built from bare `Tensor<B, 2>` arithmetic over the
+//! genome's enabled connections in topological order — **no Burn `Module`**,
+//! no autodiff, no `Recorder`. NEAT phenotypes need only a forward pass, so
+//! skipping Burn's `Module` (whose `#[derive]` needs a static field structure
+//! a data-defined topology cannot supply) costs nothing.
 //!
-//! The interpreted seam ([`PhenotypeBuilder`]/[`Phenotype`]) evaluates one genome
-//! at a time. Its population-batched companion, [`BatchPhenotypeEvaluator`], runs
-//! the *whole* population in one device-resident forward pass; the dense-padded
-//! [`DensePaddedEvaluator`] is the stock-Burn implementation.
+//! [`InterpretedPhenotype`] evaluates one genome at a time. Its
+//! population-batched companion, [`DensePaddedEvaluator`], runs the *whole*
+//! population in one device-resident forward pass with stock Burn ops.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
@@ -21,43 +18,6 @@ use burn::tensor::backend::Backend;
 use burn::tensor::{Bool, Tensor, TensorData, activation};
 
 use super::topology::{ActivationFn, NodeGene, NodeId, NodeKind, SIGMOID_GAIN, TopologyGenome};
-
-/// Builds a callable [`Phenotype`] from a [`TopologyGenome`].
-///
-/// Implementors decide the network representation; the v1 reference is
-/// [`InterpretedBuilder`]. A substrate-based builder (`HyperNEAT`) would take its
-/// substrate layout in its constructor and implement this same trait.
-pub trait PhenotypeBuilder<B: Backend> {
-    /// Compile `genome` into a callable [`Phenotype`], allocating any
-    /// device-side resources on `device`.
-    fn build(
-        &self,
-        genome: &TopologyGenome,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Box<dyn Phenotype<B>>;
-}
-
-/// A callable network: a forward pass from a batch of inputs to a batch of
-/// outputs.
-pub trait Phenotype<B: Backend>: Send + Sync {
-    /// Run a forward pass, mapping `[batch, num_inputs]` to
-    /// `[batch, num_outputs]`. The compute device is taken from `input`.
-    fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2>;
-}
-
-/// The v1 reference builder — produces an [`InterpretedPhenotype`].
-#[derive(Debug, Clone, Copy, Default)]
-pub struct InterpretedBuilder;
-
-impl<B: Backend> PhenotypeBuilder<B> for InterpretedBuilder {
-    fn build(
-        &self,
-        genome: &TopologyGenome,
-        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Box<dyn Phenotype<B>> {
-        Box::new(InterpretedPhenotype::<B>::new(genome))
-    }
-}
 
 /// Pre-computed evaluation plan for one non-input node.
 #[derive(Debug, Clone)]
@@ -138,10 +98,11 @@ impl<B: Backend> InterpretedPhenotype<B> {
             _backend: PhantomData,
         }
     }
-}
 
-impl<B: Backend> Phenotype<B> for InterpretedPhenotype<B> {
-    fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2> {
+    /// Run a forward pass, mapping `[batch, num_inputs]` to
+    /// `[batch, num_outputs]`. The compute device is taken from `input`.
+    #[must_use]
+    pub fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2> {
         let [batch, _num_inputs] = input.dims();
         let device = input.device();
 
@@ -196,32 +157,13 @@ fn apply_activation<B: Backend>(act: ActivationFn, x: Tensor<B, 2>) -> Tensor<B,
 // Population-batched evaluation
 // ===========================================================================
 
-/// Population-level batched forward pass — the device-resident companion to the
-/// per-genome [`PhenotypeBuilder`]/[`Phenotype`] interpreted seam.
+/// Population-level batched forward pass: the device-resident companion to
+/// [`InterpretedPhenotype`], which evaluates one genome at a time.
 ///
-/// Where [`Phenotype::forward`] evaluates one genome, an implementor of this
-/// trait evaluates an entire population on a shared observation batch in a single
-/// pass. The [`DensePaddedEvaluator`] v1 impl does so with stock Burn tensor ops
-/// (no custom kernel); the interpreted path remains the correctness oracle (a
-/// numerical-parity test pins the two within float epsilon).
-pub trait BatchPhenotypeEvaluator<B: Backend>: Send + Sync {
-    /// Evaluate every genome on the shared observation batch `obs`.
-    ///
-    /// `obs` has shape `[batch, obs_dim]`, where `obs_dim` must equal the
-    /// population's (constant) input-node count. The result has shape
-    /// `[pop, batch, action_dim]` — the population dimension is kept explicit so
-    /// a caller can reduce fitness per genome without index arithmetic. Column
-    /// order along `obs_dim`/`action_dim` matches the interpreted phenotype's
-    /// (input/output nodes in ascending-id order).
-    fn evaluate_population(
-        &self,
-        genomes: &[TopologyGenome],
-        obs: Tensor<B, 2>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 3>;
-}
-
-/// Dense-padded [`BatchPhenotypeEvaluator`].
+/// It evaluates an entire population on a shared observation batch in a
+/// single pass, with stock Burn tensor ops (no custom kernel); the interpreted
+/// path remains the correctness oracle (a numerical-parity test pins the two
+/// within float epsilon).
 ///
 /// Each call compiles the `P` genomes into padded `(P, N, N)` weight, `(P, N)` bias, and
 /// per-activation mask tensors over a node budget `N = max_nodes`, then runs a synchronous-update
@@ -259,8 +201,24 @@ impl Default for DensePaddedEvaluator {
     }
 }
 
-impl<B: Backend> BatchPhenotypeEvaluator<B> for DensePaddedEvaluator {
-    fn evaluate_population(
+impl DensePaddedEvaluator {
+    /// Evaluate every genome on the shared observation batch `obs`.
+    ///
+    /// `obs` has shape `[batch, obs_dim]`, where `obs_dim` must equal the
+    /// population's (constant) input-node count. The result has shape
+    /// `[pop, batch, action_dim]` — the population dimension is kept explicit so
+    /// a caller can reduce fitness per genome without index arithmetic. Column
+    /// order along `obs_dim`/`action_dim` matches the interpreted phenotype's
+    /// (input/output nodes in ascending-id order).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the largest genome has more nodes than
+    /// [`max_nodes_cap`](Self::max_nodes_cap), or if `obs_dim` differs from the
+    /// population's input-node count. Debug builds also panic if the genomes do
+    /// not all share one input-node count and one output-node count.
+    #[must_use]
+    pub fn evaluate_population<B: Backend>(
         &self,
         genomes: &[TopologyGenome],
         obs: Tensor<B, 2>,
@@ -636,8 +594,7 @@ mod tests {
         ];
         let genome = TopologyGenome::new(nodes, conns);
 
-        let builder = InterpretedBuilder;
-        let pheno = PhenotypeBuilder::<TestBackend>::build(&builder, &genome, &device);
+        let pheno = InterpretedPhenotype::<TestBackend>::new(&genome);
 
         let input = Tensor::<TestBackend, 2>::from_data(
             burn::tensor::TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),

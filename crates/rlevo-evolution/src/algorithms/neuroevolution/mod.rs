@@ -26,7 +26,7 @@
 //! [`crate::neuroevolution`]. Genomes are scored either one at a time — the
 //! interpreted, host-side reference path — or a whole population at once through
 //! the device-batched
-//! [`BatchPhenotypeEvaluator`](crate::neuroevolution::phenotype::BatchPhenotypeEvaluator).
+//! [`DensePaddedEvaluator`](crate::neuroevolution::phenotype::DensePaddedEvaluator).
 
 pub mod arch_nas;
 pub mod neat;

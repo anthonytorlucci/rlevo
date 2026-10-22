@@ -150,8 +150,7 @@ pub fn two_point_crossover(a: &mut [Symbol], b: &mut [Symbol], rng: &mut dyn Rng
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algorithms::gep::decode::GenotypePhenotypeMap;
-    use crate::algorithms::gep::{GepConfig, GepDecoder};
+    use crate::algorithms::gep::{ExpressionTree, GepConfig};
     use crate::function_set::ArithmeticFunctionSet;
     use crate::rng::{SeedPurpose, seed_stream};
     // Explicit list (not the glob prelude): the prelude re-exports a `Rng`
@@ -184,7 +183,7 @@ mod tests {
     /// True iff the decoded tree is a complete expression tree (the ORF closed
     /// inside the chromosome — the "no repair needed" guarantee).
     fn decodes_complete(g: &[Symbol], a: &Alphabet<Fs>) -> bool {
-        let tree = GepDecoder.decode(a, g);
+        let tree = ExpressionTree::decode(a, g);
         let mut needed: i64 = 1;
         for &s in tree.nodes() {
             needed += i64::try_from(a.arity(s)).unwrap() - 1;

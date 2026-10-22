@@ -79,13 +79,12 @@ pub use function_set::{ArithmeticFunctionSet, FunctionSet, Symbol};
 pub use local_search::{HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing};
 pub use module_eval_fn::ModuleEvalFn;
 pub use neuroevolution::{
-    ActivationFn, BatchPhenotypeEvaluator, ConnectionGene, DensePaddedEvaluator, InnovationId,
-    InnovationRegistry, InterpretedBuilder, InterpretedPhenotype, NodeGene, NodeId, NodeKind,
-    NodeSplit, Phenotype, PhenotypeBuilder, Species, SpeciesId, TopologyGenome,
-    compatibility_distance,
+    ActivationFn, ConnectionGene, DensePaddedEvaluator, InnovationId, InnovationRegistry,
+    InterpretedPhenotype, NodeGene, NodeId, NodeKind, NodeSplit, Species, SpeciesId,
+    TopologyGenome, compatibility_distance,
 };
 pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
-pub use param_reshaper::{ModuleReshaper, ParamReshaper};
+pub use param_reshaper::ModuleReshaper;
 pub use probability_model::ProbabilityModel;
 pub use rlevo_core::evaluation::GenerationProbe;
 pub use strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};

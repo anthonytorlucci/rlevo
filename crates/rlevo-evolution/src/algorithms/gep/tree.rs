@@ -33,7 +33,7 @@ fn finite_or_clamp(v: f32) -> f32 {
 /// A decoded expression tree stored in level-order (breadth-first) layout.
 ///
 /// The coding prefix of a chromosome decodes to this structure (see
-/// [`GepDecoder`](super::GepDecoder)). Nodes are held in BFS order, so every
+/// [`decode`](ExpressionTree::decode)). Nodes are held in BFS order, so every
 /// node's children occupy a contiguous, strictly-higher index range. That lets
 /// evaluation run as a single right-to-left sweep: when a parent is reached,
 /// its children (higher indices) have already been computed.
@@ -51,7 +51,7 @@ pub struct ExpressionTree {
 impl ExpressionTree {
     /// Builds a tree from its level-order parts.
     ///
-    /// Intended for [`GepDecoder`](super::GepDecoder); the three vectors must
+    /// Intended for [`decode`](ExpressionTree::decode); the three vectors must
     /// be parallel and internally consistent (BFS child assignment).
     #[must_use]
     pub(super) fn from_parts(
@@ -168,8 +168,6 @@ impl ExpressionTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algorithms::gep::GepDecoder;
-    use crate::algorithms::gep::decode::GenotypePhenotypeMap;
     use crate::function_set::ArithmeticFunctionSet;
 
     fn alphabet(n_vars: usize) -> Alphabet<ArithmeticFunctionSet> {
@@ -188,7 +186,7 @@ mod tests {
             Symbol::from_raw(7),
             Symbol::from_raw(8),
         ];
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         assert_eq!(tree.node_count(), 3);
         approx::assert_relative_eq!(tree.eval(&a, &[2.0]), 3.0, epsilon = 1e-6);
         approx::assert_relative_eq!(tree.eval(&a, &[-5.0]), -4.0, epsilon = 1e-6);
@@ -204,7 +202,7 @@ mod tests {
             Symbol::from_raw(8),
             Symbol::from_raw(8),
         ];
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         assert_eq!(tree.node_count(), 3);
         assert_eq!(tree.depth(), 1);
         approx::assert_relative_eq!(tree.eval(&a, &[3.0]), 9.0, epsilon = 1e-6);
@@ -219,7 +217,7 @@ mod tests {
             Symbol::from_raw(8),
             Symbol::from_raw(8),
         ];
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         assert_eq!(tree.node_count(), 1);
         assert_eq!(tree.depth(), 0);
         approx::assert_relative_eq!(tree.eval(&a, &[7.0]), 7.0, epsilon = 1e-6);
@@ -246,7 +244,7 @@ mod tests {
             Symbol::from_raw(8),
             Symbol::from_raw(8),
         ];
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         let pred = tree.eval(&a, &[1e30]);
         approx::assert_relative_eq!(pred, EVAL_CLAMP);
         // The squared error against a near-zero target is huge, not near-zero:
@@ -276,7 +274,7 @@ mod tests {
     fn eval_variable_index_and_inf_policy() {
         let a = alphabet(2);
         // Single variable node reading input_index 1 (id 8 = var 0, 9 = var 1).
-        let tree = GepDecoder.decode(&a, &[Symbol::from_raw(9)]);
+        let tree = ExpressionTree::decode(&a, &[Symbol::from_raw(9)]);
         assert_eq!(tree.node_count(), 1);
         // Out-of-range input row (len 0): missing index reads 0.0.
         approx::assert_relative_eq!(tree.eval(&a, &[]), 0.0, epsilon = 1e-6);

@@ -9,7 +9,7 @@
 //! These types are *graphs*, not tensors: unlike the
 //! [`Strategy`](crate::strategy::Strategy) genomes elsewhere in the crate,
 //! [`TopologyGenome`] is plain host-side data (and is [`Clone`]). A genome is
-//! scored either one at a time, through the interpreted [`InterpretedBuilder`]
+//! scored either one at a time, through the interpreted [`InterpretedPhenotype`]
 //! reference path, or a whole population at once, through the device-batched
 //! [`DensePaddedEvaluator`]; the two agree to float epsilon.
 //!
@@ -27,10 +27,7 @@ pub mod species;
 pub mod topology;
 
 pub use innovation::{InnovationRegistry, NodeSplit};
-pub use phenotype::{
-    BatchPhenotypeEvaluator, DensePaddedEvaluator, InterpretedBuilder, InterpretedPhenotype,
-    Phenotype, PhenotypeBuilder,
-};
+pub use phenotype::{DensePaddedEvaluator, InterpretedPhenotype};
 pub use species::{
     Species, SpeciesId, allocate_offspring, compatibility_distance, remove_stagnant, speciate,
 };

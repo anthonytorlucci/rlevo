@@ -17,8 +17,8 @@
 //!   tail [`terminal_range`](Alphabet::terminal_range).
 //! - [`tree`] — [`ExpressionTree`]: the level-order decoded phenotype with
 //!   `eval`/`depth`/`node_count`.
-//! - [`decode`] — [`GenotypePhenotypeMap`] and [`GepDecoder`]: the deterministic
-//!   ORF-scan + BFS decoder.
+//! - `decode` — [`ExpressionTree::decode`]: the deterministic ORF-scan + BFS
+//!   decoder.
 //! - [`operators`] — point mutation (locus-class aware), IS/RIS transposition,
 //!   and one-/two-point crossover, all valid by construction.
 //! - [`strategy`] — [`GepStrategy`], [`GepState`], and the [`GepSymRegression`]
@@ -35,13 +35,12 @@
 
 pub mod alphabet;
 pub mod config;
-pub mod decode;
+mod decode;
 pub mod operators;
 pub mod strategy;
 pub mod tree;
 
 pub use alphabet::{Alphabet, SymbolKind};
 pub use config::GepConfig;
-pub use decode::{GenotypePhenotypeMap, GepDecoder};
 pub use strategy::{GepState, GepStrategy, GepSymRegression};
 pub use tree::ExpressionTree;

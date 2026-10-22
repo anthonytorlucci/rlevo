@@ -5,95 +5,79 @@ use crate::function_set::{FunctionSet, Symbol};
 use super::alphabet::Alphabet;
 use super::tree::ExpressionTree;
 
-/// Maps a linear GEP chromosome to its expression-tree phenotype.
-///
-/// Implementors decode `genome` (a head/tail symbol string) against `alphabet`
-/// into an [`ExpressionTree`]. The decode is deterministic: the same genome and
-/// alphabet always yield the same tree.
-///
-/// # Invariants
-///
-/// The `genome` is expected to satisfy the GEP head/tail layout: a head region
-/// whose loci may hold functions or terminals, followed by a terminal-only tail
-/// of length `t = h(n - 1) + 1`, where `h` is the head length and `n` the
-/// alphabet's maximum arity (Ferreira 2001, eq. 3.4). Any chromosome produced by
-/// the sampling and operator paths in this crate satisfies this by construction;
-/// a hand-built genome that violates it is a precondition breach (see the
-/// implementation's `# Panics`).
-pub trait GenotypePhenotypeMap<F: FunctionSet> {
-    /// Decodes a chromosome into its phenotype.
+impl ExpressionTree {
+    /// Decodes a linear GEP chromosome into its expression-tree phenotype.
+    ///
+    /// The canonical Ferreira (2001) decoder: an open-reading-frame scan, then
+    /// level-order (breadth-first) tree construction. The decode is
+    /// deterministic: the same genome and alphabet always yield the same tree.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. **ORF-length pass.** A single left-to-right scan tracks the number of
+    ///    still-unfilled child slots, starting at 1 (the root). Each symbol
+    ///    fills one slot and opens `arity` new ones; the coding region ends
+    ///    when no slots remain. The tail-length constraint guarantees this
+    ///    terminates within the chromosome.
+    /// 2. **BFS child assignment.** Because the coding prefix is already in
+    ///    level order, a node's children are simply the next unread symbols. A
+    ///    running read cursor assigns each node `arity` contiguous children —
+    ///    no explicit queue is needed, since array order *is* BFS order.
     ///
     /// # Arguments
     ///
     /// * `alphabet` — the symbol alphabet used to classify each locus (its
     ///   arity and kind); must be the same alphabet the `genome` was sampled
     ///   against.
-    /// * `genome` — a linear head/tail chromosome (see the trait-level
-    ///   `# Invariants`). An empty genome decodes to an empty tree.
+    /// * `genome` — a linear head/tail chromosome: a head region whose loci may
+    ///   hold functions or terminals, followed by a terminal-only tail of length
+    ///   `t = h(n - 1) + 1`, where `h` is the head length and `n` the alphabet's
+    ///   maximum arity (Ferreira 2001, eq. 3.4). Any chromosome produced by the
+    ///   sampling and operator paths in this crate satisfies this by
+    ///   construction. An empty genome decodes to an empty tree.
     ///
     /// # Returns
     ///
-    /// The [`ExpressionTree`] phenotype: the open-reading-frame coding region of
-    /// `genome` in level order.
+    /// The open-reading-frame coding region of `genome`, in level order.
     ///
     /// # Panics
     ///
     /// Debug builds assert the head/tail precondition
-    /// (`debug_assert!(needed == 0, ...)`); a genome that violates it panics here
-    /// in debug. In release the assertion is absent — `decode` itself does not
-    /// panic, but a malformed tree silently degrades to a finite-but-incorrect
-    /// value on evaluation (see [`ExpressionTree::eval`]'s defensive clamp).
+    /// (`debug_assert!(needed == 0, ...)`); a genome that violates it panics
+    /// here in debug. In release the assertion is absent — `decode` itself
+    /// does not panic, but a malformed tree silently degrades to a
+    /// finite-but-incorrect value on evaluation (see [`ExpressionTree::eval`]'s
+    /// defensive clamp).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_evolution::algorithms::gep::{Alphabet, ExpressionTree};
+    /// use rlevo_evolution::function_set::ArithmeticFunctionSet;
+    /// use rlevo_evolution::rng::{seed_stream, SeedPurpose};
+    ///
+    /// // A one-variable arithmetic alphabet (functions over a single `x`).
+    /// let alphabet = Alphabet::new(ArithmeticFunctionSet, 1, vec![]);
+    ///
+    /// // Sample a valid head/tail genome: head loci draw any symbol, tail loci
+    /// // draw terminals only, with the tail sized per Ferreira (2001) eq. 3.4.
+    /// let mut rng = seed_stream(42, 0, SeedPurpose::Mutation);
+    /// let head_len = 3;
+    /// let tail_len = head_len * (alphabet.max_arity() - 1) + 1;
+    /// let mut genome = Vec::with_capacity(head_len + tail_len);
+    /// for _ in 0..head_len {
+    ///     genome.push(alphabet.sample_head_symbol(&mut rng));
+    /// }
+    /// for _ in 0..tail_len {
+    ///     genome.push(alphabet.sample_tail_symbol(&mut rng));
+    /// }
+    ///
+    /// // Decode the linear chromosome into its expression-tree phenotype.
+    /// let tree = ExpressionTree::decode(&alphabet, &genome);
+    /// assert!(tree.node_count() >= 1);
+    /// ```
     #[must_use]
-    fn decode(&self, alphabet: &Alphabet<F>, genome: &[Symbol]) -> ExpressionTree;
-}
-
-/// The canonical Ferreira (2001) decoder: open-reading-frame scan, then
-/// level-order (breadth-first) tree construction.
-///
-/// # Algorithm
-///
-/// 1. **ORF-length pass.** A single left-to-right scan tracks the number of
-///    still-unfilled child slots, starting at 1 (the root). Each symbol fills
-///    one slot and opens `arity` new ones; the coding region ends when no slots
-///    remain. The tail-length constraint guarantees this terminates within the
-///    chromosome.
-/// 2. **BFS child assignment.** Because the coding prefix is already in level
-///    order, a node's children are simply the next unread symbols. A running
-///    read cursor assigns each node `arity` contiguous children — no explicit
-///    queue is needed, since array order *is* BFS order.
-///
-/// # Examples
-///
-/// ```
-/// use rlevo_evolution::algorithms::gep::{Alphabet, GenotypePhenotypeMap, GepDecoder};
-/// use rlevo_evolution::function_set::ArithmeticFunctionSet;
-/// use rlevo_evolution::rng::{seed_stream, SeedPurpose};
-///
-/// // A one-variable arithmetic alphabet (functions over a single `x`).
-/// let alphabet = Alphabet::new(ArithmeticFunctionSet, 1, vec![]);
-///
-/// // Sample a valid head/tail genome: head loci draw any symbol, tail loci
-/// // draw terminals only, with the tail sized per Ferreira (2001) eq. 3.4.
-/// let mut rng = seed_stream(42, 0, SeedPurpose::Mutation);
-/// let head_len = 3;
-/// let tail_len = head_len * (alphabet.max_arity() - 1) + 1;
-/// let mut genome = Vec::with_capacity(head_len + tail_len);
-/// for _ in 0..head_len {
-///     genome.push(alphabet.sample_head_symbol(&mut rng));
-/// }
-/// for _ in 0..tail_len {
-///     genome.push(alphabet.sample_tail_symbol(&mut rng));
-/// }
-///
-/// // Decode the linear chromosome into its expression-tree phenotype.
-/// let tree = GepDecoder.decode(&alphabet, &genome);
-/// assert!(tree.node_count() >= 1);
-/// ```
-#[derive(Clone, Copy, Debug, Default)]
-pub struct GepDecoder;
-
-impl<F: FunctionSet> GenotypePhenotypeMap<F> for GepDecoder {
-    fn decode(&self, alphabet: &Alphabet<F>, genome: &[Symbol]) -> ExpressionTree {
+    pub fn decode<F: FunctionSet>(alphabet: &Alphabet<F>, genome: &[Symbol]) -> Self {
         if genome.is_empty() {
             return ExpressionTree::from_parts(Vec::new(), Vec::new(), Vec::new());
         }
@@ -164,7 +148,7 @@ mod tests {
             Symbol::from_raw(8), // tail junk
             Symbol::from_raw(8),
         ];
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         // + (root) -> children {*, x}; * -> children {x, x}. 5 nodes.
         assert_eq!(tree.node_count(), 5);
     }
@@ -182,8 +166,8 @@ mod tests {
             Symbol::from_raw(9),
             Symbol::from_raw(8),
         ];
-        let t1 = GepDecoder.decode(&a, &genome);
-        let t2 = GepDecoder.decode(&a, &genome);
+        let t1 = ExpressionTree::decode(&a, &genome);
+        let t2 = ExpressionTree::decode(&a, &genome);
         assert_eq!(t1.nodes(), t2.nodes());
         assert_eq!(t1.node_count(), t2.node_count());
     }
@@ -197,7 +181,7 @@ mod tests {
             Symbol::from_raw(8),
             Symbol::from_raw(8),
         ];
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         assert_eq!(tree.node_count(), 1);
     }
 
@@ -207,7 +191,7 @@ mod tests {
     #[test]
     fn empty_genome_decodes_to_zero_node_tree() {
         let a = alphabet(1);
-        let tree = GepDecoder.decode(&a, &[]);
+        let tree = ExpressionTree::decode(&a, &[]);
         assert_eq!(tree.node_count(), 0);
         // A zero-node tree evaluates to the inert 0.0.
         approx::assert_relative_eq!(tree.eval(&a, &[1.0]), 0.0, epsilon = 1e-6);
@@ -225,7 +209,7 @@ mod tests {
             Symbol::from_raw(8),
             Symbol::from_raw(8),
         ];
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         // sin (root) -> child {x}. 2 nodes.
         assert_eq!(tree.node_count(), 2);
         approx::assert_relative_eq!(tree.eval(&a, &[0.0]), 0.0f32.sin(), epsilon = 1e-6);
@@ -241,7 +225,7 @@ mod tests {
         // internal nodes has 5 leaves: 9 coding nodes total.
         let mut genome = vec![Symbol::from_raw(0); 4];
         genome.extend(std::iter::repeat_n(Symbol::from_raw(8), 5));
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         assert_eq!(tree.node_count(), 9);
         // 4 additions of x summed over the tree: value is 5*x for x-leaves? No
         // — a chain of `+` with x leaves sums the 5 leaves = 5x.
@@ -259,7 +243,7 @@ mod tests {
             Symbol::from_raw(8),
             Symbol::from_raw(8),
         ];
-        let tree = GepDecoder.decode(&a, &genome);
+        let tree = ExpressionTree::decode(&a, &genome);
         assert_eq!(tree.node_count(), 1);
         approx::assert_relative_eq!(tree.eval(&a, &[3.0]), 0.0, epsilon = 1e-6);
     }
@@ -289,7 +273,7 @@ mod tests {
                     genome.push(alpha.sample_tail_symbol(&mut rng));
                 }
 
-                let tree = GepDecoder.decode(&alpha, &genome);
+                let tree = ExpressionTree::decode(&alpha, &genome);
                 let node_count = tree.node_count();
                 assert!(node_count >= 1, "coding region must be non-empty");
 

@@ -373,7 +373,7 @@ pub fn run_strategy<B, S, M, F>(
     label: &str,
     strategy: WeightOnly<B, S, M>,
     params: S::Params,
-    fitness: ModuleEvalFn<B, ModuleReshaper<B, M>, F>,
+    fitness: ModuleEvalFn<B, M, F>,
     seed: u64,
     device: B::Device,
     max_gens: usize,
@@ -590,7 +590,6 @@ mod tests {
     use super::*;
     use burn::backend::Flex;
     use burn::tensor::backend::BackendTypes;
-    use rlevo_evolution::ParamReshaper;
 
     type B = Flex;
 

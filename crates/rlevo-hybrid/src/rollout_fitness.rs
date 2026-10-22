@@ -62,7 +62,7 @@ type EnvFactory<E> = Arc<dyn Fn() -> E + Send + Sync>;
 /// Host-side scorer stored inside the inner [`ModuleEvalFn`].
 ///
 /// `Box<dyn Fn>` (not `Arc`) because `Box<F>` implements `Fn` — satisfying
-/// [`ModuleEvalFn`]'s `F: Fn(&R::Module) -> f32 + Send` bound — whereas `Arc<F>`
+/// [`ModuleEvalFn`]'s `F: Fn(&M) -> f32 + Send` bound — whereas `Arc<F>`
 /// does not. `+ Send` matches the [`BatchFitnessFn`] supertrait; `Sync` is not
 /// required.
 type RolloutScorer<M> = Box<dyn Fn(&M) -> f32 + Send>;
@@ -113,10 +113,10 @@ where
 pub struct RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + StatefulPolicy<B, E>,
     E: Environment<1, 1>,
 {
-    inner: ModuleEvalFn<B, ModuleReshaper<B, M>, RolloutScorer<M>>,
+    inner: ModuleEvalFn<B, M, RolloutScorer<M>>,
     episodes_per_eval: usize,
     max_steps_per_episode: usize,
     _env: PhantomData<fn() -> E>,
@@ -125,7 +125,7 @@ where
 impl<B, M, E> std::fmt::Debug for RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + StatefulPolicy<B, E>,
     E: Environment<1, 1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -139,7 +139,7 @@ where
 impl<B, M, E> RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + StatefulPolicy<B, E>,
     E: Environment<1, 1>,
 {
     /// Build a rollout-based fitness function.
@@ -210,7 +210,7 @@ where
 impl<B, M, E> BatchFitnessFn<B, Tensor<B, 2>> for RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync + StatefulPolicy<B, E>,
+    M: Module<B> + StatefulPolicy<B, E>,
     E: Environment<1, 1> + Send,
 {
     fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &Dev<B>) -> Tensor<B, 1> {
