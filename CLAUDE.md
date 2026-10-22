@@ -91,7 +91,7 @@ author stops or starts writing.
 | Probe | What it is |
 |-------|------------|
 | `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy, run it through `Evaluator::run_suite` |
-| `byoe-1-tank-farm` | the same walk over a rank-2 observation and a rank-1 state, a bounded continuous action that can be invalid, and an episode that an overflow terminates or `TimeLimit` truncates; the harness runs it through the wrapper |
+| `byoe-1-tank-farm` | the same walk over a rank-2 observation, a bounded continuous action that can be invalid, and an episode that an overflow terminates or `TimeLimit` truncates; the harness runs it through the wrapper |
 | `consumer-core` | that author's environment file built against `rlevo-core` alone, with its package count, its Burn package count and a cold build time |
 | `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning` |
 
@@ -108,10 +108,8 @@ replaces.
 | Symbol | Type | Description |
 | --- | --- | --- |
 | `OR` | `Observation` | rank of the representative observation tensor |
-| `SR` | `State` | rank of the representative state tensor |
 | `AR` | `Action` | rank of the representative action tensor |
 | `E` | Environment | - |
-| `Rew` | Reward | - |
 | `B` | Burn Autodiff Backend | - |
 | `BK` | Burn Backend | - |
 | `BS` | Batch size | - |
@@ -119,10 +117,13 @@ replaces.
 ### Const Generics and Type Inference
 
 When working with const generic dimensions:
-- `Environment<OR, SR, AR>` permits `OR != SR` for
-  modality-changing POMDPs (see `Observable<OR>`, ADR 0019).
+- `Environment<OR, AR>` has two associated types, `ObservationType:
+  Observation<OR>` and `ActionType: Action<AR>`; `reset` and `step` return
+  `Snapshot<Self::ObservationType>`. An environment's state is its own type,
+  with no rank in the contract (ADR 0090), so a modality-changing POMDP
+  needs nothing special.
 - Action order `AR` must be consistent with `Action<AR>`.
-- Environment's `OR`, `SR`, `AR` parameters create a type-level constraint system.
+- Environment's `OR` and `AR` parameters create a type-level constraint system.
 
 If you encounter dimension mismatch errors, verify:
 1. The const generic parameters match across all trait bounds
@@ -146,10 +147,10 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 ## Key Files and Patterns
 
 ### Critical Trait Definitions
-- `crates/rlevo-core/src/state.rs`: State, Observation, and POMDP seams (`Observable`, `BeliefState`, ...)
 - `crates/rlevo-core/src/action.rs`: Action trait hierarchy
-- `crates/rlevo-core/src/environment.rs`: Environment and Snapshot traits
-- `crates/rlevo-core/src/base.rs`: Reward, `HostRow` (the row a tensor is built from), `TensorConvertible` (behind the `burn` feature), transition dynamics
+- `crates/rlevo-core/src/environment.rs`: the `Environment` trait, the `Snapshot<O>` struct every `reset` and `step` returns (read through its fields), `EpisodeStatus`, `EnvironmentError`; the emission model and construction are documented there as patterns, not traits (ADR 0090)
+- `crates/rlevo-core/src/base.rs`: `Observation`, `Action`, `HostRow` (the row a tensor is built from), `TensorConvertible` (behind the `burn` feature)
+- `crates/rlevo-core/src/reward.rs`: `ScalarReward`, the one reward type, and its finiteness obligation
 - `crates/rlevo-reinforcement-learning/src/replay/`: RL replay-strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`) — moved out of core in ADR 0003, reshaped as a strategy seam in ADR 0050
 - `crates/rlevo-reinforcement-learning/src/metrics.rs`: `AgentStats`, `PerformanceRecord` — RL-only episode tracking
 - `crates/rlevo-evolution/src/strategy.rs`: `Strategy`, the stateless ask/tell contract, and `EvolutionaryLoop`, which holds a run's state and drives one with `reset()` / `step()` / `is_done()`. `step()` returns nothing; the status is the separate predicate (ADR 0085). For a `Strategy`, the loop is where a `Minimize` objective is negated and fitness is sanitised
@@ -159,8 +160,8 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 
 ### Example Reference Implementations
 - `crates/rlevo-environments/src/classic/bandit/k_armed.rs`: Complete environment example with extensive tests
-- `crates/rlevo-environments/src/pixel_grid.rs`: `Observable<OR>` modality-changing env (ADR 0020)
-- `xtask/probes/byoe-1-thermostat/src/thermostat.rs`: State/Action/Observation implementation patterns, as an outside author writes them; its probe builds it on every pull request
+- `crates/rlevo-environments/src/pixel_grid.rs`: modality-changing env, a rank-1 latent observed as a rank-3 image through `PixelGridState::project` (ADR 0020)
+- `xtask/probes/byoe-1-thermostat/src/thermostat.rs`: Environment/Action/Observation implementation patterns, as an outside author writes them; its probe builds it on every pull request
 - `xtask/probes/byoe-1-tank-farm/src/tank_farm.rs`: the same for a `ContinuousAction` + `BoundedAction` command, a rank-2 observation and an environment with no horizon of its own
 - `crates/rlevo-core/src/environment.rs`: MockEnvironment in test module demonstrates trait usage
 

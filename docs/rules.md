@@ -14,7 +14,7 @@ Hard constraints and conventions that apply to every contribution. Read this bef
 
 ## 1. Workspace Structure
 - The workspace contains exactly these crates, each with a single, bounded responsibility:
-  - `rlevo-core` — agent / environment contract: `State`, `Observation`, `Action`, `Reward`, `Environment`, `Snapshot`, `EpisodeGuard` (the state machine behind `Environment::step`'s post-terminal contract, per ADRs 0044/0083), `HostRow` (an observation's host row) and, under its `burn` feature, `TensorConvertible` (implemented for every `HostRow`; ADR 0089), the `evaluation` drive seam (`GenerationProbe`, per ADRs 0076/0077), the `util` module (`util::seed`'s deterministic seed-derivation primitives — `SeedStream`, `splitmix64` — per ADR 0004), and the **render trait surface** (`AsciiRenderable` [optional debug helper — not a mandatory env invariant], `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, `palette`). No algorithm or environment implementations.
+  - `rlevo-core` — agent / environment contract: `Observation`, `Action`, `Environment`, the `Snapshot` struct and `ScalarReward` (ADR 0090), `EpisodeGuard` (the state machine behind `Environment::step`'s post-terminal contract, per ADRs 0044/0083), `HostRow` (an observation's host row) and, under its `burn` feature, `TensorConvertible` (implemented for every `HostRow`; ADR 0089), the `evaluation` drive seam (`GenerationProbe`, per ADRs 0076/0077), the `util` module (`util::seed`'s deterministic seed-derivation primitives — `SeedStream`, `splitmix64` — per ADR 0004), and the **render trait surface** (`AsciiRenderable` [optional debug helper — not a mandatory env invariant], `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, `palette`). No algorithm or environment implementations.
   - `rlevo-environments` — environment implementations (depends on `rlevo-core`). `rlevo-environments::render` is a re-export shim that forwards all render types from `rlevo-core::render`; do not add new types there.
   - `rlevo-reinforcement-learning` — gradient-based RL algorithms + the RL-only `replay` strategy seam (`ReplayStrategy`, `UniformReplay`, `PrioritizedReplay`, `PrioritizedReplaySettings`, `ReplayKind`) and `metrics` (`AgentStats`) modules. Depends on `rlevo-core`. `rlevo-environments` is a dev-dep only (used by examples / benches / integration tests).
   - `rlevo-evolution` — evolutionary strategy algorithms. Depends on `rlevo-core` (for `GenerationProbe`, `FitnessEvaluable`, `Landscape`, `SeedStream`). Depends on `parking_lot` for `SharedPopulationObserver`.
@@ -48,7 +48,7 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - Each example is owned by the crate whose `examples/` dir holds it; run it with that crate's `-p` (see the Example Scope Boundary section). Prefer the `justfile` recipe over typing the full `-p … --example …` line.
 
 ### Types and Traits
-- Types and traits: `PascalCase` (e.g., `ScalarReward`, `SnapshotBase`, `DiscreteAction`).
+- Types and traits: `PascalCase` (e.g., `ScalarReward`, `Snapshot`, `DiscreteAction`).
 - Error types: `PascalCase` enum or struct ending in `Error` (e.g., `StateError`, `EnvironmentError`, `ReplayBufferError`).
 - Config types: `PascalCase` ending in `Config` (e.g., `FrozenLakeConfig`).
 - Builder types: `PascalCase` ending in `Builder` (e.g., `DqnTrainingConfigBuilder`).
@@ -58,13 +58,12 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 ### Functions and Methods
 - All functions and methods: `snake_case`.
 - Constructors: `new()` (default), `with_config(config)` (alternate), `from_*()` (conversion).
-- Accessors returning references: `observation()`, `reward()`, `status()`.
+- Accessors returning references: `config()`, `state()`, `arm_means()`.
 - Predicate methods: `is_valid()`, `is_done()`, `is_terminated()`, `is_truncated()`.
-- Dimension methods: `shape()`, `numel()`.
+- Dimension methods: `shape()`.
 - Mutation methods: `update()`, `reset()`, `step()`, `add()`, `record()`.
 - **A generation loop that a person drives has `step()`, which returns nothing, and `is_done()`, which is asked before each call** (ADR 0085): `while !evo_loop.is_done() { evo_loop.step(); }`. A `step()` that returns a bare `bool` makes the caller remember which way it points, and a loop written on it checks the budget after the work instead of before. This is not a rule for every method that advances something. `Environment::step` returns a `Snapshot` that carries its status, and `GenerationProbe::advance` returns `None` once the budget is spent: each is called by a generic evaluator and returns more than a flag. A new driver offers the pair for people and a `GenerationProbe` impl for the evaluator, and builds the second from the first (`begin` is `reset`; `advance` is `is_done`, then `step`, then the metrics).
 - Builder chain methods: `.with_*()` (fluent), `.build()` (finalize).
-- Identity/utility methods: `zero()`, `enumerate()`, `aggregate()`, `encode()`, `decode()`.
 
 ### Struct Field Encapsulation
 
@@ -72,6 +71,7 @@ The workspace allocates invariant enforcement across three mechanisms. Which one
 applies is decided by the *kind* of struct, not case by case:
 
 - **`*Config` types keep `pub` fields.** A config is a hyperparameter record; `GaConfig { pop_size: 64, ..Default::default() }` is the tuning idiom the library exists to serve. Config types are bound by the **Config Validation Contract** — the consumer calls `config.validate()?` at construction — and are **exempt** from the encapsulation rule below.
+- **A step result is plain data.** `Snapshot<O>` has four `pub` fields (`observation`, `reward`, `status`, `metadata`) and no accessors: it holds no invariant between them, is returned by value, and is read and destructured by every driver (ADR 0090). Its constructors `running`, `terminated` and `truncated` name the status.
 - **State / params / genome structs do not expose `pub` data-bag fields.** A `*State`, `*Params`, or `*Genome` type keeps its fields private (or `pub(crate)` when a family of in-crate operators mutates it in place) and exposes `#[must_use]` read accessors named after the field (`fitness()`, `best_fitness()`, …). This prevents external — or careless internal — code from struct-literal-constructing a structurally invalid value (mismatched lengths, out-of-range probabilities, a broken derived tail) that only panics generations later.
 - **Guarded construction.** A struct with a checkable invariant offers a validating `try_new(...) -> Result<Self, ConfigError>` (structural checks: lengths agree, counts non-zero) as its public entry point; the trusted in-module construction path may keep a struct literal. A struct with no invariant offers an infallible `new`. Hyperparameter-bearing `*Params` follow the Config Validation Contract below and expose their overrides through validating `with_*` setters, not `pub` fields.
 - **An invariant that must survive struct-literal construction goes in a validated newtype, not behind a private field.** Follow the shape (`Bounds`, `Probability`, `NonNegativeRate`): private inner field, `new` (panicking, for literals) / `try_new` (`Result`), a dedicated `Copy` error, `#[serde(try_from)]`. A newtype is **transitive** — it holds inside a  config, inside a `*Params`, after `Deserialize`, and after a  `Clone`-then-mutate — whereas field privacy guards exactly one boundary. A  `pub` field of a validated newtype is therefore safe under struct-literal  construction; `GaConfig`'s `bounds: Bounds` / `mutation_sigma: NonNegativeRate`  are the reference (`algorithms/ga.rs:73-89`). Such a field **removes** its  paired `config::` check from `validate()` rather than duplicating it.
@@ -81,13 +81,12 @@ applies is decided by the *kind* of struct, not case by case:
 
 ### Constants and Associated Constants
 - Constants: `UPPER_SNAKE_CASE` (e.g., `ACTION_COUNT`, `MAX_STEPS`, `GOAL_STATE`).
-- Const generic parameters: `OR` (observation rank), `SR` (state rank), `AR` (action rank) — never overlap.
-- Batch ranks are always `BOR = OR + 1`, `BAR = AR + 1`, `BSR = SR + 1` — never any other offset.
-- Reified const generic: `const RANK: usize = R` for `Snapshot`; `const RANK: usize = OR` for `Observation`; `const RANK: usize = SR` for `State`; `const RANK: usize = AR` for action traits. Inside a trait body the reified name is always `RANK`, never the parameter letter (so `RANK` as a self-citing name reads correctly regardless of the parameter letter at the impl site).
+- Const generic parameters: `OR` (observation rank), `AR` (action rank) — never overlap.
+- Batch ranks are always `BOR = OR + 1`, `BAR = AR + 1` — never any other offset.
 
 ### Generic Parameters
-- Domain bounds: `O: Observation<OR>`, `A: Action<AR>`, `S: State<SR>`, `Rew: Reward`.
-- Const generic ordering in signatures: `<const OR: usize, const SR: usize, const AR: usize>` — observe rank, state rank, action rank. Use this order in every new trait, struct, and impl.
+- Domain bounds: `O: Observation<OR>`, `A: Action<AR>`.
+- Const generic ordering in signatures: `<const OR: usize, const AR: usize>` — observation rank, action rank. Use this order in every new trait, struct, and impl.
 - Place all non-trivial bounds in a `where` clause, not inline.
 
 ---
@@ -96,10 +95,10 @@ applies is decided by the *kind* of struct, not case by case:
 
 - **A `pub trait` in a published crate stays only if one of these holds** (ADR 0081): it has at least two production implementors that differ and at least one generic consumer that bounds on it; or it is the seam an audience is asked to implement (an environment, an agent, an optimisation strategy); or it exists for coherence (a blanket impl has to hang on something) or to carry associated consts and types a function cannot. Otherwise the concept is a type, an enum, a closure or a documented convention.
 - **A public struct, enum or function is public because a user writes its name.** One that nothing outside its module constructs, matches on or calls is private.
-- **The roadmap lives in documentation, never in a `pub` item.** An item whose only justification is a feature not yet written is deleted and returns in the change that writes the feature.
+- **A feature not yet written is no reason for a `pub` item.** An item whose only justification is such a feature is deleted and returns in the change that writes the feature.
 - **A pull request that changes the public surface reports its surface delta**: the diff of `tools/public-surface.sh <crate>` at the base commit and at the branch, per crate. An addition says what it replaces.
 - Every public trait must have a doc comment explaining its purpose and when to implement it.
-- Associated types use singular nouns matching the concept (`type ObservationType`, `type StateType`, `type ActionType`).
+- Associated types use singular nouns matching the concept (`type ObservationType`, `type ActionType`).
 - Provided default method implementations must be conservative and correct for all conforming types; document any assumptions.
 - Trait methods that can fail return `Result<T, DomainError>` — never `Option` for error signalling.
 - Marker traits (such as `GenomeKind`) carry `const` or zero methods; they must not grow methods unless the concept fundamentally requires it.
@@ -110,14 +109,13 @@ applies is decided by the *kind* of struct, not case by case:
 
 | Trait | Invariant |
 |-------|-----------|
-| `State<SR>` | `shape().iter().product::<usize>() == numel()` |
-| `Observation<OR>` | `shape().len() == RANK` (type-enforced by the `[usize; R]` return) and every axis size is `> 0` (**not** type-enforced — this is the implementor's obligation). There is no `numel()` on this trait, so no shape/element-count product identity applies here; do not copy `State`'s row onto it. The supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here |
+| `Observation<OR>` | `shape().len() == OR` (type-enforced by the `[usize; R]` return) and every axis size is `> 0` (**not** type-enforced — this is the implementor's obligation). There is no `numel()` on this trait, so no shape/element-count product identity applies here. The supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here |
 | `DiscreteAction<AR>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
 | `ContinuousAction<AR>` | `as_slice().len() == COMPONENTS` always, and `from_slice` accepts exactly `COMPONENTS` values — `AR` is the tensor rank, never the component count (ADR 0038) |
 | `BoundedAction<AR>` | `low().len() == high().len() == COMPONENTS` (**not** `AR`), and `low()[i] < high()[i]` for all `i` |
 | `HostRow<R>` | Requires `Observation<R>`. `write_host_row` pushes exactly `shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `R`, its `Observation` rank (ADR 0089) |
 | `TensorConvertible<R, B>` | Behind `rlevo-core`'s `burn` feature. Encode-only and implemented for every `HostRow<R>` by a blanket impl, so no type writes or overrides it: `to_tensor` uploads exactly the row `write_host_row` writes, in the shape `shape()` reports. Nothing decodes a tensor back into a domain value; the decoders in use read a host value (`DiscreteAction::from_index`, `ContinuousAction::from_slice`), and a decode trait returns with the first code that calls one (ADR 0089) |
-| `Reward` | `zero()` is the additive identity: `r + zero() == r` |
+| `ScalarReward` | the default is zero, the additive identity: `r + ScalarReward::default() == r` |
 | `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted |
 | `PrioritizedReplay<T>` | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` |
 
@@ -182,7 +180,7 @@ Non-fitness float comparisons (geometry, eigenvalues, argmax over logits) use pl
 | `HillClimbingParams::with_max_iters` | `max_iters == 0` |
 | `HillClimbingParams::with_step_size` | `step_size` not finite or not `> 0` |
 | `HillClimbingParams::with_step_decay` | `step_decay` not finite, `<= 0`, or `> 1` |
-| Batch rank assertion | `BOR != OR + 1`, `BAR != AR + 1`, or `BSR != SR + 1`. No rlevo code asserts the relation: an agent stages its own batch and leaves it to Burn, where `Tensor::from_data` panics when the staged shape's rank is not the tensor's, while `unsqueeze` rejects only a target rank smaller than the source |
+| Batch rank assertion | `BOR != OR + 1` or `BAR != AR + 1`. No rlevo code asserts the relation: an agent stages its own batch and leaves it to Burn, where `Tensor::from_data` panics when the staged shape's rank is not the tensor's, while `unsqueeze` rejects only a target rank smaller than the source |
 | `ops::selection::tournament_*` | `fitness.is_empty()` or `tournament_size < 2` |
 | `ops::selection::truncation_*` | `fitness.is_empty()` or `top_k > fitness.len()` |
 | `ops::selection::{tournament_select, truncation_select}` | `population.dims()[0] != fitness.len()` |
@@ -382,11 +380,11 @@ pattern-replace.** Leave alone:
 
 ## 7. Const Generics and Type-Level Constraints
 
-- The const generic `OR` is the **observation rank** (a *tensor* rank, not an element count) — `SR` is the **state rank** (tensor rank, not the number of elements) — and `AR` is the **action rank** (role varies by action trait: tensor rank on `Action`, tensor rank on `BoundedAction`, but *not* the component count on `ContinuousAction`/`BoundedAction`, which is `COMPONENTS`). The three are independent: `Environment<OR, SR, AR>` permits `OR != SR` (e.g., for modality-changing POMDPs; `Sensor<OR, AR, SR>` is the later shaping).
+- The const generic `OR` is the **observation rank** (a *tensor* rank, not an element count) and `AR` is the **action rank** (role varies by action trait: tensor rank on `Action`, tensor rank on `BoundedAction`, but *not* the component count on `ContinuousAction`/`BoundedAction`, which is `COMPONENTS`). The two are independent. An environment's state has no rank in the contract: it is the environment's own type (ADR 0090).
 - Batch ranks `BOR`, `BAR`, and `BSR` are the row rank plus one, and Burn checks the relation at upload: `Tensor::from_data` panics when a staged shape's rank is not the tensor's (the panic table's "Batch rank assertion" row). Code that builds a `[usize; BR]` shape by copying a row's `shape()` into it asserts `BR == R + 1` first, because the copy panics on a length mismatch otherwise.
-- Never use `OR`, `SR`, or `AR` for the number of elements; use `numel()` or `shape().iter().product()` for that. The element count is *always* reachable from the rank plus a `shape()` — and where `shape()` is not faithful to storage, use the trait-declared constant (`COMPONENTS` for `ContinuousAction`/`BoundedAction`).
-- Associated type bounds cascade: if `Environment<OR, SR, AR>` is parameterised, all four associated types (`StateType: State<SR>`, `ObservationType: Observation<OR>`, `ActionType: Action<AR>`, `SnapshotType: Snapshot<OR, …>`) must each carry the corresponding rank through its bound. The fifth type (`RewardType`) is rank-independent.
-- `PhantomData<(O, A, Rew)>` is the approved pattern to carry erased generic parameters in builder/wrapper types — `Rew: Reward`, not `R` to avoid name collision.
+- Never use `OR` or `AR` for the number of elements; use `shape().iter().product()` for that. The element count is *always* reachable from the rank plus a `shape()` — and where `shape()` is not faithful to storage, use the trait-declared constant (`COMPONENTS` for `ContinuousAction`/`BoundedAction`).
+- Associated type bounds cascade: `Environment<OR, AR>`'s two associated types (`ObservationType: Observation<OR>`, `ActionType: Action<AR>`) each carry the corresponding rank through its bound, and `reset` and `step` return `Snapshot<Self::ObservationType>`.
+- `PhantomData<(O, A)>` is the approved pattern to carry erased generic parameters in builder/wrapper types.
 
 ---
 
@@ -397,7 +395,7 @@ pattern-replace.** Leave alone:
 | `burn` | `TensorConvertible` (in `rlevo-core`, only under its `burn` feature), neural network models, code generic over `B: Backend`. A backend (`flex`, `wgpu`) or `autodiff` is selected only at a leaf: the `rlevo` umbrella's `flex` / `wgpu` features, a crate's `[dev-dependencies]`, `rlevo-test-support`, `rlevo-examples` (ADR 0080) | Importing Burn in `rlevo-core` outside its `burn` feature (ADR 0089); a backend feature, `autodiff` or Burn's default features on the `burn` entry in a published crate's `[dependencies]`; naming a backend type (`Flex`, `Wgpu`, `Autodiff<_>`) outside tests, benches, examples and doctests |
 | `rand` | `rand::rng()` for thread-local RNG; `rng.random_range(0..n)` | `rand::thread_rng()` (deprecated) |
 | `rand_distr` | Advanced sampling distributions | Inline manual rejection sampling when a distribution exists |
-| `serde` | Derive `Serialize + Deserialize` on **concrete** domain types; declare a serde requirement at the consuming seam as a `where` clause (`env_tap.rs`: `where E::ActionType: Serialize + Clone`) | A serde **supertrait** on a domain trait (`Observation`, `Action`, `Reward`); manual `impl Serialize` unless unavoidable |
+| `serde` | Derive `Serialize + Deserialize` on **concrete** domain types; declare a serde requirement at the consuming seam as a `where` clause (`env_tap.rs`: `where E::ActionType: Serialize + Clone`) | A serde **supertrait** on a domain trait (`Observation`, `Action`); manual `impl Serialize` unless unavoidable |
 | `tracing` | Structured logging in training loops and the evaluation harness | `println!` / `eprintln!` in library code |
 | `approx` | Float comparisons in tests only | Float `==` comparisons anywhere |
 | `rapier2d` / `rapier3d` | Physics-based environment simulation | Direct FFI to Box2D or MuJoCo C libraries |
@@ -474,9 +472,10 @@ generation-to-generation) diversity the caller relies on.
 ## 10. Architecture Invariants
 
 - `rlevo-core` must have zero knowledge of any RL algorithm or environment implementation — it defines the contract only.
-- **Construction is separated from the `Environment` behaviour contract.** `Environment` has **no** `new(render: bool)` method. Constructing an environment goes through the standalone `ConstructableEnv` factory trait, which is **not** a supertrait of `Environment`. The `render: bool` parameter survives on `ConstructableEnv::new` as a hint to the `record` feature for frame capture; the live TUI no longer uses it. Environments must not require a global runtime or external process at construction time. Do not add `new(render: bool)` to environments or to decorator/wrapper types such as `RecordingTap` or `TuiEnvTap`.
+- **Construction is separated from the `Environment` behaviour contract.** `Environment` has no constructor and there is no construction trait (ADRs 0011, 0090). An environment enters the evaluation harness through an `EnvFactory`, a closure from a trial's seed to a fresh environment. The workspace's environments implement `Default` (the default config, which validates) and offer `with_config`; a debug render flag is a config field. Environments must not require a global runtime or external process at construction time. Do not add a construction trait, or `new(render: bool)`, to environments or to decorator/wrapper types such as `RecordingTap` or `TuiEnvTap`.
+- **The emission model is the environment's.** How an environment turns its state into an observation is an inherent method that `reset` and `step` call, not a trait (ADRs 0047, 0090). A stochastic observation draws from the environment's own generator; observation variants are a type parameter on the environment; noise, latency and history are wrappers beside `TimeLimit`.
 - `EpisodeStatus` is the single source of truth for episode termination; never check done-ness by any other means.
-- **`SnapshotBase` is the only `Snapshot` implementation in the workspace.** It carries optional `SnapshotMetadata` via a fluent `with_metadata(self, SnapshotMetadata) -> Self` builder and overrides `Snapshot::metadata()` to expose it, so needing named reward components or positions is **not** a reason to hand-roll a `Snapshot` impl. A bespoke `SnapshotType` forfeits composition with `TimeLimit` (`wrappers/time_limit.rs` binds its inner env's `SnapshotType = SnapshotBase<R, Obs, Rew>` to mutate `.status` in place) — and every future wrapper bound to `SnapshotBase` the same way. When a family of environments needs a named shape for its snapshot, define a local type alias (`pub type LocomotionSnapshot<O> = SnapshotBase<1, O, ScalarReward>;`), not a new `Snapshot` impl.
+- **`Snapshot<O>` is the one step-result type.** Every environment's `reset` and `step` return it, which is why `TimeLimit` and every other wrapper compose with any environment (ADR 0090). It carries optional `SnapshotMetadata` via a fluent `with_metadata(self, SnapshotMetadata) -> Self` builder, so needing named reward components or positions is **not** a reason for a step-result type of one's own. Write `Snapshot<MyObservation>`; do not alias it.
 - Replay buffers must maintain `priorities.len() == buffer.len()` as a hard invariant and enforce capacity via explicit `pop_front()` eviction — never rely on `VecDeque`'s internal capacity.
 - All environment `step()` implementations must be deterministic given the same initial state and action sequence. Recording/visualisation taps (`RecordingTap`, `TuiEnvTap`) must never alter env dynamics — observing an environment must not change its trajectory.
 - Tensor conversion is encode-only. `TensorConvertible` uploads the row `HostRow::write_host_row` writes, and nothing turns a tensor back into a domain value; a decoder returns with the first code that calls one (ADR 0089). A field the row writer omits is simply absent from the tensor.

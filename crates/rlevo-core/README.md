@@ -163,13 +163,13 @@ Add to your `Cargo.toml`:
 rlevo-core = "0.5"
 ```
 
-The example below uses `EpisodeGuard`, which is on `main` and ships with the next release; the published 0.5.0 has no `episode` module. On `main` the crate also depends on Burn only under its `burn` feature; the published 0.5.0 always depends on it.
+The example below is the contract on `main`, which ships with the next release: the published 0.5.0 has no `episode` module, and its `Environment` has three ranks and five associated types (ADR 0090). On `main` the crate also depends on Burn only under its `burn` feature; the published 0.5.0 always depends on it.
 
 ### Minimal Environment
 
 ```rust
 use rlevo_core::{
-    base::{Action, Observation, Reward, State},
+    base::{Action, Observation},
     environment::{Environment, EnvironmentError, Snapshot},
     episode::EpisodeGuard,
     reward::ScalarReward,

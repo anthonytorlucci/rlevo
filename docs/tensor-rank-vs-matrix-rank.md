@@ -1,7 +1,7 @@
 # Tensor Rank vs. Matrix Rank vs. Dimensionality
 
 The word **rank** is overloaded. In `rlevo` it appears as the const generic on
-`State<SR>`, `Observation<OR>`, and `Action<AR>` — and it means something very
+`Observation<OR>` and `Action<AR>` — and it means something very
 specific there. But the same word means something *different* in linear algebra,
 and something different again in everyday "how big is this space?" talk. Three of
 those senses collide precisely in the discussion of partially-observable
@@ -17,16 +17,16 @@ three senses apart.
   is a tensor of shape $[\lambda, d]$.
 - Observations are shaped $[B, \ldots]$ where $B$ is batch size during
   training and $1$ during inference.
-- The const generic rank parameter $R$ in `State<R>`, `Observation<R>`, and
-  `Action<R>` is the *number of dimensions*, not the size — so a flat vector is
-  $R = 1$, a matrix is $R = 2$.
+- The const generic rank parameter $R$ in `Observation<R>` and `Action<R>` is
+  the *number of dimensions*, not the size — so a flat vector is $R = 1$, a
+  matrix is $R = 2$.
 
 
 ## Three senses of "rank"
 
 ### 1. Tensor order (ndim) — the one `rlevo` tracks
 
-The `const R` in `State<R>` / `Observation<R>` is the **number of axes** a tensor
+The `const R` in `Observation<R>` / `Action<R>` is the **number of axes** a tensor
 has — what NumPy calls `ndim` and Burn writes as the `D` in `Tensor<B, D>`. It is
 the count of indices you need to address a single element, *not* the size of any
 axis:
@@ -63,16 +63,16 @@ whatever its column space looks like.
 The third sense is the everyday one: "how big is the space?" — the number of values
 an axis (or the whole space) can take. In `rlevo` this is the content of
 `shape()`: a rank-1 observation with `shape() == [16]` has $16$ slots along its
-single axis. Critically, **`Observation::shape()` is independent of
-`State::shape()`**.
+single axis. Critically, **`Observation::shape()` is independent of the
+environment's state**, whose shape the contract does not declare at all.
 
 ### Side by side
 
 | Sense | Means | A property of… | Where it lives in `rlevo` |
 | --- | --- | --- | --- |
-| **Tensor order (ndim)** | number of axes / indices | the container's shape | the `const SR`/`OR`/`AR` on `State`/`Observation`/`Action` — the **only** "rank" the types track |
+| **Tensor order (ndim)** | number of axes / indices | the container's shape | the `const OR`/`AR` on `Observation`/`Action` — the **only** "rank" the types track |
 | **Matrix rank** | dimension of a linear map's column space | the *values* of a matrix | nowhere in the types; a numerical fact about a `Tensor<B, 2>` |
-| **Cardinality / dimensionality** | size of an axis (count of values) | the container's shape | `shape()` entries (and `numel()`) — independent between state and observation |
+| **Cardinality / dimensionality** | size of an axis (count of values) | the container's shape | `shape()` entries — the observation's own, whatever the state holds |
 
 A clean way to keep them straight: **tensor order** counts the axes,
 **dimensionality** counts the values *along* an axis, and **matrix rank** counts
@@ -110,47 +110,39 @@ separation principle live entirely in that constant-order,
 dimensionality-reducing regime. Nothing about LQG changes `ndim`.
 
 Only the last row — **Atari**, a compact emulator-RAM state (order 1) observed as a
-pixel image (order 2 or 3) — actually changes the tensor order. That, and only
-that, is a case the const generics must be allowed to differ for.
+pixel image (order 2 or 3) — actually changes the tensor order. In `rlevo` that
+needs nothing special: the contract carries the observation's order `OR` and no
+order for the state, so the two cannot be made to agree.
 
 ## How `rlevo` handles each case
 
-The three senses map onto three different mechanisms. Since
+The three senses map onto three different mechanisms, all in one place: the
+environment's own **emission model**, the code in its `reset` and `step` that
+turns its state into an observation. Since
 [ADR 0047](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0047-sensor-relocates-emission-model-to-environment.md)
-(superseding [ADR 0019](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0019-observable-projection-trait.md)),
-the mechanism that turns a state into an observation is the environment's
-[`Sensor<OR, AR, SR>`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html),
-not a method on `State` — but the three-way split below is unchanged by that
-move, because it was always about *which rank is doing the reducing*, not about
-which trait holds the reduction:
+it lives on the environment, not on the state, and since
+[ADR 0090](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0090-the-environment-contract-keeps-only-what-generic-code-reads.md)
+it is a plain method rather than a trait. The state is the environment's own
+type, with no rank in the contract.
 
 - **Dimensionality / stochastic reduction** (Tiger, grid worlds, RockSample, LQG,
-  contact manipulation) is handled by a **`Sensor`** whose `observe`/`observe_reset`
-  return a smaller-`shape`, same-order observation. Because `Observation::shape()`
-  is independent of `State::shape()`, no special machinery is needed — this is
-  the flavour of partial observability `rlevo` models directly, and `OR == SR`
-  still holds.
+  contact manipulation) is an emission model that returns a smaller-`shape`
+  observation; a stochastic one draws from the environment's own generator. This
+  is the flavour of partial observability `rlevo` models directly.
 - **Matrix-rank reduction** is just a *kind* of dimensionality/information loss; it
-  too is expressed inside a `Sensor` (or inside a learned encoder). It never
+  too is expressed in the emission model (or inside a learned encoder). It never
   forces a tensor-order change.
 - **Modality change** (Atari) is the one case that alters the tensor order, and
-  it is directly expressible by `Sensor` itself: `Sensor<OR, AR, SR>` already
-  carries `OR` as a rank independent of `SR`, so an environment's sensor can
-  return an observation of any order at all — no companion trait is *required*
-  to change tensor order any more. Where that projection happens to be a pure
-  function of state (no world context needed), though, it is common — and DRY —
-  for the sensor's body to delegate to a helper: the
-  [`Observable<OR>`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
-  trait, via `state.project()`. `rlevo`'s `pixel_grid` environment is the
-  reference for that pattern — `PixelGridState: Observable<3>` holds the
-  projection body, and `PixelGridEnv: Sensor<3, 1, 1>` simply forwards to
-  `next_state.project()`. Before ADR 0047, `Observable` was the *only* escape
-  from `State::observe()`'s same-rank binding (ADR 0019); now it is a
-  convenience for keeping a state-pure projection in one place, not the
-  mechanism that makes the rank change possible.
+  it needs nothing extra: `OR` is the observation's order and the only one the
+  contract has, so an emission model can return an observation of any order.
+  Where the projection is a pure function of the state, it reads well as a
+  method of the state type: `rlevo`'s `pixel_grid` environment is the reference,
+  with `PixelGridState::project` rendering the image and `PixelGridEnv` calling
+  it. Before ADR 0047 a projection like that needed the `Observable<OR>` trait
+  (ADR 0019) to escape `State::observe()`'s same-rank binding; there is now no
+  binding to escape.
 
 The one-line takeaway: **partial observability is almost always a dimensionality
-or matrix-rank reduction at constant tensor order — handled inside a `Sensor`.
-A modality change is directly expressible by `Sensor`'s own `OR` parameter;
-`Observable<OR>` remains a convenience helper for the case where that projection
-is a pure function of state.**
+or matrix-rank reduction at constant tensor order — handled in the environment's
+emission model. A modality change needs nothing more: `OR` is the observation's
+order, and the state has none in the contract.**
