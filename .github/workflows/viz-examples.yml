@@ -10,8 +10,6 @@
 # set. It is build-only: actually running them needs a tty (TUI), `--release`
 # wall-clock (PPO/EA), and a `trunk`-built WASM bundle (`*_with_client`).
 # Compiling is enough to catch producer-API drift like the Mutex split.
-#
-# See research note `viz-mutex-and-ci-gap` (Root cause B) for the rationale.
 name: viz-examples
 
 on:
