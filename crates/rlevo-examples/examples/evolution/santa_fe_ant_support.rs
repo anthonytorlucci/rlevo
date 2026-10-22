@@ -6,7 +6,7 @@
 //! solution is a program tree; we do not add one. Every phase-1 strategy in
 //! `rlevo-evolution` already evolves a flat `f32` vector (`Tensor<B, 2>`), so we
 //! keep it: define a recurrent net, flatten its weights into that same vector
-//! ([`ModuleReshaper`] / [`WeightOnly`]), evolve with any unchanged strategy, and
+//! ([`ModuleReshaper`]), evolve with any unchanged strategy, and
 //! score by un-flattening back into a net and running it as the ant's policy.
 //!
 //! The net supplies the **memory** the POMDP demands (the one-bit `food_ahead`
@@ -59,8 +59,7 @@ use rlevo_evolution::local_search::{HillClimbing, HillClimbingParams};
 use rlevo_evolution::rng::{SeedPurpose, seed_stream};
 use rlevo_evolution::{
     CoveragePolicy, EdaParams, EdaStrategy, EvolutionaryLoop, MemeticWrapper, ModuleEvalFn,
-    ModuleReshaper, Strategy, UnivariateGaussian, UnivariateGaussianParams, WeightOnly,
-    WritebackPolicy,
+    ModuleReshaper, Strategy, UnivariateGaussian, UnivariateGaussianParams, WritebackPolicy,
 };
 
 // ---------------------------------------------------------------------------
@@ -371,7 +370,7 @@ pub struct RunSummary {
 #[allow(clippy::too_many_arguments)] // a thin example driver; bundling these into a struct adds noise
 pub fn run_strategy<B, S, M, F>(
     label: &str,
-    strategy: WeightOnly<B, S, M>,
+    strategy: S,
     params: S::Params,
     fitness: ModuleEvalFn<B, M, F>,
     seed: u64,
@@ -383,7 +382,7 @@ where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
     S::Params: rlevo_core::config::Validate,
-    M: Module<B> + Sync,
+    M: Module<B>,
     F: Fn(&M) -> f32 + Send,
 {
     let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness, seed, device, max_gens)
@@ -413,8 +412,7 @@ where
 /// Run all four strategies (GA, EDA/UMDA, CMA-ES, memetic) over one architecture
 /// `template`, scored by `mode`. Returns one [`RunSummary`] per strategy.
 ///
-/// `M` is the recurrent policy module: it must be `Clone` (templates feed two
-/// constructors), `Sync` (the reshaper bound), and an [`AntPolicy`] (the scorer).
+/// `M` is the recurrent policy module, an [`AntPolicy`] (the scorer).
 pub fn evolve_all<B, M>(
     arch: &str,
     template: &M,
@@ -426,13 +424,11 @@ pub fn evolve_all<B, M>(
 ) -> Vec<RunSummary>
 where
     B: Backend,
-    M: Module<B> + Clone + Sync + AntPolicy<B>,
+    M: Module<B> + AntPolicy<B>,
 {
     // Single-source width: one reshaper feeds `dim` and every per-seed fitness
     // adapter (via `reshaper.clone()`), so the GaConfig genome width and the
-    // evaluator's `num_params` agree by construction. The `WeightOnly` wrappers
-    // below still build their own reshaper from `template` — that is the
-    // wrapper's own single source, and it matches `dim` by the same width.
+    // evaluator's `num_params` agree by construction.
     let reshaper = ModuleReshaper::new(template.clone());
     let dim = reshaper.num_params();
     let scorer = |seed: u64| make_scorer::<B, M>(mode, seed, MAX_STEPS, device.clone());
@@ -441,13 +437,11 @@ where
 
     // --- Genetic algorithm -------------------------------------------------
     {
-        let wo = WeightOnly::new(GeneticAlgorithm::<B>::new(), template.clone());
-        debug_assert_eq!(wo.num_params(), dim);
         let mut cfg = GaConfig::default_for(pop, dim);
         cfg.bounds = GENOME_BOUNDS;
         out.push(run_strategy(
             &format!("{arch}/GA"),
-            wo,
+            GeneticAlgorithm::<B>::new(),
             cfg,
             fitness(base_seed),
             base_seed,
@@ -459,10 +453,6 @@ where
 
     // --- Estimation of Distribution (UMDA) --------------------------------
     {
-        let wo = WeightOnly::new(
-            EdaStrategy::<B, _>::new(UnivariateGaussian),
-            template.clone(),
-        );
         let params = EdaParams {
             pop_size: pop,
             selection_ratio: 0.5,
@@ -471,7 +461,7 @@ where
         };
         out.push(run_strategy(
             &format!("{arch}/EDA"),
-            wo,
+            EdaStrategy::<B, _>::new(UnivariateGaussian),
             params,
             fitness(base_seed + 1),
             base_seed + 1,
@@ -485,10 +475,9 @@ where
     {
         let cfg = CmaEsConfig::default_for(dim);
         let cma_pop = cfg.pop_size;
-        let wo = WeightOnly::new(CmaEs::<B>::new(), template.clone());
         out.push(run_strategy(
             &format!("{arch}/CMA-ES"),
-            wo,
+            CmaEs::<B>::new(),
             cfg,
             fitness(base_seed + 2),
             base_seed + 2,
@@ -503,7 +492,6 @@ where
         let inner_fitness = fitness(base_seed + 3);
         let memetic =
             MemeticWrapper::new(GeneticAlgorithm::<B>::new(), HillClimbing, inner_fitness);
-        let wo = WeightOnly::new(memetic, template.clone());
         let mut ga = GaConfig::default_for(pop, dim);
         ga.bounds = GENOME_BOUNDS;
         let params = MemeticParams {
@@ -514,7 +502,7 @@ where
         };
         out.push(run_strategy(
             &format!("{arch}/Memetic"),
-            wo,
+            memetic,
             params,
             fitness(base_seed + 3),
             base_seed + 3,
@@ -543,16 +531,24 @@ where
     // Single-source width: one reshaper feeds both `dim` and the fitness adapter
     // (moved in below), so the GaConfig width and the evaluator's `num_params`
     // agree by construction.
-    let reshaper = ModuleReshaper::new(template.clone());
+    let reshaper = ModuleReshaper::new(template);
     let dim = reshaper.num_params();
-    let wo = WeightOnly::new(GeneticAlgorithm::<B>::new(), template);
     let mut cfg = GaConfig::default_for(pop, dim);
     cfg.bounds = GENOME_BOUNDS;
     let fitness = ModuleEvalFn::new(
         reshaper,
         make_scorer::<B, GruAntPolicy<B>>(mode, seed, MAX_STEPS, device.clone()),
     );
-    run_strategy("GRU/GA", wo, cfg, fitness, seed, device.clone(), gens, pop)
+    run_strategy(
+        "GRU/GA",
+        GeneticAlgorithm::<B>::new(),
+        cfg,
+        fitness,
+        seed,
+        device.clone(),
+        gens,
+        pop,
+    )
 }
 
 /// Print a per-strategy results table with the GP baseline as reference.

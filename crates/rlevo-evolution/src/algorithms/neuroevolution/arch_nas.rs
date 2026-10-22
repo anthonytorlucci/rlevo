@@ -1,7 +1,7 @@
 //! Bounded architecture NAS — evolving *which* fixed-topology Burn `Module`
 //! variant wins a task, alongside that variant's weights.
 //!
-//! Where [`WeightOnly`](super::weight_only::WeightOnly) evolves the weights of
+//! Where weight-only neuroevolution evolves the weights of
 //! **one** declared topology, this module adds the architecture axis without the
 //! full topology-evolution machinery of NEAT: the user declares a small, fixed
 //! menu of concrete `Module` variants, and each population member carries a
@@ -71,8 +71,8 @@ use crate::rng::{SeedPurpose, seed_stream};
 /// their underlying storage, so a derived `Clone` would silently share buffers
 /// rather than copy them. [`ArchNasStrategy::ask`] constructs a *fresh*
 /// `NasGenome` with newly allocated tensors (built host-side via
-/// [`Tensor::from_data`]) instead of cloning the struct — consistent with
-/// [`WeightOnly`](super::weight_only::WeightOnly) and the phase-1 strategies.
+/// [`Tensor::from_data`]) instead of cloning the struct — consistent with the
+/// phase-1 strategies.
 #[derive(Debug)]
 pub struct NasGenome<B: Backend> {
     /// Architecture index of each individual; length `pop_size`, each value in

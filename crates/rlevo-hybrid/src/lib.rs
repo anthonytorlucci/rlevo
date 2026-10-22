@@ -17,18 +17,14 @@
 //!   [`BatchFitnessFn`](rlevo_evolution::fitness::BatchFitnessFn) that scores a
 //!   population of flat policy parameters by running episodes against an
 //!   [`Environment`](rlevo_core::environment::Environment).
-//! - [`policy_neuroevolution`] — [`PolicyNeuroevolution`], which pairs a
-//!   [`WeightOnly`](rlevo_evolution::WeightOnly) strategy with a
-//!   [`RolloutFitness`] inside an
-//!   [`EvolutionaryLoop`](rlevo_evolution::EvolutionaryLoop).
+//!   Hand it to an [`EvolutionaryLoop`](rlevo_evolution::EvolutionaryLoop)
+//!   with any flat-genome strategy to evolve a policy's weights.
 //! - [`policy`] — [`StatefulPolicy`], the rollout contract by which a policy
 //!   module carries per-episode state across a [`RolloutFitness`] rollout
 //!   (`Hidden = ()` for a memoryless one).
 
 pub mod policy;
-pub mod policy_neuroevolution;
 pub mod rollout_fitness;
 
 pub use policy::StatefulPolicy;
-pub use policy_neuroevolution::PolicyNeuroevolution;
 pub use rollout_fitness::RolloutFitness;

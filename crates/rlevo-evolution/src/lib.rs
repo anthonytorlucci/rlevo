@@ -68,7 +68,7 @@ pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
 pub use algorithms::neuroevolution::{
     ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, BatchGraphFitness, GraphFitnessFn,
     NasBuilderConfig, NasGenome, NasParams, NasState, NeatParams, NeatState, NeatStrategy,
-    VariantEvaluator, WeightOnly,
+    VariantEvaluator,
 };
 pub use coevolution::{
     CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryLoop, CompetitiveCoEA,

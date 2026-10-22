@@ -5,9 +5,7 @@
 //! open-endedly from a minimal seed. Like its sibling
 //! [`ArchNasStrategy`](super::arch_nas::ArchNasStrategy), it is a **standalone
 //! strategy** with inherent `init`/`ask`/`tell`/`best` and does **not** implement
-//! [`Strategy`](crate::strategy::Strategy), so no loop drives it.
-//! ([`WeightOnly`](super::weight_only::WeightOnly), by contrast, wraps a
-//! `Strategy` and is one.) Its genome is host-side graph data
+//! [`Strategy`](crate::strategy::Strategy), so no loop drives it. Its genome is host-side graph data
 //! ([`TopologyGenome`]) with no tensor representation, so the `Strategy<B>`
 //! tensor-genome contract does not fit; the parallel [`GraphFitnessFn`] seam
 //! plays the role [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) plays for

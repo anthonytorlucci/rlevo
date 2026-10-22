@@ -1,8 +1,8 @@
 //! Integration test: weight-only neuroevolution of a small MLP against a
 //! supervised (MSE) fitness on a noisy sine wave.
 //!
-//! Exercises the full weight-only loop end-to-end:
-//! `WeightOnly<B, GA, Mlp>` (strategy) → `ModuleEvalFn` (fitness adapter,
+//! Exercises the full weight-only loop end-to-end: a GA over the MLP's
+//! flattened weights (strategy) → `ModuleEvalFn` (fitness adapter,
 //! unflattening each genome row into an MLP and scoring MSE) →
 //! `EvolutionaryLoop`.
 //!
@@ -17,7 +17,6 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Tensor, TensorData, activation, backend::Backend};
 
 use rlevo_core::rate::NonNegativeRate;
-use rlevo_evolution::WeightOnly;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::module_eval_fn::ModuleEvalFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
@@ -80,10 +79,9 @@ fn weight_only_ga_fits_noisy_sine_directional() {
     let (inputs, targets) = dataset(&device, n);
 
     let template = SineMlp::<TestBackend>::new(&device);
-    // Single-source width: build ONE reshaper, read its width, then hand a
-    // clone to the fitness adapter so both agree on `num_params` by
-    // construction (rather than two independent `ModuleReshaper::new`).
-    let reshaper = ModuleReshaper::new(template.clone());
+    // Single-source width: build ONE reshaper, read its width, then move it
+    // into the fitness adapter so both agree on `num_params` by construction.
+    let reshaper = ModuleReshaper::new(template);
     let num_params = reshaper.num_params();
     // 1*16 + 16 + 16*1 + 1 = 49
     assert_eq!(num_params, 49);
@@ -107,7 +105,7 @@ fn weight_only_ga_fits_noisy_sine_directional() {
 
     let mut params = GaConfig::default_for(64, num_params);
     params.mutation_sigma = NonNegativeRate::new(0.3);
-    let strategy = WeightOnly::new(GeneticAlgorithm::<TestBackend>::new(), template);
+    let strategy = GeneticAlgorithm::<TestBackend>::new();
 
     let mut evo_loop =
         EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, eval, 42, device, 50)

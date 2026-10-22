@@ -65,9 +65,7 @@ use burn::tensor::{Tensor, backend::Backend};
 /// building two `ModuleReshaper::new(template.clone())` instances whose widths
 /// match only by convention: a silent divergence surfaces late as the
 /// documented width-mismatch panic in
-/// [`unflatten`](Self::unflatten) / `evaluate_batch`. Where a
-/// [`WeightOnly`](crate::algorithms::neuroevolution::WeightOnly) wrapper already
-/// owns a reshaper, clone *its* via `strategy.reshaper().clone()`.
+/// [`unflatten`](Self::unflatten) / `evaluate_batch`.
 ///
 /// # Example
 ///

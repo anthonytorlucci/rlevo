@@ -3,14 +3,14 @@
 //! `rlevo` ships three neuroevolution approaches, distinguished by how much
 //! network structure is fixed before the search begins.
 //!
-//! **Weight-only** ([`weight_only`]) fixes the architecture: a network is
-//! declared once and a flat-genome [`Strategy`](crate::strategy::Strategy)
-//! (GA / ES / DE / …) evolves its flattened weights. The
-//! [`WeightOnly`] wrapper composes any such strategy
-//! with any [`Module`](burn::module::Module); reshaping between the flat genome
-//! and the network happens at the fitness boundary
-//! ([`ModuleEvalFn`](crate::module_eval_fn::ModuleEvalFn)), never inside the
-//! strategy.
+//! **Weight-only** fixes the architecture and needs no strategy of its own: a
+//! network is declared once, and any flat-genome
+//! [`Strategy`](crate::strategy::Strategy) (GA / ES / DE / …) evolves its
+//! flattened weights unchanged, with the genome width read from a
+//! [`ModuleReshaper`](crate::param_reshaper::ModuleReshaper). Reshaping between
+//! the flat genome and the [`Module`](burn::module::Module) happens at the
+//! fitness boundary ([`ModuleEvalFn`](crate::module_eval_fn::ModuleEvalFn)),
+//! never inside the strategy.
 //!
 //! **Bounded architecture NAS** ([`arch_nas`]) co-evolves the choice of
 //! architecture: a standalone [`ArchNasStrategy`]
@@ -30,11 +30,9 @@
 
 pub mod arch_nas;
 pub mod neat;
-pub mod weight_only;
 
 pub use arch_nas::{
     ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, NasBuilderConfig, NasGenome, NasParams,
     NasState, VariantEvaluator,
 };
 pub use neat::{BatchGraphFitness, GraphFitnessFn, NeatParams, NeatState, NeatStrategy};
-pub use weight_only::WeightOnly;

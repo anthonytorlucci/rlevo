@@ -6798,11 +6798,9 @@ version = "0.5.0"
 dependencies = [
  "approx",
  "burn",
- "rand 0.10.3",
  "rlevo-core",
  "rlevo-environments",
  "rlevo-evolution",
- "serde",
 ]
 
 [[package]]
