@@ -12,7 +12,7 @@ use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
 use rlevo_core::environment::{
-    Environment, EnvironmentError, EpisodeStatus, Sensor, Snapshot, SnapshotBase,
+    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
 };
 use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
 use rlevo_reinforcement_learning::replay::{
@@ -138,9 +138,8 @@ impl RandomWalkEnv {
     const GOAL: i32 = 6;
     const MAX_STEPS: usize = 20;
 
-    /// Creates a new `RandomWalkEnv`. The `_render` flag is accepted for API
-    /// symmetry with production environments but has no effect in tests.
-    fn new(_render: bool) -> Self {
+    /// Creates a `RandomWalkEnv` at the start position.
+    fn new() -> Self {
         Self {
             state: WalkState {
                 position: Self::START,
@@ -150,20 +149,10 @@ impl RandomWalkEnv {
     }
 }
 
-impl Sensor<1, 1, 1> for RandomWalkEnv {
-    type Action = WalkAction;
-    type State = WalkState;
-    type Observation = WalkObservation;
-
-    fn observe(&self, _action: &WalkAction, next_state: &WalkState) -> WalkObservation {
+impl RandomWalkEnv {
+    fn observe(&self) -> WalkObservation {
         WalkObservation {
-            position: next_state.position,
-        }
-    }
-
-    fn observe_reset(&self, state: &WalkState) -> WalkObservation {
-        WalkObservation {
-            position: state.position,
+            position: self.state.position,
         }
     }
 }
@@ -180,10 +169,7 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
             position: Self::START,
         };
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            WalkReward::zero(),
-        ))
+        Ok(SnapshotBase::running(self.observe(), WalkReward::zero()))
     }
 
     fn step(&mut self, action: WalkAction) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -196,33 +182,21 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
 
         if next < 0 {
             self.state = WalkState { position: 0 };
-            return Ok(SnapshotBase::terminated(
-                self.observe(&action, &self.state),
-                WalkReward(-1.0),
-            ));
+            return Ok(SnapshotBase::terminated(self.observe(), WalkReward(-1.0)));
         }
         if next >= Self::GOAL {
             self.state = WalkState {
                 position: Self::GOAL,
             };
-            return Ok(SnapshotBase::terminated(
-                self.observe(&action, &self.state),
-                WalkReward(1.0),
-            ));
+            return Ok(SnapshotBase::terminated(self.observe(), WalkReward(1.0)));
         }
 
         self.state = WalkState { position: next };
 
         if self.steps >= Self::MAX_STEPS {
-            Ok(SnapshotBase::truncated(
-                self.observe(&action, &self.state),
-                WalkReward::zero(),
-            ))
+            Ok(SnapshotBase::truncated(self.observe(), WalkReward::zero()))
         } else {
-            Ok(SnapshotBase::running(
-                self.observe(&action, &self.state),
-                WalkReward::zero(),
-            ))
+            Ok(SnapshotBase::running(self.observe(), WalkReward::zero()))
         }
     }
 }
@@ -235,7 +209,7 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
 #[test]
 #[allow(clippy::float_cmp)]
 fn full_episode_loop_reaches_goal() {
-    let mut env = RandomWalkEnv::new(false);
+    let mut env = RandomWalkEnv::new();
 
     let initial = env.reset().expect("reset");
     assert_eq!(initial.status(), EpisodeStatus::Running);
@@ -272,7 +246,7 @@ fn prioritized_replay_samples_a_weighted_minibatch() {
     let mut buffer: PrioritizedReplay<DiscreteTransition<i32>> =
         PrioritizedReplay::new(settings.buffer_config(32)).expect("valid replay config");
 
-    let mut env = RandomWalkEnv::new(false);
+    let mut env = RandomWalkEnv::new();
     let mut snapshot = env.reset().expect("reset");
 
     // Fill the buffer with 20 transitions, resetting whenever the episode ends.

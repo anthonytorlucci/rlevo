@@ -1,6 +1,6 @@
 use rlevo_core::{
     base::{Observation, Reward},
-    environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
+    environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
     render::{AsciiRenderable, StyledFrame},
 };
 
@@ -83,16 +83,6 @@ where
             .field("guard", &self.guard)
             .field("inner", &self.inner)
             .finish()
-    }
-}
-
-/// A `TimeLimit` over a constructable inner env is itself constructable: it
-/// builds the inner via [`ConstructableEnv`] and wraps it with no limit
-/// (`usize::MAX`). Prefer the inherent `TimeLimit::new(env, max)` for real
-/// use — this exists so generic `E: ConstructableEnv` code composes.
-impl<E: ConstructableEnv> ConstructableEnv for TimeLimit<E> {
-    fn new(render: bool) -> Self {
-        Self::new(E::new(render), usize::MAX)
     }
 }
 
@@ -277,8 +267,8 @@ mod tests {
         }
     }
 
-    impl ConstructableEnv for StubEnv {
-        fn new(_render: bool) -> Self {
+    impl Default for StubEnv {
+        fn default() -> Self {
             Self {
                 pos: 0,
                 goal: i32::MAX,

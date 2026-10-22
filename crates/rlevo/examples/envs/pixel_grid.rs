@@ -2,7 +2,7 @@
 //!
 //! The environment's true latent is a compact rank-1 pair of cell indices `(agent, goal)`, but the
 //! observation the agent receives is a rank-3 `$20 \times 20 \times 3$` RGB image rendered by
-//! `Observable::project`. This example walks the optimal 8-step path to the goal and, at each step,
+//! `PixelGridState::project`. This example walks the optimal 8-step path to the goal and, at each step,
 //! prints:
 //!
 //! - the latent `(agent, goal)` indices (the rank-1 state),

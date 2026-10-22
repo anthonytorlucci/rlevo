@@ -69,7 +69,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = FourRoomsConfig::new(11, 484, 0);
 //! let mut env = FourRoomsEnv::with_config(cfg, false).expect("valid config");
@@ -95,9 +95,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot as _};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -323,7 +321,7 @@ impl FromStr for FourRoomsConfig {
 /// boards rather than on one memorized route.
 ///
 /// Construct via [`FourRoomsEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 11, seed 0).
+/// [`Default`] for default settings (size 11, seed 0).
 ///
 /// Reaching the goal (or lava) ends the episode; a [`step`](Environment::step)
 /// taken afterwards is rejected with
@@ -333,7 +331,7 @@ impl FromStr for FourRoomsConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = FourRoomsEnv::with_config(
 ///     FourRoomsConfig::new(11, 484, 0),
@@ -374,7 +372,7 @@ impl FourRoomsEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -603,27 +601,17 @@ impl Display for FourRoomsEnv {
     }
 }
 
-impl ConstructableEnv for FourRoomsEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(FourRoomsConfig::default(), render)
+impl Default for FourRoomsEnv {
+    fn default() -> Self {
+        Self::with_config(FourRoomsConfig::default(), false)
             .expect("default config must validate and its 11x11 board must place agent and goal")
     }
 }
 
-impl Sensor<3, 1, 3> for FourRoomsEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl FourRoomsEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -656,7 +644,7 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
         self.state = state;
         self.openings = openings;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -683,7 +671,7 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
         };
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
         self.guard.record(snapshot.status());
         Ok(snapshot)

@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
+//! use rlevo_core::environment::{Environment, Snapshot};
 //! use rlevo_environments::classic::{ContextualBandit, ContextualBanditConfig, KArmedBanditAction};
 //!
 //! let mut env = ContextualBandit::<4, 10>::with_config(ContextualBanditConfig::default())
@@ -36,9 +36,7 @@ use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -90,7 +88,7 @@ impl<const C: usize> Display for ContextualBanditState<C> {
 /// be validated at construction, and it is out of range for the degenerate
 /// `C == 0`.
 ///
-/// The single in-module struct-literal path, the [`Sensor`] impl on
+/// The single in-module struct-literal path, the `observe` method of
 /// [`ContextualBandit`], copies a context the environment sampled from `0..C`,
 /// so it upholds the invariant by construction;
 /// [`HostRow::write_host_row`] carries a `debug_assert!` as
@@ -213,7 +211,7 @@ impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
     /// `debug_assert!` fires if `context >= C`. `context < C` is a construction
     /// invariant of [`ContextualBanditObservation`] — every public constructor
     /// validates it — so the assert only guards the in-module struct-literal
-    /// path in the [`Sensor`] impl on [`ContextualBandit`] against a future
+    /// path in [`ContextualBandit`]'s `observe` method against a future
     /// regression.
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         debug_assert!(
@@ -434,31 +432,19 @@ fn sample_arm_means<const C: usize, const K: usize>(rng: &mut StdRng) -> [[f32; 
     means
 }
 
-impl<const C: usize, const K: usize> ConstructableEnv for ContextualBandit<C, K> {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl<const C: usize, const K: usize> Default for ContextualBandit<C, K> {
+    fn default() -> Self {
         Self::with_config(ContextualBanditConfig::default()).expect("default config must validate")
     }
 }
 
-impl<const C: usize, const K: usize> Sensor<1, 1, 1> for ContextualBandit<C, K> {
-    type Action = KArmedBanditAction<K>;
-    type State = ContextualBanditState<C>;
-    type Observation = ContextualBanditObservation<C>;
-
-    /// Reveals the context carried by `next_state`. The context the environment
+impl<const C: usize, const K: usize> ContextualBandit<C, K> {
+    /// Reveals the context of the current state. The context the environment
     /// sampled is always in `0..C`, so this upholds the
     /// `ContextualBanditObservation` `context < C` invariant by construction.
-    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
+    fn observe(&self) -> ContextualBanditObservation<C> {
         ContextualBanditObservation {
-            context: next_state.context,
-        }
-    }
-
-    /// Reveals the initial context carried by `state`.
-    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
-        ContextualBanditObservation {
-            context: state.context,
+            context: self.state.context,
         }
     }
 }
@@ -482,10 +468,7 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
         self.guard.reset();
         self.state.context = self.rng.random_range(0..C);
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward::zero(),
-        ))
+        Ok(SnapshotBase::running(self.observe(), ScalarReward::zero()))
     }
 
     /// # Errors
@@ -508,7 +491,7 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
         self.steps += 1;
         // Reveal the next context after computing reward for the current one.
         self.state.context = self.rng.random_range(0..C);
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         let snap = if self.steps >= self.config.max_steps {
             SnapshotBase::terminated(obs, reward)
         } else {

@@ -42,9 +42,7 @@ use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 
@@ -414,30 +412,17 @@ impl Blackjack {
     }
 }
 
-impl ConstructableEnv for Blackjack {
-    fn new(_render: bool) -> Self {
+impl Default for Blackjack {
+    fn default() -> Self {
         Self::with_config(BlackjackConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for Blackjack {
-    type Action = BlackjackAction;
-    type State = BlackjackState;
-    type Observation = BlackjackObservation;
-
-    /// Projects the resulting state onto the `(player_sum, dealer_showing,
-    /// usable_ace)` observation; the observation ignores which action was taken.
-    fn observe(
-        &self,
-        _action: &BlackjackAction,
-        next_state: &BlackjackState,
-    ) -> BlackjackObservation {
-        blackjack_observation(next_state)
-    }
-
-    /// Projects the initial dealt state onto the observation.
-    fn observe_reset(&self, state: &BlackjackState) -> BlackjackObservation {
-        blackjack_observation(state)
+impl Blackjack {
+    /// Projects the current state onto the `(player_sum, dealer_showing,
+    /// usable_ace)` observation.
+    fn observe(&self) -> BlackjackObservation {
+        blackjack_observation(&self.state)
     }
 }
 
@@ -461,10 +446,7 @@ impl Environment<1, 1, 1> for Blackjack {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.guard.reset();
         self.deal_initial();
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Applies one action and settles the hand.
@@ -531,7 +513,7 @@ impl Environment<1, 1, 1> for Blackjack {
 
         self.apply_sab_override(&mut reward, &mut done);
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         // Build the snapshot once and record *its* status, so the guard can never
         // disagree with the snapshot the caller was handed.
         let snapshot = if done {

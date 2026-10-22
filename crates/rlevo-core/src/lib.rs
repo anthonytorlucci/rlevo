@@ -11,8 +11,8 @@
 //! |---|---|
 //! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`] — the primitive trait vocabulary; `TensorConvertible` with the `burn` feature |
 //! | [`action`] | [`DiscreteAction`], [`ContinuousAction`], [`BoundedAction`] — layered action-space extensions |
-//! | [`state`] | [`StateError`], [`Observable`] — why a value is not a legal state, and the state-to-observation projection |
-//! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
+//! | [`state`] | [`StateError`] — why a value is not a legal state |
+//! | [`environment`] | [`Environment`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
 //! | [`episode`] | [`EpisodeGuard`] — the state machine behind `Environment::step`'s post-terminal contract, held by every implementor |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`GenerationProbe`] — drive seam for self-paced work (evolutionary generation loops) |
@@ -73,9 +73,7 @@
 //! [`ContinuousAction`]: crate::action::ContinuousAction
 //! [`BoundedAction`]: crate::action::BoundedAction
 //! [`StateError`]: crate::state::StateError
-//! [`Observable`]: crate::state::Observable
 //! [`Environment`]: crate::environment::Environment
-//! [`Sensor`]: crate::environment::Sensor
 //! [`Snapshot`]: crate::environment::Snapshot
 //! [`SnapshotBase`]: crate::environment::SnapshotBase
 //! [`EpisodeStatus`]: crate::environment::EpisodeStatus
@@ -154,11 +152,10 @@ pub mod config;
 
 /// Agent/environment interaction protocol.
 ///
-/// Defines [`Environment`], the env-side emission model [`Sensor`],
-/// [`Snapshot`]/[`SnapshotBase`], [`EpisodeStatus`], and [`EnvironmentError`].
+/// Defines [`Environment`], [`Snapshot`]/[`SnapshotBase`], [`EpisodeStatus`],
+/// and [`EnvironmentError`].
 ///
 /// [`Environment`]: crate::environment::Environment
-/// [`Sensor`]: crate::environment::Sensor
 /// [`Snapshot`]: crate::environment::Snapshot
 /// [`SnapshotBase`]: crate::environment::SnapshotBase
 /// [`EpisodeStatus`]: crate::environment::EpisodeStatus
@@ -256,14 +253,9 @@ pub mod render;
 /// [`ScalarReward`]: crate::reward::ScalarReward
 pub mod reward;
 
-/// State abstractions beyond the base contract.
+/// [`StateError`]: why a value is not a legal state of an environment.
 ///
-/// Extends [`base::State`] with [`StateError`] and [`Observable`] (the
-/// modality-changing state→observation projection for `OR != SR`).
-///
-/// [`base::State`]: crate::base::State
 /// [`StateError`]: crate::state::StateError
-/// [`Observable`]: crate::state::Observable
 pub mod state;
 
 /// Shared utility helpers used across `rlevo-core` modules.

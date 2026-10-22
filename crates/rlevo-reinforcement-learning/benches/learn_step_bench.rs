@@ -144,7 +144,6 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::base::TensorConvertible;
-use rlevo_core::state::Observable;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;

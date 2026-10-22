@@ -76,7 +76,7 @@ Since the leak zone is fixed while the corridor grows, the **recall horizon scal
 
 ### Pixel Grid (modality-changing POMDP)
 
-`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — `Environment<3, 1, 1>` with observation rank `3` and state rank `1`. It is the crate's flagship consumer of `rlevo-core`'s `Observable<OR>` trait (ADR 0019), built from `Observable::project` rather than `State::observe`. Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
+`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — `Environment<3, 1, 1>` with observation rank `3` and state rank `1`. Every observation is `PixelGridState::project` of the latent, a method of the state type (ADR 0020). Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
 
 ---
 

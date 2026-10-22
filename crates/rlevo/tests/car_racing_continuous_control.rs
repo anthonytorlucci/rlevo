@@ -187,7 +187,7 @@ fn build_env() -> CarRacing {
         max_steps: 64,
         ..CarRacingConfig::default()
     };
-    // Not `unwrap_or_else(|_| CarRacing::new(false))`: that fallback silently
+    // Not `unwrap_or_else(|_| CarRacing::default())`: that fallback silently
     // substitutes a *differently* configured env (the default `max_steps`, not
     // 64), so a config regression would turn into a slower test rather than a
     // failing one.

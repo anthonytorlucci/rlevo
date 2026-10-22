@@ -1,7 +1,7 @@
 //! [`Swimmer`] environment implementation.
 //!
 //! This module contains the [`Swimmer`] struct and its [`Environment`] and
-//! [`ConstructableEnv`] impls. Physics setup, drag application, and action
+//! `Default` impls. Physics setup, drag application, and action
 //! integration are kept private; the public surface is the two trait methods
 //! [`Environment::reset`] and [`Environment::step`].
 
@@ -9,9 +9,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{Rapier3DBackend, Rapier3DWorld};
@@ -34,7 +32,7 @@ pub const METADATA_KEY_CTRL: &str = "ctrl";
 /// The swimmer chain is described in detail in the
 /// [`crate::locomotion::swimmer`] module doc.
 ///
-/// Construct with [`ConstructableEnv::new`] (uses [`SwimmerConfig::default`])
+/// Construct with [`Default`] (uses [`SwimmerConfig::default`])
 /// or with [`Swimmer::with_config`] for a custom configuration.
 ///
 /// # Episode lifecycle
@@ -312,31 +310,20 @@ impl Swimmer {
     }
 }
 
-impl Sensor<1, 1, 1> for Swimmer {
-    type Action = SwimmerAction;
-    type State = SwimmerState;
-    type Observation = SwimmerObservation;
-
+impl Swimmer {
     /// Emission model: reads the 8-element observation directly from the physics
-    /// world through the state's body handles. The action does not enter the
-    /// observation, and `next_state` carries the same handles as `self.state`,
-    /// so both are unused; the world is the source of truth.
-    fn observe(&self, _action: &SwimmerAction, _next_state: &SwimmerState) -> SwimmerObservation {
-        self.extract_observation()
-    }
-
-    /// Initial observation at episode start, read from the freshly built world.
-    fn observe_reset(&self, _state: &SwimmerState) -> SwimmerObservation {
+    /// world through the state's body handles; the world is the source of truth.
+    fn observe(&self) -> SwimmerObservation {
         self.extract_observation()
     }
 }
 
-impl ConstructableEnv for Swimmer {
+impl Default for Swimmer {
     /// Create a [`Swimmer`] with [`SwimmerConfig::default`].
     ///
     /// The `render` parameter is accepted for trait compatibility but has no
     /// effect; this environment has no visual output.
-    fn new(_render: bool) -> Self {
+    fn default() -> Self {
         Self::with_config(SwimmerConfig::default()).expect("default config must validate")
     }
 }
@@ -377,7 +364,7 @@ impl Environment<1, 1, 1> for Swimmer {
         self.state = state;
         self.steps = 0;
 
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
 
         let torso_pos = Rapier3DBackend::get_pose(&self.world, self.state.segment0).position;
@@ -431,7 +418,7 @@ impl Environment<1, 1, 1> for Swimmer {
         self.step_physics(torques);
         self.steps += 1;
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
 
         let forward = self.config.forward_reward_weight * obs.vx_com();

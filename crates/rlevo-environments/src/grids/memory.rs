@@ -213,7 +213,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::memory::{MemoryConfig, MemoryEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = MemoryConfig::new(13, 845, 0); // == MemoryConfig::default()
 //! let mut env = MemoryEnv::with_config(cfg, false).expect("valid config");
@@ -246,7 +246,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -307,7 +307,7 @@ const _: () = assert!(
 const _: () = assert!(MIN_SIZE % 2 == 1, "MIN_SIZE must be odd");
 
 // The shipped default must itself satisfy `Validate` — a default that cannot be
-// constructed would panic in `ConstructableEnv::new`. Checked here so the build
+// constructed would panic in `Default::default`. Checked here so the build
 // fails rather than the constructor.
 const _: () = assert!(
     DEFAULT_SIZE >= MIN_SIZE && DEFAULT_SIZE % 2 == 1,
@@ -568,9 +568,9 @@ impl FromStr for MemoryConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::memory::MemoryEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = MemoryEnv::new(false);
+/// let mut env = MemoryEnv::default();
 /// let _snap = env.reset().unwrap();
 /// println!("cue: {:?}, match pos: {:?}", env.cue(), env.match_pos());
 /// ```
@@ -620,7 +620,7 @@ impl MemoryEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -852,26 +852,16 @@ impl Display for MemoryEnv {
     }
 }
 
-impl ConstructableEnv for MemoryEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(MemoryConfig::default(), render).expect("default config must validate")
+impl Default for MemoryEnv {
+    fn default() -> Self {
+        Self::with_config(MemoryConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for MemoryEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl MemoryEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -895,7 +885,7 @@ impl Environment<3, 3, 1> for MemoryEnv {
         self.cue = cue;
         self.match_pos = match_pos;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -926,7 +916,7 @@ impl Environment<3, 3, 1> for MemoryEnv {
             let done = self.steps >= self.config.max_steps;
             (0.0, done)
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can record something the caller
         // was not handed.

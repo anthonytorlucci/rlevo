@@ -15,7 +15,7 @@
 //!   each a [`rlevo_core::fitness::Landscape`]
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`pixel_grid`]: Synthetic pixel-over-grid env — a rank-1 latent observed as
-//!   a rank-3 RGB image (first real [`rlevo_core::state::Observable`] consumer)
+//!   a rank-3 RGB image
 //! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, `CliffWalking`, `FrozenLake`)
 //! - [`wrappers`]: Environment wrappers (`TimeLimit`)
 //! - [`render`]: Re-exports of the render surface defined in `rlevo-core`

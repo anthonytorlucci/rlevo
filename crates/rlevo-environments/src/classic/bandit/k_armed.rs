@@ -14,11 +14,11 @@
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
+//! use rlevo_core::environment::{Environment, Snapshot};
 //! use rlevo_environments::classic::{KArmedBandit, KArmedBanditAction};
 //!
 //! let mut env: KArmedBandit<10> =
-//!     <KArmedBandit<10> as ConstructableEnv>::new(false);
+//!     KArmedBandit::<10>::default();
 //! let _ = <KArmedBandit<10> as Environment<1, 1, 1>>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(3).expect("arm index in range");
@@ -33,9 +33,7 @@ use rand_distr::{Distribution, Normal};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, Reward, State};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -450,7 +448,7 @@ impl<const K: usize> KArmedBandit<K> {
     pub fn pull(&mut self, arm: usize) -> f32 {
         let action = KArmedBanditAction::<K>::new(arm).expect("arm index in range");
         let reward = self.sample_reward(action.arm());
-        let _ = self.advance(action, ScalarReward(reward));
+        let _ = self.advance(ScalarReward(reward));
         reward
     }
 
@@ -462,11 +460,10 @@ impl<const K: usize> KArmedBandit<K> {
     /// (ADR 0044 §5).
     fn advance(
         &mut self,
-        action: KArmedBanditAction<K>,
         reward: ScalarReward,
     ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
         self.steps += 1;
-        let obs = self.observe(&action, &self.state);
+        let obs = KArmedBanditObservation;
         let snap = if self.steps >= self.config.max_steps {
             SnapshotBase::terminated(obs, reward)
         } else {
@@ -499,27 +496,9 @@ pub(super) fn sample_arm_means<const K: usize>(rng: &mut StdRng) -> [f32; K] {
     arm_means
 }
 
-impl<const K: usize> ConstructableEnv for KArmedBandit<K> {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl<const K: usize> Default for KArmedBandit<K> {
+    fn default() -> Self {
         Self::with_config(KArmedBanditConfig::default()).expect("default config must validate")
-    }
-}
-
-impl<const K: usize> Sensor<1, 1, 1> for KArmedBandit<K> {
-    type Action = KArmedBanditAction<K>;
-    type State = KArmedBanditState;
-    type Observation = KArmedBanditObservation;
-
-    /// Emits the (empty) stateless bandit observation; the action and resulting
-    /// state carry no information the observation depends on.
-    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
-        KArmedBanditObservation
-    }
-
-    /// Emits the initial (empty) stateless bandit observation.
-    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
-        KArmedBanditObservation
     }
 }
 
@@ -533,7 +512,7 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         KArmedBandit::reset(self);
         Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
+            KArmedBanditObservation,
             ScalarReward::zero(),
         ))
     }
@@ -554,7 +533,7 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
             )));
         }
         let reward = ScalarReward(self.sample_reward(action.arm()));
-        Ok(self.advance(action, reward))
+        Ok(self.advance(reward))
     }
 }
 
@@ -678,7 +657,7 @@ mod tests {
 
     #[test]
     fn environment_new_constructs() {
-        let env = <KArmedBandit<K> as ConstructableEnv>::new(false);
+        let env = KArmedBandit::<K>::default();
         assert_eq!(env.steps, 0);
         assert_eq!(
             env.guard.status(),

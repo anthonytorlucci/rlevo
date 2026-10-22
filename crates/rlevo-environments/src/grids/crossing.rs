@@ -73,7 +73,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = CrossingConfig::new(7, 196, 42, CrossingKind::Lava);
 //! let mut env = CrossingEnv::with_config(cfg, false).expect("valid config");
@@ -112,9 +112,7 @@ use rlevo_core::episode::EpisodeGuard;
 // `Snapshot` is imported anonymously: `step()` needs its `status()` method to
 // feed the guard, but re-exporting the name through this module's `use super::*`
 // in the test module would shadow the test module's own explicit import.
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot as _};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -367,13 +365,13 @@ impl FromStr for CrossingConfig {
 /// and the goal `(size - 2, size - 2)` are fixed, as upstream.
 ///
 /// Construct via [`CrossingEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 7, lava, seed 0).
+/// [`Default`] for default settings (size 7, lava, seed 0).
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = CrossingEnv::with_config(
 ///     CrossingConfig::new(7, 196, 0, CrossingKind::Lava),
@@ -421,7 +419,7 @@ impl CrossingEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -715,26 +713,16 @@ impl Display for CrossingEnv {
     }
 }
 
-impl ConstructableEnv for CrossingEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(CrossingConfig::default(), render).expect("default config must validate")
+impl Default for CrossingEnv {
+    fn default() -> Self {
+        Self::with_config(CrossingConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for CrossingEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl CrossingEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -759,7 +747,7 @@ impl Environment<3, 3, 1> for CrossingEnv {
         self.state = state;
         self.layout = layout;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -788,7 +776,7 @@ impl Environment<3, 3, 1> for CrossingEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
 
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot drift apart.

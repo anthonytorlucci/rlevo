@@ -35,9 +35,7 @@ use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
@@ -680,33 +678,18 @@ impl FrozenLake {
     }
 }
 
-impl ConstructableEnv for FrozenLake {
-    fn new(_render: bool) -> Self {
+impl Default for FrozenLake {
+    fn default() -> Self {
         Self::with_config(FrozenLakeConfig::default()).expect("default random map must succeed")
     }
 }
 
-impl Sensor<1, 1, 1> for FrozenLake {
-    type Action = FrozenLakeAction;
-    type State = FrozenLakeState;
-    type Observation = FrozenLakeObservation;
-
-    /// Projects the resulting state onto its linear grid id; the observation is a
-    /// pure function of the `(row, col)` position and ignores the action.
-    fn observe(
-        &self,
-        _action: &FrozenLakeAction,
-        next_state: &FrozenLakeState,
-    ) -> FrozenLakeObservation {
+impl FrozenLake {
+    /// Projects the current state onto its linear grid id, a pure function of
+    /// the `(row, col)` position.
+    fn observe(&self) -> FrozenLakeObservation {
         FrozenLakeObservation {
-            state_id: next_state.state_id(),
-        }
-    }
-
-    /// Projects the initial (start) state onto its linear grid id.
-    fn observe_reset(&self, state: &FrozenLakeState) -> FrozenLakeObservation {
-        FrozenLakeObservation {
-            state_id: state.state_id(),
+            state_id: self.state.state_id(),
         }
     }
 }
@@ -749,10 +732,7 @@ impl Environment<1, 1, 1> for FrozenLake {
         };
         // Only after the reset has actually succeeded.
         self.guard.reset();
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Moves the agent one tile, terminating on a `Hole` or `Goal`.
@@ -779,7 +759,7 @@ impl Environment<1, 1, 1> for FrozenLake {
         self.state.col = nc;
 
         let tile = self.tile_at(nr, nc);
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         // Build the snapshot once, then record its own status — no `match` arm
         // can return without the guard seeing what it emitted.
         let snapshot = match tile {

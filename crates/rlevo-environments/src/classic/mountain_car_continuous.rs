@@ -80,18 +80,18 @@
 //! ```no_run,ignore
 //! use rlevo_environments::{classic::mountain_car_continuous::MountainCarContinuous, wrappers::TimeLimit};
 //!
-//! let env = TimeLimit::new(MountainCarContinuous::new(false), 999);
+//! let env = TimeLimit::new(MountainCarContinuous::default(), 999);
 //! ```
 //!
 //! ## Quick start
 //!
 //! ```rust
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //! use rlevo_environments::classic::mountain_car_continuous::{
 //!     MountainCarContinuous, MountainCarContinuousAction,
 //! };
 //!
-//! let mut env = MountainCarContinuous::new(false);
+//! let mut env = MountainCarContinuous::default();
 //! let _snap = env.reset().unwrap();
 //! let action = MountainCarContinuousAction::new(0.5).unwrap();
 //! let snap = env.step(action).unwrap();
@@ -107,7 +107,7 @@ use rlevo_core::{
     base::{Action, HostRow, Observation, State},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
+    environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -426,35 +426,18 @@ impl fmt::Display for MountainCarContinuous {
     }
 }
 
-impl ConstructableEnv for MountainCarContinuous {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl Default for MountainCarContinuous {
+    fn default() -> Self {
         Self::with_config(MountainCarContinuousConfig::default())
             .expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for MountainCarContinuous {
-    type Action = MountainCarContinuousAction;
-    type State = MountainCarContinuousState;
-    type Observation = MountainCarContinuousObservation;
-
-    /// Projects the resulting state directly onto the 2-D `[position, velocity]`
-    /// observation; the observation ignores the applied force.
-    fn observe(
-        &self,
-        _action: &MountainCarContinuousAction,
-        next_state: &MountainCarContinuousState,
-    ) -> MountainCarContinuousObservation {
-        mountain_car_continuous_observation(*next_state)
-    }
-
-    /// Projects the initial state onto the 2-D observation.
-    fn observe_reset(
-        &self,
-        state: &MountainCarContinuousState,
-    ) -> MountainCarContinuousObservation {
-        mountain_car_continuous_observation(*state)
+impl MountainCarContinuous {
+    /// Projects the current state directly onto the 2-D `[position, velocity]`
+    /// observation.
+    fn observe(&self) -> MountainCarContinuousObservation {
+        mountain_car_continuous_observation(self.state)
     }
 }
 
@@ -490,10 +473,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -528,7 +508,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
 
         // Single exit: both branches build exactly one snapshot, and the guard is
         // fed that snapshot's own status, so no branch can forget to record.
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         let snap = if terminated {
             SnapshotBase::terminated(obs, reward)
         } else {

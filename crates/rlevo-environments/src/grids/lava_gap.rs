@@ -64,7 +64,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::lava_gap::{LavaGapConfig, LavaGapEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = LavaGapConfig::new(5, 100, 0);
 //! let mut env = LavaGapEnv::with_config(cfg, false).expect("valid config");
@@ -95,7 +95,7 @@ use super::core::{
 // `R: Rng + ?Sized` per `rules.md` §8.
 use rand::{Rng, RngExt as _, SeedableRng, rngs::StdRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -273,9 +273,9 @@ impl FromStr for LavaGapConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::lava_gap::LavaGapEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = LavaGapEnv::new(false);
+/// let mut env = LavaGapEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("lava col: {}, gap row: {}", env.lava_col(), env.gap_row());
 /// ```
@@ -324,7 +324,7 @@ impl LavaGapEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -378,7 +378,7 @@ impl LavaGapEnv {
             lava_col,
             gap_row,
             rng,
-            // Sole construction chokepoint: `ConstructableEnv::new` and every
+            // Sole construction chokepoint: `Default::default` and every
             // test fixture route through here, so the guard cannot be missed on
             // one path. `reset_with_seed` re-seeds and delegates to `reset`,
             // which clears the guard itself.
@@ -521,26 +521,16 @@ impl Display for LavaGapEnv {
     }
 }
 
-impl ConstructableEnv for LavaGapEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(LavaGapConfig::default(), render).expect("default config must validate")
+impl Default for LavaGapEnv {
+    fn default() -> Self {
+        Self::with_config(LavaGapConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for LavaGapEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl LavaGapEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -563,7 +553,7 @@ impl Environment<3, 3, 1> for LavaGapEnv {
         self.lava_col = lava_col;
         self.gap_row = gap_row;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -591,7 +581,7 @@ impl Environment<3, 3, 1> for LavaGapEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         // Single exit: the guard is fed the emitted snapshot's own status, so
         // the two cannot drift apart.
         let snapshot = self.emit(observation, reward, done);

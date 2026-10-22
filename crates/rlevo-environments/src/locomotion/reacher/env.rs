@@ -4,8 +4,7 @@
 //! `Environment` trait. The public entry-points are:
 //!
 //! - [`Reacher::with_config`] — construct from an explicit [`ReacherConfig`].
-//! - [`ConstructableEnv::new`] — construct with default config (render flag is
-//!   a no-op; there is no render path in this environment).
+//! - [`Default`] — construct with the default config.
 //! - [`METADATA_KEY_REWARD_DISTANCE`] / [`METADATA_KEY_REWARD_CONTROL`] — keys
 //!   for per-step reward components stored in `SnapshotMetadata`.
 
@@ -13,9 +12,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{Rapier3DBackend, Rapier3DJointHandle, Rapier3DWorld};
@@ -264,28 +261,17 @@ impl Reacher {
     }
 }
 
-impl Sensor<1, 1, 1> for Reacher {
-    type Action = ReacherAction;
-    type State = ReacherState;
-    type Observation = ReacherObservation;
-
+impl Reacher {
     /// Emission model: reads the 10-element observation directly from the
-    /// physics world through the state's body handles and cached target. The
-    /// action does not enter the observation, and `next_state` carries the same
-    /// handles as `self.state`, so both are unused; the world is the source of
-    /// truth.
-    fn observe(&self, _action: &ReacherAction, _next_state: &ReacherState) -> ReacherObservation {
-        self.extract_observation()
-    }
-
-    /// Initial observation at episode start, read from the freshly built world.
-    fn observe_reset(&self, _state: &ReacherState) -> ReacherObservation {
+    /// physics world through the state's body handles and cached target; the
+    /// world is the source of truth.
+    fn observe(&self) -> ReacherObservation {
         self.extract_observation()
     }
 }
 
-impl ConstructableEnv for Reacher {
-    fn new(_render: bool) -> Self {
+impl Default for Reacher {
+    fn default() -> Self {
         Self::with_config(ReacherConfig::default()).expect("default config must validate")
     }
 }
@@ -324,7 +310,7 @@ impl Environment<1, 1, 1> for Reacher {
         self.state = state;
         self.steps = 0;
 
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
         // Zero-reward initial snapshot; emit both reward components at 0.0 so the
         // `$\sum$`-components = reward invariant holds at step 0 (no action taken).
@@ -399,7 +385,7 @@ impl Environment<1, 1, 1> for Reacher {
         });
         self.steps += 1;
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
 
         let [dx, dy] = obs.finger_minus_target_xy();

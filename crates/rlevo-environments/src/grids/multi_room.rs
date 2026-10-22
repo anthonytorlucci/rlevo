@@ -50,7 +50,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::multi_room::{MultiRoomConfig, MultiRoomEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = MultiRoomConfig::new(3, 5, 5, 300, 0);
 //! let mut env = MultiRoomEnv::with_config(cfg, false).expect("valid config");
@@ -77,7 +77,7 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -296,9 +296,9 @@ impl FromStr for MultiRoomConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::multi_room::MultiRoomEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = MultiRoomEnv::new(false);
+/// let mut env = MultiRoomEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("wall cols: {:?}", env.wall_columns());
 /// ```
@@ -337,7 +337,7 @@ impl MultiRoomEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -489,26 +489,16 @@ impl Display for MultiRoomEnv {
     }
 }
 
-impl ConstructableEnv for MultiRoomEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(MultiRoomConfig::default(), render).expect("default config must validate")
+impl Default for MultiRoomEnv {
+    fn default() -> Self {
+        Self::with_config(MultiRoomConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for MultiRoomEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl MultiRoomEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -528,7 +518,7 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
         self.guard.reset();
         self.state = Self::build(&self.config);
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -556,7 +546,7 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         // Single exit: the guard is fed the emitted snapshot's own status, so it
         // cannot disagree with what the caller received.
         let snapshot = self.emit(observation, reward, done);

@@ -22,7 +22,7 @@ use super::observation::BipedalWalkerObservation;
 /// degrees of freedom (hull pose + twist, per-joint angle/speed, the two
 /// leg-contact flags) live *behind* these handles in that world rather than as
 /// fields on this struct. The lidar portion of the observation is produced on
-/// demand by the env-side [`Sensor`](rlevo_core::environment::Sensor) reading
+/// demand by the environment's emission model reading
 /// the world (raycasting against the live physics geometry) — it is a
 /// world-projection, not stored state, and is not part of this violation. The
 /// most recent observation is retained in `last_obs` purely so
@@ -43,7 +43,7 @@ use super::observation::BipedalWalkerObservation;
 /// in all) plus 10 lidar rays. The 14 body scalars are genuinely state-like and
 /// are the target for relocation onto this struct as owned fields; the 10 lidar
 /// values stay a per-step world-projection recomputed by the
-/// [`Sensor`](rlevo_core::environment::Sensor) and are not meant to live on the
+/// environment's emission model and are not meant to live on the
 /// state. Landing that refactor means no [`RigidBodyHandle`] or
 /// [`ImpulseJointHandle`] field on the exported `State` — the handles move to
 /// the env's "core" struct — and [`is_valid()`](State::is_valid) checking DOF
@@ -80,7 +80,7 @@ pub struct BipedalWalkerState {
     ///
     /// Read by [`State::is_valid`] to detect physics divergence (a non-finite
     /// pose/velocity/lidar ray) without an extra world query. The observation is
-    /// produced by the env-side [`Sensor`](rlevo_core::environment::Sensor)
+    /// produced by the environment's emission model
     /// (ADR 0047); this field only mirrors the last one so the state can validate
     /// its own finiteness, matching the locomotion states.
     pub(crate) last_obs: BipedalWalkerObservation,
@@ -188,11 +188,11 @@ impl State<1> for BipedalWalkerState {
 mod tests {
     use super::*;
     use crate::box2d::bipedal_walker::env::BipedalWalker;
-    use rlevo_core::environment::{ConstructableEnv, Environment};
+    use rlevo_core::environment::Environment;
 
     /// Builds a valid, fully-assembled state by driving a real `reset()`.
     fn reset_state() -> BipedalWalkerState {
-        let mut env = BipedalWalker::new(false);
+        let mut env = BipedalWalker::default();
         env.reset().expect("reset must succeed");
         env.state_for_test().clone()
     }

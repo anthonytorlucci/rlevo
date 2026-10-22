@@ -1,4 +1,4 @@
-//! `CarRacing` environment: `Environment` and `ConstructableEnv` implementations.
+//! `CarRacing` environment: its `Environment` and `Default` implementations.
 //!
 //! This module wires the `Rapier2D` physics world, the [`Track`] generator, the
 //! [`Rasterizer`], and the tile-visit logic into the [`CarRacing`] struct that
@@ -55,9 +55,7 @@ use rand::rngs::StdRng;
 use rapier2d::prelude::*;
 use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -281,7 +279,7 @@ impl CarRacing {
 
     /// Rasterize the `$96 \times 96 \times 3$` pixel observation for `state` from the live world.
     ///
-    /// This is the emission model driving the env-side [`Sensor`]: it reads the
+    /// This is the environment's emission model: it reads the
     /// car pose from `state` and the world it indexes into, draws the track
     /// tiles and the car into a fresh per-frame [`Rasterizer`], and moves the
     /// buffer out into the observation. It is recomputed on demand each
@@ -360,32 +358,22 @@ impl CarRacing {
     }
 }
 
-impl ConstructableEnv for CarRacing {
+impl Default for CarRacing {
     /// Construct a `CarRacing` environment with default configuration and seed 0.
     ///
     /// The `render` flag is accepted for interface compatibility but has no
     /// effect; the pixel observation is always produced regardless of this value.
     /// Use [`CarRacing::with_config`] to control the seed and other parameters.
-    fn new(_render: bool) -> Self {
+    fn default() -> Self {
         Self::with_config(CarRacingConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for CarRacing {
-    type Action = CarRacingAction;
-    type State = CarRacingState;
-    type Observation = CarRacingObservation;
-
-    /// Emit the `$96 \times 96 \times 3$` pixel frame for `next_state` by rasterizing the live
-    /// world. The action does not affect the rendered frame; it is accepted to satisfy the
-    /// [`Sensor`] contract.
-    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
-        self.render_frame(next_state)
-    }
-
-    /// Emit the initial pixel frame at episode start from the reset `state`.
-    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
-        self.render_frame(state)
+impl CarRacing {
+    /// Emit the `$96 \times 96 \times 3$` pixel frame of the current state by
+    /// rasterizing the live world.
+    fn observe(&self) -> CarRacingObservation {
+        self.render_frame(&self.state)
     }
 }
 
@@ -413,7 +401,7 @@ impl Environment<3, 3, 1> for CarRacing {
         self.track = Track::generate(&self.config, &mut self.rng);
         self.state.total_tiles = self.track.tiles.len();
         self.build_world();
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         debug_assert!(
             self.state.is_valid(),
             "CarRacingState invariant violated after reset"
@@ -472,7 +460,7 @@ impl Environment<3, 3, 1> for CarRacing {
             EpisodeStatus::Running
         };
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         debug_assert!(
             self.state.is_valid(),
             "CarRacingState invariant violated after step"
@@ -757,7 +745,7 @@ mod tests {
         );
         // The frame is a pure function of the world pose and the tile colours, so
         // an unchanged frame is direct evidence the physics world did not step.
-        let frame_after = env.observe_reset(&env.state);
+        let frame_after = env.observe();
         assert!(
             *frame_after.pixels == *frame_at_end,
             "a rejected step must not advance the physics world (frame changed)"

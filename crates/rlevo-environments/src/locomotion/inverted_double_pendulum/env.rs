@@ -5,9 +5,7 @@ use rand::{RngExt, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{Pose, Rapier3DBackend, Rapier3DWorld};
@@ -292,38 +290,20 @@ impl InvertedDoublePendulum {
     }
 }
 
-impl Sensor<1, 1, 1> for InvertedDoublePendulum {
-    type Action = InvertedDoublePendulumAction;
-    type State = InvertedDoublePendulumState;
-    type Observation = InvertedDoublePendulumObservation;
-
+impl InvertedDoublePendulum {
     /// Emission model: reads the 9-element observation directly from the physics
-    /// world through the state's body handles. The action does not enter the
-    /// observation, and `next_state` carries the same handles as `self.state`,
-    /// so both are unused; the world is the source of truth.
-    fn observe(
-        &self,
-        _action: &InvertedDoublePendulumAction,
-        _next_state: &InvertedDoublePendulumState,
-    ) -> InvertedDoublePendulumObservation {
-        self.extract_observation()
-    }
-
-    /// Initial observation at episode start, read from the freshly built world.
-    fn observe_reset(
-        &self,
-        _state: &InvertedDoublePendulumState,
-    ) -> InvertedDoublePendulumObservation {
+    /// world through the state's body handles; the world is the source of truth.
+    fn observe(&self) -> InvertedDoublePendulumObservation {
         self.extract_observation()
     }
 }
 
-impl ConstructableEnv for InvertedDoublePendulum {
+impl Default for InvertedDoublePendulum {
     /// Create an environment with default configuration.
     ///
     /// The `render` flag is accepted for interface compatibility but has no
     /// effect; this environment does not produce any visual output.
-    fn new(_render: bool) -> Self {
+    fn default() -> Self {
         Self::with_config(InvertedDoublePendulumConfig::default())
             .expect("default config must validate")
     }
@@ -363,7 +343,7 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum {
         self.steps = 0;
         self.guard.reset();
 
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
 
         let tip = self.tip_position();
@@ -431,7 +411,7 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum {
         });
         self.steps += 1;
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
 
         let tip = self.tip_position();

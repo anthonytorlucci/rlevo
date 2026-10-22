@@ -34,7 +34,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = EmptyConfig::new(8, 256, 0);
 //! let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
@@ -58,9 +58,7 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -215,13 +213,13 @@ fn apply_positional(cfg: &mut EmptyConfig, index: usize, value: &str) -> Result<
 /// environments.
 ///
 /// Construct via [`EmptyEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 8, seed 0).
+/// [`Default`] for default settings (size 8, seed 0).
 ///
 /// # Examples
 ///
 /// ```no_run
 /// use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false).expect("valid config");
 /// env.reset().unwrap();
@@ -250,7 +248,7 @@ impl EmptyEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -286,7 +284,7 @@ impl EmptyEnv {
     /// .expect("valid config");
     /// ```
     /// This is the only constructor that builds an `EmptyEnv` value —
-    /// [`ConstructableEnv::new`] delegates here — so it is also the single
+    /// [`Default`] delegates here — so it is also the single
     /// place the [`EpisodeGuard`] is initialized.
     pub fn with_config(config: EmptyConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
@@ -369,26 +367,16 @@ impl Display for EmptyEnv {
     }
 }
 
-impl ConstructableEnv for EmptyEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(EmptyConfig::default(), render).expect("default config must validate")
+impl Default for EmptyEnv {
+    fn default() -> Self {
+        Self::with_config(EmptyConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for EmptyEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl EmptyEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -410,7 +398,7 @@ impl Environment<3, 3, 1> for EmptyEnv {
         let (grid, agent) = Self::build(&self.config);
         self.state = GridState::new(grid, agent);
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.snapshot(observation, 0.0, false))
     }
 
@@ -439,7 +427,7 @@ impl Environment<3, 3, 1> for EmptyEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
 
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot drift apart.

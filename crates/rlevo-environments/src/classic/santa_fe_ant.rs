@@ -19,17 +19,15 @@
 //! state for the agent: it must stack observations or carry recurrent memory.
 //!
 //! Because the projection keeps the tensor order at 1, the environment is a
-//! plain [`Environment<1, 1, 1>`] and touches **no** new core trait. In
-//! particular [`Observable`](rlevo_core::state::Observable) — the rank-changing
-//! projection seam — is deliberately **not** used here.
+//! plain [`Environment<1, 1, 1>`] and touches **no** new core trait.
 //!
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
+//! use rlevo_core::environment::{Environment, Snapshot};
 //! use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction};
 //!
-//! let mut env: SantaFeAnt = <SantaFeAnt as ConstructableEnv>::new(false);
+//! let mut env: SantaFeAnt = SantaFeAnt::default();
 //! let snap = <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
 //! assert!(!snap.is_done());
 //!
@@ -42,9 +40,7 @@
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, HostRow, Observation, State};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 
@@ -274,10 +270,10 @@ impl Validate for SantaFeAntConfig {
 /// out — a concrete demonstration of why the optimal policy needs memory:
 ///
 /// ```rust
-/// use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
+/// use rlevo_core::environment::{Environment, Snapshot};
 /// use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction, SantaFeAntObservation};
 ///
-/// let mut env: SantaFeAnt = <SantaFeAnt as ConstructableEnv>::new(false);
+/// let mut env: SantaFeAnt = SantaFeAnt::default();
 /// let mut snap = <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
 ///
 /// let mut eaten: f32 = 0.0;
@@ -375,35 +371,21 @@ impl SantaFeAnt {
     }
 }
 
-impl ConstructableEnv for SantaFeAnt {
-    fn new(render: bool) -> Self {
+impl Default for SantaFeAnt {
+    fn default() -> Self {
         Self::with_config(SantaFeAntConfig {
-            render,
+            render: false,
             ..SantaFeAntConfig::default()
         })
         .expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for SantaFeAnt {
-    type Action = SantaFeAntAction;
-    type State = SantaFeAntState;
-    type Observation = SantaFeAntObservation;
-
+impl SantaFeAnt {
     /// Emits the one-bit food-ahead percept for the cell in front of the ant in
-    /// `next_state`; the percept is a pure function of the resulting state and
-    /// ignores which motor primitive produced it.
-    fn observe(
-        &self,
-        _action: &SantaFeAntAction,
-        next_state: &SantaFeAntState,
-    ) -> SantaFeAntObservation {
-        santa_fe_ant_observation(next_state)
-    }
-
-    /// Emits the initial food-ahead percept from the start state.
-    fn observe_reset(&self, state: &SantaFeAntState) -> SantaFeAntObservation {
-        santa_fe_ant_observation(state)
+    /// the current state, a pure function of that state.
+    fn observe(&self) -> SantaFeAntObservation {
+        santa_fe_ant_observation(&self.state)
     }
 }
 
@@ -434,7 +416,7 @@ impl Environment<1, 1, 1> for SantaFeAnt {
         self.state = Self::fresh_state();
         self.maybe_render();
         Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
+            self.observe(),
             ScalarReward::new(0.0),
         ))
     }
@@ -480,7 +462,7 @@ impl Environment<1, 1, 1> for SantaFeAnt {
         self.state.steps += 1;
         self.maybe_render();
 
-        let obs: SantaFeAntObservation = self.observe(&action, &self.state);
+        let obs: SantaFeAntObservation = self.observe();
         let limit: u32 = u32::try_from(self.config.max_steps).unwrap_or(u32::MAX);
         // Single exit: all three routes build exactly one snapshot, and the guard
         // is fed that snapshot's own status, so no branch can forget to record —
@@ -796,7 +778,7 @@ mod tests {
     }
 
     fn env() -> SantaFeAnt {
-        <SantaFeAnt as ConstructableEnv>::new(false)
+        SantaFeAnt::default()
     }
 
     // -- Trail literal invariants ------------------------------------------
@@ -938,16 +920,16 @@ mod tests {
 
         let mut e = env();
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
-        assert!(!e.observe_reset(e.state()).food_ahead); // south, (1,0) empty
+        assert!(!e.observe().food_ahead); // south, (1,0) empty
 
         let mut e = env();
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
-        assert!(!e.observe_reset(e.state()).food_ahead); // west, (0,31) empty
+        assert!(!e.observe().food_ahead); // west, (0,31) empty
 
         let mut e = env();
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
-        assert!(!e.observe_reset(e.state()).food_ahead); // north, (31,0) empty
+        assert!(!e.observe().food_ahead); // north, (31,0) empty
     }
 
     // -- Termination -------------------------------------------------------

@@ -23,7 +23,7 @@ pub struct InvertedPendulumState {
     /// Most recently extracted observation; updated after every `step()` and
     /// after `reset()`. Read by [`State::is_valid`] to detect physics
     /// divergence without an extra world query. The observation itself is now
-    /// produced by the env-side [`Sensor`](rlevo_core::environment::Sensor)
+    /// produced by the environment's emission model
     /// (ADR 0047), not by this state.
     pub last_obs: InvertedPendulumObservation,
 }

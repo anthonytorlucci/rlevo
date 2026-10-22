@@ -111,12 +111,12 @@ impl State<1> for LunarLanderState {
 mod tests {
     use super::*;
     use crate::box2d::lunar_lander::env::LunarLanderContinuous;
-    use rlevo_core::environment::{ConstructableEnv, Environment};
+    use rlevo_core::environment::Environment;
 
     /// A freshly-reset env has a fully-assembled, finite state.
     #[test]
     fn is_valid_true_after_reset() {
-        let mut env = LunarLanderContinuous::new(false);
+        let mut env = LunarLanderContinuous::default();
         env.reset().expect("reset must succeed");
         assert!(
             env.core_state().is_valid(),
@@ -127,7 +127,7 @@ mod tests {
     /// An invalidated handle must fail the invariant.
     #[test]
     fn is_valid_false_on_invalid_handle() {
-        let mut env = LunarLanderContinuous::new(false);
+        let mut env = LunarLanderContinuous::default();
         env.reset().expect("reset must succeed");
         let state = env.core_state_mut();
         state.lander_handle = RigidBodyHandle::invalid();
@@ -140,7 +140,7 @@ mod tests {
     /// A NaN shaping potential (which feeds the reward) must fail the invariant.
     #[test]
     fn is_valid_false_on_nan_prev_shaping() {
-        let mut env = LunarLanderContinuous::new(false);
+        let mut env = LunarLanderContinuous::default();
         env.reset().expect("reset must succeed");
         let state = env.core_state_mut();
         state.prev_shaping = f32::NAN;

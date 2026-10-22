@@ -21,9 +21,7 @@ use rand::rngs::StdRng;
 use rapier2d::prelude::*;
 use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -375,7 +373,7 @@ impl BipedalWalker {
 
     /// Build the 24-dim observation by reading the live physics world.
     ///
-    /// This is the emission model driving the env-side [`Sensor`]: hull and
+    /// This is the environment's emission model: hull and
     /// joint kinematics and the leg-contact flags are read from `state` and the
     /// world it indexes into, and the 10 lidar rays are cast against the live
     /// physics geometry via [`cast_lidar`](Self::cast_lidar). It is not cached on
@@ -497,28 +495,17 @@ impl BipedalWalker {
     }
 }
 
-impl ConstructableEnv for BipedalWalker {
-    fn new(_render: bool) -> Self {
+impl Default for BipedalWalker {
+    fn default() -> Self {
         Self::with_config(BipedalWalkerConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for BipedalWalker {
-    type Action = BipedalWalkerAction;
-    type State = BipedalWalkerState;
-    type Observation = BipedalWalkerObservation;
-
-    /// Emit the 24-dim observation for `next_state` by reading the live physics
-    /// world (hull/joint kinematics, contact flags, and lidar raycasts). The
-    /// action does not affect the emission; it is accepted to satisfy the
-    /// [`Sensor`] contract.
-    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
-        self.compute_observation(next_state)
-    }
-
-    /// Emit the initial observation at episode start from the reset `state`.
-    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
-        self.compute_observation(state)
+impl BipedalWalker {
+    /// Emit the 24-dim observation of the current state by reading the live
+    /// physics world (hull/joint kinematics, contact flags, and lidar raycasts).
+    fn observe(&self) -> BipedalWalkerObservation {
+        self.compute_observation(&self.state)
     }
 }
 
@@ -552,7 +539,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
         self.total_reward = 0.0;
         self.state.leg1_contact = false;
         self.state.leg2_contact = false;
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         // Mirror the observation onto the state so `is_valid` can check its
         // finiteness (physics-divergence detector); see `BipedalWalkerState`.
         self.state.last_obs = obs.clone();
@@ -605,7 +592,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
         let reward = Self::compute_reward(&action, vel_x);
         self.total_reward += reward;
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         // Mirror the observation onto the state so `is_valid` can check its
         // finiteness (physics-divergence detector); see `BipedalWalkerState`.
         self.state.last_obs = obs.clone();

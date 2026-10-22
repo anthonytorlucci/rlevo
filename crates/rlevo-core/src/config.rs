@@ -21,8 +21,8 @@
 //! `Default` construction stays infallible: a library default must itself be
 //! valid, which every implementor guarantees with a
 //! `assert!(Config::default().validate().is_ok())` unit test. That is what lets
-//! the infallible `Default` / `ConstructableEnv::new` paths keep returning
-//! `Self`.
+//! the infallible `Default` paths, a config's and an environment's, keep
+//! returning `Self`.
 //!
 //! ## A config *value* must be finite; a config *bound* may be `$\pm\infty$`
 //!

@@ -60,7 +60,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::go_to_door::{GoToDoorConfig, GoToDoorEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = GoToDoorConfig::new(6, 100, 0);
 //! let mut env = GoToDoorEnv::with_config(cfg, false).expect("valid config");
@@ -89,9 +89,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot as _, SnapshotBase};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -509,9 +507,9 @@ impl FromStr for GoToDoorConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::go_to_door::GoToDoorEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = GoToDoorEnv::new(false);
+/// let mut env = GoToDoorEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("Mission: {}", env.mission().describe());
 /// ```
@@ -558,7 +556,7 @@ impl GoToDoorEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl
+    /// constructor argument. Read only by this environment's `observe` method
     /// (through [`observe_impl`](Self::observe_impl)), and an inherent const
     /// rather than a config field because it is part of the task definition, not
     /// a knob a caller tunes.
@@ -731,7 +729,7 @@ impl GoToDoorEnv {
 
     /// Project a grid `state` into a mission-carrying observation.
     ///
-    /// The shared body behind the env-side [`Sensor`] impl: it masks the view
+    /// The shared body behind the environment's `observe` methods: it masks the view
     /// under [`Self::VISIBILITY`] and stamps the current
     /// [`Mission::target_color`] into the observation's mission channel, which is
     /// why the emission model lives on the environment rather than on
@@ -794,26 +792,17 @@ impl Display for GoToDoorEnv {
     }
 }
 
-impl ConstructableEnv for GoToDoorEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(GoToDoorConfig::default(), render).expect("default config must validate")
+impl Default for GoToDoorEnv {
+    fn default() -> Self {
+        Self::with_config(GoToDoorConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for GoToDoorEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GoToDoorObservation;
-
-    /// Emission model `$O(a, s')$`. The observation ignores the action — it is a
-    /// function of the resulting `next_state` and the episode mission — so this
-    /// forwards to the same projection as [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GoToDoorObservation {
-        self.observe_impl(next_state)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GoToDoorObservation {
-        self.observe_impl(state)
+impl GoToDoorEnv {
+    /// The emission model: the egocentric view of the current state, with the
+    /// episode mission.
+    fn observe(&self) -> GoToDoorObservation {
+        self.observe_impl(&self.state)
     }
 }
 
@@ -842,7 +831,7 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
         self.doors = doors;
         self.mission = mission;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -876,7 +865,7 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
         };
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch above can disagree with it.
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
         self.guard.record(snapshot.status());
         Ok(snapshot)
@@ -1187,7 +1176,7 @@ mod tests {
     #[test]
     fn test_observation_entity_channels_match_shared_encoding() {
         let env = env_6x6(2);
-        let obs = env.observe_reset(env.state());
+        let obs = env.observe();
         let view = egocentric_view(&env.state().grid, &env.state().agent);
         // The agent's own cell is deliberately excluded: `observe_impl` goes
         // through `mask_view`, whose final step stamps the carried item over
@@ -1266,7 +1255,7 @@ mod tests {
         // behind the 25% cap asserted below.
         let mut env = env_6x6(8);
         env.reset().expect("reset must succeed");
-        let before = env.observe_reset(env.state());
+        let before = env.observe();
         let other = env
             .doors()
             .iter()
@@ -1274,7 +1263,7 @@ mod tests {
             .find(|&c| c != env.mission().target_color)
             .expect("four distinct colors means an alternative exists");
         env.mission = Mission::new(other);
-        let after = env.observe_reset(env.state());
+        let after = env.observe();
 
         for r in 0..VIEW_SIZE {
             for c in 0..VIEW_SIZE {
@@ -1297,7 +1286,7 @@ mod tests {
     #[test]
     fn test_observation_host_row_carries_the_mission_in_every_cell() {
         let env = env_6x6(4);
-        let obs = env.observe_reset(env.state());
+        let obs = env.observe();
         let mut row = Vec::new();
         obs.write_host_row(&mut row);
 
@@ -1329,7 +1318,7 @@ mod tests {
     #[test]
     fn test_observation_host_row_ignores_agent_direction() {
         let env = env_6x6(9);
-        let obs = env.observe_reset(env.state());
+        let obs = env.observe();
         let mut expected = Vec::new();
         obs.write_host_row(&mut expected);
 

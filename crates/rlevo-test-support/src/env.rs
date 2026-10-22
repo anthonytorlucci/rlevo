@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::{Action, HostRow, Observation, State};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
 
@@ -147,17 +147,9 @@ impl LinearEnv {
     }
 }
 
-impl Sensor<1, 1, 1> for LinearEnv {
-    type Action = LinearAction;
-    type State = LinearState;
-    type Observation = LinearObservation;
-
-    fn observe(&self, _action: &LinearAction, next_state: &LinearState) -> LinearObservation {
-        LinearObservation { x: next_state.x }
-    }
-
-    fn observe_reset(&self, state: &LinearState) -> LinearObservation {
-        LinearObservation { x: state.x }
+impl LinearEnv {
+    fn observe(&self) -> LinearObservation {
+        LinearObservation { x: self.state.x }
     }
 }
 
@@ -174,7 +166,7 @@ impl Environment<1, 1, 1> for LinearEnv {
             steps: 0,
         };
         Ok(SnapshotBase {
-            observation: self.observe_reset(&self.state),
+            observation: self.observe(),
             reward: ScalarReward::new(0.0),
             status: EpisodeStatus::Running,
             metadata: None,
@@ -196,7 +188,7 @@ impl Environment<1, 1, 1> for LinearEnv {
             EpisodeStatus::Running
         };
         Ok(SnapshotBase {
-            observation: self.observe(&action, &self.state),
+            observation: self.observe(),
             reward: ScalarReward::new(reward),
             status,
             metadata: None,

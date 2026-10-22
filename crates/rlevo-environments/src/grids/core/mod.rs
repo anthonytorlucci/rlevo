@@ -24,9 +24,7 @@
 //! Emission is parameterised by [`Visibility`], the per-environment analogue of
 //! canonical Minigrid's `see_through_walls` constructor argument. Every grid
 //! environment declares its policy as an inherent `const VISIBILITY` and reads
-//! it from its own
-//! [`Sensor`](rlevo_core::environment::Sensor) impl, which produces the
-//! observation through [`observe_grid`] (or, for `GoToDoorEnv`, the crate-private
+//! it in its own `observe` method, which produces the observation through [`observe_grid`] (or, for `GoToDoorEnv`, the crate-private
 //! `mask_view` plus the wider mission-carrying encoder) and hands the result to
 //! [`build_snapshot`]. The visibility policy is therefore chosen by the
 //! environment — the emission model belongs to the environment, not to the

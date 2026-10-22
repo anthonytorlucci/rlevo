@@ -24,7 +24,7 @@ pub struct InvertedDoublePendulumState {
     /// Impulse-joint handle connecting pole1 to pole2.
     pub joint2: ImpulseJointHandle,
     /// Most recent observation extracted from the physics world. Populated by
-    /// the env-side [`Sensor`](rlevo_core::environment::Sensor) after each
+    /// the environment's emission model after each
     /// `reset` or `step`; read only by [`State::is_valid`] to detect physics
     /// divergence (ADR 0047 moved observation production off the state).
     pub last_obs: InvertedDoublePendulumObservation,

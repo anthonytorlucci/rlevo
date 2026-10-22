@@ -128,7 +128,7 @@
 //! ```no_run,ignore
 //! use rlevo_environments::classic::{CartPole, CartPoleConfig, CartPoleAction};
 //! use rlevo_environments::wrappers::TimeLimit;
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
 //! let mut timed = TimeLimit::new(env, 500);
@@ -146,7 +146,7 @@ use rlevo_core::{
     action::DiscreteAction,
     base::{Action, HostRow, Observation, State},
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
+    environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -621,27 +621,17 @@ impl fmt::Display for CartPole {
     }
 }
 
-impl ConstructableEnv for CartPole {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl Default for CartPole {
+    fn default() -> Self {
         Self::with_config(CartPoleConfig::default()).expect("default config must validate")
     }
 }
 
-impl Sensor<1, 1, 1> for CartPole {
-    type Action = CartPoleAction;
-    type State = CartPoleState;
-    type Observation = CartPoleObservation;
-
-    /// Projects the resulting state directly onto the 4-D observation
-    /// `$[x, \dot{x}, \theta, \dot\theta]$`; the observation ignores the applied force.
-    fn observe(&self, _action: &CartPoleAction, next_state: &CartPoleState) -> CartPoleObservation {
-        cartpole_observation(next_state)
-    }
-
-    /// Projects the initial state onto the 4-D observation.
-    fn observe_reset(&self, state: &CartPoleState) -> CartPoleObservation {
-        cartpole_observation(state)
+impl CartPole {
+    /// Projects the current state directly onto the 4-D observation
+    /// `$[x, \dot{x}, \theta, \dot\theta]$`.
+    fn observe(&self) -> CartPoleObservation {
+        cartpole_observation(&self.state)
     }
 }
 
@@ -676,10 +666,7 @@ impl Environment<1, 1, 1> for CartPole {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -716,7 +703,7 @@ impl Environment<1, 1, 1> for CartPole {
 
         // Single exit: every path builds exactly one snapshot, and the guard is
         // fed that snapshot's own status, so no branch can forget to record.
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         let snap = if terminated {
             SnapshotBase::terminated(obs, reward)
         } else {
@@ -1167,7 +1154,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CartPole::new(false);
+        let mut env = CartPole::default();
         env.reset().unwrap();
         let plain = env.render_ascii();
         let styled = env.render_styled();
@@ -1185,7 +1172,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, GOAL_FG, WALL_FG};
 
-        let mut env = CartPole::new(false);
+        let mut env = CartPole::default();
         env.reset().unwrap();
         let styled = env.render_styled();
         let spans = || styled.lines.iter().flat_map(|l| l.spans.iter());
@@ -1214,7 +1201,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CartPole::new(false);
+        let mut env = CartPole::default();
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

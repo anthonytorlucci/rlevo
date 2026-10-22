@@ -1,29 +1,17 @@
-//! Synthetic pixel-over-grid navigation — the first real [`Observable`] consumer.
+//! Synthetic pixel-over-grid navigation: a compact latent observed as an image.
 //!
 //! A compact allocentric grid task whose *true latent* is a pair of cell indices (agent, goal) on a
 //! `$5 \times 5$` grid, but whose *observation* is a rendered `$20 \times 20 \times 3$` RGB image.
 //! The agent must recover the latent `(agent, goal)` from pixels — the modality-changing POMDP
-//! shape (a small RAM-like state observed as an image) in which the observation rank `R(3)` differs
-//! from the state rank `SR(1)`.
+//! shape (a small RAM-like state observed as an image), with a rank-1 latent and a rank-3
+//! observation.
 //!
-//! This environment is [`Environment<3, 1, 1>`] — observation rank `3`, state
-//! rank `1`, action rank `1`, so `R(3) != SR(1)`. The rank-3 pixel projection
-//! lives on [`PixelGridState`]'s [`Observable<3>`] impl, and the environment's
-//! env-side [`Sensor`] delegates to it, so every snapshot is built from
-//! [`Observable::project`] rather than from the state's own rank. It is the
-//! production counterpart to the `MockRam` integration test that proved the
-//! [`Observable`] contract: `State<SR>` used to pin its observation to its own
-//! rank (`Observation: Observation<SR>`), so a modality change — a low-rank
-//! RAM-like state observed as a rendered image — had no typed home, unlike
-//! same-modality partial observability, which `observe()` already covers.
-//! [`Observable<OR>`] (ADR 0019) is the purely-additive projection trait that
-//! resolves that gap with an infallible [`Observable::project`] and no
-//! blanket impl. This module is that trait's first real consumer: a compact
-//! rank-1 grid state (agent + goal indices) rendered to a small rank-2/3
-//! pixel observation, chosen because it is cheap, dependency-free, and fully
-//! reproducible while still exercising the exact `R != SR` wiring a future
-//! Atari backend would need. It is the reference "sensor delegates to
-//! `Observable`" pattern (ADR 0047).
+//! The rendering is [`PixelGridState::project`], a pure function of the latent, and the
+//! environment builds every snapshot's observation through it. A projection like this is a
+//! method of the state type, not a trait: it has one implementor and no generic consumer
+//! (ADR 0090; ADR 0019 introduced it as the `Observable` trait). The module is the reference
+//! for a modality change, chosen because it is cheap, dependency-free and fully reproducible
+//! while still exercising the wiring a future Atari backend would need.
 //!
 //! ## Why not fold into [`grids`](crate::grids)
 //!
@@ -58,7 +46,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::pixel_grid::{PixelGridConfig, PixelGridEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false)
 //!     .expect("valid config");
@@ -71,11 +59,9 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::base::{HostRow, Observation, State};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
-use rlevo_core::state::{Observable, StateError};
+use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
@@ -142,11 +128,8 @@ fn success_reward(step: usize, max_steps: usize) -> f32 {
 /// column `c % GRID_SIDE`). This is the RAM analogue — small, fully known, and
 /// exactly recoverable — that the rank-3 pixel observation is rendered from.
 ///
-/// Implements [`State<1>`] for the compact rank-1 latent and [`Observable<3>`]
-/// for the modality-changing [`project`](Observable::project) that returns the
-/// pixel image. The rank-3 projection lives on the separate [`Observable`] trait
-/// because the observation order `OR(3)` differs from the state order `SR(1)`;
-/// the environment's env-side [`Sensor`] delegates to that projection.
+/// Implements [`State<1>`] for the compact rank-1 latent;
+/// [`project`](Self::project) renders it as the rank-3 pixel image.
 ///
 /// # Examples
 ///
@@ -169,7 +152,7 @@ impl PixelGridState {
     ///
     /// This is the only public construction path; it upholds the
     /// `agent < CELL_COUNT && goal < CELL_COUNT` invariant that
-    /// [`Observable::project`] relies on to address the pixel buffer, and that
+    /// [`project`](Self::project) relies on to address the pixel buffer, and that
     /// [`is_valid`](State::is_valid) re-checks.
     ///
     /// # Errors
@@ -277,9 +260,7 @@ impl State<1> for PixelGridState {
     }
 }
 
-impl Observable<3> for PixelGridState {
-    type Observation = PixelObservation;
-
+impl PixelGridState {
     /// Renders the latent to the `[IMG_SIDE, IMG_SIDE, CHANNELS]` RGB frame.
     ///
     /// Total for every value of the fields, including ones the fallible
@@ -300,7 +281,8 @@ impl Observable<3> for PixelGridState {
     /// non-finite replay-ingestion drop. Nothing downstream rejects it; the
     /// failure is silent past this point, which is why the invariant is
     /// asserted at the [`Environment`] boundary in debug builds.
-    fn project(&self) -> Self::Observation {
+    #[must_use]
+    pub fn project(&self) -> PixelObservation {
         let mut pixels = vec![0u8; PIXEL_COUNT];
         paint_cell(&mut pixels, self.goal as usize, GOAL_RGB);
         // Agent is painted last so agent-on-goal renders as the agent color.
@@ -319,8 +301,8 @@ impl Observable<3> for PixelGridState {
 /// This guard is why: `new()` did not validate indices and `project()` never
 /// checked `is_valid()`, so a state with `agent >= CELL_COUNT` drove this
 /// function to compute a pixel offset past `PIXEL_COUNT`, panicking on the
-/// slice write (also reachable through `Sensor::observe`/`observe_reset`,
-/// ADR 0047, which call `project()` the same unguarded way). `apply_move`
+/// slice write (also reachable through the environment, which builds every
+/// observation with `project()`). `apply_move`
 /// always clamps in-bounds, so the risk is external construction — a buggy
 /// wrapper, a deserialized checkpoint, a hand-built state — crashing the
 /// process instead of surfacing a normal error.
@@ -365,7 +347,6 @@ fn paint_cell(pixels: &mut [u8], cell: usize, color: [u8; CHANNELS]) {
 /// ```rust
 /// use rlevo_environments::pixel_grid::{PixelGridState, PixelObservation, PIXEL_COUNT};
 /// use rlevo_core::base::Observation;
-/// use rlevo_core::state::Observable;
 ///
 /// assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
 /// let state = PixelGridState::new(0, 24).expect("both indices are in range");
@@ -559,11 +540,9 @@ impl Validate for PixelGridConfig {
 
 /// Synthetic pixel-over-grid environment: rank-1 latent, rank-3 pixel observation.
 ///
-/// Implements [`Environment<3, 1, 1>`] — `R(3) != SR(1)`. Its env-side
-/// [`Sensor`] delegates to [`Observable::project`] (the rank-3 image), so every
-/// snapshot is built from the pixel projection rather than the rank-1 state.
-/// Construct via [`PixelGridEnv::with_config`] for full control or
-/// [`ConstructableEnv::new`] for defaults.
+/// Every snapshot's observation is [`PixelGridState::project`] of the latent:
+/// the rank-3 image, not the rank-1 state. Construct via
+/// [`PixelGridEnv::with_config`] for full control or [`Default`] for defaults.
 ///
 /// # Episode lifecycle
 ///
@@ -577,7 +556,7 @@ impl Validate for PixelGridConfig {
 ///
 /// ```no_run
 /// use rlevo_environments::pixel_grid::{PixelGridConfig, PixelGridEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false)
 ///     .expect("valid config");
@@ -708,8 +687,8 @@ impl PixelGridEnv {
     /// Build a snapshot from a pre-computed `observation`, emitting an optional
     /// ASCII debug frame when `render` is set.
     ///
-    /// The caller supplies the observation so `reset` and `step` can route it
-    /// through the correct [`Sensor`] method (`observe_reset` vs `observe`).
+    /// The caller supplies the observation, which `reset` and `step` build
+    /// with [`PixelGridState::project`].
     fn snapshot(
         &self,
         observation: PixelObservation,
@@ -747,29 +726,9 @@ impl Display for PixelGridEnv {
     }
 }
 
-impl ConstructableEnv for PixelGridEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(PixelGridConfig::default(), render).expect("default config must validate")
-    }
-}
-
-/// Env-side emission model: the pixel observation is a pure projection of the
-/// latent state, so both methods delegate to
-/// [`Observable::project`](PixelGridState::project). This is the reference
-/// "sensor delegates to `Observable`" pattern (ADR 0047): the rank-3 pixel
-/// observation is produced from the rank-1 latent without inflating the state's
-/// own rank.
-impl Sensor<3, 1, 1> for PixelGridEnv {
-    type Action = PixelGridAction;
-    type State = PixelGridState;
-    type Observation = PixelObservation;
-
-    fn observe(&self, _action: &PixelGridAction, next_state: &PixelGridState) -> PixelObservation {
-        next_state.project()
-    }
-
-    fn observe_reset(&self, state: &PixelGridState) -> PixelObservation {
-        state.project()
+impl Default for PixelGridEnv {
+    fn default() -> Self {
+        Self::with_config(PixelGridConfig::default(), false).expect("default config must validate")
     }
 }
 
@@ -797,7 +756,7 @@ impl Environment<3, 1, 1> for PixelGridEnv {
         self.guard.reset();
         self.state = Self::initial_state(self.config, &mut self.rng);
         self.steps = 0;
-        // Assert *before* the sensor call, not at the end of the method: the
+        // Assert *before* the projection, not at the end of the method: the
         // projection is the code that would trip over an out-of-range cell, and
         // its own `debug_assert!` fires first if this one runs after it —
         // reporting the failure at the wrong layer.
@@ -807,7 +766,7 @@ impl Environment<3, 1, 1> for PixelGridEnv {
             self.state.agent,
             self.state.goal
         );
-        let observation = self.observe_reset(&self.state);
+        let observation = self.state.project();
         Ok(self.snapshot(observation, 0.0, SnapshotStatus::Running))
     }
 
@@ -840,7 +799,7 @@ impl Environment<3, 1, 1> for PixelGridEnv {
             self.state.agent,
             self.state.goal
         );
-        let observation = self.observe(&action, &self.state);
+        let observation = self.state.project();
 
         let snap = if self.state.at_goal() {
             self.snapshot(
@@ -1300,35 +1259,6 @@ mod tests {
             !frame_contains_agent_block(&degraded),
             "the degraded frame must be distinguishable from every valid frame"
         );
-    }
-
-    /// The env-side [`Sensor`] is the second caller of `project` (added by the
-    /// ADR 0047 migration) and had the same gap; both of its methods must be
-    /// total over an invalid latent.
-    ///
-    /// **Build configuration:** release only (`cargo test --release`), for the
-    /// same reason as [`project_is_total_for_out_of_range_cell`].
-    #[cfg(not(debug_assertions))]
-    #[test]
-    fn sensor_observe_is_total_for_invalid_state() {
-        let env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false)
-            .expect("valid config");
-        let invalid = PixelGridState {
-            agent: CELL_COUNT_U32,
-            goal: CELL_COUNT_U32 - 1,
-        };
-
-        for obs in [
-            env.observe_reset(&invalid),
-            env.observe(&PixelGridAction::Up, &invalid),
-        ] {
-            assert_eq!(obs.pixels().len(), PIXEL_COUNT);
-            assert_eq!(pixel_at(&obs, 16, 16), GOAL_RGB);
-            assert!(
-                !frame_contains_agent_block(&obs),
-                "the sensor must inherit project's absence marker, not a clamp"
-            );
-        }
     }
 
     #[test]

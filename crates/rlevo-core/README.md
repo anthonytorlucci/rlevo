@@ -25,7 +25,7 @@ The primitive building blocks of the RL abstraction.
 
 | Trait | Description |
 |---|---|
-| `State<R>` | Full MDP state (`shape()`, `is_valid()`, `numel()`); the environment's `Sensor` produces the observation |
+| `State<R>` | Full MDP state (`shape()`, `is_valid()`, `numel()`); the environment builds the observation from it |
 | `Observation<R>` | What the agent perceives (may be a partial view of state) |
 | `Action<R>` | Base action constraint (`is_valid()`) |
 | `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
@@ -44,13 +44,10 @@ Layered action abstractions cover the standard taxonomy:
 | `ContinuousAction<R>` | Real-valued vectors with `from_slice` and `as_slice`, of `COMPONENTS` values. |
 | `BoundedAction<R>` | Extends `ContinuousAction<R>` with per-component `low()` / `high()` bounds. |
 
-### `state` — Advanced State Abstractions
+### `state` — State Errors
 
-Extensions to `State<R>`:
-
-| Trait | Purpose |
+| Item | Purpose |
 |---|---|
-| `Observable<OR>` | Optional pure state→observation projection (`project()`) that a `Sensor` may delegate to (ADR 0047); `OR` is independent of `SR` (`OR == SR` included), so it can also change modality, e.g. RAM bytes viewed as pixels (ADR 0019) |
 | `StateError` | Why a value is not a legal state |
 
 ### `environment` — Environment Protocol
@@ -58,8 +55,6 @@ Extensions to `State<R>`:
 | Item | Description |
 |---|---|
 | `Environment<R, SR, AR>` | Core trait: `reset()`, `step(action)` |
-| `Sensor<OR, AR, SR>` | Env-side emission model $O(a, s')$: `observe(action, next_state)` and `observe_reset(state)` produce the agent's observation (ADR 0047) |
-| `ConstructableEnv` | Default-construction factory (`new(render)`), lifted off `Environment` per ADR 0011 |
 | `Snapshot<R>` | Per-step result: `observation()`, `reward()`, `status()` |
 | `EpisodeStatus` | `Running \| Terminated \| Truncated` — distinguishes natural episode ends from step-limit truncations (important for value bootstrapping) |
 | `SnapshotBase<R, ObservationType, RewardType>` | Default `Snapshot` implementation with named constructors: `running()`, `terminated()`, `truncated()` |
@@ -178,7 +173,7 @@ The example below uses `EpisodeGuard`, which is on `main` and ships with the nex
 ```rust
 use rlevo_core::{
     base::{Action, Observation, Reward, State},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Snapshot, SnapshotBase},
+    environment::{Environment, EnvironmentError, Snapshot, SnapshotBase},
     episode::EpisodeGuard,
     reward::ScalarReward,
 };
@@ -206,10 +201,6 @@ impl Environment<1, 1, 1> for MyEnv {
         self.guard.record(snapshot.status());
         Ok(snapshot)
     }
-}
-
-impl ConstructableEnv for MyEnv {
-    fn new(render: bool) -> Self { MyEnv { guard: EpisodeGuard::new(), /* ... */ } }
 }
 ```
 

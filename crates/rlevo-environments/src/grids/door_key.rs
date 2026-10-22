@@ -69,7 +69,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = DoorKeyConfig::new(5, 100, 0);
 //! let mut env = DoorKeyEnv::with_config(cfg, false).expect("valid config");
@@ -99,7 +99,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -282,7 +282,7 @@ struct Layout {
 /// [`Self::door_row`], and [`Self::state`] rather than assuming fixed cells.
 ///
 /// Construct via [`DoorKeyEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 5, 100 steps, seed 0).
+/// [`Default`] for default settings (size 5, 100 steps, seed 0).
 ///
 /// Reaching the goal (or lava) ends the episode; a [`step`](Environment::step)
 /// taken afterwards is rejected with
@@ -292,7 +292,7 @@ struct Layout {
 ///
 /// ```rust
 /// use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = DoorKeyEnv::with_config(
 ///     DoorKeyConfig::new(5, 100, 0),
@@ -341,7 +341,7 @@ impl DoorKeyEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -564,26 +564,16 @@ impl Display for DoorKeyEnv {
     }
 }
 
-impl ConstructableEnv for DoorKeyEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(DoorKeyConfig::default(), render).expect("default config must validate")
+impl Default for DoorKeyEnv {
+    fn default() -> Self {
+        Self::with_config(DoorKeyConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for DoorKeyEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl DoorKeyEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -620,7 +610,7 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
         self.split_col = layout.split_col;
         self.door_row = layout.door_row;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -649,7 +639,7 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
                 (0.0, done)
             }
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
 
         // Single exit: the guard is fed the emitted snapshot's own status, so
         // the two cannot disagree about whether the episode is over.

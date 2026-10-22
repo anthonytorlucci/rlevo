@@ -4,24 +4,20 @@
 
 //! Single-crate proof that [`PixelGridEnv`] exposes a modality-changing
 //! observation: the snapshot the agent receives is a rank-3 `[20, 20, 3]` RGB
-//! image while the underlying state is rank-1 `[2]` (ADR 0019/0020).
+//! image while the underlying latent is rank-1 `[2]` (ADR 0020).
 //!
-//! [`PixelGridEnv`] is the first real consumer of `Observable<OR>`, chosen
-//! over a real Atari emulator backend: Atari is the canonical modality-change
-//! environment but pulls a heavy out-of-tree dependency, ROM licensing, and a
-//! high per-step cost. This env instead renders a compact rank-1 grid state
-//! (agent and goal cell indices) to a small rank-2/3 image observation via a
-//! deterministic `Observable::project`, at near-zero cost, with no external
-//! dependency, and fully reproducibly — while exercising the exact `R != SR`
-//! wiring an Atari backend would. It retires `Observable<OR>` from
-//! defined-but-unconsumed status and doubles as a teaching example and
-//! visual-RL smoke test; a real Atari backend remains a separate future
-//! milestone.
+//! [`PixelGridEnv`] was chosen over a real Atari emulator backend: Atari is the
+//! canonical modality-change environment but pulls a heavy out-of-tree
+//! dependency, ROM licensing, and a high per-step cost. This env instead
+//! renders a compact rank-1 grid state (agent and goal cell indices) to a small
+//! rank-3 image observation with the deterministic `PixelGridState::project`,
+//! at near-zero cost, with no external dependency, and fully reproducibly —
+//! while exercising the wiring an Atari backend would. It doubles as a teaching
+//! example and visual-RL smoke test; a real Atari backend remains a separate
+//! future milestone.
 //!
-//! This is the production counterpart to the `MockRam` mock in
-//! `crates/rlevo/tests/observable_modality_change.rs`: a real environment in
-//! `rlevo-environments` driving `R(3) != SR(1)` end-to-end through the public
-//! [`Environment`] API, with every snapshot built from `Observable::project`.
+//! The test drives the modality change end-to-end through the public
+//! [`Environment`] API, with every snapshot built from `PixelGridState::project`.
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, State};

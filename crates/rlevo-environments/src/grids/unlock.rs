@@ -50,7 +50,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::unlock::{UnlockConfig, UnlockEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = UnlockConfig::new(5, 200, 0);
 //! let mut env = UnlockEnv::with_config(cfg, false).expect("valid config");
@@ -77,7 +77,7 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -238,9 +238,9 @@ impl FromStr for UnlockConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::unlock::UnlockEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = UnlockEnv::new(false);
+/// let mut env = UnlockEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("door at: {:?}", env.door_pos());
 /// ```
@@ -278,7 +278,7 @@ impl UnlockEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -404,26 +404,16 @@ impl Display for UnlockEnv {
     }
 }
 
-impl ConstructableEnv for UnlockEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(UnlockConfig::default(), render).expect("default config must validate")
+impl Default for UnlockEnv {
+    fn default() -> Self {
+        Self::with_config(UnlockConfig::default(), false).expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for UnlockEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl UnlockEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -445,7 +435,7 @@ impl Environment<3, 3, 1> for UnlockEnv {
         self.state = state;
         self.door_pos = door_pos;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -475,7 +465,7 @@ impl Environment<3, 3, 1> for UnlockEnv {
         } else {
             (0.0, false)
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status rather than a re-derived literal.
         let snapshot = self.emit(observation, reward, done);

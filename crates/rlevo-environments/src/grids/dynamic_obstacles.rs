@@ -46,7 +46,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = DynamicObstaclesConfig::new(6, 2, 144, 0);
 //! let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
@@ -75,9 +75,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot as _};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -248,13 +246,13 @@ impl FromStr for DynamicObstaclesConfig {
 /// action. The internal RNG is seeded, so resets are fully reproducible.
 ///
 /// Construct via [`DynamicObstaclesEnv::with_config`] for full control or via
-/// [`ConstructableEnv::new`] for default settings (size 6, 1 obstacle, seed 0).
+/// [`Default`] for default settings (size 6, 1 obstacle, seed 0).
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = DynamicObstaclesEnv::with_config(
 ///     DynamicObstaclesConfig::new(6, 2, 144, 0),
@@ -294,7 +292,7 @@ impl DynamicObstaclesEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -574,27 +572,17 @@ impl Display for DynamicObstaclesEnv {
     }
 }
 
-impl ConstructableEnv for DynamicObstaclesEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(DynamicObstaclesConfig::default(), render)
+impl Default for DynamicObstaclesEnv {
+    fn default() -> Self {
+        Self::with_config(DynamicObstaclesConfig::default(), false)
             .expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for DynamicObstaclesEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl DynamicObstaclesEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -617,7 +605,7 @@ impl Environment<3, 3, 1> for DynamicObstaclesEnv {
         self.state = state;
         self.obstacles = obstacles;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -653,7 +641,7 @@ impl Environment<3, 3, 1> for DynamicObstaclesEnv {
         // guard is fed that snapshot's own status, so no branch can forget to
         // record — and the guard cannot disagree with what the caller was
         // handed.
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         let snapshot = self.emit(observation, reward, done);
         self.guard.record(snapshot.status());
         Ok(snapshot)

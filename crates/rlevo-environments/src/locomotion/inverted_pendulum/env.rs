@@ -4,9 +4,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
-};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{Rapier3DBackend, Rapier3DWorld};
@@ -209,37 +207,22 @@ impl InvertedPendulum {
     }
 }
 
-impl Sensor<1, 1, 1> for InvertedPendulum {
-    type Action = InvertedPendulumAction;
-    type State = InvertedPendulumState;
-    type Observation = InvertedPendulumObservation;
-
+impl InvertedPendulum {
     /// Emission model: reads `[cart_x, pole_angle, cart_vx, pole_angvel_y]`
-    /// directly from the physics world through the state's body handles. The
-    /// action does not enter the observation, and `next_state` carries the same
-    /// handles as `self.state`, so both are unused; the world is the source of
-    /// truth.
-    fn observe(
-        &self,
-        _action: &InvertedPendulumAction,
-        _next_state: &InvertedPendulumState,
-    ) -> InvertedPendulumObservation {
-        self.extract_observation()
-    }
-
-    /// Initial observation at episode start, read from the freshly built world.
-    fn observe_reset(&self, _state: &InvertedPendulumState) -> InvertedPendulumObservation {
+    /// directly from the physics world through the state's body handles; the
+    /// world is the source of truth.
+    fn observe(&self) -> InvertedPendulumObservation {
         self.extract_observation()
     }
 }
 
-impl ConstructableEnv for InvertedPendulum {
+impl Default for InvertedPendulum {
     /// Constructs the environment with [`InvertedPendulumConfig::default`].
     ///
     /// The `render` flag is accepted for interface conformance but has no
     /// effect; this environment has no built-in renderer. Use
     /// [`InvertedPendulum::with_config`] for full control.
-    fn new(_render: bool) -> Self {
+    fn default() -> Self {
         Self::with_config(InvertedPendulumConfig::default()).expect("default config must validate")
     }
 }
@@ -281,7 +264,7 @@ impl Environment<1, 1, 1> for InvertedPendulum {
         self.steps = 0;
         self.guard.reset();
 
-        let obs = self.observe_reset(&self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
         let meta = SnapshotMetadata::new().with(METADATA_KEY_ALIVE, 0.0);
         Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
@@ -345,7 +328,7 @@ impl Environment<1, 1, 1> for InvertedPendulum {
         });
         self.steps += 1;
 
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         self.state.last_obs = obs;
 
         let healthy = self.config.healthy.is_healthy(

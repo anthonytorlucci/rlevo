@@ -13,12 +13,12 @@ use rlevo_core::base::State;
 /// any size at runtime; the static shape is constant across all grid
 /// environments so tensor code doesn't have to branch.
 ///
-/// # Why there is no `Observable` impl
+/// # Why there is no projection method
 ///
 /// Observation production deliberately does **not** live on this type. The
 /// emission model is parameterised by the owning environment's
 /// [`Visibility`](super::Visibility) policy, which a `&self`-only
-/// [`project`](rlevo_core::state::Observable::project) cannot read — and an
+/// `project` method on this type cannot read — and an
 /// unparameterised projection would be an *unoccluded* view, correct for the
 /// see-through environments and silently wrong for the occluded majority.
 ///

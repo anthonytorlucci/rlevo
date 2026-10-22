@@ -69,7 +69,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::unlock_pickup::{UnlockPickupConfig, UnlockPickupEnv};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let cfg = UnlockPickupConfig::new(7, 196, 0);
 //! let mut env = UnlockPickupEnv::with_config(cfg, false).expect("valid config");
@@ -98,7 +98,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -312,9 +312,9 @@ struct Layout {
 ///
 /// ```rust
 /// use rlevo_environments::grids::unlock_pickup::UnlockPickupEnv;
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
-/// let mut env = UnlockPickupEnv::new(false);
+/// let mut env = UnlockPickupEnv::default();
 /// let snap = env.reset().unwrap();
 /// println!("target: {:?}", env.target());
 /// ```
@@ -351,7 +351,7 @@ impl UnlockPickupEnv {
     /// through opaque cells?
     ///
     /// The rlevo spelling of canonical Minigrid's `see_through_walls`
-    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// constructor argument. Read only by this environment's `observe` method,
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
@@ -428,9 +428,9 @@ impl UnlockPickupEnv {
     ///
     /// ```rust
     /// use rlevo_environments::grids::unlock_pickup::UnlockPickupEnv;
-    /// use rlevo_core::environment::{ConstructableEnv, Environment};
+    /// use rlevo_core::environment::Environment;
     ///
-    /// let mut env = UnlockPickupEnv::new(false);
+    /// let mut env = UnlockPickupEnv::default();
     /// env.reset_with_seed(11).unwrap();
     /// let (board, target) = (env.ascii(), env.target());
     ///
@@ -621,27 +621,17 @@ impl Display for UnlockPickupEnv {
     }
 }
 
-impl ConstructableEnv for UnlockPickupEnv {
-    fn new(render: bool) -> Self {
-        Self::with_config(UnlockPickupConfig::default(), render)
+impl Default for UnlockPickupEnv {
+    fn default() -> Self {
+        Self::with_config(UnlockPickupConfig::default(), false)
             .expect("default config must validate")
     }
 }
 
-impl Sensor<3, 1, 3> for UnlockPickupEnv {
-    type Action = GridAction;
-    type State = GridState;
-    type Observation = GridObservation;
-
-    /// Emission model `$O(a, s')$`. The observation is a function of the resulting
-    /// `next_state` alone, so this forwards to the same projection as
-    /// [`observe_reset`](Self::observe_reset).
-    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
-        observe_grid(next_state, Self::VISIBILITY)
-    }
-
-    fn observe_reset(&self, state: &GridState) -> GridObservation {
-        observe_grid(state, Self::VISIBILITY)
+impl UnlockPickupEnv {
+    /// The emission model: the egocentric view of the current state.
+    fn observe(&self) -> GridObservation {
+        observe_grid(&self.state, Self::VISIBILITY)
     }
 }
 
@@ -677,7 +667,7 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
         self.state = state;
         self.layout = layout;
         self.steps = 0;
-        let observation = self.observe_reset(&self.state);
+        let observation = self.observe();
         Ok(self.emit(observation, 0.0, false))
     }
 
@@ -704,7 +694,7 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
         } else {
             (0.0, false)
         };
-        let observation = self.observe(&action, &self.state);
+        let observation = self.observe();
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch above can forget to record.
         let snapshot = self.emit(observation, reward, done);

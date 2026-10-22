@@ -112,9 +112,9 @@ pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
 /// A `State` no longer produces its own observation. In the POMDP tuple
 /// `$\langle S, A, T, R, \Omega, O \rangle$` the emission model `O` is a property
 /// of the *environment*,
-/// not of a state value, so it lives on the env-side
-/// [`Sensor`](crate::environment::Sensor) trait with the canonical signature
-/// `O(a, s')`. `State` retains only what genuinely belongs to a point in state
+/// not of a state value, so it lives on the environment (see
+/// [`Environment`](crate::environment::Environment), "Building the
+/// observation"). `State` retains only what genuinely belongs to a point in state
 /// space: [`shape`](State::shape), [`numel`](State::numel), and
 /// [`is_valid`](State::is_valid). (ADR 0047, superseding ADR 0019.)
 pub trait State<const R: usize>: Debug + Clone + Send + Sync {
@@ -401,6 +401,36 @@ mod tests {
     #![allow(clippy::float_cmp, clippy::cast_precision_loss)]
     use super::*;
     use serde::{Deserialize, Serialize};
+
+    /// A rank-2 observation: a 2x2 grid of bits.
+    ///
+    /// **The absence of `Serialize` / `Deserialize` here is load-bearing.** This
+    /// mock is the compile-time guard that [`Observation`] carries no serde
+    /// supertrait (ADR 0064): its supertrait list is exactly
+    /// `Debug + Clone + Send + Sync`, and if anyone re-adds
+    /// `Serialize + for<'de> Deserialize<'de>` to it, `rlevo-core`'s own test
+    /// build stops compiling on the `impl Observation<2>` below. Do not
+    /// "helpfully" derive serde for this type — a consumer that needs to persist
+    /// an observation declares the bound at its own seam.
+    #[derive(Debug, Clone, PartialEq)]
+    struct SerdeFreeObservation {
+        pixels: [[u8; 2]; 2],
+    }
+
+    impl Observation<2> for SerdeFreeObservation {
+        fn shape() -> [usize; 2] {
+            [2, 2]
+        }
+    }
+
+    #[test]
+    fn test_observation_needs_no_serde() {
+        let obs = SerdeFreeObservation {
+            pixels: [[1, 0], [0, 1]],
+        };
+        assert_eq!(SerdeFreeObservation::shape(), [2, 2]);
+        assert_eq!(obs.clone(), obs);
+    }
 
     /// Simple scalar reward implementation for testing
     #[derive(Clone, Debug, PartialEq)]

@@ -133,7 +133,7 @@
 //!
 //! ```no_run,ignore
 //! use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
-//! use rlevo_core::environment::{ConstructableEnv, Environment};
+//! use rlevo_core::environment::Environment;
 //!
 //! let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
@@ -149,7 +149,7 @@ use rlevo_core::{
     action::DiscreteAction,
     base::{Action, HostRow, Observation, State},
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
+    environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -639,7 +639,7 @@ impl DiscreteAction<1> for AcrobotAction {
 ///
 /// ```rust,ignore
 /// use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
-/// use rlevo_core::environment::{ConstructableEnv, Environment};
+/// use rlevo_core::environment::Environment;
 ///
 /// let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default()).expect("valid config");
 /// env.reset().unwrap();
@@ -770,28 +770,17 @@ impl<D: AcrobotDynamicsFn> fmt::Display for Acrobot<D> {
     }
 }
 
-impl<D: AcrobotDynamicsFn + Default> ConstructableEnv for Acrobot<D> {
-    fn new(render: bool) -> Self {
-        let _ = render;
+impl<D: AcrobotDynamicsFn + Default> Default for Acrobot<D> {
+    fn default() -> Self {
         Self::with_config(AcrobotConfig::default()).expect("default config must validate")
     }
 }
 
-impl<D: AcrobotDynamicsFn> Sensor<1, 1, 1> for Acrobot<D> {
-    type Action = AcrobotAction;
-    type State = AcrobotState;
-    type Observation = AcrobotObservation;
-
-    /// Projects the resulting state to the 6-D `$[\cos\theta, \sin\theta, \dot\theta]$` observation;
-    /// the observation is a pure trigonometric function of the state and ignores
-    /// the applied torque.
-    fn observe(&self, _action: &AcrobotAction, next_state: &AcrobotState) -> AcrobotObservation {
-        acrobot_observation(next_state)
-    }
-
-    /// Projects the initial state to the 6-D observation.
-    fn observe_reset(&self, state: &AcrobotState) -> AcrobotObservation {
-        acrobot_observation(state)
+impl<D: AcrobotDynamicsFn> Acrobot<D> {
+    /// Projects the current state to the 6-D `$[\cos\theta, \sin\theta, \dot\theta]$` observation,
+    /// a pure trigonometric function of the state.
+    fn observe(&self) -> AcrobotObservation {
+        acrobot_observation(&self.state)
     }
 }
 
@@ -829,10 +818,7 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
         self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(
-            self.observe_reset(&self.state),
-            ScalarReward(0.0),
-        ))
+        Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
     }
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
@@ -871,7 +857,7 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
         self.steps += 1;
 
         let terminated = Self::is_terminal(&self.state, &self.config);
-        let obs = self.observe(&action, &self.state);
+        let obs = self.observe();
         // Single exit: both branches build exactly one snapshot, and the guard is
         // fed that snapshot's own status, so no branch can forget to record.
         let snap = if terminated {

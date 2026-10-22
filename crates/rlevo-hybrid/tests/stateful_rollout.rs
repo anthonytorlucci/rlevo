@@ -24,7 +24,7 @@ use burn::tensor::{Tensor, backend::Backend};
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::State;
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction, SantaFeAntObservation};
 use rlevo_evolution::fitness::BatchFitnessFn;
@@ -326,13 +326,7 @@ fn rollout_fitness_hosts_recurrent_gru_on_santa_fe() {
     let dev = device();
     let reshaper = ModuleReshaper::new(GruPolicy::<TestBackend>::new(&dev));
     let num_params = reshaper.num_params();
-    let mut fitness = RolloutFitness::new(
-        reshaper,
-        || <SantaFeAnt as ConstructableEnv>::new(false),
-        1,
-        50,
-        dev,
-    );
+    let mut fitness = RolloutFitness::new(reshaper, SantaFeAnt::default, 1, 50, dev);
     let pop = Tensor::<TestBackend, 2>::zeros([2, num_params], &dev);
     let out = fitness.evaluate_batch(&pop, &dev);
     let values = out.into_data().into_vec::<f32>().unwrap();

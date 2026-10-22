@@ -72,7 +72,7 @@ mod tests {
     use super::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::{Action, Observation, State};
-    use rlevo_core::environment::{Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase};
+    use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
     use rlevo_core::episode::EpisodeGuard;
     use rlevo_core::reward::ScalarReward;
     use serde::{Deserialize, Serialize};
@@ -156,19 +156,11 @@ mod tests {
         }
     }
 
-    impl Sensor<1, 1, 1> for MockGuardedEnv {
-        type Action = MockAction;
-        type State = MockState;
-        type Observation = MockObservation;
-
-        fn observe(&self, _action: &MockAction, next_state: &MockState) -> MockObservation {
+    impl MockGuardedEnv {
+        fn observe(&self) -> MockObservation {
             MockObservation {
-                steps: next_state.steps,
+                steps: self.state.steps,
             }
-        }
-
-        fn observe_reset(&self, state: &MockState) -> MockObservation {
-            MockObservation { steps: state.steps }
         }
     }
 
@@ -182,17 +174,14 @@ mod tests {
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.guard.reset();
             self.state = MockState { steps: 0 };
-            Ok(SnapshotBase::running(
-                self.observe_reset(&self.state),
-                ScalarReward(0.0),
-            ))
+            Ok(SnapshotBase::running(self.observe(), ScalarReward(0.0)))
         }
 
-        fn step(&mut self, action: MockAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        fn step(&mut self, _action: MockAction) -> Result<Self::SnapshotType, EnvironmentError> {
             self.guard.check()?;
 
             self.state.steps += 1;
-            let obs = self.observe(&action, &self.state);
+            let obs = self.observe();
             let snapshot = if self.state.steps >= Self::TERMINAL_STEP {
                 SnapshotBase::terminated(obs, ScalarReward(1.0))
             } else {
