@@ -468,10 +468,10 @@ fn update_best<B: Backend>(state: &mut GaState<B>, pop: &Tensor<B, 2>, fitness: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromFitnessEvaluable;
+    use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
-    use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::fitness::Landscape;
 
     type TestBackend = Flex;
 
@@ -488,11 +488,8 @@ mod tests {
     }
 
     struct Sphere;
-    struct SphereFit;
-    impl FitnessEvaluable for SphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = Sphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+    impl Landscape for Sphere {
+        fn evaluate(&self, x: &[f64]) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
     }
@@ -512,7 +509,7 @@ mod tests {
             },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         };
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
 
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 42, device, 200,
@@ -556,8 +553,7 @@ mod tests {
         // Maximise sum-of-squares: the objective sense is irrelevant to the
         // property (monotonicity, not convergence), but a maximise sense makes
         // the reported user-space value equal the canonical rolling best.
-        let fitness_fn =
-            FromFitnessEvaluable::with_sense(SphereFit, Sphere, ObjectiveSense::Maximize);
+        let fitness_fn = FromLandscape::with_sense(Sphere, ObjectiveSense::Maximize);
 
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 123, device, 40,

@@ -5,37 +5,31 @@
 //! - Rastrigin-D10: `best_fitness < 1.0` within 2000 generations.
 //! - Identical seeds reproduce identical trajectories.
 //!
-//! Landscapes are defined inline via [`FitnessEvaluable`] (no `rlevo-harness`
+//! Landscapes are defined inline as [`Landscape`] impls (no `rlevo-harness`
 //! dependency — production-crate purity, CLAUDE.md). Both strategies sample
 //! host-side through `seed_stream` rather than the backend's process-global RNG,
 //! so these tests are reproducible regardless of the cargo runner's threading.
 
 use burn::backend::Flex;
-use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_core::fitness::Landscape;
 
 use rlevo_evolution::algorithms::cma_es::{CmaEs, CmaEsConfig};
 use rlevo_evolution::algorithms::cmsa_es::{CmsaEs, CmsaEsConfig};
-use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
+use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 
 struct Sphere;
-struct SphereFit;
-impl FitnessEvaluable for SphereFit {
-    type Individual = Vec<f64>;
-    type Landscape = Sphere;
-    fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+impl Landscape for Sphere {
+    fn evaluate(&self, x: &[f64]) -> f64 {
         x.iter().map(|v| v * v).sum()
     }
 }
 
 struct Rastrigin;
-struct RastriginFit;
-impl FitnessEvaluable for RastriginFit {
-    type Individual = Vec<f64>;
-    type Landscape = Rastrigin;
-    fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+impl Landscape for Rastrigin {
+    fn evaluate(&self, x: &[f64]) -> f64 {
         const A: f64 = 10.0;
         #[allow(clippy::cast_precision_loss)]
         let n = x.len() as f64;
@@ -72,7 +66,7 @@ fn cma_es_converges_on_sphere_d10() {
     let traj = run(
         CmaEs::<B>::new(),
         CmaEsConfig::default_for(10),
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         42,
         1000,
     );
@@ -85,7 +79,7 @@ fn cmsa_es_converges_on_sphere_d10() {
     let traj = run(
         CmsaEs::<B>::new(),
         CmsaEsConfig::default_for(10),
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         42,
         1000,
     );
@@ -104,7 +98,7 @@ fn cma_es_converges_on_rastrigin_d10() {
     let traj = run(
         CmaEs::<B>::new(),
         params,
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin),
+        FromLandscape::new(Rastrigin),
         12_345,
         1200,
     );
@@ -119,7 +113,7 @@ fn cmsa_es_converges_on_rastrigin_d10() {
     let traj = run(
         CmsaEs::<B>::new(),
         params,
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin),
+        FromLandscape::new(Rastrigin),
         12_345,
         1200,
     );
@@ -132,14 +126,14 @@ fn cma_es_same_seed_identical_trajectory() {
     let a = run(
         CmaEs::<B>::new(),
         CmaEsConfig::default_for(10),
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         7,
         60,
     );
     let b = run(
         CmaEs::<B>::new(),
         CmaEsConfig::default_for(10),
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         7,
         60,
     );
@@ -151,14 +145,14 @@ fn cmsa_es_same_seed_identical_trajectory() {
     let a = run(
         CmsaEs::<B>::new(),
         CmsaEsConfig::default_for(10),
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         7,
         60,
     );
     let b = run(
         CmsaEs::<B>::new(),
         CmsaEsConfig::default_for(10),
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         7,
         60,
     );

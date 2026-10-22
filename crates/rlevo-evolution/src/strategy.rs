@@ -473,17 +473,14 @@ fn build_population_snapshot(
 ///
 /// ```no_run
 /// use burn::backend::Flex;
-/// use rlevo_core::fitness::FitnessEvaluable;
+/// use rlevo_core::fitness::Landscape;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
-/// use rlevo_evolution::fitness::FromFitnessEvaluable;
+/// use rlevo_evolution::fitness::FromLandscape;
 /// use rlevo_evolution::strategy::EvolutionaryLoop;
 ///
 /// struct Sphere;
-/// struct SphereFit;
-/// impl FitnessEvaluable for SphereFit {
-///     type Individual = Vec<f64>;
-///     type Landscape = Sphere;
-///     fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+/// impl Landscape for Sphere {
+///     fn evaluate(&self, x: &[f64]) -> f64 {
 ///         x.iter().map(|v| v * v).sum()
 ///     }
 /// }
@@ -492,7 +489,7 @@ fn build_population_snapshot(
 /// let mut evo_loop = EvolutionaryLoop::<Flex, _, _>::new(
 ///     GeneticAlgorithm::<Flex>::new(),
 ///     GaConfig::default_for(32, 5),
-///     FromFitnessEvaluable::new(SphereFit, Sphere),
+///     FromLandscape::new(Sphere),
 ///     0, device, 100,
 /// ).expect("valid params");
 ///

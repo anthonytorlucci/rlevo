@@ -556,12 +556,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromFitnessEvaluable;
+    use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::fitness::Landscape;
 
     type TestBackend = Flex;
 
@@ -615,11 +615,8 @@ mod tests {
     }
 
     struct Sphere;
-    struct SphereFit;
-    impl FitnessEvaluable for SphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = Sphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+    impl Landscape for Sphere {
+        fn evaluate(&self, x: &[f64]) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
     }
@@ -634,7 +631,7 @@ mod tests {
         let device = Default::default();
         let strategy = BatAlgorithm::<TestBackend>::new();
         let params = BatConfig::default_for(40, 10);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 23, device, 800,
         )
@@ -662,7 +659,7 @@ mod tests {
         let params = BatConfig::default_for(20, 4);
         let (lo, hi): (f32, f32) = params.bounds.into();
         let span = (hi - lo).abs();
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 7, device, 100,
         )
@@ -752,7 +749,7 @@ mod tests {
             let device = Default::default();
             let strategy = BatAlgorithm::<TestBackend>::new();
             let params = BatConfig::default_for(pop, d);
-            let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+            let fitness_fn = FromLandscape::new(Sphere);
             let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
                 strategy, params, fitness_fn, 3, device, 8,
             )

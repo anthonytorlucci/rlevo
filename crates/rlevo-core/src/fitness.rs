@@ -1,15 +1,13 @@
 //! Inference-only agent interfaces and fitness-evaluation traits.
 //!
-//! Three traits plus the [`Metric`] data type:
+//! Two traits plus the [`Metric`] data type:
 //!
 //! - [`BenchableAgent`] — frozen policies (RL-style) that consume an
 //!   observation and produce an action. RL training/replay state must be
 //!   stripped in a `Frozen*Policy` adapter before benchmarking.
-//! - [`FitnessEvaluable`] — optimizer-on-landscape path, used when the
-//!   "environment" is a pure fitness function (Rastrigin, Ackley, MPB).
-//! - [`Landscape`] — self-evaluating numerical landscape; collapses the
-//!   evaluator/landscape split when the landscape *is* the fitness
-//!   function. Consumed by `rlevo-evolution`'s `FromLandscape` adapter.
+//! - [`Landscape`] — a self-evaluating numerical landscape, used when the
+//!   "environment" is a pure fitness function (Sphere, Rastrigin, Ackley).
+//!   Consumed by `rlevo-evolution`'s `FromLandscape` adapter.
 //!
 //! [`Metric`] and [`MetricsProvider`] live here because [`BenchableAgent`]
 //! returns `Vec<Metric>` from its optional `emit_metrics` hook; co-locating
@@ -82,47 +80,17 @@ pub trait BenchableAgent<Obs, Act> {
     }
 }
 
-/// Evaluates an optimizer against a fitness landscape.
-///
-/// Used when the benchmark IS the fitness function (e.g. Rastrigin) rather
-/// than a stateful `Environment`. `rlevo-evolution`'s `FromFitnessEvaluable`
-/// adapter consumes this trait: it turns an implementor and its landscape
-/// into the batch fitness function an evolutionary loop scores a population
-/// with.
-pub trait FitnessEvaluable {
-    /// The optimizer's candidate solution type (e.g. a parameter vector or a
-    /// genome).
-    type Individual;
-
-    /// The fitness landscape the individual is evaluated against.  May be a
-    /// marker type when the evaluator itself encodes the landscape.
-    type Landscape;
-
-    /// Returns the scalar fitness of `individual` on `landscape`, in the
-    /// objective's **natural** value space (no hand-negation).
-    ///
-    /// The engine is maximise-native, but you do **not** negate here. A cost
-    /// objective returns its natural cost (e.g. Sphere → `$\Sigma x_i^2$`); a reward or
-    /// accuracy returns its natural value. The objective's direction is
-    /// declared once, via the [`ObjectiveSense`] carried by the
-    /// `FromFitnessEvaluable` adapter (`with_sense`, defaulting to
-    /// [`ObjectiveSense::Minimize`]), and the evolutionary loop reconciles
-    /// it into canonical (maximise) space at a single chokepoint. See
-    /// [`crate::objective`].
-    fn evaluate(&self, individual: &Self::Individual, landscape: &Self::Landscape) -> f64;
-}
-
 /// Self-evaluating numerical fitness landscape.
 ///
 /// Implementors carry both the parameters of the landscape (dimension,
-/// constants) and the scalar `f(x)` evaluation. Use this when the
-/// landscape *is* the fitness function — Sphere, Ackley, Rastrigin — so
-/// callers do not need to define a separate evaluator alongside a marker
-/// landscape type as `FitnessEvaluable` requires.
+/// constants) and the scalar `f(x)` evaluation: the landscape *is* the
+/// fitness function, as Sphere, Ackley and Rastrigin are. A test or an
+/// example that scores a candidate with its own formula implements this
+/// trait on a type of its own.
 ///
 /// `rlevo-evolution`'s `FromLandscape` adapter wraps any `Landscape` into
-/// a `BatchFitnessFn<B, Tensor<B, 2>>`, mirroring the row-by-row host
-/// evaluation that `FromFitnessEvaluable` performs.
+/// a `BatchFitnessFn<B, Tensor<B, 2>>`, evaluating each population row on
+/// the host.
 pub trait Landscape: Send + Sync {
     /// Evaluates the landscape at point `x` and returns its scalar cost in the
     /// landscape's **natural** value space (no hand-negation).

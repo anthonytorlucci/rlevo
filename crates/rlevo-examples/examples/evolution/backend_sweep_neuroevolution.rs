@@ -115,16 +115,15 @@ impl SweepConfig {
 /// Batched-on-device fitness: score a whole population of MLPs in one forward
 /// pass and return per-member MSE.
 ///
-/// This is the deliberate contrast with the bundled [`FromLandscape`] /
-/// [`FromFitnessEvaluable`] adapters, which pull every genome row to the host
-/// and evaluate on the CPU — correct, but backend-agnostic *because the compute
-/// never touches the device*. Here the entire evaluation stays on `B`'s device
-/// as batched tensor ops, so switching `B` from `Flex` to `Wgpu` genuinely
-/// moves the arithmetic from CPU to GPU. That is what makes the sweep a fair
-/// backend comparison rather than a measurement of host-side glue.
+/// This is the deliberate contrast with the bundled [`FromLandscape`] adapter,
+/// which pulls every genome row to the host and evaluates on the CPU — correct,
+/// but backend-agnostic *because the compute never touches the device*. Here
+/// the entire evaluation stays on `B`'s device as batched tensor ops, so
+/// switching `B` from `Flex` to `Wgpu` genuinely moves the arithmetic from CPU
+/// to GPU. That is what makes the sweep a fair backend comparison rather than
+/// a measurement of host-side glue.
 ///
 /// [`FromLandscape`]: rlevo_evolution::fitness::FromLandscape
-/// [`FromFitnessEvaluable`]: rlevo_evolution::fitness::FromFitnessEvaluable
 #[derive(Debug)]
 struct MlpRegressionFitness<B: Backend> {
     /// Fixed input batch, shape `(samples, in_dim)`, resident on the device.

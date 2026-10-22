@@ -31,21 +31,18 @@
 
 use burn::backend::{Flex, Wgpu};
 use rlevo_core::bounds::Bounds;
-use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_core::fitness::Landscape;
 use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
-use rlevo_evolution::fitness::FromFitnessEvaluable;
+use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 struct Sphere;
-struct SphereFit;
-impl FitnessEvaluable for SphereFit {
-    type Individual = Vec<f64>;
-    type Landscape = Sphere;
-    fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+impl Landscape for Sphere {
+    fn evaluate(&self, x: &[f64]) -> f64 {
         x.iter().map(|v| v * v).sum()
     }
 }
@@ -75,7 +72,7 @@ where
     let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         GeneticAlgorithm::<B>::new(),
         params,
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         seed,
         device,
         gens,
@@ -103,7 +100,7 @@ where
     let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         ParticleSwarm::<B>::new(),
         params,
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         seed,
         device,
         gens,

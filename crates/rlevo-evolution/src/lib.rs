@@ -25,9 +25,7 @@
 //! - [`population`] — [`Population<B, K>`](population::Population), a thin
 //!   wrapper around `Tensor<B, 2>` carrying shape metadata.
 //! - [`fitness`] — [`FitnessFn`](fitness::FitnessFn) /
-//!   [`BatchFitnessFn`](fitness::BatchFitnessFn), the
-//!   [`FromFitnessEvaluable`](fitness::FromFitnessEvaluable) adapter for
-//!   `rlevo-core::fitness::FitnessEvaluable`, and the
+//!   [`BatchFitnessFn`](fitness::BatchFitnessFn), and the
 //!   [`FromLandscape`](fitness::FromLandscape) adapter for landscapes that
 //!   carry their own `evaluate` method.
 //! - [`observer`] — [`PopulationObserver`] /

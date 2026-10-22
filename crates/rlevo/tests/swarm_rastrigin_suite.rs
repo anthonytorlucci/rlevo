@@ -10,7 +10,7 @@
 
 use burn::backend::Flex;
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::{FitnessEvaluable, Landscape, MetricsProvider};
+use rlevo_core::fitness::MetricsProvider;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_harness::reporter::logging::LoggingReporter;
 
@@ -26,30 +26,12 @@ use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConf
 use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
-use rlevo_evolution::fitness::FromFitnessEvaluable;
+use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
 type B = Flex;
 const DIM: usize = 10;
 const MAX_GENS: usize = 120;
-
-struct RastriginFit;
-impl FitnessEvaluable for RastriginFit {
-    type Individual = Vec<f64>;
-    type Landscape = Rastrigin;
-    fn evaluate(&self, x: &Self::Individual, l: &Self::Landscape) -> f64 {
-        l.evaluate(x)
-    }
-}
-
-struct AckleyFit;
-impl FitnessEvaluable for AckleyFit {
-    type Individual = Vec<f64>;
-    type Landscape = Ackley;
-    fn evaluate(&self, x: &Self::Individual, l: &Self::Landscape) -> f64 {
-        l.evaluate(x)
-    }
-}
 
 /// Returns a minimal [`EvaluatorConfig`] shared by every swarm strategy suite test.
 ///
@@ -127,17 +109,14 @@ where
 // Rastrigin factories — one per shipping swarm strategy.
 // ---------------------------------------------------------------------
 
-fn pso_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>>
+fn pso_ra(seed: u64) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromLandscape<Rastrigin>>
 where
     ParticleSwarm<B>: Strategy<B, Params = PsoConfig>,
 {
     EvolutionaryLoop::new(
         ParticleSwarm::<B>::new(),
         PsoConfig::default_for(32, DIM),
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -148,14 +127,11 @@ where
     .expect("valid params")
 }
 
-fn gwo_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, GreyWolfOptimizer<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+fn gwo_ra(seed: u64) -> EvolutionaryLoop<B, GreyWolfOptimizer<B>, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
         GreyWolfOptimizer::<B>::new(),
         GwoConfig::default_for(32, DIM, MAX_GENS),
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -166,14 +142,11 @@ fn gwo_ra(
     .expect("valid params")
 }
 
-fn woa_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, WhaleOptimization<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+fn woa_ra(seed: u64) -> EvolutionaryLoop<B, WhaleOptimization<B>, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
         WhaleOptimization::<B>::new(),
         WoaConfig::default_for(32, DIM, MAX_GENS),
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -184,14 +157,11 @@ fn woa_ra(
     .expect("valid params")
 }
 
-fn salp_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, SalpSwarm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+fn salp_ra(seed: u64) -> EvolutionaryLoop<B, SalpSwarm<B>, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
         SalpSwarm::<B>::new(),
         SalpConfig::default_for(32, DIM, MAX_GENS),
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -202,14 +172,11 @@ fn salp_ra(
     .expect("valid params")
 }
 
-fn abc_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, ArtificialBeeColony<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+fn abc_ra(seed: u64) -> EvolutionaryLoop<B, ArtificialBeeColony<B>, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
         ArtificialBeeColony::<B>::new(),
         AbcConfig::default_for(30, DIM),
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -220,14 +187,11 @@ fn abc_ra(
     .expect("valid params")
 }
 
-fn bat_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, BatAlgorithm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+fn bat_ra(seed: u64) -> EvolutionaryLoop<B, BatAlgorithm<B>, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
         BatAlgorithm::<B>::new(),
         BatConfig::default_for(30, DIM),
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -238,14 +202,11 @@ fn bat_ra(
     .expect("valid params")
 }
 
-fn aco_r_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, AntColonyReal<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+fn aco_r_ra(seed: u64) -> EvolutionaryLoop<B, AntColonyReal<B>, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
         AntColonyReal::<B>::new(),
         AcoRConfig::default_for(30, 15, DIM),
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -256,16 +217,13 @@ fn aco_r_ra(
     .expect("valid params")
 }
 
-fn cuckoo_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, CuckooSearch<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+fn cuckoo_ra(seed: u64) -> EvolutionaryLoop<B, CuckooSearch<B>, FromLandscape<Rastrigin>> {
     let mut cfg = CuckooConfig::default_for(30, DIM);
     cfg.alpha = 0.2;
     EvolutionaryLoop::new(
         CuckooSearch::<B>::new(),
         cfg,
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -276,14 +234,11 @@ fn cuckoo_ra(
     .expect("valid params")
 }
 
-fn firefly_ra(
-    seed: u64,
-) -> EvolutionaryLoop<B, FireflyAlgorithm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
+fn firefly_ra(seed: u64) -> EvolutionaryLoop<B, FireflyAlgorithm<B>, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
         FireflyAlgorithm::<B>::new(),
         FireflyConfig::default_for(24, DIM),
-        FromFitnessEvaluable::with_sense(
-            RastriginFit,
+        FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -298,14 +253,11 @@ fn firefly_ra(
 // Ackley factories — mirror the Rastrigin ones.
 // ---------------------------------------------------------------------
 
-fn pso_ak(
-    seed: u64,
-) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromFitnessEvaluable<AckleyFit, Ackley>> {
+fn pso_ak(seed: u64) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromLandscape<Ackley>> {
     EvolutionaryLoop::new(
         ParticleSwarm::<B>::new(),
         PsoConfig::default_for(32, DIM),
-        FromFitnessEvaluable::with_sense(
-            AckleyFit,
+        FromLandscape::with_sense(
             Ackley::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
@@ -321,7 +273,7 @@ fn de_rand1_ak(
 ) -> EvolutionaryLoop<
     B,
     rlevo_evolution::algorithms::de::DifferentialEvolution<B>,
-    FromFitnessEvaluable<AckleyFit, Ackley>,
+    FromLandscape<Ackley>,
 > {
     use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
     let mut params = DeConfig::default_for(40, DIM);
@@ -329,8 +281,7 @@ fn de_rand1_ak(
     EvolutionaryLoop::new(
         DifferentialEvolution::<B>::new(),
         params,
-        FromFitnessEvaluable::with_sense(
-            AckleyFit,
+        FromLandscape::with_sense(
             Ackley::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),

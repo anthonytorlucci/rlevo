@@ -446,13 +446,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromFitnessEvaluable;
+    use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
     use burn::backend::flex::FlexDevice;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::fitness::Landscape;
 
     #[test]
     fn default_config_validates() {
@@ -469,11 +469,8 @@ mod tests {
     type TestBackend = Flex;
 
     struct Sphere;
-    struct SphereFit;
-    impl FitnessEvaluable for SphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = Sphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+    impl Landscape for Sphere {
+        fn evaluate(&self, x: &[f64]) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
     }
@@ -619,7 +616,7 @@ mod tests {
         let device = Default::default();
         let strategy = AntColonyReal::<TestBackend>::new();
         let params = AcoRConfig::default_for(30, 15, 10);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 17, device, 400,
         )
@@ -728,7 +725,7 @@ mod tests {
         let device: FlexDevice = Default::default();
         let strategy = AntColonyReal::<TestBackend>::new();
         let params = AcoRConfig::default_for(2, 4, 3);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
                 .expect("valid params");
@@ -755,7 +752,7 @@ mod tests {
         let device: FlexDevice = Default::default();
         let strategy = AntColonyReal::<TestBackend>::new();
         let params = AcoRConfig::default_for(8, 4, 1);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop =
             EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
                 .expect("valid params");

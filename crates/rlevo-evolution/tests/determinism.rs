@@ -18,7 +18,7 @@ use burn::backend::Flex;
 use burn::tensor::backend::{Backend, BackendTypes};
 use burn::tensor::{Int, Tensor, TensorData};
 use rlevo_core::bounds::Bounds;
-use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_core::fitness::Landscape;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
@@ -41,7 +41,7 @@ use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConf
 use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
-use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
+use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::local_search::{
     HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
 };
@@ -50,11 +50,8 @@ use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 type B = Flex;
 
 struct Sphere;
-struct SphereFit;
-impl FitnessEvaluable for SphereFit {
-    type Individual = Vec<f64>;
-    type Landscape = Sphere;
-    fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+impl Landscape for Sphere {
+    fn evaluate(&self, x: &[f64]) -> f64 {
         x.iter().map(|v| v * v).sum()
     }
 }
@@ -66,13 +63,13 @@ where
     S: Strategy<B>,
     S::Params: rlevo_core::config::Validate,
     <S as Strategy<B>>::Genome: 'static,
-    FromFitnessEvaluable<SphereFit, Sphere>: BatchFitnessFn<B, S::Genome>,
+    FromLandscape<Sphere>: BatchFitnessFn<B, S::Genome>,
 {
     let device = Default::default();
     let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         seed,
         device,
         gens,
@@ -89,7 +86,7 @@ where
 
 /// `OneMax` batch fitness over a binary genome (`count_ones`, native
 /// maximise). The [`BinaryGeneticAlgorithm`]'s `Tensor<B, 2, Int>` genome is
-/// not covered by the real-valued [`FromFitnessEvaluable`] adapter used by the
+/// not covered by the real-valued [`FromLandscape`] adapter used by the
 /// generic [`run`] path, so binary-GA determinism is checked with a dedicated
 /// integer fitness driven inline.
 struct OneMaxBatch {
@@ -217,8 +214,8 @@ fn run_firefly(seed: u64, gens: usize) -> Vec<f32> {
 /// Unlike [`run`], this builds the loop inline: a `MemeticWrapper` holds its
 /// *own* fitness instance (used to score local-search probes) in addition to
 /// the loop's, so it cannot go through the generic [`run`] path that supplies
-/// a single fitness. Both instances are independent `FromFitnessEvaluable`
-/// values over the same stateless [`SphereFit`], so they never diverge.
+/// a single fitness. Both instances are independent `FromLandscape` values
+/// over the same stateless [`Sphere`], so they never diverge.
 fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
     let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
     let dim: usize = 5;
@@ -226,7 +223,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
     let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
         DifferentialEvolution::<B>::new(),
         HillClimbing,
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
     );
     let params: MemeticParams<DeConfig, HillClimbingParams> = MemeticParams {
         inner: DeConfig::default_for(16, dim),
@@ -237,7 +234,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
     let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         seed,
         device,
         gens,
@@ -266,7 +263,7 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
     let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
         DifferentialEvolution::<B>::new(),
         SimulatedAnnealing,
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
     );
     let params: MemeticParams<DeConfig, SimulatedAnnealingParams> = MemeticParams {
         inner: DeConfig::default_for(16, dim),
@@ -277,7 +274,7 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
     let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
         strategy,
         params,
-        FromFitnessEvaluable::new(SphereFit, Sphere),
+        FromLandscape::new(Sphere),
         seed,
         device,
         gens,

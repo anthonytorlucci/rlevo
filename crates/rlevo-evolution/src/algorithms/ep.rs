@@ -481,10 +481,10 @@ fn update_best<B: Backend>(state: &mut EpState<B>, pop: &Tensor<B, 2>, fitness: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromFitnessEvaluable;
+    use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
     use burn::backend::Flex;
-    use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::fitness::Landscape;
     type TestBackend = Flex;
 
     #[test]
@@ -634,11 +634,8 @@ mod tests {
 
     /// Sphere landscape returning `NaN` for half the domain (see the DE mirror).
     struct NanSphere;
-    struct NanSphereFit;
-    impl FitnessEvaluable for NanSphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = NanSphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+    impl Landscape for NanSphere {
+        fn evaluate(&self, x: &[f64]) -> f64 {
             let s: f64 = x.iter().map(|v| v * v).sum();
             if x[0] > 0.0 { f64::NAN } else { s }
         }
@@ -653,7 +650,7 @@ mod tests {
     fn nan_fitness_never_becomes_best() {
         let device = Default::default();
         let params = EpConfig::default_for(20, 4);
-        let fitness_fn = FromFitnessEvaluable::new(NanSphereFit, NanSphere);
+        let fitness_fn = FromLandscape::new(NanSphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             EvolutionaryProgramming::<TestBackend>::new(),
             params,
@@ -815,11 +812,8 @@ mod tests {
     }
 
     struct Sphere;
-    struct SphereFit;
-    impl FitnessEvaluable for SphereFit {
-        type Individual = Vec<f64>;
-        type Landscape = Sphere;
-        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+    impl Landscape for Sphere {
+        fn evaluate(&self, x: &[f64]) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
     }
@@ -828,7 +822,7 @@ mod tests {
     fn ep_converges_on_sphere_d2() {
         let device = Default::default();
         let params = EpConfig::default_for(10, 2);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             EvolutionaryProgramming::<TestBackend>::new(),
             params,
@@ -850,7 +844,7 @@ mod tests {
     fn ep_converges_on_sphere_d10() {
         let device = Default::default();
         let params = EpConfig::default_for(20, 10);
-        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness_fn = FromLandscape::new(Sphere);
         let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
             EvolutionaryProgramming::<TestBackend>::new(),
             params,
