@@ -134,7 +134,7 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, 128, total);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -202,7 +202,7 @@ fn ppo_cartpole_produces_finite_rewards() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -288,7 +288,7 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
     );
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_pendulum_agent(seed, 512, total);
-    train_continuous::<Be, _, _, _, _, PendulumAction, _, 1, 1, 1, 2>(
+    train_continuous::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -527,7 +527,7 @@ fn ppo_progress_logs_when_log_every_does_not_divide_num_steps() {
         let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL);
-        train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+        train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 2>(
             &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
         )
         .expect("training");

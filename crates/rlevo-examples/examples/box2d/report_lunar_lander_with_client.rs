@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..LunarLanderConfig::default()
     })
     .expect("valid config");
-    let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::with_box2d_payload(env, sink.clone());
+    let mut tap: RecordingTap<_, 1, 1> = RecordingTap::with_box2d_payload(env, sink.clone());
 
     for ep in 0..NUM_EPISODES {
         let mut rng = StdRng::seed_from_u64(SEED.wrapping_add(ep as u64));

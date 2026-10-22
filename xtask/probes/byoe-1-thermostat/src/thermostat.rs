@@ -10,7 +10,7 @@
 //! builds a copy of it against `rlevo-core` alone, so every path here is
 //! written in full as `rlevo::core::...`.
 
-use rlevo::core::base::{Action, Observation, State};
+use rlevo::core::base::{Action, Observation};
 use rlevo::core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo::core::episode::EpisodeGuard;
 use rlevo::core::reward::ScalarReward;
@@ -51,16 +51,6 @@ impl Observation<1> for RoomObs {
 pub struct RoomState {
     pub indoor_c: f32,
     pub hour: usize,
-}
-
-impl State<1> for RoomState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.indoor_c.is_finite() && self.hour <= HORIZON
-    }
 }
 
 /// The boiler switch.
@@ -116,8 +106,7 @@ impl Thermostat {
     }
 }
 
-impl Environment<1, 1, 1> for Thermostat {
-    type StateType = RoomState;
+impl Environment<1, 1> for Thermostat {
     type ObservationType = RoomObs;
     type ActionType = Boiler;
     type RewardType = ScalarReward;

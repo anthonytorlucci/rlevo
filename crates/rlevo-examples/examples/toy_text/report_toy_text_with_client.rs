@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..FrozenLakeConfig::default()
             })
             .expect("FrozenLake construction with preset map cannot fail");
-            let recorded: RecordingTap<FrozenLake, 1, 1, 1> = RecordingTap::new(env, sink.clone());
+            let recorded: RecordingTap<FrozenLake, 1, 1> = RecordingTap::new(env, sink.clone());
             recorded
         })
     };

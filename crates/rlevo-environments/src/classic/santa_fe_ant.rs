@@ -19,7 +19,7 @@
 //! state for the agent: it must stack observations or carry recurrent memory.
 //!
 //! Because the projection keeps the tensor order at 1, the environment is a
-//! plain [`Environment<1, 1, 1>`] and touches **no** new core trait.
+//! plain [`Environment<1, 1>`] and touches **no** new core trait.
 //!
 //! # Example
 //!
@@ -28,17 +28,17 @@
 //! use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction};
 //!
 //! let mut env: SantaFeAnt = SantaFeAnt::default();
-//! let snap = <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
+//! let snap = <SantaFeAnt as Environment<1, 1>>::reset(&mut env).expect("reset");
 //! assert!(!snap.is_done());
 //!
 //! // Eating the food directly ahead yields +1.0.
-//! let snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut env, SantaFeAntAction::Move)
+//! let snap = <SantaFeAnt as Environment<1, 1>>::step(&mut env, SantaFeAntAction::Move)
 //!     .expect("valid action");
 //! assert_eq!(f32::from(*snap.reward()), 1.0);
 //! ```
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, HostRow, Observation, State};
+use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
@@ -148,9 +148,8 @@ impl HostRow<1> for SantaFeAntObservation {
 /// Full environment state: the remaining-food grid plus the ant's pose.
 ///
 /// The `$32 \times 32$` `food` grid and the pose are **internal** — they are not part of the
-/// observation-compatible tensor [`shape`](State::shape), which is `[1]` (the food-ahead bit). This
-/// is what keeps the env at order 1 while the true state is far larger, the defining feature of the
-/// POMDP.
+/// observation, whose shape is `[1]` (the food-ahead bit). This is what keeps the env at order 1
+/// while the true state is far larger, the defining feature of the POMDP.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SantaFeAntState {
     /// Remaining pellets; `food[row][col] == true` means a pellet is present.
@@ -176,12 +175,6 @@ impl SantaFeAntState {
         (ahead_row, ahead_col)
     }
 
-    /// Live count of remaining pellets on the grid.
-    fn count_food(&self) -> u32 {
-        let count: usize = self.food.iter().flatten().filter(|&&cell| cell).count();
-        u32::try_from(count).unwrap_or(u32::MAX)
-    }
-
     /// The ant's `(row, col)` position.
     #[must_use]
     pub fn position(&self) -> (usize, usize) {
@@ -204,16 +197,6 @@ impl SantaFeAntState {
     #[must_use]
     pub fn steps(&self) -> u32 {
         self.steps
-    }
-}
-
-impl State<1> for SantaFeAntState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.row < GRID_SIZE && self.col < GRID_SIZE && self.pellets_remaining == self.count_food()
     }
 }
 
@@ -258,7 +241,7 @@ impl Validate for SantaFeAntConfig {
 
 /// The Santa Fe Trail artificial-ant environment.
 ///
-/// A deterministic [`Environment<1, 1, 1>`] (no RNG in its dynamics): given the
+/// A deterministic [`Environment<1, 1>`] (no RNG in its dynamics): given the
 /// same action sequence it reproduces the same trajectory, and
 /// [`reset`](Environment::reset) always restores the identical start state.
 ///
@@ -274,7 +257,7 @@ impl Validate for SantaFeAntConfig {
 /// use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction, SantaFeAntObservation};
 ///
 /// let mut env: SantaFeAnt = SantaFeAnt::default();
-/// let mut snap = <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
+/// let mut snap = <SantaFeAnt as Environment<1, 1>>::reset(&mut env).expect("reset");
 ///
 /// let mut eaten: f32 = 0.0;
 /// loop {
@@ -284,7 +267,7 @@ impl Validate for SantaFeAntConfig {
 ///     } else {
 ///         SantaFeAntAction::TurnRight
 ///     };
-///     snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut env, action).expect("step");
+///     snap = <SantaFeAnt as Environment<1, 1>>::step(&mut env, action).expect("step");
 ///     eaten += f32::from(*snap.reward());
 ///     if snap.is_done() {
 ///         break;
@@ -398,8 +381,7 @@ fn santa_fe_ant_observation(state: &SantaFeAntState) -> SantaFeAntObservation {
     }
 }
 
-impl Environment<1, 1, 1> for SantaFeAnt {
-    type StateType = SantaFeAntState;
+impl Environment<1, 1> for SantaFeAnt {
     type ObservationType = SantaFeAntObservation;
     type ActionType = SantaFeAntAction;
     type RewardType = ScalarReward;
@@ -824,13 +806,13 @@ mod tests {
         let start_pos: (usize, usize) = e.state().position();
         assert_eq!(e.state().heading(), Direction::East);
 
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight)
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnRight)
             .expect("step");
         assert_eq!(e.state().heading(), Direction::South);
         assert_eq!(e.state().position(), start_pos);
         assert_eq!(e.state().steps(), 1);
 
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft)
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft)
             .expect("step");
         assert_eq!(e.state().heading(), Direction::East);
         assert_eq!(e.state().position(), start_pos);
@@ -842,8 +824,8 @@ mod tests {
         let mut e = env();
         let before: u32 = e.state().pellets_remaining();
         // Facing east from (0,0); (0,1) holds a pellet.
-        let snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
-            .expect("step");
+        let snap =
+            <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move).expect("step");
         assert_eq!(f32::from(*snap.reward()), 1.0);
         assert_eq!(e.state().position(), (0, 1));
         assert_eq!(e.state().pellets_remaining(), before - 1);
@@ -853,14 +835,14 @@ mod tests {
     fn re_entering_an_eaten_cell_yields_no_reward() {
         let mut e = env();
         // Eat (0,1) then (0,2) moving east.
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move);
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move);
         let pellets: u32 = e.state().pellets_remaining();
         // Turn around (`$180^\circ$`) and step back onto the now-eaten (0,1).
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
-        let snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
-            .expect("step");
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
+        let snap =
+            <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move).expect("step");
         assert_eq!(e.state().position(), (0, 1));
         assert_eq!(f32::from(*snap.reward()), 0.0);
         assert_eq!(e.state().pellets_remaining(), pellets);
@@ -870,10 +852,10 @@ mod tests {
     fn move_into_empty_cell_yields_zero_reward() {
         let mut e = env();
         // Turn to face north; (31,0) wraps and is empty (row 31 is all dots).
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
         assert_eq!(e.state().heading(), Direction::North);
-        let snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
-            .expect("step");
+        let snap =
+            <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move).expect("step");
         assert_eq!(e.state().position(), (GRID_SIZE - 1, 0));
         assert_eq!(f32::from(*snap.reward()), 0.0);
     }
@@ -884,11 +866,11 @@ mod tests {
     fn move_wraps_west_edge_to_east_edge() {
         let mut e = env();
         // Face west; from (0,0) a forward move wraps the column to GRID_SIZE-1.
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
         assert_eq!(e.state().heading(), Direction::West);
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
-            .expect("step");
+        let _ =
+            <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move).expect("step");
         assert_eq!(e.state().position(), (0, GRID_SIZE - 1));
         assert_eq!(e.state().heading(), Direction::West);
     }
@@ -897,10 +879,10 @@ mod tests {
     fn move_wraps_north_edge_to_south_edge() {
         let mut e = env();
         // Face north; from row 0 a forward move wraps the row to GRID_SIZE-1.
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
         assert_eq!(e.state().heading(), Direction::North);
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
-            .expect("step");
+        let _ =
+            <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move).expect("step");
         assert_eq!(e.state().position(), (GRID_SIZE - 1, 0));
     }
 
@@ -912,23 +894,23 @@ mod tests {
         // west → (0,31) empty (wrap); north → (31,0) empty (wrap).
         let mut e = env();
         assert!(
-            <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e)
+            <SantaFeAnt as Environment<1, 1>>::reset(&mut e)
                 .expect("reset")
                 .observation()
                 .food_ahead
         ); // east, (0,1) is food
 
         let mut e = env();
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
         assert!(!e.observe().food_ahead); // south, (1,0) empty
 
         let mut e = env();
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
         assert!(!e.observe().food_ahead); // west, (0,31) empty
 
         let mut e = env();
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
         assert!(!e.observe().food_ahead); // north, (31,0) empty
     }
 
@@ -941,11 +923,11 @@ mod tests {
             render: false,
         })
         .expect("valid config");
-        let mut snap = <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e).expect("reset");
+        let mut snap = <SantaFeAnt as Environment<1, 1>>::reset(&mut e).expect("reset");
         // Spin in place so no early termination from clearing the trail.
         for _ in 0..5 {
             assert!(!snap.is_done());
-            snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight)
+            snap = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnRight)
                 .expect("step");
         }
         assert!(snap.is_truncated());
@@ -962,8 +944,8 @@ mod tests {
         e.state.food = [[false; GRID_SIZE]; GRID_SIZE];
         e.state.food[0][1] = true;
         e.state.pellets_remaining = 1;
-        let snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
-            .expect("step");
+        let snap =
+            <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move).expect("step");
         assert_eq!(f32::from(*snap.reward()), 1.0);
         assert_eq!(e.state().pellets_remaining(), 0);
         assert!(snap.is_terminated());
@@ -977,11 +959,11 @@ mod tests {
     fn drive_to_last_pellet(
         e: &mut SantaFeAnt,
     ) -> SnapshotBase<1, SantaFeAntObservation, ScalarReward> {
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::reset(e).expect("reset");
+        let _ = <SantaFeAnt as Environment<1, 1>>::reset(e).expect("reset");
         e.state.food = [[false; GRID_SIZE]; GRID_SIZE];
         e.state.food[0][1] = true;
         e.state.pellets_remaining = 1;
-        <SantaFeAnt as Environment<1, 1, 1>>::step(e, SantaFeAntAction::Move).expect("step")
+        <SantaFeAnt as Environment<1, 1>>::step(e, SantaFeAntAction::Move).expect("step")
     }
 
     /// Spins in place until the step budget truncates the episode, so the
@@ -990,9 +972,9 @@ mod tests {
     fn drive_to_truncation(
         e: &mut SantaFeAnt,
     ) -> SnapshotBase<1, SantaFeAntObservation, ScalarReward> {
-        let mut snap = <SantaFeAnt as Environment<1, 1, 1>>::reset(e).expect("reset");
+        let mut snap = <SantaFeAnt as Environment<1, 1>>::reset(e).expect("reset");
         while !snap.is_done() {
-            snap = <SantaFeAnt as Environment<1, 1, 1>>::step(e, SantaFeAntAction::TurnRight)
+            snap = <SantaFeAnt as Environment<1, 1>>::step(e, SantaFeAntAction::TurnRight)
                 .expect("step must succeed until the budget runs out");
         }
         snap
@@ -1035,7 +1017,7 @@ mod tests {
         assert!(terminal.is_truncated());
         let frozen: SantaFeAntState = e.state().clone();
 
-        let err = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
+        let err = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move)
             .expect_err("a step after truncation must return Err, not a fresh snapshot");
         assert!(matches!(
             err,
@@ -1057,12 +1039,12 @@ mod tests {
         let mut e = env();
         drive_to_last_pellet(&mut e);
         assert!(
-            <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move).is_err(),
+            <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move).is_err(),
             "the episode has terminated; a step must be rejected before reset()"
         );
 
-        <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e).expect("reset must succeed");
-        let snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
+        <SantaFeAnt as Environment<1, 1>>::reset(&mut e).expect("reset must succeed");
+        let snap = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move)
             .expect("reset() must re-open the environment for a new episode");
         assert!(
             !snap.is_done(),
@@ -1103,9 +1085,9 @@ mod tests {
         let mut e = env();
         let s0: SantaFeAntState = e.state().clone();
         // Perturb, then reset.
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move);
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
-        let _ = <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e).expect("reset");
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::Move);
+        let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
+        let _ = <SantaFeAnt as Environment<1, 1>>::reset(&mut e).expect("reset");
         assert_eq!(e.state(), &s0);
     }
 
@@ -1119,9 +1101,9 @@ mod tests {
         ];
         let run = || {
             let mut e = env();
-            let _ = <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e).expect("reset");
+            let _ = <SantaFeAnt as Environment<1, 1>>::reset(&mut e).expect("reset");
             for &a in &actions {
-                let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, a).expect("step");
+                let _ = <SantaFeAnt as Environment<1, 1>>::step(&mut e, a).expect("step");
             }
             e.state().clone()
         };

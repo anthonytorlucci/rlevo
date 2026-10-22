@@ -36,7 +36,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
-use rlevo_core::base::{Action, State};
+use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus};
 use rlevo_core::reward::ScalarReward;
@@ -438,8 +438,7 @@ impl Default for LunarLanderDiscrete {
     }
 }
 
-impl Environment<1, 1, 1> for LunarLanderDiscrete {
-    type StateType = LunarLanderState;
+impl Environment<1, 1> for LunarLanderDiscrete {
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderDiscreteAction;
     type RewardType = ScalarReward;
@@ -555,8 +554,7 @@ impl Default for LunarLanderContinuous {
     }
 }
 
-impl Environment<1, 1, 1> for LunarLanderContinuous {
-    type StateType = LunarLanderState;
+impl Environment<1, 1> for LunarLanderContinuous {
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderContinuousAction;
     type RewardType = ScalarReward;

@@ -19,7 +19,7 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
-use rlevo_core::base::{Action, State};
+use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
@@ -509,8 +509,7 @@ impl BipedalWalker {
     }
 }
 
-impl Environment<1, 1, 1> for BipedalWalker {
-    type StateType = BipedalWalkerState;
+impl Environment<1, 1> for BipedalWalker {
     type ObservationType = BipedalWalkerObservation;
     type ActionType = BipedalWalkerAction;
     type RewardType = ScalarReward;

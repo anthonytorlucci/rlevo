@@ -125,14 +125,14 @@ impl Evaluator {
     ///
     /// # Panics
     /// Panics if the rayon thread pool cannot be built.
-    pub fn run_suite<E, A, R, FA, const D: usize, const SD: usize, const AD: usize>(
+    pub fn run_suite<E, A, R, FA, const D: usize, const AD: usize>(
         &self,
         suite: &Suite<E>,
         agent_factory: FA,
         reporter: &mut R,
     ) -> BenchmarkReport
     where
-        E: Environment<D, SD, AD, RewardType = ScalarReward> + Send,
+        E: Environment<D, AD, RewardType = ScalarReward> + Send,
         A: BenchableAgent<E::ObservationType, E::ActionType> + Send,
         R: Reporter,
         FA: Fn(u64) -> A + Sync + Send,
@@ -349,7 +349,7 @@ pub trait Trial {
 ///
 /// # Why the const parameters are on the struct
 ///
-/// `Trial` carries no rank parameters, so `D`/`SD`/`AD` would appear in
+/// `Trial` carries no rank parameters, so `D`/`AD` would appear in
 /// neither the implemented trait nor the self type and the impl would be
 /// rejected by E0207. Declaring them here constrains them. Const generics need
 /// no `PhantomData` to be left unused by fields.
@@ -359,7 +359,7 @@ pub trait Trial {
 /// the `Trial` boundary has the same cost as erasing it at the `BenchEnv`
 /// boundary did. Inference still fills them in from the `Environment` bound,
 /// so callers never write them.
-pub struct EpisodicTrial<E, A, const D: usize, const SD: usize, const AD: usize> {
+pub struct EpisodicTrial<E, A, const D: usize, const AD: usize> {
     /// The environment under test, already seeded by the suite factory.
     pub env: E,
     /// The agent under test, already seeded by the agent factory.
@@ -368,9 +368,7 @@ pub struct EpisodicTrial<E, A, const D: usize, const SD: usize, const AD: usize>
     pub agent_seed: u64,
 }
 
-impl<E, A, const D: usize, const SD: usize, const AD: usize> std::fmt::Debug
-    for EpisodicTrial<E, A, D, SD, AD>
-{
+impl<E, A, const D: usize, const AD: usize> std::fmt::Debug for EpisodicTrial<E, A, D, AD> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EpisodicTrial")
             .field("agent_seed", &self.agent_seed)
@@ -378,10 +376,9 @@ impl<E, A, const D: usize, const SD: usize, const AD: usize> std::fmt::Debug
     }
 }
 
-impl<E, A, const D: usize, const SD: usize, const AD: usize> Trial
-    for EpisodicTrial<E, A, D, SD, AD>
+impl<E, A, const D: usize, const AD: usize> Trial for EpisodicTrial<E, A, D, AD>
 where
-    E: Environment<D, SD, AD, RewardType = ScalarReward>,
+    E: Environment<D, AD, RewardType = ScalarReward>,
     A: BenchableAgent<E::ObservationType, E::ActionType>,
 {
     fn run(
@@ -656,7 +653,7 @@ mod tests {
     use tracing::{Event as TracingEvent, Level, Subscriber};
     use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
-    use rlevo_core::base::{Action, Observation, State};
+    use rlevo_core::base::{Action, Observation};
     use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
     use rlevo_core::fitness::{BenchableAgent, Metric};
     use rlevo_core::reward::ScalarReward;
@@ -705,17 +702,6 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
-    struct StubState;
-    impl State<1> for StubState {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-        fn is_valid(&self) -> bool {
-            true
-        }
-    }
-
-    #[derive(Debug, Clone)]
     struct StubAction;
     impl Action<1> for StubAction {
         fn shape() -> [usize; 1] {
@@ -726,8 +712,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1, 1> for StubEnv {
-        type StateType = StubState;
+    impl Environment<1, 1> for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
         type RewardType = ScalarReward;
@@ -1127,8 +1112,7 @@ mod tests {
         struct CountingEnv {
             steps: usize,
         }
-        impl Environment<1, 1, 1> for CountingEnv {
-            type StateType = StubState;
+        impl Environment<1, 1> for CountingEnv {
             type ObservationType = CountingObs;
             type ActionType = StubAction;
             type RewardType = ScalarReward;
@@ -1956,8 +1940,7 @@ mod tests {
     #[test]
     fn panic_in_env_is_caught_not_propagated() {
         struct PanickingEnv;
-        impl Environment<1, 1, 1> for PanickingEnv {
-            type StateType = StubState;
+        impl Environment<1, 1> for PanickingEnv {
             type ObservationType = StubObs;
             type ActionType = StubAction;
             type RewardType = ScalarReward;

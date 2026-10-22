@@ -238,8 +238,8 @@ impl FromStr for DynamicObstaclesConfig {
 
 /// Stochastic gridworld where ball obstacles random-walk after each agent step.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// This is the first grid environment with a genuinely stochastic post-step
 /// dynamics: obstacle positions change every step regardless of the agent's
@@ -586,8 +586,7 @@ impl DynamicObstaclesEnv {
     }
 }
 
-impl Environment<3, 3, 1> for DynamicObstaclesEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for DynamicObstaclesEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;

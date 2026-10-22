@@ -37,8 +37,7 @@ impl InvertedPendulumObservation {
     }
 
     /// Returns `true` if all four observation components are finite (not NaN
-    /// or infinite). Used by `InvertedPendulumState::is_valid`
-    /// as a validity guard.
+    /// or infinite).
     #[must_use]
     pub fn is_finite(&self) -> bool {
         self.0.iter().all(|v| v.is_finite())

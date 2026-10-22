@@ -6,7 +6,6 @@
 
 use rapier2d::dynamics::RigidBodyHandle;
 use rapier2d::geometry::ColliderHandle;
-use rlevo_core::base::State;
 
 /// Physics state for `LunarLander`.
 ///
@@ -93,12 +92,8 @@ impl LunarLanderState {
     }
 }
 
-impl State<1> for LunarLanderState {
-    fn shape() -> [usize; 1] {
-        [8]
-    }
-
-    fn is_valid(&self) -> bool {
+impl LunarLanderState {
+    pub(crate) fn is_valid(&self) -> bool {
         self.lander_handle != RigidBodyHandle::invalid()
             && self.leg1_handle != RigidBodyHandle::invalid()
             && self.leg2_handle != RigidBodyHandle::invalid()

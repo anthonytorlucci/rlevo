@@ -48,7 +48,7 @@ use crate::algorithms::shared::LogWatermark;
 // sign; where an index round-trips through f32 it stays far below the 2^24
 // exact-integer limit. `from_index` bounds-checks on the way back.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const BOR: usize>(
     agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -59,7 +59,7 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: DiscreteAction<1>,
     Rew: Reward + Copy,
@@ -84,19 +84,7 @@ where
 ///
 /// Returns [`PpoAgentError`] if the environment's `reset` or `step` fails, or
 /// if a rollout update cannot be applied.
-pub fn train_continuous<
-    B,
-    P,
-    V,
-    E,
-    O,
-    A,
-    Rew,
-    const OR: usize,
-    const SR: usize,
-    const AR: usize,
-    const BOR: usize,
->(
+pub fn train_continuous<B, P, V, E, O, A, Rew, const OR: usize, const AR: usize, const BOR: usize>(
     agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -107,7 +95,7 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: ContinuousAction<AR>,
     Rew: Reward + Copy,
@@ -120,20 +108,7 @@ where
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-fn run_loop<
-    B,
-    P,
-    V,
-    E,
-    O,
-    A,
-    Rew,
-    F,
-    const OR: usize,
-    const SR: usize,
-    const AR: usize,
-    const BOR: usize,
->(
+fn run_loop<B, P, V, E, O, A, Rew, F, const OR: usize, const AR: usize, const BOR: usize>(
     agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -145,7 +120,7 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: rlevo_core::base::Action<AR> + Clone,
     Rew: Reward + Copy,

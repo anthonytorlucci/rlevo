@@ -40,8 +40,6 @@ use crate::algorithms::c51::c51_model::C51Model;
 ///
 /// - `R` — rank of a single observation tensor (e.g. `1` for flat vector
 ///   observations).
-/// - `SR` — rank of the state tensor (unused by the loop itself; forwarded to
-///   the environment bound).
 /// - `BR` — rank of a batched observation tensor (`R + 1`).
 ///
 /// # Arguments
@@ -64,7 +62,7 @@ use crate::algorithms::c51::c51_model::C51Model;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, Rew, const R: usize, const SR: usize, const BR: usize>(
+pub fn train<B, M, E, O, A, Rew, const R: usize, const BR: usize>(
     agent: &mut C51Agent<B, M, O, A, R, BR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -74,7 +72,7 @@ pub fn train<B, M, E, O, A, Rew, const R: usize, const SR: usize, const BR: usiz
 where
     B: AutodiffBackend,
     M: C51Model<B, BR>,
-    E: Environment<R, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<R, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
     O: Observation<R> + TensorConvertible<R, B> + TensorConvertible<R, B::InnerBackend>,
     A: DiscreteAction<1>,
     Rew: Reward + Copy,

@@ -1,7 +1,6 @@
 //! Physics state for [`super::Swimmer`].
 
 use rapier3d::prelude::{MultibodyJointHandle, RigidBodyHandle};
-use rlevo_core::base::State;
 
 use super::observation::SwimmerObservation;
 
@@ -22,18 +21,4 @@ pub struct SwimmerState {
     pub joint1: MultibodyJointHandle,
     pub joint2: MultibodyJointHandle,
     pub last_obs: SwimmerObservation,
-}
-
-impl State<1> for SwimmerState {
-    /// Returns `[8]`, matching the 8-dimensional observation vector.
-    fn shape() -> [usize; 1] {
-        [8]
-    }
-
-    /// Returns `true` when the last extracted observation is fully finite.
-    /// A `false` result indicates a physics divergence (NaN or `$\pm\infty$` in one
-    /// or more of the observation elements).
-    fn is_valid(&self) -> bool {
-        self.last_obs.is_finite()
-    }
 }

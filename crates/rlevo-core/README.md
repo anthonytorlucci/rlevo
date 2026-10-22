@@ -25,7 +25,6 @@ The primitive building blocks of the RL abstraction.
 
 | Trait | Description |
 |---|---|
-| `State<R>` | Full MDP state (`shape()`, `is_valid()`, `numel()`); the environment builds the observation from it |
 | `Observation<R>` | What the agent perceives (may be a partial view of state) |
 | `Action<R>` | Base action constraint (`is_valid()`) |
 | `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
@@ -54,7 +53,7 @@ Layered action abstractions cover the standard taxonomy:
 
 | Item | Description |
 |---|---|
-| `Environment<R, SR, AR>` | Core trait: `reset()`, `step(action)` |
+| `Environment<OR, AR>` | Core trait: `reset()`, `step(action)` |
 | `Snapshot<R>` | Per-step result: `observation()`, `reward()`, `status()` |
 | `EpisodeStatus` | `Running \| Terminated \| Truncated` — distinguishes natural episode ends from step-limit truncations (important for value bootstrapping) |
 | `SnapshotBase<R, ObservationType, RewardType>` | Default `Snapshot` implementation with named constructors: `running()`, `terminated()`, `truncated()` |
@@ -147,9 +146,9 @@ The rendering surface feeds the two visualisation products (ADR 0013): a live me
 
 ## Design Principles
 
-**Const generics for ranks.** `State`, `Observation` and `Action`, and the traits built on them, carry a const rank `R` (`SR`, `AR`, `OR` where several meet) so that rank mismatches fail at compile time, not at runtime.
+**Const generics for ranks.** `Observation` and `Action`, and the traits built on them, carry a const rank `R` (`OR` and `AR` where both meet) so that rank mismatches fail at compile time, not at runtime.
 
-**Separation of state and observation.** `State<R>` represents the true MDP state; `Observation<R>` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
+**Separation of state and observation.** An environment's state is its own type, which the contract does not name; `Observation<R>` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
 
 **Terminated vs. Truncated.** `EpisodeStatus` distinguishes a natural terminal state from a step-limit cutoff. Algorithms that bootstrap values (e.g., TD-learning) need this distinction to avoid incorrect target computation.
 
@@ -180,8 +179,7 @@ use rlevo_core::{
 
 struct MyEnv { guard: EpisodeGuard, /* ... */ }
 
-impl Environment<1, 1, 1> for MyEnv {
-    type StateType = MyState;
+impl Environment<1, 1> for MyEnv {
     type ObservationType = MyObservation;
     type ActionType = MyAction;
     type RewardType = ScalarReward;

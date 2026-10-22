@@ -79,7 +79,7 @@ fn record_run(root: &Path) -> PathBuf {
         ..CartPoleConfig::default()
     })
     .expect("valid config");
-    let mut tap: RecordingTap<CartPole, 1, 1, 1> = RecordingTap::new(env, sink.clone());
+    let mut tap: RecordingTap<CartPole, 1, 1> = RecordingTap::new(env, sink.clone());
     let mut rng = StdRng::seed_from_u64(SEED);
 
     tap.reset().expect("reset");

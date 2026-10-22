@@ -182,10 +182,8 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut agent: LinearAgent =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train::<Be, _, _, _, _, LinearAction, _, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
 
     let stats = agent.stats();
     TrainOutcome {
@@ -410,7 +408,7 @@ fn td3_pendulum_improves_over_random() {
         2,
     > = Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
+    train::<Be, _, _, _, _, PendulumAction, _, 1, 2, 1, 2>(
         &mut agent, &mut env, &mut rng, 500_000, 0,
     )
     .expect("training");

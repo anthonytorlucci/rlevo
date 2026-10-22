@@ -276,8 +276,7 @@ impl Default for Reacher {
     }
 }
 
-impl Environment<1, 1, 1> for Reacher {
-    type StateType = ReacherState;
+impl Environment<1, 1> for Reacher {
     type ObservationType = ReacherObservation;
     type ActionType = ReacherAction;
     type RewardType = ScalarReward;

@@ -256,8 +256,7 @@ use rlevo_core::fitness::BenchableAgent;
 //    `RewardType = ScalarReward`. The evaluator infers the rank parameters
 //    from the `Suite<MyEnv>` you hand it — no adapter, no turbofish.
 struct MyEnv { /* ... */ }
-impl Environment<1, 1, 1> for MyEnv {
-    type StateType = MyState;
+impl Environment<1, 1> for MyEnv {
     type ObservationType = MyObs;
     type ActionType = MyAction;
     type RewardType = ScalarReward;

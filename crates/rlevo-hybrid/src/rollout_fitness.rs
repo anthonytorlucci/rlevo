@@ -29,7 +29,7 @@
 //!
 //! # Rank fixing
 //!
-//! `E: Environment<1, 1, 1>` — weight-only policy neuroevolution v1 targets
+//! `E: Environment<1, 1>` — weight-only policy neuroevolution v1 targets
 //! vector-observation, scalar/discrete-action classic-control environments
 //! (`CartPole`, `MountainCar`, Pendulum, Acrobot), all rank-1. Higher-rank
 //! observation/action spaces are a future generalization.
@@ -81,7 +81,7 @@ fn rollout_once<B, M, E>(
 where
     B: Backend,
     M: StatefulPolicy<B, E>,
-    E: Environment<1, 1, 1>,
+    E: Environment<1, 1>,
 {
     let mut env = env_factory();
     let mut snapshot = env.reset().expect("environment reset failed");
@@ -114,7 +114,7 @@ pub struct RolloutFitness<B, M, E>
 where
     B: Backend,
     M: Module<B> + Sync + StatefulPolicy<B, E>,
-    E: Environment<1, 1, 1>,
+    E: Environment<1, 1>,
 {
     inner: ModuleEvalFn<B, ModuleReshaper<B, M>, RolloutScorer<M>>,
     episodes_per_eval: usize,
@@ -126,7 +126,7 @@ impl<B, M, E> std::fmt::Debug for RolloutFitness<B, M, E>
 where
     B: Backend,
     M: Module<B> + Sync + StatefulPolicy<B, E>,
-    E: Environment<1, 1, 1>,
+    E: Environment<1, 1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RolloutFitness")
@@ -140,7 +140,7 @@ impl<B, M, E> RolloutFitness<B, M, E>
 where
     B: Backend,
     M: Module<B> + Sync + StatefulPolicy<B, E>,
-    E: Environment<1, 1, 1>,
+    E: Environment<1, 1>,
 {
     /// Build a rollout-based fitness function.
     ///
@@ -211,7 +211,7 @@ impl<B, M, E> BatchFitnessFn<B, Tensor<B, 2>> for RolloutFitness<B, M, E>
 where
     B: Backend,
     M: Module<B> + Sync + StatefulPolicy<B, E>,
-    E: Environment<1, 1, 1> + Send,
+    E: Environment<1, 1> + Send,
 {
     fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &Dev<B>) -> Tensor<B, 1> {
         self.inner.evaluate_batch(population, device)

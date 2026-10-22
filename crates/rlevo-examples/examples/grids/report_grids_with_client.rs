@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 false,
             )
             .expect("valid config");
-            let recorded: RecordingTap<EmptyEnv, 3, 3, 1> = RecordingTap::new(env, sink.clone());
+            let recorded: RecordingTap<EmptyEnv, 3, 1> = RecordingTap::new(env, sink.clone());
             recorded
         })
     };

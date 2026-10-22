@@ -1,7 +1,6 @@
 //! Physics state for [`super::InvertedPendulum`].
 
 use rapier3d::prelude::{ImpulseJointHandle, RigidBodyHandle};
-use rlevo_core::base::State;
 
 use super::observation::InvertedPendulumObservation;
 
@@ -21,19 +20,7 @@ pub struct InvertedPendulumState {
     /// about the world-y axis.
     pub joint: ImpulseJointHandle,
     /// Most recently extracted observation; updated after every `step()` and
-    /// after `reset()`. Read by [`State::is_valid`] to detect physics
-    /// divergence without an extra world query. The observation itself is now
-    /// produced by the environment's emission model
-    /// (ADR 0047), not by this state.
+    /// after `reset()`. The observation itself is produced by the
+    /// environment's emission model (ADR 0047), not by this state.
     pub last_obs: InvertedPendulumObservation,
-}
-
-impl State<1> for InvertedPendulumState {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.last_obs.is_finite()
-    }
 }

@@ -33,7 +33,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
@@ -439,17 +439,6 @@ impl TryFrom<(u16, u8, u8)> for FrozenLakeState {
     }
 }
 
-impl State<1> for FrozenLakeState {
-    fn shape() -> [usize; 1] {
-        // Shape is dynamic (depends on map size); return a conservative max.
-        [64] // 8×8 max
-    }
-
-    fn is_valid(&self) -> bool {
-        self.row < self.nrow && self.col < self.ncol
-    }
-}
-
 /// Agent-visible observation: integer state id `$\text{row} \times \text{ncol} + \text{col}$`.
 ///
 /// The shape constant is fixed at 64 (`$8 \times 8$` maximum), even for smaller maps.
@@ -694,8 +683,7 @@ impl FrozenLake {
     }
 }
 
-impl Environment<1, 1, 1> for FrozenLake {
-    type StateType = FrozenLakeState;
+impl Environment<1, 1> for FrozenLake {
     type ObservationType = FrozenLakeObservation;
     type ActionType = FrozenLakeAction;
     type RewardType = ScalarReward;

@@ -10,7 +10,7 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, HostRow, Observation, Reward, State};
+use rlevo_core::base::{Action, HostRow, Observation, Reward};
 use rlevo_core::environment::{
     Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
 };
@@ -50,16 +50,6 @@ impl HostRow<1> for WalkObservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WalkState {
     position: i32,
-}
-
-impl State<1> for WalkState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn is_valid(&self) -> bool {
-        (0..=6).contains(&self.position)
-    }
 }
 
 /// Two-move action space for `RandomWalkEnv`: step left (index 0) or right (index 1).
@@ -157,8 +147,7 @@ impl RandomWalkEnv {
     }
 }
 
-impl Environment<1, 1, 1> for RandomWalkEnv {
-    type StateType = WalkState;
+impl Environment<1, 1> for RandomWalkEnv {
     type ObservationType = WalkObservation;
     type ActionType = WalkAction;
     type RewardType = WalkReward;

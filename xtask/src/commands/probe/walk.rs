@@ -390,7 +390,8 @@ mod tests {
 
     #[test]
     fn test_contract_paths_written_in_full_are_accepted() {
-        let source = "use rlevo::core::base::State;\nuse rlevo::core::episode::EpisodeGuard;\n";
+        let source =
+            "use rlevo::core::base::Observation;\nuse rlevo::core::episode::EpisodeGuard;\n";
         assert_eq!(outside_contract(source), NOTHING);
     }
 
@@ -413,14 +414,14 @@ mod tests {
 
     #[test]
     fn test_a_path_outside_the_contract_is_named() {
-        let source = "use rlevo::core::base::State;\nuse rlevo::envs::wrappers::TimeLimit;\n";
+        let source = "use rlevo::core::base::Observation;\nuse rlevo::envs::wrappers::TimeLimit;\n";
         assert_eq!(outside_contract(source), ["rlevo::envs"]);
     }
 
     #[test]
     fn test_a_grouped_import_is_refused_even_when_it_reaches_only_core() {
         assert_eq!(
-            outside_contract("use rlevo::{core::base::State};\n"),
+            outside_contract("use rlevo::{core::base::Observation};\n"),
             ["rlevo::{"]
         );
     }

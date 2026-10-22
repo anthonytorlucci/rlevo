@@ -143,7 +143,7 @@ const PROBES: &[Probe] = &[
         note: Some(BYOE1_NOTE),
     },
     // The same walk over what the thermostat does not cover: a rank-2
-    // observation over a rank-1 state, a bounded continuous action, and an
+    // observation, a bounded continuous action, and an
     // episode that an overflow terminates or `TimeLimit` truncates.
     Probe {
         name: "byoe-1-tank-farm",

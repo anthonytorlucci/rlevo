@@ -9,7 +9,7 @@
 //!
 //! [`SnapshotMetadata`]: crate::environment::SnapshotMetadata
 
-use crate::base::{Action, Observation, Reward, State};
+use crate::base::{Action, Observation, Reward};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
@@ -317,17 +317,22 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward> Snapsh
 ///
 /// # Type Parameters
 ///
-/// * `R`  - Rank of the observation tensor (matches `Observation<R>` and `Snapshot<R>`).
-/// * `SR` - Rank of the state tensor (matches `State<SR>`).
+/// * `OR` - Rank of the observation tensor (matches `Observation<OR>` and `Snapshot<OR>`).
 /// * `AR` - Rank of the action tensor (matches `Action<AR>`).
 ///
 /// # Associated Types
 ///
-/// * `StateType`       - The concrete state type for this environment.
 /// * `ObservationType` - The observation type exposed to the agent.
 /// * `ActionType`      - The action type this environment accepts.
 /// * `RewardType`      - The reward scalar type returned each step.
 /// * `SnapshotType`    - The snapshot type returned by `reset` and `step`.
+///
+/// # The environment's state
+///
+/// The contract names no state type. What an environment keeps between steps
+/// (positions, velocities, a physics world, an RNG) is a plain type it owns,
+/// read by its own `reset` and `step`; nothing generic reads it, so no trait
+/// asks for it (ADR 0090).
 ///
 /// # Building the observation
 ///
@@ -347,12 +352,9 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward> Snapsh
 /// the evaluation harness through an `EnvFactory`, a closure from a trial's
 /// seed to a fresh environment. The workspace's own environments also
 /// implement `Default`.
-pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
-    /// The concrete state type for this environment.
-    type StateType: State<SR>;
-
+pub trait Environment<const OR: usize, const AR: usize> {
     /// The observation type exposed to the agent.
-    type ObservationType: Observation<R>;
+    type ObservationType: Observation<OR>;
 
     /// The concrete action type this environment accepts.
     type ActionType: Action<AR>;
@@ -364,7 +366,7 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     type RewardType: Reward;
 
     /// The snapshot type returned by reset and step operations.
-    type SnapshotType: Snapshot<R, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
+    type SnapshotType: Snapshot<OR, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
 
     /// Reset the environment to its initial state and return the first snapshot.
     ///
@@ -449,25 +451,6 @@ mod tests {
         fn new(position: i32) -> Self {
             Self { position }
         }
-
-        /// Check if position is within valid bounds
-        fn is_in_bounds(position: i32) -> bool {
-            (0..=6).contains(&position)
-        }
-    }
-
-    impl State<1> for MockState {
-        fn numel(&self) -> usize {
-            7
-        }
-
-        fn shape() -> [usize; 1] {
-            [7]
-        }
-
-        fn is_valid(&self) -> bool {
-            Self::is_in_bounds(self.position)
-        }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -538,8 +521,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1, 1> for MockEnvironment {
-        type StateType = MockState;
+    impl Environment<1, 1> for MockEnvironment {
         type ObservationType = MockObservation;
         type ActionType = MockAction;
         type RewardType = ScalarReward;

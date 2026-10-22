@@ -2,7 +2,7 @@
 //!
 //! This module wires the `Rapier2D` physics world, the [`Track`] generator, the
 //! [`Rasterizer`], and the tile-visit logic into the [`CarRacing`] struct that
-//! implements [`Environment<3, 3, 1>`](rlevo_core::environment::Environment).
+//! implements [`Environment<3, 1>`](rlevo_core::environment::Environment).
 //!
 //! Physics is integrated at a fixed timestep of `config.dt` (default 1/50 s)
 //! via [`RapierWorld::step`](crate::box2d::physics::RapierWorld). Car dynamics
@@ -53,7 +53,7 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
-use rlevo_core::base::{Action, State};
+use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
@@ -377,8 +377,7 @@ impl CarRacing {
     }
 }
 
-impl Environment<3, 3, 1> for CarRacing {
-    type StateType = CarRacingState;
+impl Environment<3, 1> for CarRacing {
     type ObservationType = CarRacingObservation;
     type ActionType = CarRacingAction;
     type RewardType = ScalarReward;

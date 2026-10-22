@@ -86,7 +86,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{Environment, EnvironmentError, SnapshotBase},
@@ -171,19 +171,6 @@ pub struct MountainCarState {
     pub position: f32,
     /// Velocity (m/s).
     pub velocity: f32,
-}
-
-impl State<1> for MountainCarState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-    fn numel(&self) -> usize {
-        2
-    }
-
-    fn is_valid(&self) -> bool {
-        self.position.is_finite() && self.velocity.is_finite()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -400,8 +387,7 @@ fn mountain_car_observation(state: MountainCarState) -> MountainCarObservation {
     }
 }
 
-impl Environment<1, 1, 1> for MountainCar {
-    type StateType = MountainCarState;
+impl Environment<1, 1> for MountainCar {
     type ObservationType = MountainCarObservation;
     type ActionType = MountainCarAction;
     type RewardType = ScalarReward;

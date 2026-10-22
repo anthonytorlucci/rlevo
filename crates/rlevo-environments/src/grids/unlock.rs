@@ -231,8 +231,8 @@ impl FromStr for UnlockConfig {
 /// moment the door opens; the episode times out if the step budget is
 /// exhausted first.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
+/// [`ScalarReward`].
 ///
 /// # Examples
 ///
@@ -417,8 +417,7 @@ impl UnlockEnv {
     }
 }
 
-impl Environment<3, 3, 1> for UnlockEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for UnlockEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;

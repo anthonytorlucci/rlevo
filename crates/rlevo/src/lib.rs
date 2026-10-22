@@ -2,7 +2,7 @@
 //!
 //! # Modules
 //!
-//! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, `TensorConvertible`
+//! - [`core`] — foundational traits: `Environment`, `Observation`, `Action`, `Reward`, `TensorConvertible`
 //! - [`envs`] — benchmark environments: classic control, gridworlds, `Box2D` physics, locomotion
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay and metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, CMA-ES, DE, EP, GP, swarm metaheuristics, EDAs, memetic, neuroevolution, co-evolution
@@ -71,7 +71,7 @@ pub use burn;
 /// # Contents
 ///
 /// **Core base traits** (`rlevo::core::base`):
-/// [`State`](core::base::State), [`Observation`](core::base::Observation),
+/// [`Observation`](core::base::Observation),
 /// [`Action`](core::base::Action), [`Reward`](core::base::Reward),
 /// [`HostRow`](core::base::HostRow),
 /// [`TensorConvertible`](core::base::TensorConvertible)
@@ -101,7 +101,7 @@ pub use burn;
 /// [`Population`](evo::population::Population)
 pub mod prelude {
     // Base traits
-    pub use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
+    pub use rlevo_core::base::{Action, HostRow, Observation, Reward, TensorConvertible};
 
     // Environment protocol
     pub use rlevo_core::environment::{

@@ -49,7 +49,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::episode::EpisodeGuard;
@@ -172,16 +172,6 @@ impl TryFrom<u16> for CliffWalkingState {
 impl From<CliffWalkingState> for u16 {
     fn from(s: CliffWalkingState) -> u16 {
         s.state_id()
-    }
-}
-
-impl State<1> for CliffWalkingState {
-    fn shape() -> [usize; 1] {
-        [NROW as usize * NCOL as usize]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.row < NROW && self.col < NCOL
     }
 }
 
@@ -407,8 +397,7 @@ impl CliffWalking {
     }
 }
 
-impl Environment<1, 1, 1> for CliffWalking {
-    type StateType = CliffWalkingState;
+impl Environment<1, 1> for CliffWalking {
     type ObservationType = CliffWalkingObservation;
     type ActionType = CliffWalkingAction;
     type RewardType = ScalarReward;

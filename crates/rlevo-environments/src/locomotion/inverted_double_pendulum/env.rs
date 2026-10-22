@@ -309,8 +309,7 @@ impl Default for InvertedDoublePendulum {
     }
 }
 
-impl Environment<1, 1, 1> for InvertedDoublePendulum {
-    type StateType = InvertedDoublePendulumState;
+impl Environment<1, 1> for InvertedDoublePendulum {
     type ObservationType = InvertedDoublePendulumObservation;
     type ActionType = InvertedDoublePendulumAction;
     type RewardType = ScalarReward;

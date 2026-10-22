@@ -62,7 +62,7 @@ pub fn uniform_bounded<const AR: usize, A: BoundedAction<AR>>(rng: &mut StdRng) 
 /// # Panics
 ///
 /// Panics if `episodes` is zero, or if `env.reset()` / `env.step()` errors.
-pub fn random_return<const R: usize, const SR: usize, const AR: usize, E>(
+pub fn random_return<const R: usize, const AR: usize, E>(
     env: &mut E,
     episodes: usize,
     max_steps: usize,
@@ -70,7 +70,7 @@ pub fn random_return<const R: usize, const SR: usize, const AR: usize, E>(
     mut sample: impl FnMut(&mut StdRng) -> E::ActionType,
 ) -> f32
 where
-    E: Environment<R, SR, AR>,
+    E: Environment<R, AR>,
 {
     assert!(episodes > 0, "episodes must be non-zero");
     let mut total = 0.0_f32;

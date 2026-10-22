@@ -15,8 +15,8 @@
 //!
 //! ## Why not fold into [`grids`](crate::grids)
 //!
-//! The `grids` family shares an *egocentric* `$7 \times 7 \times 3$` observation core with
-//! `R == SR` and 7-action turn/forward dynamics. This task is *allocentric*, 4-way Cartesian, and
+//! The `grids` family shares an *egocentric* `$7 \times 7 \times 3$` observation core and
+//! 7-action turn/forward dynamics. This task is *allocentric*, 4-way Cartesian, and
 //! modality-changing — it reuses none of that core, so it lives in its own concept module.
 //!
 //! ## Dimensions (fixed for v1)
@@ -57,7 +57,7 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::base::{HostRow, Observation, State};
+use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
@@ -128,18 +128,16 @@ fn success_reward(step: usize, max_steps: usize) -> f32 {
 /// column `c % GRID_SIDE`). This is the RAM analogue — small, fully known, and
 /// exactly recoverable — that the rank-3 pixel observation is rendered from.
 ///
-/// Implements [`State<1>`] for the compact rank-1 latent;
-/// [`project`](Self::project) renders it as the rank-3 pixel image.
+/// [`project`](Self::project) renders the compact rank-1 latent as the rank-3
+/// pixel image.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::pixel_grid::PixelGridState;
-/// use rlevo_core::base::State;
 ///
 /// let state = PixelGridState::new(0, 24).expect("both indices are in range");
-/// assert!(state.is_valid());
-/// assert_eq!(<PixelGridState as State<1>>::shape(), [2]);
+/// assert_eq!(state.agent(), 0);
 /// ```
 #[derive(Debug, Clone)]
 pub struct PixelGridState {
@@ -152,8 +150,7 @@ impl PixelGridState {
     ///
     /// This is the only public construction path; it upholds the
     /// `agent < CELL_COUNT && goal < CELL_COUNT` invariant that
-    /// [`project`](Self::project) relies on to address the pixel buffer, and that
-    /// [`is_valid`](State::is_valid) re-checks.
+    /// [`project`](Self::project) relies on to address the pixel buffer.
     ///
     /// # Errors
     ///
@@ -247,16 +244,6 @@ impl PixelGridState {
             }
         }
         out
-    }
-}
-
-impl State<1> for PixelGridState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.agent < CELL_COUNT_U32 && self.goal < CELL_COUNT_U32
     }
 }
 
@@ -732,8 +719,7 @@ impl Default for PixelGridEnv {
     }
 }
 
-impl Environment<3, 1, 1> for PixelGridEnv {
-    type StateType = PixelGridState;
+impl Environment<3, 1> for PixelGridEnv {
     type ObservationType = PixelObservation;
     type ActionType = PixelGridAction;
     type RewardType = ScalarReward;
@@ -817,6 +803,12 @@ impl Environment<3, 1, 1> for PixelGridEnv {
         // private `SnapshotStatus` display selector, so the two cannot disagree.
         self.guard.record(snap.status());
         Ok(snap)
+    }
+}
+
+impl PixelGridState {
+    pub(crate) fn is_valid(&self) -> bool {
+        self.agent < CELL_COUNT_U32 && self.goal < CELL_COUNT_U32
     }
 }
 
@@ -1059,14 +1051,6 @@ mod tests {
             ..Default::default()
         };
         assert!(PixelGridEnv::with_config(bad, false).is_err());
-    }
-
-    #[test]
-    fn state_shape_matches_numel() {
-        let state = PixelGridState::new(0, 24).expect("valid cell indices");
-        let shape_product: usize = <PixelGridState as State<1>>::shape().iter().product();
-        assert_eq!(state.numel(), shape_product);
-        assert_eq!(state.numel(), 2);
     }
 
     // ── cell-index range invariant ───────────────────────────────────────────
@@ -1422,13 +1406,12 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_observation_is_rank3_over_rank1_state() {
+    fn snapshot_observation_is_rank3() {
         let cfg = PixelGridConfig::new(100, 0, false);
         let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         let snap = env.reset().unwrap();
         assert_eq!(snap.observation().pixels().len(), PIXEL_COUNT);
         assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
-        assert_eq!(<PixelGridState as State<1>>::shape(), [2]);
     }
 
     #[test]

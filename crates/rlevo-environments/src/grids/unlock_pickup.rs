@@ -305,8 +305,8 @@ struct Layout {
 /// taken afterwards is rejected with
 /// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
+/// [`ScalarReward`].
 ///
 /// # Examples
 ///
@@ -635,8 +635,7 @@ impl UnlockPickupEnv {
     }
 }
 
-impl Environment<3, 3, 1> for UnlockPickupEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for UnlockPickupEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;

@@ -71,14 +71,13 @@ use crate::algorithms::shared::LogWatermark;
 /// - `A` — Discrete action implementing `DiscreteAction<1>`.
 /// - `Rew` — Scalar reward implementing `Reward + Copy`.
 /// - `OR` — Observation tensor rank.
-/// - `SR` — State tensor rank (consumed by the environment bound only).
 /// - `BOR` — Batched observation tensor rank (`OR + 1`).
 // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
 // f32. This is the intended narrowing point, and the values are hyperparameters
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+pub fn train_discrete<B, P, V, E, O, A, Rew, const OR: usize, const BOR: usize>(
     agent: &mut PpgAgent<B, P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -89,7 +88,7 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
     V: PpoValue<B, BOR>,
-    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
     O: Observation<OR> + TensorConvertible<OR, B>,
     A: DiscreteAction<1>,
     Rew: Reward + Copy,

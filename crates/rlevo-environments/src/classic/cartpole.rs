@@ -144,7 +144,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
     environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
@@ -363,22 +363,6 @@ impl CartPoleState {
             theta,
             theta_dot,
         }
-    }
-}
-
-impl State<1> for CartPoleState {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-    fn numel(&self) -> usize {
-        4
-    }
-
-    fn is_valid(&self) -> bool {
-        self.x.is_finite()
-            && self.x_dot.is_finite()
-            && self.theta.is_finite()
-            && self.theta_dot.is_finite()
     }
 }
 
@@ -645,8 +629,7 @@ fn cartpole_observation(state: &CartPoleState) -> CartPoleObservation {
     }
 }
 
-impl Environment<1, 1, 1> for CartPole {
-    type StateType = CartPoleState;
+impl Environment<1, 1> for CartPole {
     type ObservationType = CartPoleObservation;
     type ActionType = CartPoleAction;
     type RewardType = ScalarReward;
@@ -897,6 +880,15 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+impl CartPoleState {
+    pub(crate) fn is_valid(&self) -> bool {
+        self.x.is_finite()
+            && self.x_dot.is_finite()
+            && self.theta.is_finite()
+            && self.theta_dot.is_finite()
+    }
+}
 
 #[cfg(test)]
 mod tests {

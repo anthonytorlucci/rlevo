@@ -328,8 +328,7 @@ impl Default for Swimmer {
     }
 }
 
-impl Environment<1, 1, 1> for Swimmer {
-    type StateType = SwimmerState;
+impl Environment<1, 1> for Swimmer {
     type ObservationType = SwimmerObservation;
     type ActionType = SwimmerAction;
     type RewardType = ScalarReward;

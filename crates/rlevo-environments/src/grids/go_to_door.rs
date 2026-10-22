@@ -494,8 +494,8 @@ impl FromStr for GoToDoorConfig {
 /// every [`GoToDoorObservation`] cell — this is the only place it appears, so a
 /// policy that ignores that channel cannot beat 25%.
 ///
-/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GoToDoorObservation`] / [`GridAction`] / [`ScalarReward`].
+/// Implements [`Environment<3, 1>`] with [`GoToDoorObservation`] / [`GridAction`] /
+/// [`ScalarReward`].
 ///
 /// [`GridAction::Done`] ends the episode either way — at a target-colored door
 /// for [`success_reward`], anywhere else for `0.0` — and a
@@ -806,8 +806,7 @@ impl GoToDoorEnv {
     }
 }
 
-impl Environment<3, 3, 1> for GoToDoorEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for GoToDoorEnv {
     type ObservationType = GoToDoorObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;

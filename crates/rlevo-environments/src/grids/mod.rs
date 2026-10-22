@@ -44,7 +44,7 @@
 //! so a network can learn equality between the two. Its snapshot alias is [`GoToDoorSnapshot`], not
 //! [`GridSnapshot`](core::GridSnapshot).
 //!
-//! The rank is still 3, so `Environment<3, 3, 1>` is unchanged — but any harness that runs *one
+//! The rank is still 3, so `Environment<3, 1>` is unchanged — but any harness that runs *one
 //! model across all grid envs* must handle both `$7 \times 7 \times 3$` and
 //! `$7 \times 7 \times 4$`. This split and the reasoning behind it are recorded in ADR 0043, which
 //! also makes it the precedent for how any future goal-conditioned rlevo env surfaces its goal to a

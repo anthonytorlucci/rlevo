@@ -15,7 +15,7 @@ use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, HostRow, Observation, State};
+use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
@@ -50,18 +50,6 @@ pub struct LinearState {
     pub x: f32,
     /// Number of steps elapsed in the current episode.
     pub steps: usize,
-}
-
-impl State<1> for LinearState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn numel(&self) -> usize {
-        1
-    }
-    fn is_valid(&self) -> bool {
-        self.x.is_finite()
-    }
 }
 
 /// Agent's view of [`LinearState`]: just the scalar target `x`.
@@ -153,8 +141,7 @@ impl LinearEnv {
     }
 }
 
-impl Environment<1, 1, 1> for LinearEnv {
-    type StateType = LinearState;
+impl Environment<1, 1> for LinearEnv {
     type ObservationType = LinearObservation;
     type ActionType = LinearAction;
     type RewardType = ScalarReward;

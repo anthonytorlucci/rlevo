@@ -8,14 +8,13 @@
 //! overflow ends it, and otherwise it runs until a time limit cuts it off.
 //!
 //! The observation is each tank's level over the last four steps. It is a
-//! rank-2 value over a rank-1 state, and it depends on history the state
-//! does not hold.
+//! rank-2 value, and it depends on history the state does not hold.
 //!
 //! This file names nothing outside `rlevo::core`, so every path here is
 //! written in full as `rlevo::core::...`.
 
 use rlevo::core::action::{BoundedAction, ContinuousAction};
-use rlevo::core::base::{Action, Observation, State};
+use rlevo::core::base::{Action, Observation};
 use rlevo::core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo::core::episode::EpisodeGuard;
 use rlevo::core::reward::ScalarReward;
@@ -68,18 +67,6 @@ impl Observation<2> for TankObs {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TankState {
     pub levels: [f32; 2],
-}
-
-impl State<1> for TankState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.levels
-            .iter()
-            .all(|level| level.is_finite() && (0.0..=1.0).contains(level))
-    }
 }
 
 /// The two pump rates, pump A then pump B, each in `[0, 1]`.
@@ -166,8 +153,7 @@ impl TankFarm {
     }
 }
 
-impl Environment<2, 1, 1> for TankFarm {
-    type StateType = TankState;
+impl Environment<2, 1> for TankFarm {
     type ObservationType = TankObs;
     type ActionType = PumpCommand;
     type RewardType = ScalarReward;

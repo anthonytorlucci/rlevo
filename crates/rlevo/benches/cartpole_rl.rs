@@ -230,7 +230,7 @@ fn train_ppg_agent() -> PpgCartPoleAgent {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpgCartPoleAgent =
         PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppg::<Backend_, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+    train_ppg::<Backend_, _, _, _, _, CartPoleAction, _, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,

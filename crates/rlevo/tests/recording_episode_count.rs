@@ -44,7 +44,7 @@ use rand::rngs::StdRng;
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
-use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation, CartPoleState};
+use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
@@ -95,8 +95,7 @@ impl FixedLenEnv {
     }
 }
 
-impl Environment<1, 1, 1> for FixedLenEnv {
-    type StateType = CartPoleState;
+impl Environment<1, 1> for FixedLenEnv {
     type ObservationType = CartPoleObservation;
     type ActionType = CartPoleAction;
     type RewardType = ScalarReward;
@@ -195,7 +194,7 @@ fn run_recording(total_steps: usize) -> RecordedRun {
     // --- env + agent ------------------------------------------------------
     // Headless `Ascii` payload: the count invariant is independent of frame
     // contents, so we avoid wiring a family-specific payload source.
-    let mut env: RecordingTap<FixedLenEnv, 1, 1, 1> =
+    let mut env: RecordingTap<FixedLenEnv, 1, 1> =
         RecordingTap::new_headless(FixedLenEnv::new(), sink.clone(), |_| FamilyPayload::Ascii);
 
     let device = Default::default();

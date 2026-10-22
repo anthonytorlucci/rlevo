@@ -98,7 +98,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
     environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
@@ -258,18 +258,6 @@ pub struct PendulumState {
     pub theta: f32,
     /// Angular velocity (rad/s).
     pub theta_dot: f32,
-}
-
-impl State<1> for PendulumState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-    fn numel(&self) -> usize {
-        2
-    }
-    fn is_valid(&self) -> bool {
-        self.theta.is_finite() && self.theta_dot.is_finite()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -454,8 +442,7 @@ fn pendulum_observation(state: PendulumState) -> PendulumObservation {
     }
 }
 
-impl Environment<1, 1, 1> for Pendulum {
-    type StateType = PendulumState;
+impl Environment<1, 1> for Pendulum {
     type ObservationType = PendulumObservation;
     type ActionType = PendulumAction;
     type RewardType = ScalarReward;

@@ -104,7 +104,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{Environment, EnvironmentError, SnapshotBase},
@@ -305,18 +305,6 @@ impl Observation<1> for MountainCarContinuousObservation {
     }
 }
 
-impl State<1> for MountainCarContinuousState {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-    fn numel(&self) -> usize {
-        2
-    }
-    fn is_valid(&self) -> bool {
-        self.position.is_finite() && self.velocity.is_finite()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Environment
 // ---------------------------------------------------------------------------
@@ -452,8 +440,7 @@ fn mountain_car_continuous_observation(
     }
 }
 
-impl Environment<1, 1, 1> for MountainCarContinuous {
-    type StateType = MountainCarContinuousState;
+impl Environment<1, 1> for MountainCarContinuous {
     type ObservationType = MountainCarContinuousObservation;
     type ActionType = MountainCarContinuousAction;
     type RewardType = ScalarReward;

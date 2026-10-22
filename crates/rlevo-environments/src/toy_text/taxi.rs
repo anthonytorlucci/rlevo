@@ -46,7 +46,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo_core::episode::EpisodeGuard;
@@ -217,16 +217,6 @@ impl TryFrom<u16> for TaxiState {
 impl From<TaxiState> for u16 {
     fn from(s: TaxiState) -> u16 {
         s.encode()
-    }
-}
-
-impl State<1> for TaxiState {
-    fn shape() -> [usize; 1] {
-        [500]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.taxi_row < 5 && self.taxi_col < 5 && self.passenger_loc <= 4 && self.destination < 4
     }
 }
 
@@ -485,8 +475,7 @@ impl Taxi {
     }
 }
 
-impl Environment<1, 1, 1> for Taxi {
-    type StateType = TaxiState;
+impl Environment<1, 1> for Taxi {
     type ObservationType = TaxiObservation;
     type ActionType = TaxiAction;
     type RewardType = ScalarReward;

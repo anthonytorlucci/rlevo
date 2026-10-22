@@ -20,9 +20,9 @@ The thermostat has a fixed horizon, a discrete action and an observation of
 the same rank as its state. A path the thermostat never takes can break
 without either probe noticing. The tank farm takes these paths:
 
-- **A rank-2 observation over a rank-1 state.** The observation is each
-  tank's level over the last four steps, shape `[2, 4]`; the state is the two
-  current levels, shape `[2]`.
+- **A rank-2 observation.** The observation is each tank's level over the
+  last four steps, shape `[2, 4]`; the state, the two current levels, is the
+  farm's own type and declares no shape.
 - **A bounded continuous action that can be invalid.** `PumpCommand` holds
   two rates in `[0, 1]` and implements `ContinuousAction` and
   `BoundedAction`. An out-of-range or `NaN` rate is an error, not a clamp.
@@ -38,8 +38,8 @@ Steps 1, 2, 3 and 5 hold as they do for the thermostat, for
 
 | # | Step | Holds when |
 |---|------|------------|
-| 3 | `implement-environment` | as for the thermostat, and the base level's assertion that `TimeLimit<TankFarm>` implements `Environment<2, 1, 1>` compiles. An observation flattened to rank 1 fails here |
-| 4 | `post-terminal` | the shapes are `[2, 4]`, `[2]` and `[2]`; the commands `[1.5, 0.0]` and `[NaN, 0.0]` each return `EnvironmentError::InvalidAction`, and the next valid step equals the same step on a fresh farm; with both pumps full on, the bare farm overflows and a further step returns `StepAfterEpisodeEnd` carrying `Terminated` from the farm's guard; with both pumps off, `TimeLimit` truncates at 60 steps and a further step returns it carrying `Truncated` from the wrapper's guard; each environment is usable again after a `reset` |
+| 3 | `implement-environment` | as for the thermostat, and the base level's assertion that `TimeLimit<TankFarm>` implements `Environment<2, 1>` compiles. An observation flattened to rank 1 fails here |
+| 4 | `post-terminal` | the shapes are `[2, 4]` and `[2]`; the commands `[1.5, 0.0]` and `[NaN, 0.0]` each return `EnvironmentError::InvalidAction`, and the next valid step equals the same step on a fresh farm; with both pumps full on, the bare farm overflows and a further step returns `StepAfterEpisodeEnd` carrying `Terminated` from the farm's guard; with both pumps off, `TimeLimit` truncates at 60 steps and a further step returns it carrying `Truncated` from the wrapper's guard; each environment is usable again after a `reset` |
 | 6 | `run-suite` | `Evaluator::run_suite` over `TimeLimit::new(TankFarm::with_seed(seed), 60)`, with the evaluator's cap at 64, returns 2 trials, none errored, each named `tank-farm`, each with 3 episodes of exactly 60 steps and a finite `return/mean`. A shorter episode means the policy overflowed a tank; a longer one, that the cap ended it and not the wrapper |
 
 Today a run prints this, and exits zero:

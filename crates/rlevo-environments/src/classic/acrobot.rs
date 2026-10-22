@@ -147,7 +147,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::episode::EpisodeGuard;
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, HostRow, Observation, State},
+    base::{Action, HostRow, Observation},
     config::{self, ConfigError, Validate},
     environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
@@ -512,22 +512,6 @@ impl AcrobotState {
     }
 }
 
-impl State<1> for AcrobotState {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-    fn numel(&self) -> usize {
-        4
-    }
-
-    fn is_valid(&self) -> bool {
-        self.theta1.is_finite()
-            && self.theta2.is_finite()
-            && self.theta1_dot.is_finite()
-            && self.theta2_dot.is_finite()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Observation
 // ---------------------------------------------------------------------------
@@ -797,8 +781,7 @@ fn acrobot_observation(state: &AcrobotState) -> AcrobotObservation {
     }
 }
 
-impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
-    type StateType = AcrobotState;
+impl<D: AcrobotDynamicsFn + Default> Environment<1, 1> for Acrobot<D> {
     type ObservationType = AcrobotObservation;
     type ActionType = AcrobotAction;
     type RewardType = ScalarReward;

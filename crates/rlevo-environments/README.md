@@ -76,7 +76,7 @@ Since the leak zone is fixed while the corridor grows, the **recall horizon scal
 
 ### Pixel Grid (modality-changing POMDP)
 
-`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — `Environment<3, 1, 1>` with observation rank `3` and state rank `1`. Every observation is `PixelGridState::project` of the latent, a method of the state type (ADR 0020). Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
+`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — `Environment<3, 1>`, a rank-3 observation of a rank-1 latent. Every observation is `PixelGridState::project` of the latent, a method of the state type (ADR 0020). Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
 
 ---
 
@@ -256,7 +256,7 @@ A `step` after `Terminated` or `Truncated` returns `EnvironmentError::StepAfterE
 
 ### Const Generics
 
-Tensor ranks (the number of axes, not their sizes) are encoded as const generics: `State<R>`, `Observation<R>` and `Action<R>`, with an environment declaring all three as `Environment<R, SR, AR>` (observation, state and action rank). A rank mismatch produces a compile-time error rather than a runtime panic; the size of each axis is a runtime value, returned by `shape()`.
+Tensor ranks (the number of axes, not their sizes) are encoded as const generics: `Observation<R>` and `Action<R>`, with an environment declaring both as `Environment<OR, AR>` (observation and action rank). A rank mismatch produces a compile-time error rather than a runtime panic; the size of each axis is a runtime value, returned by `shape()`.
 
 ---
 

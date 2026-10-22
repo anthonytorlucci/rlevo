@@ -356,8 +356,8 @@ impl FromStr for CrossingConfig {
 
 /// Grid environment where the agent crosses obstacle rivers to reach the goal.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// Every [`reset`](Environment::reset) samples a fresh layout from the
 /// environment's persistent RNG: which two candidate lines become rivers, and
@@ -726,8 +726,7 @@ impl CrossingEnv {
     }
 }
 
-impl Environment<3, 3, 1> for CrossingEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for CrossingEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;

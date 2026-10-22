@@ -34,10 +34,10 @@
 //!     ..AdversarialBanditConfig::default()
 //! };
 //! let mut env = AdversarialBandit::<10>::with_config(cfg).expect("valid config");
-//! let _ = <AdversarialBandit<10> as Environment<1, 1, 1>>::reset(&mut env)
+//! let _ = <AdversarialBandit<10> as Environment<1, 1>>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(3).expect("arm in range");
-//! let _ = <AdversarialBandit<10> as Environment<1, 1, 1>>::step(&mut env, action)
+//! let _ = <AdversarialBandit<10> as Environment<1, 1>>::step(&mut env, action)
 //!     .expect("step");
 //! ```
 
@@ -53,7 +53,7 @@ use std::f32::consts::TAU;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use super::k_armed::{KArmedBanditAction, KArmedBanditObservation, KArmedBanditState};
+use super::k_armed::{KArmedBanditAction, KArmedBanditObservation};
 use rlevo_core::episode::EpisodeGuard;
 
 // ---------------------------------------------------------------------------
@@ -190,7 +190,6 @@ impl FromStr for AdversarialBanditConfig {
 /// values exposed via [`AdversarialBanditConfig`].
 #[derive(Debug)]
 pub struct AdversarialBandit<const K: usize> {
-    state: KArmedBanditState,
     steps: usize,
     /// Episode-lifecycle guard: rejects a [`Environment::step`] taken after the
     /// episode ended (ADR 0044). `EpisodeStatus` is the single source of truth
@@ -248,7 +247,6 @@ impl<const K: usize> AdversarialBandit<K> {
         let mut rng = StdRng::seed_from_u64(config.seed);
         let phases = sample_phases::<K>(&mut rng, config.period.max(1));
         Ok(Self {
-            state: KArmedBanditState,
             steps: 0,
             guard: EpisodeGuard::new(),
             config,
@@ -285,8 +283,7 @@ impl<const K: usize> Default for AdversarialBandit<K> {
     }
 }
 
-impl<const K: usize> Environment<1, 1, 1> for AdversarialBandit<K> {
-    type StateType = KArmedBanditState;
+impl<const K: usize> Environment<1, 1> for AdversarialBandit<K> {
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
     type RewardType = ScalarReward;
@@ -298,7 +295,6 @@ impl<const K: usize> Environment<1, 1, 1> for AdversarialBandit<K> {
     /// schedule by design (host-RNG seeding convention, `docs/rules.md` §8).
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.guard.reset();
-        self.state = KArmedBanditState;
         self.steps = 0;
         Ok(SnapshotBase::running(
             KArmedBanditObservation,
@@ -393,7 +389,7 @@ mod tests {
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
         let mut env = AdversarialBandit::<K>::with_config(AdversarialBanditConfig::default())
             .expect("valid config");
-        let snap = <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
+        let snap = <AdversarialBandit<K> as Environment<1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
         assert_eq!(f32::from(*snap.reward()), 0.0);
     }
@@ -407,11 +403,10 @@ mod tests {
             amplitude: 1.0,
         };
         let mut env = AdversarialBandit::<K>::with_config(cfg).expect("valid config");
-        <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        <AdversarialBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
         for step in 0..50 {
             let action = KArmedBanditAction::<K>::from_index(step % K);
-            let snap =
-                <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+            let snap = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
             let r = f32::from(*snap.reward());
             assert!(
                 (0.0..=1.0).contains(&r),
@@ -430,15 +425,13 @@ mod tests {
         };
         let mut a = AdversarialBandit::<K>::with_config(cfg.clone()).expect("valid config");
         let mut b = AdversarialBandit::<K>::with_config(cfg).expect("valid config");
-        <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut a).unwrap();
-        <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut b).unwrap();
+        <AdversarialBandit<K> as Environment<1, 1>>::reset(&mut a).unwrap();
+        <AdversarialBandit<K> as Environment<1, 1>>::reset(&mut b).unwrap();
         assert_eq!(a.phases(), b.phases());
         for step in 0..32 {
             let action = KArmedBanditAction::<K>::from_index(step % K);
-            let snap_a =
-                <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut a, action).unwrap();
-            let snap_b =
-                <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut b, action).unwrap();
+            let snap_a = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut a, action).unwrap();
+            let snap_b = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut b, action).unwrap();
             assert_eq!(f32::from(*snap_a.reward()), f32::from(*snap_b.reward()));
         }
     }
@@ -472,10 +465,10 @@ mod tests {
         })
         .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
-        let s1 = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let s1 = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         assert!(!s1.is_done());
-        let _ = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        let s3 = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let _ = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        let s3 = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         assert!(s3.is_terminated());
     }
 
@@ -514,12 +507,12 @@ mod tests {
     fn drive_to_termination(
         env: &mut AdversarialBandit<K>,
     ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
-        <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(env).expect("reset must succeed");
+        <AdversarialBandit<K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
-        let mut snap = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(env, action)
+        let mut snap = <AdversarialBandit<K> as Environment<1, 1>>::step(env, action)
             .expect("first step must succeed");
         while !snap.is_done() {
-            snap = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(env, action)
+            snap = <AdversarialBandit<K> as Environment<1, 1>>::step(env, action)
                 .expect("step must succeed while the episode is running");
         }
         snap
@@ -545,7 +538,7 @@ mod tests {
         let malformed = KArmedBanditAction::<K>::out_of_range_for_tests();
         assert!(!malformed.is_valid(), "the replayed action is out of range");
 
-        let err = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, malformed)
+        let err = <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, malformed)
             .expect_err("a step after termination must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
@@ -567,7 +560,7 @@ mod tests {
         drive_to_termination(&mut env);
         let steps_at_end = env.steps;
 
-        let _ = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(
+        let _ = <AdversarialBandit<K> as Environment<1, 1>>::step(
             &mut env,
             KArmedBanditAction::<K>::from_index(0),
         )
@@ -590,14 +583,13 @@ mod tests {
         drive_to_termination(&mut env);
         let action = KArmedBanditAction::<K>::from_index(0);
         assert!(
-            <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).is_err(),
+            <AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action).is_err(),
             "the episode has ended; a step must be rejected before reset()"
         );
 
-        <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut env)
-            .expect("reset must succeed");
+        <AdversarialBandit<K> as Environment<1, 1>>::reset(&mut env).expect("reset must succeed");
         assert!(
-            !<AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action)
+            !<AdversarialBandit<K> as Environment<1, 1>>::step(&mut env, action)
                 .expect("reset() must re-open the environment")
                 .is_done(),
             "the first step of a fresh episode must not be done"

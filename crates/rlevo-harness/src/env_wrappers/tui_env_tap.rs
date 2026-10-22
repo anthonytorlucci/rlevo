@@ -29,7 +29,7 @@ use crate::reporter::tui::TuiHandle;
 /// [`EpisodeReturn`](crate::reporter::tui::TuiEvent::EpisodeReturn) event is
 /// emitted with the summed reward and step count.
 ///
-/// Requires only `E: Environment<D, SD, AD>`. A separate
+/// Requires only `E: Environment<D, AD>`. A separate
 /// [`AsciiRenderable`] forwarding impl is provided when the inner env is
 /// renderable, so the tap composes under a
 /// [`RecordingTap`](crate::record::RecordingTap) that records env frames to
@@ -41,13 +41,13 @@ use crate::reporter::tui::TuiHandle;
 /// # use rlevo_harness::env_wrappers::tui_env_tap::TuiEnvTap;
 /// # use rlevo_harness::reporter::tui::TuiHandle;
 /// # use rlevo_core::environment::Environment;
-/// # fn demo<E: Environment<1, 1, 1>>(env: E) {
+/// # fn demo<E: Environment<1, 1>>(env: E) {
 /// let (handle, _rx) = TuiHandle::channel();
-/// let mut tap: TuiEnvTap<E, 1, 1, 1> = TuiEnvTap::new(env, handle);
+/// let mut tap: TuiEnvTap<E, 1, 1> = TuiEnvTap::new(env, handle);
 /// tap.reset().unwrap();
 /// # }
 /// ```
-pub struct TuiEnvTap<E, const D: usize, const SD: usize, const AD: usize> {
+pub struct TuiEnvTap<E, const D: usize, const AD: usize> {
     /// The wrapped environment. All `Environment` calls delegate here.
     inner: E,
     /// Channel handle used to push [`TuiEvent::EpisodeReturn`] events.
@@ -72,7 +72,7 @@ pub struct TuiEnvTap<E, const D: usize, const SD: usize, const AD: usize> {
     episode_length: u32,
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> TuiEnvTap<E, D, SD, AD> {
+impl<E, const D: usize, const AD: usize> TuiEnvTap<E, D, AD> {
     /// Wrap `inner`, emitting per-episode return events through `handle`.
     /// The live TUI is metrics-only (ADR-0013): no env frames are
     /// captured, only the summed reward + step count on episode end.
@@ -110,8 +110,7 @@ impl<E, const D: usize, const SD: usize, const AD: usize> TuiEnvTap<E, D, SD, AD
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> std::fmt::Debug
-    for TuiEnvTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> std::fmt::Debug for TuiEnvTap<E, D, AD>
 where
     E: std::fmt::Debug,
 {
@@ -125,8 +124,7 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> AsciiRenderable
-    for TuiEnvTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> AsciiRenderable for TuiEnvTap<E, D, AD>
 where
     E: AsciiRenderable,
 {
@@ -141,8 +139,8 @@ where
 /// Forward the optional `Classic2DPayloadSource` through to the wrapped env,
 /// so a `TuiEnvTap` over a classic-control env composes under a
 /// `RecordingTap::with_classic2d_payload` (ADR-0013 structured recording).
-impl<E, const D: usize, const SD: usize, const AD: usize>
-    rlevo_core::render::payload::Classic2DPayloadSource for TuiEnvTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> rlevo_core::render::payload::Classic2DPayloadSource
+    for TuiEnvTap<E, D, AD>
 where
     E: rlevo_core::render::payload::Classic2DPayloadSource,
 {
@@ -151,12 +149,10 @@ where
     }
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> Environment<D, SD, AD>
-    for TuiEnvTap<E, D, SD, AD>
+impl<E, const D: usize, const AD: usize> Environment<D, AD> for TuiEnvTap<E, D, AD>
 where
-    E: Environment<D, SD, AD>,
+    E: Environment<D, AD>,
 {
-    type StateType = E::StateType;
     type ObservationType = E::ObservationType;
     type ActionType = E::ActionType;
     type RewardType = E::RewardType;
@@ -199,7 +195,7 @@ mod tests {
 
     use std::sync::mpsc::Receiver;
 
-    use rlevo_core::base::{Action, Observation, State};
+    use rlevo_core::base::{Action, Observation};
     use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
     use rlevo_core::render::AsciiRenderable;
     use rlevo_core::reward::ScalarReward;
@@ -231,23 +227,6 @@ mod tests {
     impl Observation<1> for StubObs {
         fn shape() -> [usize; 1] {
             [1]
-        }
-    }
-
-    // Fieldless: `StubEnv` builds its `StubObs` snapshots directly, so the state
-    // is only a type-level placeholder for `Environment::StateType`.
-    #[derive(Debug, Clone, Copy)]
-    struct StubState;
-
-    impl State<1> for StubState {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-        fn is_valid(&self) -> bool {
-            true
-        }
-        fn numel(&self) -> usize {
-            1
         }
     }
 
@@ -300,8 +279,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1, 1> for StubEnv {
-        type StateType = StubState;
+    impl Environment<1, 1> for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
         type RewardType = ScalarReward;
@@ -351,7 +329,7 @@ mod tests {
     fn step_advances_counter() {
         let (handle, _rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(0.0, Termination::Never);
-        let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
+        let mut tap: TuiEnvTap<_, 1, 1> = TuiEnvTap::new(env, handle);
         tap.reset().unwrap();
         tap.step(StubAction).unwrap();
         tap.step(StubAction).unwrap();
@@ -364,7 +342,7 @@ mod tests {
     fn episode_return_fires_on_terminated() {
         let (handle, rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(1.0, Termination::TerminateAt(3));
-        let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
+        let mut tap: TuiEnvTap<_, 1, 1> = TuiEnvTap::new(env, handle);
         tap.reset().unwrap();
         tap.step(StubAction).unwrap();
         tap.step(StubAction).unwrap();
@@ -383,7 +361,7 @@ mod tests {
     fn episode_return_fires_on_truncated() {
         let (handle, rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(0.5, Termination::TruncateAt(4));
-        let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
+        let mut tap: TuiEnvTap<_, 1, 1> = TuiEnvTap::new(env, handle);
         tap.reset().unwrap();
         for _ in 0..4 {
             tap.step(StubAction).unwrap();
@@ -402,7 +380,7 @@ mod tests {
     fn accumulators_reset_across_episodes() {
         let (handle, rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(1.0, Termination::TerminateAt(2));
-        let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
+        let mut tap: TuiEnvTap<_, 1, 1> = TuiEnvTap::new(env, handle);
 
         tap.reset().unwrap();
         tap.step(StubAction).unwrap();
@@ -425,7 +403,7 @@ mod tests {
     fn only_episode_return_is_emitted() {
         let (handle, rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(1.0, Termination::TerminateAt(2));
-        let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
+        let mut tap: TuiEnvTap<_, 1, 1> = TuiEnvTap::new(env, handle);
         tap.reset().unwrap();
         tap.step(StubAction).unwrap();
         tap.step(StubAction).unwrap();
@@ -444,7 +422,7 @@ mod tests {
     fn lossy_on_dropped_receiver() {
         let (handle, rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(1.0, Termination::TerminateAt(3));
-        let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
+        let mut tap: TuiEnvTap<_, 1, 1> = TuiEnvTap::new(env, handle);
         drop(rx);
 
         // None of these calls should panic or block.
@@ -460,7 +438,7 @@ mod tests {
     fn into_inner_returns_wrapped_env() {
         let (handle, _rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(0.0, Termination::Never);
-        let tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
+        let tap: TuiEnvTap<_, 1, 1> = TuiEnvTap::new(env, handle);
         let inner = tap.into_inner();
         assert_eq!(inner.render_ascii(), "pos=0");
     }

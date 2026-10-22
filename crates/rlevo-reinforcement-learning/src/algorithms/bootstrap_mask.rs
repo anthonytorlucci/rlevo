@@ -26,7 +26,7 @@ use burn::tensor::{Tensor, activation};
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
-use rlevo_core::base::{Action, HostRow, Observation, State};
+use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
@@ -49,18 +49,6 @@ pub(crate) const ACT_DIM: usize = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MaskState {
     steps: usize,
-}
-
-impl State<1> for MaskState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn numel(&self) -> usize {
-        1
-    }
-    fn is_valid(&self) -> bool {
-        true
-    }
 }
 
 /// Two-feature view of the step counter.
@@ -212,8 +200,7 @@ impl<A> MaskEnv<A> {
     }
 }
 
-impl<A: Action<1> + Clone> Environment<1, 1, 1> for MaskEnv<A> {
-    type StateType = MaskState;
+impl<A: Action<1> + Clone> Environment<1, 1> for MaskEnv<A> {
     type ObservationType = MaskObservation;
     type ActionType = A;
     type RewardType = ScalarReward;

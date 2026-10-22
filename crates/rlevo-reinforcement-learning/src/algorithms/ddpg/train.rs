@@ -55,8 +55,7 @@ use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 ///
 /// The same const-generic parameters as [`DdpgAgent`]: `OR`/`BOR` are the
 /// single and batched observation ranks, `AR`/`BAR` the single and batched
-/// action ranks. `SR` is the state rank required by the `Environment` bound
-/// and is not used directly by this function.
+/// action ranks.
 #[allow(clippy::too_many_arguments)]
 pub fn train<
     B,
@@ -67,7 +66,6 @@ pub fn train<
     A,
     Rew,
     const OR: usize,
-    const SR: usize,
     const BOR: usize,
     const AR: usize,
     const BAR: usize,
@@ -82,7 +80,7 @@ where
     B: AutodiffBackend,
     Actor: DeterministicPolicy<B, BOR, BAR>,
     Critic: ContinuousQ<B, BOR, BAR>,
-    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
     O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
     A: BoundedAction<AR>,
     Rew: Reward + Copy,

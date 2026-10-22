@@ -87,7 +87,7 @@ use rlevo_core::reward::ScalarReward;
 /// ([`GoToDoorObservation`](crate::grids::go_to_door::GoToDoorObservation),
 /// `[7, 7, 4]`) and emits a
 /// [`GoToDoorSnapshot`](crate::grids::go_to_door::GoToDoorSnapshot) instead. The
-/// rank stays 3, so its `Environment<3, 3, 1>` bound is unchanged; only the
+/// rank stays 3, so its `Environment<3, 1>` bound is unchanged; only the
 /// channel count differs. ADR 0043 (`docs/adr/0043-grid-observation-contract.md`)
 /// records why the shared observation was not widened for all twelve envs.
 pub type GridSnapshot = SnapshotBase<3, GridObservation, ScalarReward>;

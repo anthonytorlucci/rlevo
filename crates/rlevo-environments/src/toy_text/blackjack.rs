@@ -40,7 +40,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::{DiscreteAction, InvalidActionError};
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
@@ -210,16 +210,6 @@ pub struct BlackjackState {
     pub usable_ace: bool,
     player_hand: Vec<u8>,
     dealer_hand: Vec<u8>,
-}
-
-impl State<1> for BlackjackState {
-    fn shape() -> [usize; 1] {
-        [3]
-    }
-
-    fn is_valid(&self) -> bool {
-        (4..=32).contains(&self.player_sum) && (1..=10).contains(&self.dealer_showing)
-    }
 }
 
 // ── observation ───────────────────────────────────────────────────────────────
@@ -436,8 +426,7 @@ fn blackjack_observation(state: &BlackjackState) -> BlackjackObservation {
     }
 }
 
-impl Environment<1, 1, 1> for Blackjack {
-    type StateType = BlackjackState;
+impl Environment<1, 1> for Blackjack {
     type ObservationType = BlackjackObservation;
     type ActionType = BlackjackAction;
     type RewardType = ScalarReward;

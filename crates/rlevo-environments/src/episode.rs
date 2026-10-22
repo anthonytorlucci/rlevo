@@ -32,18 +32,12 @@ use rlevo_core::environment::EnvironmentError;
 /// Panics (as a test assertion) if the driven snapshot is not done, if the
 /// post-terminal `step` succeeds, or if it fails with any other
 /// [`EnvironmentError`] variant.
-pub(crate) fn assert_rejects_post_terminal_step<
-    const R: usize,
-    const SR: usize,
-    const AR: usize,
-    E,
-    F,
->(
+pub(crate) fn assert_rejects_post_terminal_step<const R: usize, const AR: usize, E, F>(
     env: &mut E,
     drive_to_done: F,
     replay_action: E::ActionType,
 ) where
-    E: rlevo_core::environment::Environment<R, SR, AR>,
+    E: rlevo_core::environment::Environment<R, AR>,
     F: FnOnce(&mut E) -> E::SnapshotType,
 {
     use rlevo_core::environment::Snapshot;
@@ -71,7 +65,7 @@ pub(crate) fn assert_rejects_post_terminal_step<
 mod tests {
     use super::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
-    use rlevo_core::base::{Action, Observation, State};
+    use rlevo_core::base::{Action, Observation};
     use rlevo_core::environment::{Environment, EnvironmentError, Snapshot, SnapshotBase};
     use rlevo_core::episode::EpisodeGuard;
     use rlevo_core::reward::ScalarReward;
@@ -96,20 +90,6 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct MockState {
         steps: u8,
-    }
-
-    impl State<1> for MockState {
-        fn numel(&self) -> usize {
-            1
-        }
-
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-
-        fn is_valid(&self) -> bool {
-            true
-        }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,8 +144,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1, 1> for MockGuardedEnv {
-        type StateType = MockState;
+    impl Environment<1, 1> for MockGuardedEnv {
         type ObservationType = MockObservation;
         type ActionType = MockAction;
         type RewardType = ScalarReward;

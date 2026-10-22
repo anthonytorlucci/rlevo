@@ -59,7 +59,7 @@ use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: usize>(
+pub fn train<B, M, E, O, A, Rew, const OR: usize, const BOR: usize>(
     agent: &mut QrDqnAgent<B, M, O, A, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -69,7 +69,7 @@ pub fn train<B, M, E, O, A, Rew, const OR: usize, const SR: usize, const BOR: us
 where
     B: AutodiffBackend,
     M: QrDqnModel<B, BOR>,
-    E: Environment<OR, SR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, 1, ObservationType = O, ActionType = A, RewardType = Rew>,
     O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
     A: DiscreteAction<1>,
     Rew: Reward + Copy,

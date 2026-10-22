@@ -23,7 +23,6 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Tensor, backend::Backend};
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::State;
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::{SantaFeAnt, SantaFeAntAction, SantaFeAntObservation};
@@ -50,21 +49,6 @@ fn device() -> Dev {
 // constant, so reactivity genuinely caps the achievable score.
 // ---------------------------------------------------------------------------
 
-/// Trivial state — the env tracks step count itself; this exists only to
-/// satisfy [`Environment::StateType`].
-#[derive(Debug, Clone)]
-struct AltState;
-
-impl State<1> for AltState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn is_valid(&self) -> bool {
-        true
-    }
-}
-
 #[derive(Debug, Clone)]
 struct AlternatingEnv {
     steps: usize,
@@ -80,8 +64,7 @@ impl AlternatingEnv {
     }
 }
 
-impl Environment<1, 1, 1> for AlternatingEnv {
-    type StateType = AltState;
+impl Environment<1, 1> for AlternatingEnv {
     type ObservationType = SantaFeAntObservation;
     type ActionType = SantaFeAntAction;
     type RewardType = ScalarReward;

@@ -93,12 +93,10 @@ where
 /// `reset` clears the step counter and re-opens the wrapper's [`EpisodeGuard`];
 /// `step` consults that guard *before* delegating, then records the status of
 /// the snapshot it actually returns — truncation included.
-impl<const D: usize, const SD: usize, const AD: usize, E, Obs, Rew> Environment<D, SD, AD>
-    for TimeLimit<E>
+impl<const D: usize, const AD: usize, E, Obs, Rew> Environment<D, AD> for TimeLimit<E>
 where
     E: Environment<
             D,
-            SD,
             AD,
             ObservationType = Obs,
             RewardType = Rew,
@@ -107,7 +105,6 @@ where
     Obs: Observation<D>,
     Rew: Reward,
 {
-    type StateType = E::StateType;
     type ObservationType = Obs;
     type ActionType = E::ActionType;
     type RewardType = Rew;
@@ -175,11 +172,7 @@ where
 mod tests {
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::{
-        base::{Action, State},
-        environment::Snapshot,
-        reward::ScalarReward,
-    };
+    use rlevo_core::{base::Action, environment::Snapshot, reward::ScalarReward};
     use serde::{Deserialize, Serialize};
 
     // Minimal stub environment: terminates when position reaches GOAL.
@@ -191,25 +184,6 @@ mod tests {
     impl Observation<1> for StubObs {
         fn shape() -> [usize; 1] {
             [1]
-        }
-    }
-
-    // Carries no fields: `StubEnv` builds its `StubObs` snapshots directly, so
-    // the state is only a type-level placeholder for `Environment::StateType`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct StubState;
-
-    impl State<1> for StubState {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-
-        fn is_valid(&self) -> bool {
-            true
-        }
-
-        fn numel(&self) -> usize {
-            1
         }
     }
 
@@ -278,8 +252,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1, 1> for StubEnv {
-        type StateType = StubState;
+    impl Environment<1, 1> for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
         type RewardType = ScalarReward;
@@ -378,7 +351,7 @@ mod tests {
         // Goal unreachable within the cap: the episode can only end by truncation.
         let mut timed = TimeLimit::new(StubEnv::new_at_goal(100), 3);
 
-        assert_rejects_post_terminal_step::<1, 1, 1, _, _>(
+        assert_rejects_post_terminal_step::<1, 1, _, _>(
             &mut timed,
             |env| {
                 env.reset().expect("reset must succeed");
@@ -406,7 +379,7 @@ mod tests {
         // Inner env terminates at step 2, well inside the cap of 10.
         let mut timed = TimeLimit::new(StubEnv::new_at_goal(2), 10);
 
-        assert_rejects_post_terminal_step::<1, 1, 1, _, _>(
+        assert_rejects_post_terminal_step::<1, 1, _, _>(
             &mut timed,
             |env| {
                 env.reset().expect("reset must succeed");

@@ -20,11 +20,11 @@
 //! [`Environment`] API, with every snapshot built from `PixelGridState::project`.
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Observation, State};
+use rlevo_core::base::Observation;
 use rlevo_core::environment::{Environment, EpisodeStatus, Snapshot};
 
 use rlevo_environments::pixel_grid::{
-    PixelGridAction, PixelGridConfig, PixelGridEnv, PixelGridState, PixelObservation,
+    PixelGridAction, PixelGridConfig, PixelGridEnv, PixelObservation,
 };
 
 /// The observation is rank 3 while the state is rank 1 — the modality change is
@@ -40,11 +40,6 @@ fn reset_yields_rank3_observation_over_rank1_state() {
         <PixelObservation as Observation<3>>::shape(),
         [20, 20, 3],
         "observation is rank 3"
-    );
-    assert_eq!(
-        <PixelGridState as State<1>>::shape(),
-        [2],
-        "underlying state is rank 1"
     );
     assert_eq!(
         snap.observation().pixels().len(),

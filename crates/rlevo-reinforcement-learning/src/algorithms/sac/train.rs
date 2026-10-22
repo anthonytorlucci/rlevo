@@ -34,8 +34,6 @@ use crate::algorithms::sac::sac_model::{ContinuousQ, SquashedGaussianPolicy};
 /// # Const generics
 ///
 /// - `OR` — rank of a single observation tensor.
-/// - `SR` — rank of the environment's state tensor (passed through to the
-///   `Environment` bound; typically `OR`).
 /// - `BS` — size of a batched observation tensor (`R + 1`).
 /// - `AR` — rank of a single action tensor.
 /// - `BAR` — rank of a batched action tensor (`AR + 1`).
@@ -65,7 +63,6 @@ pub fn train<
     A,
     Rew,
     const OR: usize,
-    const SR: usize,
     const BS: usize,
     const AR: usize,
     const BAR: usize,
@@ -80,7 +77,7 @@ where
     B: AutodiffBackend,
     Actor: SquashedGaussianPolicy<B, BS, BAR>,
     Critic: ContinuousQ<B, BS, BAR>,
-    E: Environment<OR, SR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
+    E: Environment<OR, AR, ObservationType = O, ActionType = A, RewardType = Rew>,
     O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
     A: BoundedAction<AR>,
     Rew: Reward + Copy,

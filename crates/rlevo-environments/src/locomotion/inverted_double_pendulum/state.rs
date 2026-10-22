@@ -1,7 +1,6 @@
 //! Physics state for [`super::InvertedDoublePendulum`].
 
 use rapier3d::prelude::{ImpulseJointHandle, RigidBodyHandle};
-use rlevo_core::base::State;
 
 use super::observation::InvertedDoublePendulumObservation;
 
@@ -24,21 +23,7 @@ pub struct InvertedDoublePendulumState {
     /// Impulse-joint handle connecting pole1 to pole2.
     pub joint2: ImpulseJointHandle,
     /// Most recent observation extracted from the physics world. Populated by
-    /// the environment's emission model after each
-    /// `reset` or `step`; read only by [`State::is_valid`] to detect physics
-    /// divergence (ADR 0047 moved observation production off the state).
+    /// the environment's emission model after each `reset` or `step` (ADR 0047
+    /// moved observation production off the state).
     pub last_obs: InvertedDoublePendulumObservation,
-}
-
-impl State<1> for InvertedDoublePendulumState {
-    fn shape() -> [usize; 1] {
-        [9]
-    }
-
-    /// Returns `true` when the last extracted observation contains only
-    /// finite values. Non-finite values indicate a physics instability or
-    /// an uninitialised state.
-    fn is_valid(&self) -> bool {
-        self.last_obs.is_finite()
-    }
 }

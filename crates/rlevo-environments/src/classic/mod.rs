@@ -37,9 +37,8 @@ pub use acrobot::{
 pub use bandit::{
     AdversarialBandit, AdversarialBanditConfig, ContextualBandit, ContextualBanditConfig,
     ContextualBanditObservation, ContextualBanditState, KArmedBandit, KArmedBanditAction,
-    KArmedBanditConfig, KArmedBanditObservation, KArmedBanditState, NonStationaryBandit,
-    NonStationaryBanditConfig, TenArmedBandit, TenArmedBanditAction, TenArmedBanditConfig,
-    TenArmedBanditObservation, TenArmedBanditState,
+    KArmedBanditConfig, KArmedBanditObservation, NonStationaryBandit, NonStationaryBanditConfig,
+    TenArmedBandit, TenArmedBanditAction, TenArmedBanditConfig, TenArmedBanditObservation,
 };
 pub use cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleConfigBuilder, CartPoleObservation,

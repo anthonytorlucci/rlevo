@@ -1,7 +1,7 @@
 //! Smoke tests for the evaluator run loop (suite → trial → report path).
 
 use rand::Rng;
-use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::base::{Action, Observation};
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::fitness::BenchableAgent;
 use rlevo_core::reward::ScalarReward;
@@ -40,17 +40,6 @@ impl Observation<1> for ToyObs {
 }
 
 #[derive(Debug, Clone)]
-struct ToyState;
-impl State<1> for ToyState {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn is_valid(&self) -> bool {
-        true
-    }
-}
-
-#[derive(Debug, Clone)]
 struct ToyAction(f64);
 impl Action<1> for ToyAction {
     fn shape() -> [usize; 1] {
@@ -61,8 +50,7 @@ impl Action<1> for ToyAction {
     }
 }
 
-impl Environment<1, 1, 1> for ToyEnv {
-    type StateType = ToyState;
+impl Environment<1, 1> for ToyEnv {
     type ObservationType = ToyObs;
     type ActionType = ToyAction;
     type RewardType = ScalarReward;

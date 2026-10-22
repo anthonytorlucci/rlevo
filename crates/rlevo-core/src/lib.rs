@@ -9,7 +9,7 @@
 //!
 //! | Module | What it provides |
 //! |---|---|
-//! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`] — the primitive trait vocabulary; `TensorConvertible` with the `burn` feature |
+//! | [`base`] | [`Reward`], [`Observation`], [`Action`], [`HostRow`] — the primitive trait vocabulary; `TensorConvertible` with the `burn` feature |
 //! | [`action`] | [`DiscreteAction`], [`ContinuousAction`], [`BoundedAction`] — layered action-space extensions |
 //! | [`state`] | [`StateError`] — why a value is not a legal state |
 //! | [`environment`] | [`Environment`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
@@ -34,18 +34,17 @@
 //!
 //! # Const-generic rank `R`
 //!
-//! Several traits — [`Observation`], [`State`], [`Action`] — are parameterized
+//! [`Observation`] and [`Action`], and the traits built on them, are parameterized
 //! by a const generic `R` (rank) that denotes the *number of tensor axes*
 //! (equivalent to `NumPy`'s `ndim` or Burn's `Tensor<B, R>`). This encodes
 //! shape compatibility at compile time: a rank-1 observation and a rank-2
 //! observation cannot be mixed up without a compile error.
 //!
 //! ```text
-//! Environment<R, SR, AR>
-//!   ├── StateType     : State<SR>        (shape: [usize; SR])
-//!   ├── ObservationType: Observation<R>  (shape: [usize; R])
-//!   ├── ActionType    : Action<AR>       (shape: [usize; AR])
-//!   └── SnapshotType  : Snapshot<R, ...>
+//! Environment<OR, AR>
+//!   ├── ObservationType: Observation<OR>  (shape: [usize; OR])
+//!   ├── ActionType     : Action<AR>       (shape: [usize; AR])
+//!   └── SnapshotType   : Snapshot<OR, ...>
 //! ```
 //!
 //! # Episode loop sketch
@@ -66,7 +65,6 @@
 //!
 //! [`Reward`]: crate::base::Reward
 //! [`Observation`]: crate::base::Observation
-//! [`State`]: crate::base::State
 //! [`Action`]: crate::base::Action
 //! [`HostRow`]: crate::base::HostRow
 //! [`DiscreteAction`]: crate::action::DiscreteAction
@@ -96,15 +94,13 @@
 //! [`NonNegativeRate`]: crate::rate::NonNegativeRate
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
 
-/// Primitive trait vocabulary: [`Reward`], [`Observation`], [`State`],
-/// [`Action`] and [`HostRow`], plus `TensorConvertible` under the `burn`
-/// feature.
+/// Primitive trait vocabulary: [`Reward`], [`Observation`], [`Action`] and
+/// [`HostRow`], plus `TensorConvertible` under the `burn` feature.
 ///
 /// All other modules in this crate depend on the types defined here.
 ///
 /// [`Reward`]: crate::base::Reward
 /// [`Observation`]: crate::base::Observation
-/// [`State`]: crate::base::State
 /// [`Action`]: crate::base::Action
 /// [`HostRow`]: crate::base::HostRow
 pub mod base;

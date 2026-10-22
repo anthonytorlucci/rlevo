@@ -223,8 +223,8 @@ impl FromStr for DistShiftConfig {
 
 /// Fixed `$9 \times 7$` distribution-shift gridworld environment.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// The optimal policy for variant `One` hugs the top corridor; variant `Two`
 /// tests whether that policy generalises when the lava strip moves to a lower
@@ -407,8 +407,7 @@ impl DistShiftEnv {
     }
 }
 
-impl Environment<3, 3, 1> for DistShiftEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for DistShiftEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;

@@ -205,8 +205,8 @@ fn apply_positional(cfg: &mut EmptyConfig, index: usize, value: &str) -> Result<
 
 /// Simplest grid environment: navigate an empty room to the goal.
 ///
-/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
-/// have three components, reward is a scalar.
+/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
+/// action; the reward is a scalar.
 ///
 /// No obstacles, keys, or doors — useful as a baseline for verifying that a
 /// navigation policy can solve a trivial task before tackling harder
@@ -380,8 +380,7 @@ impl EmptyEnv {
     }
 }
 
-impl Environment<3, 3, 1> for EmptyEnv {
-    type StateType = GridState;
+impl Environment<3, 1> for EmptyEnv {
     type ObservationType = GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
