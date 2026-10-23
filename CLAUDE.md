@@ -103,6 +103,16 @@ author stops or starts writing.
 | `consumer-core` | that author's environment file built against `rlevo-core` alone, with its package count, its Burn package count and a cold build time |
 | `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning` |
 
+The layering rules no compiler checks are checked by **`cargo xtask guards`**,
+on every pull request (`crate-tests.yml`, `layering guards`):
+`rlevo-evolution` names no path into the environment contract (ADR 0002); no
+published crate depends on `rlevo-harness` but the umbrella, and
+`rlevo-environments` only under `record`; the umbrella's default features turn
+on no viz, recording or `rerun` feature; no published crate reaches a viz
+package at its default features, in its build or its tests; and the five
+`katex-header.html` copies are byte-identical. A failed guard names the line
+that breaks the rule. The guards are in `xtask/src/commands/guards.rs`.
+
 A change to a crate's public surface reports its **surface delta** (ADR 0081):
 `tools/public-surface.sh <crate>` lists the public items, one per line, and
 the delta is the diff of the listing at the base commit and on the branch. A
@@ -139,10 +149,11 @@ If you encounter dimension mismatch errors, verify:
 ### Mathematical Notation in Docs
 
 Five crates (`rlevo-core`, `rlevo-environments`, `rlevo-evolution`,
-`rlevo-harness`, `rlevo-reinforcement-learning`) ship a hand-synced
+`rlevo-harness`, `rlevo-reinforcement-learning`) ship a
 `katex-header.html` (`crates/<crate>/katex-header.html`, wired via
 `[package.metadata.docs.rs] rustdoc-args`) that renders KaTeX in `cargo doc`
-output; the five copies stay byte-identical. Rustdoc and ADR/markdown docs need **different** math syntax — see
+output; the five copies stay byte-identical, which `cargo xtask guards`
+checks. Rustdoc and ADR/markdown docs need **different** math syntax — see
 [`docs/rules.md`](docs/rules.md)'s Documentation section ("Mathematical
 notation" subsection) before writing or editing either. Short version: rustdoc
 math is backtick-wrapped (`` `$...$` `` inline, ` ```math ` fenced for

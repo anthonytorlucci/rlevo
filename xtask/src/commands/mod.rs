@@ -1,3 +1,4 @@
+pub mod guards;
 pub mod probe;
 pub mod test_fast;
 pub mod test_gpu;
