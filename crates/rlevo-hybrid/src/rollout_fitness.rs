@@ -36,8 +36,9 @@
 //!
 //! # Gradient isolation
 //!
-//! `B: Backend`, not `AutodiffBackend` — rollouts are forward-only. `Hidden` is
-//! a plain runtime value, never a tracked leaf.
+//! Rollouts are forward-only: the policy is rebuilt from each row by
+//! [`ModuleReshaper::unflatten`], whose parameters never require gradients.
+//! `Hidden` is a plain runtime value, never a tracked leaf.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -51,10 +52,6 @@ use rlevo_evolution::module_eval_fn::ModuleEvalFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
 
 use crate::policy::StatefulPolicy;
-
-/// Device type for backend `B` (the `Device` associated type lives on the
-/// `BackendTypes` supertrait in this Burn version).
-type Dev = Device;
 
 /// Constructs a fresh environment per evaluation episode.
 type EnvFactory<E> = Arc<dyn Fn() -> E + Send + Sync>;
@@ -98,7 +95,6 @@ where
 ///
 /// # Type Parameters
 ///
-/// - `B`: Burn backend (non-autodiff).
 /// - `M`: the policy network module; must implement [`StatefulPolicy`] over
 ///   `E`'s observation and action types (a reactive module with
 ///   `Hidden = ()`).
@@ -199,7 +195,7 @@ where
     M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1> + Send,
 {
-    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Dev) -> Tensor<1> {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         self.inner.evaluate_batch(population, device)
     }
 

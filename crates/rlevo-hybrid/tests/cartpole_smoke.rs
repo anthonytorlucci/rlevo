@@ -17,9 +17,6 @@ use rlevo_evolution::strategy::EvolutionaryLoop;
 use rlevo_hybrid::{RolloutFitness, StatefulPolicy};
 
 /// `CartPole` policy: `obs(4) -> 8 -> logits(2)`.
-///
-/// Backend generic must be `B` — Burn's `#[derive(Module)]` references
-/// `Device` literally.
 #[derive(Module, Debug)]
 struct PolicyMlp {
     l1: Linear,

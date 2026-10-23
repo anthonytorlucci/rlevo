@@ -37,7 +37,7 @@ ERL-style concurrent evolution + gradient RL, and CEM-RL remain future work.
 
 ## Design intent
 
-`RolloutFitness<B, M, E>` scores flat policy weights by rollout, so any
+`RolloutFitness<M, E>` scores flat policy weights by rollout, so any
 flat-genome strategy in an `EvolutionaryLoop` optimizes a fixed-topology
 policy module `M` purely by black-box search against environment `E`'s
 return — no gradients. Planned strategies that interleave gradient-based RL
