@@ -5,7 +5,7 @@ and a worked example that takes a brand-new objective from nothing to a running
 optimisation.
 
 It exists because the fitness layer is the part of `rlevo` most likely to look
-like a thicket of generics on first contact: `BatchFitnessFn<B, G>`,
+like a thicket of generics on first contact: `BatchFitnessFn<G>`,
 `FromLandscape<L>`, `ModuleEvalFn`, `RolloutFitness`. The thicket dissolves
 once you see that **they are not four competing concepts — they are one trait
 and three on-ramps to it.**
@@ -29,11 +29,12 @@ and three on-ramps to it.**
 The engine — specifically the `EvolutionaryLoop` — consumes exactly one trait:
 
 ```rust,ignore
-pub trait BatchFitnessFn<B: Backend, G>: Send {
+use burn::tensor::Device;
+pub trait BatchFitnessFn<G>: Send {
     /// Whole population in, one fitness value per row out, in the objective's
     /// own direction: a cost as a cost, a score as a score. Row order is
     /// preserved: `fitness[i]` scores the individual at row `i`.
-    fn evaluate_batch(&mut self, population: &G, device: &B::Device) -> Tensor<B, 1>;
+    fn evaluate_batch(&mut self, population: &G, device: &Device) -> Tensor<1>;
 
     /// Which way is better. Required, with no default, so that a score cannot
     /// be minimised by omission.
@@ -47,11 +48,11 @@ they look:
 
 - **`B`** is the Burn **backend** — the compute target (`Flex`, `Wgpu`, `NdArray`).
   It rides along on every tensor type. You name it once, in the loop's turbofish
-  (`EvolutionaryLoop::<B, _, _>::new`); the strategy's and the adapter's types are
+  (`EvolutionaryLoop::new`); the strategy's and the adapter's types are
   inferred from the arguments.
 - **`G`** is the **genome container** — the *shape of one population*. For the
-  real-coded algorithms (GA, ES, EP, DE) it is `Tensor<B, 2>`: a `(pop_size,
-  genome_dim)` block of `f32`. For discrete algorithms it is `Tensor<B, 2, Int>`.
+  real-coded algorithms (GA, ES, EP, DE) it is `Tensor<2>`: a `(pop_size,
+  genome_dim)` block of `f32`. For discrete algorithms it is `Tensor<2, Int>`.
 
 > **The `B`/`G` pair in one sentence.** `B` says *where the numbers live* (which
 > device/backend); `G` says *what one genome looks like* (real vs. integer
@@ -93,9 +94,9 @@ Worth restating, because it is the crux: **strategies never see any of these
 types.** The data flow is
 
 ```text
-evo_loop.fitness_fn : impl BatchFitnessFn<B, G>
+evo_loop.fitness_fn : impl BatchFitnessFn<G>
         │
-   strategy.ask ──▶ population (G) ──▶ evaluate_batch ──▶ fitness Tensor<B,1>
+   strategy.ask ──▶ population (G) ──▶ evaluate_batch ──▶ fitness Tensor<1>
                                                               │
                                               strategy.tell(population, fitness)
 ```
@@ -121,6 +122,7 @@ It is a pure scalar function of a point, so the natural shape is the host-side
 `Landscape` trait (`rlevo::core::fitness::Landscape`):
 
 ```rust,no_run
+use rlevo::burn::tensor::Device;
 use rlevo::core::fitness::Landscape;
 
 struct WeightedSphere {
@@ -180,20 +182,18 @@ From here it is identical to the bundled-landscape path in
 the objective is the only thing that changed:
 
 ```rust,no_run
-use rlevo::burn::backend::Flex;
+use rlevo::burn::tensor::Device;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::strategy::EvolutionaryLoop;
 
-type B = Flex;
-
-let device = Default::default();
-let strategy = GeneticAlgorithm::<B>::new();
+let device = Device::flex();
+let strategy = GeneticAlgorithm::new();
 // `default_for` searches [-5.12, 5.12] in every dimension; set `bounds` on
 // the config for a different domain, or the optimum may lie outside the box.
 let config = GaConfig::default_for(/* pop = */ 64, /* dim = */ 3);
 
 let mut evo_loop =
-    EvolutionaryLoop::<B, _, _>::new(strategy, config, fitness_fn, 42, device, 200).expect("valid config");
+    EvolutionaryLoop::new(strategy, config, fitness_fn, 42, device, 200).expect("valid config");
 
 evo_loop.reset();
 while !evo_loop.is_done() {
@@ -204,14 +204,14 @@ println!("best = {:.3e}", evo_loop.latest_metrics().unwrap().best_fitness_ever()
 // The minimiser itself: the best genome so far, a `(1, genome_dim)` tensor, and
 // its cost in the objective's own direction.
 if let Some((genome, cost)) = evo_loop.best() {
-    let x: Vec<f32> = genome.into_data().into_vec().expect("f32 genome");
+    let x: Vec<f32> = genome.into_data().try_into_vec().expect("f32 genome");
     println!("x* = {x:?}, f(x*) = {cost:.3e}");
 }
 ```
 
-You name the backend `B`; the strategy's and the adapter's types are inferred,
-which is why the turbofish is just `::<B, _, _>` — you never spell out the
-genome type.
+Every type is inferred — the strategy's, the adapter's and the genome's — so
+you never spell one out; the device you pass is the only choice of where the
+run happens.
 
 `reset()` starts the run, `step()` runs one generation and `is_done()` says
 whether the 200-generation budget is spent.
@@ -227,17 +227,17 @@ device transfer you do not need. Then skip the adapter and implement the contrac
 directly, keeping everything on device:
 
 ```rust,no_run
-use rlevo::burn::tensor::{backend::Backend, Tensor};
+use rlevo::burn::tensor::{Device, Tensor};
 use rlevo::core::objective::ObjectiveSense;
 use rlevo::evo::fitness::BatchFitnessFn;
 
-struct OnDeviceWeightedSphere<B: Backend> {
-    weights: Tensor<B, 1>,   // (genome_dim,)
-    centre:  Tensor<B, 1>,   // (genome_dim,)
+struct OnDeviceWeightedSphere {
+    weights: Tensor<1>,   // (genome_dim,)
+    centre:  Tensor<1>,   // (genome_dim,)
 }
 
-impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for OnDeviceWeightedSphere<B> {
-    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, _device: &B::Device) -> Tensor<B, 1> {
+impl BatchFitnessFn<Tensor<2>> for OnDeviceWeightedSphere {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, _device: &Device) -> Tensor<1> {
         let centre = self.centre.clone().unsqueeze_dim::<2>(0);    // (1, dim) — broadcasts
         let weights = self.weights.clone().unsqueeze_dim::<2>(0);  // (1, dim)
         let centred = population.clone() - centre;                 // (pop, dim)
@@ -254,8 +254,9 @@ impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for OnDeviceWeightedSphere<B> {
 Build it on the device the loop will use, and hand it over exactly as before:
 
 ```rust,ignore
-let device = Default::default();
-let fitness_fn = OnDeviceWeightedSphere::<B> {
+use rlevo::burn::tensor::{Device, Tensor};
+let device = Device::flex();
+let fitness_fn = OnDeviceWeightedSphere {
     weights: Tensor::from_floats([1.0, 4.0, 9.0], &device),
     centre: Tensor::from_floats([0.5, -0.5, 1.0], &device),
 };
@@ -283,10 +284,10 @@ still just calls `evaluate_batch` and reads `sense()`.
 - [The Ask/Tell Contract](ask-tell-contract.md) — how `EvolutionaryLoop` drives the
   `ask` → `evaluate_batch` → `tell` loop, how to run it by hand, and the
   maximise convention / `ObjectiveSense` contract this page assumes.
-- The genome type `G` in `BatchFitnessFn<B, G>` is the bare population
-  tensor — `Tensor<B, 2>` for real-valued genomes, `Tensor<B, 2, Int>` for
+- The genome type `G` in `BatchFitnessFn<G>` is the bare population
+  tensor — `Tensor<2>` for real-valued genomes, `Tensor<2, Int>` for
   binary/integer ones. For weight-only neuroevolution, `ModuleReshaper` is the
   bridge `ModuleEvalFn` and `RolloutFitness` rely on: `flatten` walks a Burn
-  `Module`'s float leaves in declaration order into one `Tensor<B, 1>` genome,
+  `Module`'s float leaves in declaration order into one `Tensor<1>` genome,
   and `unflatten` clones a template module and refills its leaves from a flat
   vector in the same order, so $\text{unflatten}(\text{flatten}(m)) \approx m$.

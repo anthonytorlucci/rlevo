@@ -34,10 +34,15 @@ types, never constrains them.
 
 The second: **library crates select no Burn backend** (ADR 0080). The
 workspace `burn` entry is `default-features = false, features = ["std"]`;
-library code is generic over `B: Backend` and never names `Flex`, `Wgpu` or
-`Autodiff<_>`. The leaf picks the backend: the `rlevo` umbrella's `flex`
-(default) and `wgpu` features for a consumer, `[dev-dependencies]` for a
-crate's own tests, benches and doctests. A workspace-wide build hides a
+`rlevo-reinforcement-learning` adds `optim`, which brings `autodiff`, and
+neither selects a backend (ADR 0093). On Burn 0.22 there is no backend type
+parameter: library code takes the `burn::tensor::Device` it is given and never
+constructs one (`Device::flex()`, `Device::wgpu(..)`). An RL agent switches
+autodiff on itself, from the device its caller passes. The leaf picks the
+backend: the `rlevo` umbrella's `flex` (default) and `wgpu` features for a
+consumer, `[dev-dependencies]` for a crate's own tests, benches and doctests,
+which name their device (`Device::flex()`, never `Device::default()`, which is
+wgpu in a build that compiles it; `tools/no-default-device.sh` checks). A workspace-wide build hides a
 violation, so check a library alone: `cargo check -p <crate> --lib`.
 `rlevo-core` goes further and depends on Burn only under its `burn` feature
 (ADR 0089): an environment author implements `HostRow` and writes no Burn
@@ -51,10 +56,13 @@ Immutable architectural decision records live in [`docs/adr/`](docs/adr/); the
 decision, add a new numbered ADR there — do not edit an accepted one; supersede
 it.
 
-An accepted ADR keeps the names of its day. Two renames to carry when reading
-one: the harness crate was `rlevo-benchmarks` before ADR 0088 and is
-`rlevo-harness`, and the generation loop was `EvolutionaryHarness` before ADR
-0085 and is `EvolutionaryLoop`.
+An accepted ADR keeps the names of its day. Three renames to carry when
+reading one: the harness crate was `rlevo-benchmarks` before ADR 0088 and is
+`rlevo-harness`; the generation loop was `EvolutionaryHarness` before ADR
+0085 and is `EvolutionaryLoop`; and before ADR 0093 (Burn 0.22) every tensor,
+module and trait carried a backend parameter (`Tensor<B, D>`, `Linear<B>`,
+`Strategy<B>`, `B::Device`, `B: AutodiffBackend`), which is now gone: read
+`Tensor<D>`, `Linear`, `Strategy`, `Device`, and autodiff as device state.
 
 ## Development Commands
 
@@ -110,8 +118,6 @@ replaces.
 | `OR` | `Observation` | rank of the representative observation tensor |
 | `AR` | `Action` | rank of the representative action tensor |
 | `E` | Environment | - |
-| `B` | Burn Autodiff Backend | - |
-| `BK` | Burn Backend | - |
 | `BS` | Batch size | - |
 
 ### Const Generics and Type Inference

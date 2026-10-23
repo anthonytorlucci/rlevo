@@ -21,10 +21,44 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   its new `flex` feature is on by default and selects the same CPU backend
   with the same Burn features as before. **If you depend on a library crate
   directly,** add `burn` to your own manifest with the backend feature you
-  want (`flex` or `wgpu`), plus `autodiff` to train an RL agent. Without one,
-  `burn::backend::Flex` and `Wgpu` do not exist and the build says so.
+  want (`flex` or `wgpu`). Without one, `Device::flex()` and
+  `Device::wgpu(..)` do not exist and the build says so.
+- **Burn 0.22** (ADR 0093). Burn removed its backend type parameter, so
+  every signature here that named one changes:
+  - `Tensor<B, D>` is `Tensor<D>`, `Linear<B>` is `Linear`, a module `M<B>`
+    is `M`, and `B::Device` is `burn::tensor::Device`. Drop the `B` from every
+    rlevo trait and type you name: `Strategy`, `BatchFitnessFn<G>`,
+    `TensorConvertible<R>`, `DqnAgent<M, O, A, OR, BOR>`, and the rest.
+  - Autodiff is device state. An RL agent's `new(.., device)` takes the
+    device you build (`Device::flex()`) and trains on its autodiff form; build
+    your network on that plain device.
+  - The RL model traits keep `forward` only. `forward_inner` and
+    `soft_update` are removed from `DqnModel`, `C51Model`, `QrDqnModel`,
+    `DeterministicPolicy` and `ContinuousQ`, and `forward_sample_inner` from
+    `SquashedGaussianPolicy`: delete them from your impls. The agents call
+    `utils::polyak_update` on their target networks themselves.
+    `PpoPolicy::deterministic_env_row_inner(inner, obs)` is now the method
+    `deterministic_env_row(&self, obs)`.
+  - `TargetUpdate::tau` and `TargetUpdate::fires_at` return `f32`, the type
+    `utils::polyak_update` takes. They returned `f64` for the removed
+    `soft_update`; widen with `f64::from` where you still want one.
+  - Burn's `Module` derive no longer generates a record type, so
+    `CategoricalPolicyHeadRecord`, `PpgCategoricalPolicyHeadRecord`,
+    `TanhGaussianPolicyHeadRecord`, `SquashedGaussianPolicyHeadRecord` and
+    their `*RecordItem` types are gone. Every module's record is now
+    `burn::store::ModuleRecord`, from `into_record()`.
+  - `rlevo-reinforcement-learning` turns on Burn's `optim` feature, which
+    brings `autodiff`; it still selects no backend. Depending on it directly,
+    you no longer add `autodiff` yourself.
+  - Known answers. On Flex, seeded runs match those on Burn 0.21 bit for bit
+    except in two places. SAC differs in the last bits, because Burn's
+    `softplus` is now computed with `log1p`. PPG starts from different
+    weights, because the agent now materialises every parameter when it is
+    built, so they draw from the seeded RNG in field order (Burn initialises
+    a parameter on first read). `NaN` now propagates through `relu` on Flex,
+    and wgpu's `argmax` and `clamp` treat `NaN` as Flex does.
 - **`rlevo` no longer enables the GPU backend by default.** Add the `wgpu`
-  feature to get `burn::backend::Wgpu`.
+  feature to get `Device::wgpu(..)`.
 - **The `custom-kernels` feature is removed** from `rlevo-evolution` and
   `rlevo`, with the modules `rlevo_evolution::ops::kernels` and
   `rlevo_evolution::algorithms::metaheuristic::kernels`. The feature gated
@@ -359,7 +393,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   whole dependency tree; `flex` is on by default. Each also enables Burn's
   `autodiff` and Burn's own defaults for the backend it selects.
 - **`rlevo::burn`**, a re-export of the Burn release `rlevo` is built
-  against, so a consumer names tensors and backends without a `burn` entry
+  against, so a consumer names tensors and devices without a `burn` entry
   of its own.
 - **`rlevo::harness`**, the evaluation harness (ADR 0084). `rlevo` now
   depends on `rlevo-harness` unconditionally, at its default features,
