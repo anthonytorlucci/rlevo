@@ -10,16 +10,19 @@
 //! every off-policy `remember` consults before pushing into the replay buffer
 //! (ADR 0065); [`FiniteObsGuard`], its observation-side counterpart, which
 //! drops and counts at `remember` and detects and reports at `act` (ADR 0067);
-//! and [`LogWatermark`], the progress-logging trigger shared by the on-policy
-//! training loops.
+//! [`LogWatermark`], the progress-logging trigger shared by the on-policy
+//! training loops; and the three pieces every default network is built from
+//! ([`hidden_layers`], [`run_hidden`], [`flatten_batch`]).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use burn::module::Module;
+use burn::nn::{Linear, LinearConfig};
 use burn::optim::{GradientsParams, LearningRate, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::action::BoundedAction;
+use rlevo_core::config::{self, ConfigError};
 
 use crate::replay::{ImportanceExponent, SampledBatch};
 
@@ -328,6 +331,72 @@ pub(crate) fn reduce_weighted_loss(
             (per_sample * w).mean()
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The default networks' hidden layers
+// ---------------------------------------------------------------------------
+
+/// Builds a default network's hidden layers: one [`Linear`] per width, in
+/// order, starting from `input` features. Returns the layers and the width
+/// the network's head reads (`input` when `widths` is empty).
+///
+/// Each layer is `LinearConfig::new(in, out).init(device)`, built first to
+/// last and before the head, so the device's RNG is drawn layer by layer.
+/// A hand-written network built the same way from the same seed has the same
+/// parameters, bit for bit.
+pub(crate) fn hidden_layers(
+    input: usize,
+    widths: &[usize],
+    device: &Device,
+) -> (Vec<Linear>, usize) {
+    let mut layers = Vec::with_capacity(widths.len());
+    let mut width = input;
+    for &next in widths {
+        layers.push(LinearConfig::new(width, next).init(device));
+        width = next;
+    }
+    (layers, width)
+}
+
+/// Runs `x` through `layers`, applying `activation` after each one.
+pub(crate) fn run_hidden(
+    layers: &[Linear],
+    x: Tensor<2>,
+    activation: fn(Tensor<2>) -> Tensor<2>,
+) -> Tensor<2> {
+    layers
+        .iter()
+        .fold(x, |x, layer| activation(layer.forward(x)))
+}
+
+/// Flattens a batch of observations of rank `BOR` to `(batch, features)`.
+///
+/// The identity at `BOR = 2`. A rank below 2 has no feature axis, and is a
+/// compile error where the network is used at that rank.
+pub(crate) fn flatten_batch<const BOR: usize>(observations: Tensor<BOR>) -> Tensor<2> {
+    const {
+        assert!(
+            BOR >= 2,
+            "a batch of observations has a batch axis and at least one feature axis"
+        );
+    }
+    observations.flatten(1, BOR - 1)
+}
+
+/// Rejects a zero width in a default network's `hidden` list.
+///
+/// # Errors
+///
+/// Returns [`config::ConstraintKind::Zero`] on field `hidden` for the first
+/// zero width.
+pub(crate) fn nonzero_widths(
+    config_name: &'static str,
+    widths: &[usize],
+) -> Result<(), ConfigError> {
+    widths
+        .iter()
+        .try_for_each(|&width| config::nonzero(config_name, "hidden", width))
 }
 
 // ---------------------------------------------------------------------------
@@ -1196,7 +1265,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use burn::module::Module;
-    use burn::nn::{Linear, LinearConfig};
     use burn::optim::AdamConfig;
 
     /// Minimal trainable network for slot tests.

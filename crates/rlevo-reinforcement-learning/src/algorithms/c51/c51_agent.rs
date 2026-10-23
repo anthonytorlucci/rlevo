@@ -21,11 +21,11 @@ use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 
 use crate::algorithms::c51::c51_config::C51TrainingConfig;
-use crate::algorithms::c51::c51_model::C51Model;
 use crate::algorithms::c51::loss::{
     categorical_cross_entropy_per_sample, categorical_kl_per_sample,
 };
 use crate::algorithms::c51::projection::project_distribution;
+use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::shared::{
     FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
@@ -155,7 +155,7 @@ pub struct LearnOutcome {
 ///   autodiff graph.
 pub struct C51Agent<M, O, A, const OR: usize, const BS: usize>
 where
-    M: C51Model<BS>,
+    M: DqnModel<BS, 3>,
     O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
@@ -207,7 +207,7 @@ where
 
 impl<M, O, A, const OR: usize, const BS: usize> std::fmt::Debug for C51Agent<M, O, A, OR, BS>
 where
-    M: C51Model<BS>,
+    M: DqnModel<BS, 3>,
     O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
@@ -224,7 +224,7 @@ where
 
 impl<M, O, A, const OR: usize, const BS: usize> C51Agent<M, O, A, OR, BS>
 where
-    M: C51Model<BS>,
+    M: DqnModel<BS, 3>,
     O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
@@ -1098,7 +1098,7 @@ mod tests {
         }
     }
 
-    impl C51Model<2> for TestNet {
+    impl DqnModel<2, 3> for TestNet {
         fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
             self.forward_impl(observations)
         }

@@ -11,7 +11,9 @@ surface and example scaffolding introduced here.
 - [`dqn_config`](dqn_config.rs) — `DqnTrainingConfig`, with all
   hyperparameters (batch size, $\gamma$, $\tau$, $\epsilon$ schedule, `learning_starts`,
   `train_frequency`, `double_q`, replay capacity, grad clip).
-- [`dqn_model`](dqn_model.rs) — the `DqnModel` trait: `forward`.
+- [`dqn_model`](dqn_model.rs) — the `DqnModel` trait: `forward`, to
+  Q-values, or at output rank 3 to a distribution per action, which is what
+  C51 and QR-DQN take.
 - [`exploration`](exploration.rs) — multiplicative $\epsilon$-greedy schedule.
 - [`train`](train.rs) — end-to-end collect-learn-sync loop.
 
@@ -27,6 +29,20 @@ There are two networks in DQN:
 
 Both are the same type `M`, so the trait asks for one method.
 
+`MlpQNetwork` is the default: an MLP with `ReLU` hidden layers of the widths
+you give, at any observation rank (it flattens the observation first).
+
+```rust
+let net = MlpQNetworkConfig {
+    obs_dim: 4,
+    hidden: vec![64, 64],
+    num_actions: 2,
+}
+.try_init(&device)?;
+```
+
+A network of your own implements the trait:
+
 ```rust
 #[derive(Module, Debug)]
 pub struct MyDqn {
@@ -39,31 +55,23 @@ impl DqnModel<2> for MyDqn {
 }
 ```
 
-## Running the example
-
-```bash
-cargo run -p rlevo-reinforcement-learning --release --example dqn_cart_pole -- \
-    --seed 42 --total-timesteps 50000 --log-every 1000
-```
-
-On ndarray the 100-episode moving average climbs past 100 within ~15k env
-steps and past 180 within 30k. Reference curve, kept as a record (no test or
-bench reads it): `crates/rlevo/tests/baselines/dqn_cartpole.csv` in the
-workspace repository.
-
 ## Tests
 
-```bash
-cargo test -p rlevo-reinforcement-learning --release --test dqn_integration
-```
-
-Two reproducibility/smoke tests are gated behind `#[ignore]` because they
-perturb Burn's global ndarray RNG when run in parallel. Exercise them with:
+The CartPole integration tests live in the umbrella crate:
 
 ```bash
-cargo test -p rlevo-reinforcement-learning --release --test dqn_integration -- \
-    --ignored --test-threads=1
+cargo test -p rlevo --test dqn_integration
 ```
+
+The convergence and reproducibility tests are `#[ignore]`d and run in the
+heavy tier:
+
+```bash
+cargo xtask test-heavy dqn_integration
+```
+
+A reference learning curve, kept as a record (no test or bench reads it), is
+`crates/rlevo/tests/baselines/dqn_cartpole.csv` in the workspace repository.
 
 ## References
 

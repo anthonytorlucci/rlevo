@@ -25,7 +25,7 @@
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::activation::{relu, tanh};
+use burn::tensor::activation::relu;
 use burn::tensor::{Device, Tensor};
 
 use rand::SeedableRng;
@@ -38,7 +38,7 @@ use rlevo_environments::box2d::car_racing::{
     CarRacing, CarRacingAction, CarRacingConfig, CarRacingObservation,
 };
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
-    ContinuousQ, DeterministicPolicy,
+    ContinuousQ, MlpActor, MlpActorConfig,
 };
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
@@ -52,7 +52,8 @@ const OBS_NUMEL: usize = 96 * 96 * 3;
 // Actor / critic over a rank-3 pixel observation and a 3-component action.
 // ---------------------------------------------------------------------------
 
-/// Single-layer actor: flatten the frame, project to `COMPONENTS`, squash.
+/// Single-layer actor, the crate's default with no hidden layer and a scale
+/// of 1: flatten the frame, project to `COMPONENTS`, squash.
 ///
 /// `tanh` deliberately emits `[-1, 1]` on **all three** outputs, including gas
 /// and brake, whose true lower bound is `0`. So the raw policy output is out of
@@ -60,28 +61,15 @@ const OBS_NUMEL: usize = 96 * 96 * 3;
 /// depends on the per-component clip to become legal. A scalar clip against
 /// `low[0] = -1` would leave the negative values in place and `CarRacing::step`
 /// would reject them.
-#[derive(Module, Debug)]
-struct Actor {
-    head: Linear,
-}
-
-impl Actor {
-    fn new(device: &Device) -> Self {
-        Self {
-            head: LinearConfig::new(OBS_NUMEL, CarRacingAction::COMPONENTS).init(device),
-        }
+fn actor(device: &Device) -> MlpActor {
+    MlpActorConfig {
+        obs_dim: OBS_NUMEL,
+        hidden: vec![],
+        action_dim: CarRacingAction::COMPONENTS,
+        action_scale: 1.0,
     }
-
-    fn forward_impl(&self, obs: Tensor<4>) -> Tensor<2> {
-        let batch = obs.dims()[0];
-        tanh(self.head.forward(obs.reshape([batch, OBS_NUMEL])))
-    }
-}
-
-impl DeterministicPolicy<4, 2> for Actor {
-    fn forward(&self, obs: Tensor<4>) -> Tensor<2> {
-        self.forward_impl(obs)
-    }
+    .try_init(device)
+    .expect("valid actor config")
 }
 
 #[derive(Module, Debug)]
@@ -110,7 +98,7 @@ impl ContinuousQ<4, 2> for Critic {
     }
 }
 
-type CarAgent = Td3Agent<Actor, Critic, CarRacingObservation, CarRacingAction, 3, 4, 1, 2>;
+type CarAgent = Td3Agent<MlpActor, Critic, CarRacingObservation, CarRacingAction, 3, 4, 1, 2>;
 
 /// Builds a TD3 agent over `CarRacing` with `learning_starts` warm-up steps.
 ///
@@ -127,7 +115,7 @@ fn build_agent(learning_starts: usize) -> CarAgent {
         ..Default::default()
     };
     CarAgent::new(
-        Actor::new(&device),
+        actor(&device),
         Critic::new(&device),
         Critic::new(&device),
         config,

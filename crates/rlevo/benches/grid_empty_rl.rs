@@ -22,9 +22,6 @@
 //! cargo bench -p rlevo --bench grid_empty_rl
 //! ```
 
-#[path = "support/value_nets.rs"]
-mod support;
-
 use burn::tensor::Device;
 use std::hint::black_box;
 
@@ -42,10 +39,9 @@ use rlevo_environments::grids::{EmptyConfig, EmptyEnv, GridAction};
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-
-use support::GridMlpDqn;
 
 const SEED: u64 = 2026;
 /// Flattened observation width: `7 * 7 * 3 = 147`.
@@ -58,7 +54,7 @@ const TRAIN_TIMESTEPS: usize = 30_000;
 /// Episodes used to estimate each policy's reward statistics.
 const EVAL_EPISODES: usize = 200;
 
-type GridAgent = DqnAgent<GridMlpDqn, GridObservation, GridAction, 3, 4>;
+type GridAgent = DqnAgent<MlpQNetwork, GridObservation, GridAction, 3, 4>;
 
 /// Small, fast-to-solve `EmptyEnv` so DQN converges within `TRAIN_TIMESTEPS`.
 fn grid_config() -> EmptyConfig {
@@ -89,7 +85,13 @@ fn train_dqn() -> GridAgent {
         ..Default::default()
     };
 
-    let model: GridMlpDqn = GridMlpDqn::new(OBS_FEATURES, 128, ACTIONS, &device);
+    let model = MlpQNetworkConfig {
+        obs_dim: OBS_FEATURES,
+        hidden: vec![128, 128],
+        num_actions: ACTIONS,
+    }
+    .try_init(&device)
+    .expect("valid Q-network config");
     let mut agent: GridAgent = DqnAgent::new(model, config, device).expect("valid config");
 
     train(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training loop");

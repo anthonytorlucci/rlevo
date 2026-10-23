@@ -929,8 +929,8 @@ mod tests {
 
     type TestAgent = PpoAgent<CategoricalPolicyHead, TestValue, TestObs, 1, 2>;
 
-    /// Minimal scalar value head: `PpoAgent` requires a `PpoValue`
-    /// implementation and the crate ships no built-in one.
+    /// Minimal scalar value head, one linear layer. Not the crate's
+    /// `MlpValue`: the tests below read its `head` field.
     #[derive(Module, Debug)]
     struct TestValue {
         head: Linear,

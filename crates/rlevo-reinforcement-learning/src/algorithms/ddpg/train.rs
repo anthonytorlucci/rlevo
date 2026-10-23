@@ -191,14 +191,16 @@ mod tests {
     use rlevo_core::environment::EpisodeStatus;
 
     use crate::algorithms::bootstrap_mask::{
-        ContinuousMaskEnv, MaskContinuousAction, MaskObservation, TinyCritic,
+        ContinuousMaskEnv, MaskContinuousAction, MaskObservation, tiny_critic,
     };
+    use crate::algorithms::ddpg::ddpg_model::MlpActor;
+    use crate::algorithms::ddpg::ddpg_model::MlpCritic;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
     const STEPS: usize = 9;
 
-    use crate::algorithms::bootstrap_mask::TinyActor;
+    use crate::algorithms::bootstrap_mask::tiny_actor;
     use crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 
     /// Drives `train` against a clock env whose episodes all end with
@@ -214,11 +216,11 @@ mod tests {
             replay_buffer_capacity: 64,
             ..DdpgTrainingConfig::default()
         };
-        let actor = TinyActor::new(&device);
-        let critic = TinyCritic::new(&device);
+        let actor = tiny_actor(&device);
+        let critic = tiny_critic(&device);
         let mut agent = DdpgAgent::<
-            TinyActor,
-            TinyCritic,
+            MlpActor,
+            MlpCritic,
             MaskObservation,
             MaskContinuousAction,
             1,

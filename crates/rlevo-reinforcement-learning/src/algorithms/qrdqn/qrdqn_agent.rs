@@ -19,9 +19,9 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 
+use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
-use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 use crate::algorithms::qrdqn::quantile_loss::quantile_huber_loss_per_sample;
 use crate::algorithms::shared::{
     FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
@@ -153,7 +153,7 @@ pub struct LearnOutcome {
 ///   graph.
 pub struct QrDqnAgent<M, O, A, const OR: usize, const BOR: usize>
 where
-    M: QrDqnModel<BOR>,
+    M: DqnModel<BOR, 3>,
     O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
@@ -205,7 +205,7 @@ where
 
 impl<M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug for QrDqnAgent<M, O, A, OR, BOR>
 where
-    M: QrDqnModel<BOR>,
+    M: DqnModel<BOR, 3>,
     O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
@@ -222,7 +222,7 @@ where
 
 impl<M, O, A, const OR: usize, const BOR: usize> QrDqnAgent<M, O, A, OR, BOR>
 where
-    M: QrDqnModel<BOR>,
+    M: DqnModel<BOR, 3>,
     O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
@@ -1008,7 +1008,7 @@ mod tests {
         }
     }
 
-    impl QrDqnModel<2> for TestQrDqnNet {
+    impl DqnModel<2, 3> for TestQrDqnNet {
         fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
             self.forward_impl(observations)
         }

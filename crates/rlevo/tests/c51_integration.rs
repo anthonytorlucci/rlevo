@@ -9,9 +9,7 @@
 //! acceptance assertions live in the `rlevo-test-support` dev-crate; only the
 //! C51 network and the algorithm-specific tests remain here.
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::{Device, Tensor, activation};
+use burn::tensor::Device;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -19,8 +17,10 @@ use rand::rngs::StdRng;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
 use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig;
-use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
+    MlpDistributionalQ, MlpDistributionalQConfig,
+};
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use rlevo_test_support::assert::assert_all_finite;
@@ -29,46 +29,23 @@ use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
-// Shared MLP (mirror of the c51_cart_pole example). Implements C51's model
-// trait and so stays test-local.
+// The crate's default distributional network, 4 -> 64 -> 64 -> 2 x num_atoms.
 // ---------------------------------------------------------------------------
 
 const N_ACTIONS: usize = 2;
 
-#[derive(Module, Debug)]
-struct C51Mlp {
-    l1: Linear,
-    l2: Linear,
-    l3: Linear,
-    num_atoms: usize,
+fn c51_network(num_atoms: usize, device: &Device) -> MlpDistributionalQ {
+    MlpDistributionalQConfig {
+        obs_dim: 4,
+        hidden: vec![64, 64],
+        num_actions: N_ACTIONS,
+        num_atoms,
+    }
+    .try_init(device)
+    .expect("valid network config")
 }
 
-impl C51Mlp {
-    fn new(num_atoms: usize, device: &Device) -> Self {
-        Self {
-            l1: LinearConfig::new(4, 64).init(device),
-            l2: LinearConfig::new(64, 64).init(device),
-            l3: LinearConfig::new(64, N_ACTIONS * num_atoms).init(device),
-            num_atoms,
-        }
-    }
-
-    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<3> {
-        let [batch_size, _] = observations.dims();
-        let x = activation::relu(self.l1.forward(observations));
-        let x = activation::relu(self.l2.forward(x));
-        let flat = self.l3.forward(x);
-        flat.reshape([batch_size, N_ACTIONS, self.num_atoms])
-    }
-}
-
-impl C51Model<2> for C51Mlp {
-    fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
-        self.forward_impl(observations)
-    }
-}
-
-type Agent = C51Agent<C51Mlp, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = C51Agent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
 
 /// Constructs a deterministic [`C51Agent`] for `CartPole`.
 ///
@@ -106,7 +83,7 @@ fn fresh_agent(seed: u64) -> Agent {
         v_max: 500.0,
         ..Default::default()
     };
-    let model: C51Mlp = C51Mlp::new(num_atoms, &device);
+    let model = c51_network(num_atoms, &device);
     C51Agent::new(model, config, device).expect("valid config")
 }
 
@@ -169,7 +146,7 @@ fn c51_agent_new_rejects_degenerate_support() {
         v_max: 5.0,
         ..C51TrainingConfig::default()
     };
-    let model: C51Mlp = C51Mlp::new(config.num_atoms, &device);
+    let model = c51_network(config.num_atoms, &device);
     let result =
         C51Agent::<_, CartPoleObservation, CartPoleAction, 1, 2>::new(model, config, device);
     let err = result.unwrap_err();

@@ -5,7 +5,9 @@
 //! a feature or an import that breaks one and still build, test and lint
 //! clean, so a rule that is only written down goes quiet the day it is
 //! broken. Each guard reads one rule where it can be broken (a manifest, the
-//! resolved graph or a source tree) and names the line that breaks it.
+//! resolved graph or a source tree) and says what breaks it: a file and
+//! line, a crate and its feature, the copy that differs, or, for a viz
+//! package, the `cargo tree -i` command that prints the path to it.
 //!
 //! | Guard | Rule | Reads |
 //! |---|---|---|

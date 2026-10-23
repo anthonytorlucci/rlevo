@@ -10,9 +10,8 @@
 //! acceptance assertions live in the `rlevo-test-support` dev-crate; only the
 //! DQN network and the algorithm-specific tests remain here.
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::{Device, Tensor, activation};
+use burn::module::{Module, ModuleVisitor, Param};
+use burn::tensor::{Device, Tensor};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -20,7 +19,7 @@ use rand::rngs::StdRng;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
@@ -30,40 +29,20 @@ use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
-// Shared MLP (mirror of the dqn_cart_pole example). Implements DQN's model
-// trait and so stays test-local.
+// The crate's default Q-network, 4 -> 64 -> 64 -> 2.
 // ---------------------------------------------------------------------------
 
-#[derive(Module, Debug)]
-struct DqnMlp {
-    l1: Linear,
-    l2: Linear,
-    l3: Linear,
+fn q_network(device: &Device) -> MlpQNetwork {
+    MlpQNetworkConfig {
+        obs_dim: 4,
+        hidden: vec![64, 64],
+        num_actions: 2,
+    }
+    .try_init(device)
+    .expect("valid Q-network config")
 }
 
-impl DqnMlp {
-    fn new(device: &Device) -> Self {
-        Self {
-            l1: LinearConfig::new(4, 64).init(device),
-            l2: LinearConfig::new(64, 64).init(device),
-            l3: LinearConfig::new(64, 2).init(device),
-        }
-    }
-
-    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<2> {
-        let x = activation::relu(self.l1.forward(observations));
-        let x = activation::relu(self.l2.forward(x));
-        self.l3.forward(x)
-    }
-}
-
-impl DqnModel<2> for DqnMlp {
-    fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(observations)
-    }
-}
-
-type Agent = DqnAgent<DqnMlp, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2>;
 
 /// Constructs a deterministic [`DqnAgent`] for `CartPole`.
 ///
@@ -98,7 +77,7 @@ fn fresh_agent(seed: u64) -> Agent {
         double_q: false,
         ..Default::default()
     };
-    let model: DqnMlp = DqnMlp::new(&device);
+    let model = q_network(&device);
     DqnAgent::new(model, config, device).expect("valid config")
 }
 
@@ -215,27 +194,28 @@ fn hard_expected_updates(total_steps: usize) -> usize {
         .count()
 }
 
-/// Flattens one network's parameters to the host, element-wise.
+/// Flattens one network's parameters to the host, element-wise, in the
+/// order the module visits them.
 ///
 /// Deliberately not a `sum()` proxy: per-element optimizer steps very nearly
 /// cancel in a sum, which would turn "did the target change" into a coin flip.
-fn hard_net_weights(net: &DqnMlp) -> Vec<f32> {
-    fn host<const D: usize>(t: Tensor<D>, out: &mut Vec<f32>) {
-        out.extend(
-            t.into_data()
-                .convert::<f32>()
-                .try_to_vec::<f32>()
-                .expect("host read"),
-        );
-    }
-    let mut out = Vec::new();
-    for linear in [&net.l1, &net.l2, &net.l3] {
-        host(linear.weight.val(), &mut out);
-        if let Some(bias) = linear.bias.as_ref() {
-            host(bias.val(), &mut out);
+fn hard_net_weights(net: &MlpQNetwork) -> Vec<f32> {
+    struct Host(Vec<f32>);
+    impl ModuleVisitor for Host {
+        fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
+            self.0.extend(
+                param
+                    .val()
+                    .into_data()
+                    .convert::<f32>()
+                    .try_to_vec::<f32>()
+                    .expect("host read"),
+            );
         }
     }
-    out
+    let mut host = Host(Vec::new());
+    net.visit(&mut host);
+    host.0
 }
 
 fn hard_max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
@@ -288,8 +268,7 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
         double_q: false,
         ..Default::default()
     };
-    let mut agent: Agent =
-        DqnAgent::new(DqnMlp::new(&device), config, device).expect("valid config");
+    let mut agent: Agent = DqnAgent::new(q_network(&device), config, device).expect("valid config");
     let mut env = cartpole_seeded(seed);
     let mut rng = StdRng::seed_from_u64(seed);
 

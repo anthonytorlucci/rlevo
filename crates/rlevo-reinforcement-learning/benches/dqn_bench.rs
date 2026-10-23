@@ -7,9 +7,7 @@
 //! every timed `act` call takes the exploring branch and does not run the
 //! Q-network.
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::{Device, Tensor, activation};
+use burn::tensor::Device;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -22,39 +20,9 @@ use rlevo_environments::classic::cartpole::{
 };
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
 
-// MLP mirror of the example. Kept inline so the bench file is self-contained.
-
-#[derive(Module, Debug)]
-struct DqnMlp {
-    l1: Linear,
-    l2: Linear,
-    l3: Linear,
-}
-
-impl DqnMlp {
-    fn new(device: &Device) -> Self {
-        Self {
-            l1: LinearConfig::new(4, 64).init(device),
-            l2: LinearConfig::new(64, 64).init(device),
-            l3: LinearConfig::new(64, 2).init(device),
-        }
-    }
-    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
-        let x = activation::relu(self.l1.forward(x));
-        let x = activation::relu(self.l2.forward(x));
-        self.l3.forward(x)
-    }
-}
-
-impl DqnModel<2> for DqnMlp {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(obs)
-    }
-}
-
-type Agent = DqnAgent<DqnMlp, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2>;
 
 fn build_agent() -> Agent {
     let device = Device::flex();
@@ -65,7 +33,13 @@ fn build_agent() -> Agent {
         train_frequency: 1,
         ..Default::default()
     };
-    let model: DqnMlp = DqnMlp::new(&device);
+    let model = MlpQNetworkConfig {
+        obs_dim: 4,
+        hidden: vec![64, 64],
+        num_actions: 2,
+    }
+    .try_init(&device)
+    .expect("valid Q-network config");
     DqnAgent::new(model, config, device).expect("valid config")
 }
 

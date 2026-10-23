@@ -31,10 +31,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::activation;
-use burn::tensor::{Device, Tensor};
+use burn::tensor::Device;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -46,7 +43,7 @@ use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation}
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 
 use rlevo_harness::record::schema::FamilyPayload;
@@ -116,35 +113,19 @@ impl Environment<1, 1> for FixedLenEnv {
 }
 
 // ---------------------------------------------------------------------------
-// Minimal Q-network. Learning is irrelevant here — the config keeps the agent
-// in its pre-learning window for the whole run — so the network never trains
-// and the target is never updated.
+// Minimal Q-network, the crate's default with one hidden layer. Learning is
+// irrelevant here — the config keeps the agent in its pre-learning window for
+// the whole run — so the network never trains and the target is never updated.
 // ---------------------------------------------------------------------------
 
-#[derive(Module, Debug)]
-struct DqnMlp {
-    l1: Linear,
-    l2: Linear,
-}
-
-impl DqnMlp {
-    fn new(device: &Device) -> Self {
-        Self {
-            l1: LinearConfig::new(4, 32).init(device),
-            l2: LinearConfig::new(32, 2).init(device),
-        }
+fn q_network(device: &Device) -> MlpQNetwork {
+    MlpQNetworkConfig {
+        obs_dim: 4,
+        hidden: vec![32],
+        num_actions: 2,
     }
-
-    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<2> {
-        let x = activation::relu(self.l1.forward(observations));
-        self.l2.forward(x)
-    }
-}
-
-impl DqnModel<2> for DqnMlp {
-    fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(observations)
-    }
+    .try_init(device)
+    .expect("valid Q-network config")
 }
 
 /// Drive the real `dqn::train` loop against [`FixedLenEnv`] through a
@@ -191,8 +172,8 @@ fn run_recording(total_steps: usize) -> RecordedRun {
         replay_buffer_capacity: 1_000,
         ..Default::default()
     };
-    let model: DqnMlp = DqnMlp::new(&device);
-    let mut agent: DqnAgent<DqnMlp, CartPoleObservation, CartPoleAction, 1, 2> =
+    let model = q_network(&device);
+    let mut agent: DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2> =
         DqnAgent::new(model, config, device).expect("valid config");
 
     let mut rng = StdRng::seed_from_u64(seed);

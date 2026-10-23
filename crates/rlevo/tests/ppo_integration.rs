@@ -11,10 +11,7 @@
 //! assertions live in the `rlevo-test-support` dev-crate; only the value
 //! network and the algorithm-specific tests remain here.
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::activation::tanh;
-use burn::tensor::{Device, Tensor};
+use burn::tensor::Device;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -31,7 +28,7 @@ use rlevo_reinforcement_learning::algorithms::ppo::policies::{
 };
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
 use rlevo_reinforcement_learning::algorithms::ppo::train::{train_continuous, train_discrete};
 
 use rlevo_test_support::assert::assert_all_finite;
@@ -42,36 +39,16 @@ use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
-// Shared value MLP. Implements PPO's value trait and so stays test-local.
+// The crate's default value network: two tanh layers of `hidden` units.
 // ---------------------------------------------------------------------------
 
-#[derive(Module, Debug)]
-struct ValueMlp {
-    fc1: Linear,
-    fc2: Linear,
-    head: Linear,
-}
-
-impl ValueMlp {
-    fn new(obs_dim: usize, hidden: usize, device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim, hidden).init(device),
-            fc2: LinearConfig::new(hidden, hidden).init(device),
-            head: LinearConfig::new(hidden, 1).init(device),
-        }
+fn value_net(obs_dim: usize, hidden: usize, device: &Device) -> MlpValue {
+    MlpValueConfig {
+        obs_dim,
+        hidden: vec![hidden, hidden],
     }
-
-    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<1> {
-        let h = tanh(self.fc1.forward(obs));
-        let h = tanh(self.fc2.forward(h));
-        self.head.forward(h).squeeze_dim::<1>(1)
-    }
-}
-
-impl PpoValue<2> for ValueMlp {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<1> {
-        self.forward_impl(obs)
-    }
+    .try_init(device)
+    .expect("valid value network config")
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +68,7 @@ fn make_cart_pole_agent(
     seed: u64,
     num_steps: usize,
     total_timesteps: usize,
-) -> PpoAgent<CategoricalPolicyHead, ValueMlp, CartPoleObservation, 1, 2> {
+) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2> {
     let device = seeded_device(seed);
 
     let policy = CategoricalPolicyHeadConfig {
@@ -101,7 +78,7 @@ fn make_cart_pole_agent(
     }
     .try_init(&device)
     .expect("valid head config");
-    let value = ValueMlp::new(4, 64, &device);
+    let value = value_net(4, 64, &device);
 
     let config = PpoTrainingConfig {
         num_envs: 1,
@@ -171,7 +148,7 @@ fn ppo_agent_new_rejects_multiple_envs() {
     }
     .try_init(&device)
     .expect("valid head config");
-    let value = ValueMlp::new(4, 64, &device);
+    let value = value_net(4, 64, &device);
     let config = PpoTrainingConfig {
         num_envs: 2,
         ..PpoTrainingConfig::default()
@@ -226,7 +203,7 @@ fn make_pendulum_agent(
     seed: u64,
     num_steps: usize,
     total_timesteps: usize,
-) -> PpoAgent<TanhGaussianPolicyHead, ValueMlp, PendulumObservation, 1, 2> {
+) -> PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 1, 2> {
     let device = seeded_device(seed);
 
     let policy = TanhGaussianPolicyHeadConfig {
@@ -241,7 +218,7 @@ fn make_pendulum_agent(
     }
     .try_init(&device)
     .expect("valid head config");
-    let value = ValueMlp::new(3, 64, &device);
+    let value = value_net(3, 64, &device);
 
     let config = PpoTrainingConfig {
         num_envs: 1,

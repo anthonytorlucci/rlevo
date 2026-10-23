@@ -116,7 +116,6 @@ pub mod algorithms {
 
         pub mod c51_agent;
         pub mod c51_config;
-        pub mod c51_model;
         pub mod loss;
         pub mod projection;
         pub mod train;
@@ -127,7 +126,6 @@ pub mod algorithms {
 
         pub mod qrdqn_agent;
         pub mod qrdqn_config;
-        pub mod qrdqn_model;
         pub mod quantile_loss;
         pub mod train;
     }

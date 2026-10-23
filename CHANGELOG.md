@@ -384,6 +384,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `rlevo_environments::games::connect_four`, a hidden module that held
     no item, is removed. `games::chess` stays, hidden until its
     `Environment` impl lands.
+- **`C51Model` and `QrDqnModel` are merged into `DqnModel`** (ADR 0094).
+  The three traits had one method each, from the same input, and differed
+  only in the output's rank. `DqnModel` takes the rank as a parameter,
+  `DqnModel<BOR, OUT = 2>`: a Q-network is `DqnModel<BOR>` as before, and a
+  C51 or QR-DQN network is `DqnModel<BOR, 3>`. Write `impl DqnModel<2, 3>
+  for MyNet` where you wrote `impl C51Model<2> for MyNet` or `impl
+  QrDqnModel<2> for MyNet`; the method body does not change. The modules
+  `algorithms::c51::c51_model` and `algorithms::qrdqn::qrdqn_model` are
+  removed; import `algorithms::dqn::dqn_model::DqnModel`.
 
 ### `rlevo`
 
@@ -451,6 +460,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **Default networks for the value-side model traits** (ADR 0094). Until
+  now every DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3 and SAC user wrote a
+  network by hand; the crate shipped heads for the policy traits only.
+  `MlpQNetwork` (`DqnModel`), `MlpDistributionalQ` (`DqnModel` at output
+  rank 3, for C51 and QR-DQN), `MlpValue` (`PpoValue`), `MlpActor`
+  (`DeterministicPolicy`) and `MlpCritic` (`ContinuousQ`) are built like the
+  heads, from a config with public fields through `try_init(&device)`,
+  which validates it first. Each takes `hidden: Vec<usize>`, the hidden
+  layers' widths (empty is a linear model), and works at any observation
+  rank: it flattens the observation to `(batch, obs_dim)` before its first
+  layer. `MlpActor` emits `tanh(..) * action_scale`, a range symmetric about
+  zero. The hidden layers use `ReLU`, and `tanh` in `MlpValue`, as
+  `CleanRL` does.
 - **`Slot<M>` is public, re-exported as `algorithms::Slot`** (resolves
   #1122). Every agent holds its trainable networks in a `Slot`, and seven
   public agent types pointed readers at it to explain why a panic inside an
@@ -698,6 +720,22 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Changed**
 
+- **The `consumer-umbrella` probe builds a network.** It was an empty
+  `main`, measured for its dependency list. It now also derives a `Module`
+  and a `Config` through `rlevo::burn` and builds one default network, the
+  way the umbrella's crate docs say to. Burn's derives expand to `burn::`
+  paths, so the derive needs `use rlevo::burn;` in scope, and only a crate
+  outside the workspace can show that: a doctest of `rlevo` has `rlevo`'s
+  own `burn` in scope. Its package counts do not change.
+- **The benches, the integration tests and two examples build their
+  networks from the RL crate's defaults.** 39 hand-written networks are
+  gone, `crates/rlevo/benches/support/` with them; the two SAC actors in
+  the benches were copies of the shipped `SquashedGaussianPolicyHead` and
+  use it. Each default is built with the copy's own layer widths, and
+  builds the same parameters from the same seed, bit for bit, so no seeded
+  result moves. The networks that stay are the convolutional ones and the
+  test fixtures with hand-set weights or a ReLU on the Q output. The DQN,
+  C51 and PPO READMEs no longer point at examples that do not exist.
 - **The report client owns its wire-format test.**
   `tests/wire_format_compat.rs` moved from `rlevo-harness` to
   `rlevo-benchmarks-report-client`, which now dev-depends on the harness

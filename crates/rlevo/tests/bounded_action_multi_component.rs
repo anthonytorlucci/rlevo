@@ -41,7 +41,7 @@ use rlevo_core::base::Action;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
-    ContinuousQ, DeterministicPolicy,
+    ContinuousQ, DeterministicPolicy, MlpActor, MlpActorConfig,
 };
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
 use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
@@ -113,27 +113,17 @@ impl BoundedAction<1> for CarLikeAction {
 // Minimal actor / critic over a 1-D observation and a 3-component action.
 // ---------------------------------------------------------------------------
 
-#[derive(Module, Debug)]
-struct Actor {
-    head: Linear,
-}
-
-impl Actor {
-    fn new(obs_dim: usize, action_dim: usize, device: &Device) -> Self {
-        Self {
-            head: LinearConfig::new(obs_dim, action_dim).init(device),
-        }
+/// The crate's default actor with no hidden layer and a scale of 1: `tanh`
+/// of one linear layer, which the agent then clips per component.
+fn actor(obs_dim: usize, action_dim: usize, device: &Device) -> MlpActor {
+    MlpActorConfig {
+        obs_dim,
+        hidden: vec![],
+        action_dim,
+        action_scale: 1.0,
     }
-
-    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<2> {
-        tanh(self.head.forward(obs))
-    }
-}
-
-impl DeterministicPolicy<2, 2> for Actor {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(obs)
-    }
+    .try_init(device)
+    .expect("valid actor config")
 }
 
 #[derive(Module, Debug)]
@@ -159,13 +149,13 @@ impl ContinuousQ<2, 2> for Critic {
     }
 }
 
-type CarAgent = DdpgAgent<Actor, Critic, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
+type CarAgent = DdpgAgent<MlpActor, Critic, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
 
 /// Builds a DDPG agent whose action type has 3 components and a warm-up window
 /// long enough that `act(.., training = true)` takes the uniform-sample branch.
 fn build_agent(learning_starts: usize) -> CarAgent {
     let device = seeded_device(0xA53);
-    let actor = Actor::new(1, CarLikeAction::COMPONENTS, &device);
+    let actor = actor(1, CarLikeAction::COMPONENTS, &device);
     let critic = Critic::new(1, CarLikeAction::COMPONENTS, &device);
     let config = DdpgTrainingConfig {
         learning_starts,

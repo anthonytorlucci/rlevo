@@ -101,7 +101,7 @@ author stops or starts writing.
 | `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy, run it through `Evaluator::run_suite` |
 | `byoe-1-tank-farm` | the same walk over a rank-2 observation, a bounded continuous action that can be invalid, and an episode that an overflow terminates or `TimeLimit` truncates; the harness runs it through the wrapper |
 | `consumer-core` | that author's environment file built against `rlevo-core` alone, with its package count, its Burn package count and a cold build time |
-| `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning` |
+| `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning`; `consumer-umbrella` also builds a network derived through `rlevo::burn` beside a default one, which no doctest can check |
 
 The layering rules no compiler checks are checked by **`cargo xtask guards`**,
 on every pull request (`crate-tests.yml`, `layering guards`):
@@ -110,8 +110,10 @@ published crate depends on `rlevo-harness` but the umbrella, and
 `rlevo-environments` only under `record`; the umbrella's default features turn
 on no viz, recording or `rerun` feature; no published crate reaches a viz
 package at its default features, in its build or its tests; and the five
-`katex-header.html` copies are byte-identical. A failed guard names the line
-that breaks the rule. The guards are in `xtask/src/commands/guards.rs`.
+`katex-header.html` copies are byte-identical. A failed guard says what
+breaks the rule: a file and line, a crate and its feature, the copy that
+differs, or, for a viz package, the `cargo tree -i` command that prints the
+path to it. The guards are in `xtask/src/commands/guards.rs`.
 
 A change to a crate's public surface reports its **surface delta** (ADR 0081):
 `tools/public-surface.sh <crate>` lists the public items, one per line, and
