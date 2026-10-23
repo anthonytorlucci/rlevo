@@ -30,10 +30,8 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::tanh;
 use burn::tensor::{Device, Tensor, activation};
 
-use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
-use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 
 // ---------------------------------------------------------------------------
 // DQN vector MLP — rank-1 observations, batched to rank 2.
@@ -117,7 +115,7 @@ impl DqnModel<4> for GridMlpDqn {
 /// Categorical (C51) value network: `(batch, obs)` → `(batch, actions, atoms)`.
 ///
 /// A two-hidden-layer `ReLU` MLP whose final layer is reshaped into a per-action
-/// distribution over `num_atoms` support points. Implements [`C51Model`] so the
+/// distribution over `num_atoms` support points. Implements [`DqnModel`] at rank 3 so the
 /// C51 trainer can drive it and Polyak-average a target copy.
 #[derive(Module, Debug)]
 pub struct C51Mlp {
@@ -157,7 +155,7 @@ impl C51Mlp {
     }
 }
 
-impl C51Model<2> for C51Mlp {
+impl DqnModel<2, 3> for C51Mlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<3> {
         self.forward_impl(obs)
     }
@@ -170,7 +168,7 @@ impl C51Model<2> for C51Mlp {
 /// Quantile (QR-DQN) value network: `(batch, obs)` → `(batch, actions, quantiles)`.
 ///
 /// A two-hidden-layer `ReLU` MLP whose final layer is reshaped into `num_quantiles`
-/// quantile estimates per action. Implements [`QrDqnModel`] so the QR-DQN trainer
+/// quantile estimates per action. Implements [`DqnModel`] at rank 3 so the QR-DQN trainer
 /// can drive it and Polyak-average a target copy.
 #[derive(Module, Debug)]
 pub struct QrDqnMlp {
@@ -210,7 +208,7 @@ impl QrDqnMlp {
     }
 }
 
-impl QrDqnModel<2> for QrDqnMlp {
+impl DqnModel<2, 3> for QrDqnMlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<3> {
         self.forward_impl(obs)
     }

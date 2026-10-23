@@ -292,13 +292,7 @@ impl AtomNet {
     }
 }
 
-impl crate::algorithms::c51::c51_model::C51Model<2> for AtomNet {
-    fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
-        self.run(observations)
-    }
-}
-
-impl crate::algorithms::qrdqn::qrdqn_model::QrDqnModel<2> for AtomNet {
+impl crate::algorithms::dqn::dqn_model::DqnModel<2, 3> for AtomNet {
     fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.run(observations)
     }

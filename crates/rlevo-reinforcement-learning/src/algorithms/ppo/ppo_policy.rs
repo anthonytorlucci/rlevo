@@ -1,11 +1,13 @@
 //! The [`PpoPolicy`] trait implemented by every policy network used with
 //! [`PpoAgent`](crate::algorithms::ppo::ppo_agent::PpoAgent).
 //!
-//! Modelled on [`C51Model`](crate::algorithms::c51::c51_model::C51Model): the
+//! Modelled on [`DqnModel`](crate::algorithms::dqn::dqn_model::DqnModel): the
 //! trait is deliberately scoped to this module rather than being promoted to a
-//! crate-level "stochastic policy" trait. Each existing algorithm in
-//! `rlevo-reinforcement-learning` owns its model trait (`DqnModel`, `C51Model`, `QrDqnModel`);
-//! cross-algo abstraction waits until SAC/PPG drive a concrete second consumer.
+//! crate-level "stochastic policy" trait. Each algorithm family in
+//! `rlevo-reinforcement-learning` owns its model trait (`DqnModel` for DQN,
+//! C51 and QR-DQN; `DeterministicPolicy` and `ContinuousQ` for DDPG and
+//! TD3); cross-algo abstraction waits until SAC/PPG drive a concrete second
+//! consumer.
 //!
 //! # Associated `ActionTensor`
 //!

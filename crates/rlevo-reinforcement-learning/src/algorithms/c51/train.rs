@@ -18,7 +18,7 @@ use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::environment::Environment;
 
 use crate::algorithms::c51::c51_agent::{C51Agent, C51AgentError, C51Metrics};
-use crate::algorithms::c51::c51_model::C51Model;
+use crate::algorithms::dqn::dqn_model::DqnModel;
 
 /// Drives C51 training for `total_steps` environment steps.
 ///
@@ -69,7 +69,7 @@ pub fn train<M, E, O, A, const R: usize, const BR: usize>(
     log_every: usize,
 ) -> Result<(), C51AgentError>
 where
-    M: C51Model<BR>,
+    M: DqnModel<BR, 3>,
     E: Environment<R, 1, ObservationType = O, ActionType = A>,
     O: Observation<R> + TensorConvertible<R>,
     A: DiscreteAction<1>,

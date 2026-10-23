@@ -84,6 +84,6 @@ critical subset):
 
 The trait surface is deliberately scoped to this module rather than promoted
 to a crate-level "stochastic policy" abstraction: each algorithm in
-`rlevo-reinforcement-learning` currently owns its model trait (`DqnModel`, `C51Model`, ...).
+`rlevo-reinforcement-learning` currently owns its model trait (`DqnModel`, ...).
 Cross-algorithm refactoring waits until SAC/PPG drive a concrete second
 consumer.

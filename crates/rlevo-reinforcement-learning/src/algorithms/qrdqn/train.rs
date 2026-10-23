@@ -27,8 +27,8 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::environment::Environment;
 
+use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::qrdqn::qrdqn_agent::{QrDqnAgent, QrDqnAgentError, QrDqnMetrics};
-use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 
 /// Drives QR-DQN training for `total_steps` environment steps.
 ///
@@ -66,7 +66,7 @@ pub fn train<M, E, O, A, const OR: usize, const BOR: usize>(
     log_every: usize,
 ) -> Result<(), QrDqnAgentError>
 where
-    M: QrDqnModel<BOR>,
+    M: DqnModel<BOR, 3>,
     E: Environment<OR, 1, ObservationType = O, ActionType = A>,
     O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,

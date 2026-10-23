@@ -23,7 +23,7 @@ Key components:
 | File | Purpose |
 |------|---------|
 | `dqn_config.rs` | `DqnTrainingConfig` |
-| `dqn_model.rs` | `DqnModel` Burn `Module` trait |
+| `dqn_model.rs` | `DqnModel` Burn `Module` trait, shared with C51 and QR-DQN at output rank 3 |
 | `dqn_agent.rs` | `DqnAgent` — `act` / `remember` / `learn_step` |
 | `exploration.rs` | `EpsilonGreedy` schedule (shared with C51, QR-DQN) |
 | `train.rs` | End-to-end training loop |
@@ -61,7 +61,6 @@ Key components:
 | File | Purpose |
 |------|---------|
 | `c51_config.rs` | `C51TrainingConfig` |
-| `c51_model.rs` | `C51Model` Burn `Module` trait |
 | `c51_agent.rs` | `C51Agent` — `act` / `remember` / `learn_step` |
 | `projection.rs` | `project_distribution` — Bellman projection onto atom support |
 | `loss.rs` | `categorical_cross_entropy_per_sample` loss |
@@ -95,7 +94,6 @@ Key components:
 | File | Purpose |
 |------|---------|
 | `qrdqn_config.rs` | `QrDqnTrainingConfig` |
-| `qrdqn_model.rs` | `QrDqnModel` Burn `Module` trait |
 | `qrdqn_agent.rs` | `QrDqnAgent` — `act` / `remember` / `learn_step` |
 | `quantile_loss.rs` | `quantile_huber_loss_per_sample` |
 | `train.rs` | End-to-end training loop |
@@ -369,7 +367,7 @@ Every agent holds its trainable networks in a `Slot<M>`. Burn's `Optimizer::step
 
 `compute_target_q_values` — one-step Bellman target computation, called by DQN, DDPG, TD3, and SAC. QR-DQN uses its quantile-vector sibling `compute_target_quantiles`; C51 projects a distribution instead (`project_distribution`).
 
-`polyak_update` — soft target-network update ($\theta_{target} \leftarrow \tau\theta + (1-\tau)\theta_{target}$). Every off-policy agent calls it on its own target networks, so a model trait (`DqnModel`, `C51Model`, `QrDqnModel`, `DeterministicPolicy`, `ContinuousQ`) asks only for `forward`.
+`polyak_update` — soft target-network update ($\theta_{target} \leftarrow \tau\theta + (1-\tau)\theta_{target}$). Every off-policy agent calls it on its own target networks, so a model trait (`DqnModel`, `DeterministicPolicy`, `ContinuousQ`) asks only for `forward`.
 
 ### Experience Replay (`replay`)
 

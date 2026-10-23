@@ -19,8 +19,8 @@ use rand::rngs::StdRng;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
 use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig;
-use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use rlevo_test_support::assert::assert_all_finite;
@@ -62,7 +62,7 @@ impl C51Mlp {
     }
 }
 
-impl C51Model<2> for C51Mlp {
+impl DqnModel<2, 3> for C51Mlp {
     fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.forward_impl(observations)
     }

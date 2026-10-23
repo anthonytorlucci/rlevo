@@ -18,9 +18,9 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 use rlevo_reinforcement_learning::algorithms::qrdqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
@@ -63,7 +63,7 @@ impl QrDqnMlp {
     }
 }
 
-impl QrDqnModel<2> for QrDqnMlp {
+impl DqnModel<2, 3> for QrDqnMlp {
     fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.forward_impl(observations)
     }

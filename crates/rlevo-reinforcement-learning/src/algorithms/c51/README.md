@@ -16,14 +16,17 @@ optimizer) and adds:
 - [`c51_agent`](c51_agent.rs) — `C51Agent`, `C51Metrics`, `C51AgentError`.
 - [`c51_config`](c51_config.rs) — `C51TrainingConfig`, with all
   hyperparameters, including `num_atoms`, `v_min`, `v_max`.
-- [`c51_model`](c51_model.rs) — the `C51Model` trait returning a rank-3
-  tensor of atom logits `(batch, num_actions, num_atoms)`.
 - [`projection`](projection.rs) — `project_distribution` (Algorithm 1,
   Bellemare et al. 2017) implemented via Burn's `scatter`.
 - [`loss`](loss.rs) — `categorical_cross_entropy_per_sample` free function.
 - [`train`](train.rs) — end-to-end collect-learn-sync loop.
 
-## Implementing `C51Model`
+## Implementing the network
+
+C51's network is a [`DqnModel`](../dqn/dqn_model.rs) at output rank 3: it
+returns atom logits `(batch, num_actions, num_atoms)`, and the agent takes
+the softmax over atoms. QR-DQN uses the same trait and reads the same shape
+as quantile values.
 
 ```rust
 #[derive(Module, Debug)]
@@ -34,7 +37,7 @@ pub struct MyC51 {
     num_atoms: usize,
 }
 
-impl C51Model<2> for MyC51 {
+impl DqnModel<2, 3> for MyC51 {
     fn forward(&self, obs: Tensor<2>) -> Tensor<3> {
         let [batch, _] = obs.dims();
         let x = activation::relu(self.l1.forward(obs));

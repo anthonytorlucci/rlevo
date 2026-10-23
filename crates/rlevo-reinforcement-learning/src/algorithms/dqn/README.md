@@ -11,7 +11,9 @@ surface and example scaffolding introduced here.
 - [`dqn_config`](dqn_config.rs) — `DqnTrainingConfig`, with all
   hyperparameters (batch size, $\gamma$, $\tau$, $\epsilon$ schedule, `learning_starts`,
   `train_frequency`, `double_q`, replay capacity, grad clip).
-- [`dqn_model`](dqn_model.rs) — the `DqnModel` trait: `forward`.
+- [`dqn_model`](dqn_model.rs) — the `DqnModel` trait: `forward`, to
+  Q-values, or at output rank 3 to a distribution per action, which is what
+  C51 and QR-DQN take.
 - [`exploration`](exploration.rs) — multiplicative $\epsilon$-greedy schedule.
 - [`train`](train.rs) — end-to-end collect-learn-sync loop.
 

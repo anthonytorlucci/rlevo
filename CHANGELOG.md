@@ -384,6 +384,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `rlevo_environments::games::connect_four`, a hidden module that held
     no item, is removed. `games::chess` stays, hidden until its
     `Environment` impl lands.
+- **`C51Model` and `QrDqnModel` are merged into `DqnModel`** (ADR 0094).
+  The three traits had one method each, from the same input, and differed
+  only in the output's rank. `DqnModel` takes the rank as a parameter,
+  `DqnModel<BOR, OUT = 2>`: a Q-network is `DqnModel<BOR>` as before, and a
+  C51 or QR-DQN network is `DqnModel<BOR, 3>`. Write `impl DqnModel<2, 3>
+  for MyNet` where you wrote `impl C51Model<2> for MyNet` or `impl
+  QrDqnModel<2> for MyNet`; the method body does not change. The modules
+  `algorithms::c51::c51_model` and `algorithms::qrdqn::qrdqn_model` are
+  removed; import `algorithms::dqn::dqn_model::DqnModel`.
 
 ### `rlevo`
 
