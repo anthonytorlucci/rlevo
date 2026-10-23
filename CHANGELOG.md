@@ -720,6 +720,13 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Changed**
 
+- **The `consumer-umbrella` probe builds a network.** It was an empty
+  `main`, measured for its dependency list. It now also derives a `Module`
+  and a `Config` through `rlevo::burn` and builds one default network, the
+  way the umbrella's crate docs say to. Burn's derives expand to `burn::`
+  paths, so the derive needs `use rlevo::burn;` in scope, and only a crate
+  outside the workspace can show that: a doctest of `rlevo` has `rlevo`'s
+  own `burn` in scope. Its package counts do not change.
 - **The benches, the integration tests and two examples build their
   networks from the RL crate's defaults.** 39 hand-written networks are
   gone, `crates/rlevo/benches/support/` with them; the two SAC actors in

@@ -101,7 +101,7 @@ author stops or starts writing.
 | `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy, run it through `Evaluator::run_suite` |
 | `byoe-1-tank-farm` | the same walk over a rank-2 observation, a bounded continuous action that can be invalid, and an episode that an overflow terminates or `TimeLimit` truncates; the harness runs it through the wrapper |
 | `consumer-core` | that author's environment file built against `rlevo-core` alone, with its package count, its Burn package count and a cold build time |
-| `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning` |
+| `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning`; `consumer-umbrella` also builds a network derived through `rlevo::burn` beside a default one, which no doctest can check |
 
 The layering rules no compiler checks are checked by **`cargo xtask guards`**,
 on every pull request (`crate-tests.yml`, `layering guards`):
