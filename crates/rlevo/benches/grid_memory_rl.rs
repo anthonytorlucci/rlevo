@@ -100,7 +100,7 @@ use rlevo_environments::grids::core::{GridObservation, OBS_CHANNELS, VIEW_SIZE};
 use rlevo_environments::grids::{GridAction, MemoryConfig, MemoryEnv};
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
@@ -141,20 +141,20 @@ fn train_dqn() -> MemoryAgent {
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = MemoryEnv::with_config(memory_config(), false).expect("valid config");
 
-    let config = DqnTrainingConfigBuilder::new()
-        .batch_size(64)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .learning_rate(5e-4)
-        .epsilon_start(1.0)
-        .epsilon_end(0.01)
-        .epsilon_decay(0.9997)
-        .learning_starts(500)
-        .train_frequency(4)
-        .replay_buffer_capacity(20_000)
-        .double_q(true)
-        .build()
-        .expect("valid config");
+    let config = DqnTrainingConfig {
+        batch_size: 64,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        learning_rate: 5e-4,
+        epsilon_start: 1.0,
+        epsilon_end: 0.01,
+        epsilon_decay: 0.9997,
+        learning_starts: 500,
+        train_frequency: 4,
+        replay_buffer_capacity: 20_000,
+        double_q: true,
+        ..Default::default()
+    };
 
     let model: GridMlpDqn<Backend_> = GridMlpDqn::new(OBS_FEATURES, 128, ACTIONS, &device);
     let mut agent: MemoryAgent = DqnAgent::new(model, config, device).expect("valid config");

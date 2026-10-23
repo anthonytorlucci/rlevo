@@ -1210,12 +1210,12 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::base::HostRow;
+    use rlevo_core::config::ConstraintKind;
     use serde::{Deserialize, Serialize};
 
     use crate::algorithms::ppg::policies::{
         PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
     };
-    use crate::algorithms::ppg::ppg_config::PpgConfigBuilder;
     use crate::algorithms::ppo::ppo_config::PpoTrainingConfig;
 
     type TestAdBackend = Autodiff<Flex>;
@@ -1276,11 +1276,70 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpgConfigBuilder::new()
-            .with_ppo(|p| PpoTrainingConfig { clip_grad, ..p })
-            .build()
-            .expect("valid config");
+        let config = PpgConfig {
+            ppo: PpoTrainingConfig {
+                clip_grad,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         TestAgent::new(policy, value, config, device, 1).expect("valid config")
+    }
+
+    /// An invalid config comes back as an `Err` from `new`, naming the config
+    /// and field that rejected it: two of PPG's own fields, and one of the PPO
+    /// config it wraps. `config.validate()?` is the only check a config passes
+    /// on its way into the agent, so dropping its error must fail here.
+    #[test]
+    fn test_ppg_agent_new_rejects_invalid_config() {
+        let cases = [
+            (
+                PpgConfig {
+                    e_aux: 0,
+                    ..Default::default()
+                },
+                ("PpgConfig", "e_aux", ConstraintKind::Zero),
+            ),
+            (
+                PpgConfig {
+                    aux_batch_size: 0,
+                    ..Default::default()
+                },
+                ("PpgConfig", "aux_batch_size", ConstraintKind::Zero),
+            ),
+            (
+                PpgConfig {
+                    ppo: PpoTrainingConfig {
+                        num_envs: 2,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                (
+                    "PpoTrainingConfig",
+                    "num_envs",
+                    ConstraintKind::Custom("v1 supports num_envs == 1 only"),
+                ),
+            ),
+        ];
+
+        for (config, (name, field, kind)) in cases {
+            let device = Default::default();
+            let policy: PpgCategoricalPolicyHead<TestAdBackend> = PpgCategoricalPolicyHeadConfig {
+                obs_dim: 2,
+                hidden: 4,
+                num_actions: 2,
+            }
+            .try_init::<TestAdBackend>(&device)
+            .expect("valid head config");
+            let value = TestValue::<TestAdBackend>::init(&device);
+            let Err(err) = TestAgent::new(policy, value, config, device, 1) else {
+                panic!("{name}.{field} must be rejected by PpgAgent::new");
+            };
+            assert_eq!(err.config, name);
+            assert_eq!(err.field, field);
+            assert_eq!(err.kind, kind);
+        }
     }
 
     #[test]
@@ -1407,20 +1466,20 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpgConfigBuilder::new()
-            .n_iteration(1)
-            .e_aux(1)
-            .aux_batch_size(4)
-            .with_ppo(|p| PpoTrainingConfig {
+        let config = PpgConfig {
+            n_iteration: 1,
+            e_aux: 1,
+            aux_batch_size: 4,
+            ppo: PpoTrainingConfig {
                 num_envs: 1,
                 num_steps: 4,
                 num_minibatches: 1,
                 update_epochs: 1,
                 anneal_lr: false,
-                ..p
-            })
-            .build()
-            .expect("valid config");
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -1580,21 +1639,21 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpgConfigBuilder::new()
-            .n_iteration(1)
-            .e_aux(1)
-            .aux_batch_size(aux_batch_size)
-            .with_ppo(|p| PpoTrainingConfig {
+        let config = PpgConfig {
+            n_iteration: 1,
+            e_aux: 1,
+            aux_batch_size,
+            ppo: PpoTrainingConfig {
                 num_envs: 1,
                 num_steps: 4,
                 num_minibatches,
                 update_epochs,
                 anneal_lr: false,
                 target_kl: None,
-                ..p
-            })
-            .build()
-            .expect("valid config");
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -1806,20 +1865,20 @@ mod tests {
         .try_init::<TestAdBackend>(&device)
         .expect("valid head config");
         let value = TestValue::<TestAdBackend>::init(&device);
-        let config = PpgConfigBuilder::new()
-            .n_iteration(1)
-            .e_aux(1)
-            .aux_batch_size(4)
-            .with_ppo(|p| PpoTrainingConfig {
+        let config = PpgConfig {
+            n_iteration: 1,
+            e_aux: 1,
+            aux_batch_size: 4,
+            ppo: PpoTrainingConfig {
                 num_envs: 1,
                 num_steps: 4,
                 num_minibatches: 1,
                 update_epochs: 1,
                 anneal_lr: true,
-                ..p
-            })
-            .build()
-            .expect("valid config");
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         TestAgent::new(policy, value, config, device, total_iterations).expect("valid config")
     }
 

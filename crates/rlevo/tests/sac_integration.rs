@@ -26,7 +26,7 @@ use rlevo_environments::classic::pendulum::{
 };
 use rlevo_environments::wrappers::TimeLimit;
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
-use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     ContinuousQ, SampleOutput, SquashedGaussianPolicy,
 };
@@ -231,20 +231,20 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let actor: StochasticActor<Be> = StochasticActor::new(1, 32, 1, 1.0, &device);
     let critic_1: Critic<Be> = Critic::new(1, 1, 32, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 32, &device);
-    let config = SacTrainingConfigBuilder::new()
-        .replay_buffer_capacity(20_000)
-        .batch_size(32)
-        .learning_starts(500)
-        .actor_lr(3e-4)
-        .critic_lr(1e-3)
-        .alpha_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.02, 1))
-        .autotune(true)
-        .initial_alpha(1.0)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = SacTrainingConfig {
+        replay_buffer_capacity: 20_000,
+        batch_size: 32,
+        learning_starts: 500,
+        actor_lr: 3e-4,
+        critic_lr: 1e-3,
+        alpha_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.02, 1),
+        autotune: true,
+        initial_alpha: 1.0,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: LinearAgent =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
@@ -321,16 +321,16 @@ fn sac_alpha_moves_under_autotune() {
     let actor: StochasticActor<Be> = StochasticActor::new(1, 16, 1, 1.0, &device);
     let critic_1: Critic<Be> = Critic::new(1, 1, 16, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 16, &device);
-    let config = SacTrainingConfigBuilder::new()
-        .replay_buffer_capacity(2_048)
-        .batch_size(16)
-        .learning_starts(32)
-        .alpha_lr(1e-2)
-        .autotune(true)
-        .initial_alpha(1.0)
-        .policy_frequency(1)
-        .build()
-        .expect("valid config");
+    let config = SacTrainingConfig {
+        replay_buffer_capacity: 2_048,
+        batch_size: 16,
+        learning_starts: 32,
+        alpha_lr: 1e-2,
+        autotune: true,
+        initial_alpha: 1.0,
+        policy_frequency: 1,
+        ..Default::default()
+    };
     let mut agent: LinearAgent =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
@@ -365,15 +365,15 @@ fn sac_alpha_frozen_when_autotune_disabled() {
     let actor: StochasticActor<Be> = StochasticActor::new(1, 16, 1, 1.0, &device);
     let critic_1: Critic<Be> = Critic::new(1, 1, 16, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 16, &device);
-    let config = SacTrainingConfigBuilder::new()
-        .replay_buffer_capacity(2_048)
-        .batch_size(16)
-        .learning_starts(32)
-        .autotune(false)
-        .initial_alpha(0.2)
-        .policy_frequency(1)
-        .build()
-        .expect("valid config");
+    let config = SacTrainingConfig {
+        replay_buffer_capacity: 2_048,
+        batch_size: 16,
+        learning_starts: 32,
+        autotune: false,
+        initial_alpha: 0.2,
+        policy_frequency: 1,
+        ..Default::default()
+    };
     let mut agent: LinearAgent =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
@@ -409,20 +409,20 @@ fn sac_pendulum_improves_over_random() {
     let actor: StochasticActor<Be> = StochasticActor::new(3, 64, 1, 2.0, &device);
     let critic_1: Critic<Be> = Critic::new(3, 1, 64, &device);
     let critic_2: Critic<Be> = Critic::new(3, 1, 64, &device);
-    let config = SacTrainingConfigBuilder::new()
-        .replay_buffer_capacity(30_000)
-        .batch_size(64)
-        .learning_starts(1_000)
-        .actor_lr(3e-4)
-        .critic_lr(1e-3)
-        .alpha_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .autotune(true)
-        .initial_alpha(1.0)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = SacTrainingConfig {
+        replay_buffer_capacity: 30_000,
+        batch_size: 64,
+        learning_starts: 1_000,
+        actor_lr: 3e-4,
+        critic_lr: 1e-3,
+        alpha_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        autotune: true,
+        initial_alpha: 1.0,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: SacAgent<
         Be,
         StochasticActor<Be>,

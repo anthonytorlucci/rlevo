@@ -103,7 +103,7 @@ fn basic_cfg() -> EvaluatorConfig {
 #[test]
 fn runs_suite_and_collects_trials() {
     let cfg = basic_cfg();
-    let suite: Suite<ToyEnv> = Suite::new("toy", cfg.clone())
+    let suite: Suite<ToyEnv> = Suite::new("toy")
         .with_env("toy-a", ToyEnv::with_seed)
         .with_env("toy-b", ToyEnv::with_seed);
     let evaluator = Evaluator::new(cfg);
@@ -125,7 +125,7 @@ fn runs_suite_and_collects_trials() {
 #[test]
 fn determinism_same_seed_same_metrics() {
     let cfg = basic_cfg();
-    let suite: Suite<ToyEnv> = Suite::new("toy", cfg.clone()).with_env("toy", ToyEnv::with_seed);
+    let suite: Suite<ToyEnv> = Suite::new("toy").with_env("toy", ToyEnv::with_seed);
     let evaluator = Evaluator::new(cfg);
 
     let mut r1 = LoggingReporter::new();
@@ -165,7 +165,7 @@ fn panicking_trial_does_not_abort_suite() {
         num_threads: Some(1),
         ..basic_cfg()
     };
-    let suite: Suite<ToyEnv> = Suite::new("panic", cfg.clone()).with_env("toy", ToyEnv::with_seed);
+    let suite: Suite<ToyEnv> = Suite::new("panic").with_env("toy", ToyEnv::with_seed);
     let evaluator = Evaluator::new(cfg);
     let mut reporter = LoggingReporter::new();
     let report = evaluator.run_suite(&suite, |_s| PanicAgent, &mut reporter);

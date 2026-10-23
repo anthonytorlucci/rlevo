@@ -1,4 +1,5 @@
-//! Integration smoke test: `PolicyNeuroevolution` evolves a `CartPole` policy.
+//! Integration smoke test: an `EvolutionaryLoop` scored by `RolloutFitness`
+//! evolves a `CartPole` policy.
 //!
 //! This verifies correctness (compiles, wires `CartPole` through the full
 //! weight-only stack, runs without panic), **not** convergence — two
@@ -13,7 +14,8 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleAction, CartPoleObservation};
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::param_reshaper::ModuleReshaper;
-use rlevo_hybrid::{PolicyNeuroevolution, RolloutFitness, StatefulPolicy};
+use rlevo_evolution::strategy::EvolutionaryLoop;
+use rlevo_hybrid::{RolloutFitness, StatefulPolicy};
 
 type TestBackend = Flex;
 
@@ -61,12 +63,12 @@ impl StatefulPolicy<CartPoleObservation, CartPoleAction> for PolicyMlp<TestBacke
 }
 
 #[test]
-fn policy_neuroevolution_runs_two_generations_on_cartpole() {
+fn rollout_fitness_drives_two_generations_on_cartpole() {
     let device = Default::default();
     let template = PolicyMlp::<TestBackend>::new(&device);
     // Single-source width: build ONE reshaper, read its width, then move it into
     // the fitness so both agree on `num_params` by construction.
-    let reshaper = ModuleReshaper::new(template.clone());
+    let reshaper = ModuleReshaper::new(template);
     let num_params = reshaper.num_params();
     // 4*8 + 8 + 8*2 + 2 = 58
     assert_eq!(num_params, 58);
@@ -79,10 +81,9 @@ fn policy_neuroevolution_runs_two_generations_on_cartpole() {
     );
 
     let params = GaConfig::default_for(16, num_params);
-    let mut pn = PolicyNeuroevolution::new(
+    let mut evo_loop = EvolutionaryLoop::new(
         GeneticAlgorithm::<TestBackend>::new(),
         params,
-        template,
         fitness,
         7,
         device,
@@ -90,20 +91,20 @@ fn policy_neuroevolution_runs_two_generations_on_cartpole() {
     )
     .expect("valid params");
 
-    pn.reset();
-    pn.step();
+    evo_loop.reset();
+    evo_loop.step();
     assert!(
-        !pn.is_done(),
+        !evo_loop.is_done(),
         "first generation should not exhaust the budget"
     );
-    pn.step();
+    evo_loop.step();
     assert!(
-        pn.is_done(),
+        evo_loop.is_done(),
         "second generation should exhaust the 2-generation budget"
     );
-    assert_eq!(pn.generation(), 2);
+    assert_eq!(evo_loop.generation(), 2);
     assert!(
-        pn.best().is_some(),
+        evo_loop.best().is_some(),
         "a best individual should exist after evaluation"
     );
 }

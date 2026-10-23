@@ -23,7 +23,7 @@ use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
-use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     ContinuousQ, SampleOutput, SquashedGaussianPolicy,
 };
@@ -188,13 +188,13 @@ fn build_agent() -> Agent {
     let actor: StochasticActor<Be> = StochasticActor::new(3, 256, 1, 2.0, &device);
     let critic_1: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
     let critic_2: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
-    let config = SacTrainingConfigBuilder::new()
-        .replay_buffer_capacity(10_000)
-        .batch_size(256)
-        .learning_starts(0)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = SacTrainingConfig {
+        replay_buffer_capacity: 10_000,
+        batch_size: 256,
+        learning_starts: 0,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config")
 }
 

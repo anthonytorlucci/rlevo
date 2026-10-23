@@ -12,6 +12,22 @@ use crate::target::TargetUpdate;
 /// This struct holds all hyperparameters and configuration settings required
 /// to initialize and train a DQN agent, including learning rates,
 /// epsilon-greedy parameters, and optimization settings.
+///
+/// # Examples
+///
+/// Tune it with struct-update syntax; the agent's constructor validates it.
+///
+/// ```rust
+/// use rlevo_core::config::Validate;
+/// use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
+///
+/// let cfg = DqnTrainingConfig {
+///     learning_rate: 0.0005,
+///     batch_size: 64,
+///     ..Default::default()
+/// };
+/// assert!(cfg.validate().is_ok());
+/// ```
 #[derive(Clone, Debug)]
 pub struct DqnTrainingConfig {
     /// The number of samples processed before the model is updated.
@@ -214,196 +230,6 @@ impl Validate for DqnTrainingConfig {
     }
 }
 
-/// Builder for [`DqnTrainingConfig`] with fluent setters.
-///
-/// All unset fields default to the values from [`DqnTrainingConfig::default`].
-///
-/// # Examples
-///
-/// ```rust
-/// use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
-///
-/// // Default configuration.
-/// let cfg = DqnTrainingConfigBuilder::new().build().expect("valid config");
-///
-/// // Custom learning rate and batch size.
-/// let cfg = DqnTrainingConfigBuilder::new()
-///     .learning_rate(0.0005)
-///     .batch_size(64)
-///     .build()
-///     .expect("valid config");
-/// ```
-#[derive(Debug)]
-pub struct DqnTrainingConfigBuilder {
-    config: DqnTrainingConfig,
-}
-
-impl Default for DqnTrainingConfigBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DqnTrainingConfigBuilder {
-    /// Creates a new builder initialized with default configuration values.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            config: DqnTrainingConfig::default(),
-        }
-    }
-
-    /// Sets the batch size.
-    #[must_use]
-    pub fn batch_size(mut self, batch_size: usize) -> Self {
-        self.config.batch_size = batch_size;
-        self
-    }
-
-    /// Sets the discount factor (gamma).
-    #[must_use]
-    pub fn gamma(mut self, gamma: f64) -> Self {
-        self.config.gamma = gamma;
-        self
-    }
-
-    /// Sets the learning rate.
-    #[must_use]
-    pub fn learning_rate(mut self, learning_rate: f64) -> Self {
-        self.config.learning_rate = learning_rate;
-        self
-    }
-
-    /// Sets the starting epsilon value for exploration.
-    #[must_use]
-    pub fn epsilon_start(mut self, epsilon_start: f64) -> Self {
-        self.config.epsilon_start = epsilon_start;
-        self
-    }
-
-    /// Sets the minimum epsilon value.
-    #[must_use]
-    pub fn epsilon_end(mut self, epsilon_end: f64) -> Self {
-        self.config.epsilon_end = epsilon_end;
-        self
-    }
-
-    /// Sets the epsilon decay rate.
-    #[must_use]
-    pub fn epsilon_decay(mut self, epsilon_decay: f64) -> Self {
-        self.config.epsilon_decay = epsilon_decay;
-        self
-    }
-
-    /// Sets the target-network update rule — cadence and `$\tau$` together.
-    ///
-    /// One setter, because there is one mechanism (ADR 0058). The cadence is in
-    /// **gradient updates**, unlike the env-step
-    /// [`train_frequency`](Self::train_frequency) beside it; see
-    /// [`DqnTrainingConfig::target_update`].
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
-    /// use rlevo_reinforcement_learning::target::TargetUpdate;
-    ///
-    /// // Polyak, every gradient update (the shipped default).
-    /// let soft = DqnTrainingConfigBuilder::new()
-    ///     .target_update(TargetUpdate::polyak(0.005, 1))
-    ///     .build()
-    ///     .expect("valid config");
-    ///
-    /// // Nature-DQN style: a full copy every 10 000 gradient updates.
-    /// let hard = DqnTrainingConfigBuilder::new()
-    ///     .target_update(TargetUpdate::hard(10_000))
-    ///     .build()
-    ///     .expect("valid config");
-    /// ```
-    ///
-    /// That `10_000` is the Atari-derived figure: at the default
-    /// `train_frequency: 4` it is about 40 000 environment steps, so a
-    /// classic-control run wants a much smaller cadence — the right value
-    /// for that scale is still an open question rather than a settled
-    /// recommendation.
-    #[must_use]
-    pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
-        self.config.target_update = target_update;
-        self
-    }
-
-    /// Sets the maximum steps per episode.
-    #[must_use]
-    pub fn steps_per_episode(mut self, steps: usize) -> Self {
-        self.config.steps_per_episode = steps;
-        self
-    }
-
-    /// Sets the capacity of the replay buffer.
-    #[must_use]
-    pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
-        self.config.replay_buffer_capacity = capacity;
-        self
-    }
-
-    /// Sets the number of warm-up steps before learning begins.
-    #[must_use]
-    pub fn learning_starts(mut self, learning_starts: usize) -> Self {
-        self.config.learning_starts = learning_starts;
-        self
-    }
-
-    /// Sets how often a learning update runs, in environment steps.
-    #[must_use]
-    pub fn train_frequency(mut self, train_frequency: usize) -> Self {
-        self.config.train_frequency = train_frequency;
-        self
-    }
-
-    /// Enables or disables Double-DQN bootstrap targets.
-    #[must_use]
-    pub fn double_q(mut self, double_q: bool) -> Self {
-        self.config.double_q = double_q;
-        self
-    }
-
-    /// Sets the gradient clipping configuration.
-    #[must_use]
-    pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
-        self.config.clip_grad = config;
-        self
-    }
-
-    /// Sets the optimizer configuration (e.g., specific Adam beta values).
-    #[must_use]
-    pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
-        self.config.optimizer = optimizer;
-        self
-    }
-
-    /// Enables prioritized experience replay with the given settings.
-    ///
-    /// Pass [`PrioritizedReplaySettings::default`] for Schaul's proportional defaults (`$\alpha$` =
-    /// 0.6, `$\beta$` 0.4 → 1.0). Leave unset for uniform replay.
-    #[must_use]
-    pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
-        self.config.prioritized_replay = Some(settings);
-        self
-    }
-
-    /// Consumes the builder and returns the final `DqnTrainingConfig`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config violates any invariant
-    /// checked by [`DqnTrainingConfig::validate`] (e.g. a zero `batch_size` or a
-    /// `gamma` outside `[0, 1]`).
-    pub fn build(self) -> Result<DqnTrainingConfig, ConfigError> {
-        self.config.validate()?;
-        Ok(self.config)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,10 +250,12 @@ mod tests {
     /// be the bug, not the fix.
     #[test]
     fn test_dqn_config_rejects_replay_buffer_capacity_above_ceiling() {
-        let err = DqnTrainingConfigBuilder::new()
-            .replay_buffer_capacity(usize::MAX)
-            .build()
-            .expect_err("usize::MAX capacity must be rejected, not allocated");
+        let err = DqnTrainingConfig {
+            replay_buffer_capacity: usize::MAX,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("usize::MAX capacity must be rejected, not allocated");
         assert_eq!(err.field, "replay_buffer_capacity");
         let max = u64::try_from(MAX_BUFFER_CAPACITY).expect("the ceiling fits in u64");
         let got = u64::try_from(usize::MAX).expect("usize::MAX fits in u64 on this target");
@@ -438,11 +266,11 @@ mod tests {
     /// unallocatable) capacity, so the guard cannot be off by one.
     #[test]
     fn test_dqn_config_accepts_replay_buffer_capacity_at_ceiling() {
-        let cfg = DqnTrainingConfigBuilder::new()
-            .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
-            .build()
-            .expect("the ceiling itself must validate");
-        assert_eq!(cfg.replay_buffer_capacity, MAX_BUFFER_CAPACITY);
+        let cfg = DqnTrainingConfig {
+            replay_buffer_capacity: MAX_BUFFER_CAPACITY,
+            ..Default::default()
+        };
+        cfg.validate().expect("the ceiling itself must validate");
     }
 
     /// The default is the behaviour-preserving one: the pre-[`TargetUpdate`]
@@ -492,20 +320,23 @@ mod tests {
             TargetUpdate::hard(1),
             TargetUpdate::hard(10_000),
         ] {
-            let cfg = DqnTrainingConfigBuilder::new()
-                .target_update(rule)
-                .build()
+            let cfg = DqnTrainingConfig {
+                target_update: rule,
+                ..Default::default()
+            };
+            cfg.validate()
                 .expect("a constructible TargetUpdate is always a valid config");
-            assert_eq!(cfg.target_update, rule);
         }
     }
 
     #[test]
     fn test_dqn_config_rejects_gamma_out_of_range() {
-        let err = DqnTrainingConfigBuilder::new()
-            .gamma(1.5)
-            .build()
-            .unwrap_err();
+        let err = DqnTrainingConfig {
+            gamma: 1.5,
+            ..Default::default()
+        }
+        .validate()
+        .unwrap_err();
         assert_eq!(err.field, "gamma");
     }
 

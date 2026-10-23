@@ -4,9 +4,8 @@
 //! board representation, move generation, and observation types
 //! ([`super::observations`], e.g. `ChessState`, `CastlingRights`, repetition
 //! history), but nothing here implements
-//! [`rlevo_core::environment::Environment`] for chess yet — this file, and
-//! its `ConnectFour` counterpart in `games::connect_four`, are stubs.
-//! That is why `games` is still `#[doc(hidden)]` with a module-level
+//! [`rlevo_core::environment::Environment`] for chess yet — this file is a
+//! stub. That is why `games` is still `#[doc(hidden)]` with a module-level
 //! `#[allow(dead_code, ...)]`: nothing downstream consumes it. Completing
 //! this impl (wrapping [`super::board`] state, [`super::moves`] encoding,
 //! and episode lifecycle into `Environment`) is what lets `games` drop

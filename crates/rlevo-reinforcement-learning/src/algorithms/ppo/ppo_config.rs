@@ -199,154 +199,6 @@ impl Validate for PpoTrainingConfig {
     }
 }
 
-/// Fluent builder for [`PpoTrainingConfig`]. All unset fields fall back to
-/// [`PpoTrainingConfig::default`].
-#[derive(Debug)]
-pub struct PpoTrainingConfigBuilder {
-    config: PpoTrainingConfig,
-}
-
-impl Default for PpoTrainingConfigBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PpoTrainingConfigBuilder {
-    /// Creates a builder pre-populated with [`PpoTrainingConfig::default`] values.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            config: PpoTrainingConfig::default(),
-        }
-    }
-
-    /// Sets [`PpoTrainingConfig::num_envs`]. v1 only supports `1`.
-    #[must_use]
-    pub fn num_envs(mut self, num_envs: usize) -> Self {
-        self.config.num_envs = num_envs;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::num_steps`] (rollout horizon per env).
-    #[must_use]
-    pub fn num_steps(mut self, num_steps: usize) -> Self {
-        self.config.num_steps = num_steps;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::num_minibatches`].
-    #[must_use]
-    pub fn num_minibatches(mut self, num_minibatches: usize) -> Self {
-        self.config.num_minibatches = num_minibatches;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::update_epochs`].
-    #[must_use]
-    pub fn update_epochs(mut self, update_epochs: usize) -> Self {
-        self.config.update_epochs = update_epochs;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::learning_rate`].
-    #[must_use]
-    pub fn learning_rate(mut self, learning_rate: f64) -> Self {
-        self.config.learning_rate = learning_rate;
-        self
-    }
-
-    /// Enables or disables linear learning-rate annealing to zero.
-    #[must_use]
-    pub fn anneal_lr(mut self, anneal_lr: bool) -> Self {
-        self.config.anneal_lr = anneal_lr;
-        self
-    }
-
-    /// Replaces the entire Adam optimizer config (e.g. to override epsilon).
-    #[must_use]
-    pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
-        self.config.optimizer = optimizer;
-        self
-    }
-
-    /// Sets the optional Burn gradient-clipping config applied inside the
-    /// optimizer step. `None` disables it (the default).
-    #[must_use]
-    pub fn clip_grad(mut self, clip_grad: Option<GradientClippingConfig>) -> Self {
-        self.config.clip_grad = clip_grad;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::gamma`] (discount factor `$\gamma$`).
-    #[must_use]
-    pub fn gamma(mut self, gamma: f32) -> Self {
-        self.config.gamma = gamma;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::gae_lambda`] (GAE bootstrap parameter `$\lambda$`).
-    #[must_use]
-    pub fn gae_lambda(mut self, gae_lambda: f32) -> Self {
-        self.config.gae_lambda = gae_lambda;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::clip_coef`] (PPO clipping coefficient `$\epsilon$`).
-    #[must_use]
-    pub fn clip_coef(mut self, clip_coef: f32) -> Self {
-        self.config.clip_coef = clip_coef;
-        self
-    }
-
-    /// Enables or disables the clipped value-function loss variant.
-    #[must_use]
-    pub fn clip_value_loss(mut self, clip_value_loss: bool) -> Self {
-        self.config.clip_value_loss = clip_value_loss;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::entropy_coef`] (entropy bonus weight).
-    #[must_use]
-    pub fn entropy_coef(mut self, entropy_coef: f32) -> Self {
-        self.config.entropy_coef = entropy_coef;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::value_coef`] (value-loss weight `c_v`).
-    #[must_use]
-    pub fn value_coef(mut self, value_coef: f32) -> Self {
-        self.config.value_coef = value_coef;
-        self
-    }
-
-    /// Enables or disables per-minibatch advantage normalisation.
-    #[must_use]
-    pub fn normalize_advantages(mut self, normalize_advantages: bool) -> Self {
-        self.config.normalize_advantages = normalize_advantages;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::target_kl`]. `None` disables early stopping.
-    #[must_use]
-    pub fn target_kl(mut self, target_kl: Option<f32>) -> Self {
-        self.config.target_kl = target_kl;
-        self
-    }
-
-    /// Consumes the builder and returns the assembled [`PpoTrainingConfig`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config violates any invariant
-    /// checked by [`PpoTrainingConfig::validate`] (e.g. `num_envs != 1` or a
-    /// zero `num_steps`).
-    pub fn build(self) -> Result<PpoTrainingConfig, ConfigError> {
-        self.config.validate()?;
-        Ok(self.config)
-    }
-}
-
 /// Computes the linearly-annealed learning rate at `iteration` out of
 /// `total_iterations`.
 ///
@@ -396,12 +248,12 @@ mod tests {
 
     #[test]
     fn test_ppo_config_batch_and_minibatch_sizes() {
-        let cfg = PpoTrainingConfigBuilder::new()
-            .num_envs(1)
-            .num_steps(128)
-            .num_minibatches(4)
-            .build()
-            .expect("valid config");
+        let cfg = PpoTrainingConfig {
+            num_envs: 1,
+            num_steps: 128,
+            num_minibatches: 4,
+            ..Default::default()
+        };
         assert_eq!(cfg.batch_size(), 128);
         assert_eq!(cfg.minibatch_size(), 32);
     }
@@ -410,12 +262,12 @@ mod tests {
     fn test_ppo_config_minibatch_size_never_zero() {
         // num_minibatches > batch_size must floor to 1, matching
         // PpoAgent::update's mb_size, not integer-divide to 0.
-        let cfg = PpoTrainingConfigBuilder::new()
-            .num_envs(1)
-            .num_steps(10)
-            .num_minibatches(20)
-            .build()
-            .expect("valid config");
+        let cfg = PpoTrainingConfig {
+            num_envs: 1,
+            num_steps: 10,
+            num_minibatches: 20,
+            ..Default::default()
+        };
         assert_eq!(cfg.minibatch_size(), 1);
     }
 
@@ -433,25 +285,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ppo_config_builder_round_trips_fields() {
-        let cfg = PpoTrainingConfigBuilder::new()
-            .num_steps(256)
-            .clip_coef(0.1)
-            .entropy_coef(0.0)
-            .clip_grad(Some(GradientClippingConfig::Norm(0.5)))
-            .build()
-            .expect("valid config");
-        assert_eq!(cfg.num_steps, 256);
-        assert_eq!(cfg.clip_coef, 0.1);
-        assert_eq!(cfg.entropy_coef, 0.0);
-        // `GradientClippingConfig` is not `PartialEq`, so match on the variant.
-        match cfg.clip_grad {
-            Some(GradientClippingConfig::Norm(n)) => assert!((n - 0.5).abs() < 1e-6),
-            other => panic!("clip_grad did not round-trip through the builder: {other:?}"),
-        }
-    }
-
-    #[test]
     fn test_ppo_config_default_config_is_valid() {
         assert!(PpoTrainingConfig::default().validate().is_ok());
     }
@@ -463,11 +296,13 @@ mod tests {
     /// in the buffer.
     #[test]
     fn test_ppo_config_rejects_batch_size_above_ceiling() {
-        let err = PpoTrainingConfigBuilder::new()
-            .num_envs(1)
-            .num_steps(MAX_BUFFER_CAPACITY + 1)
-            .build()
-            .unwrap_err();
+        let err = PpoTrainingConfig {
+            num_envs: 1,
+            num_steps: MAX_BUFFER_CAPACITY + 1,
+            ..Default::default()
+        }
+        .validate()
+        .unwrap_err();
         assert_eq!(err.field, "num_steps");
         assert_eq!(
             err.kind,
@@ -480,10 +315,12 @@ mod tests {
 
     #[test]
     fn test_ppo_config_rejects_multiple_envs() {
-        let err = PpoTrainingConfigBuilder::new()
-            .num_envs(2)
-            .build()
-            .unwrap_err();
+        let err = PpoTrainingConfig {
+            num_envs: 2,
+            ..Default::default()
+        }
+        .validate()
+        .unwrap_err();
         assert_eq!(err.field, "num_envs");
     }
 }

@@ -1244,7 +1244,6 @@ mod tests {
     use crate::algorithms::bootstrap_mask::{
         MaskContinuousAction, MaskObservation, TinyActor, TinyCritic,
     };
-    use crate::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
     use burn::backend::Autodiff;
     use burn::module::{Module, ModuleMapper, Param};
     use rand::SeedableRng;
@@ -1311,17 +1310,17 @@ mod tests {
     #[test]
     fn test_td3agent_one_nonfinite_critic_skips_only_that_critic() {
         let device = Default::default();
-        let config = Td3TrainingConfigBuilder::new()
-            .batch_size(2)
-            .learning_starts(0)
-            .replay_buffer_capacity(64)
-            .critic_lr(0.05)
+        let config = Td3TrainingConfig {
+            batch_size: 2,
+            learning_starts: 0,
+            replay_buffer_capacity: 64,
+            critic_lr: 0.05,
             // policy_frequency = 2 keeps the actor + Polyak updates off this
             // single critic step, isolating the twin-critic disjoint-window
             // property under test.
-            .policy_frequency(2)
-            .build()
-            .expect("valid config");
+            policy_frequency: 2,
+            ..Default::default()
+        };
 
         let mut agent = GuardAgent::new(
             TinyActor::<TestAdBackend>::new(&device),
@@ -1424,15 +1423,15 @@ mod tests {
     /// at all.
     fn poisoned_critic_1_agent(policy_frequency: usize, target_update: TargetUpdate) -> GuardAgent {
         let device = Default::default();
-        let config = Td3TrainingConfigBuilder::new()
-            .batch_size(2)
-            .learning_starts(0)
-            .replay_buffer_capacity(64)
-            .critic_lr(0.05)
-            .policy_frequency(policy_frequency)
-            .target_update(target_update)
-            .build()
-            .expect("valid config");
+        let config = Td3TrainingConfig {
+            batch_size: 2,
+            learning_starts: 0,
+            replay_buffer_capacity: 64,
+            critic_lr: 0.05,
+            policy_frequency,
+            target_update,
+            ..Default::default()
+        };
 
         let mut agent = GuardAgent::new(
             TinyActor::<TestAdBackend>::new(&device),
@@ -1657,16 +1656,16 @@ mod tests {
     /// targets, so every cadence assertion below is non-vacuous.
     fn cadence_agent(policy_frequency: usize, target_update: TargetUpdate) -> GuardAgent {
         let device = Default::default();
-        let config = Td3TrainingConfigBuilder::new()
-            .batch_size(2)
-            .learning_starts(0)
-            .replay_buffer_capacity(64)
-            .actor_lr(1e-3)
-            .critic_lr(1e-3)
-            .policy_frequency(policy_frequency)
-            .target_update(target_update)
-            .build()
-            .expect("valid config");
+        let config = Td3TrainingConfig {
+            batch_size: 2,
+            learning_starts: 0,
+            replay_buffer_capacity: 64,
+            actor_lr: 1e-3,
+            critic_lr: 1e-3,
+            policy_frequency,
+            target_update,
+            ..Default::default()
+        };
 
         let mut agent = GuardAgent::new(
             TinyActor::<TestAdBackend>::new(&device),
@@ -1818,9 +1817,7 @@ mod tests {
     #[test]
     fn test_td3agent_remember_drops_a_nonfinite_reward() {
         let device = Default::default();
-        let config = Td3TrainingConfigBuilder::new()
-            .build()
-            .expect("valid config");
+        let config = Td3TrainingConfig::default();
         let mut agent = GuardAgent::new(
             TinyActor::<TestAdBackend>::new(&device),
             TinyCritic::<TestAdBackend>::new(&device),
@@ -1873,10 +1870,10 @@ mod tests {
     /// A fresh agent with capacity to spare, for the observation-guard tests.
     fn obs_guard_agent() -> GuardAgent {
         let device = Default::default();
-        let config = Td3TrainingConfigBuilder::new()
-            .replay_buffer_capacity(64)
-            .build()
-            .expect("valid config");
+        let config = Td3TrainingConfig {
+            replay_buffer_capacity: 64,
+            ..Default::default()
+        };
         GuardAgent::new(
             TinyActor::<TestAdBackend>::new(&device),
             TinyCritic::<TestAdBackend>::new(&device),
@@ -2077,11 +2074,6 @@ mod tests {
     /// run first. This pins the observable contract so a reordering — or a
     /// seventh agent copied from this one — cannot quietly turn it back into
     /// a panic.
-    ///
-    /// The config is built by struct literal rather than through the builder
-    /// on purpose: `build()` runs `validate()`, so a builder physically cannot
-    /// hand `new` a bad capacity, and a test that went through it would be
-    /// asserting on the builder instead of on this constructor.
     #[test]
     fn test_td3agent_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;

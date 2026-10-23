@@ -308,184 +308,6 @@ impl Validate for QrDqnTrainingConfig {
     }
 }
 
-/// Fluent builder for [`QrDqnTrainingConfig`]. All unset fields fall back to
-/// [`QrDqnTrainingConfig::default`].
-#[derive(Debug)]
-pub struct QrDqnTrainingConfigBuilder {
-    config: QrDqnTrainingConfig,
-}
-
-impl Default for QrDqnTrainingConfigBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl QrDqnTrainingConfigBuilder {
-    /// Creates a builder pre-populated with [`QrDqnTrainingConfig::default`] values.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            config: QrDqnTrainingConfig::default(),
-        }
-    }
-
-    /// Sets [`QrDqnTrainingConfig::batch_size`].
-    #[must_use]
-    pub fn batch_size(mut self, batch_size: usize) -> Self {
-        self.config.batch_size = batch_size;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::gamma`] (discount factor `$\gamma$`).
-    #[must_use]
-    pub fn gamma(mut self, gamma: f64) -> Self {
-        self.config.gamma = gamma;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::learning_rate`].
-    #[must_use]
-    pub fn learning_rate(mut self, learning_rate: f64) -> Self {
-        self.config.learning_rate = learning_rate;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::epsilon_start`] — initial `$\epsilon$` for `$\epsilon$`-greedy.
-    #[must_use]
-    pub fn epsilon_start(mut self, epsilon_start: f64) -> Self {
-        self.config.epsilon_start = epsilon_start;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::epsilon_end`] — floor `$\epsilon$` for `$\epsilon$`-greedy.
-    #[must_use]
-    pub fn epsilon_end(mut self, epsilon_end: f64) -> Self {
-        self.config.epsilon_end = epsilon_end;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::epsilon_decay`] — per-step multiplicative decay.
-    #[must_use]
-    pub fn epsilon_decay(mut self, epsilon_decay: f64) -> Self {
-        self.config.epsilon_decay = epsilon_decay;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::target_update`] — cadence and `$\tau$` together.
-    ///
-    /// One setter, because there is one mechanism (ADR 0058). The cadence is in
-    /// **gradient updates**, unlike the env-step
-    /// [`train_frequency`](Self::train_frequency) beside it.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
-    /// use rlevo_reinforcement_learning::target::TargetUpdate;
-    ///
-    /// let cfg = QrDqnTrainingConfigBuilder::new()
-    ///     .target_update(TargetUpdate::polyak(0.01, 2))
-    ///     .build()
-    ///     .expect("valid config");
-    /// assert_eq!(cfg.target_update.every(), 2);
-    /// ```
-    #[must_use]
-    pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
-        self.config.target_update = target_update;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::steps_per_episode`].
-    #[must_use]
-    pub fn steps_per_episode(mut self, steps: usize) -> Self {
-        self.config.steps_per_episode = steps;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::replay_buffer_capacity`].
-    #[must_use]
-    pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
-        self.config.replay_buffer_capacity = capacity;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::learning_starts`].
-    #[must_use]
-    pub fn learning_starts(mut self, learning_starts: usize) -> Self {
-        self.config.learning_starts = learning_starts;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::train_frequency`].
-    #[must_use]
-    pub fn train_frequency(mut self, train_frequency: usize) -> Self {
-        self.config.train_frequency = train_frequency;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::num_quantiles`] (`N` in Dabney et al. 2018).
-    #[must_use]
-    pub fn num_quantiles(mut self, num_quantiles: usize) -> Self {
-        self.config.num_quantiles = num_quantiles;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::kappa`] (Huber loss threshold `$\kappa$`).
-    ///
-    /// `$\kappa$` must be strictly positive and small enough that `$0.5 \cdot \kappa^2$` stays
-    /// finite in `f32`; [`build`](Self::build) rejects anything else, because the quantile Huber
-    /// loss divides by `$\kappa$` and evaluates a `$-0.5\kappa^2$` branch eagerly. See
-    /// [`QrDqnTrainingConfig::kappa`] for the derivation and for why `$\kappa = 0$` is not
-    /// QR-DQN-0.
-    #[must_use]
-    pub fn kappa(mut self, kappa: f32) -> Self {
-        self.config.kappa = kappa;
-        self
-    }
-
-    /// Sets [`QrDqnTrainingConfig::clip_grad`].
-    ///
-    /// Pass `None` to disable gradient clipping entirely.
-    #[must_use]
-    pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
-        self.config.clip_grad = config;
-        self
-    }
-
-    /// Replaces the default [`AdamConfig`] with a custom optimizer configuration.
-    #[must_use]
-    pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
-        self.config.optimizer = optimizer;
-        self
-    }
-
-    /// Enables prioritized experience replay with the given settings.
-    ///
-    /// The QR-DQN priority (quantile Huber loss) is an uncited extrapolation —
-    /// see [`QrDqnTrainingConfig::prioritized_replay`]. Leave unset for uniform
-    /// replay.
-    #[must_use]
-    pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
-        self.config.prioritized_replay = Some(settings);
-        self
-    }
-
-    /// Consumes the builder and returns the assembled [`QrDqnTrainingConfig`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config violates any invariant
-    /// checked by [`QrDqnTrainingConfig::validate`] — e.g. zero
-    /// `num_quantiles`, or a `kappa` that is not strictly positive or is large
-    /// enough to overflow the Huber loss's linear branch (see
-    /// [`QrDqnTrainingConfig::kappa`]).
-    pub fn build(self) -> Result<QrDqnTrainingConfig, ConfigError> {
-        self.config.validate()?;
-        Ok(self.config)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,19 +324,6 @@ mod tests {
     }
 
     #[test]
-    fn test_qrdqn_config_builder_round_trips_distributional_fields() {
-        let cfg = QrDqnTrainingConfigBuilder::new()
-            .num_quantiles(51)
-            .kappa(0.5)
-            .batch_size(128)
-            .build()
-            .expect("valid config");
-        assert_eq!(cfg.num_quantiles, 51);
-        assert!((cfg.kappa - 0.5).abs() < f32::EPSILON);
-        assert_eq!(cfg.batch_size, 128);
-    }
-
-    #[test]
     fn test_qrdqn_config_default_config_is_valid() {
         assert!(QrDqnTrainingConfig::default().validate().is_ok());
     }
@@ -528,10 +337,12 @@ mod tests {
     /// be the bug, not the fix.
     #[test]
     fn test_qrdqn_config_rejects_replay_buffer_capacity_above_ceiling() {
-        let err = QrDqnTrainingConfigBuilder::new()
-            .replay_buffer_capacity(usize::MAX)
-            .build()
-            .expect_err("usize::MAX capacity must be rejected, not allocated");
+        let err = QrDqnTrainingConfig {
+            replay_buffer_capacity: usize::MAX,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("usize::MAX capacity must be rejected, not allocated");
         assert_eq!(err.field, "replay_buffer_capacity");
         let max = u64::try_from(MAX_BUFFER_CAPACITY).expect("the ceiling fits in u64");
         let got = u64::try_from(usize::MAX).expect("usize::MAX fits in u64 on this target");
@@ -542,19 +353,21 @@ mod tests {
     /// unallocatable) capacity, so the guard cannot be off by one.
     #[test]
     fn test_qrdqn_config_accepts_replay_buffer_capacity_at_ceiling() {
-        let cfg = QrDqnTrainingConfigBuilder::new()
-            .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
-            .build()
-            .expect("the ceiling itself must validate");
-        assert_eq!(cfg.replay_buffer_capacity, MAX_BUFFER_CAPACITY);
+        let cfg = QrDqnTrainingConfig {
+            replay_buffer_capacity: MAX_BUFFER_CAPACITY,
+            ..Default::default()
+        };
+        cfg.validate().expect("the ceiling itself must validate");
     }
 
     #[test]
     fn test_qrdqn_config_rejects_zero_quantiles() {
-        let err = QrDqnTrainingConfigBuilder::new()
-            .num_quantiles(0)
-            .build()
-            .unwrap_err();
+        let err = QrDqnTrainingConfig {
+            num_quantiles: 0,
+            ..Default::default()
+        }
+        .validate()
+        .unwrap_err();
         assert_eq!(err.field, "num_quantiles");
     }
 
@@ -572,10 +385,12 @@ mod tests {
     /// `$\kappa$`, so the config boundary — not the loss — must reject it.
     #[test]
     fn test_qrdqn_config_rejects_zero_kappa() {
-        let err = QrDqnTrainingConfigBuilder::new()
-            .kappa(0.0)
-            .build()
-            .expect_err("kappa = 0 divides by zero in the quantile Huber loss");
+        let err = QrDqnTrainingConfig {
+            kappa: 0.0,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("kappa = 0 divides by zero in the quantile Huber loss");
         assert_eq!(err.field, "kappa", "the error must name the kappa field");
         assert_eq!(
             err.kind,
@@ -589,10 +404,12 @@ mod tests {
     /// must stay rejected.
     #[test]
     fn test_qrdqn_config_rejects_negative_kappa() {
-        let err = QrDqnTrainingConfigBuilder::new()
-            .kappa(-1.0)
-            .build()
-            .expect_err("a negative Huber threshold is meaningless");
+        let err = QrDqnTrainingConfig {
+            kappa: -1.0,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("a negative Huber threshold is meaningless");
         assert_eq!(err.field, "kappa", "the error must name the kappa field");
         assert_eq!(
             err.kind,
@@ -609,10 +426,12 @@ mod tests {
     #[test]
     fn test_qrdqn_config_rejects_non_finite_kappa() {
         for bad in [f32::NAN, f32::NEG_INFINITY] {
-            let err = QrDqnTrainingConfigBuilder::new()
-                .kappa(bad)
-                .build()
-                .expect_err("kappa must be finite");
+            let err = QrDqnTrainingConfig {
+                kappa: bad,
+                ..Default::default()
+            }
+            .validate()
+            .expect_err("kappa must be finite");
             assert_eq!(err.field, "kappa", "the error must name the kappa field");
             match err.kind {
                 ConstraintKind::NotFinite { got } => assert_eq!(
@@ -659,10 +478,12 @@ mod tests {
         );
 
         for bad in [f32::from_bits(lo + 1), 2.7e19, 1e20, f32::MAX] {
-            let err = QrDqnTrainingConfigBuilder::new()
-                .kappa(bad)
-                .build()
-                .expect_err("kappa whose 0.5·κ² overflows f32 makes the loss NaN");
+            let err = QrDqnTrainingConfig {
+                kappa: bad,
+                ..Default::default()
+            }
+            .validate()
+            .expect_err("kappa whose 0.5·κ² overflows f32 makes the loss NaN");
             assert_eq!(err.field, "kappa", "the error must name the kappa field");
             assert!(
                 matches!(err.kind, ConstraintKind::Custom(_)),
@@ -678,10 +499,12 @@ mod tests {
         // is now `NotFinite`. Still rejected, still at the same chokepoint — but the overflow guard
         // is no longer load-bearing for it, and the four huge-but-*finite* `$\kappa$` above are the
         // cases only it catches.
-        let err = QrDqnTrainingConfigBuilder::new()
-            .kappa(f32::INFINITY)
-            .build()
-            .expect_err("an infinite Huber threshold is not a config value");
+        let err = QrDqnTrainingConfig {
+            kappa: f32::INFINITY,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("an infinite Huber threshold is not a config value");
         assert_eq!(err.field, "kappa", "the error must name the kappa field");
         assert_eq!(
             err.kind,
@@ -693,10 +516,12 @@ mod tests {
         // The bound must not be over-tight: `$\kappa$` far above any sane setting, but whose linear
         // branch still fits in f32, stays accepted.
         for good in [1.0_f32, 1e9, 1e18, last_ok] {
-            QrDqnTrainingConfigBuilder::new()
-                .kappa(good)
-                .build()
-                .expect("a κ whose 0.5·κ² is finite must validate");
+            QrDqnTrainingConfig {
+                kappa: good,
+                ..Default::default()
+            }
+            .validate()
+            .expect("a κ whose 0.5·κ² is finite must validate");
         }
     }
 
@@ -733,11 +558,12 @@ mod tests {
             TargetUpdate::hard(1),
             TargetUpdate::hard(500),
         ] {
-            let cfg = QrDqnTrainingConfigBuilder::new()
-                .target_update(rule)
-                .build()
+            let cfg = QrDqnTrainingConfig {
+                target_update: rule,
+                ..Default::default()
+            };
+            cfg.validate()
                 .expect("a constructible TargetUpdate is always a valid config");
-            assert_eq!(cfg.target_update, rule);
         }
     }
 
@@ -746,10 +572,10 @@ mod tests {
         // N = 4 `$\Rightarrow \tau_i = (i + 0.5)/4 \Rightarrow \{0.125, 0.375, 0.625, 0.875\}$`.
         let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
-        let cfg = QrDqnTrainingConfigBuilder::new()
-            .num_quantiles(4)
-            .build()
-            .expect("valid config");
+        let cfg = QrDqnTrainingConfig {
+            num_quantiles: 4,
+            ..Default::default()
+        };
         let taus: Tensor<TestBackend, 1> = cfg.quantile_taus::<TestBackend>(&device);
         let v: Vec<f32> = taus
             .into_data()

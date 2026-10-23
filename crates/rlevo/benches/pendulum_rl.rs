@@ -48,20 +48,20 @@ use rlevo_environments::classic::{Pendulum, PendulumAction, PendulumConfig, Pend
 use rlevo_environments::wrappers::TimeLimit;
 
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
-use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ddpg::train::train as train_ddpg;
 use rlevo_reinforcement_learning::algorithms::ppo::policies::{
     TanhGaussianPolicyHead, TanhGaussianPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 use rlevo_reinforcement_learning::algorithms::ppo::train::train_continuous as train_ppo;
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
-use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::sac::train::train as train_sac;
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
-use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
 use rlevo_reinforcement_learning::algorithms::td3::train::train as train_td3;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
@@ -194,19 +194,19 @@ fn train_ppo_agent() -> PpoAgent_ {
     .try_init::<Backend_>(&device)
     .expect("valid head config");
     let value: ValueMlp<Backend_> = ValueMlp::new(&device);
-    let config = PpoTrainingConfigBuilder::new()
-        .num_envs(1)
-        .num_steps(2_048)
-        .num_minibatches(32)
-        .update_epochs(10)
-        .learning_rate(3e-4)
-        .clip_coef(0.2)
-        .entropy_coef(0.0)
-        .value_coef(0.5)
-        .gamma(0.9)
-        .gae_lambda(0.95)
-        .build()
-        .expect("valid config");
+    let config = PpoTrainingConfig {
+        num_envs: 1,
+        num_steps: 2_048,
+        num_minibatches: 32,
+        update_epochs: 10,
+        learning_rate: 3e-4,
+        clip_coef: 0.2,
+        entropy_coef: 0.0,
+        value_coef: 0.5,
+        gamma: 0.9,
+        gae_lambda: 0.95,
+        ..Default::default()
+    };
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpoAgent_ =
         PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config");
@@ -228,18 +228,18 @@ fn train_ddpg_agent() -> DdpgAgent_ {
     let mut env = make_env();
     let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
     let critic: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
-    let config = DdpgTrainingConfigBuilder::new()
-        .replay_buffer_capacity(100_000)
-        .batch_size(256)
-        .learning_starts(5_000)
-        .actor_lr(1e-4)
-        .critic_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 2))
-        .exploration_noise(0.1)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = DdpgTrainingConfig {
+        replay_buffer_capacity: 100_000,
+        batch_size: 256,
+        learning_starts: 5_000,
+        actor_lr: 1e-4,
+        critic_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 2),
+        exploration_noise: 0.1,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: DdpgAgent_ =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
     train_ddpg::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(
@@ -261,20 +261,20 @@ fn train_td3_agent() -> Td3Agent_ {
     let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
     let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
-    let config = Td3TrainingConfigBuilder::new()
-        .replay_buffer_capacity(100_000)
-        .batch_size(256)
-        .learning_starts(5_000)
-        .actor_lr(1e-4)
-        .critic_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 2))
-        .exploration_noise(0.1)
-        .policy_noise(0.2)
-        .noise_clip(0.5)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = Td3TrainingConfig {
+        replay_buffer_capacity: 100_000,
+        batch_size: 256,
+        learning_starts: 5_000,
+        actor_lr: 1e-4,
+        critic_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 2),
+        exploration_noise: 0.1,
+        policy_noise: 0.2,
+        noise_clip: 0.5,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: Td3Agent_ =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
     train_td3::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(
@@ -297,20 +297,20 @@ fn train_sac_agent() -> SacAgent_ {
         StochasticActor::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
     let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
-    let config = SacTrainingConfigBuilder::new()
-        .replay_buffer_capacity(100_000)
-        .batch_size(256)
-        .learning_starts(5_000)
-        .actor_lr(3e-4)
-        .critic_lr(1e-3)
-        .alpha_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .autotune(true)
-        .initial_alpha(1.0)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = SacTrainingConfig {
+        replay_buffer_capacity: 100_000,
+        batch_size: 256,
+        learning_starts: 5_000,
+        actor_lr: 3e-4,
+        critic_lr: 1e-3,
+        alpha_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        autotune: true,
+        initial_alpha: 1.0,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: SacAgent_ =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
     train_sac::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(

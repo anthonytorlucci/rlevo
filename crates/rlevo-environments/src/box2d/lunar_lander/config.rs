@@ -2,7 +2,7 @@
 //!
 //! [`LunarLanderConfig`] groups all tunable parameters shared by
 //! [`super::LunarLanderDiscrete`] and [`super::LunarLanderContinuous`].
-//! Use [`LunarLanderConfig::builder`] for ergonomic construction.
+//! Override fields of its [`Default`] with struct-update syntax.
 
 use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
@@ -94,70 +94,6 @@ impl Validate for LunarLanderConfig {
     }
 }
 
-impl LunarLanderConfig {
-    /// Return a builder for `LunarLanderConfig`.
-    #[must_use]
-    pub fn builder() -> LunarLanderConfigBuilder {
-        LunarLanderConfigBuilder {
-            inner: LunarLanderConfig::default(),
-        }
-    }
-}
-
-/// Builder for [`LunarLanderConfig`].
-#[derive(Debug, Clone)]
-pub struct LunarLanderConfigBuilder {
-    inner: LunarLanderConfig,
-}
-
-impl LunarLanderConfigBuilder {
-    /// Sets the wind model applied each physics step.
-    #[must_use]
-    pub fn wind_mode(mut self, mode: WindMode) -> Self {
-        self.inner.wind_mode = mode;
-        self
-    }
-
-    /// Sets gravitational acceleration (negative = downward).
-    #[must_use]
-    pub fn gravity(mut self, g: f32) -> Self {
-        self.inner.gravity = g;
-        self
-    }
-
-    /// Sets the RNG seed for terrain layout and initial velocity.
-    #[must_use]
-    pub fn seed(mut self, seed: u64) -> Self {
-        self.inner.seed = seed;
-        self
-    }
-
-    /// Sets the maximum steps per episode before truncation.
-    #[must_use]
-    pub fn max_steps(mut self, n: usize) -> Self {
-        self.inner.max_steps = n;
-        self
-    }
-
-    /// Sets the main engine thrust in Newtons.
-    #[must_use]
-    pub fn main_engine_power(mut self, p: f32) -> Self {
-        self.inner.main_engine_power = p;
-        self
-    }
-
-    /// Consumes the builder and returns the configured [`LunarLanderConfig`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config fails [`Validate`]
-    /// (e.g. non-positive `main_engine_power`, `dt`, or `max_steps == 0`).
-    pub fn build(self) -> Result<LunarLanderConfig, ConfigError> {
-        self.inner.validate()?;
-        Ok(self.inner)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,19 +103,6 @@ mod tests {
         let cfg = LunarLanderConfig::default();
         assert_eq!(cfg.max_steps, 1000);
         assert!(matches!(cfg.wind_mode, WindMode::Off));
-    }
-
-    #[test]
-    fn test_builder() {
-        let cfg = LunarLanderConfig::builder()
-            .seed(7)
-            .wind_mode(WindMode::Constant { force: 2.5 })
-            .max_steps(500)
-            .build()
-            .expect("valid config");
-        assert_eq!(cfg.seed, 7);
-        assert_eq!(cfg.max_steps, 500);
-        assert!(matches!(cfg.wind_mode, WindMode::Constant { .. }));
     }
 
     #[test]

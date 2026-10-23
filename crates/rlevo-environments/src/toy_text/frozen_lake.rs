@@ -149,19 +149,20 @@ impl Default for RewardSchedule {
 
 /// Configuration for the [`FrozenLake`] environment.
 ///
-/// Build with [`FrozenLakeConfig::builder`] for full control, or use [`FrozenLakeConfig::default`]
-/// for the standard random `$8 \times 8$` slippery variant.
+/// [`FrozenLakeConfig::default`] is the standard random `$8 \times 8$` slippery variant;
+/// override fields with struct-update syntax.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::toy_text::frozen_lake::{FrozenLakeConfig, FrozenMapSpec, FrozenPreset};
 ///
-/// let cfg = FrozenLakeConfig::builder()
-///     .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))
-///     .is_slippery(false)
-///     .seed(0)
-///     .build();
+/// let cfg = FrozenLakeConfig {
+///     map: FrozenMapSpec::Preset(FrozenPreset::Four4x4),
+///     is_slippery: false,
+///     seed: 0,
+///     ..Default::default()
+/// };
 /// ```
 #[derive(Debug, Clone)]
 pub struct FrozenLakeConfig {
@@ -169,7 +170,8 @@ pub struct FrozenLakeConfig {
     pub map: FrozenMapSpec,
     /// When `true`, slip transitions are applied using `success_rate`.
     pub is_slippery: bool,
-    /// Probability of moving in the intended direction when `is_slippery` is `true`. Default: `1/3`.
+    /// Probability of moving in the intended direction when `is_slippery` is `true`; the two
+    /// perpendicular directions each receive `$(1 - \text{rate})/2$`. Default: `1/3`.
     pub success_rate: f32,
     /// Tile-specific reward values.
     pub reward_schedule: RewardSchedule,
@@ -189,81 +191,11 @@ impl Default for FrozenLakeConfig {
     }
 }
 
-impl FrozenLakeConfig {
-    /// Returns a builder for constructing a `FrozenLakeConfig`.
-    #[must_use]
-    pub fn builder() -> FrozenLakeConfigBuilder {
-        FrozenLakeConfigBuilder::default()
-    }
-}
-
 impl Validate for FrozenLakeConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "FrozenLakeConfig";
         config::in_range(C, "success_rate", 0.0, 1.0, f64::from(self.success_rate))?;
         Ok(())
-    }
-}
-
-/// Builder for [`FrozenLakeConfig`].
-#[derive(Debug, Default)]
-pub struct FrozenLakeConfigBuilder {
-    map: Option<FrozenMapSpec>,
-    is_slippery: bool,
-    success_rate: Option<f32>,
-    reward_schedule: Option<RewardSchedule>,
-    seed: u64,
-}
-
-impl FrozenLakeConfigBuilder {
-    /// Sets the grid source: preset, custom, or randomly generated.
-    #[must_use]
-    pub fn map(mut self, m: FrozenMapSpec) -> Self {
-        self.map = Some(m);
-        self
-    }
-
-    /// Enables or disables stochastic slip transitions.
-    #[must_use]
-    pub fn is_slippery(mut self, v: bool) -> Self {
-        self.is_slippery = v;
-        self
-    }
-
-    /// Sets the probability of moving in the intended direction when slippery mode is active.
-    ///
-    /// The two perpendicular directions each receive probability `$(1 - \text{rate})/2$`. Default:
-    /// `1/3`.
-    #[must_use]
-    pub fn success_rate(mut self, r: f32) -> Self {
-        self.success_rate = Some(r);
-        self
-    }
-
-    /// Overrides the per-tile reward values.
-    #[must_use]
-    pub fn reward_schedule(mut self, rs: RewardSchedule) -> Self {
-        self.reward_schedule = Some(rs);
-        self
-    }
-
-    /// Sets the RNG seed.
-    #[must_use]
-    pub fn seed(mut self, s: u64) -> Self {
-        self.seed = s;
-        self
-    }
-
-    /// Builds the [`FrozenLakeConfig`].
-    #[must_use]
-    pub fn build(self) -> FrozenLakeConfig {
-        FrozenLakeConfig {
-            map: self.map.unwrap_or_default(),
-            is_slippery: self.is_slippery,
-            success_rate: self.success_rate.unwrap_or(1.0 / 3.0),
-            reward_schedule: self.reward_schedule.unwrap_or_default(),
-            seed: self.seed,
-        }
     }
 }
 
@@ -918,13 +850,12 @@ mod tests {
     }
 
     fn four_env() -> FrozenLake {
-        FrozenLake::with_config(
-            FrozenLakeConfig::builder()
-                .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))
-                .is_slippery(false)
-                .seed(0)
-                .build(),
-        )
+        FrozenLake::with_config(FrozenLakeConfig {
+            map: FrozenMapSpec::Preset(FrozenPreset::Four4x4),
+            is_slippery: false,
+            seed: 0,
+            ..Default::default()
+        })
         .unwrap()
     }
 
@@ -1111,16 +1042,17 @@ mod tests {
     #[test]
     /// Verifies that a custom [`RewardSchedule`] is applied correctly on hole entry.
     fn reward_schedule_customisable() {
-        let cfg = FrozenLakeConfig::builder()
-            .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))
-            .is_slippery(false)
-            .reward_schedule(RewardSchedule {
+        let cfg = FrozenLakeConfig {
+            map: FrozenMapSpec::Preset(FrozenPreset::Four4x4),
+            is_slippery: false,
+            reward_schedule: RewardSchedule {
                 goal: 100.0,
                 hole: -10.0,
                 frozen: 0.0,
-            })
-            .seed(0)
-            .build();
+            },
+            seed: 0,
+            ..Default::default()
+        };
         let mut env = FrozenLake::with_config(cfg).unwrap();
         env.reset().unwrap();
         // Step into hole at (1,1): Down then Right.
@@ -1146,12 +1078,13 @@ mod tests {
     #[test]
     /// Verifies that slippery-mode movement frequency matches `success_rate = 1/3`.
     fn slippery_mean_direction_differs_from_action() {
-        let cfg = FrozenLakeConfig::builder()
-            .map(FrozenMapSpec::Preset(FrozenPreset::Eight8x8))
-            .is_slippery(true)
-            .success_rate(1.0 / 3.0)
-            .seed(7)
-            .build();
+        let cfg = FrozenLakeConfig {
+            map: FrozenMapSpec::Preset(FrozenPreset::Eight8x8),
+            is_slippery: true,
+            success_rate: 1.0 / 3.0,
+            seed: 7,
+            ..Default::default()
+        };
         let mut env = FrozenLake::with_config(cfg).unwrap();
         env.reset().unwrap();
 
@@ -1185,12 +1118,13 @@ mod tests {
     #[test]
     /// Verifies the slip distribution at `success_rate = 0.75` (75% intended, 12.5% each perpendicular).
     fn success_rate_distribution_at_0_75() {
-        let cfg = FrozenLakeConfig::builder()
-            .map(FrozenMapSpec::Preset(FrozenPreset::Eight8x8))
-            .is_slippery(true)
-            .success_rate(0.75)
-            .seed(13)
-            .build();
+        let cfg = FrozenLakeConfig {
+            map: FrozenMapSpec::Preset(FrozenPreset::Eight8x8),
+            is_slippery: true,
+            success_rate: 0.75,
+            seed: 13,
+            ..Default::default()
+        };
         let mut env = FrozenLake::with_config(cfg).unwrap();
         env.reset().unwrap();
 
@@ -1227,11 +1161,12 @@ mod tests {
     #[test]
     /// Verifies that two slippery environments seeded identically produce the same cumulative reward.
     fn determinism() {
-        let cfg = FrozenLakeConfig::builder()
-            .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))
-            .is_slippery(true)
-            .seed(21)
-            .build();
+        let cfg = FrozenLakeConfig {
+            map: FrozenMapSpec::Preset(FrozenPreset::Four4x4),
+            is_slippery: true,
+            seed: 21,
+            ..Default::default()
+        };
         let run = || {
             let mut env = FrozenLake::with_config(cfg.clone()).unwrap();
             let mut total = 0.0_f32;
@@ -1374,13 +1309,12 @@ mod tests {
     /// step would silently desynchronise every subsequent episode of a seeded run.
     fn test_frozen_lake_rejected_step_does_not_advance_rng() {
         fn slippery_env() -> FrozenLake {
-            FrozenLake::with_config(
-                FrozenLakeConfig::builder()
-                    .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))
-                    .is_slippery(true)
-                    .seed(21)
-                    .build(),
-            )
+            FrozenLake::with_config(FrozenLakeConfig {
+                map: FrozenMapSpec::Preset(FrozenPreset::Four4x4),
+                is_slippery: true,
+                seed: 21,
+                ..Default::default()
+            })
             .expect("the 4x4 preset must build")
         }
 

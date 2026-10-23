@@ -40,12 +40,12 @@ use rand::rngs::StdRng;
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
-use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     ContinuousQ, DeterministicPolicy,
 };
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
-use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     SampleOutput, SquashedGaussianPolicy,
 };
@@ -214,12 +214,12 @@ fn build_agent(learning_starts: usize) -> CarAgent {
     let device = seeded_device::<Be>(0xA53);
     let actor = Actor::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
     let critic = Critic::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
-    let config = DdpgTrainingConfigBuilder::default()
-        .learning_starts(learning_starts)
-        .batch_size(4)
-        .replay_buffer_capacity(64)
-        .build()
-        .expect("valid DDPG config");
+    let config = DdpgTrainingConfig {
+        learning_starts,
+        batch_size: 4,
+        replay_buffer_capacity: 64,
+        ..Default::default()
+    };
     CarAgent::new(actor, critic, config, device).expect("agent construction")
 }
 
@@ -435,12 +435,12 @@ fn build_sac_agent(learning_starts: usize, gain: f32) -> CarSacAgent {
     let actor = SquashedActor::<Be>::new(CarLikeAction::COMPONENTS, gain, &device);
     let critic_1 = Critic::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
     let critic_2 = Critic::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
-    let config = SacTrainingConfigBuilder::default()
-        .learning_starts(learning_starts)
-        .batch_size(4)
-        .replay_buffer_capacity(64)
-        .build()
-        .expect("valid SAC config");
+    let config = SacTrainingConfig {
+        learning_starts,
+        batch_size: 4,
+        replay_buffer_capacity: 64,
+        ..Default::default()
+    };
     CarSacAgent::new(actor, critic_1, critic_2, config, device).expect("agent construction")
 }
 
@@ -656,12 +656,12 @@ fn target_actions_after_one_learn_step(next_obs_x: f32) -> Vec<Vec<f32>> {
     let actor = SaturatingActor::<Be>::new(CarLikeAction::COMPONENTS, 10.0, &device);
     let critic =
         RecordingCritic::<Be>::new(1, CarLikeAction::COMPONENTS, Arc::clone(&recorded), &device);
-    let config = DdpgTrainingConfigBuilder::default()
-        .learning_starts(0)
-        .batch_size(LEARN_BATCH)
-        .replay_buffer_capacity(64)
-        .build()
-        .expect("valid DDPG config");
+    let config = DdpgTrainingConfig {
+        learning_starts: 0,
+        batch_size: LEARN_BATCH,
+        replay_buffer_capacity: 64,
+        ..Default::default()
+    };
     let mut agent =
         SaturatingAgent::new(actor, critic, config, device).expect("agent construction");
 

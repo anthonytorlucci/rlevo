@@ -1,8 +1,8 @@
 //! Configuration for the `CarRacing` environment.
 //!
 //! [`CarRacingConfig`] groups all tunable parameters for track generation,
-//! physics, and reward shaping. Use [`CarRacingConfig::builder`] for ergonomic
-//! construction; call [`Default::default`] for a standard 1000-step episode.
+//! physics, and reward shaping. Call [`Default::default`] for a standard
+//! 1000-step episode, and override fields with struct-update syntax.
 
 use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
@@ -84,67 +84,6 @@ impl Validate for CarRacingConfig {
         config::nonzero(C, "max_steps", self.max_steps)?;
         config::positive(C, "dt", f64::from(self.dt))?;
         Ok(())
-    }
-}
-
-impl CarRacingConfig {
-    /// Returns a builder for configuring a `CarRacingConfig`.
-    #[must_use]
-    pub fn builder() -> CarRacingConfigBuilder {
-        CarRacingConfigBuilder {
-            inner: CarRacingConfig::default(),
-        }
-    }
-}
-
-/// Builder for [`CarRacingConfig`].
-#[derive(Debug, Clone)]
-pub struct CarRacingConfigBuilder {
-    inner: CarRacingConfig,
-}
-
-impl CarRacingConfigBuilder {
-    /// Sets the RNG seed for procedural track generation.
-    #[must_use]
-    pub fn seed(mut self, seed: u64) -> Self {
-        self.inner.seed = seed;
-        self
-    }
-
-    /// Sets the number of Bezier control points (more = more complex track).
-    #[must_use]
-    pub fn track_n_checkpoints(mut self, n: usize) -> Self {
-        self.inner.track_n_checkpoints = n;
-        self
-    }
-
-    /// Sets the maximum steps per episode before truncation.
-    #[must_use]
-    pub fn max_steps(mut self, n: usize) -> Self {
-        self.inner.max_steps = n;
-        self
-    }
-
-    /// Sets the total reward paid out for completing a full lap.
-    ///
-    /// The value is distributed evenly across the track's tiles, so the
-    /// effective per-tile reward is `lap_reward / total_tiles`.
-    #[must_use]
-    pub fn lap_reward(mut self, lap_reward: f32) -> Self {
-        self.inner.lap_reward = lap_reward;
-        self
-    }
-
-    /// Consumes the builder and returns the configured [`CarRacingConfig`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config fails [`Validate`]
-    /// (e.g. non-positive `track_width`, `lap_complete_percent` outside
-    /// `(0, 1]`, or a non-negative `frame_penalty`).
-    pub fn build(self) -> Result<CarRacingConfig, ConfigError> {
-        self.inner.validate()?;
-        Ok(self.inner)
     }
 }
 

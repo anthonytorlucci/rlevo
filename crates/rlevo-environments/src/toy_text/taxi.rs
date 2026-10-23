@@ -85,19 +85,19 @@ fn has_wall(row: u8, from_col: u8, to_col: u8) -> bool {
 
 /// Configuration for the [`Taxi`] environment.
 ///
-/// Use [`TaxiConfig::builder`] to enable optional stochastic modes, or
-/// [`TaxiConfig::default`] for the standard deterministic variant.
+/// [`TaxiConfig::default`] is the standard deterministic variant; a struct
+/// literal enables the optional stochastic modes.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::toy_text::taxi::TaxiConfig;
 ///
-/// let cfg = TaxiConfig::builder()
-///     .is_rainy(true)
-///     .fickle_passenger(true)
-///     .seed(42)
-///     .build();
+/// let cfg = TaxiConfig {
+///     is_rainy: true,
+///     fickle_passenger: true,
+///     seed: 42,
+/// };
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct TaxiConfig {
@@ -109,60 +109,11 @@ pub struct TaxiConfig {
     pub seed: u64,
 }
 
-impl TaxiConfig {
-    /// Returns a builder for constructing a `TaxiConfig`.
-    #[must_use]
-    pub fn builder() -> TaxiConfigBuilder {
-        TaxiConfigBuilder::default()
-    }
-}
-
 impl Validate for TaxiConfig {
     /// [`TaxiConfig`] carries only boolean toggles and a seed, so it has no
     /// numeric invariant to check; validation always succeeds.
     fn validate(&self) -> Result<(), ConfigError> {
         Ok(())
-    }
-}
-
-/// Builder for [`TaxiConfig`].
-#[derive(Debug, Default)]
-pub struct TaxiConfigBuilder {
-    is_rainy: bool,
-    fickle_passenger: bool,
-    seed: u64,
-}
-
-impl TaxiConfigBuilder {
-    /// Enables or disables rainy stochastic transitions.
-    #[must_use]
-    pub fn is_rainy(mut self, v: bool) -> Self {
-        self.is_rainy = v;
-        self
-    }
-
-    /// Enables or disables fickle-passenger destination resampling.
-    #[must_use]
-    pub fn fickle_passenger(mut self, v: bool) -> Self {
-        self.fickle_passenger = v;
-        self
-    }
-
-    /// Sets the RNG seed.
-    #[must_use]
-    pub fn seed(mut self, s: u64) -> Self {
-        self.seed = s;
-        self
-    }
-
-    /// Builds the [`TaxiConfig`].
-    #[must_use]
-    pub fn build(self) -> TaxiConfig {
-        TaxiConfig {
-            is_rainy: self.is_rainy,
-            fickle_passenger: self.fickle_passenger,
-            seed: self.seed,
-        }
     }
 }
 
@@ -972,7 +923,11 @@ mod tests {
     #[test]
     /// Verifies the rainy-mode slip distribution: 80% intended, 10% each perpendicular.
     fn is_rainy_slip_distribution() {
-        let cfg = TaxiConfig::builder().is_rainy(true).seed(17).build();
+        let cfg = TaxiConfig {
+            is_rainy: true,
+            seed: 17,
+            ..Default::default()
+        };
         let mut env = Taxi::with_config(cfg).expect("valid config");
         env.reset().unwrap();
 
@@ -1007,10 +962,11 @@ mod tests {
     /// Verifies the fickle-passenger mode resamples the destination with `$\approx 30\%$`
     /// probability.
     fn fickle_passenger_30pct() {
-        let cfg = TaxiConfig::builder()
-            .fickle_passenger(true)
-            .seed(31)
-            .build();
+        let cfg = TaxiConfig {
+            fickle_passenger: true,
+            seed: 31,
+            ..Default::default()
+        };
         let mut env = Taxi::with_config(cfg).expect("valid config");
         env.reset().unwrap();
 
@@ -1044,7 +1000,11 @@ mod tests {
     #[test]
     /// Verifies that two rainy-mode environments seeded identically produce the same cumulative reward.
     fn determinism() {
-        let cfg = TaxiConfig::builder().is_rainy(true).seed(55).build();
+        let cfg = TaxiConfig {
+            is_rainy: true,
+            seed: 55,
+            ..Default::default()
+        };
         let run = || {
             let mut env = Taxi::with_config(cfg.clone()).expect("valid config");
             let mut total = 0.0_f32;
@@ -1154,7 +1114,11 @@ mod tests {
             ids
         }
 
-        let cfg = TaxiConfig::builder().is_rainy(true).seed(99).build();
+        let cfg = TaxiConfig {
+            is_rainy: true,
+            seed: 99,
+            ..Default::default()
+        };
         let mut probed = Taxi::with_config(cfg.clone()).expect("valid config");
         let mut clean = Taxi::with_config(cfg).expect("valid config");
 

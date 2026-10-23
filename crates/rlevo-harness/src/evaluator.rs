@@ -1011,7 +1011,7 @@ mod tests {
     #[test]
     fn one_trial_per_env_in_report() {
         let cfg = single_thread_cfg(1, 10);
-        let suite = Suite::new("s", cfg.clone())
+        let suite = Suite::new("s")
             .with_env("e1", |_| StubEnv::new(3))
             .with_env("e2", |_| StubEnv::new(3));
 
@@ -1024,7 +1024,7 @@ mod tests {
     #[test]
     fn report_is_finalized_after_run() {
         let cfg = single_thread_cfg(1, 5);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(2));
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(2));
 
         let (mut reporter, _) = SpyReporter::new();
         let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
@@ -1035,7 +1035,7 @@ mod tests {
     #[test]
     fn reporter_callback_order_suite_wraps_trials() {
         let cfg = single_thread_cfg(2, 10);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(3));
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
 
         let (mut reporter, log) = SpyReporter::new();
         Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
@@ -1052,7 +1052,7 @@ mod tests {
     #[test]
     fn on_episode_end_fires_once_per_episode() {
         let cfg = single_thread_cfg(3, 20);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(5));
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(5));
 
         let (mut reporter, log) = SpyReporter::new();
         Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
@@ -1070,7 +1070,7 @@ mod tests {
     fn episode_return_equals_steps_taken() {
         // StubEnv rewards 1.0 per step and signals done after `steps_until_done`.
         let cfg = single_thread_cfg(4, 100);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(7));
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(7));
 
         let (mut reporter, _) = SpyReporter::new();
         let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
@@ -1139,7 +1139,7 @@ mod tests {
 
         CLONES.store(0, AtomicOrdering::Relaxed);
         let cfg = single_thread_cfg(2, 50);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| CountingEnv { steps: 0 });
+        let suite = Suite::new("s").with_env("e", |_| CountingEnv { steps: 0 });
         let (mut reporter, _) = SpyReporter::new();
         let report = Evaluator::new(cfg).run_suite(&suite, |_| CountingAgent, &mut reporter);
 
@@ -1173,7 +1173,7 @@ mod tests {
         // `install_capture_subscriber` for why every such test must call it.
         install_capture_subscriber();
         let cfg = single_thread_cfg(EPISODES, 10);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| {
+        let suite = Suite::new("s").with_env("e", |_| {
             let mut env = StubEnv::new(STEPS_PER_EPISODE);
             env.reward_override = Some(f32::INFINITY);
             env
@@ -1219,7 +1219,7 @@ mod tests {
     #[test]
     fn non_finite_counter_is_zero_on_a_clean_trial() {
         let cfg = single_thread_cfg(2, 10);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(3));
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
 
         let (mut reporter, _) = SpyReporter::new();
         let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
@@ -1242,7 +1242,7 @@ mod tests {
         // `install_capture_subscriber` for why every such test must call it.
         install_capture_subscriber();
         let cfg = single_thread_cfg(2, 10);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| {
+        let suite = Suite::new("s").with_env("e", |_| {
             let mut env = StubEnv::new(4);
             env.reward_override = Some(f32::INFINITY);
             env
@@ -1890,7 +1890,7 @@ mod tests {
             success_threshold: None,
         };
         // done triggers at step 1000 — the evaluator must stop at max_steps=4.
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(1000));
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(1000));
 
         let (mut reporter, _) = SpyReporter::new();
         let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
@@ -1903,7 +1903,7 @@ mod tests {
     #[test]
     fn reset_error_marks_trial_errored() {
         let cfg = single_thread_cfg(5, 10);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| {
+        let suite = Suite::new("s").with_env("e", |_| {
             let mut env = StubEnv::new(3);
             env.reset_fails = true;
             env
@@ -1919,7 +1919,7 @@ mod tests {
     #[test]
     fn step_error_marks_trial_errored() {
         let cfg = single_thread_cfg(5, 10);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| {
+        let suite = Suite::new("s").with_env("e", |_| {
             let mut env = StubEnv::new(3);
             env.step_fails = true;
             env
@@ -1949,7 +1949,7 @@ mod tests {
         }
 
         let cfg = single_thread_cfg(1, 10);
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| PanickingEnv);
+        let suite = Suite::new("s").with_env("e", |_| PanickingEnv);
 
         let (mut reporter, _) = SpyReporter::new();
         let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
@@ -1976,7 +1976,7 @@ mod tests {
             fail_fast: false,
             success_threshold: None,
         };
-        let suite = Suite::new("s", cfg.clone())
+        let suite = Suite::new("s")
             .with_env("e0", |_| StubEnv::new(3))
             .with_env("e1", |_| StubEnv::new(3));
 
@@ -2005,7 +2005,7 @@ mod tests {
             fail_fast: false,
             success_threshold: Some(3.0), // StubEnv returns 5.0 per episode
         };
-        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(5));
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(5));
 
         let (mut reporter, _) = SpyReporter::new();
         let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);

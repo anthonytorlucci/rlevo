@@ -913,15 +913,15 @@ mod tests {
 
     #[test]
     fn test_wind_constant_affects_obs() {
-        let no_wind_cfg = LunarLanderConfig::builder()
-            .seed(1)
-            .build()
-            .expect("valid config");
-        let wind_cfg = LunarLanderConfig::builder()
-            .seed(1)
-            .wind_mode(WindMode::Constant { force: 5.0 })
-            .build()
-            .expect("valid config");
+        let no_wind_cfg = LunarLanderConfig {
+            seed: 1,
+            ..Default::default()
+        };
+        let wind_cfg = LunarLanderConfig {
+            seed: 1,
+            wind_mode: WindMode::Constant { force: 5.0 },
+            ..Default::default()
+        };
 
         let mut env_no_wind = LunarLanderDiscrete::with_config(no_wind_cfg).expect("valid config");
         let mut env_wind = LunarLanderDiscrete::with_config(wind_cfg).expect("valid config");
@@ -946,10 +946,10 @@ mod tests {
 
     #[test]
     fn test_determinism_no_wind() {
-        let cfg = LunarLanderConfig::builder()
-            .seed(99)
-            .build()
-            .expect("valid config");
+        let cfg = LunarLanderConfig {
+            seed: 99,
+            ..Default::default()
+        };
         let actions = vec![
             LunarLanderDiscreteAction::MainEngine,
             LunarLanderDiscreteAction::DoNothing,
@@ -983,10 +983,10 @@ mod tests {
     /// commanded throttle.
     #[test]
     fn test_constant_main_engine_delta_vy_does_not_grow() {
-        let cfg = LunarLanderConfig::builder()
-            .seed(7)
-            .build()
-            .expect("valid config");
+        let cfg = LunarLanderConfig {
+            seed: 7,
+            ..Default::default()
+        };
         let mut env = LunarLanderDiscrete::with_config(cfg).expect("valid config");
         env.reset().unwrap();
 
@@ -1030,11 +1030,11 @@ mod tests {
     /// so the third snapshot truncates.
     #[test]
     fn test_step_truncates_at_max_steps() {
-        let cfg = LunarLanderConfig::builder()
-            .seed(0)
-            .max_steps(3)
-            .build()
-            .expect("valid config");
+        let cfg = LunarLanderConfig {
+            seed: 0,
+            max_steps: 3,
+            ..Default::default()
+        };
         let mut env = LunarLanderDiscrete::with_config(cfg).expect("valid config");
         env.reset().unwrap();
 
@@ -1073,10 +1073,10 @@ mod tests {
     /// shaping delta and control cost.
     #[test]
     fn test_step_terminates_on_hull_crash() {
-        let cfg = LunarLanderConfig::builder()
-            .seed(0)
-            .build()
-            .expect("valid config");
+        let cfg = LunarLanderConfig {
+            seed: 0,
+            ..Default::default()
+        };
         let max_steps = cfg.max_steps;
         let mut env = LunarLanderDiscrete::with_config(cfg).expect("valid config");
         env.reset().unwrap();
@@ -1124,10 +1124,10 @@ mod tests {
     /// Deterministic config shared by the guard tests: seed 0 free-falls into
     /// the hull-crash terminal at step 135, well inside `max_steps` (1000).
     fn guard_cfg() -> LunarLanderConfig {
-        LunarLanderConfig::builder()
-            .seed(0)
-            .build()
-            .expect("valid config")
+        LunarLanderConfig {
+            seed: 0,
+            ..Default::default()
+        }
     }
 
     /// Upper bound on the free-fall drive; `guard_cfg`'s own `max_steps` is

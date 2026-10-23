@@ -144,9 +144,9 @@ impl C51TrainingConfig {
     ///
     /// The uniform atom spacing, or [`f32::NAN`] for a degenerate
     /// `num_atoms < 2` (a spacing is undefined with fewer than two atoms).
-    /// [`Validate`] rejects such a config, but a struct literal can bypass
-    /// the builder — not the `with_config` chokepoint that runs it — so this
-    /// can't assume validation ran and stays total rather than panicking.
+    /// [`Validate`] rejects such a config, but `delta_z` can be called on a
+    /// config no constructor has validated, so it stays total rather than
+    /// panicking.
     #[must_use]
     pub fn delta_z(&self) -> f32 {
         atom_spacing(self.v_min, self.v_max, self.num_atoms)
@@ -228,186 +228,6 @@ impl Validate for C51TrainingConfig {
     }
 }
 
-/// Fluent builder for [`C51TrainingConfig`]. All unset fields fall back to
-/// [`C51TrainingConfig::default`].
-#[derive(Debug)]
-pub struct C51TrainingConfigBuilder {
-    config: C51TrainingConfig,
-}
-
-impl Default for C51TrainingConfigBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl C51TrainingConfigBuilder {
-    /// Creates a builder pre-populated with [`C51TrainingConfig::default`] values.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            config: C51TrainingConfig::default(),
-        }
-    }
-
-    /// Sets [`C51TrainingConfig::batch_size`].
-    #[must_use]
-    pub fn batch_size(mut self, batch_size: usize) -> Self {
-        self.config.batch_size = batch_size;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::gamma`].
-    #[must_use]
-    pub fn gamma(mut self, gamma: f64) -> Self {
-        self.config.gamma = gamma;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::learning_rate`].
-    #[must_use]
-    pub fn learning_rate(mut self, learning_rate: f64) -> Self {
-        self.config.learning_rate = learning_rate;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::epsilon_start`].
-    #[must_use]
-    pub fn epsilon_start(mut self, epsilon_start: f64) -> Self {
-        self.config.epsilon_start = epsilon_start;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::epsilon_end`].
-    #[must_use]
-    pub fn epsilon_end(mut self, epsilon_end: f64) -> Self {
-        self.config.epsilon_end = epsilon_end;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::epsilon_decay`].
-    #[must_use]
-    pub fn epsilon_decay(mut self, epsilon_decay: f64) -> Self {
-        self.config.epsilon_decay = epsilon_decay;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::target_update`] — cadence and `$\tau$` together.
-    ///
-    /// One setter, because there is one mechanism (ADR 0058). The cadence is in
-    /// **gradient updates**, unlike the env-step
-    /// [`train_frequency`](Self::train_frequency) beside it.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfigBuilder;
-    /// use rlevo_reinforcement_learning::target::TargetUpdate;
-    ///
-    /// let cfg = C51TrainingConfigBuilder::new()
-    ///     .target_update(TargetUpdate::hard(500))
-    ///     .build()
-    ///     .expect("valid config");
-    /// assert!(cfg.target_update.is_hard());
-    /// ```
-    #[must_use]
-    pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
-        self.config.target_update = target_update;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::steps_per_episode`].
-    #[must_use]
-    pub fn steps_per_episode(mut self, steps: usize) -> Self {
-        self.config.steps_per_episode = steps;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::replay_buffer_capacity`].
-    #[must_use]
-    pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
-        self.config.replay_buffer_capacity = capacity;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::learning_starts`].
-    #[must_use]
-    pub fn learning_starts(mut self, learning_starts: usize) -> Self {
-        self.config.learning_starts = learning_starts;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::train_frequency`].
-    #[must_use]
-    pub fn train_frequency(mut self, train_frequency: usize) -> Self {
-        self.config.train_frequency = train_frequency;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::num_atoms`].
-    ///
-    /// The paper default is `51`; smaller values (e.g. `21`) reduce memory and
-    /// compute at the cost of distributional resolution.
-    #[must_use]
-    pub fn num_atoms(mut self, num_atoms: usize) -> Self {
-        self.config.num_atoms = num_atoms;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::v_min`].
-    #[must_use]
-    pub fn v_min(mut self, v_min: f32) -> Self {
-        self.config.v_min = v_min;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::v_max`].
-    #[must_use]
-    pub fn v_max(mut self, v_max: f32) -> Self {
-        self.config.v_max = v_max;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::clip_grad`].
-    ///
-    /// Pass `None` to disable gradient clipping entirely.
-    #[must_use]
-    pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
-        self.config.clip_grad = config;
-        self
-    }
-
-    /// Sets [`C51TrainingConfig::optimizer`].
-    #[must_use]
-    pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
-        self.config.optimizer = optimizer;
-        self
-    }
-
-    /// Enables prioritized experience replay with the given settings.
-    ///
-    /// C51 prioritizes by the KL loss (Rainbow); see
-    /// [`C51TrainingConfig::prioritized_replay`] for the literature-recommended
-    /// `$\omega = 0.5$`. Leave unset for uniform replay.
-    #[must_use]
-    pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
-        self.config.prioritized_replay = Some(settings);
-        self
-    }
-
-    /// Consumes the builder and returns the finalised [`C51TrainingConfig`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ConfigError`] if the assembled config violates any invariant
-    /// checked by [`C51TrainingConfig::validate`] (e.g. `v_min >= v_max` or
-    /// fewer than two atoms).
-    pub fn build(self) -> Result<C51TrainingConfig, ConfigError> {
-        self.config.validate()?;
-        Ok(self.config)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     // Exact comparison is intentional throughout this test module: the values are
@@ -430,30 +250,14 @@ mod tests {
 
     #[test]
     fn delta_z_matches_uniform_spacing() {
-        let cfg = C51TrainingConfigBuilder::new()
-            .num_atoms(51)
-            .v_min(-10.0)
-            .v_max(10.0)
-            .build()
-            .expect("valid config");
+        let cfg = C51TrainingConfig {
+            num_atoms: 51,
+            v_min: -10.0,
+            v_max: 10.0,
+            ..Default::default()
+        };
         // 50 gaps spanning 20.0 → 0.4 per atom.
         assert!((cfg.delta_z() - 0.4).abs() < 1e-6);
-    }
-
-    #[test]
-    fn builder_round_trips_distributional_fields() {
-        let cfg = C51TrainingConfigBuilder::new()
-            .num_atoms(21)
-            .v_min(-5.0)
-            .v_max(5.0)
-            .batch_size(128)
-            .build()
-            .expect("valid config");
-        assert_eq!(cfg.num_atoms, 21);
-        assert_eq!(cfg.v_min, -5.0);
-        assert_eq!(cfg.v_max, 5.0);
-        assert_eq!(cfg.batch_size, 128);
-        assert!((cfg.delta_z() - 0.5).abs() < 1e-6);
     }
 
     #[test]
@@ -470,10 +274,12 @@ mod tests {
     /// be the bug, not the fix.
     #[test]
     fn rejects_replay_buffer_capacity_above_ceiling() {
-        let err = C51TrainingConfigBuilder::new()
-            .replay_buffer_capacity(usize::MAX)
-            .build()
-            .expect_err("usize::MAX capacity must be rejected, not allocated");
+        let err = C51TrainingConfig {
+            replay_buffer_capacity: usize::MAX,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("usize::MAX capacity must be rejected, not allocated");
         assert_eq!(err.field, "replay_buffer_capacity");
         let max = u64::try_from(MAX_BUFFER_CAPACITY).expect("the ceiling fits in u64");
         let got = u64::try_from(usize::MAX).expect("usize::MAX fits in u64 on this target");
@@ -484,11 +290,11 @@ mod tests {
     /// unallocatable) capacity, so the guard cannot be off by one.
     #[test]
     fn accepts_replay_buffer_capacity_at_ceiling() {
-        let cfg = C51TrainingConfigBuilder::new()
-            .replay_buffer_capacity(MAX_BUFFER_CAPACITY)
-            .build()
-            .expect("the ceiling itself must validate");
-        assert_eq!(cfg.replay_buffer_capacity, MAX_BUFFER_CAPACITY);
+        let cfg = C51TrainingConfig {
+            replay_buffer_capacity: MAX_BUFFER_CAPACITY,
+            ..Default::default()
+        };
+        cfg.validate().expect("the ceiling itself must validate");
     }
 
     /// The default is behaviour-preserving: the old `tau = 0.005` soft update
@@ -533,21 +339,24 @@ mod tests {
             TargetUpdate::hard(1),
             TargetUpdate::hard(10_000),
         ] {
-            let cfg = C51TrainingConfigBuilder::new()
-                .target_update(rule)
-                .build()
+            let cfg = C51TrainingConfig {
+                target_update: rule,
+                ..Default::default()
+            };
+            cfg.validate()
                 .expect("a constructible TargetUpdate is always a valid config");
-            assert_eq!(cfg.target_update, rule);
         }
     }
 
     #[test]
     fn rejects_degenerate_support() {
-        let err = C51TrainingConfigBuilder::new()
-            .v_min(5.0)
-            .v_max(5.0)
-            .build()
-            .unwrap_err();
+        let err = C51TrainingConfig {
+            v_min: 5.0,
+            v_max: 5.0,
+            ..Default::default()
+        }
+        .validate()
+        .unwrap_err();
         assert_eq!(err.field, "v_max");
     }
 }

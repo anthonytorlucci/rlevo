@@ -57,7 +57,7 @@ above, and a CPU-vs-GPU backend sweep.
 | `eda_showcase`                | Estimation-of-Distribution model variants (Gaussian/Bernoulli/compact-GA/dependency-chain/Bayesian network) in three demos, each on the problem that exercises its models: Rosenbrock, `OneMax` and a deceptive concatenated trap. | `cargo run -p rlevo-examples --example eda_showcase`                |
 | `competitive_predator_prey`   | Competitive coevolution (`CompetitiveCoEA`) between two adversarial populations. | `cargo run -p rlevo-examples --example competitive_predator_prey`   |
 | `cooperative_ccga_rastrigin`  | Cooperative coevolution (`CooperativeCoEA`) decomposing Rastrigin across two subpopulations. | `cargo run -p rlevo-examples --example cooperative_ccga_rastrigin`  |
-| `santa_fe_ant_deterministic`  | `WeightOnly` neuroevolution of a recurrent (GRU and Elman) policy on the deterministic Santa Fe Trail. | `cargo run -p rlevo-examples --example santa_fe_ant_deterministic`  |
+| `santa_fe_ant_deterministic`  | Weight-only neuroevolution of a recurrent (GRU and Elman) policy on the deterministic Santa Fe Trail. | `cargo run -p rlevo-examples --example santa_fe_ant_deterministic`  |
 | `santa_fe_ant_stochastic`     | The same recurrent-policy neuroevolution with stochastic action selection (a seeded softmax sample, fitness averaged over a fixed seed set); the Santa Fe Trail itself stays deterministic. | `cargo run -p rlevo-examples --example santa_fe_ant_stochastic`     |
 | `backend_sweep_neuroevolution` | The same generic GA neuroevolution run, timed on `Flex` (CPU) and `Wgpu` (GPU) across population sizes; needs a wgpu adapter. Use `--release`. | `cargo run -p rlevo-examples --example backend_sweep_neuroevolution --release` |
 

@@ -1033,7 +1033,6 @@ mod tests {
     use rand::rngs::StdRng;
     use serde::{Deserialize, Serialize};
 
-    use crate::algorithms::c51::c51_config::C51TrainingConfigBuilder;
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
@@ -1176,16 +1175,16 @@ mod tests {
     #[allow(clippy::cast_precision_loss)]
     fn primed_agent(rule: TargetUpdate) -> TestAgent {
         let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
-        let config = C51TrainingConfigBuilder::new()
-            .target_update(rule)
-            .batch_size(2)
-            .learning_starts(0)
-            .learning_rate(0.01)
-            .num_atoms(TEST_ATOMS)
-            .v_min(-1.0)
-            .v_max(1.0)
-            .build()
-            .expect("valid test config");
+        let config = C51TrainingConfig {
+            target_update: rule,
+            batch_size: 2,
+            learning_starts: 0,
+            learning_rate: 0.01,
+            num_atoms: TEST_ATOMS,
+            v_min: -1.0,
+            v_max: 1.0,
+            ..Default::default()
+        };
 
         let mut agent: TestAgent =
             C51Agent::new(TestNet::<TestBackend>::init(&device), config, device)
@@ -1211,20 +1210,20 @@ mod tests {
     #[allow(clippy::cast_precision_loss)]
     fn primed_prioritized_agent() -> TestAgent {
         let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
-        let config = C51TrainingConfigBuilder::new()
-            .target_update(TargetUpdate::polyak(0.005, 1))
-            .batch_size(2)
-            .learning_starts(0)
-            .learning_rate(0.01)
-            .num_atoms(TEST_ATOMS)
-            .v_min(-1.0)
-            .v_max(1.0)
-            .prioritized_replay(PrioritizedReplaySettings {
+        let config = C51TrainingConfig {
+            target_update: TargetUpdate::polyak(0.005, 1),
+            batch_size: 2,
+            learning_starts: 0,
+            learning_rate: 0.01,
+            num_atoms: TEST_ATOMS,
+            v_min: -1.0,
+            v_max: 1.0,
+            prioritized_replay: Some(PrioritizedReplaySettings {
                 beta_anneal_steps: 100,
                 ..PrioritizedReplaySettings::default()
-            })
-            .build()
-            .expect("valid prioritized test config");
+            }),
+            ..Default::default()
+        };
 
         let mut agent: TestAgent =
             C51Agent::new(TestNet::<TestBackend>::init(&device), config, device)
@@ -1607,12 +1606,12 @@ mod tests {
     #[test]
     fn test_c51_remember_drops_a_nonfinite_reward() {
         let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
-        let config = C51TrainingConfigBuilder::new()
-            .num_atoms(TEST_ATOMS)
-            .v_min(-1.0)
-            .v_max(1.0)
-            .build()
-            .expect("valid test config");
+        let config = C51TrainingConfig {
+            num_atoms: TEST_ATOMS,
+            v_min: -1.0,
+            v_max: 1.0,
+            ..Default::default()
+        };
         let mut agent: TestAgent =
             C51Agent::new(TestNet::<TestBackend>::init(&device), config, device)
                 .expect("agent constructs");
@@ -1671,12 +1670,12 @@ mod tests {
 
     fn obs_guard_agent() -> TestAgent {
         let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
-        let config = C51TrainingConfigBuilder::new()
-            .num_atoms(TEST_ATOMS)
-            .v_min(-1.0)
-            .v_max(1.0)
-            .build()
-            .expect("valid test config");
+        let config = C51TrainingConfig {
+            num_atoms: TEST_ATOMS,
+            v_min: -1.0,
+            v_max: 1.0,
+            ..Default::default()
+        };
         C51Agent::new(TestNet::<TestBackend>::init(&device), config, device)
             .expect("agent constructs")
     }
@@ -1807,11 +1806,6 @@ mod tests {
     /// run first. This pins the observable contract so a reordering — or a
     /// seventh agent copied from this one — cannot quietly turn it back into
     /// a panic.
-    ///
-    /// The config is built by struct literal rather than through the builder
-    /// on purpose: `build()` runs `validate()`, so a builder physically cannot
-    /// hand `new` a bad capacity, and a test that went through it would be
-    /// asserting on the builder instead of on this constructor.
     #[test]
     fn test_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;

@@ -965,7 +965,6 @@ mod tests {
 
     use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 
-    use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
@@ -1083,14 +1082,14 @@ mod tests {
     fn primed_agent(rule: TargetUpdate) -> TestAgent {
         let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
-        let config = QrDqnTrainingConfigBuilder::new()
-            .target_update(rule)
-            .batch_size(2)
-            .learning_starts(0)
-            .learning_rate(0.01)
-            .num_quantiles(TEST_QUANTILES)
-            .build()
-            .expect("valid config");
+        let config = QrDqnTrainingConfig {
+            target_update: rule,
+            batch_size: 2,
+            learning_starts: 0,
+            learning_rate: 0.01,
+            num_quantiles: TEST_QUANTILES,
+            ..Default::default()
+        };
         let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(0.1, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4 {
@@ -1115,18 +1114,18 @@ mod tests {
     fn primed_prioritized_agent() -> TestAgent {
         let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
-        let config = QrDqnTrainingConfigBuilder::new()
-            .target_update(TargetUpdate::polyak(0.005, 1))
-            .batch_size(2)
-            .learning_starts(0)
-            .learning_rate(0.01)
-            .num_quantiles(TEST_QUANTILES)
-            .prioritized_replay(PrioritizedReplaySettings {
+        let config = QrDqnTrainingConfig {
+            target_update: TargetUpdate::polyak(0.005, 1),
+            batch_size: 2,
+            learning_starts: 0,
+            learning_rate: 0.01,
+            num_quantiles: TEST_QUANTILES,
+            prioritized_replay: Some(PrioritizedReplaySettings {
                 beta_anneal_steps: 100,
                 ..PrioritizedReplaySettings::default()
-            })
-            .build()
-            .expect("valid prioritized config");
+            }),
+            ..Default::default()
+        };
         let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(0.1, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4 {
@@ -1219,14 +1218,14 @@ mod tests {
     fn bellman_agent(terminated: bool) -> TestAgent {
         let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
-        let config = QrDqnTrainingConfigBuilder::new()
-            .target_update(TargetUpdate::polyak(0.005, 1))
-            .batch_size(1)
-            .learning_starts(0)
-            .gamma(f64::from(BELLMAN_GAMMA))
-            .num_quantiles(TEST_QUANTILES)
-            .build()
-            .expect("valid config");
+        let config = QrDqnTrainingConfig {
+            target_update: TargetUpdate::polyak(0.005, 1),
+            batch_size: 1,
+            learning_starts: 0,
+            gamma: f64::from(BELLMAN_GAMMA),
+            num_quantiles: TEST_QUANTILES,
+            ..Default::default()
+        };
         let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(BELLMAN_FILL, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         // obs(1.0) -> every predicted quantile is 1.0.
@@ -1649,10 +1648,10 @@ mod tests {
     fn test_qrdqn_agent_remember_drops_a_nonfinite_reward() {
         let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
-        let config = QrDqnTrainingConfigBuilder::new()
-            .num_quantiles(TEST_QUANTILES)
-            .build()
-            .expect("valid config");
+        let config = QrDqnTrainingConfig {
+            num_quantiles: TEST_QUANTILES,
+            ..Default::default()
+        };
         let mut agent: TestAgent = QrDqnAgent::new(
             TestQrDqnNet::<TestAdBackend>::new(0.1, &device),
             config,
@@ -1708,10 +1707,10 @@ mod tests {
     fn obs_guard_agent() -> TestAgent {
         let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
             Default::default();
-        let config = QrDqnTrainingConfigBuilder::new()
-            .num_quantiles(TEST_QUANTILES)
-            .build()
-            .expect("valid config");
+        let config = QrDqnTrainingConfig {
+            num_quantiles: TEST_QUANTILES,
+            ..Default::default()
+        };
         QrDqnAgent::new(
             TestQrDqnNet::<TestAdBackend>::new(0.1, &device),
             config,
@@ -1843,11 +1842,6 @@ mod tests {
     /// run first. This pins the observable contract so a reordering — or a
     /// seventh agent copied from this one — cannot quietly turn it back into
     /// a panic.
-    ///
-    /// The config is built by struct literal rather than through the builder
-    /// on purpose: `build()` runs `validate()`, so a builder physically cannot
-    /// hand `new` a bad capacity, and a test that went through it would be
-    /// asserting on the builder instead of on this constructor.
     #[test]
     fn test_qrdqn_agent_new_rejects_out_of_range_replay_buffer_capacity() {
         let over = MAX_BUFFER_CAPACITY + 1;

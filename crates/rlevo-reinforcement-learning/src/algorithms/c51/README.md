@@ -14,7 +14,7 @@ optimizer) and adds:
 ## Modules
 
 - [`c51_agent`](c51_agent.rs) — `C51Agent`, `C51Metrics`, `C51AgentError`.
-- [`c51_config`](c51_config.rs) — `C51TrainingConfig` + builder with all
+- [`c51_config`](c51_config.rs) — `C51TrainingConfig`, with all
   hyperparameters, including `num_atoms`, `v_min`, `v_max`.
 - [`c51_model`](c51_model.rs) — the `C51Model` trait returning a rank-3
   tensor of atom logits `(batch, num_actions, num_atoms)`.

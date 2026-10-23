@@ -32,11 +32,11 @@
 //! #     BipedalWalker, BipedalWalkerAction, BipedalWalkerConfig, BipedalTerrain,
 //! # };
 //! # use rlevo_core::environment::{Environment, Snapshot};
-//! let cfg = BipedalWalkerConfig::builder()
-//!     .terrain(BipedalTerrain::Rough)
-//!     .seed(42)
-//!     .build()
-//!     .expect("valid config");
+//! let cfg = BipedalWalkerConfig {
+//!     terrain: BipedalTerrain::Rough,
+//!     seed: 42,
+//!     ..Default::default()
+//! };
 //! let mut env = BipedalWalker::with_config(cfg).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(BipedalWalkerAction([0.1, -0.1, 0.1, -0.1])).unwrap();
@@ -51,7 +51,7 @@ pub mod state;
 pub mod terrain;
 
 pub use action::BipedalWalkerAction;
-pub use config::{BipedalTerrain, BipedalWalkerConfig, BipedalWalkerConfigBuilder};
+pub use config::{BipedalTerrain, BipedalWalkerConfig};
 pub use env::BipedalWalker;
 pub use observation::BipedalWalkerObservation;
 pub use state::BipedalWalkerState;

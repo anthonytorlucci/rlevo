@@ -30,7 +30,7 @@ pub fn run() -> Result<String, String> {
         num_threads: Some(2),
         ..EvaluatorConfig::default()
     };
-    let suite = Suite::new("byoe-1", config.clone()).with_env(ENV_ID, |seed| {
+    let suite = Suite::new("byoe-1").with_env(ENV_ID, |seed| {
         TimeLimit::new(TankFarm::with_seed(seed), TIME_LIMIT)
     });
     let mut reporter = LoggingReporter::default();

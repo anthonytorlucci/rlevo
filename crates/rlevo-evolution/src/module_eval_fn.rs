@@ -2,10 +2,9 @@
 //! parameter rows by reconstructing one Burn module per row.
 //!
 //! This is the *only* place flatten/unflatten happens in the weight-only
-//! pipeline. The [`WeightOnly`](crate::algorithms::neuroevolution::WeightOnly)
-//! strategy keeps the genome as a flat `Tensor<B, 2>` end-to-end and never
-//! reshapes; reshaping is confined to this evaluation boundary so the inner
-//! strategy's selection/crossover/mutation operate on plain tensors.
+//! pipeline. The strategy keeps the genome as a flat `Tensor<B, 2>`
+//! end-to-end and never reshapes; reshaping is confined to this evaluation
+//! boundary so its selection/crossover/mutation operate on plain tensors.
 //!
 //! Evaluation is loop-over-N: Burn 0.21 has no `vmap`/batched-forward
 //! primitive, so each population row is unflattened into a module and scored

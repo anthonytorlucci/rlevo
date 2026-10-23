@@ -760,10 +760,10 @@ mod tests {
 
     #[test]
     fn test_determinism() {
-        let cfg = BipedalWalkerConfig::builder()
-            .seed(42)
-            .build()
-            .expect("valid config");
+        let cfg = BipedalWalkerConfig {
+            seed: 42,
+            ..Default::default()
+        };
         let actions: Vec<BipedalWalkerAction> = (0..20)
             .map(|i| BipedalWalkerAction([(i as f32 * 0.1).sin(); 4]))
             .collect();
@@ -937,11 +937,11 @@ mod tests {
             (BipedalTerrain::Rough, "RoughTerrain"),
             (BipedalTerrain::Hardcore, "HardcoreTerrain"),
         ] {
-            let cfg = BipedalWalkerConfig::builder()
-                .terrain(terrain)
-                .seed(7)
-                .build()
-                .expect("valid config");
+            let cfg = BipedalWalkerConfig {
+                terrain,
+                seed: 7,
+                ..Default::default()
+            };
             let mut env = BipedalWalker::with_config(cfg).expect("valid config");
             assert!(
                 env.terrain_debug().contains(expected),
@@ -1053,11 +1053,11 @@ mod tests {
         use crate::box2d::bipedal_walker::config::BipedalTerrain;
 
         for terrain in [BipedalTerrain::Flat, BipedalTerrain::Rough] {
-            let cfg = BipedalWalkerConfig::builder()
-                .terrain(terrain)
-                .seed(1)
-                .build()
-                .expect("valid config");
+            let cfg = BipedalWalkerConfig {
+                terrain,
+                seed: 1,
+                ..Default::default()
+            };
             let mut env = BipedalWalker::with_config(cfg).expect("valid config");
             let snap = env.reset().expect("reset must succeed");
             assert!(
@@ -1067,11 +1067,11 @@ mod tests {
         }
 
         for seed in 0..16u64 {
-            let cfg = BipedalWalkerConfig::builder()
-                .terrain(BipedalTerrain::Hardcore)
-                .seed(seed)
-                .build()
-                .expect("valid config");
+            let cfg = BipedalWalkerConfig {
+                terrain: BipedalTerrain::Hardcore,
+                seed,
+                ..Default::default()
+            };
             let mut env = BipedalWalker::with_config(cfg).expect("valid config");
             let snap = env.reset().expect("hardcore reset must succeed");
             assert!(

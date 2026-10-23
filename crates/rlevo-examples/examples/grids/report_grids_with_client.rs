@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let suite = {
         let sink = sink.clone();
-        Suite::new("empty-grid-report-client", cfg.clone()).with_env("empty", move |seed| {
+        Suite::new("empty-grid-report-client").with_env("empty", move |seed| {
             let env = EmptyEnv::with_config(
                 EmptyConfig::new(GRID_SIZE, MAX_STEPS_PER_EPISODE, seed),
                 false,

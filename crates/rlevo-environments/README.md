@@ -106,12 +106,12 @@ MuJoCo-style locomotion environments in pure Rust via [Rapier3D](https://rapier.
 
 ---
 
-### Games (stub, no `Environment` impls yet)
+### Games (stub, no `Environment` impl yet)
 
-`Chess` and `ConnectFour` exist in-source as stub modules (`src/games/chess/`
-and `src/games/connect_four.rs`). They compile but do not yet implement the
-`Environment` trait, and are hidden from the public API docs until the
-`Environment` impls land.
+`Chess` exists in-source as a stub module (`src/games/chess/`): board state,
+legal-move generation and the `AlphaZero` action and observation encodings.
+It compiles but does not yet implement the `Environment` trait, and is
+hidden from the public API docs until that impl lands.
 
 ---
 
@@ -219,9 +219,9 @@ rlevo-environments = { path = "…", default-features = false }
 
 ## Design
 
-### Configuration Builder
+### Configuration
 
-Every environment ships with a `XyzConfig` struct and a `XyzConfigBuilder` with a fluent API. Defaults match the reference Gymnasium implementation where one exists.
+Every environment ships with a `XyzConfig` struct whose fields are public: override its defaults with struct-update syntax, and `with_config` validates the result. Defaults match the reference Gymnasium implementation where one exists.
 
 ```rust,no_run
 use rlevo_environments::classic::{CartPole, CartPoleConfig};

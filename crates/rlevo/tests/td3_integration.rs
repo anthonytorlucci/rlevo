@@ -28,7 +28,7 @@ use rlevo_environments::classic::pendulum::{
 };
 use rlevo_environments::wrappers::TimeLimit;
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
-use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
 use rlevo_reinforcement_learning::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 use rlevo_reinforcement_learning::algorithms::td3::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
@@ -165,20 +165,20 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
     let critic_1: Critic<Be> = Critic::new(1, 1, 32, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 32, &device);
-    let config = Td3TrainingConfigBuilder::new()
-        .replay_buffer_capacity(20_000)
-        .batch_size(32)
-        .learning_starts(500)
-        .actor_lr(1e-3)
-        .critic_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.02, 2))
-        .exploration_noise(0.2)
-        .policy_noise(0.2)
-        .noise_clip(0.5)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = Td3TrainingConfig {
+        replay_buffer_capacity: 20_000,
+        batch_size: 32,
+        learning_starts: 500,
+        actor_lr: 1e-3,
+        critic_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.02, 2),
+        exploration_noise: 0.2,
+        policy_noise: 0.2,
+        noise_clip: 0.5,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: LinearAgent =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
@@ -263,20 +263,20 @@ fn td3_act_with_matches_deterministic_act() {
     let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
     let critic_1: Critic<Be> = Critic::new(1, 1, 32, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 32, &device);
-    let config = Td3TrainingConfigBuilder::new()
-        .replay_buffer_capacity(20_000)
-        .batch_size(32)
-        .learning_starts(500)
-        .actor_lr(1e-3)
-        .critic_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.02, 2))
-        .exploration_noise(0.2)
-        .policy_noise(0.2)
-        .noise_clip(0.5)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = Td3TrainingConfig {
+        replay_buffer_capacity: 20_000,
+        batch_size: 32,
+        learning_starts: 500,
+        actor_lr: 1e-3,
+        critic_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.02, 2),
+        exploration_noise: 0.2,
+        policy_noise: 0.2,
+        noise_clip: 0.5,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let agent: LinearAgent =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
@@ -308,13 +308,13 @@ fn td3_delayed_update_skips_actor_step() {
     let actor: Actor<Be> = Actor::new(1, 16, 1, 1.0, &device);
     let critic_1: Critic<Be> = Critic::new(1, 1, 16, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 16, &device);
-    let config = Td3TrainingConfigBuilder::new()
-        .replay_buffer_capacity(1_024)
-        .batch_size(8)
-        .learning_starts(32)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = Td3TrainingConfig {
+        replay_buffer_capacity: 1_024,
+        batch_size: 8,
+        learning_starts: 32,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: LinearAgent =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
@@ -382,20 +382,20 @@ fn td3_pendulum_improves_over_random() {
     let actor: Actor<Be> = Actor::new(3, 256, 1, 2.0, &device);
     let critic_1: Critic<Be> = Critic::new(3, 1, 256, &device);
     let critic_2: Critic<Be> = Critic::new(3, 1, 256, &device);
-    let config = Td3TrainingConfigBuilder::new()
-        .replay_buffer_capacity(200_000)
-        .batch_size(256)
-        .learning_starts(10_000)
-        .actor_lr(1e-4)
-        .critic_lr(1e-3)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 2))
-        .exploration_noise(0.1)
-        .policy_noise(0.2)
-        .noise_clip(0.5)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = Td3TrainingConfig {
+        replay_buffer_capacity: 200_000,
+        batch_size: 256,
+        learning_starts: 10_000,
+        actor_lr: 1e-4,
+        critic_lr: 1e-3,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 2),
+        exploration_noise: 0.1,
+        policy_noise: 0.2,
+        noise_clip: 0.5,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     let mut agent: Td3Agent<
         Be,
         Actor<Be>,

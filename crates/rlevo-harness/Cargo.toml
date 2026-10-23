@@ -21,7 +21,6 @@ rlevo-metrics-registry = { path = "../rlevo-metrics-registry", version = "0.5.0"
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.5.0", optional = true, default-features = false }
 rayon = "1"
 rand = { workspace = true }
-rand_distr = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }

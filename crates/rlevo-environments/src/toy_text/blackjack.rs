@@ -114,18 +114,17 @@ impl Default for BlackjackVariant {
 
 /// Configuration for the [`Blackjack`] environment.
 ///
-/// Construct with [`BlackjackConfig::default`] or via the builder returned by
-/// [`BlackjackConfig::builder`].
+/// Construct with [`BlackjackConfig::default`] or a struct literal.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use rlevo_environments::toy_text::blackjack::{BlackjackConfig, BlackjackVariant};
 ///
-/// let cfg = BlackjackConfig::builder()
-///     .variant(BlackjackVariant::Standard { natural_pays_bonus: true })
-///     .seed(42)
-///     .build();
+/// let cfg = BlackjackConfig {
+///     variant: BlackjackVariant::Standard { natural_pays_bonus: true },
+///     seed: 42,
+/// };
 /// ```
 #[derive(Debug, Clone)]
 pub struct BlackjackConfig {
@@ -146,51 +145,11 @@ impl Default for BlackjackConfig {
     }
 }
 
-impl BlackjackConfig {
-    /// Returns a builder for constructing a `BlackjackConfig`.
-    #[must_use]
-    pub fn builder() -> BlackjackConfigBuilder {
-        BlackjackConfigBuilder::default()
-    }
-}
-
 impl Validate for BlackjackConfig {
     /// [`BlackjackConfig`] carries only a rule variant and a seed, so it has no
     /// numeric invariant to check; validation always succeeds.
     fn validate(&self) -> Result<(), ConfigError> {
         Ok(())
-    }
-}
-
-/// Builder for [`BlackjackConfig`].
-#[derive(Debug, Default)]
-pub struct BlackjackConfigBuilder {
-    variant: BlackjackVariant,
-    seed: u64,
-}
-
-impl BlackjackConfigBuilder {
-    /// Sets the rule variant.
-    #[must_use]
-    pub fn variant(mut self, v: BlackjackVariant) -> Self {
-        self.variant = v;
-        self
-    }
-
-    /// Sets the RNG seed.
-    #[must_use]
-    pub fn seed(mut self, s: u64) -> Self {
-        self.seed = s;
-        self
-    }
-
-    /// Builds the [`BlackjackConfig`].
-    #[must_use]
-    pub fn build(self) -> BlackjackConfig {
-        BlackjackConfig {
-            variant: self.variant,
-            seed: self.seed,
-        }
     }
 }
 
@@ -762,12 +721,12 @@ mod tests {
     #[test]
     /// Verifies the 3:2 natural payout when `natural_pays_bonus` is enabled.
     fn natural_pays_1_5_when_flag_set() {
-        let cfg = BlackjackConfig::builder()
-            .variant(BlackjackVariant::Standard {
+        let cfg = BlackjackConfig {
+            variant: BlackjackVariant::Standard {
                 natural_pays_bonus: true,
-            })
-            .seed(0)
-            .build();
+            },
+            seed: 0,
+        };
         let mut env = Blackjack::with_config(cfg).expect("valid config");
         env.reset().unwrap();
         // Natural player [1,10]=21, dealer [8,9]=17 (not natural, no draw).
@@ -781,10 +740,10 @@ mod tests {
     #[test]
     /// Verifies the S&B variant pays +1.0 on a player natural vs non-natural dealer.
     fn sab_player_natural_wins_one() {
-        let cfg = BlackjackConfig::builder()
-            .variant(BlackjackVariant::SuttonBarto)
-            .seed(0)
-            .build();
+        let cfg = BlackjackConfig {
+            variant: BlackjackVariant::SuttonBarto,
+            seed: 0,
+        };
         let mut env = Blackjack::with_config(cfg).expect("valid config");
         env.reset().unwrap();
         // SAB: player natural [1,10], dealer non-natural [8,9] → reward = 1.0.
@@ -801,10 +760,10 @@ mod tests {
     #[test]
     /// Verifies the S&B variant charges `$-1.0$` on a dealer natural vs non-natural player.
     fn sab_dealer_natural_costs_one() {
-        let cfg = BlackjackConfig::builder()
-            .variant(BlackjackVariant::SuttonBarto)
-            .seed(0)
-            .build();
+        let cfg = BlackjackConfig {
+            variant: BlackjackVariant::SuttonBarto,
+            seed: 0,
+        };
         let mut env = Blackjack::with_config(cfg).expect("valid config");
         env.reset().unwrap();
         // SAB: dealer natural [1,10], player non-natural [9,7] → reward = -1.0.

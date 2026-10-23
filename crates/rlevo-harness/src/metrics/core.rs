@@ -102,8 +102,8 @@ const RESERVED_PREFIXES: &[&str] = &["return/", "episode_length/", "throughput/"
 /// # What is *not* reserved
 ///
 /// `rl/*` and `ea/*` (and `coea/*`) are **agent-owned** namespaces — see the
-/// module docs of [`crate::metrics::rl`] and [`crate::metrics::ea`]. The
-/// harness does not compute them; agents populate them. Reserving them would
+/// module docs of [`crate::metrics::ea`] for the `ea/*` keys. The harness
+/// does not compute them; agents populate them. Reserving them would
 /// re-home every legitimate agent metric in the workspace under `agent/`.
 ///
 /// # Widening is easy, narrowing is not
@@ -437,16 +437,9 @@ mod tests {
     /// not an error.
     #[test]
     fn agent_owned_namespaces_are_not_reserved() {
-        use crate::metrics::{ea, rl};
+        use crate::metrics::ea;
 
-        for name in [
-            rl::POLICY_LOSS,
-            rl::VALUE_LOSS,
-            rl::APPROX_KL,
-            rl::ENTROPY,
-            rl::EPSILON,
-            rl::LEARNING_RATE,
-        ] {
+        for name in ["rl/policy_loss", "rl/epsilon"] {
             assert!(
                 !is_harness_reserved(name),
                 "`{name}` is agent-owned; reserving it displaces every RL agent's metric"

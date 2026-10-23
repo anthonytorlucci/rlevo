@@ -22,7 +22,7 @@ use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
-use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     ContinuousQ, DeterministicPolicy,
 };
@@ -150,13 +150,13 @@ fn build_agent() -> Agent {
     let device = Default::default();
     let actor: ActorMlp<Be> = ActorMlp::new(3, 256, 1, 2.0, &device);
     let critic: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
-    let config = DdpgTrainingConfigBuilder::new()
-        .replay_buffer_capacity(10_000)
-        .batch_size(256)
-        .learning_starts(0)
-        .policy_frequency(2)
-        .build()
-        .expect("valid config");
+    let config = DdpgTrainingConfig {
+        replay_buffer_capacity: 10_000,
+        batch_size: 256,
+        learning_starts: 0,
+        policy_frequency: 2,
+        ..Default::default()
+    };
     DdpgAgent::new(actor, critic, config, device).expect("valid config")
 }
 

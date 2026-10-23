@@ -90,7 +90,7 @@ fn main() {
     };
 
     // `with_seed` routes the per-trial seed into the arm-mean RNG.
-    let suite = Suite::new("ten-armed-bandit", cfg.clone())
+    let suite = Suite::new("ten-armed-bandit")
         .with_env("ten-armed-bandit-default", TenArmedBandit::with_seed);
 
     let evaluator = Evaluator::new(cfg);

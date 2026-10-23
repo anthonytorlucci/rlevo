@@ -72,7 +72,7 @@ critical subset):
 
 | File | Role |
 |---|---|
-| `ppo_config.rs` | `PpoTrainingConfig` + builder + `annealed_learning_rate`. |
+| `ppo_config.rs` | `PpoTrainingConfig` + `annealed_learning_rate`. |
 | `ppo_policy.rs` | `PpoPolicy` trait with associated `ActionTensor` type. |
 | `ppo_value.rs` | `PpoValue` trait. |
 | `policies/categorical.rs` | `CategoricalPolicyHead` built-in. |

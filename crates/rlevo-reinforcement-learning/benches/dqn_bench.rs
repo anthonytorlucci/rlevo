@@ -25,7 +25,7 @@ use rlevo_environments::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 
 // MLP mirror of the example. Kept inline so the bench file is self-contained.
@@ -85,13 +85,13 @@ type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>
 
 fn build_agent() -> Agent {
     let device = Default::default();
-    let config = DqnTrainingConfigBuilder::new()
-        .batch_size(64)
-        .replay_buffer_capacity(10_000)
-        .learning_starts(0)
-        .train_frequency(1)
-        .build()
-        .expect("valid config");
+    let config = DqnTrainingConfig {
+        batch_size: 64,
+        replay_buffer_capacity: 10_000,
+        learning_starts: 0,
+        train_frequency: 1,
+        ..Default::default()
+    };
     let model: DqnMlp<Be> = DqnMlp::new(&device);
     DqnAgent::new(model, config, device).expect("valid config")
 }

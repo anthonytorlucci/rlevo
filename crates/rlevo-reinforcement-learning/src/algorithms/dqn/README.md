@@ -8,7 +8,7 @@ surface and example scaffolding introduced here.
 ## Modules
 
 - [`dqn_agent`](dqn_agent.rs) — `DqnAgent`, `DqnMetrics`, `DqnAgentError`.
-- [`dqn_config`](dqn_config.rs) — `DqnTrainingConfig` + builder with all
+- [`dqn_config`](dqn_config.rs) — `DqnTrainingConfig`, with all
   hyperparameters (batch size, $\gamma$, $\tau$, $\epsilon$ schedule, `learning_starts`,
   `train_frequency`, `double_q`, replay capacity, grad clip).
 - [`dqn_model`](dqn_model.rs) — the `DqnModel` trait: `forward`,

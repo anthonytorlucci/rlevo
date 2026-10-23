@@ -71,7 +71,7 @@ use rlevo_reinforcement_learning::algorithms::ppo::policies::{
     CategoricalPolicyHead, CategoricalPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::{PpoAgent, PpoAgentError};
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 use rlevo_reinforcement_learning::algorithms::ppo::train::train_discrete;
 
@@ -246,17 +246,18 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
     .expect("valid head config");
     let value: ValueMlp<Be> = ValueMlp::new(OBS_RANK, HIDDEN, &device);
 
-    let config = PpoTrainingConfigBuilder::new()
-        .num_envs(1) // One parallel environment (no vectorization here)
-        .num_steps(NUM_STEPS)
-        .num_minibatches(4)
-        .update_epochs(4)
-        .learning_rate(2.5e-4)
-        .clip_coef(0.2)
-        .entropy_coef(0.01)
-        .value_coef(0.5)
-        .gamma(0.99)
-        .gae_lambda(0.95)
+    let config = PpoTrainingConfig {
+        num_envs: 1,
+        // One parallel environment (no vectorization here)
+        num_steps: NUM_STEPS,
+        num_minibatches: 4,
+        update_epochs: 4,
+        learning_rate: 2.5e-4,
+        clip_coef: 0.2,
+        entropy_coef: 0.01,
+        value_coef: 0.5,
+        gamma: 0.99,
+        gae_lambda: 0.95,
         // Gradient-norm clip at 0.5. `clip_grad` is the only clipping knob and
         // is `None` (off) by default; without it PPO can take destabilizing
         // steps. NOTE: Burn clips this **per tensor**, not across the global
@@ -265,9 +266,9 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
         // accumulation pass over every parameter's gradient before the
         // optimizer step, which Burn's hook doesn't provide — an open design
         // question, not a settled plan.
-        .clip_grad(Some(GradientClippingConfig::Norm(0.5)))
-        .build()
-        .expect("valid config");
+        clip_grad: Some(GradientClippingConfig::Norm(0.5)),
+        ..Default::default()
+    };
 
     let total_iterations = total_timesteps / config.batch_size().max(1);
 

@@ -20,7 +20,7 @@ use rand::rngs::StdRng;
 
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
@@ -106,20 +106,20 @@ type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>
 /// below is calibrated against the per-gradient-step schedule that actually ran.
 fn fresh_agent(seed: u64) -> Agent {
     let device = seeded_device::<Be>(seed);
-    let config = DqnTrainingConfigBuilder::new()
-        .batch_size(64)
-        .gamma(0.99)
-        .target_update(TargetUpdate::polyak(0.005, 1))
-        .learning_rate(5e-4)
-        .epsilon_start(1.0)
-        .epsilon_end(0.05)
-        .epsilon_decay(0.9995)
-        .learning_starts(1_000)
-        .train_frequency(4)
-        .replay_buffer_capacity(50_000)
-        .double_q(false)
-        .build()
-        .expect("valid config");
+    let config = DqnTrainingConfig {
+        batch_size: 64,
+        gamma: 0.99,
+        target_update: TargetUpdate::polyak(0.005, 1),
+        learning_rate: 5e-4,
+        epsilon_start: 1.0,
+        epsilon_end: 0.05,
+        epsilon_decay: 0.9995,
+        learning_starts: 1_000,
+        train_frequency: 4,
+        replay_buffer_capacity: 50_000,
+        double_q: false,
+        ..Default::default()
+    };
     let model: DqnMlp<Be> = DqnMlp::new(&device);
     DqnAgent::new(model, config, device).expect("valid config")
 }
@@ -296,20 +296,20 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
     let _guard = flex_guard();
     let seed: u64 = 4242;
     let device = seeded_device::<Be>(seed);
-    let config = DqnTrainingConfigBuilder::new()
-        .batch_size(16)
-        .gamma(0.99)
-        .target_update(TargetUpdate::hard(HARD_EVERY))
-        .learning_rate(1e-3)
-        .epsilon_start(1.0)
-        .epsilon_end(0.05)
-        .epsilon_decay(0.99)
-        .learning_starts(HARD_LEARNING_STARTS)
-        .train_frequency(HARD_TRAIN_FREQUENCY)
-        .replay_buffer_capacity(2_000)
-        .double_q(false)
-        .build()
-        .expect("valid config");
+    let config = DqnTrainingConfig {
+        batch_size: 16,
+        gamma: 0.99,
+        target_update: TargetUpdate::hard(HARD_EVERY),
+        learning_rate: 1e-3,
+        epsilon_start: 1.0,
+        epsilon_end: 0.05,
+        epsilon_decay: 0.99,
+        learning_starts: HARD_LEARNING_STARTS,
+        train_frequency: HARD_TRAIN_FREQUENCY,
+        replay_buffer_capacity: 2_000,
+        double_q: false,
+        ..Default::default()
+    };
     let mut agent: Agent =
         DqnAgent::new(DqnMlp::<Be>::new(&device), config, device).expect("valid config");
     let mut env = cartpole_seeded(seed);
