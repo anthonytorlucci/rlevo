@@ -327,8 +327,8 @@ it).
 **In rustdoc** (`///`/`//!` comments), rendered by each crate's
 `katex-header.html` (`[package.metadata.docs.rs] rustdoc-args`; the five
 copies — `rlevo-core`, `rlevo-environments`, `rlevo-evolution`,
-`rlevo-harness`, `rlevo-reinforcement-learning` — are hand-synced and must
-stay byte-identical; edit all five together):
+`rlevo-harness`, `rlevo-reinforcement-learning` — must stay byte-identical,
+which `cargo xtask guards` checks; edit all five together):
 
 - **Inline math is backtick-wrapped: `` `$...$` ``** — e.g.
   `` `$\sigma' = \sigma \cdot \exp(\tau \cdot N(0,1))$` `` (`algorithms/ep.rs`).
@@ -484,7 +484,7 @@ generation-to-generation) diversity the caller relies on.
 - **The render type vocabulary lives in `rlevo-core::render`.** `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, `palette` and `AsciiRenderable` are all defined there. `rlevo-environments::render` is a re-export shim only — do not define new render types in `rlevo-environments`.
 - **No production crate depends on viz deps.** `rlevo-core`, `rlevo-environments`, `rlevo-reinforcement-learning`, `rlevo-evolution`, and `rlevo-hybrid` must not depend (production *or* dev) on `ratatui`, `crossterm`, `leptos`, `axum`, `wasm-bindgen`, or any chart crate. `rlevo-harness` is the sole exception, and only behind its `tui` / `report` / `record` feature gates.
 - **Who may depend on the harness.** The umbrella `rlevo` carries `rlevo-harness` unconditionally, at the harness's default features, which link no viz dep (ADR 0084); its `viz-tui` and `viz-report` features are the only way the umbrella turns a gated one on. No other production crate depends on the harness, with one named exception: `rlevo-environments` under its off-by-default `record` feature, for the `RecordedEnvFamily` impls. Do not add a second.
-- **Audit dependencies on the resolved graph, not the manifests.** The check for the rule above is `cargo tree -p <crate> -e normal | grep -c ratatui`, which must print 0 for every production crate. A manifest audit cannot see a crate pulled in through a feature of an approved dependency: until ADR 0080, Burn's `train` feature put `ratatui` and `crossterm` into every production crate's graph while no manifest named them. `Cargo.lock` is no evidence either way; it lists every optional package of every dependency, enabled or not.
+- **Audit dependencies on the resolved graph, not the manifests.** The check for the rule above is `cargo tree -p <crate> -e normal | grep -c ratatui`, which must print 0 for every production crate. A manifest audit cannot see a crate pulled in through a feature of an approved dependency: until ADR 0080, Burn's `train` feature put `ratatui` and `crossterm` into every production crate's graph while no manifest named them. `Cargo.lock` is no evidence either way; it lists every optional package of every dependency, enabled or not. `cargo xtask guards` runs this check on every pull request, for every published crate at its default features over normal and dev edges, together with the harness-edge rule above.
 - **`parking_lot::Mutex` is the workspace-standard lock for viz/observer shared state.** `SharedPopulationObserver` is `Arc<parking_lot::Mutex<dyn PopulationObserver>>`. Do not mix `std::sync::Mutex` into observer or record-sink types — a split lock type across sibling subsystems is a footgun (see ADR 0010). (ADR 0010)
 
 ---

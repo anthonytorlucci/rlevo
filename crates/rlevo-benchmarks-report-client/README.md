@@ -50,14 +50,13 @@ inlines into every report:
 | `rlevo-episode-NNNNNN` | `application/octet-stream` | Base64-encoded raw `.rec` bytes (16-byte preamble + bincode header + length-prefixed `RecordChunk`s) |
 
 `src/wire.rs` is a **bincode-compatible mirror** of
-`rlevo-harness::record::schema`. The cross-crate test
-`tests/wire_format_compat.rs` in the host crate round-trips a populated
-record through both sides, so any field-order or field-type drift fails
-the host test suite. The test compiles only with the host crate's
-`record` feature, which is off by default: `cargo xtask test-fast`
-enables it, and a plain `cargo test` does not run the test. The client
-decodes only records whose format version equals its own
-`FORMAT_VERSION`.
+`rlevo-harness::record::schema`. This crate's cross-crate test,
+`tests/wire_format_compat.rs`, round-trips a populated record through
+both sides, so any field-order or field-type drift fails this crate's
+test suite. It reaches the harness through a dev-dependency with the
+`record` feature on, so a plain `cargo test` runs it, and the harness's
+own test build links no Leptos. The client decodes only records whose
+format version equals its own `FORMAT_VERSION`.
 
 `src/inline_data.rs` is the DOM glue — `read_manifest()` /
 `read_episode_index()` / `read_warnings()` / `read_episode_record(id)`.

@@ -23,8 +23,9 @@ use serde::{Deserialize, Serialize};
 /// [`EpisodeRecordHeader`]; the loader rejects any file that does not
 /// carry exactly this value.
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the
-// same value.  The const assertions in tests/wire_format_compat.rs
-// enforce this at compile time when tests are built.
+// same value.  The const assertions in that crate's
+// tests/wire_format_compat.rs enforce this at compile time when its
+// tests are built.
 pub const FORMAT_VERSION: u16 = 7;
 
 /// Oldest on-disk version this loader accepts. Equal to
