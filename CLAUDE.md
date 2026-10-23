@@ -110,8 +110,10 @@ published crate depends on `rlevo-harness` but the umbrella, and
 `rlevo-environments` only under `record`; the umbrella's default features turn
 on no viz, recording or `rerun` feature; no published crate reaches a viz
 package at its default features, in its build or its tests; and the five
-`katex-header.html` copies are byte-identical. A failed guard names the line
-that breaks the rule. The guards are in `xtask/src/commands/guards.rs`.
+`katex-header.html` copies are byte-identical. A failed guard says what
+breaks the rule: a file and line, a crate and its feature, the copy that
+differs, or, for a viz package, the `cargo tree -i` command that prints the
+path to it. The guards are in `xtask/src/commands/guards.rs`.
 
 A change to a crate's public surface reports its **surface delta** (ADR 0081):
 `tools/public-surface.sh <crate>` lists the public items, one per line, and

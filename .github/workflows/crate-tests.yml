@@ -285,7 +285,7 @@ jobs:
   # what the umbrella turns on by default, and the files that must stay
   # identical. A dependency, feature or import that breaks one still builds,
   # tests and lints clean. `cargo xtask guards` owns the list
-  # (`xtask/src/commands/guards.rs`) and names the line that breaks a rule.
+  # (`xtask/src/commands/guards.rs`) and says what breaks a rule.
   layering-guards:
     name: layering guards
     runs-on: ubuntu-latest
