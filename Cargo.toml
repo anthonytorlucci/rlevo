@@ -42,7 +42,7 @@ categories = ["science", "algorithms", "simulation"]
 # Burn's traits alone, and the leaf selects the backend (the `rlevo` umbrella's
 # `flex` / `wgpu` features, or a consumer's own manifest). Tests, benches and
 # examples add theirs in `[dev-dependencies]`. See ADR 0080.
-burn = { version = "0.21.0", default-features = false, features = ["std"] }
+burn = { version = "0.22.1", default-features = false, features = ["std"] }
 
 # Utilities
 rand = "0.10.1"

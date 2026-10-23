@@ -6,7 +6,7 @@
 //! depend on these primitives.
 
 #[cfg(feature = "burn")]
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use std::fmt::Debug;
 
 /// The `Observation` trait defines how an agent perceives the world. It
@@ -255,9 +255,8 @@ fn row_slice_is_finite(buf: &[f32]) -> bool {
 /// # Type Parameters
 ///
 /// - `R`: Rank of the tensor produced.
-/// - `B`: Burn backend.
 #[cfg(feature = "burn")]
-pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> {
+pub trait TensorConvertible<const R: usize>: HostRow<R> {
     /// Converts `self` into a tensor on `device`.
     ///
     /// Stages one row into a host `Vec<f32>` with [`write_host_row`] and uploads
@@ -267,10 +266,7 @@ pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> {
     ///
     /// [`shape`]: Observation::shape
     /// [`write_host_row`]: HostRow::write_host_row
-    fn to_tensor(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, R> {
+    fn to_tensor(&self, device: &Device) -> Tensor<R> {
         let row: [usize; R] = Self::shape();
         let mut buf: Vec<f32> = Vec::with_capacity(row.iter().product());
         self.write_host_row(&mut buf);
@@ -280,7 +276,7 @@ pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> {
 }
 
 #[cfg(feature = "burn")]
-impl<const R: usize, B: Backend, T: HostRow<R>> TensorConvertible<R, B> for T {}
+impl<const R: usize, T: HostRow<R>> TensorConvertible<R> for T {}
 
 #[cfg(test)]
 mod tests {
