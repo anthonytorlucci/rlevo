@@ -365,15 +365,14 @@ pub struct TanhGaussianPolicyHead {
     ///
     /// [`min_log_std`](PpoPolicy::min_log_std) and
     /// [`max_log_std`](PpoPolicy::max_log_std) take `&self`, so the latches
-    /// need interior mutability. Burn's `#[derive(Module)]` classifies a field
-    /// as a sub-module only if its type mentions the backend `B`, is a `Param`,
-    /// or is a `Tensor`; everything else — including this one — is carried as
-    /// plain constant data, cloned by the generated `map`/`valid` code and
-    /// excluded from the record. `Arc<ClampWarnLatch>` satisfies the
-    /// `Clone + Debug + Send + Sync` that entails (the `Arc` supplies `Clone`
-    /// over a struct of `AtomicBool`s, which is not `Clone` itself), whereas a
-    /// bare `AtomicBool` is not `Clone` and `std::sync::Once` is neither
-    /// `Clone` nor `Debug`.
+    /// need interior mutability. Burn's `#[derive(Module)]` treats every field
+    /// as a sub-module except recognised constants, so this one is marked
+    /// `#[module(skip)]`: carried as plain data, cloned by the generated
+    /// `map`/`valid` code and excluded from the record. `Arc<ClampWarnLatch>`
+    /// satisfies the `Clone + Debug + Send` that entails (the `Arc` supplies
+    /// `Clone` over a struct of `AtomicBool`s, which is not `Clone` itself),
+    /// whereas a bare `AtomicBool` is not `Clone` and `std::sync::Once` is
+    /// neither `Clone` nor `Debug`.
     ///
     /// A module-level `static` was rejected: it would latch **process-wide**,
     /// so a second head (a fresh run in the same process, an evolutionary
@@ -383,8 +382,8 @@ pub struct TanhGaussianPolicyHead {
     /// correct granularity below that.
     ///
     /// Two consequences follow from `Arc` being *shared* on clone, and both are
-    /// wanted: [`valid()`](burn::module::AutodiffModule::valid) snapshots share
-    /// the autodiff head's latches, so the inner module cannot re-warn on
+    /// wanted: [`valid()`](burn::module::Module::valid) snapshots share
+    /// the training head's latches, so the snapshot cannot re-warn on
     /// either bound; and because the field is not persisted, a head restored
     /// from a record starts fully unlatched and will warn once more per bound
     /// that still binds — which is the right behaviour for a fresh process
@@ -392,11 +391,13 @@ pub struct TanhGaussianPolicyHead {
     ///
     /// [`Ordering::Relaxed`] is sufficient for both flags; see
     /// [`ClampWarnLatch`].
+    #[module(skip)]
     clamp_warned: Arc<ClampWarnLatch>,
 }
 
 impl TanhGaussianPolicyHead {
     /// Forward pass to the Gaussian mean of shape `(batch, action_dim)`.
+    #[must_use]
     pub fn mean(&self, obs: Tensor<2>) -> Tensor<2> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
@@ -409,26 +410,31 @@ impl TanhGaussianPolicyHead {
     /// callers can observe drift past the bounds. The values actually used by
     /// [`sample_with_logprob`](PpoPolicy::sample_with_logprob) and
     /// [`evaluate`](PpoPolicy::evaluate) come from `clamped_log_std`.
+    #[must_use]
     pub fn log_std_vec(&self) -> Tensor<1> {
         self.log_std.val()
     }
 
     /// Action dimension `A`.
+    #[must_use]
     pub fn action_dim(&self) -> usize {
         self.action_dim
     }
 
     /// Tanh scale applied to the pre-squash sample.
+    #[must_use]
     pub fn action_scale(&self) -> f32 {
         self.action_scale
     }
 
     /// Clamp lower bound applied to `$\log \sigma$`.
+    #[must_use]
     pub fn log_std_min(&self) -> f32 {
         self.log_std_min
     }
 
     /// Clamp upper bound applied to `$\log \sigma$`.
+    #[must_use]
     pub fn log_std_max(&self) -> f32 {
         self.log_std_max
     }
@@ -714,10 +720,10 @@ impl PpoPolicy<2> for TanhGaussianPolicyHead {
     /// action for the first batch row, evaluated on the frozen plain device.
     ///
     /// No `$\sigma\epsilon$` noise is added — appropriate for evaluation and benchmarking.
-    fn deterministic_env_row_inner(inner: &Self, obs: Tensor<2>) -> Vec<f32> {
+    fn deterministic_env_row(&self, obs: Tensor<2>) -> Vec<f32> {
         // Deterministic action = squashed policy mean (no `$\sigma\epsilon$` noise).
-        let action_dim = inner.action_dim();
-        let env = tanh(inner.mean(obs)).mul_scalar(inner.action_scale());
+        let action_dim = self.action_dim();
+        let env = tanh(self.mean(obs)).mul_scalar(self.action_scale());
         let data = env.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("gaussian mean is f32");
         slice[0..action_dim].to_vec()
@@ -842,9 +848,7 @@ mod tests {
         let inner = head.valid();
         let obs_inner: Tensor<2> =
             Tensor::from_data(TensorData::new(obs_vals, vec![1, 3]), &device);
-        let row = <TanhGaussianPolicyHead as PpoPolicy<2>>::deterministic_env_row_inner(
-            &inner, obs_inner,
-        );
+        let row = inner.deterministic_env_row(obs_inner);
         assert_eq!(row.len(), 1);
         assert!(
             (row[0] - expected).abs() < 1e-5,

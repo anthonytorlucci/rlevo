@@ -15,10 +15,10 @@ use rlevo_reinforcement_learning::algorithms::c51::projection::project_distribut
 // exact-integer limit. The values are inputs to a throughput measurement, not
 // quantities whose precision is asserted.
 #[allow(clippy::cast_precision_loss)]
-fn make_support(v_min: f32, v_max: f32, n: usize, device: Device) -> Tensor<1> {
+fn make_support(v_min: f32, v_max: f32, n: usize, device: &Device) -> Tensor<1> {
     let delta = (v_max - v_min) / (n as f32 - 1.0);
     let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
-    Tensor::from_data(TensorData::new(data, vec![n]), &device)
+    Tensor::from_data(TensorData::new(data, vec![n]), device)
 }
 
 // Synthetic fixture/benchmark data: the loop counter and element count are
@@ -33,7 +33,7 @@ fn bench_projection(c: &mut Criterion) {
 
     for &num_atoms in &[21_usize, 51, 101] {
         for &batch in &[32_usize, 128] {
-            let support = make_support(v_min, v_max, num_atoms, device);
+            let support = make_support(v_min, v_max, num_atoms, &device);
 
             // Fill next_probs with a valid distribution per row.
             let row: Vec<f32> = vec![1.0_f32 / num_atoms as f32; num_atoms];

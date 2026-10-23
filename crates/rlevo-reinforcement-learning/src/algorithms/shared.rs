@@ -15,7 +15,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use burn::optim::{GradientsParams, LearningRate, Optimizer};
+use burn::module::Module;
+use burn::optim::{GradientsParams, LearningRate, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::action::BoundedAction;
@@ -37,7 +38,7 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 ///
 /// `Slot` is a newtype over `Option<M>` whose entire purpose is to make the
 /// wide "module is temporarily nowhere" window **unrepresentable**. The module
-/// is `None` only for the duration of the [`Optimizer::step`] call inside
+/// is `None` only for the duration of the [`ModuleOptimizer::step`] call inside
 /// [`step_with`](Self::step_with); at every point a caller can observe, it is
 /// `Some`.
 ///
@@ -51,7 +52,7 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 ///
 /// # Why a `Slot` exists
 ///
-/// Burn's [`Optimizer::step`] consumes the module **by value** and returns the
+/// Burn's [`ModuleOptimizer::step`] consumes the module **by value** and returns the
 /// updated module:
 ///
 /// ```text
@@ -81,7 +82,7 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 ///
 /// # The residual window is irreducible — do not try to close it
 ///
-/// A panic *inside* [`Optimizer::step`] still poisons the slot, and this is
+/// A panic *inside* [`ModuleOptimizer::step`] still poisons the slot, and this is
 /// accepted by design. It cannot be fixed, only paid for:
 ///
 /// - **An RAII drop guard cannot help.** A guard restores a value it still
@@ -112,12 +113,10 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 /// out for the optimizer step:
 ///
 /// ```
-/// use burn::backend::{Autodiff, Flex};
 /// use burn::nn::{Linear, LinearConfig};
 /// use burn::optim::{AdamConfig, GradientsParams};
 /// use burn::tensor::{Device, Tensor};
 /// use rlevo_reinforcement_learning::algorithms::Slot;
-///
 ///
 /// let device = Device::flex().autodiff();
 /// let mut net = Slot::new(LinearConfig::new(2, 1).init(&device));
@@ -140,7 +139,7 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 ///
 /// [`get`](Self::get) and [`step_with`](Self::step_with) panic on a poisoned
 /// slot, i.e. one whose module was lost to a panic inside an earlier
-/// [`Optimizer::step`]. Check [`is_poisoned`](Self::is_poisoned) to detect that
+/// [`ModuleOptimizer::step`]. Check [`is_poisoned`](Self::is_poisoned) to detect that
 /// state without unwinding.
 ///
 /// # There is deliberately no closure-taking variant
@@ -386,6 +385,57 @@ pub(crate) fn param_checksum<M: burn::module::Module>(module: &M) -> f64 {
     summer.total
 }
 
+/// Whether `module` has a float parameter and every one is plain: on a device
+/// without autodiff, not requiring a gradient, and untracked.
+///
+/// Autodiff is device state in Burn 0.22, so no type keeps a target network
+/// off the graph; each agent's target-path test asserts it with this, paired
+/// with [`params_train`] on the trained network so the assertion is not
+/// vacuous. `#[cfg(test)] pub(crate)` for the reason [`param_checksum`] is.
+#[cfg(test)]
+pub(crate) fn params_are_plain<M: burn::module::Module>(module: &M) -> bool {
+    param_modes(module).0
+}
+
+/// Whether `module` has a float parameter and every one is on an autodiff
+/// device and requires a gradient: a network the agent trains.
+#[cfg(test)]
+pub(crate) fn params_train<M: burn::module::Module>(module: &M) -> bool {
+    param_modes(module).1
+}
+
+/// `(every parameter plain, every parameter training)`, both `false` for a
+/// module with no float parameter, so neither check passes vacuously.
+#[cfg(test)]
+fn param_modes<M: burn::module::Module>(module: &M) -> (bool, bool) {
+    use burn::module::{ModuleVisitor, Param};
+
+    struct Modes {
+        plain: bool,
+        train: bool,
+        seen: usize,
+    }
+
+    impl ModuleVisitor for Modes {
+        fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
+            let value = param.val();
+            let autodiff = value.device().is_autodiff();
+            self.plain &= !autodiff && !param.is_require_grad() && !value.is_tracked();
+            self.train &= autodiff && param.is_require_grad();
+            self.seen += 1;
+        }
+    }
+
+    let mut modes = Modes {
+        plain: true,
+        train: true,
+        seen: 0,
+    };
+    module.visit(&mut modes);
+    let any = modes.seen > 0;
+    (any && modes.plain, any && modes.train)
+}
+
 // A network's `Debug` would dump every parameter tensor, so report the slot's
 // state and the module's type instead. This also keeps `Slot<M>: Debug` free of
 // an `M: Debug` bound, mirroring the hand-written `DqnAgent` impl's summary
@@ -419,8 +469,8 @@ impl<M> Slot<M> {
     /// `expect` in the crate. Use it for the forward pass, for
     /// [`GradientsParams::from_grads`], and for post-step reads such as
     /// `slot.get().valid()` — an owned module is never needed on the read side,
-    /// because every consumer of the trained network (`AutodiffModule::valid`,
-    /// `forward`, `soft_update`) takes `&self`.
+    /// because every consumer of the trained network (`Module::valid`,
+    /// `forward`, [`polyak_update`](crate::utils::polyak_update)) takes `&self`.
     ///
     /// # Returns
     ///
@@ -430,7 +480,7 @@ impl<M> Slot<M> {
     ///
     /// Panics if the slot is poisoned — i.e. a previous
     /// [`step_with`](Self::step_with) unwound and the module was lost inside
-    /// [`Optimizer::step`]. The agent cannot be recovered and must be rebuilt;
+    /// [`ModuleOptimizer::step`]. The agent cannot be recovered and must be rebuilt;
     /// the [`Slot`] docs explain why. Check [`is_poisoned`](Self::is_poisoned)
     /// first if a caller needs to handle this without unwinding.
     pub fn get(&self) -> &M {
@@ -451,7 +501,7 @@ impl<M> Slot<M> {
 
     /// Applies one optimizer step to the owned network, in place.
     ///
-    /// Moves the module out, hands it to [`Optimizer::step`] (which consumes
+    /// Moves the module out, hands it to [`ModuleOptimizer::step`] (which consumes
     /// it), and writes the returned module back. This method is intentionally
     /// closure-free: the module is out of the slot for this call and nothing
     /// else, so no caller can widen the poison window — see the type-level docs.
@@ -471,15 +521,14 @@ impl<M> Slot<M> {
     ///
     /// Panics if the slot is already poisoned (see [`get`](Self::get)).
     ///
-    /// Additionally, if [`Optimizer::step`] itself panics, the slot is left
+    /// Additionally, if [`ModuleOptimizer::step`] itself panics, the slot is left
     /// poisoned: the module was already moved into `step` and is dropped during
     /// unwinding, so there is nothing left to restore. This residual window is
     /// accepted by design and is not fixable with a drop guard or
     /// `catch_unwind` — read the [`Slot`] docs before proposing either.
-    pub fn step_with<O>(&mut self, opt: &mut O, lr: LearningRate, grads: GradientsParams)
+    pub fn step_with(&mut self, opt: &mut ModuleOptimizer, lr: LearningRate, grads: GradientsParams)
     where
         M: Module,
-        O: Optimizer<M, B>,
     {
         let module = self.0.take().expect(POISONED);
         self.0 = Some(opt.step(lr, module, grads));
@@ -494,17 +543,25 @@ impl<M> Slot<M> {
 ///
 /// # Why this exists
 ///
-/// [`Tensor::clamp`]'s behaviour on `NaN` is **backend-divergent and
-/// undocumented**, and the divergence is silent:
+/// [`Tensor::clamp`]'s behaviour on `NaN` is **undocumented**, and it has
+/// differed between backends without a word:
 ///
 /// - `burn-flex` (the host backend the whole test suite runs on) lowers it to
 ///   [`f32::clamp`], which **propagates** `NaN`.
-/// - `burn-cubecl`/wgpu lowers it to the WGSL `clamp` builtin, which naga emits
-///   as Metal's `fmin(fmax(…))`. Both are "return the other operand on `NaN`"
-///   functions, so the composition **rescues** `NaN` to `lo`.
+/// - On burn 0.21, `burn-cubecl`/wgpu lowered it to the WGSL `clamp` builtin,
+///   which naga emits as Metal's `fmin(fmax(…))`. Both are "return the other
+///   operand on `NaN`" functions, so the composition **rescued** `NaN` to `lo`.
+///   Measured on an Apple M2 Pro (macOS 26.5.2, Metal 4; burn 0.21, cubecl
+///   0.10, wgpu 29): `clamp(NaN, -10, 10)` was `NaN` on Flex and `-10.0` on
+///   Metal.
+/// - On burn 0.22, `burn-cubecl` lowers it to cubecl's `clamp_nan`, which the
+///   WGSL compiler expands into `min`/`max` guarded by an `is_nan` select, so
+///   it propagates `NaN` like Flex. Measured on the same machine (burn 0.22.1,
+///   cubecl 0.11.3, wgpu 30): `NaN` on both.
 ///
-/// Measured on an Apple M2 Pro (macOS 26.5.2, Metal 4; burn 0.21, cubecl 0.10,
-/// wgpu 29): `clamp(NaN, -10, 10)` is `NaN` on Flex and `-10.0` on Metal.
+/// Vulkan, CUDA and the `cubecl-cpp` paths are unmeasured, and nothing
+/// documents the current behaviour, so this function keeps the property
+/// rather than trusting each backend's lowering of the day.
 ///
 /// A rescued `NaN` is worse than a propagated one. It turns a poisoned value
 /// into an ordinary in-range number that no downstream finiteness guard —
@@ -530,10 +587,13 @@ impl<M> Slot<M> {
 /// This is only sound because [`Tensor::is_nan`] itself survives the GPU
 /// pipeline. It does: `cubecl-wgpu` does **not** lower it as `x != x` (which a
 /// fast-math compiler is free to fold to `false`); it emits an integer
-/// bit-pattern polyfill — `bitcast<u32>`, mask the sign bit, compare against
-/// `0x7f80_0000u` — from `cubecl-wgpu-0.10.0`'s WGSL extension table. That form
-/// has no floating-point comparison for a compiler to optimise away, and it was
-/// confirmed both in the dumped shader and by execution on the machine above.
+/// bit-pattern polyfill — reinterpret the bits, mask the sign bit, compare
+/// against the infinity pattern (`0x7f80_0000` for `f32`). That form has no
+/// floating-point comparison for a compiler to optimise away. On
+/// `cubecl-wgpu` 0.10.0 it was confirmed both in the dumped shader and by
+/// execution on the machine above; 0.11.3 keeps the same polyfill (its
+/// `is_nan` compares the masked bits as unsigned integers), and
+/// `clamp_preserving_nan_matches_flex_on_wgpu` runs it there in the GPU tier.
 ///
 /// **Re-verify this if `cubecl-wgpu`'s `msl` or `spirv` features are ever
 /// enabled.** Those paths go through `cubecl-cpp`, which emits Metal's native
@@ -829,17 +889,19 @@ pub(crate) enum ObsGuardRole {
 ///
 /// # Why this cannot be caught anywhere else
 ///
-/// On the CPU (`flex`) backend `relu` maps `NaN` to `0.0`. Driven through a
-/// real agent, a **fully non-finite** observation therefore yields a finite,
-/// in-domain, `is_valid() == true` action — with a `q_row` bit-identical to
-/// the all-`NaN` case, because the first `relu` zeroed everything and the
-/// output is bias-only. The observation has been *erased*, not corrupted.
+/// On a backend whose `relu` maps `NaN` to `0.0` — Burn 0.21's CPU (`flex`)
+/// backend did — a **fully non-finite** observation driven through a real
+/// agent yields a finite, in-domain, `is_valid() == true` action, with a
+/// `q_row` bit-identical to the all-`NaN` case, because the first `relu`
+/// zeroed everything and the output is bias-only. The observation has been
+/// *erased*, not corrupted: [`FiniteLossGuard`], a Q-value check and an action
+/// check ([`Action::is_valid`]) all pass it.
 ///
-/// [`FiniteLossGuard`] cannot see this: the loss is finite. A Q-value check
-/// cannot see it: the Q row is finite. An action check cannot see it:
-/// [`Action::is_valid`] returns `true`. Only a check on the observation itself,
-/// **before** `to_tensor`, can ever observe this failure — and it is the case
-/// CI reaches, because CI has no GPU.
+/// Burn 0.22's `relu` propagates `NaN` on every backend measured (Flex and
+/// wgpu/Metal), so the failure now surfaces downstream — as a non-finite loss
+/// the loss guard skips, a continuous action that fails `is_valid`, or a
+/// discrete action picked from a `NaN` row — but never with its cause. Only a
+/// check on the observation itself, **before** `to_tensor`, names it.
 ///
 /// [`Action::is_valid`]: rlevo_core::base::Action::is_valid
 ///
@@ -1135,17 +1197,9 @@ mod tests {
 
     use burn::module::Module;
     use burn::nn::{Linear, LinearConfig};
-    use burn::optim::adaptor::OptimizerAdaptor;
-    use burn::optim::{Adam, AdamConfig};
-    use burn::tensor::Device;
+    use burn::optim::AdamConfig;
 
     /// Minimal trainable network for slot tests.
-    ///
-    /// The backend generic **must** be named `B`: Burn's `Module` derive keys
-    /// off the identifier, and any other name makes the derive silently treat
-    /// the struct as a parameter-free module — the optimizer would then step
-    /// nothing and the "weights changed" assertions below would pass
-    /// vacuously.
     #[derive(Module, Debug)]
     struct TestNet {
         linear: Linear,
@@ -1163,19 +1217,19 @@ mod tests {
         }
     }
 
-    fn test_optimizer() -> OptimizerAdaptor<Adam, TestNet, B> {
+    fn test_optimizer() -> ModuleOptimizer {
         AdamConfig::new().init()
     }
 
-    fn test_batch(device: Device) -> Tensor<2> {
-        Tensor::from_data(TensorData::new(vec![0.5_f32, -0.25], vec![1, 2]), &device)
+    fn test_batch(device: &Device) -> Tensor<2> {
+        Tensor::from_data(TensorData::new(vec![0.5_f32, -0.25], vec![1, 2]), device)
     }
 
     /// Runs one full learn step against `slot`: forward / backward on a borrow,
     /// then the closure-free optimizer step.
-    fn learn_step(slot: &mut Slot<TestNet>, opt: &mut OptimizerAdaptor<Adam, TestNet, B>) {
+    fn learn_step(slot: &mut Slot<TestNet>, opt: &mut ModuleOptimizer) {
         let device = Device::flex().autodiff();
-        let loss = slot.get().forward(test_batch(device)).sum();
+        let loss = slot.get().forward(test_batch(&device)).sum();
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, slot.get());
         slot.step_with(opt, 1e-2, grads);
@@ -1222,7 +1276,7 @@ mod tests {
             !slot.is_poisoned(),
             "a freshly constructed Slot must hold its module"
         );
-        let out = slot.get().forward(test_batch(device));
+        let out = slot.get().forward(test_batch(&device));
         assert_eq!(
             out.dims(),
             [1, 2],
@@ -1337,7 +1391,7 @@ mod tests {
         let before = weights(&slot);
 
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            let loss = slot.get().forward(test_batch(device)).sum();
+            let loss = slot.get().forward(test_batch(&device)).sum();
             let _grads = loss.backward();
             panic!("simulated failure in the forward/backward region");
         }));
@@ -1364,7 +1418,7 @@ mod tests {
     #[test]
     fn test_slot_poisoned_read_panics_with_actionable_message() {
         // A poisoned slot can only arise from a panic *inside*
-        // `Optimizer::step` — which is irreducible by design (the module is
+        // `ModuleOptimizer::step` — which is irreducible by design (the module is
         // moved into `step` and dropped during unwinding; see the module
         // docs), and cannot be provoked here without a deliberately broken
         // optimizer. Construct the state directly to pin the read behaviour:
@@ -1918,13 +1972,13 @@ mod tests {
         // observe the divergence it exists to close, and nothing automated
         // executes it.
         //
-        // The plain `Tensor::clamp` disagrees across these two backends on NaN:
-        // burn-flex lowers it to `f32::clamp` (propagates), burn-cubecl/wgpu to
-        // the WGSL `clamp` builtin, which naga emits as Metal `fmin(fmax(..))`
-        // (rescues to `lo`). Measured on an Apple M2 Pro / macOS 26.5.2 /
-        // Metal 4 with burn 0.21, cubecl 0.10, wgpu 29: `clamp(NaN, -10, 10)`
-        // is NaN on Flex and -10.0 on Metal. `clamp_preserving_nan` must erase
-        // that difference.
+        // The plain `Tensor::clamp` has disagreed across these two backends on
+        // NaN: on burn 0.21 burn-flex lowered it to `f32::clamp` (propagates)
+        // and burn-cubecl/wgpu to the WGSL `clamp` builtin, which naga emits as
+        // Metal `fmin(fmax(..))` (rescues to `lo`): measured on an Apple M2 Pro
+        // / macOS 26.5.2 / Metal 4 with burn 0.21, cubecl 0.10, wgpu 29,
+        // `clamp(NaN, -10, 10)` was NaN on Flex and -10.0 on Metal. Burn 0.22
+        // propagates on both. `clamp_preserving_nan` must hold either way.
         let flex_device = Device::flex();
         let flex = clamped_row(&CLAMP_INPUT, -10.0, 10.0, &flex_device);
 

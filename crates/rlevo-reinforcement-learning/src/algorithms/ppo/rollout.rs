@@ -272,6 +272,7 @@ impl<O: Clone> RolloutBuffer<O> {
     }
 
     /// Builds a 1-D float tensor indexed by `indices`, on `device`.
+    #[must_use]
     pub fn gather_f32(&self, data: &[f32], indices: &[usize], device: &Device) -> Tensor<1> {
         let gathered: Vec<f32> = indices.iter().map(|&i| data[i]).collect();
         let n = gathered.len();

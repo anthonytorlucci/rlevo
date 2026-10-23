@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use burn::module::{Module, ModuleMapper, ModuleVisitor, Param, ParamId};
-use burn::tensor::{Tensor, TensorPrimitive};
+use burn::tensor::Tensor;
 
 /// Computes Bellman backup target Q-values for a mini-batch.
 ///
@@ -38,6 +38,7 @@ use burn::tensor::{Tensor, TensorPrimitive};
 ///
 /// See [`compute_target_quantiles`] for the rank-2 sibling used by
 /// distributional algorithms that back up a whole quantile vector per sample.
+#[must_use]
 pub fn compute_target_q_values(
     rewards: Tensor<1>,
     next_q_max: Tensor<1>,
@@ -104,6 +105,7 @@ pub fn compute_target_q_values(
 /// asserted so — never a network output. It therefore has no poison to
 /// propagate, and its result feeds a clamp-and-project step that this signature
 /// does not model. Do not fold that call site into this helper.
+#[must_use]
 pub fn compute_target_quantiles(
     rewards: Tensor<2>,        // (B, 1)
     next_quantiles: Tensor<2>, // (B, N)
@@ -164,21 +166,25 @@ pub enum PolyakError {
 }
 
 struct ParamCollector {
-    tensors: HashMap<ParamId, TensorPrimitive<B>>,
+    tensors: HashMap<ParamId, Tensor<1>>,
 }
 
 impl ModuleVisitor for ParamCollector {
     fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
-        // Store the rank-erased on-device primitive handle, not a host
+        // Store the value flattened to rank 1, on-device, not a host
         // `TensorData` readback: keeping the value on-device avoids a
         // gratuitous device→host→device round-trip on every soft update.
-        // Both networks live on the same backend/device.
-        self.tensors.insert(param.id, param.val().into_primitive());
+        // Without autodiff, so a training `active` cannot put the blended
+        // target on the graph.
+        self.tensors.insert(
+            param.id,
+            param.val().without_autodiff().flatten::<1>(0, D - 1),
+        );
     }
 }
 
 struct PolyakMapper {
-    active: HashMap<ParamId, TensorPrimitive<B>>,
+    active: HashMap<ParamId, Tensor<1>>,
     seen: HashSet<ParamId>,
     tau: f32,
     error: Option<PolyakError>,
@@ -203,11 +209,10 @@ impl ModuleMapper for PolyakMapper {
         self.seen.insert(id);
         let tau = self.tau;
         param.map(move |target_tensor| {
-            // Rewrap the stored on-device primitive as a rank-`D` tensor; `D`
-            // is inferred from this `map_float<D>` call site and the primitive
-            // carries the real shape. No host upload occurs.
-            let active_tensor = Tensor::<D>::from_primitive(active);
-            target_tensor.mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
+            // Reshape the stored rank-1 value to the target's shape; `D` is
+            // inferred from this `map_float<D>` call site. No host upload occurs.
+            let active_tensor: Tensor<D> = active.reshape(target_tensor.dims());
+            target_tensor.without_autodiff().mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
         })
     }
 }
@@ -216,6 +221,10 @@ impl ModuleMapper for PolyakMapper {
 ///
 /// Used by every off-policy algorithm that maintains a target network (DQN,
 /// C51, QR-DQN, DDPG, TD3, SAC). Pass `tau = 1.0` for a hard copy.
+///
+/// The returned target is plain (no autodiff), whichever devices `active` and
+/// `target` are on, so passing a training network as `active` cannot put the
+/// target on the autodiff graph.
 ///
 /// Parameters are paired by [`ParamId`], not by position or name, so `target`
 /// must carry the *same* `ParamId`s as `active`.
@@ -1004,19 +1013,19 @@ mod tests {
 
     #[test]
     fn test_polyak_update_feeds_reconstructed_target_back_in() {
-        // Regression for the on-device transport swap: `active` is now carried
-        // between the collector and the mapper as a rank-erased
-        // `TensorPrimitive` handle, and each target parameter is rebuilt with
-        // `Tensor::from_primitive`. This test pins two things at the behaviour
-        // level.
+        // Regression for the on-device transport: `active` is carried between
+        // the collector and the mapper flattened to rank 1, and each target
+        // parameter is rebuilt by reshaping it to the target's dims. This test
+        // pins two things at the behaviour level.
         //
         // First, a single blend over a genuinely multi-rank net (rank-2 weight
         // + rank-1 bias) must still produce the exact `$0.75\,\text{target} + 0.25\,\text{active}$`
-        // combination — the primitive round-trip is numerically a no-op.
+        // combination — the flatten-and-reshape round trip is numerically a
+        // no-op.
         //
         // Second, and the point of this test, the returned target is fed
-        // *straight back* into a second `polyak_update`. A tensor rebuilt from
-        // `from_primitive` must be a fully valid tensor you can read, blend, and
+        // *straight back* into a second `polyak_update`. A tensor rebuilt by
+        // the reshape must be a fully valid tensor you can read, blend, and
         // reconstruct again — not a degenerate handle. The second step must
         // continue converging toward active (every parameter's gap shrinks),
         // which it cannot do if the reconstructed tensor were somehow inert.
@@ -1044,7 +1053,7 @@ mod tests {
             );
         }
 
-        // Feed the reconstructed-from-primitive target back in unchanged.
+        // Feed the reshaped target back in unchanged.
         let twice = polyak_update(&active, once, TAU)
             .expect("the reconstructed target must remain a valid, updatable module");
         let after_two = twice.flat();
@@ -1058,6 +1067,29 @@ mod tests {
                 "second consecutive step must keep converging param {i} toward active \
                  ({goal}); gap went {gap_before} -> {gap_after}"
             );
+        }
+    }
+
+    /// The returned target is plain whatever the caller passes. Autodiff is
+    /// device state in Burn 0.22, so a training `active` (or target) would
+    /// otherwise put the blended target on the autodiff graph.
+    #[test]
+    fn test_polyak_update_returns_a_plain_target_from_training_inputs() {
+        use crate::algorithms::shared::{params_are_plain, params_train};
+
+        let device = Device::flex().autodiff();
+        let active = TestNet::new(&device, ACTIVE_WEIGHT, ACTIVE_BIAS).train();
+        assert!(params_train(&active), "precondition: active trains");
+        for target in [
+            active.relabelled(TARGET_WEIGHT, TARGET_BIAS).valid(),
+            active.relabelled(TARGET_WEIGHT, TARGET_BIAS).train(),
+        ] {
+            let updated = polyak_update(&active, target, 0.25).expect("ids match by fixture");
+            assert!(params_are_plain(&updated), "the blended target is plain");
+            for (i, got) in updated.flat().iter().enumerate() {
+                let want = 0.75 * TARGET_FLAT[i] + 0.25 * ACTIVE_FLAT[i];
+                assert_abs_diff_eq!(*got, want, epsilon = EPS);
+            }
         }
     }
 }

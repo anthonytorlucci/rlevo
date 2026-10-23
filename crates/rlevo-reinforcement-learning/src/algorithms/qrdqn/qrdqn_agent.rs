@@ -9,8 +9,7 @@
 
 use std::marker::PhantomData;
 
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams};
+use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
@@ -28,7 +27,7 @@ use crate::algorithms::shared::{
     FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
     reduce_weighted_loss,
 };
-use crate::utils::{PolyakError, compute_target_quantiles};
+use crate::utils::{PolyakError, compute_target_quantiles, polyak_update};
 
 /// Error variants returned by [`QrDqnAgent`] operations.
 ///
@@ -142,15 +141,16 @@ pub struct LearnOutcome {
 /// # Field notes
 ///
 /// - `policy_net` is held in a [`Slot`], the newtype that owns a network across
-///   Burn's by-value [`Optimizer::step`](burn::optim::Optimizer::step). Every
+///   Burn's by-value [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step). Every
 ///   read goes through `Slot::get`, and the module leaves the field only for the
 ///   duration of the `step` call itself inside `Slot::step_with` — the forward
 ///   pass, loss, and `backward` all run on a borrow, so a panic in any of them
 ///   leaves the agent intact. The one exception is a panic *inside* `step`,
 ///   which poisons the slot permanently; that window is irreducible and is
 ///   documented on [`Slot`].
-/// - `target_net` lives on `B::InnerBackend` (the plain device) so that
-///   computing bootstrap quantiles never builds an autodiff graph.
+/// - `target_net` is a [`valid`](burn::module::Module::valid) snapshot of the policy, on the
+///   plain device, so computing bootstrap quantiles never builds an autodiff
+///   graph.
 pub struct QrDqnAgent<M, O, A, const OR: usize, const BOR: usize>
 where
     M: QrDqnModel<BOR>,
@@ -159,11 +159,14 @@ where
 {
     policy_net: Slot<M>,
     target_net: M,
-    optimizer: OptimizerAdaptor<Adam, M, B>,
+    optimizer: ModuleOptimizer,
     buffer: ReplayKind<DiscreteTransition<O>>,
     exploration: EpsilonGreedy,
     config: QrDqnTrainingConfig,
+    /// The training device: the caller's device with autodiff on.
     device: Device,
+    /// `device` without autodiff, where the target path runs.
+    plain_device: Device,
     step: usize,
     /// Gradient (optimizer) updates attempted so far — the unit
     /// `config.target_update`'s cadence counts (ADR 0059). Advanced
@@ -225,6 +228,11 @@ where
 {
     /// Constructs a new agent from a pre-built policy network and config.
     ///
+    /// The agent trains on `device` with autodiff on, and switches `policy_net`
+    /// to training ([`Module::train`](burn::module::Module::train)), so a network
+    /// built on a plain device trains as well. The target network is a
+    /// [`valid`](burn::module::Module::valid) snapshot of the policy.
+    ///
     /// # Errors
     ///
     /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
@@ -235,6 +243,9 @@ where
         device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        let device = device.autodiff();
+        let plain_device = device.clone().without_autodiff();
+        let policy_net = policy_net.train();
         let target_net = policy_net.valid();
         let adam = config.optimizer.clone();
         let optimizer = match &config.clip_grad {
@@ -262,6 +273,7 @@ where
             exploration,
             config,
             device,
+            plain_device,
             step: 0,
             gradient_updates: 0,
             stats,
@@ -419,19 +431,21 @@ where
     /// A `NaN`/`$\pm\infty$` observation is **counted and warned about; the action is returned
     /// unchanged** (ADR 0067, Decision 4). Do not "improve" this into a substitution or a fallback
     /// action, and do not delete the check as redundant — it is the *only* thing in the system that
-    /// can observe this failure, for two reasons that are both counter-intuitive:
+    /// can observe this failure:
     ///
-    /// 1. On the `flex` (CPU) backend `relu` maps `NaN` to `0.0`. A ReLU-fronted
-    ///    network fed a **fully** non-finite observation therefore emits a
-    ///    finite, in-domain, `is_valid() == true` action from a bias-only output
-    ///    row — measured on DQN, the one-NaN and all-NaN Q rows are
-    ///    bit-identical. There is no NaN downstream: `FiniteLossGuard` cannot
-    ///    fire, a Q-value check cannot fire, an action check cannot fire.
-    /// 2. Sharper, and specific to argmax-over-Q agents: on `flex`, `argmax`
-    ///    over a **partly** NaN row returns the index of the *first NaN*, not the
-    ///    finite max (`[1, NaN, 3, 2] -> 1`). The same row returns the correct
-    ///    index on `wgpu`. So the discrete failure is CPU-specific and
-    ///    invisible — and CPU is the backend CI runs.
+    /// 1. The poisoned observation still yields an in-domain action. On Burn
+    ///    0.22 a `NaN` propagates through the network on every backend
+    ///    measured (Flex and wgpu/Metal), and `argmax` over a row holding a
+    ///    `NaN` returns the index of the *first* `NaN` (`[1, NaN, 3, 2] -> 1`;
+    ///    an all-`NaN` row gives `0`). `from_index` accepts it, and nothing
+    ///    reads the Q row, so an action check cannot fire.
+    /// 2. On a backend whose `relu` maps `NaN` to `0.0`, as Burn 0.21's Flex
+    ///    did, a ReLU-fronted network erases a **fully** non-finite observation
+    ///    instead: measured on DQN under 0.21, the one-NaN and all-NaN Q rows
+    ///    were bit-identical and bias-only, with no `NaN` anywhere for
+    ///    `FiniteLossGuard` or a Q-value check to see. (0.21's wgpu returned
+    ///    the finite max's index from a partly-`NaN` row, so the failure was
+    ///    then CPU-only.)
     ///
     /// The `argmax` behaviour itself is deliberately **not**
     /// fixed here; this guard only makes it attributable.
@@ -467,7 +481,7 @@ where
         A::from_index(idx as usize)
     }
 
-    /// Snapshots the policy network onto the plain (non-autodiff) device.
+    /// Snapshots the policy network without autodiff ([`valid`](burn::module::Module::valid)).
     ///
     /// Returns a frozen inference handle for use with
     /// [`act_greedy_with`](Self::act_greedy_with). Action selection never needs
@@ -485,7 +499,7 @@ where
         self.policy().valid()
     }
 
-    /// Greedy action selection against a pre-snapshotted inner network.
+    /// Greedy action selection against a pre-snapshotted plain-device network.
     ///
     /// Equivalent to [`act_greedy`](Self::act_greedy) but runs on the
     /// plain device via [`inference_net`](Self::inference_net), which
@@ -506,9 +520,9 @@ where
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
         let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
-        let quantiles: Tensor<3> = M::forward_inner(net, batched); // (1, A, N)
+        let quantiles: Tensor<3> = net.forward(batched); // (1, A, N)
         let q: Tensor<2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
         let idx = q.argmax(1).into_scalar::<i64>();
         A::from_index(idx as usize)
@@ -732,7 +746,7 @@ where
     ///
     /// Returns [`QrDqnAgentError::Polyak`] if the target soft-update finds a
     /// parameter-topology mismatch between the policy and target networks (see
-    /// [`polyak_update`](crate::utils::polyak_update)). Every in-tree target is
+    /// [`polyak_update`]). Every in-tree target is
     /// cloned from its policy, so this cannot occur for agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
@@ -793,21 +807,22 @@ where
         batched_shape.extend_from_slice(&obs_shape);
 
         let device = self.device.clone();
+        let plain = self.plain_device.clone();
         let obs_tensor: Tensor<BOR> =
             Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
         let next_tensor_inner: Tensor<BOR> =
-            Tensor::from_data(TensorData::new(next_flat, batched_shape), &device);
+            Tensor::from_data(TensorData::new(next_flat, batched_shape), &plain);
 
         let action_tensor_1: Tensor<1, Int> =
             Tensor::from_data(TensorData::new(action_idxs, vec![batch_size]), &device);
 
         let rewards_inner: Tensor<1> =
-            Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
+            Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &plain);
         let terminated_inner: Tensor<1> =
-            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
+            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &plain);
 
         // --- Target quantiles (plain device, no autodiff) ---
-        let next_quantiles_all: Tensor<3> = M::forward_inner(&self.target_net, next_tensor_inner); // (B, A, N)
+        let next_quantiles_all: Tensor<3> = self.target_net.forward(next_tensor_inner); // (B, A, N)
 
         // Pick bootstrap action a* = argmax_a mean_i `$\theta$`_target(s', a)_i.
         let q_next: Tensor<2> = next_quantiles_all.clone().mean_dim(2).squeeze_dim::<2>(2); // (B, A)
@@ -852,8 +867,8 @@ where
         let variance: Tensor<1> = centered.powi_scalar(2).mean_dim(1).squeeze_dim::<1>(1); // (B,)
         let spread_value = variance.sqrt().mean().into_scalar::<f32>();
 
-        // Upload the target quantile vector onto the autodiff device.
-        let target_autodiff: Tensor<2> = Tensor::from_data(target_inner.into_data(), &device);
+        // Move the target quantile vector to the training device.
+        let target_autodiff: Tensor<2> = target_inner.to_device(&device);
 
         let taus: Tensor<1> = self.config.quantile_taus(&device);
         // Per-sample `[batch]` quantile Huber loss, scaled by importance weights
@@ -889,7 +904,7 @@ where
         let grads = loss_tensor.backward();
         // `from_grads` takes `&M` and returns an owned, lifetime-free value, so
         // NLL ends the borrow here — the only window in which the module is out
-        // of the slot is the `Optimizer::step` call inside `step_with`.
+        // of the slot is the `ModuleOptimizer::step` call inside `step_with`.
         let grads = GradientsParams::from_grads(grads, self.policy());
         self.policy_net
             .step_with(&mut self.optimizer, self.config.learning_rate, grads);
@@ -898,11 +913,11 @@ where
         // yields the `$\tau$` to apply on this update, or `None`. A hard copy is the degenerate
         // `$\tau$` = 1.0, not a separate path.
         if let Some(tau) = self.config.target_update.fires_at(self.gradient_updates) {
-            // Clone rather than move out: `soft_update` consumes `target` by
+            // Clone rather than move out: `polyak_update` consumes `target` by
             // value, so on `Err` the `?` returns before this reassignment and
             // the field keeps its prior weights — no silent hard-sync (the
             // invariant now holds via early return, and equally for a panic).
-            self.target_net = M::soft_update(self.policy(), self.target_net.clone(), tau)?;
+            self.target_net = polyak_update(&self.policy().valid(), self.target_net.clone(), tau)?;
         }
 
         // PER priority writeback (Schaul Alg. 1 lines 11-12): the QR-DQN priority
@@ -947,6 +962,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
     use super::*;
     use crate::MAX_BUFFER_CAPACITY;
+    use crate::algorithms::shared::{param_checksum, params_are_plain, params_train};
     use rlevo_core::config::ConstraintKind;
 
     use burn::module::{Module, ModuleMapper, Param};
@@ -957,7 +973,6 @@ mod tests {
 
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
-    use crate::utils::polyak_update;
 
     const TEST_OBS_FEATURES: usize = 4; // CartPoleObservation is [4].
     const TEST_ACTIONS: usize = 2;
@@ -996,13 +1011,6 @@ mod tests {
     impl QrDqnModel<2> for TestQrDqnNet {
         fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
             self.forward_impl(observations)
-        }
-        fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
-            inner.forward_impl(observations)
-        }
-        #[allow(clippy::cast_possible_truncation)]
-        fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-            polyak_update::<TestQrDqnNet>(&active.valid(), target, tau as f32)
         }
     }
 
@@ -1044,7 +1052,7 @@ mod tests {
     /// `learning_starts = 0`, so each `learn_step` runs immediately. `rule` is
     /// the target-update rule under test; the target network is
     /// `policy.valid()` (built by `QrDqnAgent::new`), so its `ParamId`s match
-    /// the policy's and `soft_update` can pair them.
+    /// the policy's and `polyak_update` can pair them.
     // Test fixture data: the loop counter and element count are bounded by small
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
@@ -1825,5 +1833,37 @@ mod tests {
             assert_eq!(err.field, "replay_buffer_capacity");
             assert_eq!(err.kind, kind);
         }
+    }
+
+    /// The target path never tracks. Autodiff is device state in Burn 0.22, so
+    /// no type keeps the target network off the graph: the target must hold plain parameters
+    /// after construction and after a learn step's Polyak update, while
+    /// the policy trains.
+    #[test]
+    fn test_qrdqn_agent_target_path_is_never_tracked() {
+        let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
+        assert!(
+            params_train(agent.policy()),
+            "precondition: the policy trains"
+        );
+        assert!(
+            params_are_plain(agent.target_net()),
+            "the target starts plain"
+        );
+        let before = param_checksum(agent.target_net());
+        let mut rng = StdRng::seed_from_u64(0);
+        agent.learn_step(&mut rng).expect("learn").expect("a step");
+        assert!(
+            (param_checksum(agent.target_net()) - before).abs() > 0.0,
+            "precondition: the Polyak update ran"
+        );
+        assert!(
+            params_are_plain(agent.target_net()),
+            "the Polyak update leaves the target plain"
+        );
+        assert!(
+            params_are_plain(&agent.inference_net()),
+            "`inference_net` is a plain snapshot"
+        );
     }
 }

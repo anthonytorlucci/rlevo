@@ -22,6 +22,7 @@ use burn::tensor::Tensor;
 ///
 /// Differentiable at the seam — the classic Huber smoothing used in QR-DQN
 /// to avoid a discontinuous derivative at `u = 0`.
+#[must_use]
 pub fn huber<const D: usize>(u: Tensor<D>, kappa: f32) -> Tensor<D> {
     let abs_u = u.clone().abs();
     // Small-region mask: 1.0 where `|u| <= kappa`, 0.0 otherwise.
@@ -73,6 +74,7 @@ const QUANTILE_CHUNK_SIZE: usize = 32;
 ///
 /// Panics if `pred_quantiles` has zero quantiles (`num_quantiles == 0`), which
 /// leaves the chunk accumulator empty.
+#[must_use]
 pub fn quantile_huber_loss_per_sample(
     pred_quantiles: &Tensor<2>,
     target_quantiles: &Tensor<2>,

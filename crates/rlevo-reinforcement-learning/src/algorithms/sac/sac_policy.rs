@@ -167,6 +167,7 @@ impl SquashedGaussianPolicyHead {
 
     /// Squashed policy mean (deterministic action):
     /// `$\text{scale} \cdot \tanh(\mu) + \text{bias}$`.
+    #[must_use]
     pub fn mean_action(&self, obs: Tensor<2>) -> Tensor<2> {
         let (mean, _) = self.mean_and_log_std(obs);
         tanh(mean)
@@ -175,21 +176,25 @@ impl SquashedGaussianPolicyHead {
     }
 
     /// Scale multiplier applied after tanh.
+    #[must_use]
     pub fn action_scale(&self) -> f32 {
         self.action_scale
     }
 
     /// Bias added after `$\text{scale} \cdot \tanh(z)$`.
+    #[must_use]
     pub fn action_bias(&self) -> f32 {
         self.action_bias
     }
 
     /// Clamp lower bound applied to `$\log \sigma$`.
+    #[must_use]
     pub fn log_std_min(&self) -> f32 {
         self.log_std_min
     }
 
     /// Clamp upper bound applied to `$\log \sigma$`.
+    #[must_use]
     pub fn log_std_max(&self) -> f32 {
         self.log_std_max
     }
@@ -215,10 +220,6 @@ impl SquashedGaussianPolicyHead {
 ///
 /// Returns `(action, log_prob)` where `action` has shape `(batch, action_dim)`
 /// and `log_prob` has shape `(batch,)`.
-///
-/// Generic over the backend so the agent can call this on both `B`
-/// (autodiff forward pass) and `B::InnerBackend` (no-autodiff target
-/// computation) without code duplication.
 // Divisor/normalizer derived from a count -- batch size, minibatch count,
 // history length, iteration number. All are bounded by configured sizes far
 // below f32's 2^24 (f64's 2^53) exact-integer limit.
@@ -268,13 +269,6 @@ impl SquashedGaussianPolicy<2, 2> for SquashedGaussianPolicyHead {
         let (mean, log_std) = self.mean_and_log_std(obs);
         let (action, log_prob) =
             squashed_sample_log_prob(mean, log_std, eps, self.action_scale, self.action_bias);
-        SampleOutput { action, log_prob }
-    }
-
-    fn forward_sample_inner(inner: &Self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
-        let (mean, log_std) = inner.mean_and_log_std(obs);
-        let (action, log_prob) =
-            squashed_sample_log_prob(mean, log_std, eps, inner.action_scale, inner.action_bias);
         SampleOutput { action, log_prob }
     }
 

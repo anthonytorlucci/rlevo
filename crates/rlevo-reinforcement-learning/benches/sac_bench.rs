@@ -9,8 +9,6 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, softplus, tanh};
 use burn::tensor::{Device, Tensor};
 
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
-
 use criterion::{Criterion, criterion_group, criterion_main};
 
 use rand::SeedableRng;
@@ -91,10 +89,6 @@ impl SquashedGaussianPolicy<2, 2> for StochasticActor {
         let (action, log_prob) = self.sample_impl(obs, eps);
         SampleOutput { action, log_prob }
     }
-    fn forward_sample_inner(inner: &Self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
-        let (action, log_prob) = inner.sample_impl(obs, eps);
-        SampleOutput { action, log_prob }
-    }
     fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
         let (mean, _) = self.mean_and_log_std(obs);
         tanh(mean).mul_scalar(self.action_scale)
@@ -127,17 +121,6 @@ impl CriticMlp {
 impl ContinuousQ<2, 2> for CriticMlp {
     fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        inner.forward_impl(obs, act)
-    }
-    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
-    // f32. This is the intended narrowing point, and the values are hyperparameters
-    // (rates, discounts, epsilons) where f32 has far more precision than the
-    // schedules that produce them.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<CriticMlp>(&active.valid(), target, tau as f32)
     }
 }
 

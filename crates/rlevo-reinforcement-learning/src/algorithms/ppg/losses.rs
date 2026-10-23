@@ -18,6 +18,7 @@ use burn::tensor::activation::log_softmax;
 ///
 /// `$KL = \sum \text{softmax}(\text{old}) \cdot (\text{log\_softmax}(\text{old}) - \text{log\_softmax}(\text{new}))$`, averaged
 /// over the batch axis.
+#[must_use]
 pub fn policy_kl_categorical(old_logits: Tensor<2>, new_logits: Tensor<2>) -> Tensor<1> {
     let old_lp = log_softmax(old_logits, 1);
     let new_lp = log_softmax(new_logits, 1);

@@ -10,8 +10,7 @@
 
 use std::marker::PhantomData;
 
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams};
+use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
@@ -31,7 +30,7 @@ use crate::algorithms::shared::{
     FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
     action_bound_tensors, assert_bounds_match_components, clip_to_action_bounds,
 };
-use crate::utils::{PolyakError, compute_target_q_values};
+use crate::utils::{PolyakError, compute_target_q_values, polyak_update};
 
 /// Error variants returned by [`DdpgAgent`] operations.
 ///
@@ -159,7 +158,7 @@ pub struct LearnOutcome {
 /// the forward pass, the loss, `backward`, and `GradientsParams::from_grads` —
 /// runs on a borrow, so a panic there leaves the agent intact and usable. The
 /// networks are out of their slots only for the duration of the
-/// [`Optimizer::step`](burn::optim::Optimizer::step) call itself; a panic in
+/// [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step) call itself; a panic in
 /// that one window is terminal for this agent and requires rebuilding it. See
 /// [`Slot`] for why that residual window is irreducible.
 ///
@@ -191,18 +190,22 @@ pub struct DdpgAgent<
     target_actor: Actor,
     critic: Slot<Critic>,
     target_critic: Critic,
-    actor_opt: OptimizerAdaptor<Adam, Actor, B>,
-    critic_opt: OptimizerAdaptor<Adam, Critic, B>,
+    actor_opt: ModuleOptimizer,
+    critic_opt: ModuleOptimizer,
     buffer: UniformReplay<ContinuousTransition<O>>,
     exploration: GaussianNoise,
     low: &'static [f32],
     high: &'static [f32],
     /// `[1, ..action_shape]` per-component bounds for the target-action clip,
-    /// built once at construction — see [`action_bound_tensors`].
+    /// built once at construction on the plain device — see
+    /// [`action_bound_tensors`].
     low_t: Tensor<BAR>,
     high_t: Tensor<BAR>,
     config: DdpgTrainingConfig,
+    /// The training device: the caller's device with autodiff on.
     device: Device,
+    /// `device` without autodiff, where the target path runs.
+    plain_device: Device,
     step: usize,
     critic_updates: usize,
     stats: AgentStats<DdpgMetrics>,
@@ -273,8 +276,10 @@ where
 {
     /// Constructs a new agent from pre-built actor and critic networks.
     ///
-    /// Target networks are initialised as clones of the supplied modules via
-    /// [`AutodiffModule::valid`](burn::module::AutodiffModule::valid). Optimizers are built from
+    /// The agent trains on `device` with autodiff on, and switches both
+    /// networks to training ([`Module::train`](burn::module::Module::train)), so
+    /// networks built on a plain device train as well. Target networks are
+    /// [`valid`](burn::module::Module::valid) snapshots of the supplied modules. Optimizers are built from
     /// [`DdpgTrainingConfig::optimizer`]; if
     /// [`DdpgTrainingConfig::clip_grad`] is `Some`, the same clipping
     /// configuration is applied to both the actor and critic optimizers.
@@ -299,6 +304,10 @@ where
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
         assert_bounds_match_components::<AR, A>();
+        let device = device.autodiff();
+        let plain_device = device.clone().without_autodiff();
+        let actor = actor.train();
+        let critic = critic.train();
         let target_actor = actor.valid();
         let target_critic = critic.valid();
         let adam = config.optimizer.clone();
@@ -311,7 +320,7 @@ where
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
         let stats = AgentStats::<DdpgMetrics>::new(100);
-        let (low_t, high_t) = action_bound_tensors::<A, AR, BAR>(&device);
+        let (low_t, high_t) = action_bound_tensors::<A, AR, BAR>(&plain_device);
         // The capacity is a runtime config field, not a literal, so it takes
         // the fallible path: an out-of-range value is a `ConfigError` naming
         // `capacity`, never an allocation abort inside `VecDeque`.
@@ -333,6 +342,7 @@ where
             high_t,
             config,
             device,
+            plain_device,
             step: 0,
             critic_updates: 0,
             stats,
@@ -483,32 +493,32 @@ where
     /// `obs`, so no action was selected *from* a poisoned observation there.
     /// The step is still caught at [`remember`](Self::remember).
     ///
-    /// # Why this is the only place the failure is observable
+    /// # Why the check stays
     ///
-    /// The continuous failure mode is **backend-split**, and both halves are
-    /// bad in different ways. Measured on Pendulum/DDPG:
+    /// Under Burn 0.21 the continuous failure mode was **backend-split**.
+    /// Measured on Pendulum/DDPG: on wgpu/Metal a non-finite observation
+    /// yielded `raw_actor = [NaN]` and an action whose `is_valid()` was
+    /// `false`; on Flex `relu` rescued `NaN` to `0.0`, so the actor emitted a
+    /// finite, plausible, in-bounds torque (measured `0.08646313`) from a
+    /// **fully** `NaN` observation, with `is_valid() == true`, and nothing
+    /// downstream could see it.
     ///
-    /// - **wgpu / Metal** — a non-finite observation yields `raw_actor =
-    ///   [NaN]`, and the `NaN` survives the clamp, so the returned action's
-    ///   `is_valid()` is `false`.
-    /// - **flex (CPU)** — `relu` rescues `NaN` to `0.0`, so the actor emits a
-    ///   finite, plausible, in-bounds torque (measured `0.08646313`) from a
-    ///   **fully** `NaN` observation, with `is_valid() == true`. Nothing
-    ///   downstream can see it: the loss is finite, so
-    ///   `FiniteLossGuard` cannot fire, and an action-validity check cannot
-    ///   fire either. CI has no GPU, so CI only ever sees this half.
+    /// Burn 0.22's `relu` propagates `NaN` on every backend measured (Flex and
+    /// wgpu/Metal), so both now return an action with `is_valid() == false`.
+    /// The check names the cause where that action shows only the effect, and
+    /// it remains the one observer on any backend whose `relu` erases `NaN`.
     ///
     /// # The clamp here is host `f32::clamp`, and must stay that way
     ///
-    /// Every continuous act-path clip in this crate is
-    /// [`f32::clamp`] over a `&[f32]` already read back from the actor — **not**
-    /// `Tensor::clamp`. `f32::clamp(NaN, lo, hi)` propagates `NaN`, and does so
-    /// identically on every backend, so ADR 0066's `clamp_preserving_nan` does
-    /// **not** apply here and must not be introduced. Moving this clip into
-    /// tensor space would *import* the C51 defect: wgpu's `Tensor::clamp`
-    /// rescues `NaN` to the lower bound, which would turn the one backend that
-    /// still reports this failure into one that produces a plausible in-domain
-    /// torque with `is_valid()` back to `true`.
+    /// Every continuous act-path clip in this crate is [`f32::clamp`] over a
+    /// `&[f32]` already read back from the actor — **not** `Tensor::clamp`.
+    /// `f32::clamp(NaN, lo, hi)` propagates `NaN`, and does so identically on
+    /// every backend, so ADR 0066's `clamp_preserving_nan` does **not** apply
+    /// here and must not be introduced. Moving this clip into tensor space
+    /// would make it depend on each backend's `Tensor::clamp` again — the C51
+    /// defect: Burn 0.21's wgpu rescued `NaN` to the lower bound, turning a
+    /// reported failure into a plausible in-domain torque with `is_valid()`
+    /// back to `true`.
     ///
     /// # The action type validates nothing on this path
     ///
@@ -590,8 +600,8 @@ where
     /// Identical to [`act`](Self::act), and sharing its counter: the row is
     /// checked, a non-finite row is counted and warned about, and the action is
     /// returned **unchanged**. See [`act`](Self::act) for why nothing is
-    /// substituted, why the backends disagree, and why the clamp below must
-    /// stay a host [`f32::clamp`].
+    /// substituted, why the backends disagreed under Burn 0.21, and why the
+    /// clamp below must stay a host [`f32::clamp`].
     ///
     /// # Panics
     ///
@@ -605,9 +615,9 @@ where
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
         let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
-        let raw: Tensor<BAR> = Actor::forward_inner(net, batched);
+        let raw: Tensor<BAR> = net.forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
         let out: Vec<f32> = (0..A::COMPONENTS)
@@ -836,7 +846,7 @@ where
     /// # Panics
     ///
     /// Panics if the actor or critic slot is poisoned, i.e. a previous
-    /// [`Optimizer::step`](burn::optim::Optimizer::step) unwound and lost the
+    /// [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step) unwound and lost the
     /// network. Every other operation here — sampling, the forward passes, the
     /// losses, `backward`, and gradient reduction — runs on a borrow, so a
     /// panic in any of them leaves the agent fully usable; only a panic inside
@@ -846,7 +856,7 @@ where
     ///
     /// Returns [`DdpgAgentError::Polyak`] if a target soft-update finds a
     /// parameter-topology mismatch between a live network and its target twin
-    /// (see [`polyak_update`](crate::utils::polyak_update)). Every in-tree
+    /// (see [`polyak_update`]). Every in-tree
     /// target is cloned from its active network, so this cannot occur for
     /// agents built normally.
     pub fn learn_step(
@@ -858,6 +868,7 @@ where
         }
         let batch_size = self.config.batch_size;
         let device = self.device.clone();
+        let plain = self.plain_device.clone();
 
         // --- Sample batch ---
         // `can_learn()` above already established `buffer.len() >= batch_size`,
@@ -901,14 +912,14 @@ where
             &device,
         );
         let next_t_inner: Tensor<BOR> =
-            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &device);
+            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &plain);
         let action_t: Tensor<BAR> =
             Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
         let rewards_inner: Tensor<1> =
-            Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
+            Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &plain);
         let terminated_inner: Tensor<1> =
-            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
+            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &plain);
 
         // --- Target computation (no autodiff) ---
         // Clip the target action per component, against the `Box(low, high)`
@@ -921,15 +932,14 @@ where
         // scalar-only, so this goes through `max_pair`/`min_pair` against the
         // `[1, ..action_shape]` bound tensors, broadcast over the batch.
         let next_actions: Tensor<BAR> = clip_to_action_bounds(
-            Actor::forward_inner(&self.target_actor, next_t_inner.clone()),
+            self.target_actor.forward(next_t_inner.clone()),
             self.low_t.clone(),
             self.high_t.clone(),
         );
-        let next_q: Tensor<1> =
-            Critic::forward_inner(&self.target_critic, next_t_inner, next_actions);
+        let next_q: Tensor<1> = self.target_critic.forward(next_t_inner, next_actions);
         let target_inner: Tensor<1> =
             compute_target_q_values(rewards_inner, next_q, terminated_inner, self.config.gamma);
-        let target: Tensor<1> = Tensor::from_data(target_inner.into_data(), &device);
+        let target: Tensor<1> = target_inner.to_device(&device);
 
         // --- Critic update ---
         // Everything up to `step_with` runs on a borrow of the slot, so a panic
@@ -1003,16 +1013,16 @@ where
         // networks keep being tracked by their targets. That invariant survives
         // the move unchanged: this block never consults the actor guard, and a
         // skipped actor step still leaves `self.actor` a valid network to blend
-        // from. Clone rather than move out: `soft_update` consumes `target` by
+        // from. Clone rather than move out: `polyak_update` consumes `target` by
         // value, so on `Err` the `?` returns before the reassignment and each
         // target field keeps its prior weights — no silent hard-sync onto its
         // live network (the invariant now holds via early return, and equally
         // for a panic).
         if let Some(tau) = self.config.target_update.fires_at(self.critic_updates) {
             self.target_actor =
-                Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau)?;
+                polyak_update(&self.actor.get().valid(), self.target_actor.clone(), tau)?;
             self.target_critic =
-                Critic::soft_update(self.critic.get(), self.target_critic.clone(), tau)?;
+                polyak_update(&self.critic.get().valid(), self.target_critic.clone(), tau)?;
         }
 
         Ok(Some(LearnOutcome {
@@ -1041,6 +1051,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
     use super::*;
     use crate::MAX_BUFFER_CAPACITY;
+    use crate::algorithms::shared::{params_are_plain, params_train};
     use rlevo_core::config::ConstraintKind;
 
     #[test]
@@ -1366,7 +1377,7 @@ mod tests {
         // would disturb Burn's autodiff registration across consecutive learn
         // steps, and pushing the actor's weights up saturates its `tanh`,
         // zeroing the very actor gradient one of these tests asserts on. The
-        // targets are plain inner-backend modules with no graph attached, and
+        // targets are plain-device modules with no graph attached, and
         // `AddConstant` preserves their `ParamId`s, so the Polyak pairing holds.
         agent.target_actor = agent.target_actor.clone().map(&mut AddConstant(0.5));
         agent.target_critic = agent.target_critic.clone().map(&mut AddConstant(0.5));
@@ -1407,7 +1418,7 @@ mod tests {
     #[test]
     fn test_ddpg_agent_default_cadence_fires_every_second_critic_update() {
         let rule = TargetUpdate::polyak(0.005, 2);
-        let tau = rule.tau();
+        let tau = f64::from(rule.tau());
         let mut agent = cadence_agent(2, rule);
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -1438,7 +1449,7 @@ mod tests {
     #[test]
     fn test_ddpg_agent_actor_cadence_and_target_cadence_are_independent() {
         let rule = TargetUpdate::polyak(0.005, 2);
-        let tau = rule.tau();
+        let tau = f64::from(rule.tau());
         let mut agent = cadence_agent(1, rule);
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -1777,5 +1788,74 @@ mod tests {
             assert_eq!(err.field, "replay_buffer_capacity");
             assert_eq!(err.kind, kind);
         }
+    }
+
+    /// The target path never tracks. Autodiff is device state in Burn 0.22, so
+    /// no type keeps the target networks off the graph: each target must hold plain parameters
+    /// after construction and after a learn step's Polyak update, while
+    /// the actor and critic train.
+    #[test]
+    fn test_ddpg_agent_target_path_is_never_tracked() {
+        let device = Device::flex();
+        let config = DdpgTrainingConfig {
+            batch_size: 2,
+            learning_starts: 0,
+            replay_buffer_capacity: 64,
+            policy_frequency: 1,
+            target_update: crate::target::TargetUpdate::polyak(0.005, 1),
+            ..Default::default()
+        };
+        let mut agent = GuardAgent::new(
+            TinyActor::new(&device),
+            TinyCritic::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent");
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+        for x in [0.0_f32, 0.1, 0.2, 0.3] {
+            agent.remember(
+                make_obs(x, 1.0 - x),
+                &action,
+                0.5,
+                make_obs(x + 0.1, 0.9 - x),
+                false,
+            );
+        }
+        assert!(
+            params_train(agent.actor.get()),
+            "precondition: the actor trains"
+        );
+        assert!(
+            params_train(agent.critic.get()),
+            "precondition: the critic trains"
+        );
+        assert!(
+            params_are_plain(&agent.target_actor),
+            "the target actor starts plain"
+        );
+        assert!(
+            params_are_plain(&agent.target_critic),
+            "the target critic starts plain"
+        );
+        let before = param_checksum(&agent.target_critic);
+        let mut rng = StdRng::seed_from_u64(0);
+        agent.learn_step(&mut rng).expect("learn").expect("a step");
+        assert!(
+            (param_checksum(&agent.target_critic) - before).abs() > 0.0,
+            "precondition: the Polyak update ran"
+        );
+        assert!(
+            params_are_plain(&agent.target_actor),
+            "the Polyak update leaves the target actor plain"
+        );
+        assert!(
+            params_are_plain(&agent.target_critic),
+            "the Polyak update leaves the target critic plain"
+        );
+        assert!(
+            params_are_plain(&agent.inference_net()),
+            "`inference_net` is a plain snapshot"
+        );
     }
 }

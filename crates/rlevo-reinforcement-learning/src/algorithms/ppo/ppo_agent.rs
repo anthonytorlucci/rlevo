@@ -9,8 +9,7 @@
 //! [`PpoAgent::update`] to run the PPO optimization epochs. The full loop is
 //! assembled in [`crate::algorithms::ppo::train`].
 
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams};
+use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 
@@ -274,7 +273,7 @@ impl Default for PpoUpdateStats {
 /// # Network ownership
 ///
 /// The policy and value networks live in [`Slot`]s because Burn's
-/// `Optimizer::step` consumes the module by value. Every fallible operation in
+/// `ModuleOptimizer::step` consumes the module by value. Every fallible operation in
 /// [`update`](Self::update) — the forward pass, the losses, `backward`, and
 /// `GradientsParams::from_grads` — runs on a borrow, so a panic there leaves
 /// both networks intact and the agent usable. Only a panic *inside* the
@@ -288,11 +287,14 @@ where
 {
     policy: Slot<P>,
     value: Slot<V>,
-    policy_optim: OptimizerAdaptor<Adam, P, B>,
-    value_optim: OptimizerAdaptor<Adam, V, B>,
+    policy_optim: ModuleOptimizer,
+    value_optim: ModuleOptimizer,
     buffer: RolloutBuffer<O>,
     config: PpoTrainingConfig,
+    /// The training device: the caller's device with autodiff on.
     device: Device,
+    /// `device` without autodiff, where the greedy inference path runs.
+    plain_device: Device,
     iteration: usize,
     total_iterations: usize,
     step: usize,
@@ -333,8 +335,8 @@ where
     V: PpoValue<BOR>,
     O: Observation<OR> + TensorConvertible<OR>,
 {
-    /// Snapshots the policy onto the plain (non-autodiff) device for repeated
-    /// greedy inference.
+    /// Snapshots the policy without autodiff ([`valid`](burn::module::Module::valid)) for
+    /// repeated greedy inference.
     ///
     /// Returns a frozen inference handle for use with
     /// [`act_greedy_env_row_with`](Self::act_greedy_env_row_with). Snapshot
@@ -351,15 +353,16 @@ where
     }
 
     /// Deterministic env-space action row for `obs`, evaluated against a
-    /// pre-snapshotted inner network — no sampling, no autodiff graph.
+    /// pre-snapshotted network on the plain device — no sampling, no autodiff
+    /// graph.
     ///
     /// This is the policy to use for evaluation and throughput benchmarking;
     /// [`act`](Self::act) samples from the stochastic policy, which injects
     /// exploration noise into the returned action.
     pub fn act_greedy_env_row_with(&self, net: &P, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
         let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
-        P::deterministic_env_row_inner(net, batched)
+        net.deterministic_env_row(batched)
     }
 }
 
@@ -373,6 +376,10 @@ where
     ///
     /// `total_iterations` is used for linear LR annealing. If it is zero,
     /// annealing is disabled regardless of the `anneal_lr` config flag.
+    ///
+    /// The agent trains on `device` with autodiff on, and switches both
+    /// networks to training ([`Module::train`](burn::module::Module::train)), so
+    /// networks built on a plain device train as well.
     ///
     /// # Errors
     ///
@@ -388,6 +395,10 @@ where
         total_iterations: usize,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        let device = device.autodiff();
+        let plain_device = device.clone().without_autodiff();
+        let policy = policy.train();
+        let value = value.train();
         let action_dim = policy.action_dim();
         let capacity = config.batch_size();
 
@@ -413,6 +424,7 @@ where
             buffer,
             config,
             device,
+            plain_device,
             iteration: 0,
             total_iterations,
             step: 0,

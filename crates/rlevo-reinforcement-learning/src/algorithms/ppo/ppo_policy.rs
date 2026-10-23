@@ -145,8 +145,7 @@ pub trait PpoPolicy<const BOR: usize>: Module {
         None
     }
 
-    /// Deterministic (greedy) env-space action for the first row of `obs`,
-    /// evaluated on the plain (non-autodiff) device.
+    /// Deterministic (greedy) env-space action for the first row of `obs`.
     ///
     /// Returns the policy's mode — the Gaussian mean squashed into the env
     /// range, or the categorical argmax — with no sampling and no autodiff
@@ -154,7 +153,8 @@ pub trait PpoPolicy<const BOR: usize>: Module {
     /// benchmarking: it reflects what the network learned without the
     /// exploration noise that [`sample_with_logprob`](Self::sample_with_logprob)
     /// injects, and it skips the per-call graph construction that the autodiff
-    /// `sample_with_logprob` path incurs. Snapshot the inner module once with
-    /// [`AutodiffModule::valid`] and reuse it across many steps.
-    fn deterministic_env_row_inner(inner: &Self, obs: Tensor<BOR>) -> Vec<f32>;
+    /// `sample_with_logprob` path incurs when called on a
+    /// [`valid`](Module::valid) snapshot, taken once and reused across many
+    /// steps.
+    fn deterministic_env_row(&self, obs: Tensor<BOR>) -> Vec<f32>;
 }

@@ -60,7 +60,6 @@ use crate::algorithms::shared::LogWatermark;
 ///
 /// # Type parameters
 ///
-/// - `B` — Burn autodiff device.
 /// - `P` — Policy network: must implement `PpoPolicy<BOR>` and
 ///   `PpgAuxValueHead<BOR>`.
 /// - `V` — Main value network implementing `PpoValue<BOR>`.

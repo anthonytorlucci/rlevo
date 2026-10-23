@@ -31,7 +31,6 @@ use rlevo_core::reward::ScalarReward;
 
 use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 use crate::algorithms::sac::sac_model::{SampleOutput, SquashedGaussianPolicy};
-use crate::utils::{PolyakError, polyak_update};
 
 /// Observation width and (for the continuous envs) action width.
 pub(crate) const OBS_DIM: usize = 2;
@@ -268,13 +267,6 @@ impl crate::algorithms::dqn::dqn_model::DqnModel<2> for FlatNet {
     fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
         self.run(observations)
     }
-    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<2> {
-        inner.run(observations)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<FlatNet>(&active.valid(), target, tau as f32)
-    }
 }
 
 /// `(batch, OBS_DIM)` → `(batch, ACTIONS, atoms)`. Backs C51 and QR-DQN, whose
@@ -304,25 +296,11 @@ impl crate::algorithms::c51::c51_model::C51Model<2> for AtomNet {
     fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.run(observations)
     }
-    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
-        inner.run(observations)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<AtomNet>(&active.valid(), target, tau as f32)
-    }
 }
 
 impl crate::algorithms::qrdqn::qrdqn_model::QrDqnModel<2> for AtomNet {
     fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.run(observations)
-    }
-    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
-        inner.run(observations)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<AtomNet>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -347,13 +325,6 @@ impl DeterministicPolicy<2, 2> for TinyActor {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.run(obs)
     }
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.run(obs)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<TinyActor>(&active.valid(), target, tau as f32)
-    }
 }
 
 /// Continuous Q-critic for DDPG / TD3 / SAC.
@@ -377,13 +348,6 @@ impl TinyCritic {
 impl ContinuousQ<2, 2> for TinyCritic {
     fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.run(obs, act)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        inner.run(obs, act)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<TinyCritic>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -420,9 +384,6 @@ impl SquashedGaussianPolicy<2, 2> for TinySacActor {
     }
     fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         self.sample(obs, eps)
-    }
-    fn forward_sample_inner(inner: &Self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
-        inner.sample(obs, eps)
     }
     fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
         activation::tanh(self.mean.forward(obs))

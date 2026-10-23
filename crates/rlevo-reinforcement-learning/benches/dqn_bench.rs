@@ -11,8 +11,6 @@ use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Device, Tensor, activation};
 
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
-
 use criterion::{Criterion, criterion_group, criterion_main};
 
 use rand::SeedableRng;
@@ -53,17 +51,6 @@ impl DqnMlp {
 impl DqnModel<2> for DqnMlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
-    // f32. This is the intended narrowing point, and the values are hyperparameters
-    // (rates, discounts, epsilons) where f32 has far more precision than the
-    // schedules that produce them.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<DqnMlp>(&active.valid(), target, tau as f32)
     }
 }
 

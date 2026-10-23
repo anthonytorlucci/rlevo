@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-burn = { workspace = true }
+burn = { workspace = true, features = ["optim"] }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 serde = { workspace = true }

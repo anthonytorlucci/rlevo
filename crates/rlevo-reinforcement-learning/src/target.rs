@@ -65,7 +65,7 @@
 //! assert_eq!(hard.tau(), 1.0);
 //!
 //! // The cadence gate: `fires_at` yields the τ to apply, or `None`.
-//! assert_eq!(soft.fires_at(7), Some(f64::from(0.005_f32)));
+//! assert_eq!(soft.fires_at(7), Some(0.005));
 //! assert_eq!(hard.fires_at(7), None);
 //! assert_eq!(hard.fires_at(10_000), Some(1.0));
 //! ```
@@ -318,19 +318,11 @@ impl TargetUpdate {
         Ok(Self { tau, every })
     }
 
-    /// The Polyak coefficient, widened to `f64`.
-    ///
-    /// `f64` because that is what every `soft_update` model-trait method takes;
-    /// returning it pre-widened keeps the cast out of each agent's learn step.
-    /// Use [`PolyakTau::get`] on a bare [`PolyakTau`] when the `f32` is wanted.
-    // `f64::from` is the idiomatic widening, but it is not a `const fn`, so the
-    // `as` cast is the only way to keep this accessor usable in const context.
-    // The conversion is exact — every `f32` is representable in `f64` — and
-    // `clippy::cast_lossless` does not fire here precisely because it has no
-    // const-compatible replacement to suggest, so no `allow` is carried.
+    /// The Polyak coefficient, as the `f32` that
+    /// [`polyak_update`](crate::utils::polyak_update) takes.
     #[must_use]
-    pub const fn tau(self) -> f64 {
-        self.tau.get() as f64
+    pub const fn tau(self) -> f32 {
+        self.tau.get()
     }
 
     /// The cadence: the number of **gradient (optimizer) updates** between
@@ -389,7 +381,7 @@ impl TargetUpdate {
     /// assert_eq!(rule.fires_at(4), Some(1.0));
     /// ```
     #[must_use]
-    pub const fn fires_at(self, updates: usize) -> Option<f64> {
+    pub const fn fires_at(self, updates: usize) -> Option<f32> {
         if updates.is_multiple_of(self.every.get()) {
             Some(self.tau())
         } else {
@@ -425,12 +417,6 @@ pub enum TargetUpdateError {
 mod tests {
     use super::{PolyakTau, TargetUpdate, TargetUpdateError};
 
-    use approx::assert_abs_diff_eq;
-
-    /// `$\tau$` is stored and read back without arithmetic, so the only slack these assertions need
-    /// is the `f32`→`f64` widening, which is exact.
-    const EPS: f64 = 1e-12;
-
     // -----------------------------------------------------------------------
     // PolyakTau construction
     // -----------------------------------------------------------------------
@@ -460,12 +446,8 @@ mod tests {
 
     #[test]
     fn new_round_trips_the_constructed_value() {
-        assert_abs_diff_eq!(
-            f64::from(PolyakTau::new(0.005).get()),
-            f64::from(0.005_f32),
-            epsilon = EPS
-        );
-        assert_abs_diff_eq!(f64::from(PolyakTau::new(1.0).get()), 1.0, epsilon = EPS);
+        assert_eq!(PolyakTau::new(0.005).get(), 0.005);
+        assert_eq!(PolyakTau::new(1.0).get(), 1.0);
     }
 
     #[test]
@@ -538,12 +520,8 @@ mod tests {
 
     #[test]
     fn tau_round_trips_the_constructed_value() {
-        assert_abs_diff_eq!(
-            TargetUpdate::polyak(0.005, 1).tau(),
-            f64::from(0.005_f32),
-            epsilon = EPS
-        );
-        assert_abs_diff_eq!(TargetUpdate::hard(10_000).tau(), 1.0, epsilon = EPS);
+        assert_eq!(TargetUpdate::polyak(0.005, 1).tau(), 0.005);
+        assert_eq!(TargetUpdate::hard(10_000).tau(), 1.0);
         assert_eq!(TargetUpdate::polyak(0.25, 4).every(), 4);
     }
 
@@ -598,7 +576,7 @@ mod tests {
                     if fires { "Some" } else { "None" }
                 );
                 if let Some(tau) = got {
-                    assert_abs_diff_eq!(tau, f64::from(0.005_f32), epsilon = EPS);
+                    assert_eq!(tau, 0.005);
                 }
             }
         }

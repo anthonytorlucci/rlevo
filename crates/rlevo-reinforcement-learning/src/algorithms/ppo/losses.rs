@@ -16,6 +16,7 @@ use burn::tensor::Tensor;
 /// `$\text{ratio} = \exp(\text{new\_log\_probs} - \text{old\_log\_probs})$`. The loss returned is
 /// `$-\text{mean}(\min(\text{ratio} \cdot A, \text{clip}(\text{ratio}, 1-\epsilon, 1+\epsilon) \cdot A))$` — negative because
 /// downstream code minimises. Shapes: all three inputs are `(batch,)`.
+#[must_use]
 pub fn clipped_surrogate(
     new_log_probs: Tensor<1>,
     old_log_probs: Tensor<1>,
@@ -36,6 +37,7 @@ pub fn clipped_surrogate(
 /// `$\text{v\_loss\_clipped} = \max((\text{clip}(v, v_{old} \pm \epsilon) - R)^2, (v - R)^2)$`,
 /// mean `$\times 0.5$`. Follows `CleanRL`'s clipped-value variant (an ablation-selected detail in
 /// Huang et al. §5).
+#[must_use]
 pub fn clipped_value_loss(
     new_values: Tensor<1>,
     old_values: Tensor<1>,
@@ -55,6 +57,7 @@ pub fn clipped_value_loss(
 }
 
 /// Unclipped value-function loss `$0.5 \cdot \text{mean}((v - R)^2)$`.
+#[must_use]
 pub fn unclipped_value_loss(new_values: Tensor<1>, returns: Tensor<1>) -> Tensor<1> {
     let delta = new_values - returns;
     let sq = delta.clone() * delta;
@@ -65,6 +68,7 @@ pub fn unclipped_value_loss(new_values: Tensor<1>, returns: Tensor<1>) -> Tensor
 ///
 /// Uses an `epsilon = 1e-8` denominator floor. Consumes and returns the
 /// tensor so the caller doesn't need an extra clone.
+#[must_use]
 pub fn normalize_advantages(advantages: Tensor<1>) -> Tensor<1> {
     let mean = advantages.clone().mean();
     let centered = advantages - mean;
@@ -77,6 +81,7 @@ pub fn normalize_advantages(advantages: Tensor<1>) -> Tensor<1> {
 ///
 /// Always non-negative (in expectation); used as a sanity-check diagnostic
 /// and, when `target_kl` is configured, as an early-stop trigger.
+#[must_use]
 pub fn approx_kl(new_log_probs: Tensor<1>, old_log_probs: Tensor<1>) -> f32 {
     let log_ratio = new_log_probs - old_log_probs;
     let ratio = log_ratio.clone().exp();
@@ -92,6 +97,7 @@ pub fn approx_kl(new_log_probs: Tensor<1>, old_log_probs: Tensor<1>) -> f32 {
 /// alongside the k3 estimator from [`approx_kl`]. Together they bracket the
 /// true KL and help diagnose PPO step size (Huang et al. 2022, detail #12).
 /// Unlike k3 it can be negative for a finite sample.
+#[must_use]
 pub fn old_approx_kl(new_log_probs: Tensor<1>, old_log_probs: Tensor<1>) -> f32 {
     let log_ratio = new_log_probs - old_log_probs;
     log_ratio.neg().mean().into_scalar::<f32>()
@@ -153,6 +159,7 @@ pub fn explained_variance(returns: &[f32], values: &[f32]) -> f32 {
 // history length, iteration number. All are bounded by configured sizes far
 // below f32's 2^24 (f64's 2^53) exact-integer limit.
 #[allow(clippy::cast_precision_loss)]
+#[must_use]
 pub fn clip_fraction(new_log_probs: Tensor<1>, old_log_probs: Tensor<1>, clip_coef: f32) -> f32 {
     let ratio = (new_log_probs - old_log_probs).exp();
     let batch = ratio.dims()[0] as f32;
@@ -199,7 +206,7 @@ mod tests {
         let old_lp = t1(&[0.0, 0.0]);
         let advs = t1(&[1.0, -1.0]);
         let loss = clipped_surrogate(new_lp, old_lp, advs, 0.2);
-        let v = loss.into_scalar();
+        let v = loss.into_scalar::<f32>();
         // surrogate1 = [1.5, -0.5], surrogate2 = [clamp(1.5,[.8,1.2])=1.2,
         // clamp(0.5,[.8,1.2])`$=0.8]\cdot[-1] = [-0.8]$` surrogate1 paired with surrogate2:
         //   row 0: min(1.5, 1.2) = 1.2
@@ -231,7 +238,7 @@ mod tests {
         let r = t1(&[1.0, 0.0]);
         // (v - r) = [-1, 2] → sq = [1, 4] → mean = 2.5 → `$\times 0.5 = 1.25$`
         let loss = unclipped_value_loss(v, r);
-        assert!((loss.into_scalar() - 1.25).abs() < 1e-5);
+        assert!((loss.into_scalar::<f32>() - 1.25).abs() < 1e-5);
     }
 
     #[test]
@@ -243,7 +250,7 @@ mod tests {
         let old_v = t1(&[0.0]);
         let r = t1(&[0.0]);
         let loss = clipped_value_loss(new_v, old_v, r, 0.5);
-        assert!((loss.into_scalar() - 50.0).abs() < 1e-4);
+        assert!((loss.into_scalar::<f32>() - 50.0).abs() < 1e-4);
     }
 
     #[test]

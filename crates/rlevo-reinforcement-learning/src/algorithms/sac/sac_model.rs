@@ -13,12 +13,10 @@
 //! There is **no target actor**: SAC's stochastic policy plus
 //! `min`-of-twin-Q already handles critic overestimation, so target bootstraps
 //! go through the live actor. Callers must pre-sample the reparameterization
-//! noise `$\epsilon \sim \mathcal{N}(0, I)$` on CPU and pass it to [`forward_sample`] /
-//! [`forward_sample_inner`] so the stochasticity stays reproducible under a
-//! seeded `rand::Rng`.
+//! noise `$\epsilon \sim \mathcal{N}(0, I)$` on CPU and pass it to [`forward_sample`] so the
+//! stochasticity stays reproducible under a seeded `rand::Rng`.
 //!
 //! [`forward_sample`]: SquashedGaussianPolicy::forward_sample
-//! [`forward_sample_inner`]: SquashedGaussianPolicy::forward_sample_inner
 
 use burn::module::Module;
 use burn::tensor::Tensor;
@@ -50,15 +48,12 @@ pub trait SquashedGaussianPolicy<const BOR: usize, const BAR: usize>: Module {
     /// agent to size the `$\epsilon$` noise tensor without another trait bound.
     fn action_dim(&self) -> usize;
 
-    /// Autodiff forward sample: given a pre-drawn standard-normal noise
-    /// `eps` of shape `(batch, ...action)`, returns the squashed action and
-    /// its log-probability (shape `(batch,)`) under the current policy.
+    /// Given a pre-drawn standard-normal noise `eps` of shape
+    /// `(batch, ...action)`, returns the squashed action and its
+    /// log-probability (shape `(batch,)`) under the current policy. The agent
+    /// runs it on the training actor and, for the Bellman target against
+    /// `next_obs`, on a [`valid`](Module::valid) snapshot of it.
     fn forward_sample(&self, obs: Tensor<BOR>, eps: Tensor<BAR>) -> SampleOutput<BAR>;
-
-    /// No-autodiff counterpart used when computing the Bellman target against
-    /// `next_obs`. Produces the same squashed sample + log-prob on the inner
-    /// backend.
-    fn forward_sample_inner(inner: &Self, obs: Tensor<BOR>, eps: Tensor<BAR>) -> SampleOutput<BAR>;
 
     /// Deterministic evaluation action (policy mean squashed) — used by
     /// `SacAgent::act(training=false)`. Returns shape `(batch, ...action)`

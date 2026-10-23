@@ -31,14 +31,16 @@
 //!
 //! 1. A `NaN` reward stays observable. Every clamp goes through
 //!    `clamp_preserving_nan` rather than [`Tensor::clamp`], because `clamp`'s
-//!    `NaN` behaviour differs between the host and GPU backends: Flex
-//!    propagates, wgpu/Metal rescues to the lower bound. Under the plain clamp
-//!    a `NaN` reward yielded an all-`NaN` row on Flex but a *well-formed* row
-//!    summing to exactly `1.0` on Metal — one that no finiteness guard
-//!    downstream could detect.
+//!    `NaN` behaviour is undocumented and has differed between the host and
+//!    GPU backends: under Burn 0.21 Flex propagated and wgpu/Metal rescued to
+//!    the lower bound, so the plain clamp turned a `NaN` reward into an
+//!    all-`NaN` row on Flex but a *well-formed* row summing to exactly `1.0`
+//!    on Metal — one that no finiteness guard downstream could detect. (Burn
+//!    0.22 propagates on both.)
 //! 2. The derived atom indices are clamped to `[0, N-1]`. Preserving the `NaN`
 //!    means `floor(b).int()` now sees one, and that conversion is itself
-//!    backend-dependent (the host saturates to `0`; Metal yields `i32::MIN`).
+//!    backend-dependent (the host saturates to `0`; Metal yields `i32::MIN`,
+//!    measured under Burn 0.22 as under 0.21).
 //!    Burn's wgpu `scatter` performs **no** bounds check at any layer, so an
 //!    out-of-range index there writes into an unrelated tensor's memory instead
 //!    of panicking.
@@ -144,6 +146,7 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 // cannot wrap an `i64`; a non-finite or zero spacing is rejected by assertion
 // before use.
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_wrap)]
+#[must_use]
 pub fn project_distribution(
     next_probs: Tensor<2>,
     rewards: Tensor<1>,
@@ -183,9 +186,9 @@ pub fn project_distribution(
     // Bellman shift: `$Tz = \max \left ( v_\min , \min (r + \gamma \cdot (1 - \text{terminated}) \cdot z, v_\max \right )$`.
     let keep = terminated_bn.neg().add_scalar(1.0); // 1 − terminated
     let tz = rewards_bn + keep * support_bn * gamma;
-    // `clamp_preserving_nan`, not `clamp`: on wgpu/Metal the plain clamp rescues a NaN reward to
-    // `v_min`, producing a projected row that sums to exactly 1.0 and asserts certainty of the
-    // worst return, with no NaN left for any downstream guard to catch. `$\pm$`inf is untouched by
+    // `clamp_preserving_nan`, not `clamp`: under Burn 0.21 the plain clamp on wgpu/Metal rescued a
+    // NaN reward to `v_min`, producing a projected row that sums to exactly 1.0 and asserts
+    // certainty of the worst return, with no NaN left for any downstream guard to catch. `$\pm$`inf is untouched by
     // the wrapper and still pins to v_min/v_max, which is the intended semantics.
     let tz = clamp_preserving_nan(tz, v_min, v_max);
 
@@ -202,11 +205,12 @@ pub fn project_distribution(
     // No-op for any support that does not round out of range.
     //
     // Applying `clamp_preserving_nan` at BOTH clamps is deliberate. Applying it
-    // at only one is *accidentally* sufficient on the two measured backends —
-    // on Metal the `tz` clamp eats the NaN so this one never sees it; on Flex
-    // this one propagates — but that argument turns on WHICH clamp eats the
-    // NaN first, which is precisely the backend-specific fact this code exists
-    // to stop depending on. Each site is locally correct instead.
+    // at only one was *accidentally* sufficient on the two backends measured
+    // under Burn 0.21 — on Metal the `tz` clamp ate the NaN so this one never
+    // saw it; on Flex this one propagated — but that argument turns on WHICH
+    // clamp eats the NaN first, which is precisely the backend-specific fact
+    // this code exists to stop depending on. Each site is locally correct
+    // instead.
     //
     // The `b` clamp is therefore NOT the out-of-range guard for the non-finite
     // path: it deliberately preserves NaN, so a NaN reaches `floor().int()`
@@ -259,10 +263,10 @@ mod tests {
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
-    fn make_support(v_min: f32, v_max: f32, n: usize, device: Device) -> Tensor<1> {
+    fn make_support(v_min: f32, v_max: f32, n: usize, device: &Device) -> Tensor<1> {
         let delta = atom_spacing(v_min, v_max, n);
         let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
-        Tensor::from_data(TensorData::new(data, vec![n]), &device)
+        Tensor::from_data(TensorData::new(data, vec![n]), device)
     }
 
     fn into_vec(tensor: Tensor<2>) -> Vec<f32> {
@@ -285,7 +289,7 @@ mod tests {
         );
         let rewards = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let terminated = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let support = make_support(-1.0, 1.0, 3, device);
+        let support = make_support(-1.0, 1.0, 3, &device);
 
         let out = project_distribution(next_probs, rewards, terminated, support, 1.0, -1.0, 1.0, 3);
         let v = into_vec(out);
@@ -307,7 +311,7 @@ mod tests {
         );
         let rewards = Tensor::<1>::from_data(TensorData::new(vec![0.5_f32], vec![1]), &device);
         let terminated = Tensor::<1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
-        let support = make_support(-1.0, 1.0, 3, device);
+        let support = make_support(-1.0, 1.0, 3, &device);
 
         let out =
             project_distribution(next_probs, rewards, terminated, support, 0.99, -1.0, 1.0, 3);
@@ -334,7 +338,7 @@ mod tests {
             Tensor::<2>::from_data(TensorData::new(vec![1.0_f32 / 3.0; 3], vec![1, 3]), &device);
         let rewards = Tensor::<1>::from_data(TensorData::new(vec![100.0_f32], vec![1]), &device);
         let terminated = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let support = make_support(-1.0, 1.0, 3, device);
+        let support = make_support(-1.0, 1.0, 3, &device);
 
         let out = project_distribution(next_probs, rewards, terminated, support, 1.0, -1.0, 1.0, 3);
         let v = into_vec(out);
@@ -370,7 +374,7 @@ mod tests {
             TensorData::new(vec![0.0_f32, 1.0, 0.0, 0.0], vec![batch]),
             &device,
         );
-        let support = make_support(-2.0, 2.0, n, device);
+        let support = make_support(-2.0, 2.0, n, &device);
 
         let out = project_distribution(next_probs, rewards, terminated, support, 0.9, -2.0, 2.0, n);
         let v = into_vec(out);
@@ -403,7 +407,7 @@ mod tests {
         );
         let rewards = Tensor::<1>::from_data(TensorData::new(vec![reward], vec![1]), &device);
         let terminated = Tensor::<1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
-        let support = make_support(v_min, v_max, n, device);
+        let support = make_support(v_min, v_max, n, &device);
 
         let out = project_distribution(
             next_probs, rewards, terminated, support, 0.99, v_min, v_max, n,
@@ -504,7 +508,7 @@ mod tests {
             Tensor::<1>::from_data(TensorData::new(rewards.to_vec(), vec![batch]), &device);
         let terminated =
             Tensor::<1>::from_data(TensorData::new(vec![0.0_f32; batch], vec![batch]), &device);
-        let support = make_support(v_min, v_max, n, device);
+        let support = make_support(v_min, v_max, n, &device);
 
         let out = project_distribution(
             next_probs, rewards_t, terminated, support, 0.99, v_min, v_max, n,
@@ -516,9 +520,9 @@ mod tests {
     fn test_projection_nan_reward_yields_a_non_finite_row() {
         // Regression: the postcondition is FINITENESS, never the
         // row sum: before the fix this row summed to exactly 1.0 on wgpu/Metal
-        // — a well-formed probability vector claiming certainty of the worst
-        // return — because Metal's `clamp` lowers to `fmin(fmax(..))` and
-        // rescues NaN to `v_min`. A row-sum assertion would have passed on the
+        // under Burn 0.21 — a well-formed probability vector claiming
+        // certainty of the worst return — because Metal's `clamp` lowered to
+        // `fmin(fmax(..))` and rescued NaN to `v_min`. A row-sum assertion would have passed on the
         // corrupted output and caught nothing.
         let v = project_rows_for_rewards(-10.0, 10.0, 8, &[f32::NAN]);
 
@@ -634,7 +638,7 @@ mod tests {
         );
         let rewards = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let terminated = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let support = make_support(v_min, v_max, n, device);
+        let support = make_support(v_min, v_max, n, &device);
 
         let out = project_distribution(
             next_probs, rewards, terminated, support, 0.99, v_min, v_max, n,

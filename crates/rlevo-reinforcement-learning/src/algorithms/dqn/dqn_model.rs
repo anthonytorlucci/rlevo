@@ -5,56 +5,20 @@
 use burn::module::Module;
 use burn::tensor::Tensor;
 
-use crate::utils::PolyakError;
-
 /// Contract implemented by any network usable as a DQN policy or target.
 ///
-/// Implementors provide:
-/// - [`forward`](Self::forward) — autodiff forward pass used when training
-///   the policy network. Produces a `(batch, n_actions)` tensor of
-///   Q-values.
-/// - [`forward_inner`](Self::forward_inner) — the same computation against
-///   the inner non-autodiff module used as the target network.
-/// - [`soft_update`](Self::soft_update) — Polyak averaging of the target
-///   network: `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`.
+/// One method, [`forward`](Self::forward): Q-values for a batch of
+/// observations, a `(batch, n_actions)` tensor. The agent runs it on the policy
+/// network, which trains, and on the target network, a
+/// [`valid`](Module::valid) snapshot of the policy that does not. The target's
+/// update is [`polyak_update`](crate::utils::polyak_update), the same for
+/// every network, so it is not part of this trait.
 ///
 /// The `BOR` const generic is the observation tensor rank *including* the
 /// leading batch dimension (e.g. `BOR = 2` for vector observations of shape
 /// `[batch_size, features]`; `BOR = 4` for image observations of shape
 /// `[batch_size, channels, height, width]`).
 pub trait DqnModel<const BOR: usize>: Module {
-    /// Autodiff forward pass: computes Q-values for a batch of observations.
+    /// Computes Q-values for a batch of observations.
     fn forward(&self, observations: Tensor<BOR>) -> Tensor<2>;
-
-    /// Forward pass against the inner (non-autodiff) target module.
-    ///
-    /// Runs the same computation as [`forward`](Self::forward) but on the
-    /// frozen target network, which lives on `B::InnerBackend`. No autodiff
-    /// graph is constructed, making this suitable for computing bootstrap
-    /// targets inside [`DqnAgent::learn_step`] and for inference.
-    ///
-    /// [`DqnAgent::learn_step`]: crate::algorithms::dqn::dqn_agent::DqnAgent::learn_step
-    fn forward_inner(inner: &Self, observations: Tensor<BOR>) -> Tensor<2>;
-
-    /// Updates the target network via Polyak averaging.
-    ///
-    /// Applies
-    /// `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`
-    /// element-wise to every parameter tensor and returns the updated target network. `target` is
-    /// consumed and replaced; `active` is borrowed read-only.
-    ///
-    /// Typical `$\tau$` values are in the range `[0.001, 0.01]`; `$\tau = 1.0$` is a hard copy of
-    /// the policy into the target, by degeneracy of the same formula. Callers do not choose
-    /// `$\tau$` per call — [`DqnTrainingConfig::target_update`] owns both the coefficient and the
-    /// cadence, and [`TargetUpdate::fires_at`] hands the applicable `$\tau$` to this method.
-    ///
-    /// [`DqnTrainingConfig::target_update`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::target_update
-    /// [`TargetUpdate::fires_at`]: crate::target::TargetUpdate::fires_at
-    ///
-    /// # Errors
-    ///
-    /// Propagates [`PolyakError`] if `active` and `target` have mismatched
-    /// [`ParamId`](burn::module::ParamId) topologies — see
-    /// [`polyak_update`](crate::utils::polyak_update).
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError>;
 }

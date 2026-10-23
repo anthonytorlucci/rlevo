@@ -22,8 +22,7 @@
 //! kept in a separate function so `PpoAgent` remains untouched and the
 //! snapshot-before-clear hook can slot in cleanly.
 
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams};
+use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 
@@ -197,7 +196,6 @@ pub struct AuxPhaseStats {
 ///
 /// # Type parameters
 ///
-/// - `B` — Burn autodiff device.
 /// - `P` — Policy network module implementing both `PpoPolicy<BOR>` and
 ///   `PpgAuxValueHead<BOR>`.
 /// - `V` — Main value network implementing `PpoValue<BOR>`.
@@ -215,7 +213,7 @@ pub struct AuxPhaseStats {
 /// # Network ownership
 ///
 /// The policy and value networks live in [`Slot`]s because Burn's
-/// `Optimizer::step` consumes the module by value. In both the policy phase
+/// `ModuleOptimizer::step` consumes the module by value. In both the policy phase
 /// ([`policy_phase_update`](Self::policy_phase_update)) and the auxiliary phase
 /// ([`maybe_aux_phase`](Self::maybe_aux_phase)), every fallible operation — the
 /// forward pass, the losses, `backward`, and `GradientsParams::from_grads` —
@@ -230,12 +228,15 @@ where
 {
     policy: Slot<P>,
     value: Slot<V>,
-    policy_optim: OptimizerAdaptor<Adam, P, B>,
-    value_optim: OptimizerAdaptor<Adam, V, B>,
+    policy_optim: ModuleOptimizer,
+    value_optim: ModuleOptimizer,
     buffer: RolloutBuffer<O>,
     aux_buffer: AuxRolloutBuffer<O>,
     config: PpgConfig,
+    /// The training device: the caller's device with autodiff on.
     device: Device,
+    /// `device` without autodiff, where the greedy inference path runs.
+    plain_device: Device,
     iteration: usize,
     total_iterations: usize,
     /// Learning rate the most recent [`policy_phase_update`](Self::policy_phase_update)
@@ -288,8 +289,8 @@ where
     V: PpoValue<BOR>,
     O: Observation<OR> + TensorConvertible<OR>,
 {
-    /// Snapshots the policy onto the plain (non-autodiff) device for repeated
-    /// greedy inference.
+    /// Snapshots the policy without autodiff ([`valid`](burn::module::Module::valid)) for
+    /// repeated greedy inference.
     ///
     /// Returns a frozen inference handle for use with
     /// [`act_greedy_env_row_with`](Self::act_greedy_env_row_with). Snapshot
@@ -307,16 +308,17 @@ where
     }
 
     /// Deterministic env-space action row for `obs`, evaluated against a
-    /// pre-snapshotted inner network — no sampling, no autodiff graph.
+    /// pre-snapshotted network on the plain device — no sampling, no autodiff
+    /// graph.
     ///
     /// Equivalent to [`act_greedy`](Self::act_greedy) (the categorical mode is
     /// the argmax over logits, and `raw_to_env_row` is the identity for the
     /// discrete head) but skips per-step autodiff-graph construction, which
     /// dominates cost at batch size 1. Use this for evaluation and throughput.
     pub fn act_greedy_env_row_with(&self, net: &P, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
         let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
-        P::deterministic_env_row_inner(net, batched)
+        net.deterministic_env_row(batched)
     }
 }
 
@@ -333,6 +335,10 @@ where
     /// `config.ppo.batch_size()`, and an empty auxiliary buffer. The
     /// `total_iterations` value is used only for learning-rate annealing.
     ///
+    /// The agent trains on `device` with autodiff on, and switches both
+    /// networks to training ([`Module::train`](burn::module::Module::train)), so
+    /// networks built on a plain device train as well.
+    ///
     /// # Errors
     ///
     /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
@@ -347,6 +353,10 @@ where
         total_iterations: usize,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        let device = device.autodiff();
+        let plain_device = device.clone().without_autodiff();
+        let policy = policy.train();
+        let value = value.train();
         let action_dim = policy.action_dim();
         let capacity = config.ppo.batch_size();
 
@@ -380,6 +390,7 @@ where
             aux_buffer,
             config,
             device,
+            plain_device,
             iteration: 0,
             total_iterations,
             policy_phase_lr,

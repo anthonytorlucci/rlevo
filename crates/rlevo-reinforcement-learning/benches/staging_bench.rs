@@ -32,8 +32,8 @@
 //!   `HostRow::write_host_row(&mut flat)` (no device touched), then the same
 //!   batched `Tensor::from_data`.
 //!
-//! Both are generic over the row type `T: TensorConvertible<R>` and the
-//! backend `B`, so one implementation covers `CartPoleObservation` (`R = 1`,
+//! Both are generic over the row type `T: TensorConvertible<R>` and take the
+//! device as a value, so one implementation covers `CartPoleObservation` (`R = 1`,
 //! 4 floats/row) and `PixelObservation` (`R = 3`, 1200 floats/row) and both
 //! `Flex` and `Wgpu`, so the sweep covers both axes that matter: sync count
 //! is invariant to row size, but bytes moved are not.
@@ -92,7 +92,7 @@ use rlevo_core::base::TensorConvertible;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
 
-use bench_backend::BenchBackend;
+use bench_backend::BenchDevice;
 
 /// Device type alias so generic signatures below don't repeat the projection.
 type DeviceOf = Device;
@@ -207,11 +207,12 @@ fn pixel_batch(n: usize, rng: &mut StdRng) -> Vec<PixelObservation> {
 fn bench_stage<const R: usize, const BR: usize, T>(
     c: &mut Criterion,
     group_name: &str,
+    bench: BenchDevice,
     make_batch: impl Fn(usize, &mut StdRng) -> Vec<T>,
 ) where
     T: TensorConvertible<R>,
 {
-    let device = B::device();
+    let device = bench.device();
     let mut rng = StdRng::seed_from_u64(365);
 
     // Correctness gate: once, outside the timed region (see module doc).
@@ -253,10 +254,20 @@ fn bench_stage<const R: usize, const BR: usize, T>(
 }
 
 fn bench_staging(c: &mut Criterion) {
-    bench_stage::<1, 2, CartPoleObservation>(c, "stage_cartpole_flex", cartpole_batch);
-    bench_stage::<1, 2, CartPoleObservation>(c, "stage_cartpole_wgpu", cartpole_batch);
-    bench_stage::<3, 4, PixelObservation>(c, "stage_pixel_flex", pixel_batch);
-    bench_stage::<3, 4, PixelObservation>(c, "stage_pixel_wgpu", pixel_batch);
+    bench_stage::<1, 2, CartPoleObservation>(
+        c,
+        "stage_cartpole_flex",
+        BenchDevice::Flex,
+        cartpole_batch,
+    );
+    bench_stage::<1, 2, CartPoleObservation>(
+        c,
+        "stage_cartpole_wgpu",
+        BenchDevice::Wgpu,
+        cartpole_batch,
+    );
+    bench_stage::<3, 4, PixelObservation>(c, "stage_pixel_flex", BenchDevice::Flex, pixel_batch);
+    bench_stage::<3, 4, PixelObservation>(c, "stage_pixel_wgpu", BenchDevice::Wgpu, pixel_batch);
 }
 
 criterion_group!(benches, bench_staging);

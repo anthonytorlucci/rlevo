@@ -86,6 +86,7 @@ pub struct PpgCategoricalPolicyHead {
 
 impl PpgCategoricalPolicyHead {
     /// Number of discrete actions this head was built for.
+    #[must_use]
     pub fn num_actions(&self) -> usize {
         self.num_actions
     }
@@ -246,23 +247,17 @@ impl PpoPolicy<2> for PpgCategoricalPolicyHead {
         t.unsqueeze_dim::<2>(1)
     }
 
-    /// Deterministic action on the plain (non-autodiff) device — the argmax
-    /// over the policy logits.
-    ///
-    /// Operates on `B::InnerBackend` to avoid building an autodiff graph during
-    /// evaluation. Because [`PpgAuxValueHead::logits`] is only defined over
-    /// `AutodiffBackend`, the trunk and logits head are accessed directly
-    /// through the inner module's fields rather than via the trait method.
+    /// Deterministic action — the argmax over the policy logits. Called on a
+    /// [`valid`](burn::module::Module::valid) snapshot, it builds no autodiff
+    /// graph.
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_precision_loss)]
-    fn deterministic_env_row_inner(inner: &Self, obs: Tensor<2>) -> Vec<f32> {
+    fn deterministic_env_row(&self, obs: Tensor<2>) -> Vec<f32> {
         // Deterministic action = argmax over logits (the categorical mode).
-        // `PpgAuxValueHead::logits` is autodiff-only, so recompute logits on the
-        // plain device from the shared trunk + logits head directly.
-        let logits = inner.logits_head.forward(inner.trunk(obs));
+        let logits = PpgAuxValueHead::logits(self, obs);
         let idx: Tensor<2, Int> = logits.argmax(1);
         let data = idx.into_data().convert::<i64>();
         let slice = data.as_slice::<i64>().expect("argmax index is i64");

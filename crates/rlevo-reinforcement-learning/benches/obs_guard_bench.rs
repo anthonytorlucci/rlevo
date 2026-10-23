@@ -143,7 +143,6 @@ use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use burn::backend::{Flex, Wgpu};
 use burn::module::Module;
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
@@ -168,9 +167,8 @@ use rlevo_environments::box2d::lunar_lander::{
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
-use bench_backend::BenchBackend;
+use bench_backend::BenchDevice;
 
 // ---------------------------------------------------------------------------
 // Shapes and sweep parameters
@@ -516,15 +514,6 @@ impl DqnModel<2> for VecMlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    // `tau` is an f64 hyperparameter; every tensor in this crate is f32. This is
-    // the intended narrowing point.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<VecMlp>(&active.valid(), target, tau as f32)
-    }
 }
 
 /// Fixed pooled spatial size the conv head is sized against.
@@ -578,15 +567,6 @@ impl ImgConvNet {
 impl DqnModel<4> for ImgConvNet {
     fn forward(&self, obs: Tensor<4>) -> Tensor<2> {
         self.forward_impl(obs)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<4>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    // `tau` is an f64 hyperparameter; every tensor in this crate is f32. This is
-    // the intended narrowing point.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<ImgConvNet>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -879,7 +859,7 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
 /// `act` is also excluded -- it is a network forward pass, and including it
 /// would only enlarge the denominator and flatter the guard.
 fn bench_env_cycle_lunar(c: &mut Criterion) {
-    let device = <Flex as BenchBackend>::device();
+    let device = BenchDevice::Flex.device();
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<LunarLanderObservation> =
         (0..POOL).map(|_| lunar_obs(&mut rng, false)).collect();
@@ -929,7 +909,7 @@ fn bench_env_cycle_lunar(c: &mut Criterion) {
 /// procedural track and are excluded from the timed region for the same reason
 /// as in [`bench_env_cycle_lunar`].
 fn bench_env_cycle_car(c: &mut Criterion) {
-    let device = <Flex as BenchBackend>::device();
+    let device = BenchDevice::Flex.device();
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<CarRacingObservation> = (0..POOL).map(|_| car_obs(&mut rng, false)).collect();
     let mut agent = build_agent::<ImgConvNet, CarRacingObservation, 3, 4>(
@@ -1006,7 +986,7 @@ fn bench_staging_arms(c: &mut Criterion) {
 }
 
 fn bench_ingest_arms(c: &mut Criterion) {
-    let device = <Flex as BenchBackend>::device();
+    let device = BenchDevice::Flex.device();
     bench_ingest::<VecMlp, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_ingest_lunar_host",
@@ -1034,7 +1014,7 @@ fn bench_ingest_arms(c: &mut Criterion) {
 }
 
 fn bench_learn_step_denominators(c: &mut Criterion) {
-    let flex = <Flex as BenchBackend>::device();
+    let flex = BenchDevice::Flex.device();
     bench_learn_step::<VecMlp, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_learn_step_lunar_flex",
@@ -1044,7 +1024,7 @@ fn bench_learn_step_denominators(c: &mut Criterion) {
         VecMlp::new,
         lunar_obs,
     );
-    let wgpu = <Wgpu as BenchBackend>::device();
+    let wgpu = BenchDevice::Wgpu.device();
     bench_learn_step::<VecMlp, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_learn_step_lunar_wgpu",

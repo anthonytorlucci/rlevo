@@ -192,6 +192,7 @@ impl QrDqnTrainingConfig {
     // configs cap these in the low hundreds, so the value is exact in f32; a
     // non-finite or zero spacing is rejected by assertion before use.
     #[allow(clippy::cast_precision_loss)]
+    #[must_use]
     pub fn quantile_taus(&self, device: &Device) -> Tensor<1> {
         let n = self.num_quantiles;
         let data: Vec<f32> = (0..n).map(|i| (i as f32 + 0.5) / n as f32).collect();

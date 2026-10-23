@@ -33,6 +33,7 @@ use burn::tensor::Tensor;
 /// `predicted_log_probs` must already be log-probabilities along the atom
 /// axis (typically produced via `tensor.log_softmax(atom_axis)`); no
 /// normalisation is done internally.
+#[must_use]
 pub fn categorical_cross_entropy_per_sample(
     target_probs: Tensor<2>,
     predicted_log_probs: Tensor<2>,
@@ -82,6 +83,7 @@ const KL_LOG_FLOOR: f32 = 1e-30;
 ///
 /// The result is the non-negative KL per batch element. `predicted_log_probs`
 /// must already be log-probabilities along the atom axis.
+#[must_use]
 pub fn categorical_kl_per_sample(
     target_probs: Tensor<2>,
     predicted_log_probs: Tensor<2>,

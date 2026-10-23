@@ -10,37 +10,20 @@
 use burn::module::Module;
 use burn::tensor::Tensor;
 
-use crate::utils::PolyakError;
-
 /// Contract implemented by any network usable as a QR-DQN policy or target.
 ///
-/// Implementors provide:
-/// - [`forward`](Self::forward) — autodiff forward pass used when training
-///   the policy network. Produces a `(batch, num_actions, num_quantiles)`
-///   tensor of quantile values (no activation at the head).
-/// - [`forward_inner`](Self::forward_inner) — the same computation against
-///   the inner non-autodiff module used as the frozen target network.
-/// - [`soft_update`](Self::soft_update) — Polyak averaging of the target
-///   network: `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`.
+/// One method, [`forward`](Self::forward): quantile values for a batch of
+/// observations, a `(batch, num_actions, num_quantiles)` tensor (no activation
+/// at the head). The agent runs it on the policy network, which trains, and on
+/// the target network, a [`valid`](Module::valid) snapshot of the policy that
+/// does not. The target's update is
+/// [`polyak_update`](crate::utils::polyak_update), the same for every network,
+/// so it is not part of this trait.
 ///
 /// The `BOR` const generic is the observation tensor rank *including* the
 /// leading batch dimension (e.g. `BOR = 2` for vector observations of shape
 /// `[batch, features]`).
 pub trait QrDqnModel<const BOR: usize>: Module {
-    /// Autodiff forward pass: quantile values of shape
-    /// `(batch_size, num_actions, num_quantiles)`.
+    /// Quantile values of shape `(batch_size, num_actions, num_quantiles)`.
     fn forward(&self, observations: Tensor<BOR>) -> Tensor<3>;
-
-    /// Forward pass against the inner (non-autodiff) target module.
-    fn forward_inner(inner: &Self, observations: Tensor<BOR>) -> Tensor<3>;
-
-    /// Polyak-averages `active` into `target` with coefficient `tau` and
-    /// returns the updated target network.
-    ///
-    /// # Errors
-    ///
-    /// Propagates [`PolyakError`] if `active` and `target` have mismatched
-    /// [`ParamId`](burn::module::ParamId) topologies — see
-    /// [`polyak_update`](crate::utils::polyak_update).
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError>;
 }

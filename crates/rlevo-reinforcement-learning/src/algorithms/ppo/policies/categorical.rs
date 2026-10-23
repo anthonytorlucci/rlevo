@@ -77,6 +77,7 @@ pub struct CategoricalPolicyHead {
 
 impl CategoricalPolicyHead {
     /// Forward pass producing raw logits of shape `(batch, num_actions)`.
+    #[must_use]
     pub fn logits(&self, obs: Tensor<2>) -> Tensor<2> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
@@ -84,6 +85,7 @@ impl CategoricalPolicyHead {
     }
 
     /// Number of discrete actions this head was built for.
+    #[must_use]
     pub fn num_actions(&self) -> usize {
         self.num_actions
     }
@@ -233,9 +235,9 @@ impl PpoPolicy<2> for CategoricalPolicyHead {
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_precision_loss)]
-    fn deterministic_env_row_inner(inner: &Self, obs: Tensor<2>) -> Vec<f32> {
+    fn deterministic_env_row(&self, obs: Tensor<2>) -> Vec<f32> {
         // Deterministic action = argmax over logits (the categorical mode).
-        let idx: Tensor<2, Int> = inner.logits(obs).argmax(1);
+        let idx: Tensor<2, Int> = self.logits(obs).argmax(1);
         let data = idx.into_data().convert::<i64>();
         let slice = data.as_slice::<i64>().expect("argmax index is i64");
         vec![slice[0] as f32]

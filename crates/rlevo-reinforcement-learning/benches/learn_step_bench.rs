@@ -35,22 +35,23 @@
 //! # What is *not* reproduced from `dqn_agent.rs::learn_step`
 //!
 //! - **Double-DQN** (`double_q`) is omitted: the default `DqnTrainingConfig`
-//!   ships it `false`, and turning it on would add one extra `forward_inner`
-//!   call to *both* arms identically -- orthogonal to the staging question.
+//!   ships it `false`, and turning it on would add one extra target-path
+//!   `forward` call to *both* arms identically -- orthogonal to the staging
+//!   question.
 //! - **Prioritized replay** priority writeback is omitted for the same
 //!   reason: the default config uses uniform replay, and PER's post-step
 //!   host read is gated behind `buffer.is_prioritized()` in production, so a
 //!   default-config agent never takes that branch either.
 //! - **`Slot`** (the panic-safety wrapper around the policy network across
-//!   `Optimizer::step`) is not used. This file keeps the `Option<M>` +
+//!   `ModuleOptimizer::step`) is not used. This file keeps the `Option<M>` +
 //!   `take()` idiom `Slot`'s docs describe as its historical predecessor --
 //!   adequate for a bench with no panic-safety requirement, and identical in
 //!   both staging arms.
 //!
 //! Every other line -- batch staging, tensor construction, forward, target
 //! computation via [`compute_target_q_values`], Huber loss, `backward()`,
-//! `GradientsParams::from_grads`, `Optimizer::step`, and the Polyak soft
-//! update via [`DqnModel::soft_update`] -- matches `dqn_agent.rs::learn_step`
+//! `GradientsParams::from_grads`, `ModuleOptimizer::step`, and the Polyak
+//! soft update via [`polyak_update`] -- matches `dqn_agent.rs::learn_step`
 //! line for line, using the same public helpers
 //! (`rlevo_reinforcement_learning::utils::{compute_target_q_values,
 //! polyak_update}`) production code calls.
@@ -68,7 +69,7 @@
 //!    right before `backward()`. Both exist in production `learn_step` for
 //!    diagnostics, not for benchmark correctness, and both are reproduced
 //!    here unchanged. **Verified, not assumed:** neither of those two reads
-//!    is *downstream* of `backward()` / `Optimizer::step()` / the Polyak
+//!    is *downstream* of `backward()` / `ModuleOptimizer::step()` / the Polyak
 //!    update -- they run strictly before `backward()` is even called -- so
 //!    they cannot force completion of the gradient computation or the
 //!    optimizer step. Burn's `backward()` and `Adam::step()` are ordinary
@@ -131,8 +132,7 @@ use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::loss::HuberLossConfig;
 use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Linear, LinearConfig, PaddingConfig2d};
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, AdamConfig, GradientsParams, Optimizer};
+use burn::optim::{AdamConfig, GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Int, Tensor, TensorData, activation};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -145,9 +145,9 @@ use rlevo_core::base::TensorConvertible;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
-use rlevo_reinforcement_learning::utils::{PolyakError, compute_target_q_values, polyak_update};
+use rlevo_reinforcement_learning::utils::{compute_target_q_values, polyak_update};
 
-use bench_backend::BenchBackend;
+use bench_backend::BenchDevice;
 
 /// Batch sizes swept per (network, backend) combination. 64 matches
 /// `dqn_bench.rs`'s `dqn_learn_step_batch64`; 256 is added to check whether
@@ -161,7 +161,7 @@ const GAMMA: f32 = 0.99;
 /// DQN default `learning_rate`.
 const LR: f64 = 0.001;
 /// DQN default `tau` (soft target updates active every step).
-const TAU: f64 = 0.005;
+const TAU: f32 = 0.005;
 /// DQN default grad-clip norm (`GradientClippingConfig::Value(100.0)`).
 const GRAD_CLIP_NORM: f32 = 100.0;
 /// Discrete action count for the CartPole-shaped MLP nets (Left/Right).
@@ -196,13 +196,13 @@ impl Staging {
 
 /// Stages one sampled minibatch's observations and next-observations into two
 /// batched tensors, using `staging` to fill the host buffers. Mirrors
-/// `dqn_agent.rs::learn_step`'s staging loop (~lines 415-434): `obs` ends up
-/// on `B` (the autodiff-wrapped backend the policy trains on), `next_obs` on
-/// `B::InnerBackend` (the target network's backend), exactly as production
-/// does.
+/// `dqn_agent.rs::learn_step`'s staging loop: `obs` ends up on `device` (the
+/// autodiff device the policy trains on), `next_obs` on `plain` (the target
+/// network's device, without autodiff), exactly as production does.
 fn stage_batch<O, const DO: usize, const DB: usize>(
     batch: &[SynthTransition<O>],
     device: &Device,
+    plain: &Device,
     staging: Staging,
 ) -> (Tensor<DB>, Tensor<DB>)
 where
@@ -235,7 +235,7 @@ where
     shape[0] = batch.len();
     shape[1..].copy_from_slice(&row_shape);
     let obs_tensor: Tensor<DB> = Tensor::from_data(TensorData::new(obs_flat, shape), device);
-    let next_tensor: Tensor<DB> = Tensor::from_data(TensorData::new(next_flat, shape), device);
+    let next_tensor: Tensor<DB> = Tensor::from_data(TensorData::new(next_flat, shape), plain);
     (obs_tensor, next_tensor)
 }
 
@@ -248,8 +248,8 @@ fn assert_stage_bit_identical<O, const DO: usize, const DB: usize>(
 ) where
     O: TensorConvertible<DO>,
 {
-    let (rt_obs, rt_next) = stage_batch::<O, DO, DB>(batch, device, Staging::Roundtrip);
-    let (hr_obs, hr_next) = stage_batch::<O, DO, DB>(batch, device, Staging::HostRow);
+    let (rt_obs, rt_next) = stage_batch::<O, DO, DB>(batch, device, device, Staging::Roundtrip);
+    let (hr_obs, hr_next) = stage_batch::<O, DO, DB>(batch, device, device, Staging::HostRow);
     let rt_obs_v: Vec<f32> = rt_obs.into_data().try_into_vec().expect("host read");
     let hr_obs_v: Vec<f32> = hr_obs.into_data().try_into_vec().expect("host read");
     assert_eq!(
@@ -369,17 +369,6 @@ impl DqnModel<2> for SmallMlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
-    // f32. This is the intended narrowing point, and the values are hyperparameters
-    // (rates, discounts, epsilons) where f32 has far more precision than the
-    // schedules that produce them.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<SmallMlp>(&active.valid(), target, tau as f32)
-    }
 }
 
 /// Wider/deeper MLP, `4 -> 512 -> 512 -> 512 -> 2` -- checks whether
@@ -413,17 +402,6 @@ impl WideMlp {
 impl DqnModel<2> for WideMlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
-    // f32. This is the intended narrowing point, and the values are hyperparameters
-    // (rates, discounts, epsilons) where f32 has far more precision than the
-    // schedules that produce them.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<WideMlp>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -491,17 +469,6 @@ impl DqnModel<4> for PixelConvNet {
     fn forward(&self, obs: Tensor<4>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(inner: &Self, obs: Tensor<4>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
-    // f32. This is the intended narrowing point, and the values are hyperparameters
-    // (rates, discounts, epsilons) where f32 has far more precision than the
-    // schedules that produce them.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<PixelConvNet>(&active.valid(), target, tau as f32)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -526,8 +493,9 @@ struct LearnStepProbe {
 fn run_learn_step<M, O, const DO: usize, const DB: usize>(
     policy: M,
     mut target: M,
-    optimizer: &mut OptimizerAdaptor<Adam, M, B>,
+    optimizer: &mut ModuleOptimizer,
     device: &Device,
+    plain: &Device,
     batch: &[SynthTransition<O>],
     staging: Staging,
 ) -> (M, M, LearnStepProbe)
@@ -538,7 +506,7 @@ where
     let batch_size = batch.len();
 
     let (obs_tensor, next_tensor_inner): (Tensor<DB>, Tensor<DB>) =
-        stage_batch::<O, DO, DB>(batch, device, staging);
+        stage_batch::<O, DO, DB>(batch, device, plain, staging);
     // Kept for the post-optimizer-step forced-completion probe (sync
     // correctness point 2) -- a batch-size-1 slice, cheap relative to the
     // full-batch forward it mirrors.
@@ -553,9 +521,9 @@ where
     let action_tensor: Tensor<2, Int> = action_tensor_1.unsqueeze_dim::<2>(1);
 
     let rewards_inner: Tensor<1> =
-        Tensor::from_data(TensorData::new(rewards, vec![batch_size]), device);
+        Tensor::from_data(TensorData::new(rewards, vec![batch_size]), plain);
     let terminated_inner: Tensor<1> =
-        Tensor::from_data(TensorData::new(terminated, vec![batch_size]), device);
+        Tensor::from_data(TensorData::new(terminated, vec![batch_size]), plain);
 
     // --- Forward ---
     let q_all: Tensor<2> = policy.forward(obs_tensor);
@@ -564,12 +532,12 @@ where
     let q_pred_flat: Tensor<1> = q_pred.squeeze_dim::<1>(1);
 
     // --- Target (vanilla DQN; double_q is off by default -- see module doc) ---
-    let next_q_target_inner: Tensor<2> = M::forward_inner(&target, next_tensor_inner);
+    let next_q_target_inner: Tensor<2> = target.forward(next_tensor_inner);
     let next_q_max_inner: Tensor<1> = next_q_target_inner.max_dim(1).squeeze_dim::<1>(1);
 
     let target_q_inner: Tensor<1> =
         compute_target_q_values(rewards_inner, next_q_max_inner, terminated_inner, GAMMA);
-    let target_q: Tensor<1> = Tensor::from_data(target_q_inner.into_data(), device);
+    let target_q: Tensor<1> = target_q_inner.to_device(device);
 
     // Uniform replay (weight ~= 1): reduce_weighted_loss's effect collapses
     // to a plain mean, so it is inlined rather than reproduced (it is
@@ -585,7 +553,8 @@ where
     let policy = optimizer.step(LR, policy, grads);
 
     if TAU > 0.0 {
-        target = M::soft_update(&policy, target, TAU).expect("bench target is cloned from policy");
+        target = polyak_update(&policy.valid(), target, TAU)
+            .expect("bench target is cloned from policy");
     }
 
     // Forced completion probe -- see module doc "Sync correctness" point 2.
@@ -609,10 +578,7 @@ where
     )
 }
 
-fn build_optimizer<M>() -> OptimizerAdaptor<Adam, M, B>
-where
-    M: Module,
-{
+fn build_optimizer() -> ModuleOptimizer {
     AdamConfig::new()
         .with_grad_clipping(Some(GradientClippingConfig::Value(GRAD_CLIP_NORM)))
         .init()
@@ -637,13 +603,17 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
     c: &mut Criterion,
     group_name: &str,
     sample_size: usize,
+    bench: BenchDevice,
     make_model: impl Fn(&Device) -> M,
     make_batch: impl Fn(usize, &mut StdRng) -> Vec<SynthTransition<O>>,
 ) where
     M: DqnModel<DB>,
     O: TensorConvertible<DO>,
 {
-    let device = B::device();
+    // As the agent does: train on the device with autodiff on, run the
+    // target path without it.
+    let plain = bench.device();
+    let device = plain.clone().autodiff();
     let mut rng = StdRng::seed_from_u64(365);
 
     let mut group = c.benchmark_group(group_name);
@@ -656,14 +626,14 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
                 BenchmarkId::new(staging.label(), batch_size),
                 &batch,
                 |b, batch| {
-                    let init_policy: M = make_model(&device);
+                    let init_policy: M = make_model(&plain).train();
                     let init_target: M = init_policy.valid();
-                    let mut optimizer = build_optimizer::<M>();
+                    let mut optimizer = build_optimizer();
                     // `Option<M>` + `take()`/reassign: the idiom
                     // `rlevo_reinforcement_learning::algorithms::Slot`'s docs
                     // describe as its historical predecessor, kept here in
                     // place of `Slot` (see module doc). Needed because
-                    // `Optimizer::step` and `DqnModel::soft_update` both
+                    // `ModuleOptimizer::step` and `polyak_update` both
                     // consume their module by value, and a `FnMut` closure
                     // cannot move out of a captured variable directly.
                     let mut policy_slot: Option<M> = Some(init_policy);
@@ -676,6 +646,7 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
                             target,
                             &mut optimizer,
                             &device,
+                            &plain,
                             batch,
                             staging,
                         );
@@ -695,6 +666,7 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
         c,
         "learn_step_small_mlp_flex",
         100,
+        BenchDevice::Flex,
         SmallMlp::new,
         cartpole_transitions,
     );
@@ -702,6 +674,7 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
         c,
         "learn_step_small_mlp_wgpu",
         wgpu_sample_size(),
+        BenchDevice::Wgpu,
         SmallMlp::new,
         cartpole_transitions,
     );
@@ -710,6 +683,7 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
         c,
         "learn_step_wide_mlp_flex",
         100,
+        BenchDevice::Flex,
         WideMlp::new,
         cartpole_transitions,
     );
@@ -717,6 +691,7 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
         c,
         "learn_step_wide_mlp_wgpu",
         wgpu_sample_size(),
+        BenchDevice::Wgpu,
         WideMlp::new,
         cartpole_transitions,
     );
@@ -725,6 +700,7 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
         c,
         "learn_step_pixel_conv_flex",
         100,
+        BenchDevice::Flex,
         PixelConvNet::new,
         pixel_transitions,
     );
@@ -732,6 +708,7 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
         c,
         "learn_step_pixel_conv_wgpu",
         wgpu_sample_size(),
+        BenchDevice::Wgpu,
         PixelConvNet::new,
         pixel_transitions,
     );
@@ -752,6 +729,7 @@ fn bench_n100_probe(c: &mut Criterion) {
         c,
         "learn_step_n100_probe_n20",
         wgpu_sample_size(),
+        BenchDevice::Wgpu,
         SmallMlp::new,
         cartpole_transitions,
     );
@@ -759,6 +737,7 @@ fn bench_n100_probe(c: &mut Criterion) {
         c,
         "learn_step_n100_probe_n100",
         100,
+        BenchDevice::Wgpu,
         SmallMlp::new,
         cartpole_transitions,
     );

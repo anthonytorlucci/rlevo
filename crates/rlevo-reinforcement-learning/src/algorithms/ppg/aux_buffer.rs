@@ -126,6 +126,7 @@ impl<O: Clone> AuxRolloutBuffer<O> {
     /// Materialises a minibatch of `indices` into device tensors.
     ///
     /// Returns `(obs_tensor: [k, ..obs_shape], returns_tensor: [k])`.
+    #[must_use]
     pub fn gather_minibatch<const R: usize, const BR: usize>(
         &self,
         indices: &[usize],

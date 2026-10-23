@@ -4,7 +4,7 @@
 //! Parallels [`PpoPolicy`](crate::algorithms::ppo::ppo_policy::PpoPolicy).
 //! Value networks output one scalar `V(s)` per batch row (return shape
 //! `(batch_size,)`). There is no built-in value-head struct: callers supply their
-//! own [`AutodiffModule`] implementation. A
+//! own [`Module`] implementation. A
 //! typical implementation is a two-hidden-layer MLP whose final layer produces
 //! a single linear output, mirroring the structure of the built-in policy heads.
 
