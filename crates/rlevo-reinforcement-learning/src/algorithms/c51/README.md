@@ -61,19 +61,14 @@ impl DqnModel<2, 3> for MyC51 {
 }
 ```
 
-See `examples/c51_cart_pole.rs` for a runnable implementation.
-
-## Running the example
-
-```bash
-cargo run -p rlevo-reinforcement-learning --release --example c51_cart_pole -- \
-    --seed 42 --total-timesteps 50000 --log-every 1000 --num-atoms 51
-```
-
 ## Tests
 
+The CartPole integration tests live in the umbrella crate; the `#[ignore]`d
+convergence tests run in the heavy tier:
+
 ```bash
-cargo test -p rlevo-reinforcement-learning --release --test c51_integration
+cargo test -p rlevo --test c51_integration
+cargo xtask test-heavy c51_integration
 ```
 
 ## References

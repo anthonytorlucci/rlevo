@@ -216,9 +216,10 @@ mod tests {
     use rlevo_core::environment::EpisodeStatus;
 
     use crate::algorithms::bootstrap_mask::{
-        ACTIONS, DiscreteMaskEnv, FlatNet, MaskDiscreteAction, MaskObservation,
+        DiscreteMaskEnv, MaskDiscreteAction, MaskObservation, flat_net,
     };
     use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
+    use crate::algorithms::dqn::dqn_model::MlpQNetwork;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -237,8 +238,8 @@ mod tests {
             replay_buffer_capacity: 64,
             ..DqnTrainingConfig::default()
         };
-        let net = FlatNet::new(ACTIONS, &device);
-        let mut agent = DqnAgent::<FlatNet, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+        let net = flat_net(&device);
+        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 1, 2>::new(
             net, config, device,
         )
         .expect("default config is valid");
@@ -307,8 +308,8 @@ mod tests {
             replay_buffer_capacity: 64,
             ..DqnTrainingConfig::default()
         };
-        let net = FlatNet::new(ACTIONS, &device);
-        let mut agent = DqnAgent::<FlatNet, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+        let net = flat_net(&device);
+        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 1, 2>::new(
             net, config, device,
         )
         .expect("default config is valid");

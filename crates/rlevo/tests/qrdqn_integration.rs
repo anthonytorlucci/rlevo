@@ -10,15 +10,15 @@
 //! acceptance assertions live in the `rlevo-test-support` dev-crate; only the
 //! QR-DQN network and the algorithm-specific tests remain here.
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::{Device, Tensor, activation};
+use burn::tensor::Device;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
+    MlpDistributionalQ, MlpDistributionalQConfig,
+};
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::qrdqn::train::train;
@@ -30,46 +30,23 @@ use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
-// Shared MLP (mirror of the qrdqn_cart_pole example). Implements QR-DQN's model
-// trait and so stays test-local.
+// The crate's default distributional network, 4 -> 64 -> 64 -> 2 x num_quantiles.
 // ---------------------------------------------------------------------------
 
 const N_ACTIONS: usize = 2;
 
-#[derive(Module, Debug)]
-struct QrDqnMlp {
-    l1: Linear,
-    l2: Linear,
-    l3: Linear,
-    num_quantiles: usize,
+fn qrdqn_network(num_quantiles: usize, device: &Device) -> MlpDistributionalQ {
+    MlpDistributionalQConfig {
+        obs_dim: 4,
+        hidden: vec![64, 64],
+        num_actions: N_ACTIONS,
+        num_atoms: num_quantiles,
+    }
+    .try_init(device)
+    .expect("valid network config")
 }
 
-impl QrDqnMlp {
-    fn new(num_quantiles: usize, device: &Device) -> Self {
-        Self {
-            l1: LinearConfig::new(4, 64).init(device),
-            l2: LinearConfig::new(64, 64).init(device),
-            l3: LinearConfig::new(64, N_ACTIONS * num_quantiles).init(device),
-            num_quantiles,
-        }
-    }
-
-    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<3> {
-        let [batch_size, _] = observations.dims();
-        let x = activation::relu(self.l1.forward(observations));
-        let x = activation::relu(self.l2.forward(x));
-        let flat = self.l3.forward(x);
-        flat.reshape([batch_size, N_ACTIONS, self.num_quantiles])
-    }
-}
-
-impl DqnModel<2, 3> for QrDqnMlp {
-    fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
-        self.forward_impl(observations)
-    }
-}
-
-type Agent = QrDqnAgent<QrDqnMlp, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = QrDqnAgent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
 
 /// Build a deterministic `QrDqnAgent` for `CartPole` with `num_quantiles = 21`
 /// and `kappa = 1.0`.
@@ -107,7 +84,7 @@ fn fresh_agent(seed: u64) -> Agent {
         kappa: 1.0,
         ..Default::default()
     };
-    let model: QrDqnMlp = QrDqnMlp::new(num_quantiles, &device);
+    let model = qrdqn_network(num_quantiles, &device);
     QrDqnAgent::new(model, config, device).expect("valid config")
 }
 

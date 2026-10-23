@@ -29,7 +29,10 @@ use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
-use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
+use crate::algorithms::ddpg::ddpg_model::{MlpActor, MlpActorConfig, MlpCritic, MlpCriticConfig};
+use crate::algorithms::dqn::dqn_model::{
+    MlpDistributionalQ, MlpDistributionalQConfig, MlpQNetwork, MlpQNetworkConfig,
+};
 use crate::algorithms::sac::sac_model::{SampleOutput, SquashedGaussianPolicy};
 
 /// Observation width and (for the continuous envs) action width.
@@ -243,106 +246,55 @@ pub(crate) type DiscreteMaskEnv = MaskEnv<MaskDiscreteAction>;
 pub(crate) type ContinuousMaskEnv = MaskEnv<MaskContinuousAction>;
 
 // ---------------------------------------------------------------------------
-// Networks — one `Linear` each; these exist only to satisfy trait bounds.
+// Networks — one `Linear` each; these exist only to satisfy trait bounds. The
+// four value-side ones are the crate's defaults with no hidden layer.
 // ---------------------------------------------------------------------------
 
-/// `(batch, OBS_DIM)` → `(batch, ACTIONS)`. Backs the DQN model trait.
-#[derive(Module, Debug)]
-pub(crate) struct FlatNet {
-    layer: Linear,
+/// `(batch, OBS_DIM)` → `(batch, ACTIONS)` Q-values, for DQN.
+pub(crate) fn flat_net(device: &Device) -> MlpQNetwork {
+    MlpQNetworkConfig {
+        obs_dim: OBS_DIM,
+        hidden: vec![],
+        num_actions: ACTIONS,
+    }
+    .try_init(device)
+    .expect("valid fixture config")
 }
 
-impl FlatNet {
-    pub(crate) fn new(out: usize, device: &Device) -> Self {
-        Self {
-            layer: LinearConfig::new(OBS_DIM, out).init(device),
-        }
+/// `(batch, OBS_DIM)` → `(batch, ACTIONS, atoms)`, for C51 and QR-DQN.
+pub(crate) fn atom_net(atoms: usize, device: &Device) -> MlpDistributionalQ {
+    MlpDistributionalQConfig {
+        obs_dim: OBS_DIM,
+        hidden: vec![],
+        num_actions: ACTIONS,
+        num_atoms: atoms,
     }
-    fn run(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.layer.forward(obs)
-    }
+    .try_init(device)
+    .expect("valid fixture config")
 }
 
-impl crate::algorithms::dqn::dqn_model::DqnModel<2> for FlatNet {
-    fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
-        self.run(observations)
+/// Deterministic actor for DDPG / TD3: `(batch, OBS_DIM)` → `(batch, ACT_DIM)`
+/// in `[-1, 1]`.
+pub(crate) fn tiny_actor(device: &Device) -> MlpActor {
+    MlpActorConfig {
+        obs_dim: OBS_DIM,
+        hidden: vec![],
+        action_dim: ACT_DIM,
+        action_scale: 1.0,
     }
-}
-
-/// `(batch, OBS_DIM)` → `(batch, ACTIONS, atoms)`. Backs C51 and QR-DQN, whose
-/// model traits are shape-identical.
-#[derive(Module, Debug)]
-pub(crate) struct AtomNet {
-    layer: Linear,
-    atoms: usize,
-}
-
-impl AtomNet {
-    pub(crate) fn new(atoms: usize, device: &Device) -> Self {
-        Self {
-            layer: LinearConfig::new(OBS_DIM, ACTIONS * atoms).init(device),
-            atoms,
-        }
-    }
-    fn run(&self, obs: Tensor<2>) -> Tensor<3> {
-        let batch = obs.dims()[0];
-        self.layer
-            .forward(obs)
-            .reshape([batch, ACTIONS, self.atoms])
-    }
-}
-
-impl crate::algorithms::dqn::dqn_model::DqnModel<2, 3> for AtomNet {
-    fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
-        self.run(observations)
-    }
-}
-
-/// Deterministic actor for DDPG / TD3: `(batch, OBS_DIM)` → `(batch, OBS_DIM)`.
-#[derive(Module, Debug)]
-pub(crate) struct TinyActor {
-    layer: Linear,
-}
-
-impl TinyActor {
-    pub(crate) fn new(device: &Device) -> Self {
-        Self {
-            layer: LinearConfig::new(OBS_DIM, ACT_DIM).init(device),
-        }
-    }
-    fn run(&self, obs: Tensor<2>) -> Tensor<2> {
-        activation::tanh(self.layer.forward(obs))
-    }
-}
-
-impl DeterministicPolicy<2, 2> for TinyActor {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.run(obs)
-    }
+    .try_init(device)
+    .expect("valid fixture config")
 }
 
 /// Continuous Q-critic for DDPG / TD3 / SAC.
-#[derive(Module, Debug)]
-pub(crate) struct TinyCritic {
-    layer: Linear,
-}
-
-impl TinyCritic {
-    pub(crate) fn new(device: &Device) -> Self {
-        Self {
-            layer: LinearConfig::new(OBS_DIM + ACT_DIM, 1).init(device),
-        }
+pub(crate) fn tiny_critic(device: &Device) -> MlpCritic {
+    MlpCriticConfig {
+        obs_dim: OBS_DIM,
+        action_dim: ACT_DIM,
+        hidden: vec![],
     }
-    fn run(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        let joint = Tensor::cat(vec![obs, act], 1);
-        self.layer.forward(joint).squeeze_dim::<1>(1)
-    }
-}
-
-impl ContinuousQ<2, 2> for TinyCritic {
-    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        self.run(obs, act)
-    }
+    .try_init(device)
+    .expect("valid fixture config")
 }
 
 /// Squashed-Gaussian actor for SAC. Fixed unit log-`$\sigma$` keeps it to one layer.

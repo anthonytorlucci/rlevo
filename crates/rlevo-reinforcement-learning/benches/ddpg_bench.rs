@@ -3,10 +3,7 @@
 //! Measures actor-forward latency and full `learn_step` wall-clock on a
 //! primed replay buffer, following the pattern established by `dqn_bench`.
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::activation::{relu, tanh};
-use burn::tensor::{Device, Tensor};
+use burn::tensor::Device;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -20,74 +17,28 @@ use rlevo_environments::classic::pendulum::{
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
-    ContinuousQ, DeterministicPolicy,
+    MlpActor, MlpActorConfig, MlpCritic, MlpCriticConfig,
 };
 
-#[derive(Module, Debug)]
-struct ActorMlp {
-    fc1: Linear,
-    fc2: Linear,
-    head: Linear,
-    action_scale: f32,
-}
-
-impl ActorMlp {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim, hidden).init(device),
-            fc2: LinearConfig::new(hidden, hidden).init(device),
-            head: LinearConfig::new(hidden, action_dim).init(device),
-            action_scale: scale,
-        }
-    }
-    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
-        let h = relu(self.fc1.forward(x));
-        let h = relu(self.fc2.forward(h));
-        tanh(self.head.forward(h)).mul_scalar(self.action_scale)
-    }
-}
-
-impl DeterministicPolicy<2, 2> for ActorMlp {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(obs)
-    }
-}
-
-#[derive(Module, Debug)]
-struct CriticMlp {
-    fc1: Linear,
-    fc2: Linear,
-    head: Linear,
-}
-
-impl CriticMlp {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
-            fc2: LinearConfig::new(hidden, hidden).init(device),
-            head: LinearConfig::new(hidden, 1).init(device),
-        }
-    }
-    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        let x = Tensor::cat(vec![obs, act], 1);
-        let h = relu(self.fc1.forward(x));
-        let h = relu(self.fc2.forward(h));
-        self.head.forward(h).squeeze_dim::<1>(1)
-    }
-}
-
-impl ContinuousQ<2, 2> for CriticMlp {
-    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        self.forward_impl(obs, act)
-    }
-}
-
-type Agent = DdpgAgent<ActorMlp, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type Agent = DdpgAgent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
 
 fn build_agent() -> Agent {
     let device = Device::flex();
-    let actor: ActorMlp = ActorMlp::new(3, 256, 1, 2.0, &device);
-    let critic: CriticMlp = CriticMlp::new(3, 1, 256, &device);
+    let actor = MlpActorConfig {
+        obs_dim: 3,
+        hidden: vec![256, 256],
+        action_dim: 1,
+        action_scale: 2.0,
+    }
+    .try_init(&device)
+    .expect("valid actor config");
+    let critic = MlpCriticConfig {
+        obs_dim: 3,
+        action_dim: 1,
+        hidden: vec![256, 256],
+    }
+    .try_init(&device)
+    .expect("valid critic config");
     let config = DdpgTrainingConfig {
         replay_buffer_capacity: 10_000,
         batch_size: 256,

@@ -144,7 +144,9 @@ use rand::rngs::StdRng;
 use rlevo_core::base::TensorConvertible;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
+    DqnModel, MlpQNetwork, MlpQNetworkConfig,
+};
 use rlevo_reinforcement_learning::utils::{compute_target_q_values, polyak_update};
 
 use bench_backend::BenchDevice;
@@ -340,69 +342,28 @@ fn pixel_transitions(n: usize, rng: &mut StdRng) -> Vec<SynthTransition<PixelObs
 // Networks under test
 // ---------------------------------------------------------------------------
 
-/// Small MLP, `4 -> 64 -> 64 -> 2` -- matches `dqn_bench.rs`'s `DqnMlp`.
-/// Staging should dominate here: negligible compute to compete with.
-#[derive(Module, Debug)]
-struct SmallMlp {
-    l1: Linear,
-    l2: Linear,
-    l3: Linear,
+/// Small MLP, `4 -> 64 -> 64 -> 2`, as `dqn_bench.rs` builds it: the crate's
+/// default Q-network.
+fn small_mlp(device: &Device) -> MlpQNetwork {
+    MlpQNetworkConfig {
+        obs_dim: 4,
+        hidden: vec![64, 64],
+        num_actions: CARTPOLE_ACTIONS,
+    }
+    .try_init(device)
+    .expect("valid Q-network config")
 }
 
-impl SmallMlp {
-    fn new(device: &Device) -> Self {
-        Self {
-            l1: LinearConfig::new(4, 64).init(device),
-            l2: LinearConfig::new(64, 64).init(device),
-            l3: LinearConfig::new(64, CARTPOLE_ACTIONS).init(device),
-        }
+/// Wide MLP, `4 -> 512 -> 512 -> 512 -> 2`: enough parameters that the
+/// optimizer step, not the staging, dominates.
+fn wide_mlp(device: &Device) -> MlpQNetwork {
+    MlpQNetworkConfig {
+        obs_dim: 4,
+        hidden: vec![512, 512, 512],
+        num_actions: CARTPOLE_ACTIONS,
     }
-
-    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
-        let x = activation::relu(self.l1.forward(x));
-        let x = activation::relu(self.l2.forward(x));
-        self.l3.forward(x)
-    }
-}
-
-impl DqnModel<2> for SmallMlp {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(obs)
-    }
-}
-
-/// Wider/deeper MLP, `4 -> 512 -> 512 -> 512 -> 2` -- checks whether
-/// staging's dominance survives more compute to compete with.
-#[derive(Module, Debug)]
-struct WideMlp {
-    l1: Linear,
-    l2: Linear,
-    l3: Linear,
-    l4: Linear,
-}
-
-impl WideMlp {
-    fn new(device: &Device) -> Self {
-        Self {
-            l1: LinearConfig::new(4, 512).init(device),
-            l2: LinearConfig::new(512, 512).init(device),
-            l3: LinearConfig::new(512, 512).init(device),
-            l4: LinearConfig::new(512, CARTPOLE_ACTIONS).init(device),
-        }
-    }
-
-    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
-        let x = activation::relu(self.l1.forward(x));
-        let x = activation::relu(self.l2.forward(x));
-        let x = activation::relu(self.l3.forward(x));
-        self.l4.forward(x)
-    }
-}
-
-impl DqnModel<2> for WideMlp {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(obs)
-    }
+    .try_init(device)
+    .expect("valid Q-network config")
 }
 
 /// Small conv net over `PixelObservation` (`[20, 20, 3]`) -- the case the
@@ -662,37 +623,37 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
 }
 
 fn bench_learn_step_sweep(c: &mut Criterion) {
-    bench_learn_step::<SmallMlp, CartPoleObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, CartPoleObservation, 1, 2>(
         c,
         "learn_step_small_mlp_flex",
         100,
         BenchDevice::Flex,
-        SmallMlp::new,
+        small_mlp,
         cartpole_transitions,
     );
-    bench_learn_step::<SmallMlp, CartPoleObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, CartPoleObservation, 1, 2>(
         c,
         "learn_step_small_mlp_wgpu",
         wgpu_sample_size(),
         BenchDevice::Wgpu,
-        SmallMlp::new,
+        small_mlp,
         cartpole_transitions,
     );
 
-    bench_learn_step::<WideMlp, CartPoleObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, CartPoleObservation, 1, 2>(
         c,
         "learn_step_wide_mlp_flex",
         100,
         BenchDevice::Flex,
-        WideMlp::new,
+        wide_mlp,
         cartpole_transitions,
     );
-    bench_learn_step::<WideMlp, CartPoleObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, CartPoleObservation, 1, 2>(
         c,
         "learn_step_wide_mlp_wgpu",
         wgpu_sample_size(),
         BenchDevice::Wgpu,
-        WideMlp::new,
+        wide_mlp,
         cartpole_transitions,
     );
 
@@ -716,7 +677,7 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
 
 /// Targeted `n = 100` investigation (methodology point 3), gated behind an
 /// env var so the default sweep above stays fast: runs the cheapest wgpu
-/// cell (`SmallMlp`, batch 64, `host_row`) at both `sample_size = 20` and
+/// cell (`small_mlp`, batch 64, `host_row`) at both `sample_size = 20` and
 /// the criterion default `100`, back to back, to check whether sustained
 /// wgpu submission stalls independent of per-iteration cost. Enable with
 /// `N100_PROBE=1 cargo bench -p rlevo-reinforcement-learning --bench
@@ -725,20 +686,20 @@ fn bench_n100_probe(c: &mut Criterion) {
     if std::env::var("N100_PROBE").is_err() {
         return;
     }
-    bench_learn_step::<SmallMlp, CartPoleObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, CartPoleObservation, 1, 2>(
         c,
         "learn_step_n100_probe_n20",
         wgpu_sample_size(),
         BenchDevice::Wgpu,
-        SmallMlp::new,
+        small_mlp,
         cartpole_transitions,
     );
-    bench_learn_step::<SmallMlp, CartPoleObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, CartPoleObservation, 1, 2>(
         c,
         "learn_step_n100_probe_n100",
         100,
         BenchDevice::Wgpu,
-        SmallMlp::new,
+        small_mlp,
         cartpole_transitions,
     );
 }

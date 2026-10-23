@@ -1298,15 +1298,16 @@ mod tests {
     // -------- non-finite-loss guard (ADR 0056) --------
 
     use crate::algorithms::bootstrap_mask::{
-        MaskContinuousAction, MaskObservation, TinyCritic, TinySacActor,
+        MaskContinuousAction, MaskObservation, TinySacActor, tiny_critic,
     };
+    use crate::algorithms::ddpg::ddpg_model::MlpCritic;
     use burn::module::{Module, ModuleMapper, Param};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::action::ContinuousAction;
 
     type GuardAgent =
-        SacAgent<TinySacActor, TinyCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
+        SacAgent<TinySacActor, MlpCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// critic that has diverged to non-finite weights — the realistic source of
@@ -1363,8 +1364,8 @@ mod tests {
 
         let mut agent = GuardAgent::new(
             TinySacActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -1490,8 +1491,8 @@ mod tests {
 
         let mut agent = GuardAgent::new(
             TinySacActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -1732,8 +1733,8 @@ mod tests {
 
         let mut agent = GuardAgent::new(
             TinySacActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -1856,8 +1857,8 @@ mod tests {
         let config = SacTrainingConfig::default();
         let mut agent = GuardAgent::new(
             TinySacActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -1912,8 +1913,8 @@ mod tests {
         };
         GuardAgent::new(
             TinySacActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -2086,8 +2087,8 @@ mod tests {
             };
             let Err(err) = GuardAgent::new(
                 TinySacActor::new(&device),
-                TinyCritic::new(&device),
-                TinyCritic::new(&device),
+                tiny_critic(&device),
+                tiny_critic(&device),
                 config,
                 device,
             ) else {
@@ -2116,8 +2117,8 @@ mod tests {
         };
         let mut agent = GuardAgent::new(
             TinySacActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )

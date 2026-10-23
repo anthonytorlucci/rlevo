@@ -1076,15 +1076,17 @@ mod tests {
     // -------- non-finite-loss guard (ADR 0056) --------
 
     use crate::algorithms::bootstrap_mask::{
-        MaskContinuousAction, MaskObservation, TinyActor, TinyCritic,
+        MaskContinuousAction, MaskObservation, tiny_actor, tiny_critic,
     };
+    use crate::algorithms::ddpg::ddpg_model::MlpActor;
+    use crate::algorithms::ddpg::ddpg_model::MlpCritic;
     use burn::module::{Module, ModuleMapper, Param};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::action::ContinuousAction;
 
     type GuardAgent =
-        DdpgAgent<TinyActor, TinyCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
+        DdpgAgent<MlpActor, MlpCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// critic that has diverged to non-finite weights — the realistic source of
@@ -1124,13 +1126,8 @@ mod tests {
             ..Default::default()
         };
 
-        let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            config,
-            device,
-        )
-        .expect("valid agent");
+        let mut agent = GuardAgent::new(tiny_actor(&device), tiny_critic(&device), config, device)
+            .expect("valid agent");
 
         let action = MaskContinuousAction::from_slice(&[0.0]);
         for x in [0.0_f32, 0.1, 0.2, 0.3] {
@@ -1201,13 +1198,8 @@ mod tests {
             ..Default::default()
         };
 
-        let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            config,
-            device,
-        )
-        .expect("valid agent");
+        let mut agent = GuardAgent::new(tiny_actor(&device), tiny_critic(&device), config, device)
+            .expect("valid agent");
 
         let action = MaskContinuousAction::from_slice(&[0.0]);
         for x in [0.0_f32, 0.1, 0.2, 0.3] {
@@ -1354,13 +1346,8 @@ mod tests {
             ..Default::default()
         };
 
-        let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            config,
-            device,
-        )
-        .expect("valid agent");
+        let mut agent = GuardAgent::new(tiny_actor(&device), tiny_critic(&device), config, device)
+            .expect("valid agent");
 
         let action = MaskContinuousAction::from_slice(&[0.0]);
         for x in [0.0_f32, 0.1, 0.2, 0.3] {
@@ -1502,13 +1489,8 @@ mod tests {
     fn test_ddpg_agent_remember_drops_a_nonfinite_reward() {
         let device = Device::flex();
         let config = DdpgTrainingConfig::default();
-        let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            config,
-            device,
-        )
-        .expect("valid agent");
+        let mut agent = GuardAgent::new(tiny_actor(&device), tiny_critic(&device), config, device)
+            .expect("valid agent");
         let action = MaskContinuousAction::from_slice(&[0.0]);
 
         agent.remember(
@@ -1557,13 +1539,8 @@ mod tests {
             replay_buffer_capacity: 64,
             ..Default::default()
         };
-        GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            config,
-            device,
-        )
-        .expect("valid agent")
+        GuardAgent::new(tiny_actor(&device), tiny_critic(&device), config, device)
+            .expect("valid agent")
     }
 
     #[test]
@@ -1776,12 +1753,9 @@ mod tests {
                 replay_buffer_capacity: capacity,
                 ..DdpgTrainingConfig::default()
             };
-            let Err(err) = GuardAgent::new(
-                TinyActor::new(&device),
-                TinyCritic::new(&device),
-                config,
-                device,
-            ) else {
+            let Err(err) =
+                GuardAgent::new(tiny_actor(&device), tiny_critic(&device), config, device)
+            else {
                 panic!("capacity {capacity} must be rejected, not allocated");
             };
             assert_eq!(err.config, "DdpgTrainingConfig");
@@ -1805,13 +1779,8 @@ mod tests {
             target_update: crate::target::TargetUpdate::polyak(0.005, 1),
             ..Default::default()
         };
-        let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            config,
-            device,
-        )
-        .expect("valid agent");
+        let mut agent = GuardAgent::new(tiny_actor(&device), tiny_critic(&device), config, device)
+            .expect("valid agent");
         let action = MaskContinuousAction::from_slice(&[0.0]);
         for x in [0.0_f32, 0.1, 0.2, 0.3] {
             agent.remember(

@@ -80,9 +80,6 @@
 //! cargo bench -p rlevo --bench grid_memory_rl
 //! ```
 
-#[path = "support/value_nets.rs"]
-mod support;
-
 use burn::tensor::Device;
 use std::hint::black_box;
 
@@ -100,10 +97,9 @@ use rlevo_environments::grids::{GridAction, MemoryConfig, MemoryEnv};
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-
-use support::GridMlpDqn;
 
 const SEED: u64 = 2026;
 /// Flattened observation width: `7 * 7 * 3 = 147`.
@@ -116,7 +112,7 @@ const EVAL_EPISODES: usize = 200;
 /// flip. A reactive policy is capped here — it is **not** pinned to zero.
 const REACTIVE_CEILING: f32 = 0.5;
 
-type MemoryAgent = DqnAgent<GridMlpDqn, GridObservation, GridAction, 3, 4>;
+type MemoryAgent = DqnAgent<MlpQNetwork, GridObservation, GridAction, 3, 4>;
 
 /// The shipped default (`size`, `max_steps`) under this bench's fixed seed.
 ///
@@ -154,7 +150,13 @@ fn train_dqn() -> MemoryAgent {
         ..Default::default()
     };
 
-    let model: GridMlpDqn = GridMlpDqn::new(OBS_FEATURES, 128, ACTIONS, &device);
+    let model = MlpQNetworkConfig {
+        obs_dim: OBS_FEATURES,
+        hidden: vec![128, 128],
+        num_actions: ACTIONS,
+    }
+    .try_init(&device)
+    .expect("valid Q-network config");
     let mut agent: MemoryAgent = DqnAgent::new(model, config, device).expect("valid config");
 
     train(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training loop");

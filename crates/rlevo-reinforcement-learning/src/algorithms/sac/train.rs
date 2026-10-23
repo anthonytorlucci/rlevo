@@ -200,8 +200,9 @@ mod tests {
     use rlevo_core::environment::EpisodeStatus;
 
     use crate::algorithms::bootstrap_mask::{
-        ContinuousMaskEnv, MaskContinuousAction, MaskObservation, TinyCritic,
+        ContinuousMaskEnv, MaskContinuousAction, MaskObservation, tiny_critic,
     };
+    use crate::algorithms::ddpg::ddpg_model::MlpCritic;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -224,11 +225,11 @@ mod tests {
             ..SacTrainingConfig::default()
         };
         let actor = TinySacActor::new(&device);
-        let critic_1 = TinyCritic::new(&device);
-        let critic_2 = TinyCritic::new(&device);
+        let critic_1 = tiny_critic(&device);
+        let critic_2 = tiny_critic(&device);
         let mut agent = SacAgent::<
             TinySacActor,
-            TinyCritic,
+            MlpCritic,
             MaskObservation,
             MaskContinuousAction,
             1,

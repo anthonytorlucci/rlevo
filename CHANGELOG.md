@@ -720,6 +720,15 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Changed**
 
+- **The benches, the integration tests and two examples build their
+  networks from the RL crate's defaults.** 39 hand-written networks are
+  gone, `crates/rlevo/benches/support/` with them; the two SAC actors in
+  the benches were copies of the shipped `SquashedGaussianPolicyHead` and
+  use it. Each default is built with the copy's own layer widths, and
+  builds the same parameters from the same seed, bit for bit, so no seeded
+  result moves. The networks that stay are the convolutional ones and the
+  test fixtures with hand-set weights or a ReLU on the Q output. The DQN,
+  C51 and PPO READMEs no longer point at examples that do not exist.
 - **The report client owns its wire-format test.**
   `tests/wire_format_compat.rs` moved from `rlevo-harness` to
   `rlevo-benchmarks-report-client`, which now dev-depends on the harness

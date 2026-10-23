@@ -195,9 +195,10 @@ mod tests {
     const STEPS: usize = 9;
 
     use crate::algorithms::bootstrap_mask::{
-        AtomNet, DiscreteMaskEnv, MaskDiscreteAction, MaskObservation,
+        DiscreteMaskEnv, MaskDiscreteAction, MaskObservation, atom_net,
     };
     use crate::algorithms::c51::c51_config::C51TrainingConfig;
+    use crate::algorithms::dqn::dqn_model::MlpDistributionalQ;
 
     /// Drives `train` against a clock env whose episodes all end with
     /// `end_status`, and returns the bootstrap masks the loop recorded.
@@ -212,11 +213,12 @@ mod tests {
             replay_buffer_capacity: 64,
             ..C51TrainingConfig::default()
         };
-        let net = AtomNet::new(config.num_atoms, &device);
-        let mut agent = C51Agent::<AtomNet, MaskObservation, MaskDiscreteAction, 1, 2>::new(
-            net, config, device,
-        )
-        .expect("default config is valid");
+        let net = atom_net(config.num_atoms, &device);
+        let mut agent =
+            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+                net, config, device,
+            )
+            .expect("default config is valid");
         let mut env = DiscreteMaskEnv::new(PERIOD, end_status);
         let mut rng = StdRng::seed_from_u64(7);
         train(&mut agent, &mut env, &mut rng, STEPS, 0).expect("training loop succeeds");

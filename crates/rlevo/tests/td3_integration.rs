@@ -12,10 +12,7 @@
 //! `rlevo-test-support` dev-crate; only the TD3 networks and the
 //! algorithm-specific tests remain here.
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::activation::{relu, tanh};
-use burn::tensor::{Device, Tensor};
+use burn::tensor::Device;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -26,9 +23,11 @@ use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
 use rlevo_environments::wrappers::TimeLimit;
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
+    MlpActor, MlpActorConfig, MlpCritic, MlpCriticConfig,
+};
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
-use rlevo_reinforcement_learning::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 use rlevo_reinforcement_learning::algorithms::td3::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
@@ -39,66 +38,39 @@ use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
-// Actor & critic: tiny MLPs (shared between LinearEnv test and Pendulum
-// smoke test). These implement TD3's model traits and so stay test-local.
+// Actor and critic: the crate's defaults with one hidden layer, shared
+// between the LinearEnv tests and the Pendulum smoke test.
 // ---------------------------------------------------------------------------
 
-#[derive(Module, Debug)]
-struct Actor {
-    fc1: Linear,
-    head: Linear,
-    action_scale: f32,
+fn actor(
+    obs_dim: usize,
+    hidden: usize,
+    action_dim: usize,
+    scale: f32,
+    device: &Device,
+) -> MlpActor {
+    MlpActorConfig {
+        obs_dim,
+        hidden: vec![hidden],
+        action_dim,
+        action_scale: scale,
+    }
+    .try_init(device)
+    .expect("valid actor config")
 }
 
-impl Actor {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim, hidden).init(device),
-            head: LinearConfig::new(hidden, action_dim).init(device),
-            action_scale: scale,
-        }
+fn critic(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> MlpCritic {
+    MlpCriticConfig {
+        obs_dim,
+        action_dim,
+        hidden: vec![hidden],
     }
-
-    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<2> {
-        let h = relu(self.fc1.forward(obs));
-        tanh(self.head.forward(h)).mul_scalar(self.action_scale)
-    }
-}
-
-impl DeterministicPolicy<2, 2> for Actor {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(obs)
-    }
-}
-
-#[derive(Module, Debug)]
-struct Critic {
-    fc1: Linear,
-    head: Linear,
-}
-
-impl Critic {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
-            head: LinearConfig::new(hidden, 1).init(device),
-        }
-    }
-    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        let x = Tensor::cat(vec![obs, act], 1);
-        let h = relu(self.fc1.forward(x));
-        self.head.forward(h).squeeze_dim::<1>(1)
-    }
-}
-
-impl ContinuousQ<2, 2> for Critic {
-    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        self.forward_impl(obs, act)
-    }
+    .try_init(device)
+    .expect("valid critic config")
 }
 
 // Concrete TD3 agent over the shared 1-D continuous fixture.
-type LinearAgent = Td3Agent<Actor, Critic, LinearObservation, LinearAction, 1, 2, 1, 2>;
+type LinearAgent = Td3Agent<MlpActor, MlpCritic, LinearObservation, LinearAction, 1, 2, 1, 2>;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -112,9 +84,9 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let actor: Actor = Actor::new(1, 32, 1, 1.0, &device);
-    let critic_1: Critic = Critic::new(1, 1, 32, &device);
-    let critic_2: Critic = Critic::new(1, 1, 32, &device);
+    let actor = actor(1, 32, 1, 1.0, &device);
+    let critic_1 = critic(1, 1, 32, &device);
+    let critic_2 = critic(1, 1, 32, &device);
     let config = Td3TrainingConfig {
         replay_buffer_capacity: 20_000,
         batch_size: 32,
@@ -210,9 +182,9 @@ fn td3_act_with_matches_deterministic_act() {
     let seed: u64 = 7;
     let device = seeded_device(seed);
 
-    let actor: Actor = Actor::new(1, 32, 1, 1.0, &device);
-    let critic_1: Critic = Critic::new(1, 1, 32, &device);
-    let critic_2: Critic = Critic::new(1, 1, 32, &device);
+    let actor = actor(1, 32, 1, 1.0, &device);
+    let critic_1 = critic(1, 1, 32, &device);
+    let critic_2 = critic(1, 1, 32, &device);
     let config = Td3TrainingConfig {
         replay_buffer_capacity: 20_000,
         batch_size: 32,
@@ -255,9 +227,9 @@ fn td3_delayed_update_skips_actor_step() {
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let actor: Actor = Actor::new(1, 16, 1, 1.0, &device);
-    let critic_1: Critic = Critic::new(1, 1, 16, &device);
-    let critic_2: Critic = Critic::new(1, 1, 16, &device);
+    let actor = actor(1, 16, 1, 1.0, &device);
+    let critic_1 = critic(1, 1, 16, &device);
+    let critic_2 = critic(1, 1, 16, &device);
     let config = Td3TrainingConfig {
         replay_buffer_capacity: 1_024,
         batch_size: 8,
@@ -329,9 +301,9 @@ fn td3_pendulum_improves_over_random() {
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let actor: Actor = Actor::new(3, 256, 1, 2.0, &device);
-    let critic_1: Critic = Critic::new(3, 1, 256, &device);
-    let critic_2: Critic = Critic::new(3, 1, 256, &device);
+    let actor = actor(3, 256, 1, 2.0, &device);
+    let critic_1 = critic(3, 1, 256, &device);
+    let critic_2 = critic(3, 1, 256, &device);
     let config = Td3TrainingConfig {
         replay_buffer_capacity: 200_000,
         batch_size: 256,
@@ -346,7 +318,7 @@ fn td3_pendulum_improves_over_random() {
         policy_frequency: 2,
         ..Default::default()
     };
-    let mut agent: Td3Agent<Actor, Critic, PendulumObservation, PendulumAction, 1, 2, 1, 2> =
+    let mut agent: Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2> =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     train::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 500_000, 0)

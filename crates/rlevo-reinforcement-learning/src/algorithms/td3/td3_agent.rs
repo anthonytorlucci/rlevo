@@ -1235,15 +1235,17 @@ mod tests {
     // -------- non-finite-loss guard (ADR 0056) --------
 
     use crate::algorithms::bootstrap_mask::{
-        MaskContinuousAction, MaskObservation, TinyActor, TinyCritic,
+        MaskContinuousAction, MaskObservation, tiny_actor, tiny_critic,
     };
+    use crate::algorithms::ddpg::ddpg_model::MlpActor;
+    use crate::algorithms::ddpg::ddpg_model::MlpCritic;
     use burn::module::{Module, ModuleMapper, Param};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::action::ContinuousAction;
 
     type GuardAgent =
-        Td3Agent<TinyActor, TinyCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
+        Td3Agent<MlpActor, MlpCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// critic that has diverged to non-finite weights — the realistic source of
@@ -1298,9 +1300,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_actor(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -1409,9 +1411,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_actor(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -1643,9 +1645,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_actor(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -1794,9 +1796,9 @@ mod tests {
         let device = Device::flex();
         let config = Td3TrainingConfig::default();
         let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_actor(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -1850,9 +1852,9 @@ mod tests {
             ..Default::default()
         };
         GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_actor(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )
@@ -2070,9 +2072,9 @@ mod tests {
                 ..Td3TrainingConfig::default()
             };
             let Err(err) = GuardAgent::new(
-                TinyActor::new(&device),
-                TinyCritic::new(&device),
-                TinyCritic::new(&device),
+                tiny_actor(&device),
+                tiny_critic(&device),
+                tiny_critic(&device),
                 config,
                 device,
             ) else {
@@ -2100,9 +2102,9 @@ mod tests {
             ..Default::default()
         };
         let mut agent = GuardAgent::new(
-            TinyActor::new(&device),
-            TinyCritic::new(&device),
-            TinyCritic::new(&device),
+            tiny_actor(&device),
+            tiny_critic(&device),
+            tiny_critic(&device),
             config,
             device,
         )

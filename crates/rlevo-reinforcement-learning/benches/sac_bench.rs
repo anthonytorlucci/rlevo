@@ -4,133 +4,62 @@
 //! `$\alpha$` step + Polyak) on a primed replay buffer. Mirrors `td3_bench`'s pattern so the two
 //! algorithms can be compared side-by-side.
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::activation::{relu, softplus, tanh};
-use burn::tensor::{Device, Tensor};
+use burn::tensor::Device;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::environment::Environment;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{MlpCritic, MlpCriticConfig};
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
 use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
-    ContinuousQ, SampleOutput, SquashedGaussianPolicy,
+use rlevo_reinforcement_learning::algorithms::sac::sac_policy::{
+    SquashedGaussianPolicyHead, SquashedGaussianPolicyHeadConfig,
 };
 
-#[derive(Module, Debug)]
-struct StochasticActor {
-    fc1: Linear,
-    fc2: Linear,
-    mean: Linear,
-    log_std: Linear,
-    action_dim: usize,
-    action_scale: f32,
-}
-
-impl StochasticActor {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim, hidden).init(device),
-            fc2: LinearConfig::new(hidden, hidden).init(device),
-            mean: LinearConfig::new(hidden, action_dim).init(device),
-            log_std: LinearConfig::new(hidden, action_dim).init(device),
-            action_dim,
-            action_scale: scale,
-        }
-    }
-
-    fn mean_and_log_std(&self, obs: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
-        let h = relu(self.fc1.forward(obs));
-        let h = relu(self.fc2.forward(h));
-        let mean = self.mean.forward(h.clone());
-        let log_std = self.log_std.forward(h).clamp(-5.0_f32, 2.0_f32);
-        (mean, log_std)
-    }
-
-    // Divisor/normalizer derived from a count -- batch size, minibatch count,
-    // history length, iteration number. All are bounded by configured sizes far
-    // below f32's 2^24 (f64's 2^53) exact-integer limit.
-    #[allow(clippy::cast_precision_loss)]
-    fn sample_impl(&self, obs: Tensor<2>, eps: Tensor<2>) -> (Tensor<2>, Tensor<1>) {
-        let (mean, log_std) = self.mean_and_log_std(obs);
-        let action_dim = mean.dims()[1];
-        let std = log_std.clone().exp();
-        let z = mean.clone() + std * eps;
-        let diff = z.clone() - mean;
-        let scaled = diff / log_std.clone().exp();
-        let scaled_sq = scaled.clone() * scaled;
-        let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-        let per_dim_gauss: Tensor<2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
-        let ln_2 = std::f32::consts::LN_2;
-        let neg_two_z = z.clone().mul_scalar(-2.0);
-        let sp = softplus(neg_two_z, 1.0);
-        let per_dim_jac: Tensor<2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
-        let per_dim = per_dim_gauss - per_dim_jac;
-        let log_prob_z = per_dim.sum_dim(1).squeeze_dim::<1>(1);
-        let log_scale_abs = self.action_scale.abs().ln();
-        let log_prob = log_prob_z.sub_scalar(log_scale_abs * action_dim as f32);
-        let action = tanh(z).mul_scalar(self.action_scale);
-        (action, log_prob)
-    }
-}
-
-impl SquashedGaussianPolicy<2, 2> for StochasticActor {
-    fn action_dim(&self) -> usize {
-        self.action_dim
-    }
-    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
-        let (action, log_prob) = self.sample_impl(obs, eps);
-        SampleOutput { action, log_prob }
-    }
-    fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
-        let (mean, _) = self.mean_and_log_std(obs);
-        tanh(mean).mul_scalar(self.action_scale)
-    }
-}
-
-#[derive(Module, Debug)]
-struct CriticMlp {
-    fc1: Linear,
-    fc2: Linear,
-    head: Linear,
-}
-
-impl CriticMlp {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
-            fc2: LinearConfig::new(hidden, hidden).init(device),
-            head: LinearConfig::new(hidden, 1).init(device),
-        }
-    }
-    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        let x = Tensor::cat(vec![obs, act], 1);
-        let h = relu(self.fc1.forward(x));
-        let h = relu(self.fc2.forward(h));
-        self.head.forward(h).squeeze_dim::<1>(1)
-    }
-}
-
-impl ContinuousQ<2, 2> for CriticMlp {
-    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        self.forward_impl(obs, act)
-    }
-}
-
-type Agent = SacAgent<StochasticActor, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type Agent = SacAgent<
+    SquashedGaussianPolicyHead,
+    MlpCritic,
+    PendulumObservation,
+    PendulumAction,
+    1,
+    2,
+    1,
+    2,
+>;
 
 fn build_agent() -> Agent {
     let device = Device::flex();
-    let actor: StochasticActor = StochasticActor::new(3, 256, 1, 2.0, &device);
-    let critic_1: CriticMlp = CriticMlp::new(3, 1, 256, &device);
-    let critic_2: CriticMlp = CriticMlp::new(3, 1, 256, &device);
+    let actor = SquashedGaussianPolicyHeadConfig {
+        obs_dim: 3,
+        hidden: 256,
+        action_dim: 1,
+        log_std: Bounds::new(-5.0, 2.0),
+        action_scale: 2.0,
+        action_bias: 0.0,
+    }
+    .try_init(&device)
+    .expect("valid SAC actor config");
+    let critic_1 = MlpCriticConfig {
+        obs_dim: 3,
+        action_dim: 1,
+        hidden: vec![256, 256],
+    }
+    .try_init(&device)
+    .expect("valid critic config");
+    let critic_2 = MlpCriticConfig {
+        obs_dim: 3,
+        action_dim: 1,
+        hidden: vec![256, 256],
+    }
+    .try_init(&device)
+    .expect("valid critic config");
     let config = SacTrainingConfig {
         replay_buffer_capacity: 10_000,
         batch_size: 256,

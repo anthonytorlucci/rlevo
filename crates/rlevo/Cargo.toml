@@ -200,9 +200,8 @@ path = "examples/harness/tabular_bandit.rs"
 
 # Random-baseline-vs-learned benches. Each prints a reward/success quality
 # comparison, then times per-step rollout throughput for both policies.
-# Shared DQN model + Polyak scaffolding lives in `benches/support/dqn.rs`.
-# Pendulum actor/critic models live in `benches/support/pendulum.rs`.
-# Run e.g. with `cargo bench -p rlevo --bench grid_empty_dqn`.
+# Every agent's network is one of the RL crate's defaults.
+# Run e.g. with `cargo bench -p rlevo --bench grid_empty_rl`.
 [[bench]]
 name = "grid_empty_rl"
 path = "benches/grid_empty_rl.rs"

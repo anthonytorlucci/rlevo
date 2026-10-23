@@ -23,15 +23,9 @@
 //! cargo bench -p rlevo --bench pendulum_rl -- --test
 //! ```
 
-#[path = "support/pendulum.rs"]
-mod pendulum_support;
-
 use std::hint::black_box;
 
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::activation::tanh;
-use burn::tensor::{Device, Tensor};
+use burn::tensor::Device;
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 
@@ -47,23 +41,27 @@ use rlevo_environments::wrappers::TimeLimit;
 
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
+    MlpActor, MlpActorConfig, MlpCritic, MlpCriticConfig,
+};
 use rlevo_reinforcement_learning::algorithms::ddpg::train::train as train_ddpg;
 use rlevo_reinforcement_learning::algorithms::ppo::policies::{
     TanhGaussianPolicyHead, TanhGaussianPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
 use rlevo_reinforcement_learning::algorithms::ppo::train::train_continuous as train_ppo;
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
 use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
+use rlevo_reinforcement_learning::algorithms::sac::sac_policy::{
+    SquashedGaussianPolicyHead, SquashedGaussianPolicyHeadConfig,
+};
 use rlevo_reinforcement_learning::algorithms::sac::train::train as train_sac;
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
 use rlevo_reinforcement_learning::algorithms::td3::train::train as train_td3;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-
-use pendulum_support::{ActorMlp, CriticMlp, StochasticActor};
 
 const SEED: u64 = 2026;
 const OBS_RANK: usize = 3; // the order of the observation space
@@ -75,48 +73,19 @@ const EVAL_EPISODES: usize = 100;
 
 type Env = TimeLimit<Pendulum>;
 
-type PpoAgent_ = PpoAgent<TanhGaussianPolicyHead, ValueMlp, PendulumObservation, 1, 2>;
-type DdpgAgent_ = DdpgAgent<ActorMlp, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
-type Td3Agent_ = Td3Agent<ActorMlp, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
-type SacAgent_ =
-    SacAgent<StochasticActor, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
-
-// ---------------------------------------------------------------------------
-// PPO value network — two-layer tanh MLP → scalar
-// ---------------------------------------------------------------------------
-
-/// Two-layer tanh MLP that maps a batch of observations to scalar state-values
-/// for the PPO critic. Architecture: `obs_dim → 64 → 64 → 1` with `tanh`
-/// activations. Implements [`PpoValue`] and is local to this bench because PPO
-/// requires a separate value network that DDPG/TD3/SAC do not.
-#[derive(Module, Debug)]
-pub struct ValueMlp {
-    fc1: Linear,
-    fc2: Linear,
-    head: Linear,
-}
-
-impl ValueMlp {
-    fn new(device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(OBS_RANK, 64).init(device),
-            fc2: LinearConfig::new(64, 64).init(device),
-            head: LinearConfig::new(64, 1).init(device),
-        }
-    }
-
-    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<1> {
-        let h = tanh(self.fc1.forward(obs));
-        let h = tanh(self.fc2.forward(h));
-        self.head.forward(h).squeeze_dim::<1>(1)
-    }
-}
-
-impl PpoValue<2> for ValueMlp {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<1> {
-        self.forward_impl(obs)
-    }
-}
+type PpoAgent_ = PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 1, 2>;
+type DdpgAgent_ = DdpgAgent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type Td3Agent_ = Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type SacAgent_ = SacAgent<
+    SquashedGaussianPolicyHead,
+    MlpCritic,
+    PendulumObservation,
+    PendulumAction,
+    1,
+    2,
+    1,
+    2,
+>;
 
 // ---------------------------------------------------------------------------
 // Environment factory
@@ -154,7 +123,12 @@ fn train_ppo_agent() -> PpoAgent_ {
     }
     .try_init(&device)
     .expect("valid head config");
-    let value: ValueMlp = ValueMlp::new(&device);
+    let value = MlpValueConfig {
+        obs_dim: OBS_RANK,
+        hidden: vec![64, 64],
+    }
+    .try_init(&device)
+    .expect("valid value network config");
     let config = PpoTrainingConfig {
         num_envs: 1,
         num_steps: 2_048,
@@ -187,8 +161,21 @@ fn train_ddpg_agent() -> DdpgAgent_ {
     device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: ActorMlp = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
-    let critic: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let actor = MlpActorConfig {
+        obs_dim: OBS_RANK,
+        hidden: vec![HIDDEN, HIDDEN],
+        action_dim: ACTION_RANK,
+        action_scale: 2.0,
+    }
+    .try_init(&device)
+    .expect("valid actor config");
+    let critic = MlpCriticConfig {
+        obs_dim: OBS_RANK,
+        action_dim: ACTION_RANK,
+        hidden: vec![HIDDEN, HIDDEN],
+    }
+    .try_init(&device)
+    .expect("valid critic config");
     let config = DdpgTrainingConfig {
         replay_buffer_capacity: 100_000,
         batch_size: 256,
@@ -219,9 +206,28 @@ fn train_td3_agent() -> Td3Agent_ {
     device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: ActorMlp = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
-    let critic_1: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
-    let critic_2: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let actor = MlpActorConfig {
+        obs_dim: OBS_RANK,
+        hidden: vec![HIDDEN, HIDDEN],
+        action_dim: ACTION_RANK,
+        action_scale: 2.0,
+    }
+    .try_init(&device)
+    .expect("valid actor config");
+    let critic_1 = MlpCriticConfig {
+        obs_dim: OBS_RANK,
+        action_dim: ACTION_RANK,
+        hidden: vec![HIDDEN, HIDDEN],
+    }
+    .try_init(&device)
+    .expect("valid critic config");
+    let critic_2 = MlpCriticConfig {
+        obs_dim: OBS_RANK,
+        action_dim: ACTION_RANK,
+        hidden: vec![HIDDEN, HIDDEN],
+    }
+    .try_init(&device)
+    .expect("valid critic config");
     let config = Td3TrainingConfig {
         replay_buffer_capacity: 100_000,
         batch_size: 256,
@@ -254,9 +260,30 @@ fn train_sac_agent() -> SacAgent_ {
     device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: StochasticActor = StochasticActor::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
-    let critic_1: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
-    let critic_2: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let actor = SquashedGaussianPolicyHeadConfig {
+        obs_dim: OBS_RANK,
+        hidden: HIDDEN,
+        action_dim: ACTION_RANK,
+        log_std: Bounds::new(-5.0, 2.0),
+        action_scale: 2.0,
+        action_bias: 0.0,
+    }
+    .try_init(&device)
+    .expect("valid SAC actor config");
+    let critic_1 = MlpCriticConfig {
+        obs_dim: OBS_RANK,
+        action_dim: ACTION_RANK,
+        hidden: vec![HIDDEN, HIDDEN],
+    }
+    .try_init(&device)
+    .expect("valid critic config");
+    let critic_2 = MlpCriticConfig {
+        obs_dim: OBS_RANK,
+        action_dim: ACTION_RANK,
+        hidden: vec![HIDDEN, HIDDEN],
+    }
+    .try_init(&device)
+    .expect("valid critic config");
     let config = SacTrainingConfig {
         replay_buffer_capacity: 100_000,
         batch_size: 256,

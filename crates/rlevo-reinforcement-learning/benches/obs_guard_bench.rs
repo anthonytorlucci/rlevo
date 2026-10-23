@@ -166,7 +166,9 @@ use rlevo_environments::box2d::lunar_lander::{
 };
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
+    DqnModel, MlpQNetwork, MlpQNetworkConfig,
+};
 
 use bench_backend::BenchDevice;
 
@@ -486,34 +488,15 @@ fn check_finite_reused_branchless<const R: usize, T: HostRow<R>>(
 // Networks
 // ---------------------------------------------------------------------------
 
-/// `8 -> 64 -> 64 -> 4` MLP for the `LunarLanderObservation` agents.
-#[derive(Module, Debug)]
-struct VecMlp {
-    l1: Linear,
-    l2: Linear,
-    l3: Linear,
-}
-
-impl VecMlp {
-    fn new(device: &Device) -> Self {
-        Self {
-            l1: LinearConfig::new(LUNAR_LEN, 64).init(device),
-            l2: LinearConfig::new(64, 64).init(device),
-            l3: LinearConfig::new(64, ACTIONS).init(device),
-        }
+/// `LUNAR_LEN -> 64 -> 64 -> ACTIONS`, the crate's default Q-network.
+fn vec_mlp(device: &Device) -> MlpQNetwork {
+    MlpQNetworkConfig {
+        obs_dim: LUNAR_LEN,
+        hidden: vec![64, 64],
+        num_actions: ACTIONS,
     }
-
-    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
-        let x = activation::relu(self.l1.forward(x));
-        let x = activation::relu(self.l2.forward(x));
-        self.l3.forward(x)
-    }
-}
-
-impl DqnModel<2> for VecMlp {
-    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
-        self.forward_impl(obs)
-    }
+    .try_init(device)
+    .expect("valid Q-network config")
 }
 
 /// Fixed pooled spatial size the conv head is sized against.
@@ -863,9 +846,9 @@ fn bench_env_cycle_lunar(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<LunarLanderObservation> =
         (0..POOL).map(|_| lunar_obs(&mut rng, false)).collect();
-    let mut agent = build_agent::<VecMlp, LunarLanderObservation, 1, 2>(
+    let mut agent = build_agent::<MlpQNetwork, LunarLanderObservation, 1, 2>(
         &device,
-        VecMlp::new(&device),
+        vec_mlp(&device),
         64,
         INGEST_CAPACITY,
         &fixture,
@@ -987,11 +970,11 @@ fn bench_staging_arms(c: &mut Criterion) {
 
 fn bench_ingest_arms(c: &mut Criterion) {
     let device = BenchDevice::Flex.device();
-    bench_ingest::<VecMlp, LunarLanderObservation, 1, 2>(
+    bench_ingest::<MlpQNetwork, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_ingest_lunar_host",
         &device,
-        VecMlp::new,
+        vec_mlp,
         true,
         lunar_obs,
     );
@@ -1015,23 +998,23 @@ fn bench_ingest_arms(c: &mut Criterion) {
 
 fn bench_learn_step_denominators(c: &mut Criterion) {
     let flex = BenchDevice::Flex.device();
-    bench_learn_step::<VecMlp, LunarLanderObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_learn_step_lunar_flex",
         &flex,
         100,
         &VEC_BATCHES,
-        VecMlp::new,
+        vec_mlp,
         lunar_obs,
     );
     let wgpu = BenchDevice::Wgpu.device();
-    bench_learn_step::<VecMlp, LunarLanderObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_learn_step_lunar_wgpu",
         &wgpu,
         20,
         &VEC_BATCHES,
-        VecMlp::new,
+        vec_mlp,
         lunar_obs,
     );
     bench_learn_step::<ImgConvNet, CarRacingObservation, 3, 4>(

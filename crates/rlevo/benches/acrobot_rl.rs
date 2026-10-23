@@ -27,9 +27,6 @@
 //! cargo bench -p rlevo --bench acrobot_rl -- --test
 //! ```
 
-#[path = "support/value_nets.rs"]
-mod value_nets;
-
 use burn::tensor::Device;
 use std::hint::black_box;
 
@@ -52,6 +49,9 @@ use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig
 use rlevo_reinforcement_learning::algorithms::c51::train::train as train_c51;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
+    MlpDistributionalQ, MlpDistributionalQConfig, MlpQNetwork, MlpQNetworkConfig,
+};
 use rlevo_reinforcement_learning::algorithms::dqn::train::train as train_dqn;
 use rlevo_reinforcement_learning::algorithms::ppg::policies::{
     PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
@@ -60,12 +60,11 @@ use rlevo_reinforcement_learning::algorithms::ppg::ppg_agent::PpgAgent;
 use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfig;
 use rlevo_reinforcement_learning::algorithms::ppg::train::train_discrete as train_ppg;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::qrdqn::train::train as train_qrdqn;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-
-use value_nets::{C51Mlp, QrDqnMlp, ValueMlp, VecMlpDqn};
 
 const SEED: u64 = 2026;
 /// Observation width:
@@ -86,10 +85,10 @@ const V_MAX: f32 = 0.0;
 
 type Env = TimeLimit<Acrobot<BookDynamics>>;
 
-type DqnAcrobotAgent = DqnAgent<VecMlpDqn, AcrobotObservation, AcrobotAction, 1, 2>;
-type C51AcrobotAgent = C51Agent<C51Mlp, AcrobotObservation, AcrobotAction, 1, 2>;
-type QrDqnAcrobotAgent = QrDqnAgent<QrDqnMlp, AcrobotObservation, AcrobotAction, 1, 2>;
-type PpgAcrobotAgent = PpgAgent<PpgCategoricalPolicyHead, ValueMlp, AcrobotObservation, 1, 2>;
+type DqnAcrobotAgent = DqnAgent<MlpQNetwork, AcrobotObservation, AcrobotAction, 1, 2>;
+type C51AcrobotAgent = C51Agent<MlpDistributionalQ, AcrobotObservation, AcrobotAction, 1, 2>;
+type QrDqnAcrobotAgent = QrDqnAgent<MlpDistributionalQ, AcrobotObservation, AcrobotAction, 1, 2>;
+type PpgAcrobotAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, AcrobotObservation, 1, 2>;
 
 // ---------------------------------------------------------------------------
 // Environment factory
@@ -129,7 +128,13 @@ fn train_dqn_agent() -> DqnAcrobotAgent {
         double_q: true,
         ..Default::default()
     };
-    let model: VecMlpDqn = VecMlpDqn::new(OBS_FEATURES, HIDDEN, ACTIONS, &device);
+    let model = MlpQNetworkConfig {
+        obs_dim: OBS_FEATURES,
+        hidden: vec![HIDDEN, HIDDEN],
+        num_actions: ACTIONS,
+    }
+    .try_init(&device)
+    .expect("valid Q-network config");
     let mut agent: DqnAcrobotAgent = DqnAgent::new(model, config, device).expect("valid config");
     train_dqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training");
     agent
@@ -156,7 +161,14 @@ fn train_c51_agent() -> C51AcrobotAgent {
         v_max: V_MAX,
         ..Default::default()
     };
-    let model: C51Mlp = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
+    let model = MlpDistributionalQConfig {
+        obs_dim: OBS_FEATURES,
+        hidden: vec![HIDDEN, HIDDEN],
+        num_actions: ACTIONS,
+        num_atoms: NUM_ATOMS,
+    }
+    .try_init(&device)
+    .expect("valid C51 network config");
     let mut agent: C51AcrobotAgent = C51Agent::new(model, config, device).expect("valid config");
     train_c51(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("c51 training");
     agent
@@ -182,7 +194,14 @@ fn train_qrdqn_agent() -> QrDqnAcrobotAgent {
         kappa: 1.0,
         ..Default::default()
     };
-    let model: QrDqnMlp = QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
+    let model = MlpDistributionalQConfig {
+        obs_dim: OBS_FEATURES,
+        hidden: vec![HIDDEN, HIDDEN],
+        num_actions: ACTIONS,
+        num_atoms: NUM_QUANTILES,
+    }
+    .try_init(&device)
+    .expect("valid QR-DQN network config");
     let mut agent: QrDqnAcrobotAgent =
         QrDqnAgent::new(model, config, device).expect("valid config");
     train_qrdqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("qrdqn training");
@@ -201,7 +220,12 @@ fn train_ppg_agent() -> PpgAcrobotAgent {
     }
     .try_init(&device)
     .expect("valid head config");
-    let value: ValueMlp = ValueMlp::new(OBS_FEATURES, HIDDEN, &device);
+    let value = MlpValueConfig {
+        obs_dim: OBS_FEATURES,
+        hidden: vec![HIDDEN, HIDDEN],
+    }
+    .try_init(&device)
+    .expect("valid value network config");
     let config = PpgConfig {
         ppo: PpoTrainingConfig {
             num_envs: 1,

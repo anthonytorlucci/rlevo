@@ -24,10 +24,11 @@ use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
 use rlevo_environments::wrappers::TimeLimit;
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{MlpCritic, MlpCriticConfig};
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
 use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
-    ContinuousQ, SampleOutput, SquashedGaussianPolicy,
+    SampleOutput, SquashedGaussianPolicy,
 };
 use rlevo_reinforcement_learning::algorithms::sac::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
@@ -117,37 +118,22 @@ impl SquashedGaussianPolicy<2, 2> for StochasticActor {
 }
 
 // ---------------------------------------------------------------------------
-// Critic. Implements SAC's Q-trait and so stays test-local.
+// Critic: the crate's default, with one hidden layer.
 // ---------------------------------------------------------------------------
 
-#[derive(Module, Debug)]
-struct Critic {
-    fc1: Linear,
-    head: Linear,
-}
-
-impl Critic {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
-            head: LinearConfig::new(hidden, 1).init(device),
-        }
+fn critic(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> MlpCritic {
+    MlpCriticConfig {
+        obs_dim,
+        action_dim,
+        hidden: vec![hidden],
     }
-    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        let x = Tensor::cat(vec![obs, act], 1);
-        let h = relu(self.fc1.forward(x));
-        self.head.forward(h).squeeze_dim::<1>(1)
-    }
-}
-
-impl ContinuousQ<2, 2> for Critic {
-    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        self.forward_impl(obs, act)
-    }
+    .try_init(device)
+    .expect("valid critic config")
 }
 
 // Concrete SAC agent over the shared 1-D continuous fixture.
-type LinearAgent = SacAgent<StochasticActor, Critic, LinearObservation, LinearAction, 1, 2, 1, 2>;
+type LinearAgent =
+    SacAgent<StochasticActor, MlpCritic, LinearObservation, LinearAction, 1, 2, 1, 2>;
 
 /// Drives `agent` against `env` for `steps` env steps, storing every transition
 /// and ticking the warm-up counter. Used to prime the replay buffer past
@@ -187,8 +173,8 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let actor: StochasticActor = StochasticActor::new(1, 32, 1, 1.0, &device);
-    let critic_1: Critic = Critic::new(1, 1, 32, &device);
-    let critic_2: Critic = Critic::new(1, 1, 32, &device);
+    let critic_1 = critic(1, 1, 32, &device);
+    let critic_2 = critic(1, 1, 32, &device);
     let config = SacTrainingConfig {
         replay_buffer_capacity: 20_000,
         batch_size: 32,
@@ -277,8 +263,8 @@ fn sac_alpha_moves_under_autotune() {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let actor: StochasticActor = StochasticActor::new(1, 16, 1, 1.0, &device);
-    let critic_1: Critic = Critic::new(1, 1, 16, &device);
-    let critic_2: Critic = Critic::new(1, 1, 16, &device);
+    let critic_1 = critic(1, 1, 16, &device);
+    let critic_2 = critic(1, 1, 16, &device);
     let config = SacTrainingConfig {
         replay_buffer_capacity: 2_048,
         batch_size: 16,
@@ -321,8 +307,8 @@ fn sac_alpha_frozen_when_autotune_disabled() {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let actor: StochasticActor = StochasticActor::new(1, 16, 1, 1.0, &device);
-    let critic_1: Critic = Critic::new(1, 1, 16, &device);
-    let critic_2: Critic = Critic::new(1, 1, 16, &device);
+    let critic_1 = critic(1, 1, 16, &device);
+    let critic_2 = critic(1, 1, 16, &device);
     let config = SacTrainingConfig {
         replay_buffer_capacity: 2_048,
         batch_size: 16,
@@ -365,8 +351,8 @@ fn sac_pendulum_improves_over_random() {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let actor: StochasticActor = StochasticActor::new(3, 64, 1, 2.0, &device);
-    let critic_1: Critic = Critic::new(3, 1, 64, &device);
-    let critic_2: Critic = Critic::new(3, 1, 64, &device);
+    let critic_1 = critic(3, 1, 64, &device);
+    let critic_2 = critic(3, 1, 64, &device);
     let config = SacTrainingConfig {
         replay_buffer_capacity: 30_000,
         batch_size: 64,
@@ -383,7 +369,7 @@ fn sac_pendulum_improves_over_random() {
     };
     let mut agent: SacAgent<
         StochasticActor,
-        Critic,
+        MlpCritic,
         PendulumObservation,
         PendulumAction,
         1,

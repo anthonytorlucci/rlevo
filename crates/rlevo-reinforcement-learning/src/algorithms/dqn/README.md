@@ -55,31 +55,23 @@ impl DqnModel<2> for MyDqn {
 }
 ```
 
-## Running the example
-
-```bash
-cargo run -p rlevo-reinforcement-learning --release --example dqn_cart_pole -- \
-    --seed 42 --total-timesteps 50000 --log-every 1000
-```
-
-On ndarray the 100-episode moving average climbs past 100 within ~15k env
-steps and past 180 within 30k. Reference curve, kept as a record (no test or
-bench reads it): `crates/rlevo/tests/baselines/dqn_cartpole.csv` in the
-workspace repository.
-
 ## Tests
 
-```bash
-cargo test -p rlevo-reinforcement-learning --release --test dqn_integration
-```
-
-Two reproducibility/smoke tests are gated behind `#[ignore]` because they
-perturb Burn's global ndarray RNG when run in parallel. Exercise them with:
+The CartPole integration tests live in the umbrella crate:
 
 ```bash
-cargo test -p rlevo-reinforcement-learning --release --test dqn_integration -- \
-    --ignored --test-threads=1
+cargo test -p rlevo --test dqn_integration
 ```
+
+The convergence and reproducibility tests are `#[ignore]`d and run in the
+heavy tier:
+
+```bash
+cargo xtask test-heavy dqn_integration
+```
+
+A reference learning curve, kept as a record (no test or bench reads it), is
+`crates/rlevo/tests/baselines/dqn_cartpole.csv` in the workspace repository.
 
 ## References
 

@@ -13,18 +13,17 @@ implementation details follow
 
 ## Quick start
 
-Discrete env (CartPole, Acrobot, ...):
+Discrete env (CartPole), with a terminal dashboard:
 
 ```bash
-cargo run -p rlevo-reinforcement-learning --release --example ppo_cart_pole -- \
-  --seed 42 --total-timesteps 50000 --num-steps 128 --log-every 4096
+cargo run -p rlevo-examples --release --features viz-tui --example tui_ppo_cartpole
 ```
 
-Continuous env (Pendulum, MountainCarContinuous, ...):
+Continuous env (Pendulum), against a random baseline, beside DDPG, TD3 and
+SAC:
 
 ```bash
-cargo run -p rlevo-reinforcement-learning --release --example ppo_pendulum -- \
-  --seed 42 --total-timesteps 100000 --num-steps 2048 --log-every 4096
+cargo bench -p rlevo --bench pendulum_rl -- --test
 ```
 
 ## 37 details — coverage in v1
