@@ -13,7 +13,6 @@
 #![cfg(feature = "record")]
 
 use rlevo_benchmarks_report_client::wire as client;
-use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
 use rlevo_core::render::{
     BodyKind, CardTable, Classic2DBody, Classic2DRole, Classic2DSnapshot, Color, GridAgentMarker,
     GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
@@ -21,16 +20,13 @@ use rlevo_core::render::{
     TabularSnapshot,
 };
 use rlevo_harness::record::{
-    Box2dPayload as NativeBox2dPayload, CheckpointFormat as NativeCheckpointFormat,
-    CheckpointKind as NativeCheckpointKind, CheckpointRef as NativeCheckpointRef,
-    Classic2DPayload as NativeClassic2DPayload, EnvFamily as NativeFamily,
-    EpisodeKind as NativeEpisodeKind, EpisodeRecord as NativeRecord,
+    Box2dPayload as NativeBox2dPayload, Classic2DPayload as NativeClassic2DPayload,
+    EnvFamily as NativeFamily, EpisodeKind as NativeEpisodeKind, EpisodeRecord as NativeRecord,
     EpisodeRecordHeader as NativeHeader, FORMAT_VERSION as NATIVE_VERSION,
     FamilyPayload as NativePayload, FrameRecord as NativeFrame, GridPayload as NativeGridPayload,
     Landscape2DPayload as NativeLandscapePayload, Locomotion2DPayload as NativeLocomotionPayload,
     MetricSample as NativeMetric, PopulationSample as NativePopulationSample, RunId as NativeRunId,
-    RunManifest as NativeManifest, TabularPayload as NativeTabularPayload,
-    TrialRef as NativeTrialRef, bincode_config,
+    TabularPayload as NativeTabularPayload, TrialRef as NativeTrialRef, bincode_config,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -362,6 +358,12 @@ fn native_encode_decodes_via_client_wire_types() {
 #[test]
 #[cfg(feature = "json")]
 fn manifest_provenance_and_checkpoints_mirror_via_json() {
+    use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
+    use rlevo_harness::record::{
+        CheckpointFormat as NativeCheckpointFormat, CheckpointKind as NativeCheckpointKind,
+        CheckpointRef as NativeCheckpointRef, RunManifest as NativeManifest,
+    };
+
     // The report client reads the manifest as JSON; guard that the v6
     // provenance fields + checkpoint list survive the host→client decode.
     let mut native = NativeManifest::new(NativeRunId("m6".into()), 7, NativeFamily::Classic, 1);
