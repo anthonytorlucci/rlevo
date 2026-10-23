@@ -29,7 +29,7 @@
 //! dates from operators that drew from process-global backend generators.
 //! Nothing here touches one now.
 
-use burn::backend::{Flex, Wgpu};
+use burn::tensor::Device;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
 use rlevo_core::rate::NonNegativeRate;
@@ -47,15 +47,12 @@ impl Landscape for Sphere {
     }
 }
 
-fn run_sphere_ga<B>(seed: u64, gens: usize, device: B::Device) -> f32
+fn run_sphere_ga(seed: u64, gens: usize, device: Device) -> f32
 where
-    B: burn::tensor::backend::Backend,
-    B::Device: Clone,
-    GeneticAlgorithm<B>: Strategy<
-            B,
+    GeneticAlgorithm: Strategy<
             Params = GaConfig,
-            State = rlevo_evolution::algorithms::ga::GaState<B>,
-            Genome = burn::tensor::Tensor<B, 2>,
+            State = rlevo_evolution::algorithms::ga::GaState,
+            Genome = burn::tensor::Tensor<2>,
         >,
 {
     let params = GaConfig {
@@ -69,8 +66,8 @@ where
         },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
-        GeneticAlgorithm::<B>::new(),
+    let mut evo_loop = EvolutionaryLoop::new(
+        GeneticAlgorithm::new(),
         params,
         FromLandscape::new(Sphere),
         seed,
@@ -85,20 +82,17 @@ where
     evo_loop.latest_metrics().unwrap().best_fitness_ever()
 }
 
-fn run_sphere_pso<B>(seed: u64, gens: usize, device: B::Device) -> f32
+fn run_sphere_pso(seed: u64, gens: usize, device: Device) -> f32
 where
-    B: burn::tensor::backend::Backend,
-    B::Device: Clone,
-    ParticleSwarm<B>: Strategy<
-            B,
+    ParticleSwarm: Strategy<
             Params = PsoConfig,
-            State = rlevo_evolution::algorithms::metaheuristic::pso::PsoState<B>,
-            Genome = burn::tensor::Tensor<B, 2>,
+            State = rlevo_evolution::algorithms::metaheuristic::pso::PsoState,
+            Genome = burn::tensor::Tensor<2>,
         >,
 {
     let params = PsoConfig::default_for(32, 10);
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
-        ParticleSwarm::<B>::new(),
+    let mut evo_loop = EvolutionaryLoop::new(
+        ParticleSwarm::new(),
         params,
         FromLandscape::new(Sphere),
         seed,
@@ -121,8 +115,8 @@ fn wgpu_matches_flex_on_sphere_d10() {
 
     // Run flex first so the host seed state is deterministic; wgpu
     // has its own per-device stream and doesn't disturb it.
-    let flex_ga = run_sphere_ga::<Flex>(SEED, GENS, Default::default());
-    let flex_pso = run_sphere_pso::<Flex>(SEED, GENS, Default::default());
+    let flex_ga = run_sphere_ga(SEED, GENS, Default::default());
+    let flex_pso = run_sphere_pso(SEED, GENS, Default::default());
 
     // Initializing a wgpu device aborts (not a catchable error) on hosts
     // without a GPU adapter: cubecl-wgpu panics on a worker thread and the
@@ -131,9 +125,9 @@ fn wgpu_matches_flex_on_sphere_d10() {
     // gated behind `#[ignore]` and only runs when explicitly requested on a
     // GPU-equipped host. Flex operator correctness is independently covered
     // by `tests/determinism.rs` and the per-algorithm convergence tests.
-    let wgpu_device: burn::backend::wgpu::WgpuDevice = Default::default();
-    let wgpu_ga = run_sphere_ga::<Wgpu>(SEED, GENS, wgpu_device.clone());
-    let wgpu_pso = run_sphere_pso::<Wgpu>(SEED, GENS, wgpu_device);
+    let wgpu_device = Device::wgpu(Default::default());
+    let wgpu_ga = run_sphere_ga(SEED, GENS, wgpu_device.clone());
+    let wgpu_pso = run_sphere_pso(SEED, GENS, wgpu_device);
 
     // Both backends should compose the operators correctly and drive GA to a non-trivial optimum.
     // "Non-trivial" here means well below the random-initialization baseline on Sphere-D10

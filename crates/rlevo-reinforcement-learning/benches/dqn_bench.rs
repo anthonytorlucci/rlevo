@@ -7,11 +7,9 @@
 //! every timed `act` call takes the exploring branch and does not run the
 //! Q-network.
 
-use burn::backend::{Autodiff, Flex};
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, activation};
+use burn::tensor::{Device, Tensor, activation};
 
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
@@ -31,35 +29,32 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 // MLP mirror of the example. Kept inline so the bench file is self-contained.
 
 #[derive(Module, Debug)]
-struct DqnMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+struct DqnMlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
 }
 
-impl<B: Backend> DqnMlp<B> {
-    fn new(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+impl DqnMlp {
+    fn new(device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
             l3: LinearConfig::new(64, 2).init(device),
         }
     }
-    fn forward_impl(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
         let x = activation::relu(self.l1.forward(x));
         let x = activation::relu(self.l2.forward(x));
         self.l3.forward(x)
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DqnModel<2> for DqnMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
         inner.forward_impl(obs)
     }
     // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
@@ -67,24 +62,15 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<DqnMlp>(&active.valid(), target, tau as f32)
     }
 }
 
-type Be = Autodiff<Flex>;
-type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = DqnAgent<DqnMlp, CartPoleObservation, CartPoleAction, 1, 2>;
 
 fn build_agent() -> Agent {
-    let device = Default::default();
+    let device = Device::flex();
     let config = DqnTrainingConfig {
         batch_size: 64,
         replay_buffer_capacity: 10_000,
@@ -92,7 +78,7 @@ fn build_agent() -> Agent {
         train_frequency: 1,
         ..Default::default()
     };
-    let model: DqnMlp<Be> = DqnMlp::new(&device);
+    let model: DqnMlp = DqnMlp::new(&device);
     DqnAgent::new(model, config, device).expect("valid config")
 }
 

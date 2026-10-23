@@ -31,12 +31,10 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation;
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Device, Tensor};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -125,42 +123,35 @@ impl Environment<1, 1> for FixedLenEnv {
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
-struct DqnMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
+struct DqnMlp {
+    l1: Linear,
+    l2: Linear,
 }
 
-impl<B: Backend> DqnMlp<B> {
-    fn new(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+impl DqnMlp {
+    fn new(device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 32).init(device),
             l2: LinearConfig::new(32, 2).init(device),
         }
     }
 
-    fn forward_impl(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<2> {
         let x = activation::relu(self.l1.forward(observations));
         self.l2.forward(x)
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
-    fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DqnModel<2> for DqnMlp {
+    fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
         self.forward_impl(observations)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<2> {
         inner.forward_impl(observations)
     }
 
-    fn soft_update(
-        _active: &Self,
-        target: Self::InnerModule,
-        _tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
+    fn soft_update(_active: &Self, target: Self, _tau: f64) -> Result<Self, PolyakError> {
         // Never reached. The target update lives inside `learn_step` (ADR
         // 0059), past the `can_learn()` gate, and `learning_starts` exceeds the
         // whole step budget — so `learn_step` returns before any gradient
@@ -168,8 +159,6 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
         Ok(target)
     }
 }
-
-type Be = Autodiff<Flex>;
 
 /// Drive the real `dqn::train` loop against [`FixedLenEnv`] through a
 /// [`RecordingTap`] for `total_steps`, finalise the run, and re-open it.
@@ -198,8 +187,8 @@ fn run_recording(total_steps: usize) -> RecordedRun {
     let mut env: RecordingTap<FixedLenEnv, 1, 1> =
         RecordingTap::new_headless(FixedLenEnv::new(), sink.clone(), |_| FamilyPayload::Ascii);
 
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = Device::flex();
+    device.seed(seed);
     let config = DqnTrainingConfig {
         batch_size: 8,
         // Keep the whole run in the pre-learning window: no gradient steps and
@@ -215,8 +204,8 @@ fn run_recording(total_steps: usize) -> RecordedRun {
         replay_buffer_capacity: 1_000,
         ..Default::default()
     };
-    let model: DqnMlp<Be> = DqnMlp::new(&device);
-    let mut agent: DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2> =
+    let model: DqnMlp = DqnMlp::new(&device);
+    let mut agent: DqnAgent<DqnMlp, CartPoleObservation, CartPoleAction, 1, 2> =
         DqnAgent::new(model, config, device).expect("valid config");
 
     let mut rng = StdRng::seed_from_u64(seed);

@@ -18,8 +18,7 @@ use std::marker::PhantomData;
 
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::{Adam, GradientsParams};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{ElementConversion, Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -162,15 +161,15 @@ pub struct LearnOutcome {
 ///
 /// Exposed at crate visibility so the unit tests can exercise the SAC
 /// entropy-augmented backup without standing up a full agent.
-pub(crate) fn compute_sac_target<BK: Backend>(
-    rewards: Tensor<BK, 1>,
-    next_q1: Tensor<BK, 1>,
-    next_q2: Tensor<BK, 1>,
-    next_log_prob: Tensor<BK, 1>,
+pub(crate) fn compute_sac_target(
+    rewards: Tensor<1>,
+    next_q1: Tensor<1>,
+    next_q2: Tensor<1>,
+    next_log_prob: Tensor<1>,
     alpha: f32,
-    terminated: Tensor<BK, 1>,
+    terminated: Tensor<1>,
     gamma: f32,
-) -> Tensor<BK, 1> {
+) -> Tensor<1> {
     let min_q = next_q1.min_pair(next_q2);
     let entropy_adjusted = min_q - next_log_prob.mul_scalar(alpha);
     compute_target_q_values(rewards, entropy_adjusted, terminated, gamma)
@@ -201,7 +200,6 @@ pub(crate) fn compute_sac_target<BK: Backend>(
 /// is nonetheless terminal for the network it was stepping — see [`Slot`] for
 /// why that residual window cannot be closed.
 pub struct SacAgent<
-    B,
     Actor,
     Critic,
     O,
@@ -211,10 +209,9 @@ pub struct SacAgent<
     const AR: usize,
     const BAR: usize,
 > where
-    B: AutodiffBackend,
-    Actor: SquashedGaussianPolicy<B, BOR, BAR>,
-    Critic: ContinuousQ<B, BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    Actor: SquashedGaussianPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: BoundedAction<AR>,
 {
     actor: Slot<Actor>,
@@ -223,11 +220,11 @@ pub struct SacAgent<
     // actor so `learn_step` never has to call `.valid()` on a Module that
     // also participates in the critic autodiff graph — on Burn 0.20's
     // shared autodiff server, running `.valid()` mid-learn was unstable.
-    actor_snapshot: Actor::InnerModule,
+    actor_snapshot: Actor,
     critic_1: Slot<Critic>,
     critic_2: Slot<Critic>,
-    target_critic_1: Critic::InnerModule,
-    target_critic_2: Critic::InnerModule,
+    target_critic_1: Critic,
+    target_critic_2: Critic,
     log_alpha: LogAlpha,
     actor_opt: OptimizerAdaptor<Adam, Actor, B>,
     critic_1_opt: OptimizerAdaptor<Adam, Critic, B>,
@@ -237,7 +234,7 @@ pub struct SacAgent<
     high: &'static [f32],
     target_entropy: f32,
     config: SacTrainingConfig,
-    device: B::Device,
+    device: Device,
     step: usize,
     critic_updates: usize,
     stats: AgentStats<SacMetrics>,
@@ -287,13 +284,12 @@ pub struct SacAgent<
     _action: PhantomData<A>,
 }
 
-impl<B, Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    std::fmt::Debug for SacAgent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    std::fmt::Debug for SacAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
-    B: AutodiffBackend,
-    Actor: SquashedGaussianPolicy<B, BOR, BAR>,
-    Critic: ContinuousQ<B, BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    Actor: SquashedGaussianPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: BoundedAction<AR>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -310,13 +306,12 @@ where
     }
 }
 
-impl<B, Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    SacAgent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    SacAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
-    B: AutodiffBackend,
-    Actor: SquashedGaussianPolicy<B, BOR, BAR>,
-    Critic: ContinuousQ<B, BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    Actor: SquashedGaussianPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: BoundedAction<AR>,
 {
     /// Constructs a new agent from pre-built actor and two independent
@@ -347,7 +342,7 @@ where
         critic_1: Critic,
         critic_2: Critic,
         config: SacTrainingConfig,
-        device: B::Device,
+        device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
         assert_bounds_match_components::<AR, A>();
@@ -357,20 +352,14 @@ where
         let adam = config.optimizer.clone();
         let (actor_opt, critic_1_opt, critic_2_opt) = match &config.clip_grad {
             Some(clip) => (
-                adam.clone()
-                    .with_grad_clipping(Some(clip.clone()))
-                    .init::<B, Actor>(),
-                adam.clone()
-                    .with_grad_clipping(Some(clip.clone()))
-                    .init::<B, Critic>(),
-                adam.clone()
-                    .with_grad_clipping(Some(clip.clone()))
-                    .init::<B, Critic>(),
+                adam.clone().with_grad_clipping(Some(clip.clone())).init(),
+                adam.clone().with_grad_clipping(Some(clip.clone())).init(),
+                adam.clone().with_grad_clipping(Some(clip.clone())).init(),
             ),
             None => (
-                adam.clone().init::<B, Actor>(),
-                adam.clone().init::<B, Critic>(),
-                adam.clone().init::<B, Critic>(),
+                adam.clone().init(),
+                adam.clone().init(),
+                adam.clone().init(),
             ),
         };
         let initial_alpha = config.initial_alpha;
@@ -654,16 +643,16 @@ where
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
-        // Run action-selection on the inner backend so the autodiff graph
+        // Run action-selection on the plain device so the autodiff graph
         // isn't expanded every env step — the result is never `.backward`'d
         // and the orphan graphs otherwise accumulate in Burn 0.20's shared
         // server (and interfere with later critic backwards).
-        let obs_inner: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
-        let batched_inner: Tensor<B::InnerBackend, BOR> = obs_inner.unsqueeze::<BOR>();
+        let obs_inner: Tensor<OR> = obs.to_tensor(&self.device);
+        let batched_inner: Tensor<BOR> = obs_inner.unsqueeze::<BOR>();
 
         let action_dim = self.actor.get().action_dim();
-        let eps: Tensor<B::InnerBackend, BAR> = if training {
-            sample_noise::<B::InnerBackend, BAR>(1, action_dim, &self.device, rng)
+        let eps: Tensor<BAR> = if training {
+            sample_noise::<BAR>(1, action_dim, &self.device, rng)
         } else {
             // `$\epsilon$` = 0 `$\Rightarrow$` z = `$\mu$`, which matches `deterministic_action`
             // for a squashed-Gaussian policy (both evaluate to `$\text{scale} \cdot \tanh(\mu)$`).
@@ -672,7 +661,7 @@ where
                 &self.device,
             )
         };
-        let raw: Tensor<B::InnerBackend, BAR> =
+        let raw: Tensor<BAR> =
             Actor::forward_sample_inner(&self.actor_snapshot, batched_inner, eps).action;
 
         let data = raw.into_data().convert::<f32>();
@@ -862,8 +851,8 @@ where
     #[cfg(test)]
     pub(crate) fn target_checksums(&self) -> [f64; 2] {
         [
-            param_checksum::<B::InnerBackend, _>(&self.target_critic_1),
-            param_checksum::<B::InnerBackend, _>(&self.target_critic_2),
+            param_checksum(&self.target_critic_1),
+            param_checksum(&self.target_critic_2),
         ]
     }
 
@@ -872,8 +861,8 @@ where
     #[cfg(test)]
     pub(crate) fn live_checksums(&self) -> [f64; 2] {
         [
-            param_checksum::<B, _>(self.critic_1.get()),
-            param_checksum::<B, _>(self.critic_2.get()),
+            param_checksum(self.critic_1.get()),
+            param_checksum(self.critic_2.get()),
         ]
     }
 
@@ -981,39 +970,38 @@ where
         batched_action_shape.push(batch_size);
         batched_action_shape.extend_from_slice(&action_shape);
 
-        let obs_t: Tensor<B, BOR> = Tensor::from_data(
+        let obs_t: Tensor<BOR> = Tensor::from_data(
             TensorData::new(obs_flat, batched_obs_shape.clone()),
             &device,
         );
-        let next_t_inner: Tensor<B::InnerBackend, BOR> =
+        let next_t_inner: Tensor<BOR> =
             Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &device);
-        let action_t: Tensor<B, BAR> =
+        let action_t: Tensor<BAR> =
             Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
-        let rewards_inner: Tensor<B::InnerBackend, 1> =
+        let rewards_inner: Tensor<1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
-        let terminated_inner: Tensor<B::InnerBackend, 1> =
+        let terminated_inner: Tensor<1> =
             Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
 
         // --- Target computation (no autodiff) ---
         let action_dim = self.actor.get().action_dim();
-        let next_eps: Tensor<B::InnerBackend, BAR> =
-            sample_noise::<B::InnerBackend, BAR>(batch_size, action_dim, &device, rng);
+        let next_eps: Tensor<BAR> = sample_noise::<BAR>(batch_size, action_dim, &device, rng);
         let next_sample =
             Actor::forward_sample_inner(&self.actor_snapshot, next_t_inner.clone(), next_eps);
         let next_action = next_sample.action;
         let next_log_prob = next_sample.log_prob;
 
-        let next_q1: Tensor<B::InnerBackend, 1> = Critic::forward_inner(
+        let next_q1: Tensor<1> = Critic::forward_inner(
             &self.target_critic_1,
             next_t_inner.clone(),
             next_action.clone(),
         );
-        let next_q2: Tensor<B::InnerBackend, 1> =
+        let next_q2: Tensor<1> =
             Critic::forward_inner(&self.target_critic_2, next_t_inner, next_action);
 
         let alpha_val = self.log_alpha.alpha();
-        let target_inner: Tensor<B::InnerBackend, 1> = compute_sac_target(
+        let target_inner: Tensor<1> = compute_sac_target(
             rewards_inner,
             next_q1,
             next_q2,
@@ -1022,17 +1010,17 @@ where
             terminated_inner,
             self.config.gamma,
         );
-        let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
+        let target: Tensor<1> = Tensor::from_data(target_inner.into_data(), &device);
 
         // --- Critic updates: two independent backward passes ---
         // Both forwards run on borrows, so neither critic leaves its slot for
         // the shared forward / loss / backward region below. The two
         // `step_with` windows are therefore disjoint: `critic_2` survives a
         // panic inside `critic_1`'s optimizer step, and vice versa.
-        let q1_pred: Tensor<B, 1> = self.critic_1.get().forward(obs_t.clone(), action_t.clone());
-        let q2_pred: Tensor<B, 1> = self.critic_2.get().forward(obs_t.clone(), action_t);
+        let q1_pred: Tensor<1> = self.critic_1.get().forward(obs_t.clone(), action_t.clone());
+        let q2_pred: Tensor<1> = self.critic_2.get().forward(obs_t.clone(), action_t);
 
-        // Drop the min-pair scalar to the inner backend before reading it:
+        // Drop the min-pair scalar to the plain device before reading it:
         // on Burn 0.20 `into_scalar` directly on an autodiff tensor can
         // prune shared leaves that the next learn_step still needs.
         let q_mean = q1_pred
@@ -1040,17 +1028,16 @@ where
             .min_pair(q2_pred.clone())
             .mean()
             .inner()
-            .into_scalar()
-            .elem::<f32>();
+            .into_scalar::<f32>();
 
         let loss_1_tensor = (q1_pred - target.clone()).powi_scalar(2).mean();
         let loss_2_tensor = (q2_pred - target).powi_scalar(2).mean();
-        // Drop to the inner backend before reading the scalar so the
+        // Drop to the plain device before reading the scalar so the
         // autodiff graph retaining `target`'s leaf isn't pruned prematurely
         // — on Burn 0.20, calling `into_scalar` directly on an autodiff
         // tensor can free shared nodes that the next backward still needs.
-        let loss_1 = loss_1_tensor.clone().inner().into_scalar().elem::<f32>();
-        let loss_2 = loss_2_tensor.clone().inner().into_scalar().elem::<f32>();
+        let loss_1 = loss_1_tensor.clone().inner().into_scalar::<f32>();
+        let loss_2 = loss_2_tensor.clone().inner().into_scalar::<f32>();
 
         // ADR 0056: the two critics run in DISJOINT backward+step windows (independent graphs), so
         // each site gets its own guard — a non-finite loss in one critic skips only that critic's
@@ -1091,7 +1078,7 @@ where
             .critic_updates
             .is_multiple_of(self.config.policy_frequency)
         {
-            let eps: Tensor<B, BAR> = sample_noise::<B, BAR>(batch_size, action_dim, &device, rng);
+            let eps: Tensor<BAR> = sample_noise::<BAR>(batch_size, action_dim, &device, rng);
             let sample = self.actor.get().forward_sample(obs_t.clone(), eps);
             let log_prob = sample.log_prob;
             // NOTE: canonical SAC uses `min(Q1(s,a), Q2(s,a))` in the actor
@@ -1103,19 +1090,15 @@ where
             // alone; the pessimism still enters the policy via the Bellman
             // target's min-of-twin-target-Q backup, which is the term that
             // drives most of the overestimation control anyway.
-            let min_q_pi: Tensor<B, 1> = self.critic_1.get().forward(obs_t.clone(), sample.action);
+            let min_q_pi: Tensor<1> = self.critic_1.get().forward(obs_t.clone(), sample.action);
 
             let alpha_scalar = self.log_alpha.alpha();
             let actor_loss_tensor = (log_prob.clone().mul_scalar(alpha_scalar) - min_q_pi).mean();
-            let actor_loss_value = actor_loss_tensor
-                .clone()
-                .inner()
-                .into_scalar()
-                .elem::<f32>();
+            let actor_loss_value = actor_loss_tensor.clone().inner().into_scalar::<f32>();
 
             // Capture batch-mean log-prob for the `$\alpha$` Adam update and the entropy metric
             // before consuming the actor graph in backward.
-            let log_prob_mean = log_prob.clone().mean().inner().into_scalar().elem::<f32>();
+            let log_prob_mean = log_prob.clone().mean().inner().into_scalar::<f32>();
             let entropy_value = -log_prob_mean;
 
             // ADR 0056: guard the actor site. A non-finite actor loss
@@ -1194,12 +1177,12 @@ where
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
 #[allow(clippy::cast_possible_truncation)]
-fn sample_noise<BK: Backend, const BAR: usize>(
+fn sample_noise<const BAR: usize>(
     rows: usize,
     cols: usize,
-    device: &<BK as burn::tensor::backend::BackendTypes>::Device,
+    device: &Device,
     rng: &mut (impl Rng + ?Sized),
-) -> Tensor<BK, BAR> {
+) -> Tensor<BAR> {
     use rand_distr::{Distribution, StandardNormal};
     let mut data: Vec<f32> = Vec::with_capacity(rows * cols);
     let normal = StandardNormal;
@@ -1207,7 +1190,7 @@ fn sample_noise<BK: Backend, const BAR: usize>(
         let x: f64 = normal.sample(rng);
         data.push(x as f32);
     }
-    Tensor::<BK, BAR>::from_data(TensorData::new(data, vec![rows, cols]), device)
+    Tensor::<BAR>::from_data(TensorData::new(data, vec![rows, cols]), device)
 }
 
 #[cfg(test)]
@@ -1220,10 +1203,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
     use super::*;
     use crate::MAX_BUFFER_CAPACITY;
-    use burn::backend::Flex;
     use rlevo_core::config::ConstraintKind;
-
-    type TestBackend = Flex;
 
     #[test]
     fn test_sac_metrics_performance_record_returns_reward_and_steps() {
@@ -1256,27 +1236,17 @@ mod tests {
     ///   = `[1.855, 0.560, 0.300]`
     #[test]
     fn test_sac_target_includes_entropy_term() {
-        let device = Default::default();
-        let rewards = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]),
-            &device,
-        );
-        let next_q1 = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]),
-            &device,
-        );
-        let next_q2 = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]),
-            &device,
-        );
-        let next_logp = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]),
-            &device,
-        );
-        let terminated = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]),
-            &device,
-        );
+        let device = Device::flex();
+        let rewards =
+            Tensor::<1>::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]), &device);
+        let next_q1 =
+            Tensor::<1>::from_data(TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]), &device);
+        let next_q2 =
+            Tensor::<1>::from_data(TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]), &device);
+        let next_logp =
+            Tensor::<1>::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]), &device);
+        let terminated =
+            Tensor::<1>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]), &device);
 
         let target = compute_sac_target(rewards, next_q1, next_q2, next_logp, 0.5, terminated, 0.9);
         let data = target.into_data().convert::<f32>();
@@ -1290,28 +1260,17 @@ mod tests {
     /// boundary (higher |logp|) should raise the actor loss by `$\alpha \cdot \Delta\text{logp}$`.
     #[test]
     fn actor_loss_penalizes_higher_log_prob() {
-        let device = Default::default();
-        let min_q = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![1.0_f32; 4], vec![4]),
-            &device,
-        );
-        let logp_low = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![-0.5_f32; 4], vec![4]),
-            &device,
-        );
-        let logp_high = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![0.5_f32; 4], vec![4]),
-            &device,
-        );
+        let device = Device::flex();
+        let min_q = Tensor::<1>::from_data(TensorData::new(vec![1.0_f32; 4], vec![4]), &device);
+        let logp_low = Tensor::<1>::from_data(TensorData::new(vec![-0.5_f32; 4], vec![4]), &device);
+        let logp_high = Tensor::<1>::from_data(TensorData::new(vec![0.5_f32; 4], vec![4]), &device);
         let alpha = 0.3_f32;
         let low_loss = (logp_low.mul_scalar(alpha) - min_q.clone())
             .mean()
-            .into_scalar()
-            .elem::<f32>();
+            .into_scalar::<f32>();
         let high_loss = (logp_high.mul_scalar(alpha) - min_q)
             .mean()
-            .into_scalar()
-            .elem::<f32>();
+            .into_scalar::<f32>();
         // `$\Delta = \alpha(0.5 - (-0.5)) = 0.3$`.
         assert!((high_loss - low_loss - 0.3).abs() < 1e-5);
         assert!(high_loss > low_loss);
@@ -1322,32 +1281,21 @@ mod tests {
     use crate::algorithms::bootstrap_mask::{
         MaskContinuousAction, MaskObservation, TinyCritic, TinySacActor,
     };
-    use burn::backend::Autodiff;
     use burn::module::{Module, ModuleMapper, Param};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::action::ContinuousAction;
 
-    type TestAdBackend = Autodiff<Flex>;
-    type GuardAgent = SacAgent<
-        TestAdBackend,
-        TinySacActor<TestAdBackend>,
-        TinyCritic<TestAdBackend>,
-        MaskObservation,
-        MaskContinuousAction,
-        1,
-        2,
-        1,
-        2,
-    >;
+    type GuardAgent =
+        SacAgent<TinySacActor, TinyCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// critic that has diverged to non-finite weights — the realistic source of
     /// a single non-finite critic loss.
     struct NanInjector;
 
-    impl<B: Backend> ModuleMapper<B> for NanInjector {
-        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+    impl ModuleMapper for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
             let (id, tensor, mapper) = param.consume();
             Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
         }
@@ -1362,22 +1310,15 @@ mod tests {
     /// Evaluates critic-2 on a fixed (obs, action) pair and reads the scalar
     /// back — a change across a learn step proves the weights were updated.
     fn critic_2_probe(agent: &GuardAgent) -> f32 {
-        let device = Default::default();
-        let obs = Tensor::<TestAdBackend, 2>::from_data(
-            TensorData::new(vec![0.3_f32, 0.7], vec![1, 2]),
-            &device,
-        );
-        let act = Tensor::<TestAdBackend, 2>::from_data(
-            TensorData::new(vec![0.0_f32], vec![1, 1]),
-            &device,
-        );
+        let device = Device::flex();
+        let obs = Tensor::<2>::from_data(TensorData::new(vec![0.3_f32, 0.7], vec![1, 2]), &device);
+        let act = Tensor::<2>::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
         agent
             .critic_2
             .get()
             .forward(obs, act)
             .inner()
-            .into_scalar()
-            .elem::<f32>()
+            .into_scalar::<f32>()
     }
 
     /// One diverged critic must not poison the other (ADR 0056, `.inner()`
@@ -1388,7 +1329,7 @@ mod tests {
     /// critic-1's update while critic-2 still learns and the agent stays finite.
     #[test]
     fn test_sac_agent_one_nonfinite_critic_skips_only_that_critic() {
-        let device = Default::default();
+        let device = Device::flex();
         let config = SacTrainingConfig {
             batch_size: 2,
             learning_starts: 0,
@@ -1402,9 +1343,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinySacActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinySacActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -1514,7 +1455,7 @@ mod tests {
     /// every multi-step run onto "both critics skip", destroying the unequal
     /// per-site counts these tests exist to distinguish.
     fn poisoned_critic_1_agent(policy_frequency: usize) -> GuardAgent {
-        let device = Default::default();
+        let device = Device::flex();
         let config = SacTrainingConfig {
             batch_size: 2,
             learning_starts: 0,
@@ -1529,9 +1470,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinySacActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinySacActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -1748,8 +1689,8 @@ mod tests {
     /// *clone*, so `ParamId`s are preserved and the Polyak pairing stays valid.
     struct AddConstant(f32);
 
-    impl<B: Backend> ModuleMapper<B> for AddConstant {
-        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+    impl ModuleMapper for AddConstant {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
             let (id, tensor, mapper) = param.consume();
             Param::from_mapped_value(id, tensor.add_scalar(self.0), mapper)
         }
@@ -1758,7 +1699,7 @@ mod tests {
     /// A primed agent whose live critics are held a known distance from their
     /// targets, so every cadence assertion below is non-vacuous.
     fn cadence_agent(target_update: TargetUpdate) -> GuardAgent {
-        let device = Default::default();
+        let device = Device::flex();
         let config = SacTrainingConfig {
             batch_size: 2,
             learning_starts: 0,
@@ -1771,9 +1712,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinySacActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinySacActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -1892,12 +1833,12 @@ mod tests {
 
     #[test]
     fn test_sac_agent_remember_drops_a_nonfinite_reward() {
-        let device = Default::default();
+        let device = Device::flex();
         let config = SacTrainingConfig::default();
         let mut agent = GuardAgent::new(
-            TinySacActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinySacActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -1945,15 +1886,15 @@ mod tests {
 
     /// A fresh agent with capacity to spare, for the observation-guard tests.
     fn obs_guard_agent() -> GuardAgent {
-        let device = Default::default();
+        let device = Device::flex();
         let config = SacTrainingConfig {
             replay_buffer_capacity: 64,
             ..Default::default()
         };
         GuardAgent::new(
-            TinySacActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinySacActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -2119,15 +2060,15 @@ mod tests {
         ];
 
         for (capacity, kind) in cases {
-            let device = Default::default();
+            let device = Device::flex();
             let config = SacTrainingConfig {
                 replay_buffer_capacity: capacity,
                 ..SacTrainingConfig::default()
             };
             let Err(err) = GuardAgent::new(
-                TinySacActor::<TestAdBackend>::new(&device),
-                TinyCritic::<TestAdBackend>::new(&device),
-                TinyCritic::<TestAdBackend>::new(&device),
+                TinySacActor::new(&device),
+                TinyCritic::new(&device),
+                TinyCritic::new(&device),
                 config,
                 device,
             ) else {

@@ -15,10 +15,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use burn::module::AutodiffModule;
 use burn::optim::{GradientsParams, LearningRate, Optimizer};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::action::BoundedAction;
 
@@ -120,14 +118,13 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 /// use burn::tensor::{Device, Tensor};
 /// use rlevo_reinforcement_learning::algorithms::Slot;
 ///
-/// type B = Autodiff<Flex>;
 ///
-/// let device = Device::<B>::default();
-/// let mut net = Slot::new(LinearConfig::new(2, 1).init::<B>(&device));
-/// let mut optimizer = AdamConfig::new().init::<B, Linear<B>>();
+/// let device = Device::flex().autodiff();
+/// let mut net = Slot::new(LinearConfig::new(2, 1).init(&device));
+/// let mut optimizer = AdamConfig::new().init();
 ///
 /// // A panic anywhere in these three lines leaves `net` populated.
-/// let input = Tensor::<B, 2>::from_floats([[0.5_f32, -0.25]], &device);
+/// let input = Tensor::<2>::from_floats([[0.5_f32, -0.25]], &device);
 /// let loss = net.get().forward(input).sum();
 /// let grads = GradientsParams::from_grads(loss.backward(), net.get());
 ///
@@ -256,11 +253,10 @@ pub(crate) fn assert_bounds_match_components<const AR: usize, A: BoundedAction<A
 /// `COMPONENTS` long — so an action using ADR 0053 §8's Convention B (rank > 1
 /// with a non-matching `shape()` product) is unusable with these agents, and
 /// says so here rather than as a `TensorData` shape error.
-pub(crate) fn action_bound_tensors<B, A, const AR: usize, const BAR: usize>(
-    device: &B::Device,
-) -> (Tensor<B, BAR>, Tensor<B, BAR>)
+pub(crate) fn action_bound_tensors<A, const AR: usize, const BAR: usize>(
+    device: &Device,
+) -> (Tensor<BAR>, Tensor<BAR>)
 where
-    B: Backend,
     A: BoundedAction<AR>,
 {
     let action_shape = A::shape();
@@ -293,14 +289,11 @@ where
 /// `E: ElementConversion` and cannot express one limit per component, so this
 /// is `max_pair` followed by `min_pair` — two broadcast elementwise ops rather
 /// than one fused scalar clamp, over the same `[batch, ..action_shape]` data.
-pub(crate) fn clip_to_action_bounds<B, const BAR: usize>(
-    actions: Tensor<B, BAR>,
-    low: Tensor<B, BAR>,
-    high: Tensor<B, BAR>,
-) -> Tensor<B, BAR>
-where
-    B: Backend,
-{
+pub(crate) fn clip_to_action_bounds<const BAR: usize>(
+    actions: Tensor<BAR>,
+    low: Tensor<BAR>,
+    high: Tensor<BAR>,
+) -> Tensor<BAR> {
     actions.max_pair(low).min_pair(high)
 }
 
@@ -322,16 +315,16 @@ where
 ///
 /// The largest weight in a prioritized batch is exactly `1.0`, so a batch drawn
 /// with `$\beta = 0$` (all weights `1.0`) also reduces to a plain mean.
-pub(crate) fn reduce_weighted_loss<B: Backend>(
-    per_sample: Tensor<B, 1>,
+pub(crate) fn reduce_weighted_loss(
+    per_sample: Tensor<1>,
     batch: &SampledBatch,
-    device: &B::Device,
-) -> Tensor<B, 1> {
+    device: &Device,
+) -> Tensor<1> {
     match batch.weights() {
         None => per_sample.mean(),
         Some(weights) => {
             let n = weights.len();
-            let w: Tensor<B, 1> =
+            let w: Tensor<1> =
                 Tensor::from_data(TensorData::new(weights.to_vec(), vec![n]), device);
             (per_sample * w).mean()
         }
@@ -375,17 +368,16 @@ pub(crate) fn reduce_weighted_loss<B: Backend>(
 /// crate to a checksum's stability across backends and dtypes, which nothing
 /// outside a test needs.
 #[cfg(test)]
-pub(crate) fn param_checksum<B: Backend, M: burn::module::Module<B>>(module: &M) -> f64 {
+pub(crate) fn param_checksum<M: burn::module::Module>(module: &M) -> f64 {
     use burn::module::{ModuleVisitor, Param};
-    use burn::tensor::ElementConversion;
 
     struct Summer {
         total: f64,
     }
 
-    impl<B: Backend> ModuleVisitor<B> for Summer {
-        fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-            self.total += f64::from(param.val().sum().into_scalar().elem::<f32>());
+    impl ModuleVisitor for Summer {
+        fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
+            self.total += f64::from(param.val().sum().into_scalar::<f32>());
         }
     }
 
@@ -484,10 +476,9 @@ impl<M> Slot<M> {
     /// unwinding, so there is nothing left to restore. This residual window is
     /// accepted by design and is not fixable with a drop guard or
     /// `catch_unwind` — read the [`Slot`] docs before proposing either.
-    pub fn step_with<B, O>(&mut self, opt: &mut O, lr: LearningRate, grads: GradientsParams)
+    pub fn step_with<O>(&mut self, opt: &mut O, lr: LearningRate, grads: GradientsParams)
     where
-        B: AutodiffBackend,
-        M: AutodiffModule<B>,
+        M: Module,
         O: Optimizer<M, B>,
     {
         let module = self.0.take().expect(POISONED);
@@ -571,11 +562,7 @@ impl<M> Slot<M> {
 ///
 /// [`Tensor::clamp`]: burn::tensor::Tensor::clamp
 /// [`Tensor::is_nan`]: burn::tensor::Tensor::is_nan
-pub(crate) fn clamp_preserving_nan<B: Backend, const D: usize>(
-    t: Tensor<B, D>,
-    lo: f32,
-    hi: f32,
-) -> Tensor<B, D> {
+pub(crate) fn clamp_preserving_nan<const D: usize>(t: Tensor<D>, lo: f32, hi: f32) -> Tensor<D> {
     let nan = t.clone().is_nan();
     t.clamp(lo, hi).mask_fill(nan, f32::NAN)
 }
@@ -1146,14 +1133,11 @@ mod tests {
     use std::panic::AssertUnwindSafe;
     use std::sync::{Arc, Mutex};
 
-    use burn::backend::{Autodiff, Flex};
     use burn::module::Module;
     use burn::nn::{Linear, LinearConfig};
     use burn::optim::adaptor::OptimizerAdaptor;
     use burn::optim::{Adam, AdamConfig};
     use burn::tensor::Device;
-
-    type B = Autodiff<Flex>;
 
     /// Minimal trainable network for slot tests.
     ///
@@ -1163,34 +1147,34 @@ mod tests {
     /// nothing and the "weights changed" assertions below would pass
     /// vacuously.
     #[derive(Module, Debug)]
-    struct TestNet<B: Backend> {
-        linear: Linear<B>,
+    struct TestNet {
+        linear: Linear,
     }
 
-    impl<B: Backend> TestNet<B> {
-        fn init(device: &B::Device) -> Self {
+    impl TestNet {
+        fn init(device: &Device) -> Self {
             Self {
                 linear: LinearConfig::new(2, 2).init(device),
             }
         }
 
-        fn forward(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
+        fn forward(&self, x: Tensor<2>) -> Tensor<2> {
             self.linear.forward(x)
         }
     }
 
-    fn test_optimizer() -> OptimizerAdaptor<Adam, TestNet<B>, B> {
-        AdamConfig::new().init::<B, TestNet<B>>()
+    fn test_optimizer() -> OptimizerAdaptor<Adam, TestNet, B> {
+        AdamConfig::new().init()
     }
 
-    fn test_batch(device: Device<B>) -> Tensor<B, 2> {
+    fn test_batch(device: Device) -> Tensor<2> {
         Tensor::from_data(TensorData::new(vec![0.5_f32, -0.25], vec![1, 2]), &device)
     }
 
     /// Runs one full learn step against `slot`: forward / backward on a borrow,
     /// then the closure-free optimizer step.
-    fn learn_step(slot: &mut Slot<TestNet<B>>, opt: &mut OptimizerAdaptor<Adam, TestNet<B>, B>) {
-        let device = Device::<B>::default();
+    fn learn_step(slot: &mut Slot<TestNet>, opt: &mut OptimizerAdaptor<Adam, TestNet, B>) {
+        let device = Device::flex().autodiff();
         let loss = slot.get().forward(test_batch(device)).sum();
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, slot.get());
@@ -1204,14 +1188,14 @@ mod tests {
     /// per-element steps very nearly cancel in the sum — a summed proxy reports a ~5e-7 delta for
     /// an update that actually moved every weight by ~1e-2, and would make "did the optimizer run"
     /// untestable.
-    fn weights(slot: &Slot<TestNet<B>>) -> Vec<f32> {
+    fn weights(slot: &Slot<TestNet>) -> Vec<f32> {
         slot.get()
             .linear
             .weight
             .val()
             .into_data()
             .convert::<f32>()
-            .to_vec::<f32>()
+            .try_to_vec::<f32>()
             .expect("weight tensor host read")
     }
 
@@ -1231,8 +1215,8 @@ mod tests {
 
     #[test]
     fn test_slot_new_populates_and_get_returns_module() {
-        let device = Device::<B>::default();
-        let slot = Slot::new(TestNet::<B>::init(&device));
+        let device = Device::flex().autodiff();
+        let slot = Slot::new(TestNet::init(&device));
 
         assert!(
             !slot.is_poisoned(),
@@ -1248,8 +1232,8 @@ mod tests {
 
     #[test]
     fn test_slot_get_supports_repeated_borrows() {
-        let device = Device::<B>::default();
-        let slot = Slot::new(TestNet::<B>::init(&device));
+        let device = Device::flex().autodiff();
+        let slot = Slot::new(TestNet::init(&device));
 
         let first = weights(&slot);
         let second = weights(&slot);
@@ -1264,8 +1248,8 @@ mod tests {
         // Agents refresh their target network with `self.net.get().valid()`
         // after a step; `valid()` takes `&self`, so the borrow suffices and no
         // owned module is ever needed on the read side.
-        let device = Device::<B>::default();
-        let mut slot = Slot::new(TestNet::<B>::init(&device));
+        let device = Device::flex().autodiff();
+        let mut slot = Slot::new(TestNet::init(&device));
         let mut opt = test_optimizer();
 
         learn_step(&mut slot, &mut opt);
@@ -1284,8 +1268,8 @@ mod tests {
 
     #[test]
     fn test_slot_step_with_leaves_slot_populated() {
-        let device = Device::<B>::default();
-        let mut slot = Slot::new(TestNet::<B>::init(&device));
+        let device = Device::flex().autodiff();
+        let mut slot = Slot::new(TestNet::init(&device));
         let mut opt = test_optimizer();
 
         learn_step(&mut slot, &mut opt);
@@ -1301,8 +1285,8 @@ mod tests {
 
     #[test]
     fn test_slot_is_poisoned_false_after_successful_step() {
-        let device = Device::<B>::default();
-        let mut slot = Slot::new(TestNet::<B>::init(&device));
+        let device = Device::flex().autodiff();
+        let mut slot = Slot::new(TestNet::init(&device));
         let mut opt = test_optimizer();
 
         for _ in 0..3 {
@@ -1316,8 +1300,8 @@ mod tests {
 
     #[test]
     fn test_slot_step_with_updates_weights() {
-        let device = Device::<B>::default();
-        let mut slot = Slot::new(TestNet::<B>::init(&device));
+        let device = Device::flex().autodiff();
+        let mut slot = Slot::new(TestNet::init(&device));
         let mut opt = test_optimizer();
 
         let before = weights(&slot);
@@ -1346,8 +1330,8 @@ mod tests {
         // misleading message. With `Slot` the module never leaves the field
         // during that region, so the agent survives a caught unwind
         // unharmed.
-        let device = Device::<B>::default();
-        let mut slot = Slot::new(TestNet::<B>::init(&device));
+        let device = Device::flex().autodiff();
+        let mut slot = Slot::new(TestNet::init(&device));
         let mut opt = test_optimizer();
 
         let before = weights(&slot);
@@ -1386,7 +1370,7 @@ mod tests {
         // optimizer. Construct the state directly to pin the read behaviour:
         // `is_poisoned` reports it, and `get` panics with a message that names
         // the cause and the remedy rather than a per-agent method name.
-        let slot: Slot<TestNet<B>> = Slot(None);
+        let slot: Slot<TestNet> = Slot(None);
 
         assert!(
             slot.is_poisoned(),
@@ -1413,8 +1397,8 @@ mod tests {
 
     #[test]
     fn test_slot_debug_reports_state_without_dumping_weights() {
-        let device = Device::<B>::default();
-        let slot = Slot::new(TestNet::<B>::init(&device));
+        let device = Device::flex().autodiff();
+        let slot = Slot::new(TestNet::init(&device));
 
         let rendered = format!("{slot:?}");
         assert!(
@@ -1513,25 +1497,24 @@ mod tests {
 
     use crate::replay::TransitionId;
 
-    fn per_sample(values: Vec<f32>) -> Tensor<Flex, 1> {
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+    fn per_sample(values: Vec<f32>) -> Tensor<1> {
+        let device = Device::flex();
         let n = values.len();
         Tensor::from_data(TensorData::new(values, vec![n]), &device)
     }
 
-    fn scalar(t: Tensor<Flex, 1>) -> f32 {
+    fn scalar(t: Tensor<1>) -> f32 {
         t.into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read")[0]
     }
 
     #[test]
     fn test_reduce_weighted_loss_unweighted_is_a_plain_mean() {
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let batch = SampledBatch::unweighted(vec![TransitionId::new(0); 4]);
-        let reduced =
-            reduce_weighted_loss::<Flex>(per_sample(vec![1.0, 2.0, 3.0, 4.0]), &batch, &device);
+        let reduced = reduce_weighted_loss(per_sample(vec![1.0, 2.0, 3.0, 4.0]), &batch, &device);
         assert!(
             (scalar(reduced) - 2.5).abs() < 1e-6,
             "an unweighted batch must reduce to the plain mean, preserving the uniform path"
@@ -1543,10 +1526,9 @@ mod tests {
         // Schaul Alg. 1 line 13: w_j scales sample j's contribution. A weight of
         // 0 must remove that sample from both loss and gradient — the mean is
         // taken over the batch size, so the zeroed sample drags the mean down.
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let batch = SampledBatch::weighted(vec![TransitionId::new(0); 4], vec![1.0, 0.0, 1.0, 1.0]);
-        let reduced =
-            reduce_weighted_loss::<Flex>(per_sample(vec![1.0, 1.0, 1.0, 1.0]), &batch, &device);
+        let reduced = reduce_weighted_loss(per_sample(vec![1.0, 1.0, 1.0, 1.0]), &batch, &device);
         assert!(
             (scalar(reduced) - 0.75).abs() < 1e-6,
             "a zero weight must zero that sample's loss contribution: (1+0+1+1)/4 = 0.75"
@@ -1555,11 +1537,10 @@ mod tests {
 
     #[test]
     fn test_reduce_weighted_loss_scales_before_reducing() {
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let batch = SampledBatch::weighted(vec![TransitionId::new(0); 3], vec![1.0, 0.5, 0.25]);
         // (2*1.0 + 4*0.5 + 8*0.25) / 3 = (2 + 2 + 2) / 3 = 2.0
-        let reduced =
-            reduce_weighted_loss::<Flex>(per_sample(vec![2.0, 4.0, 8.0]), &batch, &device);
+        let reduced = reduce_weighted_loss(per_sample(vec![2.0, 4.0, 8.0]), &batch, &device);
         assert!(
             (scalar(reduced) - 2.0).abs() < 1e-6,
             "each sample must be scaled by its own weight before the batch mean"
@@ -1568,8 +1549,8 @@ mod tests {
 
     // -------- clip_to_action_bounds --------
 
-    fn bound_row(values: &[f32]) -> Tensor<Flex, 2> {
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+    fn bound_row(values: &[f32]) -> Tensor<2> {
+        let device = Device::flex();
         Tensor::from_data(
             TensorData::new(values.to_vec(), vec![1, values.len()]),
             &device,
@@ -1586,11 +1567,11 @@ mod tests {
         // `[-1, -1, -1]` — negative gas and negative brake, actions the
         // environment cannot execute, whose Q-values TD3 Eq. 14 exists to keep
         // out of the target. Per-component clipping floors both at 0.
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let low = bound_row(&[-1.0, 0.0, 0.0]);
         let high = bound_row(&[1.0, 1.0, 1.0]);
         // Two rows: the `[1, 3]` bounds must broadcast over the batch dim.
-        let actions: Tensor<Flex, 2> = Tensor::from_data(
+        let actions: Tensor<2> = Tensor::from_data(
             TensorData::new(vec![-5.0_f32, -5.0, -5.0, 5.0, 5.0, 5.0], vec![2, 3]),
             &device,
         );
@@ -1615,10 +1596,10 @@ mod tests {
 
     #[test]
     fn test_clip_to_action_bounds_is_a_noop_inside_the_box() {
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let low = bound_row(&[-1.0, 0.0, 0.0]);
         let high = bound_row(&[1.0, 1.0, 1.0]);
-        let actions: Tensor<Flex, 2> = Tensor::from_data(
+        let actions: Tensor<2> = Tensor::from_data(
             TensorData::new(vec![-0.5_f32, 0.25, 0.75], vec![1, 3]),
             &device,
         );
@@ -1866,20 +1847,20 @@ mod tests {
 
     /// Runs [`clamp_preserving_nan`] over `values` on backend `BI` and reads
     /// the result back to the host.
-    fn clamped_row<BI: Backend>(values: &[f32], lo: f32, hi: f32, device: &BI::Device) -> Vec<f32> {
+    fn clamped_row(values: &[f32], lo: f32, hi: f32, device: &Device) -> Vec<f32> {
         let n = values.len();
-        let t: Tensor<BI, 1> = Tensor::from_data(TensorData::new(values.to_vec(), vec![n]), device);
+        let t: Tensor<1> = Tensor::from_data(TensorData::new(values.to_vec(), vec![n]), device);
         clamp_preserving_nan(t, lo, hi)
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read")
     }
 
     #[test]
     fn clamp_preserving_nan_keeps_nan_and_clamps_everything_else() {
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
-        let got = clamped_row::<Flex>(&CLAMP_INPUT, -10.0, 10.0, &device);
+        let device = Device::flex();
+        let got = clamped_row(&CLAMP_INPUT, -10.0, 10.0, &device);
 
         assert!(
             got[4].is_nan(),
@@ -1911,8 +1892,8 @@ mod tests {
         // and identically on both backends, and the C51 projection relies on that (an infinite
         // reward means "a return of at least v_max"). Masking on `is_finite` would turn both into
         // NaN and regress a currently-correct path.
-        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
-        let got = clamped_row::<Flex>(&[f32::NEG_INFINITY, f32::INFINITY], -3.0, 7.0, &device);
+        let device = Device::flex();
+        let got = clamped_row(&[f32::NEG_INFINITY, f32::INFINITY], -3.0, 7.0, &device);
 
         assert!(
             (got[0] + 3.0).abs() < 1e-6,
@@ -1944,15 +1925,15 @@ mod tests {
         // Metal 4 with burn 0.21, cubecl 0.10, wgpu 29: `clamp(NaN, -10, 10)`
         // is NaN on Flex and -10.0 on Metal. `clamp_preserving_nan` must erase
         // that difference.
-        let flex_device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
-        let flex = clamped_row::<Flex>(&CLAMP_INPUT, -10.0, 10.0, &flex_device);
+        let flex_device = Device::flex();
+        let flex = clamped_row(&CLAMP_INPUT, -10.0, 10.0, &flex_device);
 
         // Initializing a wgpu device aborts (not a catchable error) on hosts
         // without an adapter: cubecl-wgpu panics on a worker thread and the
         // calling thread then panics on the severed channel. There is no clean
         // in-process probe across the cubecl boundary, hence `#[ignore]`.
-        let wgpu_device: burn::backend::wgpu::WgpuDevice = Default::default();
-        let wgpu = clamped_row::<burn::backend::Wgpu>(&CLAMP_INPUT, -10.0, 10.0, &wgpu_device);
+        let wgpu_device = Device::wgpu(Default::default());
+        let wgpu = clamped_row(&CLAMP_INPUT, -10.0, 10.0, &wgpu_device);
 
         assert_eq!(
             flex.len(),

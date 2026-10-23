@@ -23,7 +23,6 @@
 
 use rand::Rng;
 
-use burn::tensor::backend::AutodiffBackend;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::environment::Environment;
@@ -59,18 +58,17 @@ use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, const OR: usize, const BOR: usize>(
-    agent: &mut QrDqnAgent<B, M, O, A, OR, BOR>,
+pub fn train<M, E, O, A, const OR: usize, const BOR: usize>(
+    agent: &mut QrDqnAgent<M, O, A, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
     log_every: usize,
 ) -> Result<(), QrDqnAgentError>
 where
-    B: AutodiffBackend,
-    M: QrDqnModel<B, BOR>,
+    M: QrDqnModel<BOR>,
     E: Environment<OR, 1, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     let mut snapshot = env.reset().map_err(io_from_env)?;
@@ -183,13 +181,11 @@ fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> QrDqnAgentErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::Device;
 
-    use burn::backend::{Autodiff, Flex};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::environment::EpisodeStatus;
-
-    type TestAdBackend = Autodiff<Flex>;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -207,21 +203,16 @@ mod tests {
     /// ever runs — this guard is about *which predicate reaches `remember`*,
     /// not about learning.
     fn recorded_masks(end_status: EpisodeStatus) -> Vec<bool> {
-        let device = Default::default();
+        let device = Device::flex();
         let config = QrDqnTrainingConfig {
             learning_starts: 1_000_000,
             replay_buffer_capacity: 64,
             ..QrDqnTrainingConfig::default()
         };
-        let net = AtomNet::<TestAdBackend>::new(config.num_quantiles, &device);
-        let mut agent = QrDqnAgent::<
-            TestAdBackend,
-            AtomNet<TestAdBackend>,
-            MaskObservation,
-            MaskDiscreteAction,
-            1,
-            2,
-        >::new(net, config, device)
+        let net = AtomNet::new(config.num_quantiles, &device);
+        let mut agent = QrDqnAgent::<AtomNet, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            net, config, device,
+        )
         .expect("default config is valid");
         let mut env = DiscreteMaskEnv::new(PERIOD, end_status);
         let mut rng = StdRng::seed_from_u64(7);

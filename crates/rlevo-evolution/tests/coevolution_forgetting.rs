@@ -28,8 +28,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -45,8 +44,6 @@ use rlevo_evolution::coevolution::{
     HallOfFameFitness,
 };
 
-type B = Flex;
-
 const POP: usize = 60;
 const GENS: usize = 200;
 const K: usize = 3; // number of targets / genome width
@@ -54,11 +51,11 @@ const PERIOD: usize = 4; // generations the tester dwells on each regime target
 const LAMBDA: f32 = 0.08; // per-unit coverage budget cost
 
 /// Per-individual coverage vector (population A), genes clamped to `[0,1]`.
-fn coverage(pop: &Tensor<B, 2>) -> Vec<[f32; K]> {
+fn coverage(pop: &Tensor<2>) -> Vec<[f32; K]> {
     let dims = pop.dims();
     let (n, d) = (dims[0], dims[1]);
     debug_assert_eq!(d, K);
-    let flat = pop.clone().into_data().into_vec::<f32>().unwrap();
+    let flat = pop.clone().into_data().try_into_vec::<f32>().unwrap();
     (0..n)
         .map(|i| {
             let mut c = [0.0f32; K];
@@ -71,10 +68,10 @@ fn coverage(pop: &Tensor<B, 2>) -> Vec<[f32; K]> {
 }
 
 /// Per-individual probed target (population B) = argmax of the genome.
-fn targets(pop: &Tensor<B, 2>) -> Vec<usize> {
+fn targets(pop: &Tensor<2>) -> Vec<usize> {
     let dims = pop.dims();
     let (n, d) = (dims[0], dims[1]);
-    let flat = pop.clone().into_data().into_vec::<f32>().unwrap();
+    let flat = pop.clone().into_data().try_into_vec::<f32>().unwrap();
     (0..n)
         .map(|i| {
             let row = &flat[i * d..i * d + d];
@@ -116,8 +113,8 @@ impl CoverageForgettingFitness {
     }
 }
 
-impl CoupledFitness<B> for CoverageForgettingFitness {
-    fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+impl CoupledFitness for CoverageForgettingFitness {
+    fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
         debug_assert_eq!(populations.len(), 2);
         let device = populations[0].device();
         let cov = coverage(&populations[0]);
@@ -157,8 +154,8 @@ impl CoupledFitness<B> for CoverageForgettingFitness {
             .collect();
 
         vec![
-            Tensor::<B, 1>::from_data(TensorData::new(solver.clone(), [solver.len()]), &device),
-            Tensor::<B, 1>::from_data(TensorData::new(tester.clone(), [tester.len()]), &device),
+            Tensor::<1>::from_data(TensorData::new(solver.clone(), [solver.len()]), &device),
+            Tensor::<1>::from_data(TensorData::new(tester.clone(), [tester.len()]), &device),
         ]
     }
 
@@ -186,13 +183,9 @@ fn ga_config() -> GaConfig {
 /// Per generation, the solver's *minimum* mean coverage across the `K`
 /// targets — the strength of the most-neglected ("forgotten") target. High =>
 /// the solver retains all targets; near zero => it has abandoned one.
-fn run_coverage<F: CoupledFitness<B>>(fitness: F, seed: u64) -> Vec<f32> {
-    let device = Default::default();
-    let algo = CompetitiveCoEA::new(
-        GeneticAlgorithm::<B>::new(),
-        GeneticAlgorithm::<B>::new(),
-        fitness,
-    );
+fn run_coverage<F: CoupledFitness>(fitness: F, seed: u64) -> Vec<f32> {
+    let device = Device::flex();
+    let algo = CompetitiveCoEA::new(GeneticAlgorithm::new(), GeneticAlgorithm::new(), fitness);
     let params = CompetitiveCoEAParams {
         params_a: ga_config(),
         params_b: ga_config(),
@@ -225,7 +218,7 @@ fn tail_coverage(traj: &[f32], window: usize) -> f32 {
 #[test]
 #[ignore = "observation only; prints trajectory statistics"]
 fn observe_dynamics() {
-    let device = Default::default();
+    let device = Device::flex();
     let seeds = [1_u64, 7, 42, 100, 5, 99, 13, 77];
     for &blend in &[0.0_f32, 0.3, 0.5, 0.7, 0.9] {
         let mut tails: Vec<f32> = Vec::new();
@@ -261,7 +254,7 @@ fn observe_dynamics() {
 /// Mean tail retention (most-forgotten target's coverage) over a set of seeds,
 /// returned as `(per_seed_no_hof, per_seed_with_hof)`.
 fn forgetting_sweep(seeds: &[u64], blend: f32) -> (Vec<f32>, Vec<f32>) {
-    let device = Default::default();
+    let device = Device::flex();
     let mut no_hof = Vec::new();
     let mut with_hof = Vec::new();
     for &seed in seeds {

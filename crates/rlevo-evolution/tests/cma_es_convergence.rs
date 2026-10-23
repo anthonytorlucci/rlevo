@@ -10,15 +10,13 @@
 //! host-side through `seed_stream` rather than the backend's process-global RNG,
 //! so these tests are reproducible regardless of the cargo runner's threading.
 
-use burn::backend::Flex;
+use burn::tensor::Device;
 use rlevo_core::fitness::Landscape;
 
 use rlevo_evolution::algorithms::cma_es::{CmaEs, CmaEsConfig};
 use rlevo_evolution::algorithms::cmsa_es::{CmsaEs, CmsaEsConfig};
 use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
-
-type B = Flex;
 
 struct Sphere;
 impl Landscape for Sphere {
@@ -44,14 +42,13 @@ impl Landscape for Rastrigin {
 /// `best_fitness_ever` trajectory (rolling minimum).
 fn run<S, F>(strategy: S, params: S::Params, fitness_fn: F, seed: u64, gens: usize) -> Vec<f32>
 where
-    S: Strategy<B>,
+    S: Strategy,
     S::Params: rlevo_core::config::Validate,
-    F: BatchFitnessFn<B, S::Genome>,
+    F: BatchFitnessFn<S::Genome>,
 {
-    let device = Default::default();
-    let mut evo_loop =
-        EvolutionaryLoop::<B, _, _>::new(strategy, params, fitness_fn, seed, device, gens)
-            .expect("valid params");
+    let device = Device::flex();
+    let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, seed, device, gens)
+        .expect("valid params");
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     while !evo_loop.is_done() {
@@ -64,7 +61,7 @@ where
 #[test]
 fn cma_es_converges_on_sphere_d10() {
     let traj = run(
-        CmaEs::<B>::new(),
+        CmaEs::new(),
         CmaEsConfig::default_for(10),
         FromLandscape::new(Sphere),
         42,
@@ -77,7 +74,7 @@ fn cma_es_converges_on_sphere_d10() {
 #[test]
 fn cmsa_es_converges_on_sphere_d10() {
     let traj = run(
-        CmsaEs::<B>::new(),
+        CmsaEs::new(),
         CmsaEsConfig::default_for(10),
         FromLandscape::new(Sphere),
         42,
@@ -96,7 +93,7 @@ fn cma_es_converges_on_rastrigin_d10() {
     let mut params = CmaEsConfig::with_pop_size(200, 10);
     params.initial_sigma = 2.0;
     let traj = run(
-        CmaEs::<B>::new(),
+        CmaEs::new(),
         params,
         FromLandscape::new(Rastrigin),
         12_345,
@@ -111,7 +108,7 @@ fn cmsa_es_converges_on_rastrigin_d10() {
     let mut params = CmsaEsConfig::with_pop_size(200, 10);
     params.initial_sigma = 2.0;
     let traj = run(
-        CmsaEs::<B>::new(),
+        CmsaEs::new(),
         params,
         FromLandscape::new(Rastrigin),
         12_345,
@@ -124,14 +121,14 @@ fn cmsa_es_converges_on_rastrigin_d10() {
 #[test]
 fn cma_es_same_seed_identical_trajectory() {
     let a = run(
-        CmaEs::<B>::new(),
+        CmaEs::new(),
         CmaEsConfig::default_for(10),
         FromLandscape::new(Sphere),
         7,
         60,
     );
     let b = run(
-        CmaEs::<B>::new(),
+        CmaEs::new(),
         CmaEsConfig::default_for(10),
         FromLandscape::new(Sphere),
         7,
@@ -143,14 +140,14 @@ fn cma_es_same_seed_identical_trajectory() {
 #[test]
 fn cmsa_es_same_seed_identical_trajectory() {
     let a = run(
-        CmsaEs::<B>::new(),
+        CmsaEs::new(),
         CmsaEsConfig::default_for(10),
         FromLandscape::new(Sphere),
         7,
         60,
     );
     let b = run(
-        CmsaEs::<B>::new(),
+        CmsaEs::new(),
         CmsaEsConfig::default_for(10),
         FromLandscape::new(Sphere),
         7,

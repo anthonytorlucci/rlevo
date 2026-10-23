@@ -14,8 +14,7 @@
 //! GWO is drawn to the origin whatever its schedule and would pass on an
 //! unshifted one for that reason alone.
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::config::Validate;
 use rlevo_core::objective::ObjectiveSense;
@@ -24,9 +23,6 @@ use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConf
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
-
-type B = Flex;
-type Device = <B as burn::tensor::backend::BackendTypes>::Device;
 
 const POP: usize = 32;
 const DIM: usize = 10;
@@ -42,12 +38,12 @@ const SHIFT: f32 = 1.7;
 /// `sum((x - SHIFT)^2)`, a cost.
 struct ShiftedSphere;
 
-impl BatchFitnessFn<B, Tensor<B, 2>> for ShiftedSphere {
-    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &Device) -> Tensor<B, 1> {
+impl BatchFitnessFn<Tensor<2>> for ShiftedSphere {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         let genes = population
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("the population tensor holds f32");
         let cost: Vec<f32> = genes
             .chunks(DIM)
@@ -65,15 +61,15 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for ShiftedSphere {
 /// Best cost after `BUDGET` generations.
 fn best_cost<S>(strategy: S, params: S::Params, seed: u64) -> f32
 where
-    S: Strategy<B, Genome = Tensor<B, 2>>,
+    S: Strategy<Genome = Tensor<2>>,
     S::Params: Validate,
 {
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::new(
         strategy,
         params,
         ShiftedSphere,
         seed,
-        Device::default(),
+        Device::flex(),
         BUDGET,
     )
     .expect("valid params");
@@ -96,12 +92,12 @@ where
 fn gwo_converges_when_its_horizon_is_the_budget() {
     for seed in 0..3 {
         let matched = best_cost(
-            GreyWolfOptimizer::<B>::new(),
+            GreyWolfOptimizer::new(),
             GwoConfig::default_for(POP, DIM, BUDGET),
             seed,
         );
         let long = best_cost(
-            GreyWolfOptimizer::<B>::new(),
+            GreyWolfOptimizer::new(),
             GwoConfig::default_for(POP, DIM, LONG_HORIZON),
             seed,
         );
@@ -122,12 +118,12 @@ fn gwo_converges_when_its_horizon_is_the_budget() {
 fn the_salp_swarm_converges_when_its_horizon_is_the_budget() {
     for seed in 0..3 {
         let matched = best_cost(
-            SalpSwarm::<B>::new(),
+            SalpSwarm::new(),
             SalpConfig::default_for(POP, DIM, BUDGET),
             seed,
         );
         let long = best_cost(
-            SalpSwarm::<B>::new(),
+            SalpSwarm::new(),
             SalpConfig::default_for(POP, DIM, LONG_HORIZON),
             seed,
         );

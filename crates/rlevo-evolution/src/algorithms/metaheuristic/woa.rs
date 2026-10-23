@@ -46,9 +46,8 @@
 //!   Transactions in Operational Research 30:2945-2971.
 
 use std::f32::consts::PI;
-use std::marker::PhantomData;
 
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -158,20 +157,20 @@ impl Validate for WoaConfig {
 
 /// Generation state for [`WhaleOptimization`].
 #[derive(Debug, Clone)]
-pub struct WoaState<B: Backend> {
+pub struct WoaState {
     /// Current positions, shape `(pop_size, D)`.
-    positions: Tensor<B, 2>,
+    positions: Tensor<2>,
     /// Host-side fitness cache.
     fitness: Vec<f32>,
     /// Best-so-far genome.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     best_fitness: f32,
     /// Generation counter.
     generation: usize,
 }
 
-impl<B: Backend> WoaState<B> {
+impl WoaState {
     /// Assembles a whale-swarm state, checking the fitness cache matches `pop`.
     ///
     /// # Errors
@@ -179,9 +178,9 @@ impl<B: Backend> WoaState<B> {
     /// Returns a [`ConfigError`] if `positions` has zero rows or if `fitness`
     /// is non-empty with a length other than `pop_size`.
     pub fn try_new(
-        positions: Tensor<B, 2>,
+        positions: Tensor<2>,
         fitness: Vec<f32>,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
         generation: usize,
     ) -> Result<Self, ConfigError> {
@@ -199,7 +198,7 @@ impl<B: Backend> WoaState<B> {
 
     /// Current positions, shape `(pop_size, D)`.
     #[must_use]
-    pub fn positions(&self) -> &Tensor<B, 2> {
+    pub fn positions(&self) -> &Tensor<2> {
         &self.positions
     }
 
@@ -211,7 +210,7 @@ impl<B: Backend> WoaState<B> {
 
     /// Best-so-far genome, or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -246,43 +245,31 @@ impl<B: Backend> WoaState<B> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
 ///
-/// let strategy = WhaleOptimization::<Flex>::new();
+/// let strategy = WhaleOptimization::new();
 /// // The schedule runs over 300 generations; give the loop the same budget.
 /// let params = WoaConfig::default_for(32, 10, 300);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct WhaleOptimization<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct WhaleOptimization {}
 
-impl<B: Backend> WhaleOptimization<B> {
+impl WhaleOptimization {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 }
 
-impl<B: Backend> Strategy<B> for WhaleOptimization<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for WhaleOptimization {
     type Params = WoaConfig;
-    type State = WoaState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = WoaState;
+    type Genome = Tensor<2>;
 
     /// Samples the initial whale positions uniformly within
     /// [`WoaConfig::bounds`] using the host-RNG convention and sets the
     /// generation counter to zero.
-    fn init(
-        &self,
-        params: &WoaConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> WoaState<B> {
+    fn init(&self, params: &WoaConfig, rng: &mut dyn Rng, device: &Device) -> WoaState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid WoaConfig reached init: {params:?}"
@@ -300,7 +287,7 @@ where
             position_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
         let positions =
-            Tensor::<B, 2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
+            Tensor::<2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
         WoaState {
             positions,
             fitness: Vec::new(),
@@ -327,10 +314,10 @@ where
     fn ask(
         &self,
         params: &WoaConfig,
-        state: &WoaState<B>,
+        state: &WoaState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, WoaState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, WoaState) {
         // First call: evaluate initial whales so `tell` can record fitness.
         if state.fitness.is_empty() {
             return (state.positions.clone(), state.clone());
@@ -378,14 +365,13 @@ where
             rand_idx.push(r as i64);
         }
 
-        let a_row = Tensor::<B, 1>::from_data(TensorData::new(a_scalar, [pop_size]), device)
+        let a_row = Tensor::<1>::from_data(TensorData::new(a_scalar, [pop_size]), device)
             .unsqueeze_dim::<2>(1)
             .expand([pop_size, genome_dim]);
-        let c_row = Tensor::<B, 1>::from_data(TensorData::new(c_scalar, [pop_size]), device)
+        let c_row = Tensor::<1>::from_data(TensorData::new(c_scalar, [pop_size]), device)
             .unsqueeze_dim::<2>(1)
             .expand([pop_size, genome_dim]);
-        let rand_idx_t =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(rand_idx, [pop_size]), device);
+        let rand_idx_t = Tensor::<1, Int>::from_data(TensorData::new(rand_idx, [pop_size]), device);
         let x_rand = state.positions.clone().select(0, rand_idx_t);
 
         let x_best = state
@@ -413,18 +399,18 @@ where
             .iter()
             .map(|&l| spiral_factor(l, params.b))
             .collect();
-        let factor = Tensor::<B, 1>::from_data(TensorData::new(factor_host, [pop_size]), device);
+        let factor = Tensor::<1>::from_data(TensorData::new(factor_host, [pop_size]), device);
         let factor_mat = factor.unsqueeze_dim::<2>(1).expand([pop_size, genome_dim]);
         let spiral = dist.mul(factor_mat) + x_best;
 
         // Compose: p < 0.5 ? (|A|<1 ? enc_best : enc_rand) : spiral.
         let m_abs_a_lt_one =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(abs_a_lt_one, [pop_size]), device)
+            Tensor::<1, Int>::from_data(TensorData::new(abs_a_lt_one, [pop_size]), device)
                 .equal_elem(1)
                 .unsqueeze_dim::<2>(1)
                 .expand([pop_size, genome_dim]);
         let m_p_lt_half =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(p_lt_half, [pop_size]), device)
+            Tensor::<1, Int>::from_data(TensorData::new(p_lt_half, [pop_size]), device)
                 .equal_elem(1)
                 .unsqueeze_dim::<2>(1)
                 .expand([pop_size, genome_dim]);
@@ -448,11 +434,11 @@ where
     fn tell(
         &self,
         _params: &WoaConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: WoaState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: WoaState,
         _rng: &mut dyn Rng,
-    ) -> (WoaState<B>, StrategyMetrics) {
+    ) -> (WoaState, StrategyMetrics) {
         // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
         // correctness floor for a caller driving `ask`/`tell` directly instead of
         // `EvolutionaryLoop::step`, which already sanitizes (the ADR 0034 decision-3 bypass
@@ -461,7 +447,7 @@ where
         // load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -473,10 +459,8 @@ where
             state.best_fitness = fitness_host[best_idx];
             let device = population.device();
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(population.select(0, idx));
         }
         state.generation += 1;
@@ -488,7 +472,7 @@ where
 
     /// Returns the best-so-far (food-source) genome and its fitness, or
     /// `None` before the first [`tell`](Strategy::tell) call.
-    fn best(&self, state: &WoaState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &WoaState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -501,12 +485,9 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
-
-    type TestBackend = Flex;
 
     /// A schedule horizon for the tests that drive no loop, or drive one
     /// too briefly for the schedule to matter.
@@ -515,23 +496,20 @@ mod tests {
     /// Distinct finite fitness with the maximum at index 0, for direct
     /// (non-loop) `tell` calls. Finite, so it respects ADR 0034.
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
-    fn finite_fitness(
-        n: usize,
-        device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<TestBackend, 1> {
+    fn finite_fitness(n: usize, device: &Device) -> Tensor<1> {
         #[allow(clippy::cast_precision_loss)]
         let vals: Vec<f32> = (0..n).map(|i| -(i as f32) - 1.0).collect();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), device)
+        Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
     }
 
     #[test]
     fn try_new_checks_fitness_length() {
-        let device = Default::default();
-        let pos = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        let device = Device::flex();
+        let pos = Tensor::<2>::zeros([3, 2], &device);
         assert!(WoaState::try_new(pos.clone(), vec![1.0; 3], None, 1.0, 1).is_ok());
         assert!(WoaState::try_new(pos.clone(), vec![], None, f32::MIN, 0).is_ok());
         assert!(WoaState::try_new(pos, vec![1.0; 2], None, 1.0, 1).is_err());
-        let empty = Tensor::<TestBackend, 2>::zeros([0, 2], &device);
+        let empty = Tensor::<2>::zeros([0, 2], &device);
         assert!(WoaState::try_new(empty, vec![], None, 1.0, 0).is_err());
     }
 
@@ -560,14 +538,12 @@ mod tests {
         // verify convergence direction — reaching within 1e-4 of the
         // optimum on Sphere-D10 in 600 generations confirms the
         // spiral/encircle composition functions correctly.
-        let device = Default::default();
-        let strategy = WhaleOptimization::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = WhaleOptimization::new();
         let params = WoaConfig::default_for(32, 10, 600);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 5, device, 600,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 5, device, 600)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -622,8 +598,8 @@ mod tests {
 
     #[test]
     fn best_is_none_until_first_tell() {
-        let device = Default::default();
-        let strategy = WhaleOptimization::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = WhaleOptimization::new();
         let params = WoaConfig::default_for(4, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(0);
         let state = strategy.init(&params, &mut rng, &device);
@@ -638,8 +614,8 @@ mod tests {
     fn ask_keeps_positions_in_bounds() {
         // Every position proposed by the encircle/search/spiral composition is
         // clamped to bounds; verify across seeds.
-        let device = Default::default();
-        let strategy = WhaleOptimization::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = WhaleOptimization::new();
         let params = WoaConfig::default_for(6, 4, HORIZON);
         let (lo, hi): (f32, f32) = params.bounds.into();
         for seed in 0..32 {
@@ -649,7 +625,7 @@ mod tests {
             let fitness = finite_fitness(6, &device);
             let (state, _m) = strategy.tell(&params, pop1, fitness, state, &mut rng);
             let (pop2, _state) = strategy.ask(&params, &state, &mut rng, &device);
-            let values = pop2.into_data().into_vec::<f32>().unwrap();
+            let values = pop2.into_data().try_into_vec::<f32>().unwrap();
             for v in values {
                 assert!(
                     v >= lo - 1e-4 && v <= hi + 1e-4,
@@ -663,13 +639,12 @@ mod tests {
     fn pop_size_two_runs() {
         // The smallest population where the "search toward a random *other*
         // whale" branch has a distinct target to pick.
-        let device = Default::default();
-        let strategy = WhaleOptimization::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = WhaleOptimization::new();
         let params = WoaConfig::default_for(2, 3, 5);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 0, device, 5)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -690,8 +665,8 @@ mod tests {
     /// leave a raw `NaN` in the public fitness cache a caller can read back.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device = Default::default();
-        let strategy = WhaleOptimization::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = WhaleOptimization::new();
         let params = WoaConfig::default_for(6, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(7);
         let state = strategy.init(&params, &mut rng, &device);
@@ -700,8 +675,7 @@ mod tests {
         #[allow(clippy::cast_precision_loss)]
         let mut vals: Vec<f32> = (0..params.pop_size).map(|i| -(i as f32) - 1.0).collect();
         vals[0] = f32::NAN;
-        let fitness =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [params.pop_size]), &device);
+        let fitness = Tensor::<1>::from_data(TensorData::new(vals, [params.pop_size]), &device);
         let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
         assert!(
             state.fitness().iter().all(|f| !f.is_nan()),

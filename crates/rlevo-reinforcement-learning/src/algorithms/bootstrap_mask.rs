@@ -19,10 +19,9 @@
 
 use std::marker::PhantomData;
 
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, activation};
+use burn::tensor::{Device, Tensor, activation};
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
@@ -250,61 +249,50 @@ pub(crate) type ContinuousMaskEnv = MaskEnv<MaskContinuousAction>;
 
 /// `(batch, OBS_DIM)` → `(batch, ACTIONS)`. Backs the DQN model trait.
 #[derive(Module, Debug)]
-pub(crate) struct FlatNet<B: Backend> {
-    layer: Linear<B>,
+pub(crate) struct FlatNet {
+    layer: Linear,
 }
 
-impl<B: Backend> FlatNet<B> {
-    pub(crate) fn new(out: usize, device: &B::Device) -> Self {
+impl FlatNet {
+    pub(crate) fn new(out: usize, device: &Device) -> Self {
         Self {
             layer: LinearConfig::new(OBS_DIM, out).init(device),
         }
     }
-    fn run(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn run(&self, obs: Tensor<2>) -> Tensor<2> {
         self.layer.forward(obs)
     }
 }
 
-impl<B: AutodiffBackend> crate::algorithms::dqn::dqn_model::DqnModel<B, 2> for FlatNet<B> {
-    fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+impl crate::algorithms::dqn::dqn_model::DqnModel<2> for FlatNet {
+    fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
         self.run(observations)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<2> {
         inner.run(observations)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, FlatNet<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<FlatNet>(&active.valid(), target, tau as f32)
     }
 }
 
 /// `(batch, OBS_DIM)` → `(batch, ACTIONS, atoms)`. Backs C51 and QR-DQN, whose
 /// model traits are shape-identical.
 #[derive(Module, Debug)]
-pub(crate) struct AtomNet<B: Backend> {
-    layer: Linear<B>,
+pub(crate) struct AtomNet {
+    layer: Linear,
     atoms: usize,
 }
 
-impl<B: Backend> AtomNet<B> {
-    pub(crate) fn new(atoms: usize, device: &B::Device) -> Self {
+impl AtomNet {
+    pub(crate) fn new(atoms: usize, device: &Device) -> Self {
         Self {
             layer: LinearConfig::new(OBS_DIM, ACTIONS * atoms).init(device),
             atoms,
         }
     }
-    fn run(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
+    fn run(&self, obs: Tensor<2>) -> Tensor<3> {
         let batch = obs.dims()[0];
         self.layer
             .forward(obs)
@@ -312,151 +300,106 @@ impl<B: Backend> AtomNet<B> {
     }
 }
 
-impl<B: AutodiffBackend> crate::algorithms::c51::c51_model::C51Model<B, 2> for AtomNet<B> {
-    fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+impl crate::algorithms::c51::c51_model::C51Model<2> for AtomNet {
+    fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.run(observations)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 3> {
+    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
         inner.run(observations)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, AtomNet<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<AtomNet>(&active.valid(), target, tau as f32)
     }
 }
 
-impl<B: AutodiffBackend> crate::algorithms::qrdqn::qrdqn_model::QrDqnModel<B, 2> for AtomNet<B> {
-    fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+impl crate::algorithms::qrdqn::qrdqn_model::QrDqnModel<2> for AtomNet {
+    fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.run(observations)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 3> {
+    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
         inner.run(observations)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, AtomNet<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<AtomNet>(&active.valid(), target, tau as f32)
     }
 }
 
 /// Deterministic actor for DDPG / TD3: `(batch, OBS_DIM)` → `(batch, OBS_DIM)`.
 #[derive(Module, Debug)]
-pub(crate) struct TinyActor<B: Backend> {
-    layer: Linear<B>,
+pub(crate) struct TinyActor {
+    layer: Linear,
 }
 
-impl<B: Backend> TinyActor<B> {
-    pub(crate) fn new(device: &B::Device) -> Self {
+impl TinyActor {
+    pub(crate) fn new(device: &Device) -> Self {
         Self {
             layer: LinearConfig::new(OBS_DIM, ACT_DIM).init(device),
         }
     }
-    fn run(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn run(&self, obs: Tensor<2>) -> Tensor<2> {
         activation::tanh(self.layer.forward(obs))
     }
 }
 
-impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for TinyActor<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DeterministicPolicy<2, 2> for TinyActor {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.run(obs)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
         inner.run(obs)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, TinyActor<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<TinyActor>(&active.valid(), target, tau as f32)
     }
 }
 
 /// Continuous Q-critic for DDPG / TD3 / SAC.
 #[derive(Module, Debug)]
-pub(crate) struct TinyCritic<B: Backend> {
-    layer: Linear<B>,
+pub(crate) struct TinyCritic {
+    layer: Linear,
 }
 
-impl<B: Backend> TinyCritic<B> {
-    pub(crate) fn new(device: &B::Device) -> Self {
+impl TinyCritic {
+    pub(crate) fn new(device: &Device) -> Self {
         Self {
             layer: LinearConfig::new(OBS_DIM + ACT_DIM, 1).init(device),
         }
     }
-    fn run(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn run(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         let joint = Tensor::cat(vec![obs, act], 1);
         self.layer.forward(joint).squeeze_dim::<1>(1)
     }
 }
 
-impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for TinyCritic<B> {
-    fn forward(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+impl ContinuousQ<2, 2> for TinyCritic {
+    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.run(obs, act)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        act: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 1> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         inner.run(obs, act)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, TinyCritic<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<TinyCritic>(&active.valid(), target, tau as f32)
     }
 }
 
 /// Squashed-Gaussian actor for SAC. Fixed unit log-`$\sigma$` keeps it to one layer.
 #[derive(Module, Debug)]
-pub(crate) struct TinySacActor<B: Backend> {
-    mean: Linear<B>,
+pub(crate) struct TinySacActor {
+    mean: Linear,
 }
 
-impl<B: Backend> TinySacActor<B> {
-    pub(crate) fn new(device: &B::Device) -> Self {
+impl TinySacActor {
+    pub(crate) fn new(device: &Device) -> Self {
         Self {
             mean: LinearConfig::new(OBS_DIM, ACT_DIM).init(device),
         }
     }
-    fn sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
+    fn sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         let mu = self.mean.forward(obs);
         let pre_tanh = mu + eps;
         let action = activation::tanh(pre_tanh);
@@ -471,21 +414,17 @@ impl<B: Backend> TinySacActor<B> {
     }
 }
 
-impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for TinySacActor<B> {
+impl SquashedGaussianPolicy<2, 2> for TinySacActor {
     fn action_dim(&self) -> usize {
         ACT_DIM
     }
-    fn forward_sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
+    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         self.sample(obs, eps)
     }
-    fn forward_sample_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        eps: Tensor<B::InnerBackend, 2>,
-    ) -> SampleOutput<B::InnerBackend, 2> {
+    fn forward_sample_inner(inner: &Self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         inner.sample(obs, eps)
     }
-    fn deterministic_action(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
         activation::tanh(self.mean.forward(obs))
     }
 }

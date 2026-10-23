@@ -4,12 +4,10 @@
 //! `$\alpha$` step + Polyak) on a primed replay buffer. Mirrors `td3_bench`'s pattern so the two
 //! algorithms can be compared side-by-side.
 
-use burn::backend::{Autodiff, Flex};
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, softplus, tanh};
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Device, Tensor};
 
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
@@ -29,23 +27,17 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
 };
 
 #[derive(Module, Debug)]
-struct StochasticActor<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    mean: Linear<B>,
-    log_std: Linear<B>,
+struct StochasticActor {
+    fc1: Linear,
+    fc2: Linear,
+    mean: Linear,
+    log_std: Linear,
     action_dim: usize,
     action_scale: f32,
 }
 
-impl<B: Backend> StochasticActor<B> {
-    fn new(
-        obs_dim: usize,
-        hidden: usize,
-        action_dim: usize,
-        scale: f32,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl StochasticActor {
+    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -56,7 +48,7 @@ impl<B: Backend> StochasticActor<B> {
         }
     }
 
-    fn mean_and_log_std(&self, obs: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 2>) {
+    fn mean_and_log_std(&self, obs: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
         let h = relu(self.fc1.forward(obs));
         let h = relu(self.fc2.forward(h));
         let mean = self.mean.forward(h.clone());
@@ -68,7 +60,7 @@ impl<B: Backend> StochasticActor<B> {
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    fn sample_impl(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 1>) {
+    fn sample_impl(&self, obs: Tensor<2>, eps: Tensor<2>) -> (Tensor<2>, Tensor<1>) {
         let (mean, log_std) = self.mean_and_log_std(obs);
         let action_dim = mean.dims()[1];
         let std = log_std.clone().exp();
@@ -77,11 +69,11 @@ impl<B: Backend> StochasticActor<B> {
         let scaled = diff / log_std.clone().exp();
         let scaled_sq = scaled.clone() * scaled;
         let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-        let per_dim_gauss: Tensor<B, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
+        let per_dim_gauss: Tensor<2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
         let ln_2 = std::f32::consts::LN_2;
         let neg_two_z = z.clone().mul_scalar(-2.0);
         let sp = softplus(neg_two_z, 1.0);
-        let per_dim_jac: Tensor<B, 2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
+        let per_dim_jac: Tensor<2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
         let per_dim = per_dim_gauss - per_dim_jac;
         let log_prob_z = per_dim.sum_dim(1).squeeze_dim::<1>(1);
         let log_scale_abs = self.action_scale.abs().ln();
@@ -91,49 +83,40 @@ impl<B: Backend> StochasticActor<B> {
     }
 }
 
-impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for StochasticActor<B> {
+impl SquashedGaussianPolicy<2, 2> for StochasticActor {
     fn action_dim(&self) -> usize {
         self.action_dim
     }
-    fn forward_sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
+    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         let (action, log_prob) = self.sample_impl(obs, eps);
         SampleOutput { action, log_prob }
     }
-    fn forward_sample_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        eps: Tensor<B::InnerBackend, 2>,
-    ) -> SampleOutput<B::InnerBackend, 2> {
+    fn forward_sample_inner(inner: &Self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         let (action, log_prob) = inner.sample_impl(obs, eps);
         SampleOutput { action, log_prob }
     }
-    fn deterministic_action(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
         let (mean, _) = self.mean_and_log_std(obs);
         tanh(mean).mul_scalar(self.action_scale)
     }
 }
 
 #[derive(Module, Debug)]
-struct CriticMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+struct CriticMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> CriticMlp<B> {
-    fn new(
-        obs_dim: usize,
-        action_dim: usize,
-        hidden: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl CriticMlp {
+    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
             head: LinearConfig::new(hidden, 1).init(device),
         }
     }
-    fn forward_impl(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         let x = Tensor::cat(vec![obs, act], 1);
         let h = relu(self.fc1.forward(x));
         let h = relu(self.fc2.forward(h));
@@ -141,15 +124,11 @@ impl<B: Backend> CriticMlp<B> {
     }
 }
 
-impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+impl ContinuousQ<2, 2> for CriticMlp {
+    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        act: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 1> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         inner.forward_impl(obs, act)
     }
     // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
@@ -157,37 +136,18 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, CriticMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<CriticMlp>(&active.valid(), target, tau as f32)
     }
 }
 
-type Be = Autodiff<Flex>;
-type Agent = SacAgent<
-    Be,
-    StochasticActor<Be>,
-    CriticMlp<Be>,
-    PendulumObservation,
-    PendulumAction,
-    1,
-    2,
-    1,
-    2,
->;
+type Agent = SacAgent<StochasticActor, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
 
 fn build_agent() -> Agent {
-    let device = Default::default();
-    let actor: StochasticActor<Be> = StochasticActor::new(3, 256, 1, 2.0, &device);
-    let critic_1: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
-    let critic_2: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
+    let device = Device::flex();
+    let actor: StochasticActor = StochasticActor::new(3, 256, 1, 2.0, &device);
+    let critic_1: CriticMlp = CriticMlp::new(3, 1, 256, &device);
+    let critic_2: CriticMlp = CriticMlp::new(3, 1, 256, &device);
     let config = SacTrainingConfig {
         replay_buffer_capacity: 10_000,
         batch_size: 256,

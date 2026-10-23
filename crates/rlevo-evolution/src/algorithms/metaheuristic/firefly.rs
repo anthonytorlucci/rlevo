@@ -32,9 +32,7 @@
 //!   optimization techniques inspired by bestial metaphors*, International
 //!   Transactions in Operational Research 30:2945-2971.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -109,20 +107,20 @@ impl Validate for FireflyConfig {
 
 /// Generation state for [`FireflyAlgorithm`].
 #[derive(Debug, Clone)]
-pub struct FireflyState<B: Backend> {
+pub struct FireflyState {
     /// Current positions, shape `(pop_size, D)`.
-    positions: Tensor<B, 2>,
+    positions: Tensor<2>,
     /// Host-side fitness cache.
     fitness: Vec<f32>,
     /// Best-so-far genome.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     best_fitness: f32,
     /// Generation counter.
     generation: usize,
 }
 
-impl<B: Backend> FireflyState<B> {
+impl FireflyState {
     /// Assembles a firefly state, checking the fitness cache matches `pop`.
     ///
     /// # Errors
@@ -130,9 +128,9 @@ impl<B: Backend> FireflyState<B> {
     /// Returns a [`ConfigError`] if `positions` has zero rows or if `fitness`
     /// is non-empty with a length other than `pop_size`.
     pub fn try_new(
-        positions: Tensor<B, 2>,
+        positions: Tensor<2>,
         fitness: Vec<f32>,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
         generation: usize,
     ) -> Result<Self, ConfigError> {
@@ -150,7 +148,7 @@ impl<B: Backend> FireflyState<B> {
 
     /// Current positions, shape `(pop_size, D)`.
     #[must_use]
-    pub fn positions(&self) -> &Tensor<B, 2> {
+    pub fn positions(&self) -> &Tensor<2> {
         &self.positions
     }
 
@@ -162,7 +160,7 @@ impl<B: Backend> FireflyState<B> {
 
     /// Best-so-far genome, or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -191,35 +189,31 @@ impl<B: Backend> FireflyState<B> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::firefly::{FireflyAlgorithm, FireflyConfig};
 ///
-/// let strategy = FireflyAlgorithm::<Flex>::new();
+/// let strategy = FireflyAlgorithm::new();
 /// let params = FireflyConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct FireflyAlgorithm<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct FireflyAlgorithm {}
 
-impl<B: Backend> FireflyAlgorithm<B> {
+impl FireflyAlgorithm {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     /// The `$O(N^2 D)$` attraction step, composed from Burn tensor primitives
     /// so it runs on every backend.
     fn pure_tensor_attract(
-        positions: &Tensor<B, 2>,
+        positions: &Tensor<2>,
         fitness: &[f32],
         beta0: f32,
         gamma: f32,
         alpha: f32,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
         noise_seed: u64,
-    ) -> Tensor<B, 2> {
+    ) -> Tensor<2> {
         let pop = fitness.len();
         let shape = positions.dims();
         let d = shape[1];
@@ -243,10 +237,9 @@ impl<B: Backend> FireflyAlgorithm<B> {
             }
         }
         let bright_mask =
-            Tensor::<B, 2, Int>::from_data(TensorData::new(bright, [pop, pop]), device)
-                .equal_elem(1);
+            Tensor::<2, Int>::from_data(TensorData::new(bright, [pop, pop]), device).equal_elem(1);
         // Zero-out non-bright pairs in `$\beta$` then multiply diff.
-        let zero = Tensor::<B, 2>::zeros([pop, pop], device);
+        let zero = Tensor::<2>::zeros([pop, pop], device);
         let beta_m = beta.mask_where(bright_mask.bool_not(), zero);
         let weight = beta_m.unsqueeze_dim::<3>(2).expand([pop, pop, d]); // (N, N, D)
         let weighted = diff.mul(weight); // (N, N, D)
@@ -259,18 +252,15 @@ impl<B: Backend> FireflyAlgorithm<B> {
         for _ in 0..pop * d {
             noise_rows.push(noise_rng.random::<f32>() - 0.5);
         }
-        let noise = Tensor::<B, 2>::from_data(TensorData::new(noise_rows, [pop, d]), device);
+        let noise = Tensor::<2>::from_data(TensorData::new(noise_rows, [pop, d]), device);
         attr_sum + noise.mul_scalar(alpha)
     }
 }
 
-impl<B: Backend> Strategy<B> for FireflyAlgorithm<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for FireflyAlgorithm {
     type Params = FireflyConfig;
-    type State = FireflyState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = FireflyState;
+    type Genome = Tensor<2>;
 
     /// Build the initial swarm by host-sampling `pop_size` positions
     /// uniformly in `[bounds.lo, bounds.hi]`.
@@ -281,12 +271,7 @@ where
     ///
     /// The `pop_size <= FIREFLY_PURE_TENSOR_CAP` cap is enforced by
     /// [`FireflyConfig`]'s [`Validate`] impl at the loop chokepoint.
-    fn init(
-        &self,
-        params: &FireflyConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> FireflyState<B> {
+    fn init(&self, params: &FireflyConfig, rng: &mut dyn Rng, device: &Device) -> FireflyState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid FireflyConfig reached init: {params:?}"
@@ -304,7 +289,7 @@ where
             position_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
         let positions =
-            Tensor::<B, 2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
+            Tensor::<2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
         FireflyState {
             positions,
             fitness: Vec::new(),
@@ -325,10 +310,10 @@ where
     fn ask(
         &self,
         params: &FireflyConfig,
-        state: &FireflyState<B>,
+        state: &FireflyState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, FireflyState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, FireflyState) {
         if state.fitness.is_empty() {
             return (state.positions.clone(), state.clone());
         }
@@ -366,11 +351,11 @@ where
     fn tell(
         &self,
         _params: &FireflyConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: FireflyState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: FireflyState,
         _rng: &mut dyn Rng,
-    ) -> (FireflyState<B>, StrategyMetrics) {
+    ) -> (FireflyState, StrategyMetrics) {
         // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
         // correctness floor for a caller driving `ask`/`tell` directly instead of
         // `EvolutionaryLoop::step`, which already sanitizes (the ADR 0034 decision-3 bypass
@@ -380,7 +365,7 @@ where
         // redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -393,10 +378,8 @@ where
         if fitness_host[best_idx] > state.best_fitness {
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(population.select(0, idx));
         }
         state.generation += 1;
@@ -408,7 +391,7 @@ where
 
     /// Returns the best-so-far `(genome, fitness)` pair, or `None` before
     /// the first [`tell`](Strategy::tell) call.
-    fn best(&self, state: &FireflyState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &FireflyState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -421,21 +404,18 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rand::rngs::StdRng;
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::fitness::Landscape;
 
-    type TestBackend = Flex;
-
     #[test]
     fn try_new_checks_fitness_length() {
-        let device = Default::default();
-        let pos = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        let device = Device::flex();
+        let pos = Tensor::<2>::zeros([3, 2], &device);
         assert!(FireflyState::try_new(pos.clone(), vec![1.0; 3], None, 1.0, 1).is_ok());
         assert!(FireflyState::try_new(pos.clone(), vec![], None, f32::MIN, 0).is_ok());
         assert!(FireflyState::try_new(pos, vec![1.0; 2], None, 1.0, 1).is_err());
-        let empty = Tensor::<TestBackend, 2>::zeros([0, 2], &device);
+        let empty = Tensor::<2>::zeros([0, 2], &device);
         assert!(FireflyState::try_new(empty, vec![], None, 1.0, 0).is_err());
     }
 
@@ -471,14 +451,12 @@ mod tests {
     fn firefly_converges_on_sphere_d10() {
         // Firefly's attraction sum is `$O(N^2 D)$`; we use 24 fireflies to keep the test fast while
         // still exercising the pairwise kernel path.
-        let device = Default::default();
-        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = FireflyAlgorithm::new();
         let params = FireflyConfig::default_for(24, 10);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 29, device, 500,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 29, device, 500)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -490,17 +468,13 @@ mod tests {
     /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
     /// canonical, exercising the ADR-0034 loop sanitize with no `neg()`.
     struct PartialNanFitness;
-    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl crate::fitness::BatchFitnessFn<Tensor<2>> for PartialNanFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)]
             let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
             vals[0] = f32::NAN;
-            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
         }
         fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
             rlevo_core::objective::ObjectiveSense::Maximize
@@ -567,8 +541,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "invalid FireflyConfig reached init")]
     fn pop_size_over_cap_panics_in_init() {
-        let device = Default::default();
-        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = FireflyAlgorithm::new();
         let params = FireflyConfig::default_for(FIREFLY_PURE_TENSOR_CAP + 1, 4);
         let mut rng = StdRng::seed_from_u64(0);
         let _ = strategy.init(&params, &mut rng, &device);
@@ -581,15 +555,15 @@ mod tests {
     // the displacement exact. The output shape is `(pop, d)`.
     #[test]
     fn pure_tensor_attract_pulls_toward_brighter() {
-        let device = Default::default();
+        let device = Device::flex();
         // 2-D positions (row-major): firefly 0 at (0, 0), firefly 1 at (1, 0).
-        let positions = Tensor::<TestBackend, 2>::from_data(
+        let positions = Tensor::<2>::from_data(
             TensorData::new(vec![0.0_f32, 0.0, 1.0, 0.0], [2, 2]),
             &device,
         );
         // firefly 1 is brighter (higher canonical fitness).
         let fitness = [0.0_f32, 1.0];
-        let delta = FireflyAlgorithm::<TestBackend>::pure_tensor_attract(
+        let delta = FireflyAlgorithm::pure_tensor_attract(
             &positions, &fitness, 1.0, // beta0
             0.0, // gamma → attractiveness == beta0
             0.0, // alpha → no noise
@@ -598,7 +572,7 @@ mod tests {
         assert_eq!(delta.dims(), [2, 2], "displacement is (pop, d)");
         let d = delta
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("delta readable as f32");
         // Firefly 0 moves `$+1 \cdot (x_1 - x_0) = (+1, 0)$` toward the brighter one.
         approx::assert_relative_eq!(d[0], 1.0, epsilon = 1e-6);
@@ -615,15 +589,13 @@ mod tests {
     // dimmer, so it is pulled toward the brighter firefly 1 along the single axis.
     #[test]
     fn pure_tensor_attract_d1_pulls_toward_brighter() {
-        let device = Default::default();
+        let device = Device::flex();
         // 1-D positions: firefly 0 at [0.0], firefly 1 at [1.0].
-        let positions = Tensor::<TestBackend, 2>::from_data(
-            TensorData::new(vec![0.0_f32, 1.0], [2, 1]),
-            &device,
-        );
+        let positions =
+            Tensor::<2>::from_data(TensorData::new(vec![0.0_f32, 1.0], [2, 1]), &device);
         // firefly 1 is brighter (higher canonical fitness).
         let fitness = [0.0_f32, 1.0];
-        let delta = FireflyAlgorithm::<TestBackend>::pure_tensor_attract(
+        let delta = FireflyAlgorithm::pure_tensor_attract(
             &positions, &fitness, 1.0, // beta0
             0.0, // gamma → attractiveness == beta0
             0.0, // alpha → no noise
@@ -632,7 +604,7 @@ mod tests {
         assert_eq!(delta.dims(), [2, 1], "displacement is (pop, d)");
         let d = delta
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("delta readable as f32");
         // Firefly 0 moves `$+1 \cdot (x_1 - x_0) = +1$` toward the brighter one.
         approx::assert_relative_eq!(d[0], 1.0, epsilon = 1e-6);
@@ -658,8 +630,8 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)] // byte-identical: `ask` clones `state.positions`
     fn first_ask_returns_positions_unchanged() {
-        let device = Default::default();
-        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = FireflyAlgorithm::new();
         let params = FireflyConfig::default_for(8, 4);
         let mut rng = StdRng::seed_from_u64(1);
         let state = strategy.init(&params, &mut rng, &device);
@@ -668,11 +640,11 @@ mod tests {
             .positions()
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("positions readable as f32");
         let after = genome
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome readable as f32");
         assert_eq!(before, after);
         assert!(
@@ -685,8 +657,8 @@ mod tests {
     // Gap (e): the best-so-far accessor is `None` until a `tell` records one.
     #[test]
     fn best_is_none_before_first_tell() {
-        let device = Default::default();
-        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = FireflyAlgorithm::new();
         let params = FireflyConfig::default_for(8, 4);
         let mut rng = StdRng::seed_from_u64(2);
         let state = strategy.init(&params, &mut rng, &device);
@@ -697,8 +669,8 @@ mod tests {
     // across 32 seeds.
     #[test]
     fn proposed_positions_within_bounds() {
-        let device = Default::default();
-        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = FireflyAlgorithm::new();
         let params = FireflyConfig::default_for(10, 4);
         let (lo, hi): (f32, f32) = params.bounds.into();
         // A steady-state swarm with a non-empty fitness cache so `ask` runs the
@@ -715,7 +687,7 @@ mod tests {
             let (pos, _next) = strategy.ask(&params, &state, &mut rng, &device);
             let vals = pos
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("positions readable as f32");
             for &v in &vals {
                 assert!(
@@ -730,18 +702,11 @@ mod tests {
     // chokepoint (ADR 0034).
     #[test]
     fn nan_fitness_survives_loop() {
-        let device = Default::default();
-        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = FireflyAlgorithm::new();
         let params = FireflyConfig::default_for(8, 3);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            PartialNanFitness,
-            4,
-            device,
-            4,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, PartialNanFitness, 4, device, 4)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -764,8 +729,8 @@ mod tests {
     /// would silently disable one firefly's attraction for a generation.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device = Default::default();
-        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = FireflyAlgorithm::new();
         let params = FireflyConfig::default_for(6, 3);
         let mut rng = StdRng::seed_from_u64(7);
         let state = strategy.init(&params, &mut rng, &device);
@@ -774,8 +739,7 @@ mod tests {
         #[allow(clippy::cast_precision_loss)]
         let mut vals: Vec<f32> = (0..params.pop_size).map(|i| -(i as f32) - 1.0).collect();
         vals[0] = f32::NAN;
-        let fitness =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [params.pop_size]), &device);
+        let fitness = Tensor::<1>::from_data(TensorData::new(vals, [params.pop_size]), &device);
         let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
         assert!(
             state.fitness().iter().all(|f| !f.is_nan()),
@@ -799,13 +763,12 @@ mod tests {
     // to completion without panicking and records a finite best.
     #[test]
     fn boundary_genome_dim_one_runs() {
-        let device = Default::default();
-        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = FireflyAlgorithm::new();
         let params = FireflyConfig::default_for(8, 1);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 6, device, 6)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();

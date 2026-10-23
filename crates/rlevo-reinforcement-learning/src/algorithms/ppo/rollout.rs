@@ -23,9 +23,7 @@
 //! `[t]` — never `[t + 1]`.
 
 use crate::MAX_BUFFER_CAPACITY;
-use burn::tensor::backend::Backend;
-use burn::tensor::{Tensor, TensorData};
-use std::marker::PhantomData;
+use burn::tensor::{Device, Tensor, TensorData};
 
 /// How a recorded transition left its episode, carrying whatever datum GAE
 /// needs to treat it correctly.
@@ -60,7 +58,7 @@ pub enum StepEnd {
 /// `$\text{action\_flat}[i \cdot \text{action\_dim} + j]$`, `log_probs[i]`, etc. all index the same
 /// step `i`. Advantages and returns are only populated after [`RolloutBuffer::finish`].
 #[derive(Debug)]
-pub struct RolloutBuffer<B: Backend, O> {
+pub struct RolloutBuffer<O> {
     capacity: usize,
     action_dim: usize,
     obs: Vec<O>,
@@ -74,10 +72,9 @@ pub struct RolloutBuffer<B: Backend, O> {
     truncation_value: Vec<Option<f32>>,
     advantages: Vec<f32>,
     returns: Vec<f32>,
-    _marker: PhantomData<B>,
 }
 
-impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
+impl<O: Clone> RolloutBuffer<O> {
     /// Allocates a buffer for `capacity` steps, with `action_dim` action
     /// components per step (1 for discrete, A for continuous-A).
     ///
@@ -131,7 +128,6 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
             truncation_value: Vec::with_capacity(capacity),
             advantages: Vec::new(),
             returns: Vec::new(),
-            _marker: PhantomData,
         }
     }
 
@@ -276,15 +272,10 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     }
 
     /// Builds a 1-D float tensor indexed by `indices`, on `device`.
-    pub fn gather_f32(
-        &self,
-        data: &[f32],
-        indices: &[usize],
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
+    pub fn gather_f32(&self, data: &[f32], indices: &[usize], device: &Device) -> Tensor<1> {
         let gathered: Vec<f32> = indices.iter().map(|&i| data[i]).collect();
         let n = gathered.len();
-        Tensor::<B, 1>::from_data(TensorData::new(gathered, vec![n]), device)
+        Tensor::<1>::from_data(TensorData::new(gathered, vec![n]), device)
     }
 
     /// Extracts the action rows for `indices` as a flat `Vec<f32>` of length
@@ -392,8 +383,6 @@ pub fn compute_gae(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    type TestBackend = burn::backend::Flex;
 
     #[test]
     fn test_rollout_gae_matches_reference_trajectory_no_termination() {
@@ -628,20 +617,19 @@ mod tests {
     #[test]
     #[should_panic(expected = "capacity must be in 1..=")]
     fn test_rollout_buffer_new_rejects_zero_capacity() {
-        let _: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(0, 1);
+        let _: RolloutBuffer<[f32; 1]> = RolloutBuffer::new(0, 1);
     }
 
     #[test]
     #[should_panic(expected = "capacity must be in 1..=")]
     fn test_rollout_buffer_new_rejects_capacity_above_ceiling() {
-        let _: RolloutBuffer<TestBackend, [f32; 1]> =
-            RolloutBuffer::new(MAX_BUFFER_CAPACITY + 1, 1);
+        let _: RolloutBuffer<[f32; 1]> = RolloutBuffer::new(MAX_BUFFER_CAPACITY + 1, 1);
     }
 
     #[test]
     #[should_panic(expected = "action_dim must be in 1..=")]
     fn test_roolout_buffer_new_rejects_zero_action_dim() {
-        let _: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(4, 0);
+        let _: RolloutBuffer<[f32; 1]> = RolloutBuffer::new(4, 0);
     }
 
     /// Neither factor is out of range on its own — both are far below
@@ -654,7 +642,7 @@ mod tests {
         // Both arguments pass the per-argument checks; only the product fails.
         let capacity = MAX_BUFFER_CAPACITY / 2;
         let action_dim = 4;
-        let _: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(capacity, action_dim);
+        let _: RolloutBuffer<[f32; 1]> = RolloutBuffer::new(capacity, action_dim);
     }
 
     /// Same defect class as above, one step further out: the product does not
@@ -666,13 +654,13 @@ mod tests {
     fn test_rollout_buffer_new_rejects_product_overflowing_usize() {
         // 2^32 * 2^32 == 2^64: each factor is exactly at the ceiling and so
         // passes its own check, while the product wraps to 0.
-        let _: RolloutBuffer<TestBackend, [f32; 1]> =
+        let _: RolloutBuffer<[f32; 1]> =
             RolloutBuffer::new(MAX_BUFFER_CAPACITY, MAX_BUFFER_CAPACITY);
     }
 
     #[test]
     fn test_rollout_buffer_last_step_ended_tracks_final_status() {
-        let mut buf: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(4, 1);
+        let mut buf: RolloutBuffer<[f32; 1]> = RolloutBuffer::new(4, 1);
         assert!(!buf.last_step_ended(), "empty buffer has no final step");
         buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, StepEnd::Running);
         assert!(!buf.last_step_ended(), "running final step has not ended");
@@ -693,7 +681,7 @@ mod tests {
 
     #[test]
     fn test_rollout_buffer_push_and_indices() {
-        let mut buf: RolloutBuffer<TestBackend, [f32; 2]> = RolloutBuffer::new(4, 1);
+        let mut buf: RolloutBuffer<[f32; 2]> = RolloutBuffer::new(4, 1);
         buf.push_step([0.0, 0.0], &[0.0], 0.0, 0.0, 1.0, StepEnd::Running);
         buf.push_step([1.0, 1.0], &[1.0], -0.1, 0.1, 1.0, StepEnd::Running);
         buf.push_step([2.0, 2.0], &[2.0], -0.2, 0.2, 1.0, StepEnd::Terminated);
@@ -708,7 +696,7 @@ mod tests {
 
     #[test]
     fn test_rollout_buffer_gather_action_flat_rows_concatenate() {
-        let mut buf: RolloutBuffer<TestBackend, [f32; 1]> = RolloutBuffer::new(4, 2);
+        let mut buf: RolloutBuffer<[f32; 1]> = RolloutBuffer::new(4, 2);
         buf.push_step([0.0], &[1.0, 2.0], 0.0, 0.0, 0.0, StepEnd::Running);
         buf.push_step([0.0], &[3.0, 4.0], 0.0, 0.0, 0.0, StepEnd::Running);
         buf.push_step([0.0], &[5.0, 6.0], 0.0, 0.0, 0.0, StepEnd::Running);

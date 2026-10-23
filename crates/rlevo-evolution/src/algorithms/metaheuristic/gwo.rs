@@ -42,9 +42,7 @@
 //!   Bat Algorithms: Three Widespread Algorithms that Do Not Contain
 //!   Any Novelty*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -130,20 +128,20 @@ impl Validate for GwoConfig {
 
 /// Generation state for [`GreyWolfOptimizer`].
 #[derive(Debug, Clone)]
-pub struct GwoState<B: Backend> {
+pub struct GwoState {
     /// Current pack positions, shape `(pop_size, D)`.
-    pack: Tensor<B, 2>,
+    pack: Tensor<2>,
     /// Host-side fitness cache.
     fitness: Vec<f32>,
     /// Best-so-far genome, shape `(1, D)` — corresponds to `$\alpha$`.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     best_fitness: f32,
     /// Generation counter.
     generation: usize,
 }
 
-impl<B: Backend> GwoState<B> {
+impl GwoState {
     /// Assembles a wolf-pack state, checking the fitness cache matches `pop`.
     ///
     /// # Errors
@@ -151,9 +149,9 @@ impl<B: Backend> GwoState<B> {
     /// Returns a [`ConfigError`] if `pack` has zero rows or if `fitness` is
     /// non-empty with a length other than `pop_size`.
     pub fn try_new(
-        pack: Tensor<B, 2>,
+        pack: Tensor<2>,
         fitness: Vec<f32>,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
         generation: usize,
     ) -> Result<Self, ConfigError> {
@@ -171,7 +169,7 @@ impl<B: Backend> GwoState<B> {
 
     /// Current pack positions, shape `(pop_size, D)`.
     #[must_use]
-    pub fn pack(&self) -> &Tensor<B, 2> {
+    pub fn pack(&self) -> &Tensor<2> {
         &self.pack
     }
 
@@ -183,7 +181,7 @@ impl<B: Backend> GwoState<B> {
 
     /// Best-so-far genome (`$\alpha$`), or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -213,30 +211,22 @@ impl<B: Backend> GwoState<B> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConfig};
 ///
-/// let strategy = GreyWolfOptimizer::<Flex>::new();
+/// let strategy = GreyWolfOptimizer::new();
 /// // The schedule runs over 300 generations; give the loop the same budget.
 /// let params = GwoConfig::default_for(32, 10, 300);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct GreyWolfOptimizer<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct GreyWolfOptimizer {}
 
-impl<B: Backend> GreyWolfOptimizer<B> {
+impl GreyWolfOptimizer {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
-    fn sample_initial(
-        params: &GwoConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+    fn sample_initial(params: &GwoConfig, rng: &mut dyn Rng, device: &Device) -> Tensor<2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample from a deterministic `seed_stream` rather than the
         // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
@@ -249,29 +239,21 @@ impl<B: Backend> GreyWolfOptimizer<B> {
         for _ in 0..pop * genome_dim {
             rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
-        Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
+        Tensor::<2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
     }
 }
 
-impl<B: Backend> Strategy<B> for GreyWolfOptimizer<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for GreyWolfOptimizer {
     type Params = GwoConfig;
-    type State = GwoState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = GwoState;
+    type Genome = Tensor<2>;
 
     /// Samples the initial pack uniformly within [`GwoConfig::bounds`] using
     /// the host-RNG convention and sets the generation counter to zero.
     ///
     /// The `pop_size >= 3` invariant is enforced by [`Validate::validate`] at
     /// the loop chokepoint.
-    fn init(
-        &self,
-        params: &GwoConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> GwoState<B> {
+    fn init(&self, params: &GwoConfig, rng: &mut dyn Rng, device: &Device) -> GwoState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid GwoConfig reached init: {params:?}"
@@ -297,10 +279,10 @@ where
     fn ask(
         &self,
         params: &GwoConfig,
-        state: &GwoState<B>,
+        state: &GwoState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, GwoState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, GwoState) {
         // First call: evaluate initial pack so `tell` can rank it.
         if state.fitness.is_empty() {
             return (state.pack.clone(), state.clone());
@@ -315,7 +297,7 @@ where
         let top3 = argtop3_max(&state.fitness);
 
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, Int>::from_data(
+        let idx = Tensor::<1, Int>::from_data(
             TensorData::new(vec![top3[0] as i64, top3[1] as i64, top3[2] as i64], [3]),
             device,
         );
@@ -328,7 +310,7 @@ where
         let max_t = params.max_generations.max(1) as f32;
         let a = 2.0 * (1.0 - (t / max_t).min(1.0));
 
-        let mut update = Tensor::<B, 2>::zeros([pop_size, genome_dim], device);
+        let mut update = Tensor::<2>::zeros([pop_size, genome_dim], device);
         // Host-sample r1, r2 `$\in$` U[0,1) per leader from deterministic `seed_stream`s (distinct
         // purposes) so the draws stay reproducible across thread schedules, rather than racing the
         // global Flex RNG.
@@ -341,7 +323,7 @@ where
                 for _ in 0..pop_size * genome_dim {
                     rows.push(s.random::<f32>());
                 }
-                Tensor::<B, 2>::from_data(TensorData::new(rows, [pop_size, genome_dim]), device)
+                Tensor::<2>::from_data(TensorData::new(rows, [pop_size, genome_dim]), device)
             };
             let r2 = {
                 let mut s = seed_stream(rng.next_u64(), gen_k, SeedPurpose::Mutation);
@@ -349,7 +331,7 @@ where
                 for _ in 0..pop_size * genome_dim {
                     rows.push(s.random::<f32>());
                 }
-                Tensor::<B, 2>::from_data(TensorData::new(rows, [pop_size, genome_dim]), device)
+                Tensor::<2>::from_data(TensorData::new(rows, [pop_size, genome_dim]), device)
             };
             let a_mat = r1.mul_scalar(2.0 * a).sub_scalar(a);
             let c_mat = r2.mul_scalar(2.0);
@@ -378,11 +360,11 @@ where
     fn tell(
         &self,
         _params: &GwoConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: GwoState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: GwoState,
         _rng: &mut dyn Rng,
-    ) -> (GwoState<B>, StrategyMetrics) {
+    ) -> (GwoState, StrategyMetrics) {
         // Sanitise on the host pull (the Optimisation direction section of
         // `docs/rules.md`; ADR 0034 decision 3): the loop chokepoint already applies
         // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
@@ -394,7 +376,7 @@ where
         // delete it as redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -406,10 +388,8 @@ where
             state.best_fitness = fitness_host[best_idx];
             let device = population.device();
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(population.select(0, idx));
         }
         state.generation += 1;
@@ -421,7 +401,7 @@ where
 
     /// Returns the `$\alpha$` (best-so-far) genome and its fitness, or `None` before the first
     /// [`tell`](Strategy::tell) call.
-    fn best(&self, state: &GwoState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &GwoState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -483,13 +463,10 @@ mod tests {
     use super::*;
     use crate::fitness::{BatchFitnessFn, FromLandscape};
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
     use rlevo_core::objective::ObjectiveSense;
-
-    type TestBackend = Flex;
 
     /// A schedule horizon for the tests that drive no loop, or drive one
     /// too briefly for the schedule to matter.
@@ -498,17 +475,13 @@ mod tests {
     /// Objective whose row 0 evaluates to `NaN` (the rest finite). `Maximize`
     /// so natural == canonical; only the loop sanitize keeps the run finite.
     struct NanFitness;
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NanFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for NanFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)]
             let mut vals: Vec<f32> = (0..n).map(|i| i as f32).collect();
             vals[0] = f32::NAN;
-            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
         }
         fn sense(&self) -> ObjectiveSense {
             ObjectiveSense::Maximize
@@ -517,12 +490,12 @@ mod tests {
 
     #[test]
     fn try_new_checks_fitness_length() {
-        let device = Default::default();
-        let pack = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        let device = Device::flex();
+        let pack = Tensor::<2>::zeros([3, 2], &device);
         assert!(GwoState::try_new(pack.clone(), vec![1.0; 3], None, 1.0, 1).is_ok());
         assert!(GwoState::try_new(pack.clone(), vec![], None, f32::MIN, 0).is_ok());
         assert!(GwoState::try_new(pack, vec![1.0; 2], None, 1.0, 1).is_err());
-        let empty = Tensor::<TestBackend, 2>::zeros([0, 2], &device);
+        let empty = Tensor::<2>::zeros([0, 2], &device);
         assert!(GwoState::try_new(empty, vec![], None, 1.0, 0).is_err());
     }
 
@@ -593,14 +566,12 @@ mod tests {
         // Sphere but does not reach machine precision as quickly as DE/Rand1/bin. Budget 600 gens
         // keeps the test within the acceptance bar (rank-1 acceptable within `$2\times$` of the
         // classical baselines).
-        let device = Default::default();
-        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = GreyWolfOptimizer::new();
         let params = GwoConfig::default_for(32, 10, 600);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 11, device, 600,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 11, device, 600)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -636,13 +607,12 @@ mod tests {
     fn minimal_pack_of_three_runs() {
         // pop_size = 3 is the `$\alpha$`/`$\beta$`/`$\delta$` minimum — every wolf is also a
         // leader.
-        let device = Default::default();
-        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = GreyWolfOptimizer::new();
         let params = GwoConfig::default_for(3, 3, 5);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 0, device, 5)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -671,17 +641,17 @@ mod tests {
         // fire), so we build the post-bootstrap state through the public
         // `try_new` constructor and drive one `ask`. The guard must prevent a
         // divide-by-zero and yield a finite, in-bounds pack.
-        let device = Default::default();
-        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = GreyWolfOptimizer::new();
         let cfg = GwoConfig::default_for(3, 3, 0);
         let (lo, hi): (f32, f32) = cfg.bounds.into();
-        let pack = Tensor::<TestBackend, 2>::zeros([3, 3], &device);
+        let pack = Tensor::<2>::zeros([3, 3], &device);
         let best = pack.clone().slice([0..1, 0..3]);
         let state =
             GwoState::try_new(pack, vec![1.0, 2.0, 3.0], Some(best), 3.0, 0).expect("valid state");
         let mut rng = StdRng::seed_from_u64(0);
         let (new_pack, _next) = strategy.ask(&cfg, &state, &mut rng, &device);
-        let values = new_pack.into_data().into_vec::<f32>().unwrap();
+        let values = new_pack.into_data().try_into_vec::<f32>().unwrap();
         for v in values {
             assert!(v.is_finite(), "guard failed: non-finite {v}");
             assert!(v >= lo - 1e-4 && v <= hi + 1e-4, "out of bounds: {v}");
@@ -698,14 +668,19 @@ mod tests {
 
     #[test]
     fn first_ask_returns_initial_pack_unchanged() {
-        let device = Default::default();
-        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = GreyWolfOptimizer::new();
         let params = GwoConfig::default_for(4, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(2);
         let state = strategy.init(&params, &mut rng, &device);
-        let expected = state.pack().clone().into_data().into_vec::<f32>().unwrap();
+        let expected = state
+            .pack()
+            .clone()
+            .into_data()
+            .try_into_vec::<f32>()
+            .unwrap();
         let (pack, _state) = strategy.ask(&params, &state, &mut rng, &device);
-        let got = pack.into_data().into_vec::<f32>().unwrap();
+        let got = pack.into_data().try_into_vec::<f32>().unwrap();
         assert_eq!(expected, got);
     }
 
@@ -720,18 +695,16 @@ mod tests {
     /// freeze assertion.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device = Default::default();
-        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = GreyWolfOptimizer::new();
         let params = GwoConfig::default_for(4, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(131);
         let state = strategy.init(&params, &mut rng, &device);
 
         // Generation 0: row 0 is NaN, the rest finite.
         let (pack, state) = strategy.ask(&params, &state, &mut rng, &device);
-        let f0 = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![f32::NAN, 0.0, 0.0, 0.0], [4]),
-            &device,
-        );
+        let f0 =
+            Tensor::<1>::from_data(TensorData::new(vec![f32::NAN, 0.0, 0.0, 0.0], [4]), &device);
         let (mut state, _m) = strategy.tell(&params, pack, f0, state, &mut rng);
         assert!(
             state.fitness().iter().all(|f| !f.is_nan()),
@@ -754,8 +727,7 @@ mod tests {
         // stays NaN-free.
         for value in [1.0_f32, 2.0] {
             let (pack, next) = strategy.ask(&params, &state, &mut rng, &device);
-            let f =
-                Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![value; 4], [4]), &device);
+            let f = Tensor::<1>::from_data(TensorData::new(vec![value; 4], [4]), &device);
             let (next, _m) = strategy.tell(&params, pack, f, next, &mut rng);
             state = next;
             assert!(
@@ -768,12 +740,11 @@ mod tests {
 
     #[test]
     fn nan_fitness_through_loop_stays_finite() {
-        let device = Default::default();
-        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = GreyWolfOptimizer::new();
         let params = GwoConfig::default_for(3, 3, 3);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, NanFitness, 1, device, 3)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, NanFitness, 1, device, 3)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();

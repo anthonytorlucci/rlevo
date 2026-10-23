@@ -6,7 +6,6 @@
 //! complete. All SAC-specific behaviour (entropy-augmented target, `$\alpha$` auto- tuning, twin
 //! critic updates) is contained inside `learn_step`.
 
-use burn::tensor::backend::AutodiffBackend;
 use rand::Rng;
 
 use rlevo_core::action::BoundedAction;
@@ -55,7 +54,6 @@ use crate::algorithms::sac::sac_model::{ContinuousQ, SquashedGaussianPolicy};
 /// `env.reset()` or `env.step()` fails at any point during training.
 #[allow(clippy::too_many_arguments)]
 pub fn train<
-    B,
     Actor,
     Critic,
     E,
@@ -66,18 +64,17 @@ pub fn train<
     const AR: usize,
     const BAR: usize,
 >(
-    agent: &mut SacAgent<B, Actor, Critic, O, A, OR, BS, AR, BAR>,
+    agent: &mut SacAgent<Actor, Critic, O, A, OR, BS, AR, BAR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
     log_every: usize,
 ) -> Result<(), SacAgentError>
 where
-    B: AutodiffBackend,
-    Actor: SquashedGaussianPolicy<B, BS, BAR>,
-    Critic: ContinuousQ<B, BS, BAR>,
+    Actor: SquashedGaussianPolicy<BS, BAR>,
+    Critic: ContinuousQ<BS, BAR>,
     E: Environment<OR, AR, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
+    O: Observation<OR> + TensorConvertible<OR> + Clone,
     A: BoundedAction<AR>,
 {
     let mut snapshot = env.reset().map_err(env_to_err)?;
@@ -196,8 +193,8 @@ fn env_to_err(err: rlevo_core::environment::EnvironmentError) -> SacAgentError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::Device;
 
-    use burn::backend::{Autodiff, Flex};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::environment::EpisodeStatus;
@@ -205,8 +202,6 @@ mod tests {
     use crate::algorithms::bootstrap_mask::{
         ContinuousMaskEnv, MaskContinuousAction, MaskObservation, TinyCritic,
     };
-
-    type TestBackend = Autodiff<Flex>;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -222,19 +217,18 @@ mod tests {
     /// ever runs — this guard is about *which predicate reaches `remember`*,
     /// not about learning.
     fn recorded_masks(end_status: EpisodeStatus) -> Vec<bool> {
-        let device = Default::default();
+        let device = Device::flex();
         let config = SacTrainingConfig {
             learning_starts: 1_000_000,
             replay_buffer_capacity: 64,
             ..SacTrainingConfig::default()
         };
-        let actor = TinySacActor::<TestBackend>::new(&device);
-        let critic_1 = TinyCritic::<TestBackend>::new(&device);
-        let critic_2 = TinyCritic::<TestBackend>::new(&device);
+        let actor = TinySacActor::new(&device);
+        let critic_1 = TinyCritic::new(&device);
+        let critic_2 = TinyCritic::new(&device);
         let mut agent = SacAgent::<
-            TestBackend,
-            TinySacActor<TestBackend>,
-            TinyCritic<TestBackend>,
+            TinySacActor,
+            TinyCritic,
             MaskObservation,
             MaskContinuousAction,
             1,

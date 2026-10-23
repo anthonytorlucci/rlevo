@@ -29,8 +29,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData, backend::Backend, backend::BackendTypes};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
@@ -43,8 +42,6 @@ use rlevo_evolution::algorithms::memetic::{
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::local_search::{HillClimbVariant, HillClimbing, HillClimbingParams};
 use rlevo_evolution::strategy::EvolutionaryLoop;
-
-type B = Flex;
 
 const DIM: usize = 10;
 const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
@@ -67,16 +64,16 @@ impl CountingRastrigin {
     }
 }
 
-impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<Bk, 2>,
-        device: &<Bk as BackendTypes>::Device,
-    ) -> Tensor<Bk, 1> {
+impl BatchFitnessFn<Tensor<2>> for CountingRastrigin {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         let dims: [usize; 2] = population.dims();
         let (pop, dim): (usize, usize) = (dims[0], dims[1]);
         self.evals.fetch_add(pop, Ordering::Relaxed);
-        let flat: Vec<f32> = population.clone().into_data().into_vec::<f32>().unwrap();
+        let flat: Vec<f32> = population
+            .clone()
+            .into_data()
+            .try_into_vec::<f32>()
+            .unwrap();
         let mut out: Vec<f32> = Vec::with_capacity(pop);
         for r in 0..pop {
             let start: usize = r * dim;
@@ -87,7 +84,7 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
             #[allow(clippy::cast_possible_truncation)]
             out.push(self.landscape.evaluate(&row) as f32);
         }
-        Tensor::<Bk, 1>::from_data(TensorData::new(out, [pop]), device)
+        Tensor::<1>::from_data(TensorData::new(out, [pop]), device)
     }
 
     fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
@@ -112,10 +109,10 @@ struct RunResult {
 
 /// A genome's Rastrigin cost, computed as [`CountingRastrigin`] computes it
 /// but without counting an evaluation.
-fn rastrigin_cost(genome: Tensor<B, 2>) -> f32 {
+fn rastrigin_cost(genome: Tensor<2>) -> f32 {
     let row: Vec<f64> = genome
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .unwrap()
         .into_iter()
         .map(f64::from)
@@ -132,14 +129,13 @@ fn rastrigin_cost(genome: Tensor<B, 2>) -> f32 {
 
 /// Drive bare DE to a target Rastrigin fitness, counting evaluations.
 fn de_evals_to_target(seed: u64, de: &DeConfig, target: f32, max_gens: usize) -> RunResult {
-    let device: <B as BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     let evals: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     let fitness: CountingRastrigin =
         CountingRastrigin::new(Rastrigin::new(DIM).expect("dim >= 1"), evals.clone());
-    let strategy: DifferentialEvolution<B> = DifferentialEvolution::<B>::new();
-    let mut evo_loop =
-        EvolutionaryLoop::<B, _, _>::new(strategy, de.clone(), fitness, seed, device, max_gens)
-            .expect("valid params");
+    let strategy: DifferentialEvolution = DifferentialEvolution::new();
+    let mut evo_loop = EvolutionaryLoop::new(strategy, de.clone(), fitness, seed, device, max_gens)
+        .expect("valid params");
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
@@ -172,7 +168,7 @@ fn memetic_evals_to_target(
     target: f32,
     max_gens: usize,
 ) -> RunResult {
-    let device: <B as BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     // One shared counter feeds both fitness instances: the loop's (population
     // scoring) and the wrapper's (local-search probes).
     let evals: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
@@ -181,11 +177,8 @@ fn memetic_evals_to_target(
     let wrapper_fitness: CountingRastrigin =
         CountingRastrigin::new(Rastrigin::new(DIM).expect("dim >= 1"), evals.clone());
 
-    let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
-        DifferentialEvolution::<B>::new(),
-        HillClimbing,
-        wrapper_fitness,
-    );
+    let strategy: MemeticWrapper<_, _, _> =
+        MemeticWrapper::new(DifferentialEvolution::new(), HillClimbing, wrapper_fitness);
     let params: MemeticParams<DeConfig, HillClimbingParams> = MemeticParams {
         inner: de.clone(),
         local: hc.clone(),
@@ -193,7 +186,7 @@ fn memetic_evals_to_target(
         coverage,
     };
     let mut evo_loop =
-        EvolutionaryLoop::<B, _, _>::new(strategy, params, loop_fitness, seed, device, max_gens)
+        EvolutionaryLoop::new(strategy, params, loop_fitness, seed, device, max_gens)
             .expect("valid params");
     evo_loop.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);

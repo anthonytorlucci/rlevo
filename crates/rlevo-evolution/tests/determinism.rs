@@ -14,9 +14,7 @@
 //! `tests/generation_trial_seam.rs`). The single `#[test]` function is kept
 //! because splitting it would change nothing it asserts.
 
-use burn::backend::Flex;
-use burn::tensor::backend::{Backend, BackendTypes};
-use burn::tensor::{Int, Tensor, TensorData};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
 use rlevo_core::objective::ObjectiveSense;
@@ -47,8 +45,6 @@ use rlevo_evolution::local_search::{
 };
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
-type B = Flex;
-
 struct Sphere;
 impl Landscape for Sphere {
     fn evaluate(&self, x: &[f64]) -> f64 {
@@ -60,13 +56,13 @@ impl Landscape for Sphere {
 /// per-generation best-fitness trajectory.
 fn run<S>(strategy: S, params: S::Params, seed: u64, gens: usize) -> Vec<f32>
 where
-    S: Strategy<B>,
+    S: Strategy,
     S::Params: rlevo_core::config::Validate,
-    <S as Strategy<B>>::Genome: 'static,
-    FromLandscape<Sphere>: BatchFitnessFn<B, S::Genome>,
+    <S as Strategy>::Genome: 'static,
+    FromLandscape<Sphere>: BatchFitnessFn<S::Genome>,
 {
-    let device = Default::default();
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
+    let device = Device::flex();
+    let mut evo_loop = EvolutionaryLoop::new(
         strategy,
         params,
         FromLandscape::new(Sphere),
@@ -85,7 +81,7 @@ where
 }
 
 /// `OneMax` batch fitness over a binary genome (`count_ones`, native
-/// maximise). The [`BinaryGeneticAlgorithm`]'s `Tensor<B, 2, Int>` genome is
+/// maximise). The [`BinaryGeneticAlgorithm`]'s `Tensor<2, Int>` genome is
 /// not covered by the real-valued [`FromLandscape`] adapter used by the
 /// generic [`run`] path, so binary-GA determinism is checked with a dedicated
 /// integer fitness driven inline.
@@ -93,17 +89,13 @@ struct OneMaxBatch {
     dim: usize,
 }
 
-impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2, Int>> for OneMaxBatch {
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<Bk, 2, Int>,
-        device: &<Bk as BackendTypes>::Device,
-    ) -> Tensor<Bk, 1> {
+impl BatchFitnessFn<Tensor<2, Int>> for OneMaxBatch {
+    fn evaluate_batch(&mut self, population: &Tensor<2, Int>, device: &Device) -> Tensor<1> {
         let pop_size = population.dims()[0];
         let data = population
             .clone()
             .into_data()
-            .into_vec::<i32>()
+            .try_into_vec::<i32>()
             .expect("genome host-read of a tensor this test just built");
         let mut fitness = Vec::with_capacity(pop_size);
         for row in 0..pop_size {
@@ -113,7 +105,7 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2, Int>> for OneMaxBatch {
                 .count() as f32;
             fitness.push(ones);
         }
-        Tensor::<Bk, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+        Tensor::<1>::from_data(TensorData::new(fitness, [pop_size]), device)
     }
 
     fn sense(&self) -> ObjectiveSense {
@@ -122,11 +114,11 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2, Int>> for OneMaxBatch {
 }
 
 fn run_binary_ga(seed: u64, gens: usize) -> Vec<f32> {
-    let device = Default::default();
+    let device = Device::flex();
     let dim = 16usize;
     let params = BinaryGaConfig::default_for(32, dim);
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
-        BinaryGeneticAlgorithm::<B>::new(),
+    let mut evo_loop = EvolutionaryLoop::new(
+        BinaryGeneticAlgorithm::new(),
         params,
         OneMaxBatch { dim },
         seed,
@@ -155,57 +147,57 @@ fn run_ga(seed: u64, gens: usize) -> Vec<f32> {
         },
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     };
-    run(GeneticAlgorithm::<B>::new(), params, seed, gens)
+    run(GeneticAlgorithm::new(), params, seed, gens)
 }
 
 fn run_es(seed: u64, gens: usize, kind: EsKind) -> Vec<f32> {
     let params = EsConfig::default_for(kind, 5);
-    run(EvolutionStrategy::<B>::new(), params, seed, gens)
+    run(EvolutionStrategy::new(), params, seed, gens)
 }
 
 fn run_pso(seed: u64, gens: usize) -> Vec<f32> {
     let params = PsoConfig::default_for(16, 5);
-    run(ParticleSwarm::<B>::new(), params, seed, gens)
+    run(ParticleSwarm::new(), params, seed, gens)
 }
 
 fn run_gwo(seed: u64, gens: usize) -> Vec<f32> {
     let params = GwoConfig::default_for(16, 5, gens);
-    run(GreyWolfOptimizer::<B>::new(), params, seed, gens)
+    run(GreyWolfOptimizer::new(), params, seed, gens)
 }
 
 fn run_woa(seed: u64, gens: usize) -> Vec<f32> {
     let params = WoaConfig::default_for(16, 5, gens);
-    run(WhaleOptimization::<B>::new(), params, seed, gens)
+    run(WhaleOptimization::new(), params, seed, gens)
 }
 
 fn run_salp(seed: u64, gens: usize) -> Vec<f32> {
     let params = SalpConfig::default_for(16, 5, gens);
-    run(SalpSwarm::<B>::new(), params, seed, gens)
+    run(SalpSwarm::new(), params, seed, gens)
 }
 
 fn run_abc(seed: u64, gens: usize) -> Vec<f32> {
     let params = AbcConfig::default_for(12, 5);
-    run(ArtificialBeeColony::<B>::new(), params, seed, gens)
+    run(ArtificialBeeColony::new(), params, seed, gens)
 }
 
 fn run_bat(seed: u64, gens: usize) -> Vec<f32> {
     let params = BatConfig::default_for(16, 5);
-    run(BatAlgorithm::<B>::new(), params, seed, gens)
+    run(BatAlgorithm::new(), params, seed, gens)
 }
 
 fn run_aco_r(seed: u64, gens: usize) -> Vec<f32> {
     let params = AcoRConfig::default_for(16, 8, 5);
-    run(AntColonyReal::<B>::new(), params, seed, gens)
+    run(AntColonyReal::new(), params, seed, gens)
 }
 
 fn run_cuckoo(seed: u64, gens: usize) -> Vec<f32> {
     let params = CuckooConfig::default_for(16, 5);
-    run(CuckooSearch::<B>::new(), params, seed, gens)
+    run(CuckooSearch::new(), params, seed, gens)
 }
 
 fn run_firefly(seed: u64, gens: usize) -> Vec<f32> {
     let params = FireflyConfig::default_for(16, 5);
-    run(FireflyAlgorithm::<B>::new(), params, seed, gens)
+    run(FireflyAlgorithm::new(), params, seed, gens)
 }
 
 /// Drive a `MemeticWrapper<DE, HillClimbing>` for `gens` generations and
@@ -217,11 +209,11 @@ fn run_firefly(seed: u64, gens: usize) -> Vec<f32> {
 /// a single fitness. Both instances are independent `FromLandscape` values
 /// over the same stateless [`Sphere`], so they never diverge.
 fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
-    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     let dim: usize = 5;
     let bounds: Bounds = Bounds::new(-5.12, 5.12);
-    let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
-        DifferentialEvolution::<B>::new(),
+    let strategy: MemeticWrapper<_, _, _> = MemeticWrapper::new(
+        DifferentialEvolution::new(),
         HillClimbing,
         FromLandscape::new(Sphere),
     );
@@ -231,7 +223,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
         writeback: WritebackPolicy::Partial(Probability::new(0.5)),
         coverage: CoveragePolicy::TopK { k: 2 },
     };
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::new(
         strategy,
         params,
         FromLandscape::new(Sphere),
@@ -257,11 +249,11 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
 /// `seed_stream`-derived `ls_rng`, so a same-seed replay must still be
 /// bit-identical. See [`run_memetic_de`] for the two-fitness-instance note.
 fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
-    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     let dim: usize = 5;
     let bounds: Bounds = Bounds::new(-5.12, 5.12);
-    let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
-        DifferentialEvolution::<B>::new(),
+    let strategy: MemeticWrapper<_, _, _> = MemeticWrapper::new(
+        DifferentialEvolution::new(),
         SimulatedAnnealing,
         FromLandscape::new(Sphere),
     );
@@ -271,7 +263,7 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
         writeback: WritebackPolicy::Partial(Probability::new(0.5)),
         coverage: CoveragePolicy::TopK { k: 2 },
     };
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
+    let mut evo_loop = EvolutionaryLoop::new(
         strategy,
         params,
         FromLandscape::new(Sphere),

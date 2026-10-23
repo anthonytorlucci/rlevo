@@ -8,27 +8,24 @@
 //! - `aux_value_loss_path` — the aux-phase value-target MSE (same kernel as
 //!   PPO's unclipped value loss, benchmarked here at aux-phase-shaped sizes).
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rlevo_reinforcement_learning::algorithms::ppg::losses::policy_kl_categorical;
 use rlevo_reinforcement_learning::algorithms::ppo::losses::unclipped_value_loss;
 use std::hint::black_box;
 
-type B = Flex;
-
 fn bench_policy_kl_categorical(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppg_policy_kl_categorical");
-    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     for &(batch, num_actions) in &[(64_usize, 2_usize), (256, 2), (1024, 2), (256, 18)] {
         let id = format!("batch{batch}_actions{num_actions}");
         group.bench_with_input(
             BenchmarkId::from_parameter(&id),
             &(batch, num_actions),
             |b, &(n, a)| {
-                let old: Tensor<B, 2> =
+                let old: Tensor<2> =
                     Tensor::from_data(TensorData::new(vec![0.1_f32; n * a], vec![n, a]), &device);
-                let new: Tensor<B, 2> =
+                let new: Tensor<2> =
                     Tensor::from_data(TensorData::new(vec![0.0_f32; n * a], vec![n, a]), &device);
                 b.iter(|| {
                     let out = policy_kl_categorical(black_box(old.clone()), black_box(new.clone()));
@@ -42,12 +39,12 @@ fn bench_policy_kl_categorical(c: &mut Criterion) {
 
 fn bench_aux_value_loss(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppg_aux_value_loss_mse");
-    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     for &n in &[256_usize, 1024, 4096] {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
-            let v: Tensor<B, 1> =
+            let v: Tensor<1> =
                 Tensor::from_data(TensorData::new(vec![0.0_f32; n], vec![n]), &device);
-            let r: Tensor<B, 1> =
+            let r: Tensor<1> =
                 Tensor::from_data(TensorData::new(vec![1.0_f32; n], vec![n]), &device);
             b.iter(|| {
                 let out = unclipped_value_loss(black_box(v.clone()), black_box(r.clone()));

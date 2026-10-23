@@ -1,7 +1,7 @@
 //! Phenotype construction — turning a [`TopologyGenome`] into a callable network.
 //!
 //! [`InterpretedPhenotype::new`] compiles a genome into a host-side
-//! **feedforward** evaluator built from bare `Tensor<B, 2>` arithmetic over the
+//! **feedforward** evaluator built from bare `Tensor<2>` arithmetic over the
 //! genome's enabled connections in topological order — **no Burn `Module`**,
 //! no autodiff, no `Recorder`. NEAT phenotypes need only a forward pass, so
 //! skipping Burn's `Module` (whose `#[derive]` needs a static field structure
@@ -12,10 +12,8 @@
 //! population in one device-resident forward pass with stock Burn ops.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::marker::PhantomData;
 
-use burn::tensor::backend::Backend;
-use burn::tensor::{Bool, Tensor, TensorData, activation};
+use burn::tensor::{Bool, Device, Tensor, TensorData, activation};
 
 use super::topology::{ActivationFn, NodeGene, NodeId, NodeKind, SIGMOID_GAIN, TopologyGenome};
 
@@ -36,17 +34,16 @@ struct NodeEval {
 /// trivially `Send + Sync` and cheap to construct. The forward device is taken
 /// from the input tensor.
 #[derive(Debug, Clone)]
-pub struct InterpretedPhenotype<B: Backend> {
+pub struct InterpretedPhenotype {
     /// Input node ids in input-column order.
     input_ids: Vec<NodeId>,
     /// Output node ids in output-column order.
     output_ids: Vec<NodeId>,
     /// Non-input nodes in topological order, with their evaluation plan.
     eval_order: Vec<NodeEval>,
-    _backend: PhantomData<fn() -> B>,
 }
 
-impl<B: Backend> InterpretedPhenotype<B> {
+impl InterpretedPhenotype {
     /// Compile a genome into an evaluation plan.
     ///
     /// Nodes are ordered topologically over **all** structural edges; because
@@ -95,47 +92,45 @@ impl<B: Backend> InterpretedPhenotype<B> {
             input_ids,
             output_ids,
             eval_order,
-            _backend: PhantomData,
         }
     }
 
     /// Run a forward pass, mapping `[batch, num_inputs]` to
     /// `[batch, num_outputs]`. The compute device is taken from `input`.
     #[must_use]
-    pub fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2> {
+    pub fn forward(&self, input: Tensor<2>) -> Tensor<2> {
         let [batch, _num_inputs] = input.dims();
         let device = input.device();
 
-        let mut values: HashMap<NodeId, Tensor<B, 2>> =
-            HashMap::with_capacity(self.input_ids.len());
+        let mut values: HashMap<NodeId, Tensor<2>> = HashMap::with_capacity(self.input_ids.len());
         if !self.input_ids.is_empty() {
             // One split of the whole input into `[batch, 1]` columns, versus the former per-column
             // full-tensor clone (`$O(I^2 B) \to O(I B)$`).
-            let columns: Vec<Tensor<B, 2>> = input.chunk(self.input_ids.len(), 1);
+            let columns: Vec<Tensor<2>> = input.chunk(self.input_ids.len(), 1);
             for (iid, column) in self.input_ids.iter().copied().zip(columns) {
                 values.insert(iid, column);
             }
         }
 
         for node in &self.eval_order {
-            let mut acc = Tensor::<B, 2>::zeros([batch, 1], &device);
+            let mut acc = Tensor::<2>::zeros([batch, 1], &device);
             for (src, weight) in &node.incoming {
                 if let Some(src_value) = values.get(src) {
                     acc = acc + src_value.clone().mul_scalar(*weight);
                 }
             }
             acc = acc.add_scalar(node.bias);
-            values.insert(node.id, apply_activation::<B>(node.activation, acc));
+            values.insert(node.id, apply_activation(node.activation, acc));
         }
 
-        let columns: Vec<Tensor<B, 2>> = self
+        let columns: Vec<Tensor<2>> = self
             .output_ids
             .iter()
             .map(|oid| {
                 values
                     .get(oid)
                     .cloned()
-                    .unwrap_or_else(|| Tensor::<B, 2>::zeros([batch, 1], &device))
+                    .unwrap_or_else(|| Tensor::<2>::zeros([batch, 1], &device))
             })
             .collect();
         Tensor::cat(columns, 1)
@@ -144,7 +139,7 @@ impl<B: Backend> InterpretedPhenotype<B> {
 
 /// Tensor-side activation, mirroring [`ActivationFn::apply`] exactly (including
 /// the [`SIGMOID_GAIN`] steepening) so a hand-computed truth table matches.
-fn apply_activation<B: Backend>(act: ActivationFn, x: Tensor<B, 2>) -> Tensor<B, 2> {
+fn apply_activation(act: ActivationFn, x: Tensor<2>) -> Tensor<2> {
     match act {
         ActivationFn::Sigmoid => activation::sigmoid(x.mul_scalar(SIGMOID_GAIN)),
         ActivationFn::Tanh => activation::tanh(x),
@@ -218,16 +213,16 @@ impl DensePaddedEvaluator {
     /// population's input-node count. Debug builds also panic if the genomes do
     /// not all share one input-node count and one output-node count.
     #[must_use]
-    pub fn evaluate_population<B: Backend>(
+    pub fn evaluate_population(
         &self,
         genomes: &[TopologyGenome],
-        obs: Tensor<B, 2>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 3> {
+        obs: Tensor<2>,
+        device: &Device,
+    ) -> Tensor<3> {
         let pop = genomes.len();
         let [batch, obs_dim] = obs.dims();
         if pop == 0 {
-            return Tensor::<B, 3>::zeros([0, batch, 0], device);
+            return Tensor::<3>::zeros([0, batch, 0], device);
         }
         let max_nodes = genomes.iter().map(|g| g.nodes.len()).max().unwrap_or(0);
         assert!(
@@ -245,7 +240,7 @@ impl DensePaddedEvaluator {
             num_outputs,
             n,
             iterations,
-        } = PaddedPopulation::<B>::compile(genomes, device);
+        } = PaddedPopulation::compile(genomes, device);
         assert_eq!(
             obs_dim, num_inputs,
             "obs feature dim {obs_dim} must equal the population's input-node count {num_inputs}"
@@ -255,7 +250,7 @@ impl DensePaddedEvaluator {
         // padding rows, broadcast across the population. Held fixed every step.
         let obs_t = obs.swap_dims(0, 1); // (num_inputs, batch)
         let seed_2d = if n > num_inputs {
-            let pad = Tensor::<B, 2>::zeros([n - num_inputs, batch], device);
+            let pad = Tensor::<2>::zeros([n - num_inputs, batch], device);
             Tensor::cat(vec![obs_t, pad], 0) // (N, batch)
         } else {
             obs_t
@@ -276,7 +271,7 @@ impl DensePaddedEvaluator {
             let acc = weights.clone().matmul(values.clone()) + bias.clone(); // (P, N, batch)
             // Heterogeneous per-node activation: one masked pass per variant,
             // reusing the interpreted formulas (incl. SIGMOID_GAIN) verbatim.
-            let mut out = Tensor::<B, 3>::zeros([pop, n, batch], device);
+            let mut out = Tensor::<3>::zeros([pop, n, batch], device);
             out = out.mask_where(
                 mask_sigmoid.clone(),
                 activation::sigmoid(acc.clone().mul_scalar(SIGMOID_GAIN)),
@@ -303,16 +298,16 @@ impl DensePaddedEvaluator {
 /// — uniform across `P`, so seeding and output-slicing need no per-genome index
 /// arithmetic. Padding rows (id-free, beyond a genome's node count) carry no
 /// activation mask and no edges, so they stay zero and never feed a real node.
-struct PaddedPopulation<B: Backend> {
+struct PaddedPopulation {
     /// `(P, N, N)` — `weights[p, i, j]` is the weight of enabled edge `j → i`.
-    weights: Tensor<B, 3>,
+    weights: Tensor<3>,
     /// `(P, N)` per-node bias (0 for input and padding rows).
-    bias: Tensor<B, 2>,
+    bias: Tensor<2>,
     /// One `(P, N)` bool mask per [`ActivationFn`] variant, in the order
     /// `[Sigmoid, Tanh, Relu, Linear]`.
-    act_masks: [Tensor<B, 2, Bool>; 4],
+    act_masks: [Tensor<2, Bool>; 4],
     /// `(P, N)` bool mask, true at input rows (held fixed each iteration).
-    input_slots: Tensor<B, 2, Bool>,
+    input_slots: Tensor<2, Bool>,
     num_inputs: usize,
     num_outputs: usize,
     n: usize,
@@ -325,11 +320,8 @@ struct PaddedPopulation<B: Backend> {
     iterations: usize,
 }
 
-impl<B: Backend> PaddedPopulation<B> {
-    fn compile(
-        genomes: &[TopologyGenome],
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl PaddedPopulation {
+    fn compile(genomes: &[TopologyGenome], device: &Device) -> Self {
         let pop = genomes.len();
         let num_inputs = count_kind(&genomes[0], NodeKind::Input);
         let num_outputs = count_kind(&genomes[0], NodeKind::Output);
@@ -385,12 +377,12 @@ impl<B: Backend> PaddedPopulation<B> {
             }
         }
 
-        let weights = Tensor::<B, 3>::from_data(TensorData::new(weights, [pop, n, n]), device);
-        let bias = Tensor::<B, 2>::from_data(TensorData::new(bias, [pop, n]), device);
+        let weights = Tensor::<3>::from_data(TensorData::new(weights, [pop, n, n]), device);
+        let bias = Tensor::<2>::from_data(TensorData::new(bias, [pop, n]), device);
         let act_masks = masks.map(|m| {
-            Tensor::<B, 2>::from_data(TensorData::new(m, [pop, n]), device).greater_elem(0.5)
+            Tensor::<2>::from_data(TensorData::new(m, [pop, n]), device).greater_elem(0.5)
         });
-        let input_slots = Tensor::<B, 2>::from_data(TensorData::new(input_slots, [pop, n]), device)
+        let input_slots = Tensor::<2>::from_data(TensorData::new(input_slots, [pop, n]), device)
             .greater_elem(0.5);
 
         Self {
@@ -531,9 +523,6 @@ fn topological_order(genome: &TopologyGenome) -> Vec<NodeId> {
 mod tests {
     use super::*;
     use crate::neuroevolution::topology::{ConnectionGene, InnovationId};
-    use burn::backend::Flex;
-
-    type TestBackend = Flex;
 
     /// A hand-built feedforward genome reproduces a known truth table.
     ///
@@ -542,7 +531,7 @@ mod tests {
     /// `$\text{out} = 2h + 0.5$`, the four binary input rows give outputs `0.5, 2.5, 2.5, 4.5`.
     #[test]
     fn test_interpreted_phenotype_reproduces_truth_table() {
-        let device = Default::default();
+        let device = Device::flex();
         let nodes = vec![
             NodeGene {
                 id: NodeId::new(0),
@@ -594,16 +583,16 @@ mod tests {
         ];
         let genome = TopologyGenome::new(nodes, conns);
 
-        let pheno = InterpretedPhenotype::<TestBackend>::new(&genome);
+        let pheno = InterpretedPhenotype::new(&genome);
 
-        let input = Tensor::<TestBackend, 2>::from_data(
+        let input = Tensor::<2>::from_data(
             burn::tensor::TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),
             &device,
         );
         let out = pheno
             .forward(input)
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("output host-read of a tensor this test just built");
         let expected = [0.5f32, 2.5, 2.5, 4.5];
         for (got, want) in out.iter().zip(expected.iter()) {
@@ -614,7 +603,7 @@ mod tests {
     /// A disabled connection is skipped in the forward pass.
     #[test]
     fn test_interpreted_phenotype_skips_disabled_edges() {
-        let device = Default::default();
+        let device = Device::flex();
         let nodes = vec![
             NodeGene {
                 id: NodeId::new(0),
@@ -638,15 +627,15 @@ mod tests {
             enabled: false,
         }];
         let genome = TopologyGenome::new(nodes, conns);
-        let pheno = InterpretedPhenotype::<TestBackend>::new(&genome);
-        let input = Tensor::<TestBackend, 2>::from_data(
+        let pheno = InterpretedPhenotype::new(&genome);
+        let input = Tensor::<2>::from_data(
             burn::tensor::TensorData::new(vec![5.0f32, 7.0], [2, 1]),
             &device,
         );
         let out = pheno
             .forward(input)
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("output host-read of a tensor this test just built");
         approx::assert_relative_eq!(out[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(out[1], 1.0, epsilon = 1e-6);
@@ -661,7 +650,7 @@ mod tests {
     /// value is `activation(bias)` — here `Linear`, so exactly `bias`.
     #[test]
     fn test_interpreted_phenotype_forward_handles_zero_inputs() {
-        let device = Default::default();
+        let device = Device::flex();
         // A lone Output node: no inputs, no edges. output = linear(bias) = bias.
         let nodes = vec![NodeGene {
             id: NodeId::new(0),
@@ -671,11 +660,11 @@ mod tests {
         }];
         let conns: Vec<ConnectionGene> = vec![];
         let genome = TopologyGenome::new(nodes, conns);
-        let pheno = InterpretedPhenotype::<TestBackend>::new(&genome);
+        let pheno = InterpretedPhenotype::new(&genome);
 
         // Shape [batch, 0]: an empty input tensor drives the zero-input guard.
         let batch: usize = 3;
-        let input = Tensor::<TestBackend, 2>::from_data(
+        let input = Tensor::<2>::from_data(
             burn::tensor::TensorData::new(Vec::<f32>::new(), [batch, 0]),
             &device,
         );
@@ -687,7 +676,7 @@ mod tests {
         );
         let out_vec = out
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("output host-read of a tensor this test just built");
         for got in &out_vec {
             approx::assert_relative_eq!(*got, 0.75f32, epsilon = 1e-6);
@@ -705,7 +694,7 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)] // hand-built genome literals, not real logic
     fn test_dense_matches_interpreted_within_epsilon() {
-        let device = Default::default();
+        let device = Device::flex();
 
         // Genome A: in0, in1 -> hidden2 (Relu) -> out3 (Linear, bias 0.5).
         let genome_a: TopologyGenome = TopologyGenome::new(
@@ -888,12 +877,10 @@ mod tests {
         // Non-binary observations exercise the activations off their fixed points.
         let batch: usize = 4;
         let obs_data: Vec<f32> = vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.5, -0.5];
-        let obs: Tensor<TestBackend, 2> = Tensor::<TestBackend, 2>::from_data(
-            burn::tensor::TensorData::new(obs_data, [batch, 2]),
-            &device,
-        );
+        let obs: Tensor<2> =
+            Tensor::<2>::from_data(burn::tensor::TensorData::new(obs_data, [batch, 2]), &device);
 
-        let dense: Tensor<TestBackend, 3> =
+        let dense: Tensor<3> =
             DensePaddedEvaluator::default().evaluate_population(&genomes, obs.clone(), &device);
         assert_eq!(
             dense.dims(),
@@ -902,14 +889,14 @@ mod tests {
         );
         let dense_vec: Vec<f32> = dense
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("host-read of a tensor this test just built");
 
         for (p, genome) in genomes.iter().enumerate() {
-            let interp: Vec<f32> = InterpretedPhenotype::<TestBackend>::new(genome)
+            let interp: Vec<f32> = InterpretedPhenotype::new(genome)
                 .forward(obs.clone())
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("host-read of a tensor this test just built");
             for b in 0..batch {
                 for o in 0..out_dim {

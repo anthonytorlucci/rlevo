@@ -7,9 +7,8 @@
 //! estimates of the return distribution's quantile function at the implicit midpoints
 //! `$\tau_i = (i + 0.5)/N$`.
 
-use burn::module::AutodiffModule;
+use burn::module::Module;
 use burn::tensor::Tensor;
-use burn::tensor::backend::AutodiffBackend;
 
 use crate::utils::PolyakError;
 
@@ -27,16 +26,13 @@ use crate::utils::PolyakError;
 /// The `BOR` const generic is the observation tensor rank *including* the
 /// leading batch dimension (e.g. `BOR = 2` for vector observations of shape
 /// `[batch, features]`).
-pub trait QrDqnModel<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
+pub trait QrDqnModel<const BOR: usize>: Module {
     /// Autodiff forward pass: quantile values of shape
     /// `(batch_size, num_actions, num_quantiles)`.
-    fn forward(&self, observations: Tensor<B, BOR>) -> Tensor<B, 3>;
+    fn forward(&self, observations: Tensor<BOR>) -> Tensor<3>;
 
     /// Forward pass against the inner (non-autodiff) target module.
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, BOR>,
-    ) -> Tensor<B::InnerBackend, 3>;
+    fn forward_inner(inner: &Self, observations: Tensor<BOR>) -> Tensor<3>;
 
     /// Polyak-averages `active` into `target` with coefficient `tau` and
     /// returns the updated target network.
@@ -46,9 +42,5 @@ pub trait QrDqnModel<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     /// Propagates [`PolyakError`] if `active` and `target` have mismatched
     /// [`ParamId`](burn::module::ParamId) topologies — see
     /// [`polyak_update`](crate::utils::polyak_update).
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError>;
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError>;
 }

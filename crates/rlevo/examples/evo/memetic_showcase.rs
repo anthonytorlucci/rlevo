@@ -55,7 +55,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData, backend::Backend, backend::BackendTypes};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo::core::fitness::Landscape;
 use rlevo::envs::landscapes::rastrigin::Rastrigin;
@@ -66,8 +66,6 @@ use rlevo::evo::algorithms::memetic::{
 use rlevo::evo::fitness::BatchFitnessFn;
 use rlevo::evo::local_search::{HillClimbVariant, HillClimbing, HillClimbingParams};
 use rlevo::evo::strategy::{EvolutionaryLoop, Strategy};
-
-type B = Flex;
 
 const DIM: usize = 10;
 const BOUNDS: rlevo_core::bounds::Bounds = rlevo_core::bounds::Bounds::new(-5.12, 5.12);
@@ -88,16 +86,16 @@ struct CountingRastrigin {
     evals: Arc<AtomicUsize>,
 }
 
-impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<Bk, 2>,
-        device: &<Bk as BackendTypes>::Device,
-    ) -> Tensor<Bk, 1> {
+impl BatchFitnessFn<Tensor<2>> for CountingRastrigin {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         let dims: [usize; 2] = population.dims();
         let (pop, dim): (usize, usize) = (dims[0], dims[1]);
         self.evals.fetch_add(pop, Ordering::Relaxed);
-        let flat: Vec<f32> = population.clone().into_data().into_vec::<f32>().unwrap();
+        let flat: Vec<f32> = population
+            .clone()
+            .into_data()
+            .try_into_vec::<f32>()
+            .unwrap();
         let mut out: Vec<f32> = Vec::with_capacity(pop);
         for r in 0..pop {
             let start: usize = r * dim;
@@ -108,7 +106,7 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
             #[allow(clippy::cast_possible_truncation)]
             out.push(self.landscape.evaluate(&row) as f32);
         }
-        Tensor::<Bk, 1>::from_data(TensorData::new(out, [pop]), device)
+        Tensor::<1>::from_data(TensorData::new(out, [pop]), device)
     }
 
     fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
@@ -124,15 +122,15 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
 /// evaluations are included.
 fn run_row<S>(label: &str, strategy: S, params: S::Params, evals: &Arc<AtomicUsize>)
 where
-    S: Strategy<B, Genome = Tensor<B, 2>>,
+    S: Strategy<Genome = Tensor<2>>,
     S::Params: std::fmt::Debug + rlevo_core::config::Validate,
 {
-    let device: <B as BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     let fitness: CountingRastrigin = CountingRastrigin {
         landscape: Rastrigin::new(DIM).expect("dim >= 1"),
         evals: evals.clone(),
     };
-    let mut evo_loop = EvolutionaryLoop::<B, S, CountingRastrigin>::new(
+    let mut evo_loop = EvolutionaryLoop::<S, CountingRastrigin>::new(
         strategy, params, fitness, SEED, device, MAX_GENS,
     )
     .expect("valid params");
@@ -176,11 +174,8 @@ fn run_memetic_row(
         landscape: Rastrigin::new(DIM).expect("dim >= 1"),
         evals: evals.clone(),
     };
-    let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
-        DifferentialEvolution::<B>::new(),
-        HillClimbing,
-        wrapper_fitness,
-    );
+    let strategy: MemeticWrapper<_, _, _> =
+        MemeticWrapper::new(DifferentialEvolution::new(), HillClimbing, wrapper_fitness);
     let params: MemeticParams<DeConfig, HillClimbingParams> = MemeticParams {
         inner: de.clone(),
         local: hc,
@@ -228,7 +223,7 @@ CR=0.9) and one seed.\n\n{:-<120}",
     let bare_evals: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     run_row(
         "bare DE/Rand1Bin",
-        DifferentialEvolution::<B>::new(),
+        DifferentialEvolution::new(),
         de.clone(),
         &bare_evals,
     );

@@ -42,7 +42,6 @@
 //! ```rust
 //! use rlevo::burn::backend::{Autodiff, Flex};
 //!
-//! type TrainingBackend = Autodiff<Flex>;
 //! ```
 
 pub use rlevo_core as core;

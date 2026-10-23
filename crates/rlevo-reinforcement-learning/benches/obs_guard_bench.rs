@@ -143,13 +143,12 @@ use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use burn::backend::{Autodiff, Flex, Wgpu};
-use burn::module::{AutodiffModule, Module};
+use burn::backend::{Flex, Wgpu};
+use burn::module::Module;
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Linear, LinearConfig, PaddingConfig2d};
-use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
-use burn::tensor::{Tensor, activation};
+use burn::tensor::{Device, Tensor, activation};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
@@ -491,14 +490,14 @@ fn check_finite_reused_branchless<const R: usize, T: HostRow<R>>(
 
 /// `8 -> 64 -> 64 -> 4` MLP for the `LunarLanderObservation` agents.
 #[derive(Module, Debug)]
-struct VecMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+struct VecMlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
 }
 
-impl<B: Backend> VecMlp<B> {
-    fn new(device: &<B as BackendTypes>::Device) -> Self {
+impl VecMlp {
+    fn new(device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(LUNAR_LEN, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -506,36 +505,25 @@ impl<B: Backend> VecMlp<B> {
         }
     }
 
-    fn forward_impl(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
         let x = activation::relu(self.l1.forward(x));
         let x = activation::relu(self.l2.forward(x));
         self.l3.forward(x)
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 2> for VecMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DqnModel<2> for VecMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
         inner.forward_impl(obs)
     }
     // `tau` is an f64 hyperparameter; every tensor in this crate is f32. This is
     // the intended narrowing point.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, VecMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<VecMlp>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -548,16 +536,16 @@ const CONV2_CHANNELS: usize = 32;
 /// `learn_step_bench.rs`'s `PixelConvNet` uses, so the two files' image
 /// denominators are comparable.
 #[derive(Module, Debug)]
-struct ImgConvNet<B: Backend> {
-    conv1: Conv2d<B>,
-    conv2: Conv2d<B>,
+struct ImgConvNet {
+    conv1: Conv2d,
+    conv2: Conv2d,
     pool: AdaptiveAvgPool2d,
-    fc1: Linear<B>,
-    fc2: Linear<B>,
+    fc1: Linear,
+    fc2: Linear,
 }
 
-impl<B: Backend> ImgConvNet<B> {
-    fn new(device: &<B as BackendTypes>::Device) -> Self {
+impl ImgConvNet {
+    fn new(device: &Device) -> Self {
         Self {
             conv1: Conv2dConfig::new([3, 16], [3, 3])
                 .with_padding(PaddingConfig2d::Same)
@@ -574,7 +562,7 @@ impl<B: Backend> ImgConvNet<B> {
 
     // b/c/h/w are the canonical NCHW dimension names.
     #[allow(clippy::many_single_char_names)]
-    fn forward_impl(&self, x: Tensor<B, 4>) -> Tensor<B, 2> {
+    fn forward_impl(&self, x: Tensor<4>) -> Tensor<2> {
         // [batch, H, W, C] -> [batch, C, H, W].
         let x = x.permute([0, 3, 1, 2]);
         let x = activation::relu(self.conv1.forward(x));
@@ -587,29 +575,18 @@ impl<B: Backend> ImgConvNet<B> {
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 4> for ImgConvNet<B> {
-    fn forward(&self, obs: Tensor<B, 4>) -> Tensor<B, 2> {
+impl DqnModel<4> for ImgConvNet {
+    fn forward(&self, obs: Tensor<4>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 4>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<4>) -> Tensor<2> {
         inner.forward_impl(obs)
     }
     // `tau` is an f64 hyperparameter; every tensor in this crate is f32. This is
     // the intended narrowing point.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, ImgConvNet<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<ImgConvNet>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -620,17 +597,16 @@ impl<B: AutodiffBackend> DqnModel<B, 4> for ImgConvNet<B> {
 /// Builds a `DqnAgent` whose replay buffer is prefilled to [`INGEST_CAPACITY`]
 /// (so the ingestion arms measure steady-state push+evict) and whose
 /// `learning_starts` is 0 (so `learn_step` runs immediately).
-fn build_agent<B, M, O, const DO: usize, const DB: usize>(
-    device: &B::Device,
+fn build_agent<M, O, const DO: usize, const DB: usize>(
+    device: &Device,
     model: M,
     batch_size: usize,
     capacity: usize,
     fixture: &[O],
-) -> DqnAgent<B, M, O, BenchAction, DO, DB>
+) -> DqnAgent<M, O, BenchAction, DO, DB>
 where
-    B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
+    M: DqnModel<DB>,
+    O: Observation<DO> + TensorConvertible<DO> + Clone,
 {
     let config = DqnTrainingConfig {
         batch_size,
@@ -639,7 +615,7 @@ where
         train_frequency: 1,
         ..Default::default()
     };
-    let mut agent: DqnAgent<B, M, O, BenchAction, DO, DB> =
+    let mut agent: DqnAgent<M, O, BenchAction, DO, DB> =
         DqnAgent::new(model, config, device.clone()).expect("valid config");
     for i in 0..capacity {
         let obs = fixture[i % fixture.len()].clone();
@@ -774,17 +750,16 @@ fn bench_stage<const R: usize, T>(
 /// dropping the transition. Dropping would make the poisoned cell measure a
 /// *shorter* code path (no buffer push) than the clean one, confounding the
 /// branch-prediction control this arm exists to provide.
-fn bench_ingest<B, M, O, const DO: usize, const DB: usize>(
+fn bench_ingest<M, O, const DO: usize, const DB: usize>(
     c: &mut Criterion,
     group_name: &str,
-    device: &B::Device,
-    make_model: impl Fn(&B::Device) -> M,
+    device: &Device,
+    make_model: impl Fn(&Device) -> M,
     poisonable: bool,
     make: impl Fn(&mut StdRng, bool) -> O,
 ) where
-    B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
+    M: DqnModel<DB>,
+    O: Observation<DO> + TensorConvertible<DO> + Clone,
 {
     let mut rng = StdRng::seed_from_u64(1043);
     let row_len: usize = <O as Observation<DO>>::shape().iter().product();
@@ -819,7 +794,7 @@ fn bench_ingest<B, M, O, const DO: usize, const DB: usize>(
         // `learn_step` is never called here, so `batch_size` is inert; it only
         // has to validate.
         let mut agent =
-            build_agent::<B, M, O, DO, DB>(device, make_model(device), 64, INGEST_CAPACITY, &clean);
+            build_agent::<M, O, DO, DB>(device, make_model(device), 64, INGEST_CAPACITY, &clean);
         let mut scratch: Vec<f32> = Vec::with_capacity(2 * row_len);
         let mut i: usize = 0;
         group.bench_function(BenchmarkId::new(id_name, row_len), |b| {
@@ -857,18 +832,17 @@ fn bench_ingest<B, M, O, const DO: usize, const DB: usize>(
 
 /// Times `DqnAgent::learn_step` on a prefilled agent -- the denominator for
 /// `(arm2 - arm1)`. Calls the production method, not a mirror.
-fn bench_learn_step<B, M, O, const DO: usize, const DB: usize>(
+fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
     c: &mut Criterion,
     group_name: &str,
-    device: &B::Device,
+    device: &Device,
     sample_size: usize,
     batches: &[usize],
-    make_model: impl Fn(&B::Device) -> M,
+    make_model: impl Fn(&Device) -> M,
     make: impl Fn(&mut StdRng, bool) -> O,
 ) where
-    B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
+    M: DqnModel<DB>,
+    O: Observation<DO> + TensorConvertible<DO> + Clone,
 {
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<O> = (0..POOL).map(|_| make(&mut rng, false)).collect();
@@ -880,7 +854,7 @@ fn bench_learn_step<B, M, O, const DO: usize, const DB: usize>(
         // that prefill stays quick at the image shape.
         let capacity = batch * 4;
         let mut agent =
-            build_agent::<B, M, O, DO, DB>(device, make_model(device), batch, capacity, &fixture);
+            build_agent::<M, O, DO, DB>(device, make_model(device), batch, capacity, &fixture);
         group.bench_function(BenchmarkId::new("learn_step", batch), |b| {
             b.iter(|| {
                 let out = agent.learn_step(&mut rng).expect("learn_step");
@@ -905,12 +879,11 @@ fn bench_learn_step<B, M, O, const DO: usize, const DB: usize>(
 /// `act` is also excluded -- it is a network forward pass, and including it
 /// would only enlarge the denominator and flatter the guard.
 fn bench_env_cycle_lunar(c: &mut Criterion) {
-    type Be = Autodiff<Flex>;
     let device = <Flex as BenchBackend>::device();
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<LunarLanderObservation> =
         (0..POOL).map(|_| lunar_obs(&mut rng, false)).collect();
-    let mut agent = build_agent::<Be, VecMlp<Be>, LunarLanderObservation, 1, 2>(
+    let mut agent = build_agent::<VecMlp, LunarLanderObservation, 1, 2>(
         &device,
         VecMlp::new(&device),
         64,
@@ -956,11 +929,10 @@ fn bench_env_cycle_lunar(c: &mut Criterion) {
 /// procedural track and are excluded from the timed region for the same reason
 /// as in [`bench_env_cycle_lunar`].
 fn bench_env_cycle_car(c: &mut Criterion) {
-    type Be = Autodiff<Flex>;
     let device = <Flex as BenchBackend>::device();
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<CarRacingObservation> = (0..POOL).map(|_| car_obs(&mut rng, false)).collect();
-    let mut agent = build_agent::<Be, ImgConvNet<Be>, CarRacingObservation, 3, 4>(
+    let mut agent = build_agent::<ImgConvNet, CarRacingObservation, 3, 4>(
         &device,
         ImgConvNet::new(&device),
         32,
@@ -1034,9 +1006,8 @@ fn bench_staging_arms(c: &mut Criterion) {
 }
 
 fn bench_ingest_arms(c: &mut Criterion) {
-    type Be = Autodiff<Flex>;
     let device = <Flex as BenchBackend>::device();
-    bench_ingest::<Be, VecMlp<Be>, LunarLanderObservation, 1, 2>(
+    bench_ingest::<VecMlp, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_ingest_lunar_host",
         &device,
@@ -1044,7 +1015,7 @@ fn bench_ingest_arms(c: &mut Criterion) {
         true,
         lunar_obs,
     );
-    bench_ingest::<Be, ImgConvNet<Be>, CarRacingObservation, 3, 4>(
+    bench_ingest::<ImgConvNet, CarRacingObservation, 3, 4>(
         c,
         "obsguard_ingest_car_host",
         &device,
@@ -1052,7 +1023,7 @@ fn bench_ingest_arms(c: &mut Criterion) {
         false,
         car_obs,
     );
-    bench_ingest::<Be, ImgConvNet<Be>, F32Image, 3, 4>(
+    bench_ingest::<ImgConvNet, F32Image, 3, 4>(
         c,
         "obsguard_ingest_imagef32_host",
         &device,
@@ -1064,7 +1035,7 @@ fn bench_ingest_arms(c: &mut Criterion) {
 
 fn bench_learn_step_denominators(c: &mut Criterion) {
     let flex = <Flex as BenchBackend>::device();
-    bench_learn_step::<Autodiff<Flex>, VecMlp<Autodiff<Flex>>, LunarLanderObservation, 1, 2>(
+    bench_learn_step::<VecMlp, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_learn_step_lunar_flex",
         &flex,
@@ -1074,7 +1045,7 @@ fn bench_learn_step_denominators(c: &mut Criterion) {
         lunar_obs,
     );
     let wgpu = <Wgpu as BenchBackend>::device();
-    bench_learn_step::<Autodiff<Wgpu>, VecMlp<Autodiff<Wgpu>>, LunarLanderObservation, 1, 2>(
+    bench_learn_step::<VecMlp, LunarLanderObservation, 1, 2>(
         c,
         "obsguard_learn_step_lunar_wgpu",
         &wgpu,
@@ -1083,7 +1054,7 @@ fn bench_learn_step_denominators(c: &mut Criterion) {
         VecMlp::new,
         lunar_obs,
     );
-    bench_learn_step::<Autodiff<Flex>, ImgConvNet<Autodiff<Flex>>, CarRacingObservation, 3, 4>(
+    bench_learn_step::<ImgConvNet, CarRacingObservation, 3, 4>(
         c,
         "obsguard_learn_step_car_flex",
         &flex,
@@ -1092,7 +1063,7 @@ fn bench_learn_step_denominators(c: &mut Criterion) {
         ImgConvNet::new,
         car_obs,
     );
-    bench_learn_step::<Autodiff<Wgpu>, ImgConvNet<Autodiff<Wgpu>>, CarRacingObservation, 3, 4>(
+    bench_learn_step::<ImgConvNet, CarRacingObservation, 3, 4>(
         c,
         "obsguard_learn_step_car_wgpu",
         &wgpu,

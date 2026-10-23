@@ -83,7 +83,7 @@
 //! [`fit`]: crate::ProbabilityModel::fit
 //! [`sample`]: crate::ProbabilityModel::sample
 
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 use crate::probability_model::ProbabilityModel;
@@ -313,7 +313,7 @@ fn topological_order(parents: &[Vec<usize>]) -> Vec<usize> {
     order
 }
 
-impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
+impl ProbabilityModel for BayesianNetwork {
     type Params = BayesianNetworkParams;
     type State = BayesianNetworkState;
 
@@ -357,9 +357,9 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
         &self,
         params: &Self::Params,
         prev: Option<&Self::State>,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        device: &Device,
     ) -> Self::State {
         let _ = device;
         // Fitness is accepted but ignored: the fit is unweighted.
@@ -387,7 +387,7 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
         );
         let rows = population
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population tensor must be readable as f32");
         if n == 0 {
             // Degenerate input: nothing to learn, return the prior-shaped state (params-shaped,
@@ -523,8 +523,8 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
         state: &Self::State,
         n: usize,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+        device: &Device,
+    ) -> Tensor<2> {
         let d = state.parents.len();
         let mut rows = vec![0.0_f32; n * d];
         for i in 0..n {
@@ -540,33 +540,30 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
                 rows[base + v] = if rng.random::<f32>() < p1 { 1.0 } else { 0.0 };
             }
         }
-        Tensor::<B, 2>::from_data(TensorData::new(rows, [n, d]), device)
+        Tensor::<2>::from_data(TensorData::new(rows, [n, d]), device)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = Flex;
-
-    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<TestBackend, 2> {
-        let device = Default::default();
-        Tensor::<TestBackend, 2>::from_data(TensorData::new(rows, [n, d]), &device)
+    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<2> {
+        let device = Device::flex();
+        Tensor::<2>::from_data(TensorData::new(rows, [n, d]), &device)
     }
 
-    fn fitness(values: Vec<f32>) -> Tensor<TestBackend, 1> {
-        let device = Default::default();
+    fn fitness(values: Vec<f32>) -> Tensor<1> {
+        let device = Device::flex();
         let n = values.len();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(values, [n]), &device)
+        Tensor::<1>::from_data(TensorData::new(values, [n]), &device)
     }
 
     fn fit_prior(p: &BayesianNetworkParams) -> BayesianNetworkState {
-        let device = Default::default();
-        <BayesianNetwork as ProbabilityModel<TestBackend>>::fit(
+        let device = Device::flex();
+        <BayesianNetwork as ProbabilityModel>::fit(
             &BayesianNetwork,
             p,
             None,
@@ -582,12 +579,12 @@ mod tests {
         n: usize,
         d: usize,
     ) -> BayesianNetworkState {
-        let device = Default::default();
+        let device = Device::flex();
         let prior = fit_prior(p);
         // Test row counts are tiny; the cast is lossless.
         #[allow(clippy::cast_precision_loss)]
         let fit_values: Vec<f32> = (0..n).map(|i| i as f32).collect();
-        <BayesianNetwork as ProbabilityModel<TestBackend>>::fit(
+        <BayesianNetwork as ProbabilityModel>::fit(
             &BayesianNetwork,
             p,
             Some(&prior),
@@ -667,9 +664,9 @@ mod tests {
             1.0, 0.0, 1.0, 0.0, //
         ];
         let state = refit(&p, rows, 4, 4);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(7);
-        let samples = <BayesianNetwork as ProbabilityModel<TestBackend>>::sample(
+        let samples = <BayesianNetwork as ProbabilityModel>::sample(
             &BayesianNetwork,
             &state,
             1000,
@@ -678,7 +675,7 @@ mod tests {
         );
         let data = samples
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         for v in data {
             assert!(v.is_finite(), "sampled gene must be finite, got {v}");
@@ -845,10 +842,10 @@ mod tests {
             rows.push(g0); // gene1 = copy of gene0
         }
         let state = refit(&p, rows, 20, 2);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(123);
         let n = 5000;
-        let samples = <BayesianNetwork as ProbabilityModel<TestBackend>>::sample(
+        let samples = <BayesianNetwork as ProbabilityModel>::sample(
             &BayesianNetwork,
             &state,
             n,
@@ -857,7 +854,7 @@ mod tests {
         );
         let data = samples
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         let mut agree = 0usize;
         for i in 0..n {

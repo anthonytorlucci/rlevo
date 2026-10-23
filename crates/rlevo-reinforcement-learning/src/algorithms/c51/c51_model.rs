@@ -7,9 +7,8 @@
 //! Q-values. Agents convert logits → probabilities via `softmax` along the
 //! atom axis and compute expected Q-values as `$\sum_i z_i \cdot p_i$`.
 
-use burn::module::AutodiffModule;
+use burn::module::Module;
 use burn::tensor::Tensor;
-use burn::tensor::backend::AutodiffBackend;
 
 use crate::utils::PolyakError;
 
@@ -27,16 +26,13 @@ use crate::utils::PolyakError;
 /// The `BS` const generic is the observation tensor rank *including* the
 /// leading batch dimension (e.g. `BS = 2` for vector observations of shape
 /// `[batch_size, features]`).
-pub trait C51Model<B: AutodiffBackend, const BS: usize>: AutodiffModule<B> {
+pub trait C51Model<const BS: usize>: Module {
     /// Autodiff forward pass: logits of shape
     /// `(batch, num_actions, num_atoms)`.
-    fn forward(&self, observations: Tensor<B, BS>) -> Tensor<B, 3>;
+    fn forward(&self, observations: Tensor<BS>) -> Tensor<3>;
 
     /// Forward pass against the inner (non-autodiff) target module.
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, BS>,
-    ) -> Tensor<B::InnerBackend, 3>;
+    fn forward_inner(inner: &Self, observations: Tensor<BS>) -> Tensor<3>;
 
     /// Polyak-averages `active` into `target` with coefficient `tau` and
     /// returns the updated target network.
@@ -46,9 +42,5 @@ pub trait C51Model<B: AutodiffBackend, const BS: usize>: AutodiffModule<B> {
     /// Propagates [`PolyakError`] if `active` and `target` have mismatched
     /// [`ParamId`](burn::module::ParamId) topologies — see
     /// [`polyak_update`](crate::utils::polyak_update).
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError>;
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError>;
 }

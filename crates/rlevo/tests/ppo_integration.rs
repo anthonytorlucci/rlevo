@@ -13,9 +13,8 @@
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Device, Tensor};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -39,7 +38,7 @@ use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::baseline::{random_return, uniform_bounded};
 use rlevo_test_support::capture::FieldCapture;
 use rlevo_test_support::env::cartpole_seeded;
-use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
@@ -47,18 +46,14 @@ use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
-struct ValueMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+struct ValueMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> ValueMlp<B> {
-    fn new(
-        obs_dim: usize,
-        hidden: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl ValueMlp {
+    fn new(obs_dim: usize, hidden: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -66,15 +61,15 @@ impl<B: Backend> ValueMlp<B> {
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<1> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
         self.head.forward(h).squeeze_dim::<1>(1)
     }
 }
 
-impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+impl PpoValue<2> for ValueMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs)
     }
 }
@@ -96,15 +91,15 @@ fn make_cart_pole_agent(
     seed: u64,
     num_steps: usize,
     total_timesteps: usize,
-) -> PpoAgent<Be, CategoricalPolicyHead<Be>, ValueMlp<Be>, CartPoleObservation, 1, 2> {
-    let device = seeded_device::<Be>(seed);
+) -> PpoAgent<CategoricalPolicyHead, ValueMlp, CartPoleObservation, 1, 2> {
+    let device = seeded_device(seed);
 
     let policy = CategoricalPolicyHeadConfig {
         obs_dim: 4,
         hidden: 64,
         num_actions: 2,
     }
-    .try_init::<Be>(&device)
+    .try_init(&device)
     .expect("valid head config");
     let value = ValueMlp::new(4, 64, &device);
 
@@ -132,10 +127,8 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, 128, total);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
     let stats = agent.stats();
     TrainOutcome {
         avg_score: stats.avg_score().unwrap_or(0.0),
@@ -170,21 +163,20 @@ rl_reproducibility_test! {
 #[test]
 fn ppo_agent_new_rejects_multiple_envs() {
     let _guard = flex_guard();
-    let device = seeded_device::<Be>(1);
+    let device = seeded_device(1);
     let policy = CategoricalPolicyHeadConfig {
         obs_dim: 4,
         hidden: 64,
         num_actions: 2,
     }
-    .try_init::<Be>(&device)
+    .try_init(&device)
     .expect("valid head config");
     let value = ValueMlp::new(4, 64, &device);
     let config = PpoTrainingConfig {
         num_envs: 2,
         ..PpoTrainingConfig::default()
     };
-    let result =
-        PpoAgent::<Be, _, _, CartPoleObservation, 1, 2>::new(policy, value, config, device, 1);
+    let result = PpoAgent::<_, _, CartPoleObservation, 1, 2>::new(policy, value, config, device, 1);
     let err = result.unwrap_err();
     assert_eq!(err.field, "num_envs");
 }
@@ -199,10 +191,8 @@ fn ppo_cartpole_produces_finite_rewards() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
     let history = agent.stats().recent_history();
     assert_all_finite(
         "reward",
@@ -236,8 +226,8 @@ fn make_pendulum_agent(
     seed: u64,
     num_steps: usize,
     total_timesteps: usize,
-) -> PpoAgent<Be, TanhGaussianPolicyHead<Be>, ValueMlp<Be>, PendulumObservation, 1, 2> {
-    let device = seeded_device::<Be>(seed);
+) -> PpoAgent<TanhGaussianPolicyHead, ValueMlp, PendulumObservation, 1, 2> {
+    let device = seeded_device(seed);
 
     let policy = TanhGaussianPolicyHeadConfig {
         obs_dim: 3,
@@ -249,7 +239,7 @@ fn make_pendulum_agent(
         // knob. Change the torque limit here, nowhere else.
         action_scale: 2.0,
     }
-    .try_init::<Be>(&device)
+    .try_init(&device)
     .expect("valid head config");
     let value = ValueMlp::new(3, 64, &device);
 
@@ -285,7 +275,7 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
     );
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_pendulum_agent(seed, 512, total);
-    train_continuous::<Be, _, _, _, _, PendulumAction, 1, 1, 2>(
+    train_continuous::<_, _, _, _, PendulumAction, 1, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
@@ -524,7 +514,7 @@ fn ppo_progress_logs_when_log_every_does_not_divide_num_steps() {
         let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL);
-        train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
+        train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(
             &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
         )
         .expect("training");

@@ -14,11 +14,10 @@
 
 #![allow(dead_code)]
 
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
-use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
+use burn::tensor::{Device, Tensor};
 
 // TD3 and SAC re-export these from ddpg_model, so one impl per type covers all three algorithms.
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
@@ -41,25 +40,20 @@ use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 /// [`DeterministicPolicy`] so the same struct serves both DDPG and TD3 (TD3
 /// re-exports the trait from `ddpg_model`).
 #[derive(Module, Debug)]
-pub struct ActorMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+pub struct ActorMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
     action_scale: f32,
     action_bias: f32,
 }
 
-impl<B: Backend> ActorMlp<B> {
+impl ActorMlp {
     /// Builds an `ActorMlp` with two `hidden`-wide rectified-linear layers.
     ///
     /// `action_scale` is fixed at `2.0` and `action_bias` at `0.0`, matching
     /// the Pendulum-v1 torque range `[-2, 2]`.
-    pub fn new(
-        obs_dim: usize,
-        hidden: usize,
-        action_dim: usize,
-        device: &<B as BackendTypes>::Device,
-    ) -> Self {
+    pub fn new(obs_dim: usize, hidden: usize, action_dim: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -70,7 +64,7 @@ impl<B: Backend> ActorMlp<B> {
     }
 
     /// Runs the forward pass: `ReLU → ReLU → tanh → scale → bias`.
-    pub fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    pub fn forward_impl(&self, obs: Tensor<2>) -> Tensor<2> {
         let h = relu(self.fc1.forward(obs));
         let h = relu(self.fc2.forward(h));
         tanh(self.head.forward(h))
@@ -80,29 +74,18 @@ impl<B: Backend> ActorMlp<B> {
 }
 
 // TD3 re-exports DeterministicPolicy from ddpg_model, so this single impl covers both.
-impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for ActorMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DeterministicPolicy<2, 2> for ActorMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
         inner.forward_impl(obs)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, ActorMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<ActorMlp>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -119,23 +102,18 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for ActorMlp<B> {
 /// that trait from `ddpg_model`, so this single struct covers all three
 /// algorithms.
 #[derive(Module, Debug)]
-pub struct CriticMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+pub struct CriticMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> CriticMlp<B> {
+impl CriticMlp {
     /// Builds a `CriticMlp` with two `hidden`-wide rectified-linear layers.
     ///
     /// The first layer input width is `obs_dim + action_dim` to accommodate the
     /// concatenated observation–action pair.
-    pub fn new(
-        obs_dim: usize,
-        action_dim: usize,
-        hidden: usize,
-        device: &<B as BackendTypes>::Device,
-    ) -> Self {
+    pub fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -145,7 +123,7 @@ impl<B: Backend> CriticMlp<B> {
 
     /// Concatenates `obs` and `act`, then runs `ReLU → ReLU → squeeze` to a
     /// rank-1 scalar tensor.
-    pub fn forward_impl(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+    pub fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         let x = Tensor::cat(vec![obs, act], 1);
         let h = relu(self.fc1.forward(x));
         let h = relu(self.fc2.forward(h));
@@ -154,30 +132,18 @@ impl<B: Backend> CriticMlp<B> {
 }
 
 // TD3 and SAC re-export ContinuousQ from ddpg_model, so this single impl covers all three.
-impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+impl ContinuousQ<2, 2> for CriticMlp {
+    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        act: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 1> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         inner.forward_impl(obs, act)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, CriticMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<CriticMlp>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -204,28 +170,23 @@ const LOG_STD_MAX: f32 = 2.0;
 /// Implements [`SquashedGaussianPolicy`] so the SAC trainer can drive both
 /// stochastic sampling (with entropy) and deterministic evaluation.
 #[derive(Module, Debug)]
-pub struct StochasticActor<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    mean: Linear<B>,
-    log_std: Linear<B>,
+pub struct StochasticActor {
+    fc1: Linear,
+    fc2: Linear,
+    mean: Linear,
+    log_std: Linear,
     action_dim: usize,
     action_scale: f32,
     action_bias: f32,
 }
 
-impl<B: Backend> StochasticActor<B> {
+impl StochasticActor {
     /// Builds a `StochasticActor` with two `hidden`-wide rectified-linear
     /// layers and parallel mean/log-std heads of width `action_dim`.
     ///
     /// `action_scale` is fixed at `2.0` and `action_bias` at `0.0`, matching
     /// the Pendulum-v1 torque range `[-2, 2]`.
-    pub fn new(
-        obs_dim: usize,
-        hidden: usize,
-        action_dim: usize,
-        device: &<B as BackendTypes>::Device,
-    ) -> Self {
+    pub fn new(obs_dim: usize, hidden: usize, action_dim: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -238,13 +199,13 @@ impl<B: Backend> StochasticActor<B> {
     }
 
     /// Shared trunk: `obs → ReLU(fc1) → ReLU(fc2)`.
-    fn features(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn features(&self, obs: Tensor<2>) -> Tensor<2> {
         relu(self.fc2.forward(relu(self.fc1.forward(obs))))
     }
 
     /// Returns the Gaussian `(mean, log_std)` for the given observation batch.
     /// `log_std` is clamped to `[LOG_STD_MIN, LOG_STD_MAX]`.
-    fn mean_and_log_std(&self, obs: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 2>) {
+    fn mean_and_log_std(&self, obs: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
         let h = self.features(obs);
         let mean = self.mean.forward(h.clone());
         let log_std = self.log_std.forward(h).clamp(LOG_STD_MIN, LOG_STD_MAX);
@@ -261,11 +222,7 @@ impl<B: Backend> StochasticActor<B> {
     /// `action_scale`'s absolute value per action dimension. This matches the numerically stable
     /// form from the SAC paper appendix.
     #[allow(clippy::cast_precision_loss)]
-    fn squashed_sample(
-        &self,
-        obs: Tensor<B, 2>,
-        eps: Tensor<B, 2>,
-    ) -> (Tensor<B, 2>, Tensor<B, 1>) {
+    fn squashed_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> (Tensor<2>, Tensor<1>) {
         let (mean, log_std) = self.mean_and_log_std(obs);
         let action_dim = mean.dims()[1];
         let std = log_std.clone().exp();
@@ -275,12 +232,12 @@ impl<B: Backend> StochasticActor<B> {
         let scaled = diff / log_std.clone().exp();
         let scaled_sq = scaled.clone() * scaled;
         let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-        let per_dim_gauss: Tensor<B, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
+        let per_dim_gauss: Tensor<2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
 
         let ln_2 = std::f32::consts::LN_2;
         let neg_two_z = z.clone().mul_scalar(-2.0);
         let sp = burn::tensor::activation::softplus(neg_two_z, 1.0);
-        let per_dim_jac: Tensor<B, 2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
+        let per_dim_jac: Tensor<2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
 
         let log_prob_z = (per_dim_gauss - per_dim_jac).sum_dim(1).squeeze_dim::<1>(1);
         let log_scale_abs = self.action_scale.abs().ln();
@@ -293,26 +250,22 @@ impl<B: Backend> StochasticActor<B> {
     }
 }
 
-impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for StochasticActor<B> {
+impl SquashedGaussianPolicy<2, 2> for StochasticActor {
     fn action_dim(&self) -> usize {
         self.action_dim
     }
 
-    fn forward_sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
+    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         let (action, log_prob) = self.squashed_sample(obs, eps);
         SampleOutput { action, log_prob }
     }
 
-    fn forward_sample_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        eps: Tensor<B::InnerBackend, 2>,
-    ) -> SampleOutput<B::InnerBackend, 2> {
+    fn forward_sample_inner(inner: &Self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         let (action, log_prob) = inner.squashed_sample(obs, eps);
         SampleOutput { action, log_prob }
     }
 
-    fn deterministic_action(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
         let (mean, _) = self.mean_and_log_std(obs);
         tanh(mean)
             .mul_scalar(self.action_scale)

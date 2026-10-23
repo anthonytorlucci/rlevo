@@ -6,7 +6,7 @@
 //! [`ArchNasStrategy`](super::arch_nas::ArchNasStrategy), it is a **standalone
 //! strategy** with inherent `init`/`ask`/`tell`/`best` and does **not** implement
 //! [`Strategy`](crate::strategy::Strategy), so no loop drives it. Its genome is host-side graph data
-//! ([`TopologyGenome`]) with no tensor representation, so the `Strategy<B>`
+//! ([`TopologyGenome`]) with no tensor representation, so the `Strategy`
 //! tensor-genome contract does not fit; the parallel [`GraphFitnessFn`] seam
 //! plays the role [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) plays for
 //! tensor strategies.
@@ -27,7 +27,7 @@
 //! test does:
 //!
 //! ```ignore
-//! let strat = NeatStrategy::<B>::new();
+//! let strat = NeatStrategy::new();
 //! let mut state = strat.init(&params, &mut rng, &device);
 //! for _ in 0..generations {
 //!     let (population, next) = strat.ask(&params, &state, &mut rng);
@@ -53,11 +53,9 @@
 //! forward-only bare-tensor evaluator; no autodiff graph is ever built.
 
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
 use std::sync::Arc;
 
-use burn::tensor::Tensor;
-use burn::tensor::backend::Backend;
+use burn::tensor::{Device, Tensor};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
@@ -178,17 +176,13 @@ pub struct NeatState {
 /// Standalone NEAT strategy. Does **not** implement
 /// [`Strategy`](crate::strategy::Strategy) — see the module docs.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct NeatStrategy<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct NeatStrategy {}
 
-impl<B: Backend> NeatStrategy<B> {
+impl NeatStrategy {
     /// Build a new (stateless) NEAT strategy.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     /// Build the initial state: a per-run registry plus `pop_size` minimal
@@ -202,12 +196,7 @@ impl<B: Backend> NeatStrategy<B> {
     ///
     /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`).
     #[must_use]
-    pub fn init(
-        &self,
-        params: &NeatParams,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> NeatState {
+    pub fn init(&self, params: &NeatParams, rng: &mut dyn Rng, device: &Device) -> NeatState {
         let _ = device;
         let registry = Arc::new(InnovationRegistry::new(
             params.num_inputs + params.num_outputs,
@@ -396,20 +385,21 @@ impl<B: Backend> NeatStrategy<B> {
 /// # Example
 ///
 /// ```ignore
-/// struct SumOutputs<B: Backend> { inputs: Tensor<B, 2> }
-/// impl<B: Backend> GraphFitnessFn<B> for SumOutputs<B> {
-///     fn evaluate(&self, pop: &[TopologyGenome], device: &B::Device) -> Vec<f32> {
+/// # use burn::tensor::Device;
+/// struct SumOutputs { inputs: Tensor<2> }
+/// impl GraphFitnessFn for SumOutputs {
+///     fn evaluate(&self, pop: &[TopologyGenome], device: &Device) -> Vec<f32> {
 ///         pop.iter().map(|g| {
-///             let net = InterpretedPhenotype::<B>::new(g);
+///             let net = InterpretedPhenotype::new(g);
 ///             let out = net.forward(self.inputs.clone());
-///             out.into_data().into_vec::<f32>().expect("output tensor must be readable as f32").iter().sum() // higher = better
+///             out.into_data().try_into_vec::<f32>().expect("output tensor must be readable as f32").iter().sum() // higher = better
 ///         }).collect()
 ///     }
 /// }
 /// ```
 ///
 /// [`BatchFitnessFn`]: crate::fitness::BatchFitnessFn
-pub trait GraphFitnessFn<B: Backend>: Send + Sync {
+pub trait GraphFitnessFn: Send + Sync {
     /// Score every genome in `population`, returning one **maximization**
     /// fitness per genome (higher is better, matching the crate-wide canonical
     /// convention). Fitness sharing assumes the values are non-negative. The
@@ -417,11 +407,7 @@ pub trait GraphFitnessFn<B: Backend>: Send + Sync {
     /// fitness builds each genome's network with
     /// [`InterpretedPhenotype::new`](crate::neuroevolution::phenotype::InterpretedPhenotype::new);
     /// `device` is where its scoring tensors live.
-    fn evaluate(
-        &self,
-        population: &[TopologyGenome],
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Vec<f32>;
+    fn evaluate(&self, population: &[TopologyGenome], device: &Device) -> Vec<f32>;
 }
 
 /// A [`GraphFitnessFn`] that scores the whole population in **one** device-resident
@@ -436,20 +422,20 @@ pub trait GraphFitnessFn<B: Backend>: Send + Sync {
 /// as produced by [`DensePaddedEvaluator::evaluate_population`]) to a single
 /// **maximization** fitness — the batched analogue of the per-genome scoring an
 /// interpreted `GraphFitnessFn` does on `phenotype.forward(...)`.
-pub struct BatchGraphFitness<B: Backend> {
+pub struct BatchGraphFitness {
     evaluator: DensePaddedEvaluator,
-    obs: Tensor<B, 2>,
+    obs: Tensor<2>,
     #[allow(clippy::type_complexity)]
     reducer: Box<dyn Fn(&[f32]) -> f32 + Send + Sync>,
 }
 
-impl<B: Backend> BatchGraphFitness<B> {
+impl BatchGraphFitness {
     /// Build a batched fitness from an evaluator, a shared `[batch, obs_dim]`
     /// observation tensor, and a per-genome `reducer` over the
     /// `$\text{batch} \times \text{action\_dim}$` output slab (row-major).
     pub fn new(
         evaluator: DensePaddedEvaluator,
-        obs: Tensor<B, 2>,
+        obs: Tensor<2>,
         reducer: impl Fn(&[f32]) -> f32 + Send + Sync + 'static,
     ) -> Self {
         Self {
@@ -460,7 +446,7 @@ impl<B: Backend> BatchGraphFitness<B> {
     }
 }
 
-impl<B: Backend> std::fmt::Debug for BatchGraphFitness<B> {
+impl std::fmt::Debug for BatchGraphFitness {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BatchGraphFitness")
             .field("obs", &self.obs)
@@ -468,12 +454,8 @@ impl<B: Backend> std::fmt::Debug for BatchGraphFitness<B> {
     }
 }
 
-impl<B: Backend> GraphFitnessFn<B> for BatchGraphFitness<B> {
-    fn evaluate(
-        &self,
-        population: &[TopologyGenome],
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Vec<f32> {
+impl GraphFitnessFn for BatchGraphFitness {
+    fn evaluate(&self, population: &[TopologyGenome], device: &Device) -> Vec<f32> {
         if population.is_empty() {
             return Vec::new();
         }
@@ -483,7 +465,7 @@ impl<B: Backend> GraphFitnessFn<B> for BatchGraphFitness<B> {
         let [pop, batch, action] = out.dims();
         let flat = out
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("output tensor must be readable as f32");
         let slab = batch * action;
         (0..pop)
@@ -1208,16 +1190,9 @@ mod tests {
     /// best. A trivial maximization fitness rewards more enabled connections.
     #[test]
     fn test_ask_tell_smoke_preserves_pop_size_and_tracks_best() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-
         struct ConnCountFitness;
-        impl GraphFitnessFn<TestBackend> for ConnCountFitness {
-            fn evaluate(
-                &self,
-                population: &[TopologyGenome],
-                _device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-            ) -> Vec<f32> {
+        impl GraphFitnessFn for ConnCountFitness {
+            fn evaluate(&self, population: &[TopologyGenome], _device: &Device) -> Vec<f32> {
                 // Cast: enabled-connection counts are tiny in this smoke test.
                 #[allow(clippy::cast_precision_loss)]
                 population
@@ -1227,12 +1202,12 @@ mod tests {
             }
         }
 
-        let device = Default::default();
+        let device = Device::flex();
         let mut params = NeatParams::default_for(24, 2, 1);
         params.p_add_node = 0.3;
         params.p_add_connection = 0.5;
 
-        let strat = NeatStrategy::<TestBackend>::new();
+        let strat = NeatStrategy::new();
         let mut rng = StdRng::seed_from_u64(11);
         let mut state = strat.init(&params, &mut rng, &device);
         let fitness_fn = ConnCountFitness;
@@ -1262,12 +1237,9 @@ mod tests {
     /// `$+\infty$` member must rank top but as a **finite** value (`f32::MAX`).
     #[test]
     fn test_tell_sanitizes_nan_and_inf_fitness() {
-        use burn::backend::Flex;
-        type TestBackend = Flex;
-
-        let device = Default::default();
+        let device = Device::flex();
         let params = NeatParams::default_for(4, 2, 1);
-        let strat = NeatStrategy::<TestBackend>::new();
+        let strat = NeatStrategy::new();
         let mut rng = StdRng::seed_from_u64(7);
         let state = strat.init(&params, &mut rng, &device);
 

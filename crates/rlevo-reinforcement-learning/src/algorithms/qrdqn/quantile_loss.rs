@@ -15,7 +15,6 @@
 //! benchmarks and unit-tested independently.
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::Backend;
 
 /// Elementwise Huber loss with threshold `kappa`.
 ///
@@ -23,7 +22,7 @@ use burn::tensor::backend::Backend;
 ///
 /// Differentiable at the seam — the classic Huber smoothing used in QR-DQN
 /// to avoid a discontinuous derivative at `u = 0`.
-pub fn huber<B: Backend, const D: usize>(u: Tensor<B, D>, kappa: f32) -> Tensor<B, D> {
+pub fn huber<const D: usize>(u: Tensor<D>, kappa: f32) -> Tensor<D> {
     let abs_u = u.clone().abs();
     // Small-region mask: 1.0 where `|u| <= kappa`, 0.0 otherwise.
     let small = abs_u.clone().lower_equal_elem(kappa).float();
@@ -61,7 +60,7 @@ const QUANTILE_CHUNK_SIZE: usize = 32;
 ///
 /// # Returns
 ///
-/// An **unreduced** `Tensor<B, 1>` of shape `[batch]`, one loss per batch
+/// An **unreduced** `Tensor<1>` of shape `[batch]`, one loss per batch
 /// element. This is *not* a scalar: a caller that wants the usual training
 /// loss must apply its own reduction (`.mean()`), and a caller that omits it
 /// will either hit a shape error or silently backpropagate a summed-over-batch
@@ -74,18 +73,18 @@ const QUANTILE_CHUNK_SIZE: usize = 32;
 ///
 /// Panics if `pred_quantiles` has zero quantiles (`num_quantiles == 0`), which
 /// leaves the chunk accumulator empty.
-pub fn quantile_huber_loss_per_sample<B: Backend>(
-    pred_quantiles: &Tensor<B, 2>,
-    target_quantiles: &Tensor<B, 2>,
-    taus: &Tensor<B, 1>,
+pub fn quantile_huber_loss_per_sample(
+    pred_quantiles: &Tensor<2>,
+    target_quantiles: &Tensor<2>,
+    taus: &Tensor<1>,
     kappa: f32,
-) -> Tensor<B, 1> {
+) -> Tensor<1> {
     let [batch, n_pred] = pred_quantiles.dims();
 
     // Accumulate `$\sum_i \mathrm{mean}_j\, \rho(u_{ij})$` for each sample, one chunk of pred
     // quantiles at a time. Each chunk materialises (B, chunk, N_target) rather than the full (B,
     // N_pred, N_target) block.
-    let mut per_sample_acc: Option<Tensor<B, 1>> = None;
+    let mut per_sample_acc: Option<Tensor<1>> = None;
     let mut chunk_start = 0;
 
     while chunk_start < n_pred {
@@ -98,24 +97,24 @@ pub fn quantile_huber_loss_per_sample<B: Backend>(
         let taus_chunk = taus.clone().slice([chunk_range]); // (chunk,)
 
         // Broadcast to (B, chunk, N_target).
-        let pred_3d: Tensor<B, 3> = pred_chunk.unsqueeze_dim::<3>(2); // (B, chunk, 1)
-        let target_3d: Tensor<B, 3> = target_quantiles.clone().unsqueeze_dim::<3>(1); // (B, 1, N_target)
+        let pred_3d: Tensor<3> = pred_chunk.unsqueeze_dim::<3>(2); // (B, chunk, 1)
+        let target_3d: Tensor<3> = target_quantiles.clone().unsqueeze_dim::<3>(1); // (B, 1, N_target)
         let u = target_3d - pred_3d; // (B, chunk, N_target)
 
         // `$\lvert \tau_i - \mathbb{1}\{u_{ij} < 0\}\rvert$` — Bool → float detaches from autodiff
         // graph.
-        let taus_3d: Tensor<B, 3> = taus_chunk
+        let taus_3d: Tensor<3> = taus_chunk
             .unsqueeze_dim::<2>(0) // (1, chunk)
             .unsqueeze_dim::<3>(2); // (1, chunk, 1)
         let neg_mask = u.clone().lower_elem(0.0).float(); // (B, chunk, N_target)
         let weight = (taus_3d - neg_mask).abs();
 
-        let huber_u = huber::<B, 3>(u, kappa);
+        let huber_u = huber::<3>(u, kappa);
         let weighted = (weight * huber_u).div_scalar(kappa);
 
         // mean over target axis (dim 2) → (B, chunk); sum over chunk (dim 1) → (B,).
-        let per_pred: Tensor<B, 2> = weighted.mean_dim(2).squeeze_dim::<2>(2);
-        let chunk_sum: Tensor<B, 1> = per_pred.sum_dim(1).squeeze_dim::<1>(1);
+        let per_pred: Tensor<2> = weighted.mean_dim(2).squeeze_dim::<2>(2);
+        let chunk_sum: Tensor<1> = per_pred.sum_dim(1).squeeze_dim::<1>(1);
 
         per_sample_acc = Some(match per_sample_acc {
             None => chunk_sum,
@@ -132,26 +131,24 @@ pub fn quantile_huber_loss_per_sample<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
+    use burn::tensor::Device;
     use burn::tensor::TensorData;
 
-    type TestBackend = Flex;
-
-    fn tensor_1d(data: Vec<f32>) -> Tensor<TestBackend, 1> {
-        let device = <TestBackend as burn::tensor::backend::BackendTypes>::Device::default();
+    fn tensor_1d(data: Vec<f32>) -> Tensor<1> {
+        let device = Device::flex();
         let n = data.len();
         Tensor::from_data(TensorData::new(data, vec![n]), &device)
     }
 
-    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<TestBackend, 2> {
-        let device = <TestBackend as burn::tensor::backend::BackendTypes>::Device::default();
+    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<2> {
+        let device = Device::flex();
         Tensor::from_data(TensorData::new(data, vec![rows, cols]), &device)
     }
 
-    fn scalar(t: Tensor<TestBackend, 1>) -> f32 {
+    fn scalar(t: Tensor<1>) -> f32 {
         t.into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read of a tensor this test just built")[0]
     }
 
@@ -182,7 +179,7 @@ mod tests {
             .clone()
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read of a tensor this test just built");
         #[allow(clippy::cast_precision_loss)]
         let manual_mean = values.iter().sum::<f32>() / batch as f32;
@@ -196,11 +193,11 @@ mod tests {
     #[test]
     fn test_quantile_loss_huber_zero_on_zero_input() {
         let u = tensor_2d(vec![0.0; 6], 2, 3);
-        let h = huber::<TestBackend, 2>(u, 1.0);
+        let h = huber::<2>(u, 1.0);
         let v: Vec<f32> = h
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read of a tensor this test just built");
         for x in v {
             assert!(x.abs() < 1e-6);
@@ -211,11 +208,11 @@ mod tests {
     fn test_quantile_loss_huber_quadratic_below_kappa() {
         // `$\lvert u\rvert < \kappa \Rightarrow 0.5u^2$`
         let u = tensor_2d(vec![0.2_f32, -0.5, 0.75, -0.9], 2, 2);
-        let h = huber::<TestBackend, 2>(u, 1.0);
+        let h = huber::<2>(u, 1.0);
         let v: Vec<f32> = h
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read of a tensor this test just built");
         let expected = [0.02_f32, 0.125, 0.28125, 0.405];
         for (got, want) in v.iter().zip(expected.iter()) {
@@ -228,11 +225,11 @@ mod tests {
         // `$\lvert u\rvert > \kappa \Rightarrow \kappa(\lvert u\rvert - 0.5\kappa)$` with
         // `$\kappa=1.0 \Rightarrow \lvert u\rvert - 0.5$`
         let u = tensor_2d(vec![2.0_f32, -3.0, 5.0, -1.5], 2, 2);
-        let h = huber::<TestBackend, 2>(u, 1.0);
+        let h = huber::<2>(u, 1.0);
         let v: Vec<f32> = h
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read of a tensor this test just built");
         let expected = [1.5_f32, 2.5, 4.5, 1.0];
         for (got, want) in v.iter().zip(expected.iter()) {

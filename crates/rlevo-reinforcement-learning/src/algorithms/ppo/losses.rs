@@ -9,20 +9,19 @@
 //! - Schulman et al. (2017), *Proximal Policy Optimization Algorithms*.
 //! - Huang et al. (2022), *The 37 Implementation Details of PPO*.
 
-use burn::tensor::backend::Backend;
-use burn::tensor::{ElementConversion, Tensor};
+use burn::tensor::Tensor;
 
 /// The clipped surrogate policy objective.
 ///
 /// `$\text{ratio} = \exp(\text{new\_log\_probs} - \text{old\_log\_probs})$`. The loss returned is
 /// `$-\text{mean}(\min(\text{ratio} \cdot A, \text{clip}(\text{ratio}, 1-\epsilon, 1+\epsilon) \cdot A))$` — negative because
 /// downstream code minimises. Shapes: all three inputs are `(batch,)`.
-pub fn clipped_surrogate<B: Backend>(
-    new_log_probs: Tensor<B, 1>,
-    old_log_probs: Tensor<B, 1>,
-    advantages: Tensor<B, 1>,
+pub fn clipped_surrogate(
+    new_log_probs: Tensor<1>,
+    old_log_probs: Tensor<1>,
+    advantages: Tensor<1>,
     clip_coef: f32,
-) -> Tensor<B, 1> {
+) -> Tensor<1> {
     let log_ratio = new_log_probs - old_log_probs;
     let ratio = log_ratio.exp();
     let surrogate1 = ratio.clone() * advantages.clone();
@@ -37,12 +36,12 @@ pub fn clipped_surrogate<B: Backend>(
 /// `$\text{v\_loss\_clipped} = \max((\text{clip}(v, v_{old} \pm \epsilon) - R)^2, (v - R)^2)$`,
 /// mean `$\times 0.5$`. Follows `CleanRL`'s clipped-value variant (an ablation-selected detail in
 /// Huang et al. §5).
-pub fn clipped_value_loss<B: Backend>(
-    new_values: Tensor<B, 1>,
-    old_values: Tensor<B, 1>,
-    returns: Tensor<B, 1>,
+pub fn clipped_value_loss(
+    new_values: Tensor<1>,
+    old_values: Tensor<1>,
+    returns: Tensor<1>,
     clip_coef: f32,
-) -> Tensor<B, 1> {
+) -> Tensor<1> {
     let v_unclipped = new_values.clone() - returns.clone();
     let v_unclipped_sq = v_unclipped.clone() * v_unclipped;
 
@@ -56,10 +55,7 @@ pub fn clipped_value_loss<B: Backend>(
 }
 
 /// Unclipped value-function loss `$0.5 \cdot \text{mean}((v - R)^2)$`.
-pub fn unclipped_value_loss<B: Backend>(
-    new_values: Tensor<B, 1>,
-    returns: Tensor<B, 1>,
-) -> Tensor<B, 1> {
+pub fn unclipped_value_loss(new_values: Tensor<1>, returns: Tensor<1>) -> Tensor<1> {
     let delta = new_values - returns;
     let sq = delta.clone() * delta;
     sq.mean().mul_scalar(0.5)
@@ -69,7 +65,7 @@ pub fn unclipped_value_loss<B: Backend>(
 ///
 /// Uses an `epsilon = 1e-8` denominator floor. Consumes and returns the
 /// tensor so the caller doesn't need an extra clone.
-pub fn normalize_advantages<B: Backend>(advantages: Tensor<B, 1>) -> Tensor<B, 1> {
+pub fn normalize_advantages(advantages: Tensor<1>) -> Tensor<1> {
     let mean = advantages.clone().mean();
     let centered = advantages - mean;
     let var = (centered.clone() * centered.clone()).mean();
@@ -81,12 +77,12 @@ pub fn normalize_advantages<B: Backend>(advantages: Tensor<B, 1>) -> Tensor<B, 1
 ///
 /// Always non-negative (in expectation); used as a sanity-check diagnostic
 /// and, when `target_kl` is configured, as an early-stop trigger.
-pub fn approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<B, 1>) -> f32 {
+pub fn approx_kl(new_log_probs: Tensor<1>, old_log_probs: Tensor<1>) -> f32 {
     let log_ratio = new_log_probs - old_log_probs;
     let ratio = log_ratio.clone().exp();
     let one_minus_ratio = ratio.neg() + 1.0; // (1 − r)
     let kl = one_minus_ratio.neg() - log_ratio; // (r − 1) − log r
-    kl.mean().into_scalar().elem::<f32>()
+    kl.mean().into_scalar::<f32>()
 }
 
 /// Schulman's "k1" approximate KL:
@@ -96,9 +92,9 @@ pub fn approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<
 /// alongside the k3 estimator from [`approx_kl`]. Together they bracket the
 /// true KL and help diagnose PPO step size (Huang et al. 2022, detail #12).
 /// Unlike k3 it can be negative for a finite sample.
-pub fn old_approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<B, 1>) -> f32 {
+pub fn old_approx_kl(new_log_probs: Tensor<1>, old_log_probs: Tensor<1>) -> f32 {
     let log_ratio = new_log_probs - old_log_probs;
-    log_ratio.neg().mean().into_scalar().elem::<f32>()
+    log_ratio.neg().mean().into_scalar::<f32>()
 }
 
 /// Fraction of return variance explained by the value-network predictions.
@@ -157,26 +153,22 @@ pub fn explained_variance(returns: &[f32], values: &[f32]) -> f32 {
 // history length, iteration number. All are bounded by configured sizes far
 // below f32's 2^24 (f64's 2^53) exact-integer limit.
 #[allow(clippy::cast_precision_loss)]
-pub fn clip_fraction<B: Backend>(
-    new_log_probs: Tensor<B, 1>,
-    old_log_probs: Tensor<B, 1>,
-    clip_coef: f32,
-) -> f32 {
+pub fn clip_fraction(new_log_probs: Tensor<1>, old_log_probs: Tensor<1>, clip_coef: f32) -> f32 {
     let ratio = (new_log_probs - old_log_probs).exp();
     let batch = ratio.dims()[0] as f32;
     let lo = ratio.clone().lower_elem(1.0 - clip_coef).float();
     let hi = ratio.greater_elem(1.0 + clip_coef).float();
     let clipped = lo + hi;
-    let total = clipped.sum().into_scalar().elem::<f32>();
+    let total = clipped.sum().into_scalar::<f32>();
     total / batch.max(1.0)
 }
 
-fn min_elem<B: Backend>(a: Tensor<B, 1>, b: Tensor<B, 1>) -> Tensor<B, 1> {
+fn min_elem(a: Tensor<1>, b: Tensor<1>) -> Tensor<1> {
     let mask = a.clone().lower_equal(b.clone());
     a.mask_where(mask.bool_not(), b)
 }
 
-fn max_elem<B: Backend>(a: Tensor<B, 1>, b: Tensor<B, 1>) -> Tensor<B, 1> {
+fn max_elem(a: Tensor<1>, b: Tensor<1>) -> Tensor<1> {
     let mask = a.clone().greater_equal(b.clone());
     a.mask_where(mask.bool_not(), b)
 }
@@ -190,17 +182,12 @@ mod tests {
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
     use super::*;
-    use burn::backend::Flex;
+    use burn::tensor::Device;
     use burn::tensor::TensorData;
 
-    type TestBackend = Flex;
-
-    fn t1(data: &[f32]) -> Tensor<TestBackend, 1> {
-        let device = Default::default();
-        Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(data.to_vec(), vec![data.len()]),
-            &device,
-        )
+    fn t1(data: &[f32]) -> Tensor<1> {
+        let device = Device::flex();
+        Tensor::<1>::from_data(TensorData::new(data.to_vec(), vec![data.len()]), &device)
     }
 
     #[test]

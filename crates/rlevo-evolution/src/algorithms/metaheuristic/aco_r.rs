@@ -18,9 +18,7 @@
 //!
 //! - Socha & Dorigo (2008), *Ant colony optimization for continuous domains*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -89,16 +87,16 @@ impl Validate for AcoRConfig {
 
 /// Generation state for [`AntColonyReal`].
 #[derive(Debug, Clone)]
-pub struct AcoRState<B: Backend> {
+pub struct AcoRState {
     /// Archive of `k` best solutions, shape `(k, D)`.
-    pub archive: Tensor<B, 2>,
+    pub archive: Tensor<2>,
     /// Host-side archive fitness, sorted descending (best, i.e. highest,
     /// first) after the first `tell`.
     pub archive_fitness: Vec<f32>,
     /// Cached archive weights (recomputed only when `q` or `k` change).
     pub weights: Vec<f32>,
     /// Best-so-far genome.
-    pub best_genome: Option<Tensor<B, 2>>,
+    pub best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     pub best_fitness: f32,
     /// Generation counter.
@@ -117,22 +115,18 @@ pub struct AcoRState<B: Backend> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::aco_r::{AcoRConfig, AntColonyReal};
 ///
-/// let strategy = AntColonyReal::<Flex>::new();
+/// let strategy = AntColonyReal::new();
 /// let params = AcoRConfig::default_for(50, 10, 10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct AntColonyReal<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct AntColonyReal {}
 
-impl<B: Backend> AntColonyReal<B> {
+impl AntColonyReal {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     /// Compute rank-based archive weights
@@ -166,13 +160,10 @@ impl<B: Backend> AntColonyReal<B> {
     }
 }
 
-impl<B: Backend> Strategy<B> for AntColonyReal<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for AntColonyReal {
     type Params = AcoRConfig;
-    type State = AcoRState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = AcoRState;
+    type Genome = Tensor<2>;
 
     /// Initialises the archive by host-sampling `$\text{archive\_size} \times \text{genome\_dim}$`
     /// values uniformly from `params.bounds`.
@@ -181,12 +172,7 @@ where
     /// than `B::seed` + `Tensor::random`; this keeps draws reproducible across
     /// thread schedules when multiple tests or loops share the same
     /// process-wide Burn RNG state.
-    fn init(
-        &self,
-        params: &AcoRConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> AcoRState<B> {
+    fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &Device) -> AcoRState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid AcoRConfig reached init: {params:?}"
@@ -204,7 +190,7 @@ where
             archive_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
         let archive =
-            Tensor::<B, 2>::from_data(TensorData::new(archive_rows, [rows, genome_dim]), device);
+            Tensor::<2>::from_data(TensorData::new(archive_rows, [rows, genome_dim]), device);
         AcoRState {
             archive,
             archive_fitness: Vec::new(),
@@ -239,10 +225,10 @@ where
     fn ask(
         &self,
         params: &AcoRConfig,
-        state: &AcoRState<B>,
+        state: &AcoRState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, AcoRState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, AcoRState) {
         // First call: evaluate the initial archive.
         if state.archive_fitness.is_empty() {
             return (state.archive.clone(), state.clone());
@@ -276,11 +262,11 @@ where
             .archive
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("archive tensor must be readable as f32");
         let sigma_host = sigma
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("sigma tensor must be readable as f32");
         let cdf: Vec<f32> = {
             let mut acc = 0.0;
@@ -324,7 +310,7 @@ where
         for v in &mut offspring {
             *v = v.clamp(lo, hi);
         }
-        let new_pop = Tensor::<B, 2>::from_data(TensorData::new(offspring, [m, d]), device);
+        let new_pop = Tensor::<2>::from_data(TensorData::new(offspring, [m, d]), device);
 
         (new_pop, state.clone())
     }
@@ -345,11 +331,11 @@ where
     fn tell(
         &self,
         params: &AcoRConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: AcoRState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: AcoRState,
         _rng: &mut dyn Rng,
-    ) -> (AcoRState<B>, StrategyMetrics) {
+    ) -> (AcoRState, StrategyMetrics) {
         // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
         // correctness floor for a caller driving `ask`/`tell` directly instead of
         // `EvolutionaryLoop::step`, which already sanitizes (the ADR 0034 decision-3 bypass
@@ -358,7 +344,7 @@ where
         // so on the loop path this is a provable no-op — not redundant, load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -377,15 +363,14 @@ where
                 .collect();
             idx.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
             #[allow(clippy::cast_possible_wrap)]
-            let sorted_idx = Tensor::<B, 1, Int>::from_data(
+            let sorted_idx = Tensor::<1, Int>::from_data(
                 TensorData::new(idx.iter().map(|&i| i as i64).collect::<Vec<_>>(), [k]),
                 &device,
             );
             state.archive = population.clone().select(0, sorted_idx);
             state.archive_fitness = idx.iter().map(|&i| fitness_host[i]).collect();
             state.best_fitness = state.archive_fitness[0];
-            let first_idx =
-                Tensor::<B, 1, Int>::from_data(TensorData::new(vec![0_i64], [1]), &device);
+            let first_idx = Tensor::<1, Int>::from_data(TensorData::new(vec![0_i64], [1]), &device);
             state.best_genome = Some(state.archive.clone().select(0, first_idx));
             state.generation += 1;
             let m = StrategyMetrics::from_host_fitness(
@@ -410,7 +395,7 @@ where
         idx.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
         idx.truncate(k);
         #[allow(clippy::cast_possible_wrap)]
-        let top_idx = Tensor::<B, 1, Int>::from_data(
+        let top_idx = Tensor::<1, Int>::from_data(
             TensorData::new(idx.iter().map(|&i| i as i64).collect::<Vec<_>>(), [k]),
             &device,
         );
@@ -419,8 +404,7 @@ where
 
         if state.archive_fitness[0] > state.best_fitness {
             state.best_fitness = state.archive_fitness[0];
-            let first_idx =
-                Tensor::<B, 1, Int>::from_data(TensorData::new(vec![0_i64], [1]), &device);
+            let first_idx = Tensor::<1, Int>::from_data(TensorData::new(vec![0_i64], [1]), &device);
             state.best_genome = Some(state.archive.clone().select(0, first_idx));
         }
 
@@ -435,7 +419,7 @@ where
     /// the first [`tell`](Self::tell) call.
     ///
     /// The returned tensor has shape `(1, genome_dim)`.
-    fn best(&self, state: &AcoRState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &AcoRState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -448,8 +432,6 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
-    use burn::backend::flex::FlexDevice;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
@@ -466,8 +448,6 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "archive_size");
     }
 
-    type TestBackend = Flex;
-
     struct Sphere;
     impl Landscape for Sphere {
         fn evaluate(&self, x: &[f64]) -> f64 {
@@ -477,14 +457,14 @@ mod tests {
 
     #[test]
     fn weights_sum_to_one() {
-        let w = AntColonyReal::<TestBackend>::compute_weights(10, 0.1);
+        let w = AntColonyReal::compute_weights(10, 0.1);
         let total: f32 = w.iter().sum();
         approx::assert_relative_eq!(total, 1.0, epsilon = 1e-5);
     }
 
     #[test]
     fn weights_normal_case_monotone_non_increasing() {
-        let w: Vec<f32> = AntColonyReal::<TestBackend>::compute_weights(10, 0.1);
+        let w: Vec<f32> = AntColonyReal::compute_weights(10, 0.1);
         let total: f32 = w.iter().sum();
         approx::assert_relative_eq!(total, 1.0, epsilon = 1e-5);
         // Rank 0 (best) must be the heaviest; weights decay with rank.
@@ -501,7 +481,7 @@ mod tests {
     #[test]
     fn weights_degenerate_q_fall_back_to_uniform() {
         for q in [1e-30_f32, 0.0_f32] {
-            let w: Vec<f32> = AntColonyReal::<TestBackend>::compute_weights(10, q);
+            let w: Vec<f32> = AntColonyReal::compute_weights(10, q);
             assert!(
                 w.iter().all(|v| v.is_finite() && *v >= 0.0),
                 "degenerate q={q} produced non-finite / negative weights: {w:?}"
@@ -521,12 +501,8 @@ mod tests {
     /// Builds a 3-row archive whose weights force the roulette in `ask` to always select archive
     /// row 0 (`weights = [1, 0, 0]` `$\Rightarrow$` CDF `[1, 1, 1]` `$\Rightarrow$` `pick(u) == 0`
     /// for every `$u \in [0, 1)$`), so the sampled mean is deterministically `archive[0, :]`.
-    fn state_forcing_row_zero(
-        archive_vals: Vec<f32>,
-        device: FlexDevice,
-    ) -> AcoRState<TestBackend> {
-        let archive: Tensor<TestBackend, 2> =
-            Tensor::from_data(TensorData::new(archive_vals, [3, 2]), &device);
+    fn state_forcing_row_zero(archive_vals: Vec<f32>, device: Device) -> AcoRState {
+        let archive: Tensor<2> = Tensor::from_data(TensorData::new(archive_vals, [3, 2]), &device);
         AcoRState {
             archive,
             // Non-empty so `ask` takes the sampling path, not the first-call
@@ -546,19 +522,18 @@ mod tests {
         // and `$\infty\text{.max(1e-12)} = \infty$` survives the floor — so
         // `$\text{normal\_or\_mean}(\text{mean}=1.0, \text{std}=\infty)$` hits the `Err` fallback
         // and returns the finite mean instead of panicking.
-        let device: FlexDevice = Default::default();
-        let strategy: AntColonyReal<TestBackend> = AntColonyReal::new();
+        let device: Device = Device::flex();
+        let strategy: AntColonyReal = AntColonyReal::new();
         let params: AcoRConfig = AcoRConfig::default_for(3, 4, 2);
-        let state: AcoRState<TestBackend> =
+        let state: AcoRState =
             state_forcing_row_zero(vec![1.0, 2.0, f32::INFINITY, 0.5, -1.0, -2.0], device);
 
         let mut rng: StdRng = StdRng::seed_from_u64(21);
         // Must not panic.
-        let (pop, _next): (Tensor<TestBackend, 2>, AcoRState<TestBackend>) =
-            strategy.ask(&params, &state, &mut rng, &device);
+        let (pop, _next): (Tensor<2>, AcoRState) = strategy.ask(&params, &state, &mut rng, &device);
         let vals: Vec<f32> = pop
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("offspring tensor must be readable as f32");
 
         // Every offspring is finite; column 0 recovers exactly to the finite
@@ -579,19 +554,18 @@ mod tests {
         // `normal_or_mean(mean=NaN, std=1e-12)` takes the `Ok` path and the NaN *mean* propagates:
         // `ask` intentionally does NOT launder it (that is the ADR-0034 fitness-hygiene
         // chokepoint's job downstream).
-        let device: FlexDevice = Default::default();
-        let strategy: AntColonyReal<TestBackend> = AntColonyReal::new();
+        let device: Device = Device::flex();
+        let strategy: AntColonyReal = AntColonyReal::new();
         let params: AcoRConfig = AcoRConfig::default_for(3, 4, 2);
-        let state: AcoRState<TestBackend> =
+        let state: AcoRState =
             state_forcing_row_zero(vec![f32::NAN, 2.0, 1.0, 0.5, -1.0, -2.0], device);
 
         let mut rng: StdRng = StdRng::seed_from_u64(23);
         // Must not panic despite the NaN in the read path.
-        let (pop, _next): (Tensor<TestBackend, 2>, AcoRState<TestBackend>) =
-            strategy.ask(&params, &state, &mut rng, &device);
+        let (pop, _next): (Tensor<2>, AcoRState) = strategy.ask(&params, &state, &mut rng, &device);
         let vals: Vec<f32> = pop
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("offspring tensor must be readable as f32");
 
         assert_eq!(vals.len(), 4 * 2);
@@ -613,14 +587,12 @@ mod tests {
 
     #[test]
     fn aco_r_converges_on_sphere_d10() {
-        let device = Default::default();
-        let strategy = AntColonyReal::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = AntColonyReal::new();
         let params = AcoRConfig::default_for(30, 15, 10);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 17, device, 400,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 17, device, 400)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -632,17 +604,13 @@ mod tests {
     /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
     /// canonical, exercising the ADR-0034 loop sanitize with no `neg()`.
     struct PartialNanFitness;
-    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl crate::fitness::BatchFitnessFn<Tensor<2>> for PartialNanFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)]
             let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
             vals[0] = f32::NAN;
-            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
         }
         fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
             rlevo_core::objective::ObjectiveSense::Maximize
@@ -652,8 +620,8 @@ mod tests {
     // Gap (a): the best-so-far accessor is `None` until a `tell` records one.
     #[test]
     fn best_is_none_before_first_tell() {
-        let device: FlexDevice = Default::default();
-        let strategy = AntColonyReal::<TestBackend>::new();
+        let device: Device = Device::flex();
+        let strategy = AntColonyReal::new();
         let params = AcoRConfig::default_for(10, 5, 4);
         let mut rng = StdRng::seed_from_u64(1);
         let state = strategy.init(&params, &mut rng, &device);
@@ -666,8 +634,8 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)] // byte-identical: `ask` clones `state.archive`
     fn first_ask_returns_archive_verbatim() {
-        let device: FlexDevice = Default::default();
-        let strategy = AntColonyReal::<TestBackend>::new();
+        let device: Device = Device::flex();
+        let strategy = AntColonyReal::new();
         let params = AcoRConfig::default_for(8, 4, 3);
         let mut rng = StdRng::seed_from_u64(2);
         let state = strategy.init(&params, &mut rng, &device);
@@ -676,11 +644,11 @@ mod tests {
             .archive
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("archive readable as f32");
         let after = genome
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome readable as f32");
         assert_eq!(before, after);
     }
@@ -690,8 +658,8 @@ mod tests {
     // the draw.
     #[test]
     fn offspring_stay_within_bounds() {
-        let device: FlexDevice = Default::default();
-        let strategy = AntColonyReal::<TestBackend>::new();
+        let device: Device = Device::flex();
+        let strategy = AntColonyReal::new();
         let params = AcoRConfig::default_for(10, 12, 4);
         let (lo, hi): (f32, f32) = params.bounds.into();
         for seed in 0..32 {
@@ -707,7 +675,7 @@ mod tests {
             let (pop, _next) = strategy.ask(&params, &state, &mut rng, &device);
             let vals = pop
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("offspring readable as f32");
             for &v in &vals {
                 assert!(
@@ -722,13 +690,12 @@ mod tests {
     // exactly one term) drives a full run without panicking.
     #[test]
     fn boundary_archive_size_two_runs() {
-        let device: FlexDevice = Default::default();
-        let strategy = AntColonyReal::<TestBackend>::new();
+        let device: Device = Device::flex();
+        let strategy = AntColonyReal::new();
         let params = AcoRConfig::default_for(2, 4, 3);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 6, device, 6)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -749,13 +716,12 @@ mod tests {
     // completion and asserts a finite best.
     #[test]
     fn boundary_genome_dim_one_runs() {
-        let device: FlexDevice = Default::default();
-        let strategy = AntColonyReal::<TestBackend>::new();
+        let device: Device = Device::flex();
+        let strategy = AntColonyReal::new();
         let params = AcoRConfig::default_for(8, 4, 1);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 6, device, 6)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 6, device, 6)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -775,18 +741,11 @@ mod tests {
     // member is counted.
     #[test]
     fn nan_fitness_survives_loop() {
-        let device: FlexDevice = Default::default();
-        let strategy = AntColonyReal::<TestBackend>::new();
+        let device: Device = Device::flex();
+        let strategy = AntColonyReal::new();
         let params = AcoRConfig::default_for(8, 6, 3);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            PartialNanFitness,
-            4,
-            device,
-            4,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, PartialNanFitness, 4, device, 4)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -807,8 +766,8 @@ mod tests {
     /// leave a raw `NaN` in the public `archive_fitness` a caller reads back.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device: FlexDevice = Default::default();
-        let strategy = AntColonyReal::<TestBackend>::new();
+        let device: Device = Device::flex();
+        let strategy = AntColonyReal::new();
         let params = AcoRConfig::default_for(6, 4, 3);
         let mut rng = StdRng::seed_from_u64(7);
         let state = strategy.init(&params, &mut rng, &device);
@@ -820,7 +779,7 @@ mod tests {
         #[allow(clippy::cast_precision_loss)]
         let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32) - 1.0).collect();
         vals[0] = f32::NAN;
-        let fitness = Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device);
+        let fitness = Tensor::<1>::from_data(TensorData::new(vals, [n]), &device);
         let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
         assert!(
             state.archive_fitness.iter().all(|f| !f.is_nan()),

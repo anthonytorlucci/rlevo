@@ -24,7 +24,7 @@
 //! | [`mu_plus_lambda`] | best of `$\mu$`+`$\lambda$` pool | ES / DE with strong elitism |
 //! | [`mu_comma_lambda`] | none (offspring only) | ES with deliberate age-based forgetting |
 
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 
 use crate::ops::selection::truncation_indices_host;
 
@@ -36,12 +36,12 @@ use crate::ops::selection::truncation_indices_host;
 /// offspring generation fully succeeds the parent generation with no
 /// carry-over of parent individuals.
 #[must_use]
-pub fn generational<B: Backend>(
-    _current_pop: Tensor<B, 2>,
+pub fn generational(
+    _current_pop: Tensor<2>,
     _current_fitness: &[f32],
-    offspring_pop: Tensor<B, 2>,
+    offspring_pop: Tensor<2>,
     offspring_fitness: Vec<f32>,
-) -> (Tensor<B, 2>, Vec<f32>) {
+) -> (Tensor<2>, Vec<f32>) {
     (offspring_pop, offspring_fitness)
 }
 
@@ -61,20 +61,20 @@ pub fn generational<B: Backend>(
 /// Panics if `k > current_fitness.len()`, or if
 /// `$\text{pop\_size} - k > \text{offspring\_fitness.len()}$` (not enough offspring to backfill).
 #[must_use]
-pub fn elitist<B: Backend>(
-    current_pop: Tensor<B, 2>,
+pub fn elitist(
+    current_pop: Tensor<2>,
     current_fitness: &[f32],
-    offspring_pop: Tensor<B, 2>,
+    offspring_pop: Tensor<2>,
     offspring_fitness: &[f32],
     k: usize,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> (Tensor<B, 2>, Vec<f32>) {
+    device: &Device,
+) -> (Tensor<2>, Vec<f32>) {
     let pop_size = current_fitness.len();
     assert!(k <= pop_size, "elite count must be <= population size");
     let elite_idx = truncation_indices_host(current_fitness, k);
     let elites = current_pop.select(
         0,
-        Tensor::<B, 1, Int>::from_data(TensorData::new(elite_idx.clone(), [k]), device),
+        Tensor::<1, Int>::from_data(TensorData::new(elite_idx.clone(), [k]), device),
     );
 
     let n_offspring_to_keep = pop_size - k;
@@ -87,7 +87,7 @@ pub fn elitist<B: Backend>(
     let offspring_keep_idx = truncation_indices_host(offspring_fitness, n_offspring_to_keep);
     let kept_offspring = offspring_pop.select(
         0,
-        Tensor::<B, 1, Int>::from_data(
+        Tensor::<1, Int>::from_data(
             TensorData::new(offspring_keep_idx.clone(), [n_offspring_to_keep]),
             device,
         ),
@@ -125,14 +125,14 @@ pub fn elitist<B: Backend>(
 /// (the underlying truncation cannot select more winners than the
 /// combined pool contains).
 #[must_use]
-pub fn mu_plus_lambda<B: Backend>(
-    parents: Tensor<B, 2>,
+pub fn mu_plus_lambda(
+    parents: Tensor<2>,
     parent_fitness: &[f32],
-    offspring: Tensor<B, 2>,
+    offspring: Tensor<2>,
     offspring_fitness: &[f32],
     mu: usize,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> (Tensor<B, 2>, Vec<f32>) {
+    device: &Device,
+) -> (Tensor<2>, Vec<f32>) {
     let combined = Tensor::cat(vec![parents, offspring], 0);
     let combined_fitness: Vec<f32> = parent_fitness
         .iter()
@@ -147,7 +147,7 @@ pub fn mu_plus_lambda<B: Backend>(
             combined_fitness[i as usize]
         })
         .collect();
-    let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [mu]), device);
+    let indices = Tensor::<1, Int>::from_data(TensorData::new(winners, [mu]), device);
     (combined.select(0, indices), next_fitness)
 }
 
@@ -166,12 +166,12 @@ pub fn mu_plus_lambda<B: Backend>(
 ///
 /// Panics if `mu > offspring_fitness.len()` (i.e. `lambda < mu`).
 #[must_use]
-pub fn mu_comma_lambda<B: Backend>(
-    offspring: Tensor<B, 2>,
+pub fn mu_comma_lambda(
+    offspring: Tensor<2>,
     offspring_fitness: &[f32],
     mu: usize,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> (Tensor<B, 2>, Vec<f32>) {
+    device: &Device,
+) -> (Tensor<2>, Vec<f32>) {
     assert!(
         mu <= offspring_fitness.len(),
         "(μ, λ): lambda must be >= mu",
@@ -184,28 +184,23 @@ pub fn mu_comma_lambda<B: Backend>(
             offspring_fitness[i as usize]
         })
         .collect();
-    let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [mu]), device);
+    let indices = Tensor::<1, Int>::from_data(TensorData::new(winners, [mu]), device);
     (offspring.select(0, indices), next_fitness)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
-    type TestBackend = Flex;
 
     #[test]
     fn generational_discards_current() {
-        let device = Default::default();
-        let current =
-            Tensor::<TestBackend, 2>::from_data(TensorData::new(vec![0.0_f32; 4], [2, 2]), &device);
-        let offspring =
-            Tensor::<TestBackend, 2>::from_data(TensorData::new(vec![1.0_f32; 4], [2, 2]), &device);
-        let (next, f) =
-            generational::<TestBackend>(current, &[0.0, 0.0], offspring, vec![1.0, 1.0]);
+        let device = Device::flex();
+        let current = Tensor::<2>::from_data(TensorData::new(vec![0.0_f32; 4], [2, 2]), &device);
+        let offspring = Tensor::<2>::from_data(TensorData::new(vec![1.0_f32; 4], [2, 2]), &device);
+        let (next, f) = generational(current, &[0.0, 0.0], offspring, vec![1.0, 1.0]);
         let values = next
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, 1.0, epsilon = 1e-6);
@@ -215,26 +210,19 @@ mod tests {
 
     #[test]
     fn mu_plus_lambda_keeps_best_overall() {
-        let device = Default::default();
-        let parents = Tensor::<TestBackend, 2>::from_data(
+        let device = Device::flex();
+        let parents = Tensor::<2>::from_data(
             TensorData::new(vec![10.0_f32, 10.0, 10.0, 10.0], [2, 2]),
             &device,
         );
-        let offspring = Tensor::<TestBackend, 2>::from_data(
+        let offspring = Tensor::<2>::from_data(
             TensorData::new(vec![1.0_f32, 1.0, 5.0, 5.0], [2, 2]),
             &device,
         );
-        let (next, f) = mu_plus_lambda::<TestBackend>(
-            parents,
-            &[0.5, 100.0],
-            offspring,
-            &[0.1, 50.0],
-            2,
-            &device,
-        );
+        let (next, f) = mu_plus_lambda(parents, &[0.5, 100.0], offspring, &[0.1, 50.0], 2, &device);
         let rows = next
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         // best two (highest fitness): parent row 1 (100.0) and offspring row 1 (50.0)
         assert_eq!(rows.len(), 4);
@@ -247,12 +235,12 @@ mod tests {
 
     #[test]
     fn mu_comma_lambda_keeps_best_of_offspring() {
-        let device = Default::default();
-        let offspring = Tensor::<TestBackend, 2>::from_data(
+        let device = Device::flex();
+        let offspring = Tensor::<2>::from_data(
             TensorData::new(vec![1.0_f32, 1.0, 2.0, 2.0, 3.0, 3.0], [3, 2]),
             &device,
         );
-        let (next, f) = mu_comma_lambda::<TestBackend>(offspring, &[5.0, 1.0, 3.0], 2, &device);
+        let (next, f) = mu_comma_lambda(offspring, &[5.0, 1.0, 3.0], 2, &device);
         assert_eq!(next.dims(), [2, 2]);
         // best two of offspring (highest fitness): 5.0 and 3.0
         let mut fs = f;

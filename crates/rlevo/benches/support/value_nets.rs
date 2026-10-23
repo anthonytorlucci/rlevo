@@ -25,11 +25,10 @@
 // other models (and their helpers) are legitimately unused per compilation unit.
 #![allow(dead_code)]
 
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::tanh;
-use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
-use burn::tensor::{Tensor, activation};
+use burn::tensor::{Device, Tensor, activation};
 
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
@@ -45,20 +44,15 @@ use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 /// Two-hidden-layer `ReLU` MLP mapping batched `[batch, in_features]`
 /// observations to `[batch, out_features]` Q-values.
 #[derive(Module, Debug)]
-pub struct VecMlpDqn<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+pub struct VecMlpDqn {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
 }
 
-impl<B: Backend> VecMlpDqn<B> {
+impl VecMlpDqn {
     /// Builds an MLP with two `hidden`-wide rectified-linear layers.
-    pub fn new(
-        in_features: usize,
-        hidden: usize,
-        out_features: usize,
-        device: &<B as BackendTypes>::Device,
-    ) -> Self {
+    pub fn new(in_features: usize, hidden: usize, out_features: usize, device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(in_features, hidden).init(device),
             l2: LinearConfig::new(hidden, hidden).init(device),
@@ -66,36 +60,25 @@ impl<B: Backend> VecMlpDqn<B> {
         }
     }
 
-    fn forward_impl(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<2> {
         let x = activation::relu(self.l1.forward(observations));
         let x = activation::relu(self.l2.forward(x));
         self.l3.forward(x)
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 2> for VecMlpDqn<B> {
-    fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DqnModel<2> for VecMlpDqn {
+    fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
         self.forward_impl(observations)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<2> {
         inner.forward_impl(observations)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, VecMlpDqn<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<VecMlpDqn>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -106,21 +89,16 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for VecMlpDqn<B> {
 /// Flatten + two-hidden-layer `ReLU` MLP mapping batched `[batch, h, w, c]`
 /// grid observations to `[batch, out_features]` Q-values.
 #[derive(Module, Debug)]
-pub struct GridMlpDqn<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+pub struct GridMlpDqn {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
 }
 
-impl<B: Backend> GridMlpDqn<B> {
+impl GridMlpDqn {
     /// Builds an MLP whose input width is the flattened observation size
     /// (`h * w * c`).
-    pub fn new(
-        in_features: usize,
-        hidden: usize,
-        out_features: usize,
-        device: &<B as BackendTypes>::Device,
-    ) -> Self {
+    pub fn new(in_features: usize, hidden: usize, out_features: usize, device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(in_features, hidden).init(device),
             l2: LinearConfig::new(hidden, hidden).init(device),
@@ -128,7 +106,7 @@ impl<B: Backend> GridMlpDqn<B> {
         }
     }
 
-    fn forward_impl(&self, observations: Tensor<B, 4>) -> Tensor<B, 2> {
+    fn forward_impl(&self, observations: Tensor<4>) -> Tensor<2> {
         let [batch, h, w, c] = observations.dims();
         let x = observations.reshape([batch, h * w * c]);
         let x = activation::relu(self.l1.forward(x));
@@ -137,29 +115,18 @@ impl<B: Backend> GridMlpDqn<B> {
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 4> for GridMlpDqn<B> {
-    fn forward(&self, observations: Tensor<B, 4>) -> Tensor<B, 2> {
+impl DqnModel<4> for GridMlpDqn {
+    fn forward(&self, observations: Tensor<4>) -> Tensor<2> {
         self.forward_impl(observations)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 4>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, observations: Tensor<4>) -> Tensor<2> {
         inner.forward_impl(observations)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, GridMlpDqn<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<GridMlpDqn>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -173,15 +140,15 @@ impl<B: AutodiffBackend> DqnModel<B, 4> for GridMlpDqn<B> {
 /// distribution over `num_atoms` support points. Implements [`C51Model`] so the
 /// C51 trainer can drive it and Polyak-average a target copy.
 #[derive(Module, Debug)]
-pub struct C51Mlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+pub struct C51Mlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
     num_actions: usize,
     num_atoms: usize,
 }
 
-impl<B: Backend> C51Mlp<B> {
+impl C51Mlp {
     /// Builds a `hidden`-wide two-layer MLP over `obs_features` inputs emitting
     /// `num_actions * num_atoms` logits, reshaped to `(batch, actions, atoms)`.
     pub fn new(
@@ -189,7 +156,7 @@ impl<B: Backend> C51Mlp<B> {
         hidden: usize,
         num_actions: usize,
         num_atoms: usize,
-        device: &<B as BackendTypes>::Device,
+        device: &Device,
     ) -> Self {
         Self {
             l1: LinearConfig::new(obs_features, hidden).init(device),
@@ -200,7 +167,7 @@ impl<B: Backend> C51Mlp<B> {
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<3> {
         let [batch, _] = obs.dims();
         let x = activation::relu(self.l1.forward(obs));
         let x = activation::relu(self.l2.forward(x));
@@ -210,29 +177,18 @@ impl<B: Backend> C51Mlp<B> {
     }
 }
 
-impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
+impl C51Model<2> for C51Mlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<3> {
         self.forward_impl(obs)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 3> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<3> {
         inner.forward_impl(obs)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, C51Mlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<C51Mlp>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -246,15 +202,15 @@ impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
 /// quantile estimates per action. Implements [`QrDqnModel`] so the QR-DQN trainer
 /// can drive it and Polyak-average a target copy.
 #[derive(Module, Debug)]
-pub struct QrDqnMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+pub struct QrDqnMlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
     num_actions: usize,
     num_quantiles: usize,
 }
 
-impl<B: Backend> QrDqnMlp<B> {
+impl QrDqnMlp {
     /// Builds a `hidden`-wide two-layer MLP over `obs_features` inputs emitting
     /// `num_actions * num_quantiles` values, reshaped to `(batch, actions, quantiles)`.
     pub fn new(
@@ -262,7 +218,7 @@ impl<B: Backend> QrDqnMlp<B> {
         hidden: usize,
         num_actions: usize,
         num_quantiles: usize,
-        device: &<B as BackendTypes>::Device,
+        device: &Device,
     ) -> Self {
         Self {
             l1: LinearConfig::new(obs_features, hidden).init(device),
@@ -273,7 +229,7 @@ impl<B: Backend> QrDqnMlp<B> {
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<3> {
         let [batch, _] = obs.dims();
         let x = activation::relu(self.l1.forward(obs));
         let x = activation::relu(self.l2.forward(x));
@@ -283,29 +239,18 @@ impl<B: Backend> QrDqnMlp<B> {
     }
 }
 
-impl<B: AutodiffBackend> QrDqnModel<B, 2> for QrDqnMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
+impl QrDqnModel<2> for QrDqnMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<3> {
         self.forward_impl(obs)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 3> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<3> {
         inner.forward_impl(obs)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, QrDqnMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<QrDqnMlp>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -318,16 +263,16 @@ impl<B: AutodiffBackend> QrDqnModel<B, 2> for QrDqnMlp<B> {
 /// A two-hidden-layer `tanh` MLP with a single-unit head, squeezed to one value
 /// per observation. Implements [`PpoValue`] to serve as the PPG agent's critic.
 #[derive(Module, Debug)]
-pub struct ValueMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+pub struct ValueMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> ValueMlp<B> {
+impl ValueMlp {
     /// Builds a `hidden`-wide two-layer `tanh` MLP over `obs_features` inputs
     /// with a scalar head.
-    pub fn new(obs_features: usize, hidden: usize, device: &<B as BackendTypes>::Device) -> Self {
+    pub fn new(obs_features: usize, hidden: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_features, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -335,15 +280,15 @@ impl<B: Backend> ValueMlp<B> {
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<1> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
         self.head.forward(h).squeeze_dim::<1>(1)
     }
 }
 
-impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+impl PpoValue<2> for ValueMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs)
     }
 }

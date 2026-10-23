@@ -28,9 +28,8 @@
 //!   of Lévy stable stochastic processes*.
 
 use std::f32::consts::PI;
-use std::marker::PhantomData;
 
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as RandDistDist, Normal};
@@ -96,20 +95,20 @@ impl Validate for CuckooConfig {
 
 /// Generation state for [`CuckooSearch`].
 #[derive(Debug, Clone)]
-pub struct CuckooState<B: Backend> {
+pub struct CuckooState {
     /// Current nests, shape `(pop_size, D)`.
-    nests: Tensor<B, 2>,
+    nests: Tensor<2>,
     /// Host-side fitness cache; `$+\infty$` for abandoned slots.
     fitness: Vec<f32>,
     /// Best-so-far genome.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     best_fitness: f32,
     /// Generation counter.
     generation: usize,
 }
 
-impl<B: Backend> CuckooState<B> {
+impl CuckooState {
     /// Assembles a nest state, checking the fitness cache matches `pop`.
     ///
     /// # Errors
@@ -117,9 +116,9 @@ impl<B: Backend> CuckooState<B> {
     /// Returns a [`ConfigError`] if `nests` has zero rows or if `fitness` is
     /// non-empty with a length other than `pop_size`.
     pub fn try_new(
-        nests: Tensor<B, 2>,
+        nests: Tensor<2>,
         fitness: Vec<f32>,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
         generation: usize,
     ) -> Result<Self, ConfigError> {
@@ -137,7 +136,7 @@ impl<B: Backend> CuckooState<B> {
 
     /// Current nests, shape `(pop_size, D)`.
     #[must_use]
-    pub fn nests(&self) -> &Tensor<B, 2> {
+    pub fn nests(&self) -> &Tensor<2> {
         &self.nests
     }
 
@@ -149,7 +148,7 @@ impl<B: Backend> CuckooState<B> {
 
     /// Best-so-far genome, or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -174,22 +173,18 @@ impl<B: Backend> CuckooState<B> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::cuckoo::{CuckooConfig, CuckooSearch};
 ///
-/// let strategy = CuckooSearch::<Flex>::new();
+/// let strategy = CuckooSearch::new();
 /// let params = CuckooConfig::default_for(30, 10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CuckooSearch<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct CuckooSearch {}
 
-impl<B: Backend> CuckooSearch<B> {
+impl CuckooSearch {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     /// Mantegna's `$\sigma_u$` for the `$u \sim N(0, \sigma_u^2)$` draw.
@@ -258,13 +253,10 @@ fn levy_step(u: f32, w: f32, beta: f32) -> f32 {
     }
 }
 
-impl<B: Backend> Strategy<B> for CuckooSearch<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for CuckooSearch {
     type Params = CuckooConfig;
-    type State = CuckooState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = CuckooState;
+    type Genome = Tensor<2>;
 
     /// Build the initial nest population by host-sampling `pop_size`
     /// positions uniformly in `[bounds.lo, bounds.hi]`.
@@ -276,12 +268,7 @@ where
     ///
     /// [`ask`]: Strategy::ask
     /// [`tell`]: Strategy::tell
-    fn init(
-        &self,
-        params: &CuckooConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> CuckooState<B> {
+    fn init(&self, params: &CuckooConfig, rng: &mut dyn Rng, device: &Device) -> CuckooState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid CuckooConfig reached init: {params:?}"
@@ -298,8 +285,7 @@ where
         for _ in 0..pop * genome_dim {
             nest_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
-        let nests =
-            Tensor::<B, 2>::from_data(TensorData::new(nest_rows, [pop, genome_dim]), device);
+        let nests = Tensor::<2>::from_data(TensorData::new(nest_rows, [pop, genome_dim]), device);
         CuckooState {
             nests,
             fitness: Vec::new(),
@@ -321,10 +307,10 @@ where
     fn ask(
         &self,
         params: &CuckooConfig,
-        state: &CuckooState<B>,
+        state: &CuckooState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, CuckooState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, CuckooState) {
         if state.fitness.is_empty() {
             return (state.nests.clone(), state.clone());
         }
@@ -347,7 +333,7 @@ where
             // bounds clamp and would poison the slot forever).
             *v = levy_step(u, w, params.beta);
         }
-        let step_tensor = Tensor::<B, 2>::from_data(TensorData::new(step, [pop, d]), device);
+        let step_tensor = Tensor::<2>::from_data(TensorData::new(step, [pop, d]), device);
 
         let (lo, hi): (f32, f32) = params.bounds.into();
         let new_nests = (state.nests.clone() + step_tensor.mul_scalar(params.alpha)).clamp(lo, hi);
@@ -378,11 +364,11 @@ where
     fn tell(
         &self,
         params: &CuckooConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: CuckooState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: CuckooState,
         rng: &mut dyn Rng,
-    ) -> (CuckooState<B>, StrategyMetrics) {
+    ) -> (CuckooState, StrategyMetrics) {
         // Sanitise on the host pull, per the maximise convention (`rules.md` §3, ADR 0034):
         // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. This is the per-site
         // correctness floor for callers that bypass `EvolutionaryLoop::step` — `Strategy` is
@@ -395,7 +381,7 @@ where
         // provable no-op — do not delete it as redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -409,10 +395,8 @@ where
             let best_idx = argmax_host(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(population.clone().select(0, idx));
             state.nests = population;
             state.generation += 1;
@@ -439,7 +423,7 @@ where
             }
         }
         let stacked = Tensor::cat(vec![state.nests.clone(), population.clone()], 0);
-        let idx = Tensor::<B, 1, Int>::from_data(TensorData::new(rs, [pop]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(rs, [pop]), &device);
         state.nests = stacked.select(0, idx);
         state.fitness = new_fitness;
 
@@ -476,7 +460,7 @@ where
                 fresh_rows.push(lo + (hi - lo) * abandon_stream.random::<f32>());
             }
             let fresh =
-                Tensor::<B, 2>::from_data(TensorData::new(fresh_rows, [n_abandon, d]), &device);
+                Tensor::<2>::from_data(TensorData::new(fresh_rows, [n_abandon, d]), &device);
             #[allow(clippy::cast_possible_wrap)]
             let mut rs2: Vec<i64> = (0..pop).map(|i| i as i64).collect();
             for (k, &slot) in worst.iter().enumerate() {
@@ -487,7 +471,7 @@ where
                 state.fitness[slot] = f32::NEG_INFINITY;
             }
             let stacked2 = Tensor::cat(vec![state.nests.clone(), fresh], 0);
-            let idx2 = Tensor::<B, 1, Int>::from_data(TensorData::new(rs2, [pop]), &device);
+            let idx2 = Tensor::<1, Int>::from_data(TensorData::new(rs2, [pop]), &device);
             state.nests = stacked2.select(0, idx2);
         }
 
@@ -496,10 +480,8 @@ where
         if state.fitness[best_idx].is_finite() && state.fitness[best_idx] > state.best_fitness {
             state.best_fitness = state.fitness[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(state.nests.clone().select(0, idx));
         }
 
@@ -512,7 +494,7 @@ where
 
     /// Returns the best-so-far `(genome, fitness)` pair, or `None` before
     /// the first [`tell`](Strategy::tell) call.
-    fn best(&self, state: &CuckooState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &CuckooState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -525,21 +507,18 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
 
-    type TestBackend = Flex;
-
     #[test]
     fn try_new_checks_fitness_length() {
-        let device = Default::default();
-        let nests = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        let device = Device::flex();
+        let nests = Tensor::<2>::zeros([3, 2], &device);
         assert!(CuckooState::try_new(nests.clone(), vec![1.0; 3], None, 1.0, 1).is_ok());
         assert!(CuckooState::try_new(nests.clone(), vec![], None, f32::MIN, 0).is_ok());
         assert!(CuckooState::try_new(nests, vec![1.0; 2], None, 1.0, 1).is_err());
-        let empty = Tensor::<TestBackend, 2>::zeros([0, 2], &device);
+        let empty = Tensor::<2>::zeros([0, 2], &device);
         assert!(CuckooState::try_new(empty, vec![], None, 1.0, 0).is_err());
     }
 
@@ -573,7 +552,7 @@ mod tests {
 
     #[test]
     fn mantegna_sigma_u_is_finite() {
-        let s = CuckooSearch::<TestBackend>::mantegna_sigma_u(1.5);
+        let s = CuckooSearch::mantegna_sigma_u(1.5);
         assert!(s.is_finite() && s > 0.0);
     }
 
@@ -585,15 +564,13 @@ mod tests {
         // budgets on Sphere-D10. Threshold 20.0 in 800 generations is still a ~`$4\times$`
         // reduction from the uniform-random baseline (`$\approx$` 87) — it verifies the Lévy
         // machinery composes correctly.
-        let device = Default::default();
-        let strategy = CuckooSearch::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CuckooSearch::new();
         let mut params = CuckooConfig::default_for(30, 10);
         params.alpha = 0.2;
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 19, device, 800,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 19, device, 800)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -642,17 +619,13 @@ mod tests {
     /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
     /// canonical, exercising the ADR-0034 loop sanitize with no `neg()`.
     struct PartialNanFitness;
-    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl crate::fitness::BatchFitnessFn<Tensor<2>> for PartialNanFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)]
             let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
             vals[0] = f32::NAN;
-            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
         }
         fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
             rlevo_core::objective::ObjectiveSense::Maximize
@@ -692,10 +665,10 @@ mod tests {
     // two worst (lowest canonical fitness, indices 6 and 7) are the ones abandoned.
     #[test]
     fn abandonment_marks_floor_pa_pop_nests() {
-        let device = Default::default();
-        let strategy = CuckooSearch::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CuckooSearch::new();
         let params = CuckooConfig::default_for(8, 2); // p_a = 0.25 → 2 abandoned
-        let nests = Tensor::<TestBackend, 2>::zeros([8, 2], &device);
+        let nests = Tensor::<2>::zeros([8, 2], &device);
         let state = CuckooState::try_new(
             nests,
             vec![8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
@@ -706,9 +679,8 @@ mod tests {
         .expect("valid state");
         // Every egg is worse than its slot → no greedy accept; only abandonment
         // rewrites fitness.
-        let eggs = Tensor::<TestBackend, 2>::full([8, 2], 5.0, &device);
-        let fit =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0.0_f32; 8], [8]), &device);
+        let eggs = Tensor::<2>::full([8, 2], 5.0, &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32; 8], [8]), &device);
         let mut rng = StdRng::seed_from_u64(4);
         let (next, _m) = strategy.tell(&params, eggs, fit, state, &mut rng);
         let f = next.fitness();
@@ -728,28 +700,24 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)] // exact: rejected eggs leave nests untouched
     fn greedy_accept_keeps_nests_on_all_worse_eggs() {
-        let device = Default::default();
-        let strategy = CuckooSearch::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CuckooSearch::new();
         let mut params = CuckooConfig::default_for(4, 2);
         params.p_a = 0.0; // disable abandonment to isolate greedy accept
         let nest_vals = vec![0.1_f32, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
-        let nests = Tensor::<TestBackend, 2>::from_data(
-            TensorData::new(nest_vals.clone(), [4, 2]),
-            &device,
-        );
+        let nests = Tensor::<2>::from_data(TensorData::new(nest_vals.clone(), [4, 2]), &device);
         let state =
             CuckooState::try_new(nests, vec![4.0, 3.0, 2.0, 1.0], None, f32::NEG_INFINITY, 1)
                 .expect("valid state");
-        let eggs = Tensor::<TestBackend, 2>::full([4, 2], 9.0, &device);
-        let fit =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0.0_f32; 4], [4]), &device);
+        let eggs = Tensor::<2>::full([4, 2], 9.0, &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32; 4], [4]), &device);
         let mut rng = StdRng::seed_from_u64(5);
         let (next, _m) = strategy.tell(&params, eggs, fit, state, &mut rng);
         let after = next
             .nests()
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("nests readable as f32");
         assert_eq!(after, nest_vals);
     }
@@ -759,14 +727,12 @@ mod tests {
     // generation to generation.
     #[test]
     fn best_so_far_is_monotone() {
-        let device = Default::default();
-        let strategy = CuckooSearch::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CuckooSearch::new();
         let params = CuckooConfig::default_for(20, 6);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 11, device, 40,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 11, device, 40)
+            .expect("valid params");
         evo_loop.reset();
         let mut prev = f32::INFINITY;
         while !evo_loop.is_done() {
@@ -784,18 +750,11 @@ mod tests {
     // chokepoint (ADR 0034).
     #[test]
     fn nan_fitness_survives_loop() {
-        let device = Default::default();
-        let strategy = CuckooSearch::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CuckooSearch::new();
         let params = CuckooConfig::default_for(8, 3);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            PartialNanFitness,
-            4,
-            device,
-            4,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, PartialNanFitness, 4, device, 4)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -820,14 +779,14 @@ mod tests {
     // hence `p_a = 0` here, and an assertion on the *cache*, not convergence.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device = Default::default();
-        let strategy = CuckooSearch::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CuckooSearch::new();
         let mut params = CuckooConfig::default_for(4, 2);
         params.p_a = 0.0;
         let mut rng = StdRng::seed_from_u64(41);
         let fit = |vals: Vec<f32>| {
             let n = vals.len();
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), &device)
         };
 
         // Generation 0 (bootstrap): nest 0 scores `NaN`, the rest finite.

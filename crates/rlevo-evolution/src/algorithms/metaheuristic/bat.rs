@@ -28,9 +28,7 @@
 //!
 //! - Yang (2010), *A New Metaheuristic Bat-Inspired Algorithm*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -110,11 +108,11 @@ impl Validate for BatConfig {
 
 /// Generation state for [`BatAlgorithm`].
 #[derive(Debug, Clone)]
-pub struct BatState<B: Backend> {
+pub struct BatState {
     /// Current positions, shape `(pop_size, D)`.
-    positions: Tensor<B, 2>,
+    positions: Tensor<2>,
     /// Current velocities, shape `(pop_size, D)`.
-    velocities: Tensor<B, 2>,
+    velocities: Tensor<2>,
     /// Per-bat loudness.
     loudness: Vec<f32>,
     /// Per-bat pulse rate.
@@ -122,7 +120,7 @@ pub struct BatState<B: Backend> {
     /// Host-side fitness cache for the current positions.
     fitness: Vec<f32>,
     /// Best-so-far genome.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     best_fitness: f32,
     /// Generation counter.
@@ -133,7 +131,7 @@ pub struct BatState<B: Backend> {
     pending_accept: Vec<bool>,
 }
 
-impl<B: Backend> BatState<B> {
+impl BatState {
     /// Assembles a bat-swarm state, checking the per-bat caches match `pop`.
     ///
     /// # Errors
@@ -143,12 +141,12 @@ impl<B: Backend> BatState<B> {
     /// with a length other than `pop_size`.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
-        positions: Tensor<B, 2>,
-        velocities: Tensor<B, 2>,
+        positions: Tensor<2>,
+        velocities: Tensor<2>,
         loudness: Vec<f32>,
         pulse_rate: Vec<f32>,
         fitness: Vec<f32>,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
         generation: usize,
         pending_accept: Vec<bool>,
@@ -174,13 +172,13 @@ impl<B: Backend> BatState<B> {
 
     /// Current positions, shape `(pop_size, D)`.
     #[must_use]
-    pub fn positions(&self) -> &Tensor<B, 2> {
+    pub fn positions(&self) -> &Tensor<2> {
         &self.positions
     }
 
     /// Current velocities, shape `(pop_size, D)`.
     #[must_use]
-    pub fn velocities(&self) -> &Tensor<B, 2> {
+    pub fn velocities(&self) -> &Tensor<2> {
         &self.velocities
     }
 
@@ -204,7 +202,7 @@ impl<B: Backend> BatState<B> {
 
     /// Best-so-far genome, or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -236,32 +234,25 @@ impl<B: Backend> BatState<B> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::bat::{BatAlgorithm, BatConfig};
 ///
-/// let strategy = BatAlgorithm::<Flex>::new();
+/// let strategy = BatAlgorithm::new();
 /// let params = BatConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct BatAlgorithm<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct BatAlgorithm {}
 
-impl<B: Backend> BatAlgorithm<B> {
+impl BatAlgorithm {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 }
 
-impl<B: Backend> Strategy<B> for BatAlgorithm<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for BatAlgorithm {
     type Params = BatConfig;
-    type State = BatState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = BatState;
+    type Genome = Tensor<2>;
 
     /// Build the initial colony by host-sampling `pop_size` positions
     /// uniformly in `[bounds.lo, bounds.hi]`.
@@ -272,12 +263,7 @@ where
     /// those fields before any acceptance logic runs.  Positions are drawn
     /// from a deterministic [`seed_stream`]; the process-wide Flex RNG is
     /// never touched.
-    fn init(
-        &self,
-        params: &BatConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> BatState<B> {
+    fn init(&self, params: &BatConfig, rng: &mut dyn Rng, device: &Device) -> BatState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid BatConfig reached init: {params:?}"
@@ -298,8 +284,8 @@ where
             position_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
         let positions =
-            Tensor::<B, 2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
-        let velocities = Tensor::<B, 2>::zeros([params.pop_size, params.genome_dim], device);
+            Tensor::<2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
+        let velocities = Tensor::<2>::zeros([params.pop_size, params.genome_dim], device);
         BatState {
             positions,
             velocities,
@@ -341,10 +327,10 @@ where
     fn ask(
         &self,
         params: &BatConfig,
-        state: &BatState<B>,
+        state: &BatState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, BatState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, BatState) {
         if state.fitness.is_empty() {
             // Evaluate the initial colony first; the velocity update is
             // only defined once a best exists.
@@ -396,7 +382,7 @@ where
             .iter()
             .map(|b| params.f_min + (params.f_max - params.f_min) * b)
             .collect();
-        let f_mat = Tensor::<B, 1>::from_data(TensorData::new(f_vec, [pop]), device)
+        let f_mat = Tensor::<1>::from_data(TensorData::new(f_vec, [pop]), device)
             .unsqueeze_dim::<2>(1)
             .expand([pop, genome_dim]);
 
@@ -408,12 +394,11 @@ where
         .clamp(-span, span);
         let global_move = state.positions.clone() + new_velocities.clone();
         // Local walk: `$x_{best} + \epsilon \cdot \mathrm{mean}(A)$`.
-        let eps =
-            Tensor::<B, 2>::from_data(TensorData::new(epsilon_rows, [pop, genome_dim]), device);
+        let eps = Tensor::<2>::from_data(TensorData::new(epsilon_rows, [pop, genome_dim]), device);
         let local_move = best + eps.mul_scalar(mean_loudness);
 
         #[allow(clippy::cast_possible_wrap)]
-        let mask = Tensor::<B, 1, Int>::from_data(
+        let mask = Tensor::<1, Int>::from_data(
             TensorData::new(
                 use_local.iter().map(|&b| i64::from(b)).collect::<Vec<_>>(),
                 [pop],
@@ -450,11 +435,11 @@ where
     fn tell(
         &self,
         params: &BatConfig,
-        candidates: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: BatState<B>,
+        candidates: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: BatState,
         _rng: &mut dyn Rng,
-    ) -> (BatState<B>, StrategyMetrics) {
+    ) -> (BatState, StrategyMetrics) {
         // Sanitise on the host pull, per the maximise convention (the Optimisation direction
         // section of `docs/rules.md`, ADR 0034): `$\text{NaN} \to -\infty$` (worst),
         // `$+\infty \to \text{f32::MAX}$`. This is the per-site correctness floor for callers
@@ -468,7 +453,7 @@ where
         // redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -482,10 +467,8 @@ where
             let best_idx = argmax_host(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(candidates.clone().select(0, idx));
             state.positions = candidates;
             state.generation += 1;
@@ -519,7 +502,7 @@ where
             }
         }
         let stacked = Tensor::cat(vec![state.positions.clone(), candidates], 0);
-        let idx = Tensor::<B, 1, Int>::from_data(TensorData::new(rs, [pop]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(rs, [pop]), &device);
         state.positions = stacked.select(0, idx);
         state.fitness = new_fitness;
 
@@ -528,10 +511,8 @@ where
         if state.fitness[best_idx] > state.best_fitness {
             state.best_fitness = state.fitness[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(state.positions.clone().select(0, idx));
         }
 
@@ -545,7 +526,7 @@ where
 
     /// Returns the best-so-far `(genome, fitness)` pair, or `None` before
     /// the first [`tell`](Strategy::tell) call.
-    fn best(&self, state: &BatState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &BatState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -558,18 +539,15 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
 
-    type TestBackend = Flex;
-
     #[test]
     fn try_new_checks_cache_lengths() {
-        let device = Default::default();
-        let pos = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
-        let vel = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        let device = Device::flex();
+        let pos = Tensor::<2>::zeros([3, 2], &device);
+        let vel = Tensor::<2>::zeros([3, 2], &device);
         assert!(
             BatState::try_new(
                 pos.clone(),
@@ -628,14 +606,12 @@ mod tests {
         // gate (A_i decay) throttles late-stage progress. Threshold 0.1 on Sphere-D10 in 800
         // generations is still orders of magnitude below the uniform-random baseline (`$\approx$`
         // 87).
-        let device = Default::default();
-        let strategy = BatAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = BatAlgorithm::new();
         let params = BatConfig::default_for(40, 10);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 23, device, 800,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 23, device, 800)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -654,16 +630,14 @@ mod tests {
         // to `$\pm\infty$` and then to NaN (via `$\infty - \infty$`). The `$\pm$`span clamp (parity
         // with PSO's `v_max`) must keep every velocity finite and within the search extent no
         // matter how long the swarm runs.
-        let device = Default::default();
-        let strategy = BatAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = BatAlgorithm::new();
         let params = BatConfig::default_for(20, 4);
         let (lo, hi): (f32, f32) = params.bounds.into();
         let span = (hi - lo).abs();
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 7, device, 100,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 7, device, 100)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -674,7 +648,7 @@ mod tests {
             .velocities()
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("velocities readable as f32");
         for v in velocities {
             assert!(v.is_finite(), "velocity not finite: {v}");
@@ -688,17 +662,13 @@ mod tests {
     /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
     /// canonical, exercising the ADR-0034 loop sanitize with no `neg()`.
     struct PartialNanFitness;
-    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl crate::fitness::BatchFitnessFn<Tensor<2>> for PartialNanFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)]
             let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
             vals[0] = f32::NAN;
-            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
         }
         fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
             rlevo_core::objective::ObjectiveSense::Maximize
@@ -708,14 +678,10 @@ mod tests {
     /// Builds a steady-state (generation `$\geq$` 1) bat swarm at the origin with a non-empty
     /// fitness cache and a populated `best_genome`, so `ask` takes the velocity-update path rather
     /// than the bootstrap early return.
-    fn steady_state(
-        pop: usize,
-        d: usize,
-        device: burn::backend::flex::FlexDevice,
-    ) -> BatState<TestBackend> {
-        let positions = Tensor::<TestBackend, 2>::zeros([pop, d], &device);
-        let velocities = Tensor::<TestBackend, 2>::zeros([pop, d], &device);
-        let best = Tensor::<TestBackend, 2>::zeros([1, d], &device);
+    fn steady_state(pop: usize, d: usize, device: Device) -> BatState {
+        let positions = Tensor::<2>::zeros([pop, d], &device);
+        let velocities = Tensor::<2>::zeros([pop, d], &device);
+        let best = Tensor::<2>::zeros([1, d], &device);
         BatState::try_new(
             positions,
             velocities,
@@ -733,8 +699,8 @@ mod tests {
     // Gap (e): the best-so-far accessor is `None` until a `tell` records one.
     #[test]
     fn best_is_none_before_first_tell() {
-        let device = Default::default();
-        let strategy = BatAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = BatAlgorithm::new();
         let params = BatConfig::default_for(8, 4);
         let mut rng = StdRng::seed_from_u64(1);
         let state = strategy.init(&params, &mut rng, &device);
@@ -746,14 +712,12 @@ mod tests {
     #[test]
     fn degenerate_dims_run() {
         for (pop, d) in [(1usize, 4usize), (6, 1)] {
-            let device = Default::default();
-            let strategy = BatAlgorithm::<TestBackend>::new();
+            let device = Device::flex();
+            let strategy = BatAlgorithm::new();
             let params = BatConfig::default_for(pop, d);
             let fitness_fn = FromLandscape::new(Sphere);
-            let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-                strategy, params, fitness_fn, 3, device, 8,
-            )
-            .expect("valid params");
+            let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 3, device, 8)
+                .expect("valid params");
             evo_loop.reset();
             while !evo_loop.is_done() {
                 evo_loop.step();
@@ -773,8 +737,8 @@ mod tests {
     // across 32 seeds.
     #[test]
     fn proposed_positions_within_bounds() {
-        let device = Default::default();
-        let strategy = BatAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = BatAlgorithm::new();
         let params = BatConfig::default_for(10, 4);
         let (lo, hi): (f32, f32) = params.bounds.into();
         let state = steady_state(10, 4, device);
@@ -783,7 +747,7 @@ mod tests {
             let (cand, _next) = strategy.ask(&params, &state, &mut rng, &device);
             let vals = cand
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("candidates readable as f32");
             for &v in &vals {
                 assert!(
@@ -801,26 +765,25 @@ mod tests {
     // rejected: loudness, pulse rate, and position are all untouched.
     #[test]
     fn loudness_decay_pulse_growth_and_acceptance_gate() {
-        let device = Default::default();
-        let strategy = BatAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = BatAlgorithm::new();
         let params = BatConfig::default_for(2, 1); // α = 0.9, γ = 0.9, r₀ = 0.5
         let generation: usize = 3;
         let state = BatState::try_new(
-            Tensor::<TestBackend, 2>::zeros([2, 1], &device),
-            Tensor::<TestBackend, 2>::zeros([2, 1], &device),
+            Tensor::<2>::zeros([2, 1], &device),
+            Tensor::<2>::zeros([2, 1], &device),
             vec![1.0, 1.0], // loudness = a0
             vec![0.5, 0.5], // pulse = r0
             vec![0.0, 0.0], // current fitness
-            Some(Tensor::<TestBackend, 2>::zeros([1, 1], &device)),
+            Some(Tensor::<2>::zeros([1, 1], &device)),
             0.0,
             generation,
             vec![true, false], // bee 0 accepts, bee 1 rejects
         )
         .expect("valid state");
-        let candidates = Tensor::<TestBackend, 2>::full([2, 1], 0.1, &device);
+        let candidates = Tensor::<2>::full([2, 1], 0.1, &device);
         // Both candidates improve (1.0 `$\geq$` 0.0), isolating the acceptance gate.
-        let fit =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![1.0_f32, 1.0], [2]), &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(vec![1.0_f32, 1.0], [2]), &device);
         let mut rng = StdRng::seed_from_u64(0);
         let (next, _m) = strategy.tell(&params, candidates, fit, state, &mut rng);
 
@@ -839,7 +802,7 @@ mod tests {
             .positions()
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("positions readable as f32");
         approx::assert_relative_eq!(pos[0], 0.1, epsilon = 1e-6);
         approx::assert_relative_eq!(pos[1], 0.0, epsilon = 1e-6);
@@ -849,18 +812,11 @@ mod tests {
     // chokepoint (ADR 0034).
     #[test]
     fn nan_fitness_survives_loop() {
-        let device = Default::default();
-        let strategy = BatAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = BatAlgorithm::new();
         let params = BatConfig::default_for(8, 3);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            PartialNanFitness,
-            4,
-            device,
-            4,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, PartialNanFitness, 4, device, 4)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -884,8 +840,8 @@ mod tests {
     // slot. The assertion is on the *cache*, not on convergence.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device = Default::default();
-        let strategy = BatAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = BatAlgorithm::new();
         let mut params = BatConfig::default_for(4, 2);
         // Loudness pinned at 1 with no decay keeps the `pending_accept` draw
         // (uniform in [0, 1)) always under `A_i`, isolating the fitness
@@ -895,7 +851,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(37);
         let fit = |vals: Vec<f32>| {
             let n = vals.len();
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), &device)
         };
 
         // Generation 0 (bootstrap): bat 0 scores `NaN`, the rest finite.

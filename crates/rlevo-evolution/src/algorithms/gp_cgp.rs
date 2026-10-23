@@ -3,7 +3,7 @@
 //! CGP encodes a directed acyclic computation graph on a fixed `$\text{rows} \times \text{cols}$`
 //! grid. Each node stores `(function_id, input_0, input_1)`, plus the final output gene picks which
 //! node produces the output. The genotype is a fixed-length integer vector, so populations are
-//! `Tensor<B, 2, Int>` and fit the tensor abstraction cleanly.
+//! `Tensor<2, Int>` and fit the tensor abstraction cleanly.
 //!
 //! # Evolutionary engine
 //!
@@ -46,9 +46,7 @@
 //! - Miller (2011), *Cartesian Genetic Programming* (Natural Computing
 //!   Series).
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 use rlevo_core::config::{self, ConfigError, Validate};
@@ -133,9 +131,9 @@ impl Validate for CgpConfig {
 
 /// Generation state for [`CartesianGeneticProgramming`].
 #[derive(Debug, Clone)]
-pub struct CgpState<B: Backend> {
+pub struct CgpState {
     /// Parent genotype, shape `(1, genome_len)`.
-    pub parent: Tensor<B, 2, Int>,
+    pub parent: Tensor<2, Int>,
     /// Parent fitness (host-side scalar cache).
     ///
     /// `None` until the first `tell` bootstraps it. Using `Option` — rather
@@ -146,7 +144,7 @@ pub struct CgpState<B: Backend> {
     /// the next `ask`, collapsing the `$(1+\lambda)$` loop to a single parent forever.
     pub parent_fitness: Option<f32>,
     /// Best-so-far genotype.
-    pub best_genome: Option<Tensor<B, 2, Int>>,
+    pub best_genome: Option<Tensor<2, Int>>,
     /// Best-so-far fitness.
     pub best_fitness: f32,
     /// Generation counter.
@@ -161,23 +159,19 @@ pub struct CgpState<B: Backend> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::gp_cgp::{CartesianGeneticProgramming, CgpConfig};
 ///
-/// let strategy = CartesianGeneticProgramming::<Flex>::new();
+/// let strategy = CartesianGeneticProgramming::new();
 /// let params = CgpConfig::default_for(1);
 /// assert!(params.genome_len() > 0);
 /// let _ = strategy;
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CartesianGeneticProgramming<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct CartesianGeneticProgramming {}
 
-impl<B: Backend> CartesianGeneticProgramming<B> {
+impl CartesianGeneticProgramming {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     fn sample_initial_genome(params: &CgpConfig, rng: &mut dyn Rng) -> Vec<i64> {
@@ -199,11 +193,11 @@ impl<B: Backend> CartesianGeneticProgramming<B> {
         genome
     }
 
-    fn genome_to_host(genome: &Tensor<B, 2, Int>) -> Vec<i64> {
+    fn genome_to_host(genome: &Tensor<2, Int>) -> Vec<i64> {
         genome
             .clone()
             .into_data()
-            .into_vec::<i32>()
+            .try_into_vec::<i32>()
             .expect("genome tensor must be readable as i32")
             .into_iter()
             .map(i64::from)
@@ -361,29 +355,21 @@ pub fn evaluate_cgp_with<F: FunctionSet>(
     outputs
 }
 
-impl<B: Backend> Strategy<B> for CartesianGeneticProgramming<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for CartesianGeneticProgramming {
     type Params = CgpConfig;
-    type State = CgpState<B>;
-    type Genome = Tensor<B, 2, Int>;
+    type State = CgpState;
+    type Genome = Tensor<2, Int>;
 
     /// Samples the initial parent genome by drawing random node functions and
     /// feed-forward input connections via `rng`, then uploads the genotype as
     /// a `(1, genome_len)` integer tensor.
-    fn init(
-        &self,
-        params: &CgpConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> CgpState<B> {
+    fn init(&self, params: &CgpConfig, rng: &mut dyn Rng, device: &Device) -> CgpState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid CgpConfig reached init: {params:?}"
         );
         let genome_vec = Self::sample_initial_genome(params, rng);
-        let parent = Tensor::<B, 2, Int>::from_data(
+        let parent = Tensor::<2, Int>::from_data(
             TensorData::new(genome_vec, [1, params.genome_len()]),
             device,
         );
@@ -406,10 +392,10 @@ where
     fn ask(
         &self,
         params: &CgpConfig,
-        state: &CgpState<B>,
+        state: &CgpState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2, Int>, CgpState<B>) {
+        device: &Device,
+    ) -> (Tensor<2, Int>, CgpState) {
         // First call: evaluate the parent as "offspring" of size 1.
         if state.parent_fitness.is_none() {
             return (state.parent.clone(), state.clone());
@@ -431,7 +417,7 @@ where
         #[allow(clippy::cast_possible_truncation)]
         let offspring_genomes_i32: Vec<i32> =
             offspring_genomes.into_iter().map(|v| v as i32).collect();
-        let offspring = Tensor::<B, 2, Int>::from_data(
+        let offspring = Tensor::<2, Int>::from_data(
             TensorData::new(offspring_genomes_i32, [params.lambda, params.genome_len()]),
             device,
         );
@@ -450,14 +436,14 @@ where
     fn tell(
         &self,
         _params: &CgpConfig,
-        offspring: Tensor<B, 2, Int>,
-        fitness: Tensor<B, 1>,
-        mut state: CgpState<B>,
+        offspring: Tensor<2, Int>,
+        fitness: Tensor<1>,
+        mut state: CgpState,
         _rng: &mut dyn Rng,
-    ) -> (CgpState<B>, StrategyMetrics) {
+    ) -> (CgpState, StrategyMetrics) {
         let fitness_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
 
         if fitness_host.is_empty() {
@@ -509,7 +495,7 @@ where
         if best_off_fit.total_cmp(&parent_fit) != std::cmp::Ordering::Less {
             let device = offspring.device();
             #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-            let idx = Tensor::<B, 1, Int>::from_data(
+            let idx = Tensor::<1, Int>::from_data(
                 TensorData::new(vec![best_off_idx as i32], [1]),
                 &device,
             );
@@ -527,7 +513,7 @@ where
 
     /// Returns the best-so-far genome and its fitness, or `None` before the
     /// first `tell` call.
-    fn best(&self, state: &CgpState<B>) -> Option<(Tensor<B, 2, Int>, f32)> {
+    fn best(&self, state: &CgpState) -> Option<(Tensor<2, Int>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -535,7 +521,7 @@ where
     }
 }
 
-fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fitness: &[f32]) {
+fn update_best(state: &mut CgpState, pop: &Tensor<2, Int>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -557,8 +543,7 @@ fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fit
     if best_f.total_cmp(&state.best_fitness) == std::cmp::Ordering::Greater {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-        let idx =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i32], [1]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i32], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -569,8 +554,6 @@ mod tests {
     use super::*;
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
-    type TestBackend = Flex;
 
     #[test]
     fn default_config_validates() {
@@ -611,8 +594,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = CartesianGeneticProgramming::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CartesianGeneticProgramming::new();
 
         // Invalid config (lambda == 0) via mutation, bypassing `validate`.
         let mut params = CgpConfig::default_for(1);
@@ -620,8 +603,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(11);
         // Build the bootstrap state directly: `init` debug-asserts the config,
         // which lambda == 0 would trip, and `tell` ignores `params` anyway.
-        let parent = Tensor::<TestBackend, 2, Int>::zeros([1, params.genome_len()], &device);
-        let state: CgpState<TestBackend> = CgpState {
+        let parent = Tensor::<2, Int>::zeros([1, params.genome_len()], &device);
+        let state: CgpState = CgpState {
             parent,
             parent_fitness: None,
             best_genome: None,
@@ -630,8 +613,8 @@ mod tests {
         };
 
         let empty_fitness =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(Vec::<f32>::new(), [0]), &device);
-        let empty_offspring = Tensor::<TestBackend, 2, Int>::from_data(
+            Tensor::<1>::from_data(TensorData::new(Vec::<f32>::new(), [0]), &device);
+        let empty_offspring = Tensor::<2, Int>::from_data(
             TensorData::new(Vec::<i32>::new(), [0, params.genome_len()]),
             &device,
         );
@@ -656,8 +639,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = CartesianGeneticProgramming::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CartesianGeneticProgramming::new();
         let params = CgpConfig::default_for(1);
         let mut rng = StdRng::seed_from_u64(3);
         let state = strategy.init(&params, &mut rng, &device);
@@ -669,10 +652,8 @@ mod tests {
         // Bootstrap tell with a canonical `$-\infty$` fitness. Under the old `is_finite()` sentinel
         // this left `parent_fitness` non-finite and the next `ask` collapsed back to a single
         // genome.
-        let neg_inf = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![f32::NEG_INFINITY], [1]),
-            &device,
-        );
+        let neg_inf =
+            Tensor::<1>::from_data(TensorData::new(vec![f32::NEG_INFINITY], [1]), &device);
         let (state1, _) = strategy.tell(&params, boot, neg_inf, next, &mut rng);
         assert_eq!(
             state1.parent_fitness,
@@ -694,9 +675,9 @@ mod tests {
     /// same generation.
     #[test]
     fn update_best_treats_neg_inf_as_worst() {
-        let device = Default::default();
-        let parent = Tensor::<TestBackend, 2, Int>::zeros([3, 4], &device);
-        let mut state: CgpState<TestBackend> = CgpState {
+        let device = Device::flex();
+        let parent = Tensor::<2, Int>::zeros([3, 4], &device);
+        let mut state: CgpState = CgpState {
             parent: parent.clone(),
             parent_fitness: None,
             best_genome: None,
@@ -733,8 +714,7 @@ mod tests {
 
         let mut params = CgpConfig::default_for(2);
         let mut rng = StdRng::seed_from_u64(5);
-        let mut genome =
-            CartesianGeneticProgramming::<TestBackend>::sample_initial_genome(&params, &mut rng);
+        let mut genome = CartesianGeneticProgramming::sample_initial_genome(&params, &mut rng);
         let before = genome.clone();
 
         params.mutation_rate = Probability::new(0.0);
@@ -793,8 +773,7 @@ mod tests {
         };
 
         let mut rng = StdRng::seed_from_u64(19);
-        let genome =
-            CartesianGeneticProgramming::<TestBackend>::sample_initial_genome(&params, &mut rng);
+        let genome = CartesianGeneticProgramming::sample_initial_genome(&params, &mut rng);
         check(&genome);
 
         // Fully mutate, then re-check: mutation must also honor the invariant.
@@ -836,8 +815,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = CartesianGeneticProgramming::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = CartesianGeneticProgramming::new();
         let params = CgpConfig::default_for(1);
         let mut rng = StdRng::seed_from_u64(0);
         let state = strategy.init(&params, &mut rng, &device);
@@ -863,18 +842,14 @@ mod tests {
         }
     }
 
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2, Int>> for SymRegression {
+    impl BatchFitnessFn<Tensor<2, Int>> for SymRegression {
         #[allow(clippy::cast_precision_loss)]
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2, Int>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+        fn evaluate_batch(&mut self, population: &Tensor<2, Int>, device: &Device) -> Tensor<1> {
             let pop_size = population.dims()[0];
             let data: Vec<i64> = population
                 .clone()
                 .into_data()
-                .into_vec::<i32>()
+                .try_into_vec::<i32>()
                 .expect("genome host-read of a tensor this test just built")
                 .into_iter()
                 .map(i64::from)
@@ -893,7 +868,7 @@ mod tests {
                     / (self.ys.len() as f32);
                 fitness.push(mse);
             }
-            Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+            Tensor::<1>::from_data(TensorData::new(fitness, [pop_size]), device)
         }
 
         fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
@@ -904,16 +879,14 @@ mod tests {
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn cgp_reduces_error_on_square_plus_one() {
-        let device = Default::default();
+        let device = Device::flex();
         let params = CgpConfig::default_for(1);
         let landscape = SymRegression::new(params.clone());
         let initial_error = {
             // Baseline: random genome MSE on a single seed.
             use rand::SeedableRng;
             let mut rng = rand::rngs::StdRng::seed_from_u64(123);
-            let genome = CartesianGeneticProgramming::<TestBackend>::sample_initial_genome(
-                &params, &mut rng,
-            );
+            let genome = CartesianGeneticProgramming::sample_initial_genome(&params, &mut rng);
             let inputs: Vec<Vec<f32>> = landscape.xs.iter().map(|&x| vec![x]).collect();
             let preds = evaluate_cgp(&genome, &params, &inputs);
             preds
@@ -924,8 +897,8 @@ mod tests {
                 / (landscape.ys.len() as f32)
         };
 
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            CartesianGeneticProgramming::<TestBackend>::new(),
+        let mut evo_loop = EvolutionaryLoop::new(
+            CartesianGeneticProgramming::new(),
             params,
             landscape,
             21,

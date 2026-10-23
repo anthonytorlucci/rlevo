@@ -78,8 +78,6 @@
 //! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
 //! [`CoEvolutionaryLoop`]: crate::coevolution::CoEvolutionaryLoop
 
-use burn::tensor::backend::Backend;
-
 use rlevo_core::evaluation::GenerationProbe;
 use rlevo_core::fitness::{Metric, MetricsProvider};
 
@@ -136,50 +134,47 @@ impl MetricsProvider for CoEAMetrics {
     }
 }
 
-impl<B, S, F> GenerationProbe for EvolutionaryLoop<B, S, F>
+impl<S, F> GenerationProbe for EvolutionaryLoop<S, F>
 where
-    B: Backend,
-    S: Strategy<B>,
-    F: BatchFitnessFn<B, S::Genome>,
+    S: Strategy,
+    F: BatchFitnessFn<S::Genome>,
 {
     type Metrics = StrategyMetrics;
 
     fn begin(&mut self) {
-        EvolutionaryLoop::<B, S, F>::reset(self);
+        EvolutionaryLoop::<S, F>::reset(self);
     }
 
     fn advance(&mut self) -> Option<Self::Metrics> {
         if self.is_done() {
             return None;
         }
-        EvolutionaryLoop::<B, S, F>::step(self);
+        EvolutionaryLoop::<S, F>::step(self);
         self.latest_metrics().cloned()
     }
 }
 
-impl<B, C> GenerationProbe for CoEvolutionaryLoop<B, C>
+impl<C> GenerationProbe for CoEvolutionaryLoop<C>
 where
-    B: Backend,
-    C: CoEvolutionaryAlgorithm<B>,
+    C: CoEvolutionaryAlgorithm,
 {
     type Metrics = CoEAMetrics;
 
     fn begin(&mut self) {
-        CoEvolutionaryLoop::<B, C>::reset(self);
+        CoEvolutionaryLoop::<C>::reset(self);
     }
 
     fn advance(&mut self) -> Option<Self::Metrics> {
         if self.is_done() {
             return None;
         }
-        CoEvolutionaryLoop::<B, C>::step(self);
+        CoEvolutionaryLoop::<C>::step(self);
         self.latest_metrics().cloned()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use burn::backend::Flex;
     use burn::tensor::Tensor;
     use rlevo_core::bounds::Bounds;
     use rlevo_core::objective::ObjectiveSense;
@@ -192,18 +187,12 @@ mod tests {
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryLoop;
 
-    type B = Flex;
-
     /// Sphere cost over the population tensor: sums squares along the genome
     /// axis. Minimise-sense, so the loop negates into canonical space.
     struct SphereCost;
 
-    impl BatchFitnessFn<B, Tensor<B, 2>> for SphereCost {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            _device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for SphereCost {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, _device: &Device) -> Tensor<1> {
             population
                 .clone()
                 .powf_scalar(2.0)
@@ -216,7 +205,7 @@ mod tests {
         }
     }
 
-    fn evo_loop(max_generations: usize) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, SphereCost> {
+    fn evo_loop(max_generations: usize) -> EvolutionaryLoop<GeneticAlgorithm, SphereCost> {
         let params = GaConfig {
             pop_size: 8,
             genome_dim: 3,
@@ -229,7 +218,7 @@ mod tests {
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         };
         EvolutionaryLoop::new(
-            GeneticAlgorithm::<B>::new(),
+            GeneticAlgorithm::new(),
             params,
             SphereCost,
             42,

@@ -10,10 +10,9 @@
 //! acceptance assertions live in the `rlevo-test-support` dev-crate; only the
 //! QR-DQN network and the algorithm-specific tests remain here.
 
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, activation};
+use burn::tensor::{Device, Tensor, activation};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -28,7 +27,7 @@ use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::env::cartpole_seeded;
-use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
@@ -39,18 +38,15 @@ use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test
 const N_ACTIONS: usize = 2;
 
 #[derive(Module, Debug)]
-struct QrDqnMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+struct QrDqnMlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
     num_quantiles: usize,
 }
 
-impl<B: Backend> QrDqnMlp<B> {
-    fn new(
-        num_quantiles: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl QrDqnMlp {
+    fn new(num_quantiles: usize, device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -59,7 +55,7 @@ impl<B: Backend> QrDqnMlp<B> {
         }
     }
 
-    fn forward_impl(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<3> {
         let [batch_size, _] = observations.dims();
         let x = activation::relu(self.l1.forward(observations));
         let x = activation::relu(self.l2.forward(x));
@@ -68,31 +64,20 @@ impl<B: Backend> QrDqnMlp<B> {
     }
 }
 
-impl<B: AutodiffBackend> QrDqnModel<B, 2> for QrDqnMlp<B> {
-    fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+impl QrDqnModel<2> for QrDqnMlp {
+    fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.forward_impl(observations)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 3> {
+    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
         inner.forward_impl(observations)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, QrDqnMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<QrDqnMlp>(&active.valid(), target, tau as f32)
     }
 }
 
-type Agent = QrDqnAgent<Be, QrDqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = QrDqnAgent<QrDqnMlp, CartPoleObservation, CartPoleAction, 1, 2>;
 
 /// Build a deterministic `QrDqnAgent` for `CartPole` with `num_quantiles = 21`
 /// and `kappa = 1.0`.
@@ -113,7 +98,7 @@ type Agent = QrDqnAgent<Be, QrDqnMlp<Be>, CartPoleObservation, CartPoleAction, 1
 /// self-gated to a no-op whenever `$\tau > 0$`). Transcribing the `500` as a cadence would be a
 /// `$500\times$` slowdown of the soft update, not a faithful translation.
 fn fresh_agent(seed: u64) -> Agent {
-    let device = seeded_device::<Be>(seed);
+    let device = seeded_device(seed);
     let num_quantiles = 21; // smaller than canonical 200; see doc comment above
     let config = QrDqnTrainingConfig {
         batch_size: 64,
@@ -130,7 +115,7 @@ fn fresh_agent(seed: u64) -> Agent {
         kappa: 1.0,
         ..Default::default()
     };
-    let model: QrDqnMlp<Be> = QrDqnMlp::new(num_quantiles, &device);
+    let model: QrDqnMlp = QrDqnMlp::new(num_quantiles, &device);
     QrDqnAgent::new(model, config, device).expect("valid config")
 }
 

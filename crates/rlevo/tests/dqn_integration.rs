@@ -10,10 +10,9 @@
 //! acceptance assertions live in the `rlevo-test-support` dev-crate; only the
 //! DQN network and the algorithm-specific tests remain here.
 
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, activation};
+use burn::tensor::{Device, Tensor, activation};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -28,7 +27,7 @@ use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::env::cartpole_seeded;
-use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
@@ -37,14 +36,14 @@ use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
-struct DqnMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+struct DqnMlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
 }
 
-impl<B: Backend> DqnMlp<B> {
-    fn new(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+impl DqnMlp {
+    fn new(device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -52,40 +51,29 @@ impl<B: Backend> DqnMlp<B> {
         }
     }
 
-    fn forward_impl(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<2> {
         let x = activation::relu(self.l1.forward(observations));
         let x = activation::relu(self.l2.forward(x));
         self.l3.forward(x)
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
-    fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DqnModel<2> for DqnMlp {
+    fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
         self.forward_impl(observations)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<2> {
         inner.forward_impl(observations)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<DqnMlp>(&active.valid(), target, tau as f32)
     }
 }
 
-type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = DqnAgent<DqnMlp, CartPoleObservation, CartPoleAction, 1, 2>;
 
 /// Constructs a deterministic [`DqnAgent`] for `CartPole`.
 ///
@@ -105,7 +93,7 @@ type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>
 /// `$500\times$` slowdown of the soft update, not a faithful translation — the convergence budget
 /// below is calibrated against the per-gradient-step schedule that actually ran.
 fn fresh_agent(seed: u64) -> Agent {
-    let device = seeded_device::<Be>(seed);
+    let device = seeded_device(seed);
     let config = DqnTrainingConfig {
         batch_size: 64,
         gamma: 0.99,
@@ -120,7 +108,7 @@ fn fresh_agent(seed: u64) -> Agent {
         double_q: false,
         ..Default::default()
     };
-    let model: DqnMlp<Be> = DqnMlp::new(&device);
+    let model: DqnMlp = DqnMlp::new(&device);
     DqnAgent::new(model, config, device).expect("valid config")
 }
 
@@ -241,12 +229,12 @@ fn hard_expected_updates(total_steps: usize) -> usize {
 ///
 /// Deliberately not a `sum()` proxy: per-element optimizer steps very nearly
 /// cancel in a sum, which would turn "did the target change" into a coin flip.
-fn hard_net_weights<B: Backend>(net: &DqnMlp<B>) -> Vec<f32> {
-    fn host<B: Backend, const D: usize>(t: Tensor<B, D>, out: &mut Vec<f32>) {
+fn hard_net_weights(net: &DqnMlp) -> Vec<f32> {
+    fn host<const D: usize>(t: Tensor<D>, out: &mut Vec<f32>) {
         out.extend(
             t.into_data()
                 .convert::<f32>()
-                .to_vec::<f32>()
+                .try_to_vec::<f32>()
                 .expect("host read"),
         );
     }
@@ -295,7 +283,7 @@ fn hard_max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
 fn dqn_cartpole_hard_target_copies_inside_train() {
     let _guard = flex_guard();
     let seed: u64 = 4242;
-    let device = seeded_device::<Be>(seed);
+    let device = seeded_device(seed);
     let config = DqnTrainingConfig {
         batch_size: 16,
         gamma: 0.99,
@@ -311,7 +299,7 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
         ..Default::default()
     };
     let mut agent: Agent =
-        DqnAgent::new(DqnMlp::<Be>::new(&device), config, device).expect("valid config");
+        DqnAgent::new(DqnMlp::new(&device), config, device).expect("valid config");
     let mut env = cartpole_seeded(seed);
     let mut rng = StdRng::seed_from_u64(seed);
 

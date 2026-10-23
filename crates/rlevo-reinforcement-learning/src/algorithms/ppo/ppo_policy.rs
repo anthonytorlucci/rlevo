@@ -9,11 +9,11 @@
 //!
 //! # Associated `ActionTensor`
 //!
-//! Discrete categorical policies produce a `Tensor<B, 2, Int>` of shape
+//! Discrete categorical policies produce a `Tensor<2, Int>` of shape
 //! `(batch, 1)`; continuous tanh-squashed-Gaussian policies produce a
-//! `Tensor<B, 2>` of shape `(batch, action_dim)`. The element-type difference
+//! `Tensor<2>` of shape `(batch, action_dim)`. The element-type difference
 //! is surfaced via the associated `ActionTensor` type so one generic
-//! `PpoAgent<B, P, V, ...>` serves both.
+//! `PpoAgent<P, V, ...>` serves both.
 //!
 //! # Serialisation to/from the rollout buffer
 //!
@@ -24,38 +24,37 @@
 //! [`PpoPolicy::action_row_from_tensor`] and
 //! [`PpoPolicy::action_tensor_from_flat`].
 
-use burn::module::AutodiffModule;
-use burn::tensor::Tensor;
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::module::Module;
+use burn::tensor::{Device, Tensor};
 use rand::Rng;
 
 /// Result of sampling from a policy: action tensor plus its log-probability
 /// and entropy under the current policy.
 #[derive(Debug, Clone)]
-pub struct PolicyOutput<B: Backend, A> {
+pub struct PolicyOutput<A> {
     /// Sampled action batch. Shape and dtype are policy-specific.
     pub action: A,
     /// Log-probability of each sampled action under the policy that produced
     /// it, shape `(batch,)`.
-    pub log_prob: Tensor<B, 1>,
+    pub log_prob: Tensor<1>,
     /// Per-row entropy of the policy distribution, shape `(batch,)`.
-    pub entropy: Tensor<B, 1>,
+    pub entropy: Tensor<1>,
 }
 
 /// Log-probability and entropy of GIVEN actions under the current policy.
 #[derive(Debug, Clone)]
-pub struct LogProbEntropy<B: Backend> {
+pub struct LogProbEntropy {
     /// Log-probability of each row's action under the current policy.
-    pub log_prob: Tensor<B, 1>,
+    pub log_prob: Tensor<1>,
     /// Per-row entropy.
-    pub entropy: Tensor<B, 1>,
+    pub entropy: Tensor<1>,
 }
 
 /// Contract implemented by any network usable as a PPO policy.
 ///
 /// The `BOR` const generic is the batched observation tensor rank (usually
 /// `2` for vector observations of shape `[batch, features]`).
-pub trait PpoPolicy<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
+pub trait PpoPolicy<const BOR: usize>: Module {
     /// The tensor type produced by [`sample_with_logprob`](Self::sample_with_logprob)
     /// and consumed by [`evaluate`](Self::evaluate).
     type ActionTensor: Clone;
@@ -70,14 +69,14 @@ pub trait PpoPolicy<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     /// relying on thread-local state.
     fn sample_with_logprob(
         &self,
-        obs: Tensor<B, BOR>,
+        obs: Tensor<BOR>,
         rng: &mut (impl Rng + ?Sized),
-    ) -> PolicyOutput<B, Self::ActionTensor>;
+    ) -> PolicyOutput<Self::ActionTensor>;
 
     /// Evaluates log-probability and entropy of `actions` under the current
     /// policy. Used by the PPO update loop to compute the new log-probs for
     /// importance weighting.
-    fn evaluate(&self, obs: Tensor<B, BOR>, actions: Self::ActionTensor) -> LogProbEntropy<B>;
+    fn evaluate(&self, obs: Tensor<BOR>, actions: Self::ActionTensor) -> LogProbEntropy;
 
     /// Extracts one action row from the sampled tensor as `action_dim()`
     /// f32s in the **buffer representation**. For the tanh-squashed
@@ -90,11 +89,7 @@ pub trait PpoPolicy<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     /// Rebuilds a batched action tensor from row-major f32 data of length
     /// `$\text{n\_rows} \cdot \text{action\_dim}()$`. Called at minibatch materialisation time.
     /// Must be the inverse of [`action_row_from_tensor`](Self::action_row_from_tensor).
-    fn action_tensor_from_flat(
-        flat: &[f32],
-        n_rows: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::ActionTensor;
+    fn action_tensor_from_flat(flat: &[f32], n_rows: usize, device: &Device) -> Self::ActionTensor;
 
     /// Transforms one action row from the buffer representation (the
     /// pre-squash `z` for Gaussian, the index for Categorical) into the
@@ -151,7 +146,7 @@ pub trait PpoPolicy<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     }
 
     /// Deterministic (greedy) env-space action for the first row of `obs`,
-    /// evaluated on the inner (non-autodiff) backend.
+    /// evaluated on the plain (non-autodiff) device.
     ///
     /// Returns the policy's mode — the Gaussian mean squashed into the env
     /// range, or the categorical argmax — with no sampling and no autodiff
@@ -161,8 +156,5 @@ pub trait PpoPolicy<B: AutodiffBackend, const BOR: usize>: AutodiffModule<B> {
     /// injects, and it skips the per-call graph construction that the autodiff
     /// `sample_with_logprob` path incurs. Snapshot the inner module once with
     /// [`AutodiffModule::valid`] and reuse it across many steps.
-    fn deterministic_env_row_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, BOR>,
-    ) -> Vec<f32>;
+    fn deterministic_env_row_inner(inner: &Self, obs: Tensor<BOR>) -> Vec<f32>;
 }

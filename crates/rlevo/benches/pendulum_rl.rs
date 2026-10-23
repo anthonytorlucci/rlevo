@@ -28,12 +28,10 @@ mod pendulum_support;
 
 use std::hint::black_box;
 
-use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
-use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
+use burn::tensor::{Device, Tensor};
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 
@@ -75,50 +73,13 @@ const TIME_LIMIT: usize = 200;
 const TRAIN_TIMESTEPS: usize = 100_000;
 const EVAL_EPISODES: usize = 100;
 
-type Backend_ = Autodiff<Flex>;
 type Env = TimeLimit<Pendulum>;
 
-type PpoAgent_ = PpoAgent<
-    Backend_,
-    TanhGaussianPolicyHead<Backend_>,
-    ValueMlp<Backend_>,
-    PendulumObservation,
-    1,
-    2,
->;
-type DdpgAgent_ = DdpgAgent<
-    Backend_,
-    ActorMlp<Backend_>,
-    CriticMlp<Backend_>,
-    PendulumObservation,
-    PendulumAction,
-    1,
-    2,
-    1,
-    2,
->;
-type Td3Agent_ = Td3Agent<
-    Backend_,
-    ActorMlp<Backend_>,
-    CriticMlp<Backend_>,
-    PendulumObservation,
-    PendulumAction,
-    1,
-    2,
-    1,
-    2,
->;
-type SacAgent_ = SacAgent<
-    Backend_,
-    StochasticActor<Backend_>,
-    CriticMlp<Backend_>,
-    PendulumObservation,
-    PendulumAction,
-    1,
-    2,
-    1,
-    2,
->;
+type PpoAgent_ = PpoAgent<TanhGaussianPolicyHead, ValueMlp, PendulumObservation, 1, 2>;
+type DdpgAgent_ = DdpgAgent<ActorMlp, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type Td3Agent_ = Td3Agent<ActorMlp, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type SacAgent_ =
+    SacAgent<StochasticActor, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
 
 // ---------------------------------------------------------------------------
 // PPO value network — two-layer tanh MLP → scalar
@@ -129,14 +90,14 @@ type SacAgent_ = SacAgent<
 /// activations. Implements [`PpoValue`] and is local to this bench because PPO
 /// requires a separate value network that DDPG/TD3/SAC do not.
 #[derive(Module, Debug)]
-pub struct ValueMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+pub struct ValueMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> ValueMlp<B> {
-    fn new(device: &<B as BackendTypes>::Device) -> Self {
+impl ValueMlp {
+    fn new(device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(OBS_RANK, 64).init(device),
             fc2: LinearConfig::new(64, 64).init(device),
@@ -144,15 +105,15 @@ impl<B: Backend> ValueMlp<B> {
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<1> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
         self.head.forward(h).squeeze_dim::<1>(1)
     }
 }
 
-impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+impl PpoValue<2> for ValueMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs)
     }
 }
@@ -177,11 +138,11 @@ fn make_env() -> Env {
 // ---------------------------------------------------------------------------
 
 fn train_ppo_agent() -> PpoAgent_ {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let policy: TanhGaussianPolicyHead<Backend_> = TanhGaussianPolicyHeadConfig {
+    let policy: TanhGaussianPolicyHead = TanhGaussianPolicyHeadConfig {
         obs_dim: OBS_RANK,
         hidden: 64,
         action_dim: ACTION_RANK,
@@ -191,9 +152,9 @@ fn train_ppo_agent() -> PpoAgent_ {
         // training config has no such knobs. Change them here, nowhere else.
         action_scale: 2.0,
     }
-    .try_init::<Backend_>(&device)
+    .try_init(&device)
     .expect("valid head config");
-    let value: ValueMlp<Backend_> = ValueMlp::new(&device);
+    let value: ValueMlp = ValueMlp::new(&device);
     let config = PpoTrainingConfig {
         num_envs: 1,
         num_steps: 2_048,
@@ -210,7 +171,7 @@ fn train_ppo_agent() -> PpoAgent_ {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpoAgent_ =
         PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppo::<Backend_, _, _, _, _, PendulumAction, 1, 1, 2>(
+    train_ppo::<_, _, _, _, PendulumAction, 1, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -222,12 +183,12 @@ fn train_ppo_agent() -> PpoAgent_ {
 }
 
 fn train_ddpg_agent() -> DdpgAgent_ {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
-    let critic: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let actor: ActorMlp = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
+    let critic: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = DdpgTrainingConfig {
         replay_buffer_capacity: 100_000,
         batch_size: 256,
@@ -242,7 +203,7 @@ fn train_ddpg_agent() -> DdpgAgent_ {
     };
     let mut agent: DdpgAgent_ =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
-    train_ddpg::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(
+    train_ddpg::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -254,13 +215,13 @@ fn train_ddpg_agent() -> DdpgAgent_ {
 }
 
 fn train_td3_agent() -> Td3Agent_ {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
-    let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
-    let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let actor: ActorMlp = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
+    let critic_1: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let critic_2: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = Td3TrainingConfig {
         replay_buffer_capacity: 100_000,
         batch_size: 256,
@@ -277,7 +238,7 @@ fn train_td3_agent() -> Td3Agent_ {
     };
     let mut agent: Td3Agent_ =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
-    train_td3::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(
+    train_td3::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -289,14 +250,13 @@ fn train_td3_agent() -> Td3Agent_ {
 }
 
 fn train_sac_agent() -> SacAgent_ {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: StochasticActor<Backend_> =
-        StochasticActor::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
-    let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
-    let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let actor: StochasticActor = StochasticActor::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
+    let critic_1: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let critic_2: CriticMlp = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = SacTrainingConfig {
         replay_buffer_capacity: 100_000,
         batch_size: 256,
@@ -313,7 +273,7 @@ fn train_sac_agent() -> SacAgent_ {
     };
     let mut agent: SacAgent_ =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
-    train_sac::<Backend_, _, _, _, _, PendulumAction, 1, 2, 1, 2>(
+    train_sac::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -400,7 +360,7 @@ fn print_quality_comparison(ppo: &PpoAgent_, ddpg: &DdpgAgent_, td3: &Td3Agent_,
     // against a once-snapshotted inner (non-autodiff) network. `PpoAgent::act`
     // samples from the stochastic policy — that injects exploration noise into
     // the score; the deterministic mean is the policy we actually want to
-    // measure. The value-based actors run far cheaper on the inner backend,
+    // measure. The value-based actors run far cheaper on the plain device,
     // skipping the per-step autodiff graph. SAC's `act(_, false, _)` already
     // runs deterministically on its own inner snapshot, so it stays as-is.
     let ppo_infer = ppo.inference_net();
@@ -442,7 +402,7 @@ fn bench_policies(
     td3: &Td3Agent_,
     sac: &SacAgent_,
 ) {
-    // Snapshot each actor onto the inner (non-autodiff) backend once; per-step
+    // Snapshot each actor onto the plain (non-autodiff) device once; per-step
     // inference then skips autodiff-graph construction entirely, the dominant
     // cost at batch size 1. SAC already snapshots internally in `act`.
     let ppo_infer = ppo.inference_net();
@@ -466,7 +426,7 @@ fn bench_policies(
     });
 
     // Learned policies time their greedy (evaluation) inference path on the
-    // inner backend, matching how the quality comparison rolls them out.
+    // plain device, matching how the quality comparison rolls them out.
     group.bench_with_input(BenchmarkId::new("ppo", steps), &steps, |b, &steps| {
         b.iter(|| {
             rollout_steps(black_box(steps), |obs| {

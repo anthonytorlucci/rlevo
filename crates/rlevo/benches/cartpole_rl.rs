@@ -28,10 +28,8 @@
 #[path = "support/value_nets.rs"]
 mod value_nets;
 
+use burn::tensor::Device;
 use std::hint::black_box;
-
-use burn::backend::{Autodiff, Flex};
-use burn::tensor::backend::Backend;
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 
@@ -75,23 +73,12 @@ const EVAL_EPISODES: usize = 100;
 const NUM_ATOMS: usize = 51;
 const NUM_QUANTILES: usize = 200;
 
-type Backend_ = Autodiff<Flex>;
 type Env = TimeLimit<CartPole>;
 
-type DqnCartPoleAgent =
-    DqnAgent<Backend_, VecMlpDqn<Backend_>, CartPoleObservation, CartPoleAction, 1, 2>;
-type C51CartPoleAgent =
-    C51Agent<Backend_, C51Mlp<Backend_>, CartPoleObservation, CartPoleAction, 1, 2>;
-type QrDqnCartPoleAgent =
-    QrDqnAgent<Backend_, QrDqnMlp<Backend_>, CartPoleObservation, CartPoleAction, 1, 2>;
-type PpgCartPoleAgent = PpgAgent<
-    Backend_,
-    PpgCategoricalPolicyHead<Backend_>,
-    ValueMlp<Backend_>,
-    CartPoleObservation,
-    1,
-    2,
->;
+type DqnCartPoleAgent = DqnAgent<VecMlpDqn, CartPoleObservation, CartPoleAction, 1, 2>;
+type C51CartPoleAgent = C51Agent<C51Mlp, CartPoleObservation, CartPoleAction, 1, 2>;
+type QrDqnCartPoleAgent = QrDqnAgent<QrDqnMlp, CartPoleObservation, CartPoleAction, 1, 2>;
+type PpgCartPoleAgent = PpgAgent<PpgCategoricalPolicyHead, ValueMlp, CartPoleObservation, 1, 2>;
 
 // ---------------------------------------------------------------------------
 // Environment factory
@@ -113,8 +100,8 @@ fn make_env() -> Env {
 // ---------------------------------------------------------------------------
 
 fn train_dqn_agent() -> DqnCartPoleAgent {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = DqnTrainingConfig {
@@ -131,15 +118,15 @@ fn train_dqn_agent() -> DqnCartPoleAgent {
         double_q: false,
         ..Default::default()
     };
-    let model: VecMlpDqn<Backend_> = VecMlpDqn::new(OBS_FEATURES, HIDDEN, ACTIONS, &device);
+    let model: VecMlpDqn = VecMlpDqn::new(OBS_FEATURES, HIDDEN, ACTIONS, &device);
     let mut agent: DqnCartPoleAgent = DqnAgent::new(model, config, device).expect("valid config");
     train_dqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training");
     agent
 }
 
 fn train_c51_agent() -> C51CartPoleAgent {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = C51TrainingConfig {
@@ -158,15 +145,15 @@ fn train_c51_agent() -> C51CartPoleAgent {
         v_max: 500.0,
         ..Default::default()
     };
-    let model: C51Mlp<Backend_> = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
+    let model: C51Mlp = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
     let mut agent: C51CartPoleAgent = C51Agent::new(model, config, device).expect("valid config");
     train_c51(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("c51 training");
     agent
 }
 
 fn train_qrdqn_agent() -> QrDqnCartPoleAgent {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = QrDqnTrainingConfig {
@@ -184,8 +171,7 @@ fn train_qrdqn_agent() -> QrDqnCartPoleAgent {
         kappa: 1.0,
         ..Default::default()
     };
-    let model: QrDqnMlp<Backend_> =
-        QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
+    let model: QrDqnMlp = QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
     let mut agent: QrDqnCartPoleAgent =
         QrDqnAgent::new(model, config, device).expect("valid config");
     train_qrdqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("qrdqn training");
@@ -193,18 +179,18 @@ fn train_qrdqn_agent() -> QrDqnCartPoleAgent {
 }
 
 fn train_ppg_agent() -> PpgCartPoleAgent {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let policy: PpgCategoricalPolicyHead<Backend_> = PpgCategoricalPolicyHeadConfig {
+    let policy: PpgCategoricalPolicyHead = PpgCategoricalPolicyHeadConfig {
         obs_dim: OBS_FEATURES,
         hidden: HIDDEN,
         num_actions: ACTIONS,
     }
-    .try_init::<Backend_>(&device)
+    .try_init(&device)
     .expect("valid head config");
-    let value: ValueMlp<Backend_> = ValueMlp::new(OBS_FEATURES, HIDDEN, &device);
+    let value: ValueMlp = ValueMlp::new(OBS_FEATURES, HIDDEN, &device);
     let config = PpgConfig {
         ppo: PpoTrainingConfig {
             num_envs: 1,
@@ -227,7 +213,7 @@ fn train_ppg_agent() -> PpgCartPoleAgent {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpgCartPoleAgent =
         PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppg::<Backend_, _, _, _, _, CartPoleAction, 1, 2>(
+    train_ppg::<_, _, _, _, CartPoleAction, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -355,7 +341,7 @@ fn bench_policies(
     qrdqn: &QrDqnCartPoleAgent,
     ppg: &PpgCartPoleAgent,
 ) {
-    // Snapshot each value-based net onto the inner (non-autodiff) backend once;
+    // Snapshot each value-based net onto the plain (non-autodiff) device once;
     // per-step inference then skips autodiff-graph construction entirely, which
     // is the dominant cost for the distributional agents at batch size 1.
     let dqn_infer = dqn.inference_net();
@@ -383,7 +369,7 @@ fn bench_policies(
     });
 
     // Learned policies time their greedy (evaluation) inference path on the
-    // inner backend, matching how the quality comparison rolls them out.
+    // plain device, matching how the quality comparison rolls them out.
     group.bench_with_input(BenchmarkId::new("dqn", steps), &steps, |b, &steps| {
         b.iter(|| {
             rollout_steps(black_box(steps), |obs| dqn.act_greedy_with(&dqn_infer, obs));

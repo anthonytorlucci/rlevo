@@ -11,7 +11,7 @@
 //!   Cholesky) for the covariance-matrix strategies.
 //!
 //! All operator functions take an explicit `&mut dyn Rng` and a
-//! `&B::Device` so the loop owns determinism. Operators never touch
+//! `&Device` so the loop owns determinism. Operators never touch
 //! thread-local or global RNG state.
 
 pub mod crossover;

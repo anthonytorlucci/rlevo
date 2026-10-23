@@ -11,8 +11,7 @@ use std::marker::PhantomData;
 
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::{Adam, GradientsParams};
-use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 use crate::metrics::{AgentStats, PerformanceRecord};
@@ -150,22 +149,21 @@ pub struct LearnOutcome {
 ///   leaves the agent intact. The one exception is a panic *inside* `step`,
 ///   which poisons the slot permanently; that window is irreducible and is
 ///   documented on [`Slot`].
-/// - `target_net` lives on `B::InnerBackend` (the non-autodiff backend) so that
+/// - `target_net` lives on `B::InnerBackend` (the plain device) so that
 ///   computing bootstrap quantiles never builds an autodiff graph.
-pub struct QrDqnAgent<B, M, O, A, const OR: usize, const BOR: usize>
+pub struct QrDqnAgent<M, O, A, const OR: usize, const BOR: usize>
 where
-    B: AutodiffBackend,
-    M: QrDqnModel<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    M: QrDqnModel<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     policy_net: Slot<M>,
-    target_net: M::InnerModule,
+    target_net: M,
     optimizer: OptimizerAdaptor<Adam, M, B>,
     buffer: ReplayKind<DiscreteTransition<O>>,
     exploration: EpsilonGreedy,
     config: QrDqnTrainingConfig,
-    device: B::Device,
+    device: Device,
     step: usize,
     /// Gradient (optimizer) updates attempted so far — the unit
     /// `config.target_update`'s cadence counts (ADR 0059). Advanced
@@ -202,12 +200,10 @@ where
     _action: PhantomData<A>,
 }
 
-impl<B, M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug
-    for QrDqnAgent<B, M, O, A, OR, BOR>
+impl<M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug for QrDqnAgent<M, O, A, OR, BOR>
 where
-    B: AutodiffBackend,
-    M: QrDqnModel<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    M: QrDqnModel<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -221,11 +217,10 @@ where
     }
 }
 
-impl<B, M, O, A, const OR: usize, const BOR: usize> QrDqnAgent<B, M, O, A, OR, BOR>
+impl<M, O, A, const OR: usize, const BOR: usize> QrDqnAgent<M, O, A, OR, BOR>
 where
-    B: AutodiffBackend,
-    M: QrDqnModel<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    M: QrDqnModel<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     /// Constructs a new agent from a pre-built policy network and config.
@@ -237,14 +232,14 @@ where
     pub fn new(
         policy_net: M,
         config: QrDqnTrainingConfig,
-        device: B::Device,
+        device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
         let target_net = policy_net.valid();
         let adam = config.optimizer.clone();
         let optimizer = match &config.clip_grad {
-            Some(clip) => adam.with_grad_clipping(Some(clip.clone())).init::<B, M>(),
-            None => adam.init::<B, M>(),
+            Some(clip) => adam.with_grad_clipping(Some(clip.clone())).init(),
+            None => adam.init(),
         };
         // `$\epsilon$`-greedy is reused verbatim from DQN.
         let exploration = EpsilonGreedy::new(
@@ -369,10 +364,10 @@ where
     /// such seam existed, so every assertion had to be made through Q-values, which are a lossy
     /// function of the weights.
     ///
-    /// `pub`, and a shared borrow rather than a clone: `M::InnerModule` is the
+    /// `pub`, and a shared borrow rather than a clone: `M` is the
     /// caller's own network type, so this hands back nothing the caller did not
     /// supply, and `&` cannot perturb agent state.
-    pub fn target_net(&self) -> &M::InnerModule {
+    pub fn target_net(&self) -> &M {
         &self.target_net
     }
 
@@ -464,19 +459,19 @@ where
         // (ADR 0067, Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
-        let quantiles: Tensor<B, 3> = self.policy().forward(batched); // (1, A, N)
-        let q: Tensor<B, 2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
-        let idx = q.argmax(1).into_scalar();
-        A::from_index(idx.elem::<i64>() as usize)
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let quantiles: Tensor<3> = self.policy().forward(batched); // (1, A, N)
+        let q: Tensor<2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
+        let idx = q.argmax(1).into_scalar::<i64>();
+        A::from_index(idx as usize)
     }
 
-    /// Snapshots the policy network onto the inner (non-autodiff) backend.
+    /// Snapshots the policy network onto the plain (non-autodiff) device.
     ///
     /// Returns a frozen inference handle for use with
     /// [`act_greedy_with`](Self::act_greedy_with). Action selection never needs
-    /// gradients, so running it on the inner backend avoids the per-call
+    /// gradients, so running it on the plain device avoids the per-call
     /// autodiff graph construction that [`act_greedy`](Self::act_greedy)
     /// incurs. Snapshot once after training, then reuse across many steps —
     /// the snapshot goes stale if the policy is updated again.
@@ -486,14 +481,14 @@ where
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
     /// [`Slot`].
-    pub fn inference_net(&self) -> M::InnerModule {
+    pub fn inference_net(&self) -> M {
         self.policy().valid()
     }
 
     /// Greedy action selection against a pre-snapshotted inner network.
     ///
     /// Equivalent to [`act_greedy`](Self::act_greedy) but runs on the
-    /// non-autodiff backend via [`inference_net`](Self::inference_net), which
+    /// plain device via [`inference_net`](Self::inference_net), which
     /// is dramatically cheaper for repeated single-observation inference.
     ///
     /// # Non-finite observations
@@ -505,18 +500,18 @@ where
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn act_greedy_with(&self, net: &M::InnerModule, obs: &O) -> A {
+    pub fn act_greedy_with(&self, net: &M, obs: &O) -> A {
         // Function-local scratch for the same `&self` / `Sync` reason as
         // `act_greedy`; same per-call allocation cost, same zero cost for the
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
-        let quantiles: Tensor<B::InnerBackend, 3> = M::forward_inner(net, batched); // (1, A, N)
-        let q: Tensor<B::InnerBackend, 2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
-        let idx = q.argmax(1).into_scalar();
-        A::from_index(idx.elem::<i64>() as usize)
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let quantiles: Tensor<3> = M::forward_inner(net, batched); // (1, A, N)
+        let q: Tensor<2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
+        let idx = q.argmax(1).into_scalar::<i64>();
+        A::from_index(idx as usize)
     }
 
     /// Appends a transition to the replay buffer, evicting the oldest entry
@@ -798,30 +793,27 @@ where
         batched_shape.extend_from_slice(&obs_shape);
 
         let device = self.device.clone();
-        let obs_tensor: Tensor<B, BOR> =
+        let obs_tensor: Tensor<BOR> =
             Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<B::InnerBackend, BOR> =
+        let next_tensor_inner: Tensor<BOR> =
             Tensor::from_data(TensorData::new(next_flat, batched_shape), &device);
 
-        let action_tensor_1: Tensor<B, 1, Int> =
+        let action_tensor_1: Tensor<1, Int> =
             Tensor::from_data(TensorData::new(action_idxs, vec![batch_size]), &device);
 
-        let rewards_inner: Tensor<B::InnerBackend, 1> =
+        let rewards_inner: Tensor<1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
-        let terminated_inner: Tensor<B::InnerBackend, 1> =
+        let terminated_inner: Tensor<1> =
             Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
 
-        // --- Target quantiles (inner backend, no autodiff) ---
-        let next_quantiles_all: Tensor<B::InnerBackend, 3> =
-            M::forward_inner(&self.target_net, next_tensor_inner); // (B, A, N)
+        // --- Target quantiles (plain device, no autodiff) ---
+        let next_quantiles_all: Tensor<3> = M::forward_inner(&self.target_net, next_tensor_inner); // (B, A, N)
 
         // Pick bootstrap action a* = argmax_a mean_i `$\theta$`_target(s', a)_i.
-        let q_next: Tensor<B::InnerBackend, 2> =
-            next_quantiles_all.clone().mean_dim(2).squeeze_dim::<2>(2); // (B, A)
-        let a_star_2: Tensor<B::InnerBackend, 2, Int> = q_next.argmax(1); // (B, 1)
-        let a_star_3: Tensor<B::InnerBackend, 3, Int> =
-            a_star_2.unsqueeze_dim::<3>(2).repeat_dim(2, num_quantiles); // (B, 1, N)
-        let next_quantiles_chosen: Tensor<B::InnerBackend, 2> =
+        let q_next: Tensor<2> = next_quantiles_all.clone().mean_dim(2).squeeze_dim::<2>(2); // (B, A)
+        let a_star_2: Tensor<2, Int> = q_next.argmax(1); // (B, 1)
+        let a_star_3: Tensor<3, Int> = a_star_2.unsqueeze_dim::<3>(2).repeat_dim(2, num_quantiles); // (B, 1, N)
+        let next_quantiles_chosen: Tensor<2> =
             next_quantiles_all.gather(1, a_star_3).squeeze_dim::<2>(1); // (B, N)
 
         // Bellman backup (no projection): T `$\theta$`_j = r + `$\gamma$` `$\cdot$`
@@ -829,10 +821,10 @@ where
         // one — the bootstrap is *masked away* there, not scaled by `$(1 - \text{terminated})$`.
         // Scaling would let a non-finite target-network quantile survive the terminal transition,
         // since `$\text{NaN} \cdot 0.0 = \text{NaN}$`.
-        let rewards_bn: Tensor<B::InnerBackend, 2> = rewards_inner.unsqueeze_dim::<2>(1); // (B, 1)
-        let terminated_bn: Tensor<B::InnerBackend, 2> = terminated_inner.unsqueeze_dim::<2>(1); // (B, 1)
+        let rewards_bn: Tensor<2> = rewards_inner.unsqueeze_dim::<2>(1); // (B, 1)
+        let terminated_bn: Tensor<2> = terminated_inner.unsqueeze_dim::<2>(1); // (B, 1)
         let gamma = self.config.gamma as f32;
-        let target_inner: Tensor<B::InnerBackend, 2> =
+        let target_inner: Tensor<2> =
             compute_target_quantiles(rewards_bn, next_quantiles_chosen, terminated_bn, gamma);
 
         // --- Policy forward (autodiff) ---
@@ -840,30 +832,30 @@ where
         // Everything from here to `step_with` runs against a borrow of the
         // network, so a panic in the forward pass, the loss, or `backward`
         // leaves `policy_net` populated and the agent usable.
-        let quantiles: Tensor<B, 3> = self.policy().forward(obs_tensor); // (B, A, N)
+        let quantiles: Tensor<3> = self.policy().forward(obs_tensor); // (B, A, N)
 
         // Diagnostic: mean Q-value across actions and batch.
-        let q_all: Tensor<B, 2> = quantiles.clone().mean_dim(2).squeeze_dim::<2>(2); // (B, A)
-        let q_mean = q_all.mean().into_scalar().elem::<f32>();
+        let q_all: Tensor<2> = quantiles.clone().mean_dim(2).squeeze_dim::<2>(2); // (B, A)
+        let q_mean = q_all.mean().into_scalar::<f32>();
 
         // Gather the quantile vector for the taken action → (B, N).
-        let action_idx_3d: Tensor<B, 3, Int> = action_tensor_1
+        let action_idx_3d: Tensor<3, Int> = action_tensor_1
             .unsqueeze_dim::<2>(1)
             .unsqueeze_dim::<3>(2)
             .repeat_dim(2, num_quantiles); // (B, 1, N)
-        let pred_quantiles: Tensor<B, 2> = quantiles.gather(1, action_idx_3d).squeeze_dim::<2>(1);
+        let pred_quantiles: Tensor<2> = quantiles.gather(1, action_idx_3d).squeeze_dim::<2>(1);
 
         // Spread diagnostic: batch-mean std of pred_quantiles along the quantile axis. Low spread
         // `$\Rightarrow$` distribution collapse.
-        let pred_mean: Tensor<B, 2> = pred_quantiles.clone().mean_dim(1); // (B, 1)
-        let centered: Tensor<B, 2> = pred_quantiles.clone() - pred_mean;
-        let variance: Tensor<B, 1> = centered.powi_scalar(2).mean_dim(1).squeeze_dim::<1>(1); // (B,)
-        let spread_value = variance.sqrt().mean().into_scalar().elem::<f32>();
+        let pred_mean: Tensor<2> = pred_quantiles.clone().mean_dim(1); // (B, 1)
+        let centered: Tensor<2> = pred_quantiles.clone() - pred_mean;
+        let variance: Tensor<1> = centered.powi_scalar(2).mean_dim(1).squeeze_dim::<1>(1); // (B,)
+        let spread_value = variance.sqrt().mean().into_scalar::<f32>();
 
-        // Upload the target quantile vector onto the autodiff backend.
-        let target_autodiff: Tensor<B, 2> = Tensor::from_data(target_inner.into_data(), &device);
+        // Upload the target quantile vector onto the autodiff device.
+        let target_autodiff: Tensor<2> = Tensor::from_data(target_inner.into_data(), &device);
 
-        let taus: Tensor<B, 1> = self.config.quantile_taus::<B>(&device);
+        let taus: Tensor<1> = self.config.quantile_taus(&device);
         // Per-sample `[batch]` quantile Huber loss, scaled by importance weights
         // before the mean (ADR 0050, Decision 14). Kept for the priority writeback below.
         let per_sample_qh = quantile_huber_loss_per_sample(
@@ -873,7 +865,7 @@ where
             self.config.kappa,
         );
         let loss_tensor = reduce_weighted_loss(per_sample_qh.clone(), &batch, &device);
-        let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
+        let loss_value = loss_tensor.clone().into_scalar::<f32>();
 
         // An optimizer step is now attempted, so the cadence counter advances —
         // unconditionally, BEFORE the non-finite-loss guard below (ADR 0059,
@@ -924,7 +916,7 @@ where
             let qh_host: Vec<f32> = per_sample_qh
                 .into_data()
                 .convert::<f32>()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("finite quantile-Huber priorities read to host");
             if let Err(err) = self
                 .buffer
@@ -957,9 +949,7 @@ mod tests {
     use crate::MAX_BUFFER_CAPACITY;
     use rlevo_core::config::ConstraintKind;
 
-    use burn::backend::{Autodiff, Flex};
-    use burn::module::{AutodiffModule, Module, ModuleMapper, Param};
-    use burn::tensor::backend::Backend;
+    use burn::module::{Module, ModuleMapper, Param};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
@@ -968,8 +958,6 @@ mod tests {
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
-
-    type TestAdBackend = Autodiff<Flex>;
 
     const TEST_OBS_FEATURES: usize = 4; // CartPoleObservation is [4].
     const TEST_ACTIONS: usize = 2;
@@ -982,22 +970,22 @@ mod tests {
     /// that is entirely attributable to the gradient and Polyak steps — no
     /// backend RNG in the picture.
     #[derive(Module, Debug)]
-    struct TestQrDqnNet<B: Backend> {
-        w: Param<Tensor<B, 2>>,
+    struct TestQrDqnNet {
+        w: Param<Tensor<2>>,
     }
 
-    impl<B: Backend> TestQrDqnNet<B> {
-        fn new(fill: f32, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+    impl TestQrDqnNet {
+        fn new(fill: f32, device: &Device) -> Self {
             let cols = TEST_ACTIONS * TEST_QUANTILES;
             let data = vec![fill; TEST_OBS_FEATURES * cols];
-            let w: Tensor<B, 2> =
+            let w: Tensor<2> =
                 Tensor::from_data(TensorData::new(data, vec![TEST_OBS_FEATURES, cols]), device);
             Self {
                 w: Param::from_tensor(w),
             }
         }
 
-        fn forward_impl(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+        fn forward_impl(&self, observations: Tensor<2>) -> Tensor<3> {
             let [batch_size, _] = observations.dims();
             observations
                 .matmul(self.w.val())
@@ -1005,46 +993,28 @@ mod tests {
         }
     }
 
-    impl<B: AutodiffBackend> QrDqnModel<B, 2> for TestQrDqnNet<B> {
-        fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+    impl QrDqnModel<2> for TestQrDqnNet {
+        fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
             self.forward_impl(observations)
         }
-        fn forward_inner(
-            inner: &Self::InnerModule,
-            observations: Tensor<B::InnerBackend, 2>,
-        ) -> Tensor<B::InnerBackend, 3> {
+        fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
             inner.forward_impl(observations)
         }
         #[allow(clippy::cast_possible_truncation)]
-        fn soft_update(
-            active: &Self,
-            target: Self::InnerModule,
-            tau: f64,
-        ) -> Result<Self::InnerModule, PolyakError> {
-            polyak_update::<B::InnerBackend, TestQrDqnNet<B::InnerBackend>>(
-                &active.valid(),
-                target,
-                tau as f32,
-            )
+        fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+            polyak_update::<TestQrDqnNet>(&active.valid(), target, tau as f32)
         }
     }
 
-    type TestAgent = QrDqnAgent<
-        TestAdBackend,
-        TestQrDqnNet<TestAdBackend>,
-        CartPoleObservation,
-        CartPoleAction,
-        1,
-        2,
-    >;
+    type TestAgent = QrDqnAgent<TestQrDqnNet, CartPoleObservation, CartPoleAction, 1, 2>;
 
     /// Reads a network's single parameter matrix back to the host.
-    fn weights_of<B: Backend>(net: &TestQrDqnNet<B>) -> Vec<f32> {
+    fn weights_of(net: &TestQrDqnNet) -> Vec<f32> {
         net.w
             .val()
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read of a parameter this test just built")
     }
 
@@ -1080,8 +1050,7 @@ mod tests {
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
     fn primed_agent(rule: TargetUpdate) -> TestAgent {
-        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
+        let device: Device = Device::flex().autodiff();
         let config = QrDqnTrainingConfig {
             target_update: rule,
             batch_size: 2,
@@ -1090,7 +1059,7 @@ mod tests {
             num_quantiles: TEST_QUANTILES,
             ..Default::default()
         };
-        let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(0.1, &device);
+        let policy: TestQrDqnNet = TestQrDqnNet::new(0.1, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4 {
             let x = i as f32;
@@ -1112,8 +1081,7 @@ mod tests {
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
     fn primed_prioritized_agent() -> TestAgent {
-        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
+        let device: Device = Device::flex().autodiff();
         let config = QrDqnTrainingConfig {
             target_update: TargetUpdate::polyak(0.005, 1),
             batch_size: 2,
@@ -1126,7 +1094,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(0.1, &device);
+        let policy: TestQrDqnNet = TestQrDqnNet::new(0.1, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4 {
             let x = i as f32;
@@ -1216,8 +1184,7 @@ mod tests {
     /// RNG does and the reported loss is a deterministic function of the
     /// Bellman target.
     fn bellman_agent(terminated: bool) -> TestAgent {
-        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
+        let device: Device = Device::flex().autodiff();
         let config = QrDqnTrainingConfig {
             target_update: TargetUpdate::polyak(0.005, 1),
             batch_size: 1,
@@ -1226,7 +1193,7 @@ mod tests {
             num_quantiles: TEST_QUANTILES,
             ..Default::default()
         };
-        let policy: TestQrDqnNet<TestAdBackend> = TestQrDqnNet::new(BELLMAN_FILL, &device);
+        let policy: TestQrDqnNet = TestQrDqnNet::new(BELLMAN_FILL, &device);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         // obs(1.0) -> every predicted quantile is 1.0.
         // obs(2.0) -> every target-network quantile is 2.0.
@@ -1544,8 +1511,8 @@ mod tests {
     /// live net's `ParamId`s are preserved and the target pairing stays valid.
     struct NanInjector;
 
-    impl<B: Backend> ModuleMapper<B> for NanInjector {
-        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+    impl ModuleMapper for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
             let (id, tensor, mapper) = param.consume();
             Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
         }
@@ -1646,18 +1613,13 @@ mod tests {
 
     #[test]
     fn test_qrdqn_agent_remember_drops_a_nonfinite_reward() {
-        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
+        let device: Device = Device::flex().autodiff();
         let config = QrDqnTrainingConfig {
             num_quantiles: TEST_QUANTILES,
             ..Default::default()
         };
-        let mut agent: TestAgent = QrDqnAgent::new(
-            TestQrDqnNet::<TestAdBackend>::new(0.1, &device),
-            config,
-            device,
-        )
-        .expect("agent constructs");
+        let mut agent: TestAgent = QrDqnAgent::new(TestQrDqnNet::new(0.1, &device), config, device)
+            .expect("agent constructs");
 
         agent.remember(obs(0.0), &CartPoleAction::Left, f32::NAN, obs(1.0), false);
         assert_eq!(
@@ -1705,18 +1667,12 @@ mod tests {
     }
 
     fn obs_guard_agent() -> TestAgent {
-        let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
+        let device: Device = Device::flex().autodiff();
         let config = QrDqnTrainingConfig {
             num_quantiles: TEST_QUANTILES,
             ..Default::default()
         };
-        QrDqnAgent::new(
-            TestQrDqnNet::<TestAdBackend>::new(0.1, &device),
-            config,
-            device,
-        )
-        .expect("agent constructs")
+        QrDqnAgent::new(TestQrDqnNet::new(0.1, &device), config, device).expect("agent constructs")
     }
 
     #[test]
@@ -1857,8 +1813,7 @@ mod tests {
         ];
 
         for (capacity, kind) in cases {
-            let device: <TestAdBackend as burn::tensor::backend::BackendTypes>::Device =
-                Default::default();
+            let device: Device = Device::flex().autodiff();
             let config = QrDqnTrainingConfig {
                 replay_buffer_capacity: capacity,
                 ..QrDqnTrainingConfig::default()

@@ -8,7 +8,7 @@
 //! - `reset` re-zeros the hidden state per episode (no cross-episode leakage);
 //! - `evaluate_batch` delegation preserves shape and `episodes_per_eval`
 //!   averaging;
-//! - a recurrent GRU policy (`Hidden = Tensor<B, 2>`) is hosted end-to-end on
+//! - a recurrent GRU policy (`Hidden = Tensor<2>`) is hosted end-to-end on
 //!   the production seam against the real `SantaFeAnt` POMDP, and its recurrence
 //!   is load-bearing (the `recurrence_carries_state` assertion, on the seam).
 //!
@@ -16,11 +16,10 @@
 //! `SantaFeAntObservation` / `SantaFeAntAction` types so no bespoke serde-bound
 //! observation is introduced.
 
-use burn::backend::Flex;
 use burn::module::Module;
 use burn::nn::gru::{Gru, GruConfig};
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::{Tensor, backend::Backend};
+use burn::tensor::{Device, Tensor};
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
@@ -30,14 +29,13 @@ use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
 use rlevo_hybrid::{RolloutFitness, StatefulPolicy};
 
-type TestBackend = Flex;
-type Dev = <TestBackend as burn::tensor::backend::BackendTypes>::Device;
+type Dev = Device;
 
 /// GRU hidden width for the recurrent-policy tests (small for speed).
 const H: usize = 4;
 
 fn device() -> Dev {
-    Dev::default()
+    Device::flex()
 }
 
 // ---------------------------------------------------------------------------
@@ -100,21 +98,21 @@ impl Environment<1, 1> for AlternatingEnv {
 /// Memory policy: emits action `Move`/`TurnLeft` by the parity of a step
 /// counter threaded as `Hidden`, ignoring the (constant) observation.
 #[derive(Module, Debug)]
-struct AlternatingPolicy<B: Backend> {
+struct AlternatingPolicy {
     // Never read by `act`, but read by the `Module` derive — present so the
     // module has flattenable parameters for the reshaper to round-trip.
-    w: Linear<B>,
+    w: Linear,
 }
 
-impl<B: Backend> AlternatingPolicy<B> {
-    fn new(device: &B::Device) -> Self {
+impl AlternatingPolicy {
+    fn new(device: &Device) -> Self {
         Self {
             w: LinearConfig::new(1, 1).init(device),
         }
     }
 }
 
-impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for AlternatingPolicy<TestBackend> {
+impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for AlternatingPolicy {
     type Hidden = usize;
 
     fn reset(&self) -> usize {
@@ -130,19 +128,19 @@ impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for AlternatingPoli
 
 /// Reactive baseline: always `Move` (index 0), regardless of observation.
 #[derive(Module, Debug)]
-struct ConstantPolicy<B: Backend> {
-    w: Linear<B>,
+struct ConstantPolicy {
+    w: Linear,
 }
 
-impl<B: Backend> ConstantPolicy<B> {
-    fn new(device: &B::Device) -> Self {
+impl ConstantPolicy {
+    fn new(device: &Device) -> Self {
         Self {
             w: LinearConfig::new(1, 1).init(device),
         }
     }
 }
 
-impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for ConstantPolicy<TestBackend> {
+impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for ConstantPolicy {
     type Hidden = ();
 
     fn reset(&self) {}
@@ -156,10 +154,7 @@ impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for ConstantPolicy<
 /// weights) through the refactored `RolloutFitness` and return its fitness.
 fn score_one<M>(template: M, env_max: usize, episodes: usize) -> f32
 where
-    M: Module<TestBackend>
-        + Sync
-        + StatefulPolicy<SantaFeAntObservation, SantaFeAntAction>
-        + 'static,
+    M: Module + Sync + StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> + 'static,
 {
     let dev = device();
     let reshaper = ModuleReshaper::new(template);
@@ -170,9 +165,9 @@ where
         episodes,
         env_max,
     );
-    let pop = Tensor::<TestBackend, 2>::zeros([1, num_params], &dev);
+    let pop = Tensor::<2>::zeros([1, num_params], &dev);
     let out = fitness.evaluate_batch(&pop, &dev);
-    out.into_data().into_vec::<f32>().unwrap()[0]
+    out.into_data().try_into_vec::<f32>().unwrap()[0]
 }
 
 #[test]
@@ -180,8 +175,8 @@ fn hidden_state_is_threaded_and_memory_beats_reactive() {
     let dev = device();
     // env_max = 6: the alternating memory policy matches every step (6); the
     // reactive constant policy matches only the even steps (3).
-    let alt = score_one(AlternatingPolicy::<TestBackend>::new(&dev), 6, 1);
-    let con = score_one(ConstantPolicy::<TestBackend>::new(&dev), 6, 1);
+    let alt = score_one(AlternatingPolicy::new(&dev), 6, 1);
+    let con = score_one(ConstantPolicy::new(&dev), 6, 1);
     approx::assert_relative_eq!(alt, 6.0, epsilon = 1e-6);
     approx::assert_relative_eq!(con, 3.0, epsilon = 1e-6);
     assert!(
@@ -196,7 +191,7 @@ fn reset_rezeros_hidden_per_episode() {
     // leaked counter would enter episode 2 at the wrong parity and lose reward.
     // A correct per-episode reset scores the full 5 in each of the 2 episodes.
     let dev = device();
-    let mean = score_one(AlternatingPolicy::<TestBackend>::new(&dev), 5, 2);
+    let mean = score_one(AlternatingPolicy::new(&dev), 5, 2);
     approx::assert_relative_eq!(mean, 5.0, epsilon = 1e-6);
 }
 
@@ -206,12 +201,12 @@ fn evaluate_batch_preserves_shape_and_averaging() {
     // each the mean over episodes_per_eval. env_max = 4 → 4 per episode; mean
     // over 2 episodes = 4.
     let dev = device();
-    let reshaper = ModuleReshaper::new(AlternatingPolicy::<TestBackend>::new(&dev));
+    let reshaper = ModuleReshaper::new(AlternatingPolicy::new(&dev));
     let num_params = reshaper.num_params();
     let mut fitness = RolloutFitness::new(reshaper, || AlternatingEnv::new(4), 2, 4);
-    let pop = Tensor::<TestBackend, 2>::zeros([3, num_params], &dev);
+    let pop = Tensor::<2>::zeros([3, num_params], &dev);
     let out = fitness.evaluate_batch(&pop, &dev);
-    let values = out.into_data().into_vec::<f32>().unwrap();
+    let values = out.into_data().try_into_vec::<f32>().unwrap();
     assert_eq!(values.len(), 3);
     for v in values {
         approx::assert_relative_eq!(v, 4.0, epsilon = 1e-6);
@@ -235,15 +230,15 @@ fn argmax3(logits: &[f32; 3]) -> usize {
 }
 
 /// `Gru(1 -> H) -> Linear(H -> 3)`; the hidden state is a runtime
-/// `Tensor<B, 2>` threaded by the rollout, never stored in the module.
+/// `Tensor<2>` threaded by the rollout, never stored in the module.
 #[derive(Module, Debug)]
-struct GruPolicy<B: Backend> {
-    gru: Gru<B>,
-    head: Linear<B>,
+struct GruPolicy {
+    gru: Gru,
+    head: Linear,
 }
 
-impl<B: Backend> GruPolicy<B> {
-    fn new(device: &B::Device) -> Self {
+impl GruPolicy {
+    fn new(device: &Device) -> Self {
         Self {
             gru: GruConfig::new(1, H, true).init(device),
             head: LinearConfig::new(H, 3).with_bias(true).init(device),
@@ -252,35 +247,26 @@ impl<B: Backend> GruPolicy<B> {
 
     /// Forward one step, mutating the hidden state, and return the 3 action
     /// logits. Shared by `act` and the recurrence test.
-    fn forward_logits(
-        &self,
-        food_ahead: bool,
-        h: &mut Tensor<B, 2>,
-        device: &B::Device,
-    ) -> [f32; 3] {
+    fn forward_logits(&self, food_ahead: bool, h: &mut Tensor<2>, device: &Device) -> [f32; 3] {
         let v: f32 = if food_ahead { 1.0 } else { 0.0 };
-        let x = Tensor::<B, 3>::from_floats([[[v]]], device);
+        let x = Tensor::<3>::from_floats([[[v]]], device);
         let out = self.gru.forward(x, Some(h.clone())); // [1, 1, H]
         let new_h = out.reshape([1, H]); // [1, H]
         let logits = self.head.forward(new_h.clone()); // [1, 3]
         *h = new_h;
-        let data = logits.into_data().into_vec::<f32>().unwrap();
+        let data = logits.into_data().try_into_vec::<f32>().unwrap();
         [data[0], data[1], data[2]]
     }
 }
 
-impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for GruPolicy<TestBackend> {
-    type Hidden = Tensor<TestBackend, 2>;
+impl StatefulPolicy<SantaFeAntObservation, SantaFeAntAction> for GruPolicy {
+    type Hidden = Tensor<2>;
 
-    fn reset(&self) -> Tensor<TestBackend, 2> {
+    fn reset(&self) -> Tensor<2> {
         Tensor::zeros([1, H], &self.head.weight.device())
     }
 
-    fn act(
-        &self,
-        hidden: &mut Tensor<TestBackend, 2>,
-        obs: &SantaFeAntObservation,
-    ) -> SantaFeAntAction {
+    fn act(&self, hidden: &mut Tensor<2>, obs: &SantaFeAntObservation) -> SantaFeAntAction {
         let logits = self.forward_logits(obs.food_ahead, hidden, &self.head.weight.device());
         SantaFeAntAction::from_index(argmax3(&logits))
     }
@@ -292,9 +278,9 @@ fn gru_recurrence_is_load_bearing_on_the_seam() {
     // the same percept with different prior hidden states yields different
     // logits — impossible for a reactive map.
     let dev = device();
-    let policy = GruPolicy::<TestBackend>::new(&dev);
+    let policy = GruPolicy::new(&dev);
     let mut h_zero = StatefulPolicy::<SantaFeAntObservation, SantaFeAntAction>::reset(&policy);
-    let mut h_warm = Tensor::<TestBackend, 2>::ones([1, H], &dev) * 0.5;
+    let mut h_warm = Tensor::<2>::ones([1, H], &dev) * 0.5;
     let from_zero = policy.forward_logits(false, &mut h_zero, &dev);
     let from_warm = policy.forward_logits(false, &mut h_warm, &dev);
     let differs = (0..3).any(|i| (from_zero[i] - from_warm[i]).abs() > 1e-6);
@@ -305,15 +291,15 @@ fn gru_recurrence_is_load_bearing_on_the_seam() {
 fn rollout_fitness_hosts_recurrent_gru_on_santa_fe() {
     // End-to-end: RolloutFitness<_, GruPolicy, SantaFeAnt> reconstructs a
     // recurrent module per row and drives it across the POMDP rollout, threading
-    // the Tensor<B, 2> hidden state. Just a correctness/hosting smoke test (a
+    // the Tensor<2> hidden state. Just a correctness/hosting smoke test (a
     // zero genome is not evolved), so assert a finite, in-range pellet count.
     let dev = device();
-    let reshaper = ModuleReshaper::new(GruPolicy::<TestBackend>::new(&dev));
+    let reshaper = ModuleReshaper::new(GruPolicy::new(&dev));
     let num_params = reshaper.num_params();
     let mut fitness = RolloutFitness::new(reshaper, SantaFeAnt::default, 1, 50);
-    let pop = Tensor::<TestBackend, 2>::zeros([2, num_params], &dev);
+    let pop = Tensor::<2>::zeros([2, num_params], &dev);
     let out = fitness.evaluate_batch(&pop, &dev);
-    let values = out.into_data().into_vec::<f32>().unwrap();
+    let values = out.into_data().try_into_vec::<f32>().unwrap();
     assert_eq!(values.len(), 2);
     for pellets in values {
         assert!(

@@ -325,10 +325,6 @@ mod tests {
     #[cfg(feature = "burn")]
     mod to_tensor {
         use super::*;
-        use burn::backend::Flex;
-
-        /// Backend used by the tensor-conversion tests.
-        type TcB = Flex;
 
         /// Rank-1 test row: three scalar features, shape `[3]`.
         #[derive(Clone, Debug)]
@@ -366,21 +362,20 @@ mod tests {
         /// `Tensor::from_floats` path for a rank-1 row.
         #[test]
         fn test_derived_to_tensor_rank1_matches_manual() {
-            let device: <TcB as burn::tensor::backend::BackendTypes>::Device = Default::default();
+            let device: Device = Device::flex();
             let item: Vec3 = Vec3(1.5, -2.5, 3.5);
 
-            let derived: Tensor<TcB, 1> =
-                <Vec3 as TensorConvertible<1, TcB>>::to_tensor(&item, &device);
-            let manual: Tensor<TcB, 1> = Tensor::from_floats([1.5_f32, -2.5, 3.5], &device);
+            let derived: Tensor<1> = <Vec3 as TensorConvertible<1>>::to_tensor(&item, &device);
+            let manual: Tensor<1> = Tensor::from_floats([1.5_f32, -2.5, 3.5], &device);
 
             assert_eq!(derived.dims(), manual.dims());
             let derived_v: Vec<f32> = derived
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("f32 host read of a tensor this test just built");
             let manual_v: Vec<f32> = manual
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("f32 host read of a tensor this test just built");
             assert_eq!(derived_v, manual_v);
         }
@@ -389,12 +384,11 @@ mod tests {
         /// `TensorData::new` path for a rank-3 row.
         #[test]
         fn test_derived_to_tensor_rank3_matches_manual() {
-            let device: <TcB as burn::tensor::backend::BackendTypes>::Device = Default::default();
+            let device: Device = Device::flex();
             let item: Img = Img([0.1, 0.2, 0.3, 0.4]);
 
-            let derived: Tensor<TcB, 3> =
-                <Img as TensorConvertible<3, TcB>>::to_tensor(&item, &device);
-            let manual: Tensor<TcB, 3> = Tensor::from_data(
+            let derived: Tensor<3> = <Img as TensorConvertible<3>>::to_tensor(&item, &device);
+            let manual: Tensor<3> = Tensor::from_data(
                 TensorData::new(vec![0.1_f32, 0.2, 0.3, 0.4], [2, 2, 1]),
                 &device,
             );
@@ -402,11 +396,11 @@ mod tests {
             assert_eq!(derived.dims(), manual.dims());
             let derived_v: Vec<f32> = derived
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("f32 host read of a tensor this test just built");
             let manual_v: Vec<f32> = manual
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("f32 host read of a tensor this test just built");
             assert_eq!(derived_v, manual_v);
         }

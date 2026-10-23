@@ -22,7 +22,7 @@
 //! GEP extends this with variable and constant ids above the function range
 //! (see [`Alphabet`](crate::algorithms::gep::Alphabet)); CGP uses only the
 //! function ids. `i32` is mandatory because populations are stored as Burn
-//! integer tensors (`Tensor<B, 2, Int>`), whose element type is `i32`.
+//! integer tensors (`Tensor<2, Int>`), whose element type is `i32`.
 
 use std::fmt::{self, Debug};
 

@@ -17,7 +17,6 @@
 //! where `$\sigma = \text{policy\_noise}$` and `$c = \text{noise\_clip}$`. `c` is a scalar; `low` and
 //! `high` are the per-component `Box` bound vectors (ADR 0053 §6).
 
-use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use rand::Rng;
 use rand_distr::{Distribution, StandardNormal};
@@ -54,17 +53,14 @@ use crate::algorithms::shared::clip_to_action_bounds;
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
 #[allow(clippy::cast_possible_truncation)]
-pub fn smoothed_target_action<BK, const BAR: usize>(
-    target_action: Tensor<BK, BAR>,
+pub fn smoothed_target_action<const BAR: usize>(
+    target_action: Tensor<BAR>,
     policy_noise: f32,
     noise_clip: f32,
-    low: Tensor<BK, BAR>,
-    high: Tensor<BK, BAR>,
+    low: Tensor<BAR>,
+    high: Tensor<BAR>,
     rng: &mut (impl Rng + ?Sized),
-) -> Tensor<BK, BAR>
-where
-    BK: Backend,
-{
+) -> Tensor<BAR> {
     assert!(
         policy_noise.is_finite() && policy_noise >= 0.0,
         "policy_noise must be finite and non-negative, got {policy_noise}"
@@ -86,7 +82,7 @@ where
             scaled.clamp(-noise_clip, noise_clip)
         })
         .collect();
-    let noise_tensor: Tensor<BK, BAR> =
+    let noise_tensor: Tensor<BAR> =
         Tensor::from_data(TensorData::new(noise_vec, dims.to_vec()), &device);
 
     clip_to_action_bounds(target_action + noise_tensor, low, high)
@@ -95,16 +91,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::Device;
 
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = Flex;
-
     /// Builds a `[1, C]` bound tensor from the per-component limits.
-    fn bounds(values: &[f32]) -> Tensor<TestBackend, 2> {
-        let device = Default::default();
+    fn bounds(values: &[f32]) -> Tensor<2> {
+        let device = Device::flex();
         Tensor::from_data(
             TensorData::new(values.to_vec(), vec![1, values.len()]),
             &device,
@@ -113,22 +107,18 @@ mod tests {
 
     /// Uniform bounds repeated across `c` components — the symmetric case the
     /// old scalar signature covered.
-    fn uniform_bounds(
-        low: f32,
-        high: f32,
-        c: usize,
-    ) -> (Tensor<TestBackend, 2>, Tensor<TestBackend, 2>) {
+    fn uniform_bounds(low: f32, high: f32, c: usize) -> (Tensor<2>, Tensor<2>) {
         (bounds(&vec![low; c]), bounds(&vec![high; c]))
     }
 
     #[test]
     fn test_target_smoothing_zero_policy_noise_reduces_to_action_clip() {
-        let device = Default::default();
-        let action: Tensor<TestBackend, 2> =
+        let device = Device::flex();
+        let action: Tensor<2> =
             Tensor::from_data(TensorData::new(vec![0.3_f32, -5.0], vec![1, 2]), &device);
         let mut rng = StdRng::seed_from_u64(42);
         let (low, high) = uniform_bounds(-1.0, 1.0, 2);
-        let out = smoothed_target_action::<TestBackend, 2>(action, 0.0, 0.5, low, high, &mut rng);
+        let out = smoothed_target_action::<2>(action, 0.0, 0.5, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
         // `0.3` passes through; `-5.0` clips to `-1.0`.
@@ -141,15 +131,13 @@ mod tests {
         // Huge `$\sigma$` → raw noise frequently exceeds `noise_clip`; the helper must always keep
         // it inside `[-noise_clip, +noise_clip]`. We choose action = 0 and a wide `[low, high]` so
         // the outer clip is inactive and the output is the clipped noise itself.
-        let device = Default::default();
+        let device = Device::flex();
         let noise_clip: f32 = 0.5;
         let mut rng = StdRng::seed_from_u64(7);
         for _ in 0..256 {
-            let action: Tensor<TestBackend, 2> = Tensor::zeros([4, 2], &device);
+            let action: Tensor<2> = Tensor::zeros([4, 2], &device);
             let (low, high) = uniform_bounds(-100.0, 100.0, 2);
-            let out = smoothed_target_action::<TestBackend, 2>(
-                action, 100.0, noise_clip, low, high, &mut rng,
-            );
+            let out = smoothed_target_action::<2>(action, 100.0, noise_clip, low, high, &mut rng);
             let data = out.into_data().convert::<f32>();
             for v in data.as_slice::<f32>().unwrap() {
                 assert!(
@@ -164,13 +152,13 @@ mod tests {
     fn test_target_smoothing_final_action_clipped_to_bounds() {
         // Push the mean outside the bounds; the outer clip should force
         // every output into `[low, high]`.
-        let device = Default::default();
+        let device = Device::flex();
         let high_value = 1.0_f32;
         let mut rng = StdRng::seed_from_u64(0);
-        let action: Tensor<TestBackend, 2> =
+        let action: Tensor<2> =
             Tensor::from_data(TensorData::new(vec![10.0_f32; 6], vec![3, 2]), &device);
         let (low, high) = uniform_bounds(-1.0, high_value, 2);
-        let out = smoothed_target_action::<TestBackend, 2>(action, 0.1, 0.1, low, high, &mut rng);
+        let out = smoothed_target_action::<2>(action, 0.1, 0.1, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         for v in data.as_slice::<f32>().unwrap() {
             assert!(
@@ -189,17 +177,17 @@ mod tests {
         // the critic a negative gas and a negative brake: actions the
         // environment cannot execute. Only a per-component clip floors them
         // at 0.
-        let device = Default::default();
+        let device = Device::flex();
         let low = bounds(&[-1.0, 0.0, 0.0]);
         let high = bounds(&[1.0, 1.0, 1.0]);
         let mut rng = StdRng::seed_from_u64(0);
         // Two rows, so the `[1, 3]` bounds must broadcast over the batch.
-        let action: Tensor<TestBackend, 2> = Tensor::from_data(
+        let action: Tensor<2> = Tensor::from_data(
             TensorData::new(vec![-5.0_f32, -5.0, -5.0, 5.0, 5.0, 5.0], vec![2, 3]),
             &device,
         );
         // Zero policy noise isolates the outer clip from the smoothing.
-        let out = smoothed_target_action::<TestBackend, 2>(action, 0.0, 0.5, low, high, &mut rng);
+        let out = smoothed_target_action::<2>(action, 0.0, 0.5, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
 
@@ -227,20 +215,20 @@ mod tests {
     #[test]
     #[should_panic(expected = "policy_noise must be finite and non-negative")]
     fn test_target_smoothing_rejects_negative_policy_noise() {
-        let device = Default::default();
-        let action: Tensor<TestBackend, 2> = Tensor::zeros([1, 1], &device);
+        let device = Device::flex();
+        let action: Tensor<2> = Tensor::zeros([1, 1], &device);
         let mut rng = StdRng::seed_from_u64(0);
         let (low, high) = uniform_bounds(-1.0, 1.0, 1);
-        let _ = smoothed_target_action::<TestBackend, 2>(action, -0.1, 0.5, low, high, &mut rng);
+        let _ = smoothed_target_action::<2>(action, -0.1, 0.5, low, high, &mut rng);
     }
 
     #[test]
     #[should_panic(expected = "noise_clip must be finite and non-negative")]
     fn test_target_smoothing_rejects_negative_noise_clip() {
-        let device = Default::default();
-        let action: Tensor<TestBackend, 2> = Tensor::zeros([1, 1], &device);
+        let device = Device::flex();
+        let action: Tensor<2> = Tensor::zeros([1, 1], &device);
         let mut rng = StdRng::seed_from_u64(0);
         let (low, high) = uniform_bounds(-1.0, 1.0, 1);
-        let _ = smoothed_target_action::<TestBackend, 2>(action, 0.2, -0.1, low, high, &mut rng);
+        let _ = smoothed_target_action::<2>(action, 0.2, -0.1, low, high, &mut rng);
     }
 }

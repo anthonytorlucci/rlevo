@@ -32,10 +32,8 @@
 #[path = "support/value_nets.rs"]
 mod value_nets;
 
+use burn::tensor::Device;
 use std::hint::black_box;
-
-use burn::backend::{Autodiff, Flex};
-use burn::tensor::backend::Backend;
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 
@@ -88,23 +86,13 @@ const NUM_QUANTILES: usize = 200;
 const V_MIN: f32 = -200.0;
 const V_MAX: f32 = 0.0;
 
-type Backend_ = Autodiff<Flex>;
 type Env = TimeLimit<MountainCar>;
 
-type DqnMountainCarAgent =
-    DqnAgent<Backend_, VecMlpDqn<Backend_>, MountainCarObservation, MountainCarAction, 1, 2>;
-type C51MountainCarAgent =
-    C51Agent<Backend_, C51Mlp<Backend_>, MountainCarObservation, MountainCarAction, 1, 2>;
-type QrDqnMountainCarAgent =
-    QrDqnAgent<Backend_, QrDqnMlp<Backend_>, MountainCarObservation, MountainCarAction, 1, 2>;
-type PpgMountainCarAgent = PpgAgent<
-    Backend_,
-    PpgCategoricalPolicyHead<Backend_>,
-    ValueMlp<Backend_>,
-    MountainCarObservation,
-    1,
-    2,
->;
+type DqnMountainCarAgent = DqnAgent<VecMlpDqn, MountainCarObservation, MountainCarAction, 1, 2>;
+type C51MountainCarAgent = C51Agent<C51Mlp, MountainCarObservation, MountainCarAction, 1, 2>;
+type QrDqnMountainCarAgent = QrDqnAgent<QrDqnMlp, MountainCarObservation, MountainCarAction, 1, 2>;
+type PpgMountainCarAgent =
+    PpgAgent<PpgCategoricalPolicyHead, ValueMlp, MountainCarObservation, 1, 2>;
 
 // ---------------------------------------------------------------------------
 // Environment factory
@@ -126,8 +114,8 @@ fn make_env() -> Env {
 // ---------------------------------------------------------------------------
 
 fn train_dqn_agent() -> DqnMountainCarAgent {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = DqnTrainingConfig {
@@ -144,7 +132,7 @@ fn train_dqn_agent() -> DqnMountainCarAgent {
         double_q: true,
         ..Default::default()
     };
-    let model: VecMlpDqn<Backend_> = VecMlpDqn::new(OBS_FEATURES, HIDDEN, ACTIONS, &device);
+    let model: VecMlpDqn = VecMlpDqn::new(OBS_FEATURES, HIDDEN, ACTIONS, &device);
     let mut agent: DqnMountainCarAgent =
         DqnAgent::new(model, config, device).expect("valid config");
     train_dqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training");
@@ -152,8 +140,8 @@ fn train_dqn_agent() -> DqnMountainCarAgent {
 }
 
 fn train_c51_agent() -> C51MountainCarAgent {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = C51TrainingConfig {
@@ -172,7 +160,7 @@ fn train_c51_agent() -> C51MountainCarAgent {
         v_max: V_MAX,
         ..Default::default()
     };
-    let model: C51Mlp<Backend_> = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
+    let model: C51Mlp = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
     let mut agent: C51MountainCarAgent =
         C51Agent::new(model, config, device).expect("valid config");
     train_c51(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("c51 training");
@@ -180,8 +168,8 @@ fn train_c51_agent() -> C51MountainCarAgent {
 }
 
 fn train_qrdqn_agent() -> QrDqnMountainCarAgent {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = QrDqnTrainingConfig {
@@ -199,8 +187,7 @@ fn train_qrdqn_agent() -> QrDqnMountainCarAgent {
         kappa: 1.0,
         ..Default::default()
     };
-    let model: QrDqnMlp<Backend_> =
-        QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
+    let model: QrDqnMlp = QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
     let mut agent: QrDqnMountainCarAgent =
         QrDqnAgent::new(model, config, device).expect("valid config");
     train_qrdqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("qrdqn training");
@@ -208,18 +195,18 @@ fn train_qrdqn_agent() -> QrDqnMountainCarAgent {
 }
 
 fn train_ppg_agent() -> PpgMountainCarAgent {
-    let device = Default::default();
-    <Backend_ as Backend>::seed(&device, SEED);
+    let device = Device::flex();
+    device.seed(SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let policy: PpgCategoricalPolicyHead<Backend_> = PpgCategoricalPolicyHeadConfig {
+    let policy: PpgCategoricalPolicyHead = PpgCategoricalPolicyHeadConfig {
         obs_dim: OBS_FEATURES,
         hidden: HIDDEN,
         num_actions: ACTIONS,
     }
-    .try_init::<Backend_>(&device)
+    .try_init(&device)
     .expect("valid head config");
-    let value: ValueMlp<Backend_> = ValueMlp::new(OBS_FEATURES, HIDDEN, &device);
+    let value: ValueMlp = ValueMlp::new(OBS_FEATURES, HIDDEN, &device);
     let config = PpgConfig {
         ppo: PpoTrainingConfig {
             num_envs: 1,
@@ -242,7 +229,7 @@ fn train_ppg_agent() -> PpgMountainCarAgent {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpgMountainCarAgent =
         PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppg::<Backend_, _, _, _, _, MountainCarAction, 1, 2>(
+    train_ppg::<_, _, _, _, MountainCarAction, 1, 2>(
         &mut agent,
         &mut env,
         &mut rng,
@@ -375,7 +362,7 @@ fn bench_policies(
     qrdqn: &QrDqnMountainCarAgent,
     ppg: &PpgMountainCarAgent,
 ) {
-    // Snapshot each net onto the inner (non-autodiff) backend once; per-step
+    // Snapshot each net onto the plain (non-autodiff) device once; per-step
     // inference then skips autodiff-graph construction entirely, which is the
     // dominant cost at batch size 1.
     let dqn_infer = dqn.inference_net();
@@ -403,7 +390,7 @@ fn bench_policies(
     });
 
     // Learned policies time their greedy (evaluation) inference path on the
-    // inner backend, matching how the quality comparison rolls them out.
+    // plain device, matching how the quality comparison rolls them out.
     group.bench_with_input(BenchmarkId::new("dqn", steps), &steps, |b, &steps| {
         b.iter(|| {
             rollout_steps(black_box(steps), |obs| dqn.act_greedy_with(&dqn_infer, obs));

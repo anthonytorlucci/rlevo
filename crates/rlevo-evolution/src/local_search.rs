@@ -41,7 +41,6 @@
 //! same `max_iters` then buys one extra *probe* evaluation. The seeding eval
 //! consumes no rng, so skipping it never shifts a searcher's random stream.
 
-use burn::tensor::backend::Backend;
 use rand::Rng;
 
 use rlevo_core::bounds::Bounds;
@@ -128,7 +127,7 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// use rlevo_evolution::local_search::LocalSearch;
 ///
 /// struct Identity;
-/// impl<B: burn::tensor::backend::Backend> LocalSearch<B> for Identity {
+/// impl LocalSearch for Identity {
 ///     type Params = ();
 ///     fn refine(
 ///         &self,
@@ -149,7 +148,7 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// let searcher = Identity;
 /// let mut fitness = sphere;
 /// let mut rng = StdRng::seed_from_u64(0);
-/// let (refined, fit) = LocalSearch::<Flex>::refine(
+/// let (refined, fit) = LocalSearch::refine(
 ///     &searcher,
 ///     &(),
 ///     vec![3.0, 4.0],
@@ -159,7 +158,7 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// assert_eq!(refined.len(), 2);
 /// assert_eq!(fit, 25.0);
 /// ```
-pub trait LocalSearch<B: Backend>: Send + Sync {
+pub trait LocalSearch: Send + Sync {
     /// Static configuration for a refinement run (bounds, budget, step
     /// sizes, …). Cloned by a memetic wrapper once per generation.
     type Params: Clone + core::fmt::Debug + Send + Sync;

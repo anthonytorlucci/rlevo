@@ -20,7 +20,6 @@
 //! which makes the [`LocalSearch`]
 //! monotone-non-worsening and fresh-fitness invariants hold structurally.
 
-use burn::tensor::backend::Backend;
 use rand::{Rng, RngExt};
 
 use crate::local_search::{BudgetedEval, LocalSearch, clamp_vec, sanitize_fitness};
@@ -199,7 +198,7 @@ impl HillClimbingParams {
 /// let start = vec![2.5_f32, -1.5];
 /// let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
 /// let (refined, refined_fit) =
-///     LocalSearch::<Flex>::refine(&searcher, &params, start, &mut fitness, &mut rng);
+///     LocalSearch::refine(&searcher, &params, start, &mut fitness, &mut rng);
 ///
 /// assert_eq!(refined.len(), 2);          // dimensionality preserved
 /// assert!(refined_fit >= start_fit);     // monotone non-worsening
@@ -347,7 +346,7 @@ impl HillClimbing {
     }
 }
 
-impl<B: Backend> LocalSearch<B> for HillClimbing {
+impl LocalSearch for HillClimbing {
     type Params = HillClimbingParams;
 
     /// # Panics
@@ -384,11 +383,8 @@ impl<B: Backend> LocalSearch<B> for HillClimbing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-
-    type TestBackend = Flex;
 
     #[test]
     fn with_setters_override_defaults() {
@@ -462,8 +458,7 @@ mod tests {
         let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(1);
         let start = random_start(&mut rng, 2, BOUNDS);
-        let (_g, fit) =
-            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
+        let (_g, fit) = LocalSearch::refine(&searcher, &params, start, &mut fitness, &mut rng);
         assert!(fit > -1e-3, "sphere D=2 should converge: best={fit}");
     }
 
@@ -475,8 +470,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(2);
         let start = random_start(&mut rng, 10, BOUNDS);
         let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
-        let (_g, fit) =
-            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
+        let (_g, fit) = LocalSearch::refine(&searcher, &params, start, &mut fitness, &mut rng);
         assert!(fit > start_fit, "expected improvement: {fit} > {start_fit}");
     }
 
@@ -488,13 +482,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(3);
         for dim in [1_usize, 2, 5, 10] {
             let start = random_start(&mut rng, dim, BOUNDS);
-            let (g, _f) = LocalSearch::<TestBackend>::refine(
-                &searcher,
-                &params,
-                start,
-                &mut fitness,
-                &mut rng,
-            );
+            let (g, _f) = LocalSearch::refine(&searcher, &params, start, &mut fitness, &mut rng);
             assert_eq!(g.len(), dim);
         }
     }
@@ -506,8 +494,7 @@ mod tests {
         let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(4);
         let start = random_start(&mut rng, 4, BOUNDS);
-        let (g, fit) =
-            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
+        let (g, fit) = LocalSearch::refine(&searcher, &params, start, &mut fitness, &mut rng);
         let fresh = fitness(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
@@ -521,13 +508,7 @@ mod tests {
             let start = random_start(&mut rng, 2, BOUNDS);
             let mut fitness = neg_rosenbrock;
             let start_fit = fitness(&start);
-            let (_g, fit) = LocalSearch::<TestBackend>::refine(
-                &searcher,
-                &params,
-                start,
-                &mut fitness,
-                &mut rng,
-            );
+            let (_g, fit) = LocalSearch::refine(&searcher, &params, start, &mut fitness, &mut rng);
             assert!(fit >= start_fit, "monotone: {fit} >= {start_fit}");
         }
     }
@@ -542,7 +523,7 @@ mod tests {
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(6);
         let start = vec![1.0_f32, 2.0, 3.0];
-        let (g, fit) = LocalSearch::<TestBackend>::refine(
+        let (g, fit) = LocalSearch::refine(
             &searcher,
             &params,
             start.clone(),
@@ -572,8 +553,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(8);
         // Start at the upper boundary in every coordinate.
         let start = vec![BOUNDS.hi(); 4];
-        let (g, _f) =
-            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
+        let (g, _f) = LocalSearch::refine(&searcher, &params, start, &mut fitness, &mut rng);
         for &x in &g {
             assert!(
                 x >= BOUNDS.lo() && x <= BOUNDS.hi(),
@@ -593,7 +573,7 @@ mod tests {
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(99);
         let start = vec![3.0_f32, -2.0];
-        let (_g, fit) = LocalSearch::<TestBackend>::refine(
+        let (_g, fit) = LocalSearch::refine(
             &searcher,
             &params,
             start,
@@ -631,7 +611,7 @@ mod tests {
 
         let mut fitness_a = neg_sphere;
         let mut rng_a = StdRng::seed_from_u64(123);
-        let (g_a, f_a) = LocalSearch::<TestBackend>::refine(
+        let (g_a, f_a) = LocalSearch::refine(
             &searcher,
             &params,
             start.clone(),
@@ -641,13 +621,7 @@ mod tests {
 
         let mut fitness_b = neg_sphere;
         let mut rng_b = StdRng::seed_from_u64(123);
-        let (g_b, f_b) = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut fitness_b,
-            &mut rng_b,
-        );
+        let (g_b, f_b) = LocalSearch::refine(&searcher, &params, start, &mut fitness_b, &mut rng_b);
 
         assert_eq!(g_a, g_b);
         assert_eq!(f_a, f_b);
@@ -669,7 +643,7 @@ mod tests {
             let mut base = flat;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(21);
-            let _ = LocalSearch::<TestBackend>::refine(
+            let _ = LocalSearch::refine(
                 &searcher,
                 &params,
                 start.clone(),
@@ -682,7 +656,7 @@ mod tests {
             let mut base = flat;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(21);
-            let _ = LocalSearch::<TestBackend>::refine_with_known_fitness(
+            let _ = LocalSearch::refine_with_known_fitness(
                 &searcher,
                 &params,
                 start.clone(),
@@ -708,7 +682,7 @@ mod tests {
         let mut fitness = neg_sphere;
         let mut rng = StdRng::seed_from_u64(22);
         let start = vec![2.0_f32, -1.0];
-        let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
+        let (g, fit) = LocalSearch::refine_with_known_fitness(
             &searcher,
             &params,
             start,

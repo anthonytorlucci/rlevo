@@ -2,7 +2,7 @@
 //!
 //! [`BatchFitnessFn`] is the evaluation shape strategies expect: it scores an
 //! entire population in one call and returns a device-resident
-//! `Tensor<B, 1>` of shape `(pop_size,)`, once per generation. (A local
+//! `Tensor<1>` of shape `(pop_size,)`, once per generation. (A local
 //! searcher scores one member at a time through a closure,
 //! `&mut dyn FnMut(&[f32]) -> f32`; see [`crate::local_search`].)
 //!
@@ -12,7 +12,7 @@
 //! implements `evaluate(&self, x: &[f64]) -> f64`.
 //!
 //! The adapter pulls each population row to host as `f32`, widens to `f64`,
-//! evaluates on the CPU, and re-uploads the results as a `Tensor<B, 1>`.
+//! evaluates on the CPU, and re-uploads the results as a `Tensor<1>`.
 //! Purpose-built batched-on-device landscapes should implement
 //! [`BatchFitnessFn`] directly to avoid that round-trip.
 //!
@@ -29,7 +29,7 @@
 //! `tell` sanitizes what it pulls to host, and a hand-written ask/tell loop,
 //! which sanitizes what it hands to `tell` (ADR 0086).
 
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::fitness::Landscape;
 use rlevo_core::objective::ObjectiveSense;
@@ -39,11 +39,11 @@ use rlevo_core::objective::ObjectiveSense;
 /// The returned tensor has shape `(pop_size,)` on the supplied device.
 /// Implementors must preserve row order — `fitness[i]` refers to the
 /// individual at row `i` of `population`.
-pub trait BatchFitnessFn<B: Backend, G>: Send {
+pub trait BatchFitnessFn<G>: Send {
     /// Evaluates every member of `population` and returns a fitness tensor in
     /// the objective's **natural** value space (no hand-negation).
     ///
-    /// The returned `Tensor<B, 1>` has shape `(pop_size,)` and is placed on
+    /// The returned `Tensor<1>` has shape `(pop_size,)` and is placed on
     /// `device`. Row order is preserved: `fitness[i]` corresponds to the
     /// individual at row `i` of `population`. Cost objectives return their
     /// natural cost; the loop reconciles direction via [`sense`](Self::sense).
@@ -54,11 +54,7 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// and then sanitizes (ADR 0034) before any [`Strategy::tell`](crate::strategy::Strategy::tell),
     /// so a non-finite fitness cannot poison selection or best-so-far tracking on
     /// loop-driven runs.
-    fn evaluate_batch(
-        &mut self,
-        population: &G,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1>;
+    fn evaluate_batch(&mut self, population: &G, device: &Device) -> Tensor<1>;
 
     /// The optimisation direction of this objective.
     ///
@@ -73,18 +69,18 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     fn sense(&self) -> ObjectiveSense;
 }
 
-/// Adapter from [`Landscape`] to [`BatchFitnessFn<B, Tensor<B, 2>>`].
+/// Adapter from [`Landscape`] to [`BatchFitnessFn<Tensor<2>>`].
 ///
 /// Wraps any type that carries its own `evaluate(&[f64]) -> f64`: a bundled
 /// landscape (Sphere, Ackley, Rastrigin) or a type of your own. Each row is
 /// pulled to host as `f32`, widened to `f64`, evaluated, and re-uploaded as a
-/// `Tensor<B, 1>`.
+/// `Tensor<1>`.
 ///
 /// # Precision
 ///
 /// Populations are read as `f32` and widened to `f64` for the landscape
 /// call; the returned `f64` fitness is narrowed back to `f32` before it is
-/// uploaded as a `Tensor<B, 1>`. Fitness values that exceed `f32` range (or
+/// uploaded as a `Tensor<1>`. Fitness values that exceed `f32` range (or
 /// rely on sub-ulp precision) lose information at the narrowing step.
 /// Purpose-built batched-on-device landscapes should implement
 /// [`BatchFitnessFn`] directly to avoid the round-trip.
@@ -121,16 +117,11 @@ impl<L: Landscape> FromLandscape<L> {
     }
 }
 
-impl<L, B> BatchFitnessFn<B, Tensor<B, 2>> for FromLandscape<L>
+impl<L> BatchFitnessFn<Tensor<2>> for FromLandscape<L>
 where
-    B: Backend,
     L: Landscape,
 {
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<B, 2>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         let dims = population.dims();
         assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         let pop_size = dims[0];
@@ -139,7 +130,7 @@ where
         let flat = population
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("tensor data must be readable as f32");
         debug_assert_eq!(flat.len(), pop_size * genome_dim);
 
@@ -159,7 +150,7 @@ where
         }
 
         let data = TensorData::new(fitness, [pop_size]);
-        Tensor::<B, 1>::from_data(data, device)
+        Tensor::<1>::from_data(data, device)
     }
 
     fn sense(&self) -> ObjectiveSense {
@@ -400,21 +391,21 @@ pub(crate) fn sanitized_sum(values: impl IntoIterator<Item = f32>) -> f64 {
 ///
 /// ```
 /// use burn::backend::Flex;
-/// use burn::tensor::Tensor;
+/// use burn::tensor::{Device, Tensor};
 /// use rlevo_evolution::fitness::sanitize_fitness_tensor;
 ///
-/// let device = Default::default();
+/// let device = Device::flex();
 /// // Costs from a `Minimize` objective. One evaluation diverged.
-/// let cost = Tensor::<Flex, 1>::from_floats([3.0, f32::NAN, 0.5], &device);
+/// let cost = Tensor::<1>::from_floats([3.0, f32::NAN, 0.5], &device);
 ///
 /// // Negate, then sanitize: the broken member is now the worst.
 /// let fitness = sanitize_fitness_tensor(cost.neg());
 ///
-/// let host = fitness.into_data().into_vec::<f32>().expect("f32 fitness");
+/// let host = fitness.into_data().try_into_vec::<f32>().expect("f32 fitness");
 /// assert_eq!(host, [-3.0, f32::NEG_INFINITY, -0.5]);
 /// ```
 #[must_use]
-pub fn sanitize_fitness_tensor<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
+pub fn sanitize_fitness_tensor(fitness: Tensor<1>) -> Tensor<1> {
     let nan_mask = fitness.clone().is_nan();
     fitness
         .mask_fill(nan_mask, f32::NEG_INFINITY)
@@ -424,24 +415,22 @@ pub fn sanitize_fitness_tensor<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
-    type TestBackend = Flex;
 
     #[test]
     fn from_landscape_preserves_row_order() {
-        let device = Default::default();
+        let device = Device::flex();
         let data = TensorData::new(
             vec![1.0_f32, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0],
             [3, 3],
         );
-        let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
+        let pop = Tensor::<2>::from_data(data, &device);
 
         let mut adapter = FromLandscape::new(SphereLandscape);
         let fitness = adapter.evaluate_batch(&pop, &device);
 
         let values = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness host-read of a tensor this test just built");
         assert_eq!(values.len(), 3);
         approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
@@ -481,15 +470,15 @@ mod tests {
     /// mean-over-finite logic can still detect and count it.
     #[test]
     fn sanitize_fitness_tensor_matches_scalar_rule() {
-        let device = Default::default();
+        let device = Device::flex();
         let data = TensorData::new(
             vec![f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 3.0_f32, -4.0],
             [5],
         );
-        let t = Tensor::<TestBackend, 1>::from_data(data, &device);
+        let t = Tensor::<1>::from_data(data, &device);
         let out = sanitize_fitness_tensor(t)
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness host-read of a tensor this test just built");
 
         assert!(
@@ -677,7 +666,7 @@ mod tests {
     }
 
     /// Regression test for the load-bearing `BatchFitnessFn` invariant its
-    /// docs state: `evaluate_batch` returns a `Tensor<B, 1>` of shape
+    /// docs state: `evaluate_batch` returns a `Tensor<1>` of shape
     /// `(pop_size,)` with row order preserved.
     ///
     /// The population is deliberately **non-square** (`pop_size != genome_dim`)
@@ -688,10 +677,10 @@ mod tests {
     /// mapping yields a different, detectable vector.
     #[test]
     fn from_landscape_output_is_pop_size_shaped_and_row_aligned() {
-        let device = Default::default();
+        let device = Device::flex();
         // 4 individuals, 2 genes each — deliberately non-square.
         let data = TensorData::new(vec![1.0_f32, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0], [4, 2]);
-        let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
+        let pop = Tensor::<2>::from_data(data, &device);
 
         let mut adapter = FromLandscape::new(SphereLandscape);
         let fitness = adapter.evaluate_batch(&pop, &device);
@@ -700,7 +689,7 @@ mod tests {
 
         let values = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness host-read of a tensor this test just built");
         for (i, &v) in values.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]

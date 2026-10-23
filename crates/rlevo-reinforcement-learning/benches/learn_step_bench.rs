@@ -125,17 +125,15 @@ mod bench_backend;
 
 use std::hint::black_box;
 
-use burn::backend::{Autodiff, Flex, Wgpu};
 use burn::grad_clipping::GradientClippingConfig;
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::loss::HuberLossConfig;
 use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Linear, LinearConfig, PaddingConfig2d};
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::{Adam, AdamConfig, GradientsParams, Optimizer};
-use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
-use burn::tensor::{ElementConversion, Int, Tensor, TensorData, activation};
+use burn::tensor::{Device, Int, Tensor, TensorData, activation};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
@@ -202,14 +200,13 @@ impl Staging {
 /// on `B` (the autodiff-wrapped backend the policy trains on), `next_obs` on
 /// `B::InnerBackend` (the target network's backend), exactly as production
 /// does.
-fn stage_batch<B, O, const DO: usize, const DB: usize>(
+fn stage_batch<O, const DO: usize, const DB: usize>(
     batch: &[SynthTransition<O>],
-    device: &B::Device,
+    device: &Device,
     staging: Staging,
-) -> (Tensor<B, DB>, Tensor<B::InnerBackend, DB>)
+) -> (Tensor<DB>, Tensor<DB>)
 where
-    B: AutodiffBackend,
-    O: TensorConvertible<DO, B::InnerBackend>,
+    O: TensorConvertible<DO>,
 {
     debug_assert_eq!(DB, DO + 1, "batched rank DB must equal row rank DO + 1");
     let row_shape = O::shape();
@@ -219,10 +216,10 @@ where
     match staging {
         Staging::Roundtrip => {
             for t in batch {
-                let obs_row: Tensor<B::InnerBackend, DO> = t.obs.to_tensor(device);
+                let obs_row: Tensor<DO> = t.obs.to_tensor(device);
                 let obs_data = obs_row.into_data().convert::<f32>();
                 obs_flat.extend_from_slice(obs_data.as_slice::<f32>().expect("float data"));
-                let next_row: Tensor<B::InnerBackend, DO> = t.next_obs.to_tensor(device);
+                let next_row: Tensor<DO> = t.next_obs.to_tensor(device);
                 let next_data = next_row.into_data().convert::<f32>();
                 next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
             }
@@ -237,32 +234,30 @@ where
     let mut shape = [0usize; DB];
     shape[0] = batch.len();
     shape[1..].copy_from_slice(&row_shape);
-    let obs_tensor: Tensor<B, DB> = Tensor::from_data(TensorData::new(obs_flat, shape), device);
-    let next_tensor: Tensor<B::InnerBackend, DB> =
-        Tensor::from_data(TensorData::new(next_flat, shape), device);
+    let obs_tensor: Tensor<DB> = Tensor::from_data(TensorData::new(obs_flat, shape), device);
+    let next_tensor: Tensor<DB> = Tensor::from_data(TensorData::new(next_flat, shape), device);
     (obs_tensor, next_tensor)
 }
 
 /// Runs [`stage_batch`] under both strategies and asserts bit-identical
 /// output, once, outside any timed region -- so a divergence would fail the
 /// bench immediately instead of quietly comparing two different workloads.
-fn assert_stage_bit_identical<B, O, const DO: usize, const DB: usize>(
+fn assert_stage_bit_identical<O, const DO: usize, const DB: usize>(
     batch: &[SynthTransition<O>],
-    device: &B::Device,
+    device: &Device,
 ) where
-    B: AutodiffBackend,
-    O: TensorConvertible<DO, B::InnerBackend>,
+    O: TensorConvertible<DO>,
 {
-    let (rt_obs, rt_next) = stage_batch::<B, O, DO, DB>(batch, device, Staging::Roundtrip);
-    let (hr_obs, hr_next) = stage_batch::<B, O, DO, DB>(batch, device, Staging::HostRow);
-    let rt_obs_v: Vec<f32> = rt_obs.into_data().into_vec().expect("host read");
-    let hr_obs_v: Vec<f32> = hr_obs.into_data().into_vec().expect("host read");
+    let (rt_obs, rt_next) = stage_batch::<O, DO, DB>(batch, device, Staging::Roundtrip);
+    let (hr_obs, hr_next) = stage_batch::<O, DO, DB>(batch, device, Staging::HostRow);
+    let rt_obs_v: Vec<f32> = rt_obs.into_data().try_into_vec().expect("host read");
+    let hr_obs_v: Vec<f32> = hr_obs.into_data().try_into_vec().expect("host read");
     assert_eq!(
         rt_obs_v, hr_obs_v,
         "obs staging diverged between strategies"
     );
-    let rt_next_v: Vec<f32> = rt_next.into_data().into_vec().expect("host read");
-    let hr_next_v: Vec<f32> = hr_next.into_data().into_vec().expect("host read");
+    let rt_next_v: Vec<f32> = rt_next.into_data().try_into_vec().expect("host read");
+    let hr_next_v: Vec<f32> = hr_next.into_data().try_into_vec().expect("host read");
     assert_eq!(
         rt_next_v, hr_next_v,
         "next_obs staging diverged between strategies"
@@ -348,14 +343,14 @@ fn pixel_transitions(n: usize, rng: &mut StdRng) -> Vec<SynthTransition<PixelObs
 /// Small MLP, `4 -> 64 -> 64 -> 2` -- matches `dqn_bench.rs`'s `DqnMlp`.
 /// Staging should dominate here: negligible compute to compete with.
 #[derive(Module, Debug)]
-struct SmallMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+struct SmallMlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
 }
 
-impl<B: Backend> SmallMlp<B> {
-    fn new(device: &<B as BackendTypes>::Device) -> Self {
+impl SmallMlp {
+    fn new(device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -363,21 +358,18 @@ impl<B: Backend> SmallMlp<B> {
         }
     }
 
-    fn forward_impl(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
         let x = activation::relu(self.l1.forward(x));
         let x = activation::relu(self.l2.forward(x));
         self.l3.forward(x)
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 2> for SmallMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DqnModel<2> for SmallMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
         inner.forward_impl(obs)
     }
     // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
@@ -385,31 +377,23 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for SmallMlp<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, SmallMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<SmallMlp>(&active.valid(), target, tau as f32)
     }
 }
 
 /// Wider/deeper MLP, `4 -> 512 -> 512 -> 512 -> 2` -- checks whether
 /// staging's dominance survives more compute to compete with.
 #[derive(Module, Debug)]
-struct WideMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
-    l4: Linear<B>,
+struct WideMlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
+    l4: Linear,
 }
 
-impl<B: Backend> WideMlp<B> {
-    fn new(device: &<B as BackendTypes>::Device) -> Self {
+impl WideMlp {
+    fn new(device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 512).init(device),
             l2: LinearConfig::new(512, 512).init(device),
@@ -418,7 +402,7 @@ impl<B: Backend> WideMlp<B> {
         }
     }
 
-    fn forward_impl(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
         let x = activation::relu(self.l1.forward(x));
         let x = activation::relu(self.l2.forward(x));
         let x = activation::relu(self.l3.forward(x));
@@ -426,14 +410,11 @@ impl<B: Backend> WideMlp<B> {
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 2> for WideMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DqnModel<2> for WideMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
         inner.forward_impl(obs)
     }
     // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
@@ -441,16 +422,8 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for WideMlp<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, WideMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<WideMlp>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -465,12 +438,12 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for WideMlp<B> {
 /// `PixelObservation::shape()`); `forward_impl` permutes to
 /// `[batch, C, H, W]` before the first convolution.
 #[derive(Module, Debug)]
-struct PixelConvNet<B: Backend> {
-    conv1: Conv2d<B>,
-    conv2: Conv2d<B>,
+struct PixelConvNet {
+    conv1: Conv2d,
+    conv2: Conv2d,
     pool: AdaptiveAvgPool2d,
-    fc1: Linear<B>,
-    fc2: Linear<B>,
+    fc1: Linear,
+    fc2: Linear,
 }
 
 /// Fixed pooled spatial size the conv stack's head is sized against.
@@ -478,8 +451,8 @@ const POOL_SIZE: usize = 4;
 /// Output channels of the second conv layer.
 const CONV2_CHANNELS: usize = 32;
 
-impl<B: Backend> PixelConvNet<B> {
-    fn new(device: &<B as BackendTypes>::Device) -> Self {
+impl PixelConvNet {
+    fn new(device: &Device) -> Self {
         let conv1 = Conv2dConfig::new([3, 16], [3, 3])
             .with_padding(PaddingConfig2d::Same)
             .init(device);
@@ -501,7 +474,7 @@ impl<B: Backend> PixelConvNet<B> {
 
     // b/c/h/w are the canonical NCHW dimension names.
     #[allow(clippy::many_single_char_names)]
-    fn forward_impl(&self, x: Tensor<B, 4>) -> Tensor<B, 2> {
+    fn forward_impl(&self, x: Tensor<4>) -> Tensor<2> {
         // [batch, H, W, C] -> [batch, C, H, W].
         let x = x.permute([0, 3, 1, 2]);
         let x = activation::relu(self.conv1.forward(x));
@@ -514,14 +487,11 @@ impl<B: Backend> PixelConvNet<B> {
     }
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 4> for PixelConvNet<B> {
-    fn forward(&self, obs: Tensor<B, 4>) -> Tensor<B, 2> {
+impl DqnModel<4> for PixelConvNet {
+    fn forward(&self, obs: Tensor<4>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 4>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<4>) -> Tensor<2> {
         inner.forward_impl(obs)
     }
     // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
@@ -529,16 +499,8 @@ impl<B: AutodiffBackend> DqnModel<B, 4> for PixelConvNet<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, PixelConvNet<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<PixelConvNet>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -561,56 +523,53 @@ struct LearnStepProbe {
 /// omissions documented in the module doc (`double_q`, PER writeback,
 /// `Slot`).
 #[allow(clippy::too_many_arguments)]
-fn run_learn_step<B, M, O, const DO: usize, const DB: usize>(
+fn run_learn_step<M, O, const DO: usize, const DB: usize>(
     policy: M,
-    mut target: M::InnerModule,
+    mut target: M,
     optimizer: &mut OptimizerAdaptor<Adam, M, B>,
-    device: &B::Device,
+    device: &Device,
     batch: &[SynthTransition<O>],
     staging: Staging,
-) -> (M, M::InnerModule, LearnStepProbe)
+) -> (M, M, LearnStepProbe)
 where
-    B: AutodiffBackend,
-    M: DqnModel<B, DB>,
-    O: TensorConvertible<DO, B::InnerBackend>,
+    M: DqnModel<DB>,
+    O: TensorConvertible<DO>,
 {
     let batch_size = batch.len();
 
-    let (obs_tensor, next_tensor_inner): (Tensor<B, DB>, Tensor<B::InnerBackend, DB>) =
-        stage_batch::<B, O, DO, DB>(batch, device, staging);
+    let (obs_tensor, next_tensor_inner): (Tensor<DB>, Tensor<DB>) =
+        stage_batch::<O, DO, DB>(batch, device, staging);
     // Kept for the post-optimizer-step forced-completion probe (sync
     // correctness point 2) -- a batch-size-1 slice, cheap relative to the
     // full-batch forward it mirrors.
-    let probe_input: Tensor<B, DB> = obs_tensor.clone().narrow(0, 0, 1);
+    let probe_input: Tensor<DB> = obs_tensor.clone().narrow(0, 0, 1);
 
     let action_idxs: Vec<i64> = batch.iter().map(|t| t.action).collect();
     let rewards: Vec<f32> = batch.iter().map(|t| t.reward).collect();
     let terminated: Vec<f32> = batch.iter().map(|t| t.terminated).collect();
 
-    let action_tensor_1: Tensor<B, 1, Int> =
+    let action_tensor_1: Tensor<1, Int> =
         Tensor::from_data(TensorData::new(action_idxs, vec![batch_size]), device);
-    let action_tensor: Tensor<B, 2, Int> = action_tensor_1.unsqueeze_dim::<2>(1);
+    let action_tensor: Tensor<2, Int> = action_tensor_1.unsqueeze_dim::<2>(1);
 
-    let rewards_inner: Tensor<B::InnerBackend, 1> =
+    let rewards_inner: Tensor<1> =
         Tensor::from_data(TensorData::new(rewards, vec![batch_size]), device);
-    let terminated_inner: Tensor<B::InnerBackend, 1> =
+    let terminated_inner: Tensor<1> =
         Tensor::from_data(TensorData::new(terminated, vec![batch_size]), device);
 
     // --- Forward ---
-    let q_all: Tensor<B, 2> = policy.forward(obs_tensor);
-    let q_mean = q_all.clone().mean().into_scalar().elem::<f32>();
-    let q_pred: Tensor<B, 2> = q_all.gather(1, action_tensor);
-    let q_pred_flat: Tensor<B, 1> = q_pred.squeeze_dim::<1>(1);
+    let q_all: Tensor<2> = policy.forward(obs_tensor);
+    let q_mean = q_all.clone().mean().into_scalar::<f32>();
+    let q_pred: Tensor<2> = q_all.gather(1, action_tensor);
+    let q_pred_flat: Tensor<1> = q_pred.squeeze_dim::<1>(1);
 
     // --- Target (vanilla DQN; double_q is off by default -- see module doc) ---
-    let next_q_target_inner: Tensor<B::InnerBackend, 2> =
-        M::forward_inner(&target, next_tensor_inner);
-    let next_q_max_inner: Tensor<B::InnerBackend, 1> =
-        next_q_target_inner.max_dim(1).squeeze_dim::<1>(1);
+    let next_q_target_inner: Tensor<2> = M::forward_inner(&target, next_tensor_inner);
+    let next_q_max_inner: Tensor<1> = next_q_target_inner.max_dim(1).squeeze_dim::<1>(1);
 
-    let target_q_inner: Tensor<B::InnerBackend, 1> =
+    let target_q_inner: Tensor<1> =
         compute_target_q_values(rewards_inner, next_q_max_inner, terminated_inner, GAMMA);
-    let target_q: Tensor<B, 1> = Tensor::from_data(target_q_inner.into_data(), device);
+    let target_q: Tensor<1> = Tensor::from_data(target_q_inner.into_data(), device);
 
     // Uniform replay (weight ~= 1): reduce_weighted_loss's effect collapses
     // to a plain mean, so it is inlined rather than reproduced (it is
@@ -618,8 +577,8 @@ where
     let per_sample_loss = HuberLossConfig::new(1.0)
         .init()
         .forward_no_reduction(q_pred_flat, target_q);
-    let loss_tensor: Tensor<B, 1> = per_sample_loss.mean();
-    let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
+    let loss_tensor: Tensor<1> = per_sample_loss.mean();
+    let loss_value = loss_tensor.clone().into_scalar::<f32>();
 
     let grads = loss_tensor.backward();
     let grads = GradientsParams::from_grads(grads, &policy);
@@ -630,10 +589,10 @@ where
     }
 
     // Forced completion probe -- see module doc "Sync correctness" point 2.
-    let probe_out: Tensor<B, 2> = policy.forward(probe_input);
+    let probe_out: Tensor<2> = policy.forward(probe_input);
     let sync_probe = probe_out
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .expect("forced completion read (post-optimizer-step probe)")
         .first()
         .copied()
@@ -650,14 +609,13 @@ where
     )
 }
 
-fn build_optimizer<B, M>() -> OptimizerAdaptor<Adam, M, B>
+fn build_optimizer<M>() -> OptimizerAdaptor<Adam, M, B>
 where
-    B: AutodiffBackend,
-    M: AutodiffModule<B>,
+    M: Module,
 {
     AdamConfig::new()
         .with_grad_clipping(Some(GradientClippingConfig::Value(GRAD_CLIP_NORM)))
-        .init::<B, M>()
+        .init()
 }
 
 // ---------------------------------------------------------------------------
@@ -675,17 +633,15 @@ const fn wgpu_sample_size() -> usize {
 /// Runs the `roundtrip` vs. `host_row` A/B for one (network, backend)
 /// combination across [`BATCH_SIZES`], inside criterion group `group_name`.
 #[allow(clippy::too_many_arguments)]
-fn bench_learn_step<B, M, O, const DO: usize, const DB: usize>(
+fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
     c: &mut Criterion,
     group_name: &str,
     sample_size: usize,
-    make_model: impl Fn(&B::Device) -> M,
+    make_model: impl Fn(&Device) -> M,
     make_batch: impl Fn(usize, &mut StdRng) -> Vec<SynthTransition<O>>,
 ) where
-    B: BenchBackend,
-    Autodiff<B>: AutodiffBackend<InnerBackend = B, Device = B::Device>,
-    M: DqnModel<Autodiff<B>, DB>,
-    O: TensorConvertible<DO, B>,
+    M: DqnModel<DB>,
+    O: TensorConvertible<DO>,
 {
     let device = B::device();
     let mut rng = StdRng::seed_from_u64(365);
@@ -694,15 +650,15 @@ fn bench_learn_step<B, M, O, const DO: usize, const DB: usize>(
     group.sample_size(sample_size);
     for &batch_size in &BATCH_SIZES {
         let batch = make_batch(batch_size, &mut rng);
-        assert_stage_bit_identical::<Autodiff<B>, O, DO, DB>(&batch, &device);
+        assert_stage_bit_identical::<O, DO, DB>(&batch, &device);
         for &staging in &[Staging::Roundtrip, Staging::HostRow] {
             group.bench_with_input(
                 BenchmarkId::new(staging.label(), batch_size),
                 &batch,
                 |b, batch| {
                     let init_policy: M = make_model(&device);
-                    let init_target: M::InnerModule = init_policy.valid();
-                    let mut optimizer = build_optimizer::<Autodiff<B>, M>();
+                    let init_target: M = init_policy.valid();
+                    let mut optimizer = build_optimizer::<M>();
                     // `Option<M>` + `take()`/reassign: the idiom
                     // `rlevo_reinforcement_learning::algorithms::Slot`'s docs
                     // describe as its historical predecessor, kept here in
@@ -711,19 +667,18 @@ fn bench_learn_step<B, M, O, const DO: usize, const DB: usize>(
                     // consume their module by value, and a `FnMut` closure
                     // cannot move out of a captured variable directly.
                     let mut policy_slot: Option<M> = Some(init_policy);
-                    let mut target_slot: Option<M::InnerModule> = Some(init_target);
+                    let mut target_slot: Option<M> = Some(init_target);
                     b.iter(|| {
                         let policy = policy_slot.take().expect("policy present");
                         let target = target_slot.take().expect("target present");
-                        let (new_policy, new_target, probe) =
-                            run_learn_step::<Autodiff<B>, M, O, DO, DB>(
-                                policy,
-                                target,
-                                &mut optimizer,
-                                &device,
-                                batch,
-                                staging,
-                            );
+                        let (new_policy, new_target, probe) = run_learn_step::<M, O, DO, DB>(
+                            policy,
+                            target,
+                            &mut optimizer,
+                            &device,
+                            batch,
+                            staging,
+                        );
                         policy_slot = Some(new_policy);
                         target_slot = Some(new_target);
                         black_box((probe.loss, probe.q_mean, probe.sync_probe));
@@ -736,14 +691,14 @@ fn bench_learn_step<B, M, O, const DO: usize, const DB: usize>(
 }
 
 fn bench_learn_step_sweep(c: &mut Criterion) {
-    bench_learn_step::<Flex, SmallMlp<Autodiff<Flex>>, CartPoleObservation, 1, 2>(
+    bench_learn_step::<SmallMlp, CartPoleObservation, 1, 2>(
         c,
         "learn_step_small_mlp_flex",
         100,
         SmallMlp::new,
         cartpole_transitions,
     );
-    bench_learn_step::<Wgpu, SmallMlp<Autodiff<Wgpu>>, CartPoleObservation, 1, 2>(
+    bench_learn_step::<SmallMlp, CartPoleObservation, 1, 2>(
         c,
         "learn_step_small_mlp_wgpu",
         wgpu_sample_size(),
@@ -751,14 +706,14 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
         cartpole_transitions,
     );
 
-    bench_learn_step::<Flex, WideMlp<Autodiff<Flex>>, CartPoleObservation, 1, 2>(
+    bench_learn_step::<WideMlp, CartPoleObservation, 1, 2>(
         c,
         "learn_step_wide_mlp_flex",
         100,
         WideMlp::new,
         cartpole_transitions,
     );
-    bench_learn_step::<Wgpu, WideMlp<Autodiff<Wgpu>>, CartPoleObservation, 1, 2>(
+    bench_learn_step::<WideMlp, CartPoleObservation, 1, 2>(
         c,
         "learn_step_wide_mlp_wgpu",
         wgpu_sample_size(),
@@ -766,14 +721,14 @@ fn bench_learn_step_sweep(c: &mut Criterion) {
         cartpole_transitions,
     );
 
-    bench_learn_step::<Flex, PixelConvNet<Autodiff<Flex>>, PixelObservation, 3, 4>(
+    bench_learn_step::<PixelConvNet, PixelObservation, 3, 4>(
         c,
         "learn_step_pixel_conv_flex",
         100,
         PixelConvNet::new,
         pixel_transitions,
     );
-    bench_learn_step::<Wgpu, PixelConvNet<Autodiff<Wgpu>>, PixelObservation, 3, 4>(
+    bench_learn_step::<PixelConvNet, PixelObservation, 3, 4>(
         c,
         "learn_step_pixel_conv_wgpu",
         wgpu_sample_size(),
@@ -793,14 +748,14 @@ fn bench_n100_probe(c: &mut Criterion) {
     if std::env::var("N100_PROBE").is_err() {
         return;
     }
-    bench_learn_step::<Wgpu, SmallMlp<Autodiff<Wgpu>>, CartPoleObservation, 1, 2>(
+    bench_learn_step::<SmallMlp, CartPoleObservation, 1, 2>(
         c,
         "learn_step_n100_probe_n20",
         wgpu_sample_size(),
         SmallMlp::new,
         cartpole_transitions,
     );
-    bench_learn_step::<Wgpu, SmallMlp<Autodiff<Wgpu>>, CartPoleObservation, 1, 2>(
+    bench_learn_step::<SmallMlp, CartPoleObservation, 1, 2>(
         c,
         "learn_step_n100_probe_n100",
         100,

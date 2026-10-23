@@ -37,9 +37,7 @@
 //! - Beyer, H.-G. & Sendhoff, B. (2008), *Covariance Matrix Adaptation
 //!   Revisited — The CMSA Evolution Strategy*, PPSN X, LNCS 5199.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -171,7 +169,7 @@ impl Validate for CmsaEsConfig {
 /// covariance — is held host-side as `Vec<f32>`; only the offspring population
 /// crosses to the device.
 #[derive(Debug, Clone)]
-pub struct CmsaEsState<B: Backend> {
+pub struct CmsaEsState {
     /// Distribution mean `m`, length `D`.
     mean: Vec<f32>,
     /// Covariance matrix `C`, row-major `$D \times D$`.
@@ -185,12 +183,12 @@ pub struct CmsaEsState<B: Backend> {
     /// Completed-generation counter.
     generation: usize,
     /// Best-so-far genome, shape `(1, D)`.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness (canonical maximise convention).
     best_fitness: f32,
 }
 
-impl<B: Backend> CmsaEsState<B> {
+impl CmsaEsState {
     /// Assembles a CMSA-ES state, checking the distribution parameters are
     /// dimensionally consistent and normalizing `cov` to exact symmetry.
     ///
@@ -215,7 +213,7 @@ impl<B: Backend> CmsaEsState<B> {
         sigma: f32,
         offspring_sigmas: Vec<f32>,
         generation: usize,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
     ) -> Result<Self, ConfigError> {
         let d = mean.len();
@@ -273,7 +271,7 @@ impl<B: Backend> CmsaEsState<B> {
 
     /// Best-so-far genome (shape `(1, D)`), or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -292,41 +290,29 @@ impl<B: Backend> CmsaEsState<B> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::cmsa_es::{CmsaEsConfig, CmsaEs};
 ///
-/// let strategy = CmsaEs::<Flex>::new();
+/// let strategy = CmsaEs::new();
 /// let params = CmsaEsConfig::default_for(10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CmsaEs<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct CmsaEs {}
 
-impl<B: Backend> CmsaEs<B> {
+impl CmsaEs {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 }
 
-impl<B: Backend> Strategy<B> for CmsaEs<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for CmsaEs {
     type Params = CmsaEsConfig;
-    type State = CmsaEsState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = CmsaEsState;
+    type Genome = Tensor<2>;
 
     /// Initializes `$m^0$` uniformly in `params.bounds` (host-RNG convention),
     /// `C = I`, and `$\bar\sigma$` = `initial_sigma`.
-    fn init(
-        &self,
-        params: &CmsaEsConfig,
-        rng: &mut dyn Rng,
-        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> CmsaEsState<B> {
+    fn init(&self, params: &CmsaEsConfig, rng: &mut dyn Rng, _device: &Device) -> CmsaEsState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid CmsaEsConfig reached init: {params:?}"
@@ -361,10 +347,10 @@ where
     fn ask(
         &self,
         params: &CmsaEsConfig,
-        state: &CmsaEsState<B>,
+        state: &CmsaEsState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, CmsaEsState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, CmsaEsState) {
         let d = params.genome_dim;
         let lambda = params.pop_size;
 
@@ -399,8 +385,8 @@ where
             sigmas.push(sigma_i);
         }
 
-        let population = Tensor::<B, 2>::from_data(TensorData::new(rows, [lambda, d]), device);
-        let mut next: CmsaEsState<B> = state.clone();
+        let population = Tensor::<2>::from_data(TensorData::new(rows, [lambda, d]), device);
+        let mut next: CmsaEsState = state.clone();
         next.offspring_sigmas = sigmas;
         (population, next)
     }
@@ -410,23 +396,23 @@ where
     fn tell(
         &self,
         params: &CmsaEsConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: CmsaEsState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: CmsaEsState,
         _rng: &mut dyn Rng,
-    ) -> (CmsaEsState<B>, StrategyMetrics) {
+    ) -> (CmsaEsState, StrategyMetrics) {
         let d = params.genome_dim;
         let lambda = params.pop_size;
         let mu = params.mu;
 
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
         let pop_host: Vec<f32> = population
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population tensor must be readable as f32");
 
         // Rank descending (canonical maximise); take the `$\mu$` best (highest).
@@ -504,7 +490,7 @@ where
 
     /// Returns the best-so-far genome and its fitness, or `None` before the
     /// first [`tell`](Self::tell) call.
-    fn best(&self, state: &CmsaEsState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &CmsaEsState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -514,7 +500,7 @@ where
 
 /// Updates `state.best_genome` / `state.best_fitness` if this generation
 /// improved on the best-so-far.
-fn update_best<B: Backend>(state: &mut CmsaEsState<B>, pop: &Tensor<B, 2>, fitness: &[f32]) {
+fn update_best(state: &mut CmsaEsState, pop: &Tensor<2>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -529,7 +515,7 @@ fn update_best<B: Backend>(state: &mut CmsaEsState<B>, pop: &Tensor<B, 2>, fitne
     if best > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(
+        let idx = Tensor::<1, burn::tensor::Int>::from_data(
             TensorData::new(vec![best_idx as i64], [1]),
             &device,
         );
@@ -544,7 +530,6 @@ mod tests {
     // Named explicitly: `proptest::prelude::*` also exports a `Strategy`, and a
     // trait reached through two globs is ambiguous.
     use crate::strategy::Strategy;
-    use burn::backend::Flex;
     use proptest::prelude::*;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -637,14 +622,14 @@ mod tests {
         // it through the jitter recovery, sample valid offspring, and the `ask → tell` round-trip
         // must leave cov/mean/`$\bar{\sigma}$` finite (no NaN/inf leaking from the ill-conditioned
         // factor). Mirrors the structure of `sigma_i_underflow_does_not_poison_covariance`.
-        let strategy = CmsaEs::<Flex>::new();
+        let strategy = CmsaEs::new();
         let params = CmsaEsConfig::with_pop_size(8, 2);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(1);
 
         // Symmetric but non-PD: eigenvalue `$-1\text{e-}5$` survives `symmetrize` (the matrix is
         // already symmetric) and reaches `ask`'s Cholesky.
-        let state: CmsaEsState<Flex> = CmsaEsState::try_new(
+        let state: CmsaEsState = CmsaEsState::try_new(
             vec![0.0, 0.0],
             vec![-1e-5, 0.0, 0.0, 1.0],
             1.0,
@@ -657,7 +642,7 @@ mod tests {
 
         let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
         // Any finite fitness — ranking is irrelevant to the non-finite hazard.
-        let fitness = Tensor::<Flex, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], [8]),
             &device,
         );
@@ -699,14 +684,14 @@ mod tests {
         // `f32::MIN_POSITIVE`, so with the floor active every entry reads back as exactly
         // `f32::MIN_POSITIVE`; the precondition asserts the floor engaged on at least one offspring
         // (it is the observable proxy for "an underflow would have occurred").
-        let strategy = CmsaEs::<Flex>::new();
+        let strategy = CmsaEs::new();
         let params = CmsaEsConfig::with_pop_size(8, 2);
-        let device = Default::default();
+        let device = Device::flex();
         // Seed 1's `SeedPurpose::CmaSampling` stream draws at least one `$N < \approx -1.4$` across
         // the 8 offspring, the draw whose raw `$\sigma_i$` underflows to 0.0.
         let mut rng = StdRng::seed_from_u64(1);
 
-        let state: CmsaEsState<Flex> = CmsaEsState::try_new(
+        let state: CmsaEsState = CmsaEsState::try_new(
             vec![0.0, 0.0],
             vec![1.0, 0.0, 0.0, 1.0],
             f32::from_bits(1),
@@ -723,7 +708,7 @@ mod tests {
             "test precondition: the σᵢ floor must engage on at least one offspring"
         );
         // Any finite fitness — the ranking is irrelevant to the NaN hazard.
-        let fitness = Tensor::<Flex, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], [8]),
             &device,
         );
@@ -748,23 +733,15 @@ mod tests {
 
     #[test]
     fn try_new_rejects_empty_mean() {
-        let err = CmsaEsState::<Flex>::try_new(
-            Vec::new(),
-            Vec::new(),
-            0.5,
-            Vec::new(),
-            0,
-            None,
-            f32::MIN,
-        )
-        .unwrap_err();
+        let err = CmsaEsState::try_new(Vec::new(), Vec::new(), 0.5, Vec::new(), 0, None, f32::MIN)
+            .unwrap_err();
         assert_eq!(err.field, "mean");
     }
 
     #[test]
     fn try_new_rejects_wrong_cov_length() {
         // D = 2 wants a 4-entry cov; supply 3.
-        let err = CmsaEsState::<Flex>::try_new(
+        let err = CmsaEsState::try_new(
             vec![0.0, 0.0],
             vec![1.0, 0.0, 0.0],
             0.5,
@@ -779,7 +756,7 @@ mod tests {
 
     #[test]
     fn try_new_rejects_non_positive_sigma() {
-        let err = CmsaEsState::<Flex>::try_new(
+        let err = CmsaEsState::try_new(
             vec![0.0, 0.0],
             vec![1.0, 0.0, 0.0, 1.0],
             0.0,
@@ -795,7 +772,7 @@ mod tests {
     #[test]
     fn try_new_symmetrizes_covariance() {
         // Asymmetric off-diagonals 0.4 / 0.2 average to 0.3 on both sides.
-        let state = CmsaEsState::<Flex>::try_new(
+        let state = CmsaEsState::try_new(
             vec![0.0, 0.0],
             vec![1.0, 0.4, 0.2, 1.0],
             0.5,
@@ -811,11 +788,11 @@ mod tests {
 
     #[test]
     fn accessors_round_trip_constructor_values() {
-        let genome = Tensor::<Flex, 2>::from_data(
+        let genome = Tensor::<2>::from_data(
             TensorData::new(vec![1.0f32, 2.0], [1, 2]),
             &Default::default(),
         );
-        let state = CmsaEsState::<Flex>::try_new(
+        let state = CmsaEsState::try_new(
             vec![1.0, -2.0],
             vec![2.0, 0.0, 0.0, 3.0],
             0.75,
@@ -877,14 +854,14 @@ mod tests {
     #[test]
     fn same_seed_yields_identical_trajectories() {
         fn run() -> (Vec<f32>, Vec<f32>, f32) {
-            let strategy = CmsaEs::<Flex>::new();
+            let strategy = CmsaEs::new();
             let params = CmsaEsConfig::with_pop_size(8, 3);
-            let device = Default::default();
+            let device = Device::flex();
             let mut rng = StdRng::seed_from_u64(0xD37E_2711);
             let mut state = strategy.init(&params, &mut rng, &device);
             for _ in 0..4 {
                 let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
-                let fitness = Tensor::<Flex, 1>::from_data(
+                let fitness = Tensor::<1>::from_data(
                     TensorData::new(vec![8.0f32, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0], [8]),
                     &device,
                 );
@@ -917,16 +894,16 @@ mod tests {
     /// reorders the outer- product accumulation and breaks the commutativity assumption.
     #[test]
     fn covariance_stays_symmetric_across_generations() {
-        let strategy = CmsaEs::<Flex>::new();
+        let strategy = CmsaEs::new();
         let params = CmsaEsConfig::with_pop_size(8, 3);
         let d: usize = params.genome_dim;
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0x5A11_9E77);
 
         let mut state = strategy.init(&params, &mut rng, &device);
         for generation in 0..5 {
             let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
-            let fitness = Tensor::<Flex, 1>::from_data(
+            let fitness = Tensor::<1>::from_data(
                 TensorData::new(vec![8.0f32, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0], [8]),
                 &device,
             );
@@ -966,9 +943,9 @@ mod tests {
             d in 2usize..=30,
             seed in any::<u64>(),
         ) {
-            let strategy = CmsaEs::<Flex>::new();
+            let strategy = CmsaEs::new();
             let params = CmsaEsConfig::with_pop_size(lambda, d);
-            let device = Default::default();
+            let device = Device::flex();
             let mut rng = StdRng::seed_from_u64(seed);
 
             // Strictly descending, finite fitness of length `lambda` `$(1.0, 0.0, -1.0, \ldots)$` —
@@ -995,7 +972,7 @@ mod tests {
                     );
                 }
 
-                let fitness = Tensor::<Flex, 1>::from_data(
+                let fitness = Tensor::<1>::from_data(
                     TensorData::new(fitness_vals.clone(), [lambda]),
                     &device,
                 );

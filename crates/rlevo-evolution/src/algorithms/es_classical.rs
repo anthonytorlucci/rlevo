@@ -20,9 +20,7 @@
 //! - Beyer & Schwefel (2002), *Evolution strategies: A comprehensive
 //!   introduction*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -163,21 +161,21 @@ impl Validate for EsConfig {
 
 /// Generation state for [`EvolutionStrategy`].
 #[derive(Debug, Clone)]
-pub struct EsState<B: Backend> {
+pub struct EsState {
     /// Parent population. `$(\mu, D)$` for `$\mu$`-parent variants; `(1, D)` for (1+1) and
     /// (1+`$\lambda$`).
-    parents: Tensor<B, 2>,
+    parents: Tensor<2>,
     /// Per-parent `$\sigma$` values.
     ///
     /// Shape between generations is `$(\mu,)$` for log-normal adaptation and `(1,)` for
     /// `(1+1)`/`$(1+\lambda)$` with shared `$\sigma$`. Between an `ask` and the matching `tell` the
     /// tensor is temporarily `$(\mu + \lambda,)$`: parent `$\sigma$` followed by per-offspring
     /// `$\sigma$`. See `ask` for the rationale.
-    sigmas: Tensor<B, 1>,
+    sigmas: Tensor<1>,
     /// Parent fitnesses.
     parent_fitness: Vec<f32>,
     /// Best-so-far genome, shape `(1, D)`.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     best_fitness: f32,
     /// Completed-generation counter.
@@ -188,7 +186,7 @@ pub struct EsState<B: Backend> {
     window_len: u32,
 }
 
-impl<B: Backend> EsState<B> {
+impl EsState {
     /// Assembles an ES state, checking the parent fitness cache matches the
     /// parent count.
     ///
@@ -200,10 +198,10 @@ impl<B: Backend> EsState<B> {
     /// `parent_fitness`) is accepted.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
-        parents: Tensor<B, 2>,
-        sigmas: Tensor<B, 1>,
+        parents: Tensor<2>,
+        sigmas: Tensor<1>,
         parent_fitness: Vec<f32>,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
         generation: usize,
         successes_in_window: u32,
@@ -232,14 +230,14 @@ impl<B: Backend> EsState<B> {
 
     /// Parent population, shape `$(\mu, D)$` (or `(1, D)` for `(1+1)`/`$(1+\lambda)$`).
     #[must_use]
-    pub fn parents(&self) -> &Tensor<B, 2> {
+    pub fn parents(&self) -> &Tensor<2> {
         &self.parents
     }
 
     /// Per-parent `$\sigma$` values (see the field docs for the transient `$(\mu + \lambda,)$`
     /// shape held between `ask` and `tell`).
     #[must_use]
-    pub fn sigmas(&self) -> &Tensor<B, 1> {
+    pub fn sigmas(&self) -> &Tensor<1> {
         &self.sigmas
     }
 
@@ -251,7 +249,7 @@ impl<B: Backend> EsState<B> {
 
     /// Best-so-far genome (shape `(1, D)`), or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -288,22 +286,18 @@ impl<B: Backend> EsState<B> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 ///
-/// let strategy = EvolutionStrategy::<Flex>::new();
+/// let strategy = EvolutionStrategy::new();
 /// let params = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct EvolutionStrategy<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct EvolutionStrategy {}
 
-impl<B: Backend> EvolutionStrategy<B> {
+impl EvolutionStrategy {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     fn mu(kind: EsKind) -> usize {
@@ -316,8 +310,8 @@ impl<B: Backend> EvolutionStrategy<B> {
     fn sample_initial_parents(
         params: &EsConfig,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, Tensor<B, 1>) {
+        device: &Device,
+    ) -> (Tensor<2>, Tensor<1>) {
         let mu = Self::mu(params.kind);
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial parents from a deterministic `seed_stream`
@@ -331,8 +325,8 @@ impl<B: Backend> EvolutionStrategy<B> {
             parent_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
         let parents =
-            Tensor::<B, 2>::from_data(TensorData::new(parent_rows, [mu, genome_dim]), device);
-        let sigmas = Tensor::<B, 1>::from_data(
+            Tensor::<2>::from_data(TensorData::new(parent_rows, [mu, genome_dim]), device);
+        let sigmas = Tensor::<1>::from_data(
             TensorData::new(vec![params.initial_sigma; mu], [mu]),
             device,
         );
@@ -340,23 +334,15 @@ impl<B: Backend> EvolutionStrategy<B> {
     }
 }
 
-impl<B: Backend> Strategy<B> for EvolutionStrategy<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for EvolutionStrategy {
     type Params = EsConfig;
-    type State = EsState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = EsState;
+    type Genome = Tensor<2>;
 
     /// Samples the initial parent population uniformly from `params.bounds` via a deterministic
     /// `seed_stream` (host-RNG convention) and initializes all `$\sigma$` values to
     /// `params.initial_sigma`.
-    fn init(
-        &self,
-        params: &EsConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> EsState<B> {
+    fn init(&self, params: &EsConfig, rng: &mut dyn Rng, device: &Device) -> EsState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid EsConfig reached init: {params:?}"
@@ -386,10 +372,10 @@ where
     fn ask(
         &self,
         params: &EsConfig,
-        state: &EsState<B>,
+        state: &EsState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, EsState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, EsState) {
         // First call: evaluate the initial parents as the "offspring"
         // so fitness is populated in the subsequent `tell`.
         if state.parent_fitness.is_empty() {
@@ -415,7 +401,7 @@ where
             #[allow(clippy::cast_possible_wrap)]
             parent_indices.push(sigma_rng.random_range(0..mu) as i64);
         }
-        let idx_tensor = Tensor::<B, 1, burn::tensor::Int>::from_data(
+        let idx_tensor = Tensor::<1, burn::tensor::Int>::from_data(
             TensorData::new(parent_indices.clone(), [lambda]),
             device,
         );
@@ -437,7 +423,7 @@ where
             for _ in 0..lambda {
                 noise_rows.push(crate::sampling::standard_normal(&mut sigma_rng));
             }
-            let noise = Tensor::<B, 1>::from_data(TensorData::new(noise_rows, [lambda]), device);
+            let noise = Tensor::<1>::from_data(TensorData::new(noise_rows, [lambda]), device);
             // Clamp the log-normal random walk to `[sigma_min, sigma_max]` so `$\sigma$` can
             // neither underflow to 0 (search freezes) nor overflow to `$+\infty$` (genes saturate).
             // Both bounds are construction-validated.
@@ -490,14 +476,14 @@ where
     fn tell(
         &self,
         params: &EsConfig,
-        offspring: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: EsState<B>,
+        offspring: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: EsState,
         _rng: &mut dyn Rng,
-    ) -> (EsState<B>, StrategyMetrics) {
+    ) -> (EsState, StrategyMetrics) {
         let fitness_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
 
         // First `tell` after `init`: offspring here is actually the
@@ -516,7 +502,7 @@ where
             // Restore parent-count `$\sigma$` vector.
             let mu = Self::mu(params.kind);
             let device = state.parents.device();
-            state.sigmas = Tensor::<B, 1>::from_data(
+            state.sigmas = Tensor::<1>::from_data(
                 TensorData::new(vec![params.initial_sigma; mu], [mu]),
                 &device,
             );
@@ -555,7 +541,7 @@ where
                         .sigmas
                         .clone()
                         .into_data()
-                        .into_vec::<f32>()
+                        .try_into_vec::<f32>()
                         .expect("sigma tensor must be readable as f32")[0];
                     // The 1/5-rule is also an unbounded multiplicative process; clamp to the same
                     // construction-validated window so `$\sigma$` can neither underflow to 0 nor
@@ -569,7 +555,7 @@ where
                     }
                     .clamp(params.sigma_min, params.sigma_max);
                     state.sigmas =
-                        Tensor::<B, 1>::from_data(TensorData::new(vec![new_sigma], [1]), &device);
+                        Tensor::<1>::from_data(TensorData::new(vec![new_sigma], [1]), &device);
                     state.successes_in_window = 0;
                     state.window_len = 0;
                 } else {
@@ -590,13 +576,13 @@ where
             }
             EsKind::MuCommaLambda { mu, .. } => {
                 let (survivors, survivor_f) =
-                    mu_comma_lambda::<B>(offspring.clone(), &fitness_host, mu, &device);
+                    mu_comma_lambda(offspring.clone(), &fitness_host, mu, &device);
                 // Gather survivor `$\sigma$`s matching the same indices.
                 let survivor_idx =
                     crate::ops::selection::truncation_indices_host(&fitness_host, mu);
                 let survivor_sigmas = offspring_sigmas.select(
                     0,
-                    Tensor::<B, 1, burn::tensor::Int>::from_data(
+                    Tensor::<1, burn::tensor::Int>::from_data(
                         TensorData::new(survivor_idx, [mu]),
                         &device,
                     ),
@@ -606,7 +592,7 @@ where
                 state.sigmas = survivor_sigmas;
             }
             EsKind::MuPlusLambda { mu, .. } => {
-                let (survivors, survivor_f) = mu_plus_lambda::<B>(
+                let (survivors, survivor_f) = mu_plus_lambda(
                     state.parents.clone(),
                     &state.parent_fitness,
                     offspring.clone(),
@@ -625,7 +611,7 @@ where
                 let combined_sigmas = Tensor::cat(vec![parent_sigmas, offspring_sigmas], 0);
                 let survivor_sigmas = combined_sigmas.select(
                     0,
-                    Tensor::<B, 1, burn::tensor::Int>::from_data(
+                    Tensor::<1, burn::tensor::Int>::from_data(
                         TensorData::new(survivor_idx, [mu]),
                         &device,
                     ),
@@ -646,7 +632,7 @@ where
 
     /// Returns the best-so-far genome and its fitness, or `None` before the
     /// first `tell` call.
-    fn best(&self, state: &EsState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &EsState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -654,7 +640,7 @@ where
     }
 }
 
-fn update_best<B: Backend>(state: &mut EsState<B>, pop: &Tensor<B, 2>, fitness: &[f32]) {
+fn update_best(state: &mut EsState, pop: &Tensor<2>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -663,7 +649,7 @@ fn update_best<B: Backend>(state: &mut EsState<B>, pop: &Tensor<B, 2>, fitness: 
     if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(
+        let idx = Tensor::<1, burn::tensor::Int>::from_data(
             TensorData::new(vec![best_idx as i64], [1]),
             &device,
         );
@@ -677,15 +663,13 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rlevo_core::fitness::Landscape;
-    type TestBackend = Flex;
 
     #[test]
     fn try_new_checks_parent_fitness_length() {
-        let device = Default::default();
-        let parents = Tensor::<TestBackend, 2>::zeros([4, 2], &device);
-        let sigmas = Tensor::<TestBackend, 1>::ones([4], &device);
+        let device = Device::flex();
+        let parents = Tensor::<2>::zeros([4, 2], &device);
+        let sigmas = Tensor::<1>::ones([4], &device);
         // Bootstrap (empty) and fully-populated caches both accept.
         assert!(
             EsState::try_new(
@@ -770,8 +754,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = EvolutionStrategy::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = EvolutionStrategy::new();
         let mut params = EsConfig::default_for(EsKind::MuPlusLambda { mu: 4, lambda: 12 }, 3);
         params.tau = 5.0;
         params.sigma_min = 1e-4;
@@ -786,7 +770,7 @@ mod tests {
                 .sigmas()
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("sigma host-read of a tensor this test just built");
             for &s in &sigmas {
                 assert!(
@@ -797,10 +781,7 @@ mod tests {
                 );
             }
             let n = offspring.dims()[0];
-            let fitness = Tensor::<TestBackend, 1>::from_data(
-                TensorData::new(vec![1.0_f32; n], [n]),
-                &device,
-            );
+            let fitness = Tensor::<1>::from_data(TensorData::new(vec![1.0_f32; n], [n]), &device);
             let (advanced, _) = strategy.tell(&params, offspring, fitness, next, &mut rng);
             state = advanced;
         }
@@ -836,19 +817,19 @@ mod tests {
 
     /// Canonical (maximise) fitness `$-\sum x_i^2$` read straight off a genome tensor,
     /// so tests can drive a strategy directly without the loop.
-    fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
+    fn neg_sphere(pop: &Tensor<2>) -> Tensor<1> {
         let device = pop.device();
         let [n, d] = pop.dims();
         let rows: Vec<f32> = pop
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         #[allow(clippy::needless_range_loop)]
         let fit: Vec<f32> = (0..n)
             .map(|i| -(0..d).map(|j| rows[i * d + j].powi(2)).sum::<f32>())
             .collect();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(fit, [n]), &device)
+        Tensor::<1>::from_data(TensorData::new(fit, [n]), &device)
     }
 
     /// Drives an ES variant directly for `gens` generations against the
@@ -858,8 +839,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = EvolutionStrategy::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = EvolutionStrategy::new();
         let params = EsConfig::default_for(kind, dim);
         let mut rng = StdRng::seed_from_u64(seed);
         let mut state = strategy.init(&params, &mut rng, &device);
@@ -912,19 +893,13 @@ mod tests {
     }
 
     fn run_es(kind: EsKind, dim: usize, generations: usize, seed: u64) -> f32 {
-        let device = Default::default();
-        let strategy = EvolutionStrategy::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = EvolutionStrategy::new();
         let params = EsConfig::default_for(kind, dim);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            fitness_fn,
-            seed,
-            device,
-            generations,
-        )
-        .expect("valid params");
+        let mut evo_loop =
+            EvolutionaryLoop::new(strategy, params, fitness_fn, seed, device, generations)
+                .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();

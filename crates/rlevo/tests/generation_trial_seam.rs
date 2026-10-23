@@ -6,8 +6,7 @@
 //! fan-out, per-trial seeding, checkpoint-shaped `TrialReport`s, and the
 //! reporter lifecycle.
 
-use burn::backend::Flex;
-use burn::tensor::Tensor;
+use burn::tensor::{Device, Tensor};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
@@ -20,18 +19,12 @@ use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_harness::metrics::core::WALL_CLOCK_SECONDS;
 use rlevo_harness::reporter::logging::LoggingReporter;
 
-type B = Flex;
-
 const GENS: usize = 12;
 
 struct SphereCost;
 
-impl BatchFitnessFn<B, Tensor<B, 2>> for SphereCost {
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<B, 2>,
-        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
+impl BatchFitnessFn<Tensor<2>> for SphereCost {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, _device: &Device) -> Tensor<1> {
         population
             .clone()
             .powf_scalar(2.0)
@@ -44,7 +37,7 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for SphereCost {
     }
 }
 
-fn evo_loop(seed: u64) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, SphereCost> {
+fn evo_loop(seed: u64) -> EvolutionaryLoop<GeneticAlgorithm, SphereCost> {
     let params = GaConfig {
         pop_size: 16,
         genome_dim: 4,
@@ -57,7 +50,7 @@ fn evo_loop(seed: u64) -> EvolutionaryLoop<B, GeneticAlgorithm<B>, SphereCost> {
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     };
     EvolutionaryLoop::new(
-        GeneticAlgorithm::<B>::new(),
+        GeneticAlgorithm::new(),
         params,
         SphereCost,
         seed,

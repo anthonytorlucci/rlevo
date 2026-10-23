@@ -7,7 +7,6 @@
 //! TD3-specific behaviour (twin critics, target smoothing, delayed policy
 //! updates) is wholly contained inside `learn_step`.
 
-use burn::tensor::backend::AutodiffBackend;
 use rand::Rng;
 
 use rlevo_core::action::BoundedAction;
@@ -44,7 +43,6 @@ use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 /// completed before the error.
 #[allow(clippy::too_many_arguments)]
 pub fn train<
-    B,
     Actor,
     Critic,
     E,
@@ -55,18 +53,17 @@ pub fn train<
     const AR: usize,
     const BAR: usize,
 >(
-    agent: &mut Td3Agent<B, Actor, Critic, O, A, OR, BS, AR, BAR>,
+    agent: &mut Td3Agent<Actor, Critic, O, A, OR, BS, AR, BAR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
     log_every: usize,
 ) -> Result<(), Td3AgentError>
 where
-    B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, BS, BAR>,
-    Critic: ContinuousQ<B, BS, BAR>,
+    Actor: DeterministicPolicy<BS, BAR>,
+    Critic: ContinuousQ<BS, BAR>,
     E: Environment<OR, AR, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
+    O: Observation<OR> + TensorConvertible<OR> + Clone,
     A: BoundedAction<AR>,
 {
     let mut snapshot = env.reset().map_err(env_to_err)?;
@@ -173,8 +170,8 @@ fn env_to_err(err: rlevo_core::environment::EnvironmentError) -> Td3AgentError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::Device;
 
-    use burn::backend::{Autodiff, Flex};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::environment::EpisodeStatus;
@@ -182,8 +179,6 @@ mod tests {
     use crate::algorithms::bootstrap_mask::{
         ContinuousMaskEnv, MaskContinuousAction, MaskObservation, TinyCritic,
     };
-
-    type TestBackend = Autodiff<Flex>;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -199,19 +194,18 @@ mod tests {
     /// ever runs — this guard is about *which predicate reaches `remember`*,
     /// not about learning.
     fn recorded_masks(end_status: EpisodeStatus) -> Vec<bool> {
-        let device = Default::default();
+        let device = Device::flex();
         let config = Td3TrainingConfig {
             learning_starts: 1_000_000,
             replay_buffer_capacity: 64,
             ..Td3TrainingConfig::default()
         };
-        let actor = TinyActor::<TestBackend>::new(&device);
-        let critic_1 = TinyCritic::<TestBackend>::new(&device);
-        let critic_2 = TinyCritic::<TestBackend>::new(&device);
+        let actor = TinyActor::new(&device);
+        let critic_1 = TinyCritic::new(&device);
+        let critic_2 = TinyCritic::new(&device);
         let mut agent = Td3Agent::<
-            TestBackend,
-            TinyActor<TestBackend>,
-            TinyCritic<TestBackend>,
+            TinyActor,
+            TinyCritic,
             MaskObservation,
             MaskContinuousAction,
             1,

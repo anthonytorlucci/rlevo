@@ -48,7 +48,6 @@
 //! in range on every backend. Assert on **finiteness** of the projected row,
 //! never on its sum: the pre-fix Metal row summed to exactly `1.0`.
 
-use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, Tensor};
 
 use crate::algorithms::shared::clamp_preserving_nan;
@@ -145,16 +144,16 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 // cannot wrap an `i64`; a non-finite or zero spacing is rejected by assertion
 // before use.
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_wrap)]
-pub fn project_distribution<B: Backend>(
-    next_probs: Tensor<B, 2>,
-    rewards: Tensor<B, 1>,
-    terminated: Tensor<B, 1>,
-    support: Tensor<B, 1>,
+pub fn project_distribution(
+    next_probs: Tensor<2>,
+    rewards: Tensor<1>,
+    terminated: Tensor<1>,
+    support: Tensor<1>,
     gamma: f32,
     v_min: f32,
     v_max: f32,
     num_atoms: usize,
-) -> Tensor<B, 2> {
+) -> Tensor<2> {
     let [batch_size, n_atoms] = next_probs.dims();
     debug_assert_eq!(
         n_atoms, num_atoms,
@@ -177,9 +176,9 @@ pub fn project_distribution<B: Backend>(
     );
 
     // Broadcast each argument to (B, N).
-    let rewards_bn: Tensor<B, 2> = rewards.unsqueeze_dim::<2>(1); // (B, 1)
-    let terminated_bn: Tensor<B, 2> = terminated.unsqueeze_dim::<2>(1); // (B, 1)
-    let support_bn: Tensor<B, 2> = support.unsqueeze_dim::<2>(0); // (1, N)
+    let rewards_bn: Tensor<2> = rewards.unsqueeze_dim::<2>(1); // (B, 1)
+    let terminated_bn: Tensor<2> = terminated.unsqueeze_dim::<2>(1); // (B, 1)
+    let support_bn: Tensor<2> = support.unsqueeze_dim::<2>(0); // (1, N)
 
     // Bellman shift: `$Tz = \max \left ( v_\min , \min (r + \gamma \cdot (1 - \text{terminated}) \cdot z, v_\max \right )$`.
     let keep = terminated_bn.neg().add_scalar(1.0); // 1 − terminated
@@ -231,13 +230,13 @@ pub fn project_distribution<B: Backend>(
     let b = (tz.sub_scalar(v_min)).div_scalar(delta_z);
     let b = clamp_preserving_nan(b, 0.0, num_atoms as f32 - 1.0);
     let max_index = num_atoms as i64 - 1;
-    let l_idx: Tensor<B, 2, Int> = b.clone().floor().int().clamp(0, max_index);
-    let u_idx: Tensor<B, 2, Int> = b.clone().ceil().int().clamp(0, max_index);
+    let l_idx: Tensor<2, Int> = b.clone().floor().int().clamp(0, max_index);
+    let u_idx: Tensor<2, Int> = b.clone().ceil().int().clamp(0, max_index);
 
     // When b lands exactly on an atom, l == u and both distance weights are
     // zero. Adding a `(l == u)` indicator onto the "lower" weight preserves
     // the full probability mass on the hit atom — mirrors the CleanRL fix.
-    let l_eq_u_mask: Tensor<B, 2> = l_idx.clone().equal(u_idx.clone()).float();
+    let l_eq_u_mask: Tensor<2> = l_idx.clone().equal(u_idx.clone()).float();
 
     let u_f = u_idx.clone().float();
     let l_f = l_idx.clone().float();
@@ -245,7 +244,7 @@ pub fn project_distribution<B: Backend>(
     let weight_lower = next_probs.clone() * (u_f - b.clone() + l_eq_u_mask);
     let weight_upper = next_probs * (b - l_f);
 
-    let zeros: Tensor<B, 2> = Tensor::zeros([batch_size, num_atoms], &device);
+    let zeros: Tensor<2> = Tensor::zeros([batch_size, num_atoms], &device);
     let m = zeros.scatter(1, l_idx, weight_lower, IndexingUpdateOp::Add);
     m.scatter(1, u_idx, weight_upper, IndexingUpdateOp::Add)
 }
@@ -253,31 +252,24 @@ pub fn project_distribution<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
+    use burn::tensor::Device;
     use burn::tensor::TensorData;
-
-    type B = Flex;
 
     // Test fixture data: the loop counter and element count are bounded by small
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
-    fn make_support(
-        v_min: f32,
-        v_max: f32,
-        n: usize,
-        device: <B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
+    fn make_support(v_min: f32, v_max: f32, n: usize, device: Device) -> Tensor<1> {
         let delta = atom_spacing(v_min, v_max, n);
         let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
         Tensor::from_data(TensorData::new(data, vec![n]), &device)
     }
 
-    fn into_vec(tensor: Tensor<B, 2>) -> Vec<f32> {
+    fn into_vec(tensor: Tensor<2>) -> Vec<f32> {
         tensor
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 vec")
     }
 
@@ -286,14 +278,13 @@ mod tests {
         // With reward = 0, \\(\gamma\\) = 1, terminated = 0 and a support that passes through
         // every atom, each atom maps to itself — the projection is the
         // identity on the input probabilities.
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let next_probs = Tensor::<B, 2>::from_data(
+        let device: Device = Device::flex();
+        let next_probs = Tensor::<2>::from_data(
             TensorData::new(vec![0.5_f32, 0.3, 0.2], vec![1, 3]),
             &device,
         );
-        let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let terminated =
-            Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
+        let rewards = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
+        let terminated = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let support = make_support(-1.0, 1.0, 3, device);
 
         let out = project_distribution(next_probs, rewards, terminated, support, 1.0, -1.0, 1.0, 3);
@@ -309,14 +300,13 @@ mod tests {
         //   support = [-1, 0, 1], reward = 0.5, terminated = 1 → `$Tz \equiv 0.5\ \forall z_i$`
         //   b = 1.5 → mass evenly split between atoms 1 and 2, independent of
         //   next_probs.
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let next_probs = Tensor::<B, 2>::from_data(
+        let device: Device = Device::flex();
+        let next_probs = Tensor::<2>::from_data(
             TensorData::new(vec![0.1_f32, 0.4, 0.5], vec![1, 3]),
             &device,
         );
-        let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![0.5_f32], vec![1]), &device);
-        let terminated =
-            Tensor::<B, 1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
+        let rewards = Tensor::<1>::from_data(TensorData::new(vec![0.5_f32], vec![1]), &device);
+        let terminated = Tensor::<1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
         let support = make_support(-1.0, 1.0, 3, device);
 
         let out =
@@ -339,12 +329,11 @@ mod tests {
     fn test_projection_clamps_above_support() {
         // reward ≫ v_max `$\Rightarrow$` Tz clamps at v_max for every atom `$\Rightarrow$` all mass
         // at the top atom.
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+        let device: Device = Device::flex();
         let next_probs =
-            Tensor::<B, 2>::from_data(TensorData::new(vec![1.0_f32 / 3.0; 3], vec![1, 3]), &device);
-        let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![100.0_f32], vec![1]), &device);
-        let terminated =
-            Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
+            Tensor::<2>::from_data(TensorData::new(vec![1.0_f32 / 3.0; 3], vec![1, 3]), &device);
+        let rewards = Tensor::<1>::from_data(TensorData::new(vec![100.0_f32], vec![1]), &device);
+        let terminated = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let support = make_support(-1.0, 1.0, 3, device);
 
         let out = project_distribution(next_probs, rewards, terminated, support, 1.0, -1.0, 1.0, 3);
@@ -362,7 +351,7 @@ mod tests {
     fn test_projection_preserves_total_mass() {
         // Arbitrary batch, random-ish probabilities normalised to 1: rows of the projection should
         // still sum to `$\approx$`1.
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+        let device: Device = Device::flex();
         let batch = 4;
         let n = 5;
         let next_probs_raw: Vec<f32> = (0..batch * n).map(|i| 1.0 + (i as f32) * 0.1).collect();
@@ -372,12 +361,12 @@ mod tests {
             next_probs_norm.extend(row.iter().map(|x| x / s));
         }
         let next_probs =
-            Tensor::<B, 2>::from_data(TensorData::new(next_probs_norm, vec![batch, n]), &device);
-        let rewards = Tensor::<B, 1>::from_data(
+            Tensor::<2>::from_data(TensorData::new(next_probs_norm, vec![batch, n]), &device);
+        let rewards = Tensor::<1>::from_data(
             TensorData::new(vec![0.3_f32, -0.5, 1.2, 0.0], vec![batch]),
             &device,
         );
-        let terminated = Tensor::<B, 1>::from_data(
+        let terminated = Tensor::<1>::from_data(
             TensorData::new(vec![0.0_f32, 1.0, 0.0, 0.0], vec![batch]),
             &device,
         );
@@ -407,14 +396,13 @@ mod tests {
             reward >= v_max,
             "reward {reward} must saturate the support to force Tz = v_max",
         );
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let next_probs = Tensor::<B, 2>::from_data(
+        let device: Device = Device::flex();
+        let next_probs = Tensor::<2>::from_data(
             TensorData::new(vec![1.0_f32 / (n as f32); n], vec![1, n]),
             &device,
         );
-        let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![reward], vec![1]), &device);
-        let terminated =
-            Tensor::<B, 1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
+        let rewards = Tensor::<1>::from_data(TensorData::new(vec![reward], vec![1]), &device);
+        let terminated = Tensor::<1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
         let support = make_support(v_min, v_max, n, device);
 
         let out = project_distribution(
@@ -507,15 +495,15 @@ mod tests {
     #[allow(clippy::cast_precision_loss)]
     fn project_rows_for_rewards(v_min: f32, v_max: f32, n: usize, rewards: &[f32]) -> Vec<f32> {
         let batch = rewards.len();
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let next_probs = Tensor::<B, 2>::from_data(
+        let device: Device = Device::flex();
+        let next_probs = Tensor::<2>::from_data(
             TensorData::new(vec![1.0_f32 / (n as f32); batch * n], vec![batch, n]),
             &device,
         );
         let rewards_t =
-            Tensor::<B, 1>::from_data(TensorData::new(rewards.to_vec(), vec![batch]), &device);
+            Tensor::<1>::from_data(TensorData::new(rewards.to_vec(), vec![batch]), &device);
         let terminated =
-            Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32; batch], vec![batch]), &device);
+            Tensor::<1>::from_data(TensorData::new(vec![0.0_f32; batch], vec![batch]), &device);
         let support = make_support(v_min, v_max, n, device);
 
         let out = project_distribution(
@@ -639,14 +627,13 @@ mod tests {
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
     fn project_on_support(v_min: f32, v_max: f32, n: usize) -> Vec<f32> {
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let next_probs = Tensor::<B, 2>::from_data(
+        let device: Device = Device::flex();
+        let next_probs = Tensor::<2>::from_data(
             TensorData::new(vec![1.0_f32 / (n as f32); n], vec![1, n]),
             &device,
         );
-        let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let terminated =
-            Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
+        let rewards = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
+        let terminated = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let support = make_support(v_min, v_max, n, device);
 
         let out = project_distribution(

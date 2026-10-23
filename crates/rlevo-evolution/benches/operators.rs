@@ -7,8 +7,7 @@
 //! Run with `cargo bench -p rlevo-evolution`. Pass `--save-baseline before` ahead of a change
 //! and `--baseline before` afterwards to get a side-by-side report.
 
-use burn::backend::Flex;
-use burn::tensor::{Distribution, Tensor, backend::Backend as _};
+use burn::tensor::{Device, Distribution, Tensor};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -18,17 +17,11 @@ use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::ops::selection::tournament_select;
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
-type B = Flex;
-
 struct ZeroFitness;
-impl BatchFitnessFn<B, Tensor<B, 2>> for ZeroFitness {
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<B, 2>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
+impl BatchFitnessFn<Tensor<2>> for ZeroFitness {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         let n = population.dims()[0];
-        Tensor::<B, 1>::zeros([n], device)
+        Tensor::<1>::zeros([n], device)
     }
 
     fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
@@ -39,16 +32,16 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for ZeroFitness {
 #[allow(clippy::cast_precision_loss)]
 fn bench_tournament(c: &mut Criterion) {
     let mut group = c.benchmark_group("tournament_select");
-    let device = Default::default();
-    B::seed(&device, 7);
+    let device = Device::flex();
+    device.seed(7);
     for &pop_size in &[64_usize, 256, 1024] {
         let dim = 10;
         let fitness: Vec<f32> = (0..pop_size).map(|i| (i as f32) * 0.1).collect();
         let population =
-            Tensor::<B, 2>::random([pop_size, dim], Distribution::Uniform(-1.0, 1.0), &device);
+            Tensor::<2>::random([pop_size, dim], Distribution::Uniform(-1.0, 1.0), &device);
         let mut rng = StdRng::seed_from_u64(1);
         group.bench_with_input(BenchmarkId::from_parameter(pop_size), &pop_size, |b, &n| {
-            b.iter(|| tournament_select::<B>(&population, &fitness, 2, n, &mut rng, &device));
+            b.iter(|| tournament_select(&population, &fitness, 2, n, &mut rng, &device));
         });
     }
     group.finish();
@@ -58,8 +51,8 @@ fn bench_de_generation(c: &mut Criterion) {
     let mut group = c.benchmark_group("de_one_generation");
     group.sample_size(10);
     for &pop_size in &[64_usize, 256, 1024] {
-        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        B::seed(&device, 42);
+        let device: Device = Device::flex();
+        device.seed(42);
         let mut params = DeConfig::default_for(pop_size, 10);
         params.variant = DeVariant::Rand1Bin;
         group.bench_with_input(BenchmarkId::from_parameter(pop_size), &pop_size, |b, _n| {
@@ -68,8 +61,8 @@ fn bench_de_generation(c: &mut Criterion) {
                     // Fresh loop per iteration so the bench
                     // measures a full `ask → evaluate → tell`
                     // cycle on a warm population (no one-time init).
-                    let strategy = DifferentialEvolution::<B>::new();
-                    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
+                    let strategy = DifferentialEvolution::new();
+                    let mut evo_loop = EvolutionaryLoop::new(
                         strategy,
                         params.clone(),
                         ZeroFitness,
@@ -101,9 +94,4 @@ criterion_main!(benches);
 // Ensure the `Strategy` trait lookup remains monomorphizable from this
 // crate-bench.
 #[allow(dead_code)]
-fn _static_asserts<B: burn::tensor::backend::Backend>()
-where
-    DifferentialEvolution<B>: Strategy<B>,
-    B::Device: Clone,
-{
-}
+fn _static_asserts() {}

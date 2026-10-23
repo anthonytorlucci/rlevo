@@ -15,7 +15,6 @@
 #![allow(dead_code)]
 
 use burn::backend::{Flex, Wgpu};
-use burn::tensor::backend::{Backend, BackendTypes};
 
 /// A `Backend` benches can select by a stable, printable label.
 ///

@@ -23,11 +23,10 @@
 //! test — `CarRacing` rasterizes a frame per step, so a learning budget would not
 //! fit the default `cargo test` run.
 
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Device, Tensor};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -45,7 +44,7 @@ use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
-use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::flex::{flex_guard, seeded_device};
 
 /// Flattened pixel-observation width: 96 x 96 x 3.
 const OBS_NUMEL: usize = 96 * 96 * 3;
@@ -63,62 +62,51 @@ const OBS_NUMEL: usize = 96 * 96 * 3;
 /// `low[0] = -1` would leave the negative values in place and `CarRacing::step`
 /// would reject them.
 #[derive(Module, Debug)]
-struct Actor<B: Backend> {
-    head: Linear<B>,
+struct Actor {
+    head: Linear,
 }
 
-impl<B: Backend> Actor<B> {
-    fn new(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+impl Actor {
+    fn new(device: &Device) -> Self {
         Self {
             head: LinearConfig::new(OBS_NUMEL, CarRacingAction::COMPONENTS).init(device),
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 4>) -> Tensor<B, 2> {
+    fn forward_impl(&self, obs: Tensor<4>) -> Tensor<2> {
         let batch = obs.dims()[0];
         tanh(self.head.forward(obs.reshape([batch, OBS_NUMEL])))
     }
 }
 
-impl<B: AutodiffBackend> DeterministicPolicy<B, 4, 2> for Actor<B> {
-    fn forward(&self, obs: Tensor<B, 4>) -> Tensor<B, 2> {
+impl DeterministicPolicy<4, 2> for Actor {
+    fn forward(&self, obs: Tensor<4>) -> Tensor<2> {
         self.forward_impl(obs)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 4>,
-    ) -> Tensor<B::InnerBackend, 2> {
+    fn forward_inner(inner: &Self, obs: Tensor<4>) -> Tensor<2> {
         inner.forward_impl(obs)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<Actor>(&active.valid(), target, tau as f32)
     }
 }
 
 #[derive(Module, Debug)]
-struct Critic<B: Backend> {
-    head: Linear<B>,
+struct Critic {
+    head: Linear,
 }
 
-impl<B: Backend> Critic<B> {
-    fn new(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+impl Critic {
+    fn new(device: &Device) -> Self {
         Self {
             head: LinearConfig::new(OBS_NUMEL + CarRacingAction::COMPONENTS, 1).init(device),
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 4>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<4>, act: Tensor<2>) -> Tensor<1> {
         let batch = obs.dims()[0];
         let flat = obs.reshape([batch, OBS_NUMEL]);
         let x = Tensor::cat(vec![flat, act], 1);
@@ -126,35 +114,22 @@ impl<B: Backend> Critic<B> {
     }
 }
 
-impl<B: AutodiffBackend> ContinuousQ<B, 4, 2> for Critic<B> {
-    fn forward(&self, obs: Tensor<B, 4>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+impl ContinuousQ<4, 2> for Critic {
+    fn forward(&self, obs: Tensor<4>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
     }
 
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 4>,
-        act: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 1> {
+    fn forward_inner(inner: &Self, obs: Tensor<4>, act: Tensor<2>) -> Tensor<1> {
         inner.forward_impl(obs, act)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, Critic<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
+        polyak_update::<Critic>(&active.valid(), target, tau as f32)
     }
 }
 
-type CarAgent =
-    Td3Agent<Be, Actor<Be>, Critic<Be>, CarRacingObservation, CarRacingAction, 3, 4, 1, 2>;
+type CarAgent = Td3Agent<Actor, Critic, CarRacingObservation, CarRacingAction, 3, 4, 1, 2>;
 
 /// Builds a TD3 agent over `CarRacing` with `learning_starts` warm-up steps.
 ///
@@ -162,7 +137,7 @@ type CarAgent =
 /// `[1, 3]` bound-tensor build: a `CarRacingAction::low()` of the wrong length,
 /// or a `shape()` disagreeing with `COMPONENTS`, panics here.
 fn build_agent(learning_starts: usize) -> CarAgent {
-    let device = seeded_device::<Be>(0xCA5);
+    let device = seeded_device(0xCA5);
     let config = Td3TrainingConfig {
         learning_starts,
         batch_size: 4,
@@ -171,9 +146,9 @@ fn build_agent(learning_starts: usize) -> CarAgent {
         ..Default::default()
     };
     CarAgent::new(
-        Actor::<Be>::new(&device),
-        Critic::<Be>::new(&device),
-        Critic::<Be>::new(&device),
+        Actor::new(&device),
+        Critic::new(&device),
+        Critic::new(&device),
         config,
         device,
     )

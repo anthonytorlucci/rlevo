@@ -21,7 +21,7 @@
 //! keeps the path-based momentum and CSA, so it does **not** fit the
 //! [`ProbabilityModel`](crate::ProbabilityModel) `fit → sample` seam — the CSA and path updates
 //! live in [`Strategy::tell`], not in a model fit. Per ADR 0021 this strategy is a self-contained
-//! [`Strategy`]; `ProbabilityModel<B>` is available but deliberately unused. For the path-free
+//! [`Strategy`]; `ProbabilityModel` is available but deliberately unused. For the path-free
 //! sibling that self-adapts `$\sigma$` per individual, see [`crate::algorithms::cmsa_es`].
 //!
 //! # References
@@ -31,9 +31,7 @@
 //! - Hansen, N. & Ostermeier, A. (2001), *Completely Derandomized
 //!   Self-Adaptation in Evolution Strategies*, Evolutionary Computation 9(2).
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -248,7 +246,7 @@ impl Validate for CmaEsConfig {
 /// and evolution paths — is held host-side as `Vec<f32>`; only the offspring
 /// population crosses to the device.
 #[derive(Debug, Clone)]
-pub struct CmaEsState<B: Backend> {
+pub struct CmaEsState {
     /// Distribution mean `m`, length `D`.
     mean: Vec<f32>,
     /// Covariance matrix `C`, row-major `$D \times D$`.
@@ -262,7 +260,7 @@ pub struct CmaEsState<B: Backend> {
     /// Completed-generation counter.
     generation: usize,
     /// Best-so-far genome, shape `(1, D)`.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness (canonical maximise convention).
     best_fitness: f32,
     /// Cached symmetric eigendecomposition of the **current** `cov`.
@@ -294,7 +292,7 @@ pub struct CmaEsState<B: Backend> {
     eig: Option<SymEigen>,
 }
 
-impl<B: Backend> CmaEsState<B> {
+impl CmaEsState {
     /// Assembles a CMA-ES state, checking the distribution parameters are
     /// dimensionally consistent.
     ///
@@ -311,7 +309,7 @@ impl<B: Backend> CmaEsState<B> {
         p_c: Vec<f32>,
         sigma: f32,
         generation: usize,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
     ) -> Result<Self, ConfigError> {
         let d = mean.len();
@@ -403,7 +401,7 @@ impl<B: Backend> CmaEsState<B> {
 
     /// Best-so-far genome (shape `(1, D)`), or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -422,41 +420,29 @@ impl<B: Backend> CmaEsState<B> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::cma_es::{CmaEsConfig, CmaEs};
 ///
-/// let strategy = CmaEs::<Flex>::new();
+/// let strategy = CmaEs::new();
 /// let params = CmaEsConfig::default_for(10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CmaEs<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct CmaEs {}
 
-impl<B: Backend> CmaEs<B> {
+impl CmaEs {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 }
 
-impl<B: Backend> Strategy<B> for CmaEs<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for CmaEs {
     type Params = CmaEsConfig;
-    type State = CmaEsState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = CmaEsState;
+    type Genome = Tensor<2>;
 
     /// Initializes `$m^0$` uniformly in `params.bounds` (host-RNG convention),
     /// `C = I`, `$\sigma$` = `initial_sigma`, and both evolution paths to zero.
-    fn init(
-        &self,
-        params: &CmaEsConfig,
-        rng: &mut dyn Rng,
-        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> CmaEsState<B> {
+    fn init(&self, params: &CmaEsConfig, rng: &mut dyn Rng, _device: &Device) -> CmaEsState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid CmaEsConfig reached init: {params:?}"
@@ -502,10 +488,10 @@ where
     fn ask(
         &self,
         params: &CmaEsConfig,
-        state: &CmaEsState<B>,
+        state: &CmaEsState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, CmaEsState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, CmaEsState) {
         let d = params.genome_dim;
         let lambda = params.pop_size;
 
@@ -538,7 +524,7 @@ where
                 rows.push(mean_i + state.sigma * bdz_i);
             }
         }
-        let population = Tensor::<B, 2>::from_data(TensorData::new(rows, [lambda, d]), device);
+        let population = Tensor::<2>::from_data(TensorData::new(rows, [lambda, d]), device);
         // Clone first, then overwrite the memo on the clone: the decomposition
         // just built is exactly the decomposition of this state's (unchanged)
         // `cov`, so it is a valid memo for the paired `tell` to consume.
@@ -573,11 +559,11 @@ where
     fn tell(
         &self,
         params: &CmaEsConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: CmaEsState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: CmaEsState,
         _rng: &mut dyn Rng,
-    ) -> (CmaEsState<B>, StrategyMetrics) {
+    ) -> (CmaEsState, StrategyMetrics) {
         let d = params.genome_dim;
         let lambda = params.pop_size;
         let mu = params.mu;
@@ -589,12 +575,12 @@ where
         // copy.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
         let pop_host: Vec<f32> = population
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population tensor must be readable as f32");
 
         // Rank offspring descending (canonical maximise): ranked[0] is the best (highest fitness).
@@ -770,7 +756,7 @@ where
 
     /// Returns the best-so-far genome and its fitness, or `None` before the
     /// first [`tell`](Self::tell) call.
-    fn best(&self, state: &CmaEsState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &CmaEsState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -780,7 +766,7 @@ where
 
 /// Updates `state.best_genome` / `state.best_fitness` if this generation
 /// improved on the best-so-far.
-fn update_best<B: Backend>(state: &mut CmaEsState<B>, pop: &Tensor<B, 2>, fitness: &[f32]) {
+fn update_best(state: &mut CmaEsState, pop: &Tensor<2>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -795,7 +781,7 @@ fn update_best<B: Backend>(state: &mut CmaEsState<B>, pop: &Tensor<B, 2>, fitnes
     if best > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(
+        let idx = Tensor::<1, burn::tensor::Int>::from_data(
             TensorData::new(vec![best_idx as i64], [1]),
             &device,
         );
@@ -810,7 +796,6 @@ mod tests {
     // Named explicitly: `proptest::prelude::*` also exports a `Strategy`, and a
     // trait reached through two globs is ambiguous.
     use crate::strategy::Strategy;
-    use burn::backend::Flex;
     use proptest::prelude::*;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -819,7 +804,7 @@ mod tests {
     fn try_new_checks_dimensions() {
         // D = 2: cov is `$2 \times 2 = 4$` entries, both paths length 2, `$\sigma > 0$`.
         assert!(
-            CmaEsState::<Flex>::try_new(
+            CmaEsState::try_new(
                 vec![0.0, 0.0],
                 vec![1.0, 0.0, 0.0, 1.0],
                 vec![0.0, 0.0],
@@ -833,7 +818,7 @@ mod tests {
         );
         // cov length 3 `$\neq D \cdot D$`.
         assert!(
-            CmaEsState::<Flex>::try_new(
+            CmaEsState::try_new(
                 vec![0.0, 0.0],
                 vec![1.0, 0.0, 0.0],
                 vec![0.0, 0.0],
@@ -847,7 +832,7 @@ mod tests {
         );
         // Non-positive `$\sigma$`.
         assert!(
-            CmaEsState::<Flex>::try_new(
+            CmaEsState::try_new(
                 vec![0.0, 0.0],
                 vec![1.0, 0.0, 0.0, 1.0],
                 vec![0.0, 0.0],
@@ -939,10 +924,10 @@ mod tests {
     /// generation counter and best-so-far tracking.
     #[test]
     fn tell_freezes_distribution_on_too_few_finite() {
-        let strategy = CmaEs::<Flex>::new();
+        let strategy = CmaEs::new();
         let params = CmaEsConfig::with_pop_size(6, 2); // μ = 3.
         assert_eq!(params.mu, 3);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0xF10E);
 
         let state = strategy.init(&params, &mut rng, &device);
@@ -957,7 +942,7 @@ mod tests {
         let gen0: usize = asked.generation();
 
         // Only one finite value; `$\mu = 3$` → lost generation.
-        let fitness = Tensor::<Flex, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(
                 vec![1.0f32, f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN],
                 [6],
@@ -983,9 +968,9 @@ mod tests {
     /// decomposition). `jacobi_eigen` is deterministic, so the two must agree.
     #[test]
     fn tell_cache_reuse_matches_recompute() {
-        let strategy = CmaEs::<Flex>::new();
+        let strategy = CmaEs::new();
         let params = CmaEsConfig::with_pop_size(6, 2);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0x00CA_C4E5);
 
         let state = strategy.init(&params, &mut rng, &device);
@@ -993,7 +978,7 @@ mod tests {
 
         // Rebuild an equivalent state from the asked-state accessors. `try_new`
         // never populates the memo, so its `tell` recomputes the decomposition.
-        let rebuilt = CmaEsState::<Flex>::try_new(
+        let rebuilt = CmaEsState::try_new(
             asked.mean().to_vec(),
             asked.cov().to_vec(),
             asked.p_sigma().to_vec(),
@@ -1007,9 +992,8 @@ mod tests {
 
         // Identical fitness (`$\geq \mu$` finite → full adaptive update runs).
         let fitness_vals: Vec<f32> = vec![6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
-        let f_cached =
-            Tensor::<Flex, 1>::from_data(TensorData::new(fitness_vals.clone(), [6]), &device);
-        let f_recomp = Tensor::<Flex, 1>::from_data(TensorData::new(fitness_vals, [6]), &device);
+        let f_cached = Tensor::<1>::from_data(TensorData::new(fitness_vals.clone(), [6]), &device);
+        let f_recomp = Tensor::<1>::from_data(TensorData::new(fitness_vals, [6]), &device);
 
         // `tell` ignores its `_rng`; fresh RNGs are only for the signature.
         let mut rng_a = StdRng::seed_from_u64(1);
@@ -1030,7 +1014,7 @@ mod tests {
     #[test]
     fn try_new_symmetrizes_covariance() {
         // Off-diagonals (0,1) = 0.4 and (1,0) = 0.2 → both become 0.3.
-        let state = CmaEsState::<Flex>::try_new(
+        let state = CmaEsState::try_new(
             vec![0.0, 0.0],
             vec![1.0, 0.4, 0.2, 1.0],
             vec![0.0, 0.0],
@@ -1052,9 +1036,9 @@ mod tests {
     /// cov-mutation path but forgets to `take()`/clear `eig`.
     #[test]
     fn tell_clears_eig_memo_after_cov_update() {
-        let strategy = CmaEs::<Flex>::new();
+        let strategy = CmaEs::new();
         let params = CmaEsConfig::with_pop_size(6, 2);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0x00EE_6011);
 
         let state = strategy.init(&params, &mut rng, &device);
@@ -1063,7 +1047,7 @@ mod tests {
         assert!(asked.eig.is_some(), "ask must populate the eig memo");
 
         // `$\geq \mu$` finite → full adaptive update runs and overwrites `cov`.
-        let fitness = Tensor::<Flex, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
             &device,
         );
@@ -1081,13 +1065,13 @@ mod tests {
     /// finite.
     #[test]
     fn two_generation_sequence_refreshes_memo() {
-        let strategy = CmaEs::<Flex>::new();
+        let strategy = CmaEs::new();
         let params = CmaEsConfig::with_pop_size(6, 2);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0x00A2_9E11);
 
         let fitness = |dev: &_| {
-            Tensor::<Flex, 1>::from_data(
+            Tensor::<1>::from_data(
                 TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
                 dev,
             )
@@ -1126,15 +1110,15 @@ mod tests {
     /// sampling and `tell`'s `C^{-1/2}` conditioning rely on.
     #[test]
     fn tell_keeps_covariance_symmetric_and_positive_definite() {
-        let strategy = CmaEs::<Flex>::new();
+        let strategy = CmaEs::new();
         let params = CmaEsConfig::with_pop_size(6, 3);
         let d: usize = params.genome_dim;
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0x5EED_C0DE);
 
         let state = strategy.init(&params, &mut rng, &device);
         let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
-        let fitness = Tensor::<Flex, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
             &device,
         );
@@ -1174,11 +1158,11 @@ mod tests {
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn long_run_tell_never_drifts_off_symmetric_manifold() {
-        let strategy = CmaEs::<Flex>::new();
+        let strategy = CmaEs::new();
         let lambda: usize = 16;
         let params = CmaEsConfig::with_pop_size(lambda, 5);
         let d: usize = params.genome_dim;
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0x0241_D21F7);
 
         // Synthetic strictly-descending fitness: the point is to drive many
@@ -1188,10 +1172,8 @@ mod tests {
         let mut state = strategy.init(&params, &mut rng, &device);
         for generation in 0..400 {
             let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
-            let fitness = Tensor::<Flex, 1>::from_data(
-                TensorData::new(fitness_vals.clone(), [lambda]),
-                &device,
-            );
+            let fitness =
+                Tensor::<1>::from_data(TensorData::new(fitness_vals.clone(), [lambda]), &device);
             let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
 
             let cov: &[f32] = told.cov();
@@ -1283,9 +1265,9 @@ mod tests {
     /// (canonical maximise) with the correct `(1, D)` genome shape.
     #[test]
     fn best_is_none_before_tell_and_some_after() {
-        let strategy = CmaEs::<Flex>::new();
+        let strategy = CmaEs::new();
         let params = CmaEsConfig::with_pop_size(6, 2);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0xB357_7E57);
 
         let state = strategy.init(&params, &mut rng, &device);
@@ -1295,14 +1277,14 @@ mod tests {
         );
 
         let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
-        let fitness = Tensor::<Flex, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
             &device,
         );
         let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
 
         let best = strategy.best(&told).expect("best is Some after a tell");
-        let (genome, fit): (Tensor<Flex, 2>, f32) = best;
+        let (genome, fit): (Tensor<2>, f32) = best;
         approx::assert_relative_eq!(fit, 6.0, epsilon = 1e-6);
         assert_eq!(genome.dims(), [1, 2]);
     }
@@ -1338,15 +1320,15 @@ mod tests {
     /// tracking untouched (no panic, no spurious best).
     #[test]
     fn update_best_empty_population_is_noop() {
-        let strategy = CmaEs::<Flex>::new();
+        let strategy = CmaEs::new();
         let params = CmaEsConfig::with_pop_size(6, 2);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(0x0E11_0E11);
 
         let mut state = strategy.init(&params, &mut rng, &device);
         // Any population tensor; the empty fitness slice short-circuits before it
         // is read.
-        let pop = Tensor::<Flex, 2>::from_data(TensorData::new(vec![0.0f32, 0.0], [1, 2]), &device);
+        let pop = Tensor::<2>::from_data(TensorData::new(vec![0.0f32, 0.0], [1, 2]), &device);
         update_best(&mut state, &pop, &[]);
 
         assert!(
@@ -1387,14 +1369,14 @@ mod tests {
             d in 1usize..=20,
             seed in any::<u64>(),
         ) {
-            let strategy = CmaEs::<Flex>::new();
+            let strategy = CmaEs::new();
             let params = CmaEsConfig::with_pop_size(lambda, d);
             // Restrict the sampled `$(\lambda, D)$` box to the valid-config subset: in the
             // small-`D` / large-`$\lambda$` corner the derived `c_1 + c_mu` rounds fractionally
             // past 1.0, which `validate()` rejects. We only drive valid configs here; the `Err`
             // path is covered by dedicated tests.
             prop_assume!(params.validate().is_ok());
-            let device = Default::default();
+            let device = Device::flex();
             let mut rng = StdRng::seed_from_u64(seed);
 
             // Synthetic strictly-descending fitness of length `$\lambda$` (canonical maximise: row
@@ -1415,7 +1397,7 @@ mod tests {
                 // Invariant 1: `ask` yields exactly `$[\lambda, D]$` offspring.
                 prop_assert_eq!(population.dims(), [lambda, d], "ask output shape");
 
-                let fitness = Tensor::<Flex, 1>::from_data(
+                let fitness = Tensor::<1>::from_data(
                     TensorData::new(fitness_vals.clone(), [lambda]),
                     &device,
                 );
@@ -1466,7 +1448,7 @@ mod tests {
                 // `tell`.
                 let best = strategy.best(&told);
                 prop_assert!(best.is_some(), "best must be Some after a tell");
-                let (genome, fit): (Tensor<Flex, 2>, f32) =
+                let (genome, fit): (Tensor<2>, f32) =
                     best.expect("best is Some after a tell");
                 prop_assert!(fit.is_finite(), "best fitness finite");
                 prop_assert_eq!(genome.dims(), [1, d], "best genome shape");

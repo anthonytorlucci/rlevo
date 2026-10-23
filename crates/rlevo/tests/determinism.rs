@@ -9,8 +9,7 @@
 //!
 //! [`SeedPurpose::EdaSampling`]: rlevo_evolution::rng::SeedPurpose::EdaSampling
 
-use burn::backend::Flex;
-
+use burn::tensor::Device;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_environments::landscapes::sphere::Sphere;
@@ -25,8 +24,6 @@ use rlevo_evolution::{
     UnivariateBernoulli, UnivariateGaussian,
 };
 
-type B = Flex;
-
 const DIM: usize = 10;
 const SEED: u64 = 1_234_567;
 const GENS: usize = 30;
@@ -36,16 +33,16 @@ const BOUNDS: Option<Bounds> = Some(Bounds::new(-5.12, 5.12));
 /// collects the per-generation best-fitness trajectory.
 fn run<M>(model: M, model_params: M::Params, bounds: Option<Bounds>) -> Vec<f32>
 where
-    M: ProbabilityModel<B> + 'static,
+    M: ProbabilityModel + 'static,
 {
-    let device = Default::default();
+    let device = Device::flex();
     let params = EdaParams {
         pop_size: 32,
         selection_ratio: 0.5,
         bounds,
         model: model_params,
     };
-    let mut evo_loop = EvolutionaryLoop::<B, EdaStrategy<B, M>, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<EdaStrategy<M>, _>::new(
         EdaStrategy::new(model),
         params,
         FromLandscape::with_sense(

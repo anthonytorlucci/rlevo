@@ -2,16 +2,13 @@
 //! per-iteration throughput: GAE, advantage normalisation, and the
 //! clipped surrogate objective.
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rlevo_reinforcement_learning::algorithms::ppo::losses::{
     clipped_surrogate, normalize_advantages,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::rollout::compute_gae;
 use std::hint::black_box;
-
-type B = Flex;
 
 // Synthetic fixture/benchmark data: the loop counter and element count are
 // bounded by small constants declared in this file, far below f32's 2^24
@@ -59,11 +56,11 @@ fn bench_compute_gae(c: &mut Criterion) {
 #[allow(clippy::cast_precision_loss)]
 fn bench_advantage_norm(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppo_advantage_norm");
-    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     for &n in &[64_usize, 256, 1024] {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             let data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.01 - 5.0).collect();
-            let t: Tensor<B, 1> = Tensor::from_data(TensorData::new(data, vec![n]), &device);
+            let t: Tensor<1> = Tensor::from_data(TensorData::new(data, vec![n]), &device);
             b.iter(|| {
                 let out = normalize_advantages(black_box(t.clone()));
                 black_box(out);
@@ -75,14 +72,14 @@ fn bench_advantage_norm(c: &mut Criterion) {
 
 fn bench_clipped_surrogate(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppo_clipped_surrogate");
-    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     for &n in &[64_usize, 256, 1024] {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
-            let new_lp: Tensor<B, 1> =
+            let new_lp: Tensor<1> =
                 Tensor::from_data(TensorData::new(vec![0.0_f32; n], vec![n]), &device);
-            let old_lp: Tensor<B, 1> =
+            let old_lp: Tensor<1> =
                 Tensor::from_data(TensorData::new(vec![0.05_f32; n], vec![n]), &device);
-            let advs: Tensor<B, 1> =
+            let advs: Tensor<1> =
                 Tensor::from_data(TensorData::new(vec![1.0_f32; n], vec![n]), &device);
             b.iter(|| {
                 let out = clipped_surrogate(

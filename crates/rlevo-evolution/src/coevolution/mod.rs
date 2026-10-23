@@ -68,9 +68,9 @@ pub use fitness::CoupledFitness;
 pub use generation_loop::{CoEAMetrics, CoEvolutionaryLoop};
 pub use hof::{HallOfFame, HallOfFameFitness};
 
+use burn::tensor::Device;
 use std::fmt::Debug;
 
-use burn::tensor::backend::Backend;
 use rand::Rng;
 
 /// A co-evolutionary algorithm driving two populations under simultaneous
@@ -86,7 +86,7 @@ use rand::Rng;
 ///
 /// v1 ships [`CompetitiveCoEA`] and [`CooperativeCoEA`]; Stackelberg
 /// (alternating) turn order is deferred.
-pub trait CoEvolutionaryAlgorithm<B: Backend>: Send + Sync {
+pub trait CoEvolutionaryAlgorithm: Send + Sync {
     /// Static parameters for a run (inner strategy params plus any coupling
     /// configuration).
     type Params: Clone + Debug + Send + Sync;
@@ -95,12 +95,7 @@ pub trait CoEvolutionaryAlgorithm<B: Backend>: Send + Sync {
     type State: Clone + Debug + Send;
 
     /// Build the initial joint state (initializes both inner strategies).
-    fn init(
-        &self,
-        params: &Self::Params,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::State;
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &Device) -> Self::State;
 
     /// Advance one simultaneous-update generation, returning the next state
     /// and this generation's [`CoEAMetrics`].
@@ -109,7 +104,7 @@ pub trait CoEvolutionaryAlgorithm<B: Backend>: Send + Sync {
         params: &Self::Params,
         state: Self::State,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
     ) -> (Self::State, CoEAMetrics);
 
     /// Snapshot the current metrics without advancing a generation.

@@ -83,9 +83,8 @@
 #[path = "support/value_nets.rs"]
 mod support;
 
+use burn::tensor::Device;
 use std::hint::black_box;
-
-use burn::backend::{Autodiff, Flex};
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 
@@ -117,8 +116,7 @@ const EVAL_EPISODES: usize = 200;
 /// flip. A reactive policy is capped here — it is **not** pinned to zero.
 const REACTIVE_CEILING: f32 = 0.5;
 
-type Backend_ = Autodiff<Flex>;
-type MemoryAgent = DqnAgent<Backend_, GridMlpDqn<Backend_>, GridObservation, GridAction, 3, 4>;
+type MemoryAgent = DqnAgent<GridMlpDqn, GridObservation, GridAction, 3, 4>;
 
 /// The shipped default (`size`, `max_steps`) under this bench's fixed seed.
 ///
@@ -137,7 +135,7 @@ fn memory_config() -> MemoryConfig {
 /// docs: this is a *control*, not an attempt to solve the task — a memoryless
 /// policy is capped at the ~50% chance rate on the binary fork.
 fn train_dqn() -> MemoryAgent {
-    let device = Default::default();
+    let device = Device::flex();
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = MemoryEnv::with_config(memory_config(), false).expect("valid config");
 
@@ -156,7 +154,7 @@ fn train_dqn() -> MemoryAgent {
         ..Default::default()
     };
 
-    let model: GridMlpDqn<Backend_> = GridMlpDqn::new(OBS_FEATURES, 128, ACTIONS, &device);
+    let model: GridMlpDqn = GridMlpDqn::new(OBS_FEATURES, 128, ACTIONS, &device);
     let mut agent: MemoryAgent = DqnAgent::new(model, config, device).expect("valid config");
 
     train(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training loop");

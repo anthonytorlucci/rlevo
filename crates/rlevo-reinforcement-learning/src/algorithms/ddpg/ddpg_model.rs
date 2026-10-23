@@ -13,9 +13,8 @@
 //! [`forward_inner`]: DeterministicPolicy::forward_inner
 //! [`soft_update`]: DeterministicPolicy::soft_update
 
-use burn::module::AutodiffModule;
+use burn::module::Module;
 use burn::tensor::Tensor;
-use burn::tensor::backend::AutodiffBackend;
 
 use crate::utils::PolyakError;
 
@@ -31,17 +30,12 @@ use crate::utils::PolyakError;
 /// Use [`forward`](Self::forward) during training (autodiff graph is active).
 /// Use [`forward_inner`](Self::forward_inner) against the frozen target
 /// module during target-Q computation (no gradient tracking).
-pub trait DeterministicPolicy<B: AutodiffBackend, const BOR: usize, const BAR: usize>:
-    AutodiffModule<B>
-{
+pub trait DeterministicPolicy<const BOR: usize, const BAR: usize>: Module {
     /// Autodiff forward pass: `(batch, ...obs)` → `(batch, ...action)`.
-    fn forward(&self, obs: Tensor<B, BOR>) -> Tensor<B, BAR>;
+    fn forward(&self, obs: Tensor<BOR>) -> Tensor<BAR>;
 
     /// Forward pass against the inner (non-autodiff) target actor.
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, BOR>,
-    ) -> Tensor<B::InnerBackend, BAR>;
+    fn forward_inner(inner: &Self, obs: Tensor<BOR>) -> Tensor<BAR>;
 
     /// Polyak-averages the target toward the active network.
     ///
@@ -53,11 +47,7 @@ pub trait DeterministicPolicy<B: AutodiffBackend, const BOR: usize, const BAR: u
     /// Propagates [`PolyakError`] if `active` and `target` have mismatched
     /// [`ParamId`](burn::module::ParamId) topologies — see
     /// [`polyak_update`](crate::utils::polyak_update).
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError>;
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError>;
 }
 
 /// Contract implemented by any network usable as a DDPG continuous Q-critic
@@ -71,18 +61,12 @@ pub trait DeterministicPolicy<B: AutodiffBackend, const BOR: usize, const BAR: u
 /// Use [`forward`](Self::forward) during the critic and actor gradient steps
 /// (autodiff graph active). Use [`forward_inner`](Self::forward_inner) for
 /// target-Q computation where no gradients should flow.
-pub trait ContinuousQ<B: AutodiffBackend, const BOR: usize, const BAR: usize>:
-    AutodiffModule<B>
-{
+pub trait ContinuousQ<const BOR: usize, const BAR: usize>: Module {
     /// Autodiff forward pass producing a `(batch,)` Q-value tensor.
-    fn forward(&self, obs: Tensor<B, BOR>, act: Tensor<B, BAR>) -> Tensor<B, 1>;
+    fn forward(&self, obs: Tensor<BOR>, act: Tensor<BAR>) -> Tensor<1>;
 
     /// Forward pass against the inner (non-autodiff) target critic.
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, BOR>,
-        act: Tensor<B::InnerBackend, BAR>,
-    ) -> Tensor<B::InnerBackend, 1>;
+    fn forward_inner(inner: &Self, obs: Tensor<BOR>, act: Tensor<BAR>) -> Tensor<1>;
 
     /// Polyak-averages the target toward the active network.
     ///
@@ -95,9 +79,5 @@ pub trait ContinuousQ<B: AutodiffBackend, const BOR: usize, const BAR: usize>:
     /// Propagates [`PolyakError`] if `active` and `target` have mismatched
     /// [`ParamId`](burn::module::ParamId) topologies — see
     /// [`polyak_update`](crate::utils::polyak_update).
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError>;
+    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError>;
 }

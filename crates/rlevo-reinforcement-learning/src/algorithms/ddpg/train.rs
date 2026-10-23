@@ -15,7 +15,6 @@
 //! The function returns when `total_steps` environment interactions have been
 //! collected, or immediately on the first environment error.
 
-use burn::tensor::backend::AutodiffBackend;
 use rand::Rng;
 
 use rlevo_core::action::BoundedAction;
@@ -58,7 +57,6 @@ use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 /// action ranks.
 #[allow(clippy::too_many_arguments)]
 pub fn train<
-    B,
     Actor,
     Critic,
     E,
@@ -69,18 +67,17 @@ pub fn train<
     const AR: usize,
     const BAR: usize,
 >(
-    agent: &mut DdpgAgent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>,
+    agent: &mut DdpgAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
     log_every: usize,
 ) -> Result<(), DdpgAgentError>
 where
-    B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, BOR, BAR>,
-    Critic: ContinuousQ<B, BOR, BAR>,
+    Actor: DeterministicPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
     E: Environment<OR, AR, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend> + Clone,
+    O: Observation<OR> + TensorConvertible<OR> + Clone,
     A: BoundedAction<AR>,
 {
     let mut snapshot = env.reset().map_err(env_to_err)?;
@@ -187,8 +184,8 @@ fn env_to_err(err: rlevo_core::environment::EnvironmentError) -> DdpgAgentError 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::Device;
 
-    use burn::backend::{Autodiff, Flex};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::environment::EpisodeStatus;
@@ -196,8 +193,6 @@ mod tests {
     use crate::algorithms::bootstrap_mask::{
         ContinuousMaskEnv, MaskContinuousAction, MaskObservation, TinyCritic,
     };
-
-    type TestAdBackend = Autodiff<Flex>;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -213,18 +208,17 @@ mod tests {
     /// ever runs — this guard is about *which predicate reaches `remember`*,
     /// not about learning.
     fn recorded_masks(end_status: EpisodeStatus) -> Vec<bool> {
-        let device = Default::default();
+        let device = Device::flex();
         let config = DdpgTrainingConfig {
             learning_starts: 1_000_000,
             replay_buffer_capacity: 64,
             ..DdpgTrainingConfig::default()
         };
-        let actor = TinyActor::<TestAdBackend>::new(&device);
-        let critic = TinyCritic::<TestAdBackend>::new(&device);
+        let actor = TinyActor::new(&device);
+        let critic = TinyCritic::new(&device);
         let mut agent = DdpgAgent::<
-            TestAdBackend,
-            TinyActor<TestAdBackend>,
-            TinyCritic<TestAdBackend>,
+            TinyActor,
+            TinyCritic,
             MaskObservation,
             MaskContinuousAction,
             1,

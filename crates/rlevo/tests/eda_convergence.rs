@@ -22,8 +22,7 @@
 //! Runs are bit-deterministic per seed (host-RNG sampling only), so
 //! these gates cannot flake run-to-run on a given platform.
 
-use burn::backend::Flex;
-
+use burn::tensor::Device;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
 use rlevo_core::objective::ObjectiveSense;
@@ -41,8 +40,6 @@ use rlevo_evolution::{
     UnivariateBernoulli, UnivariateGaussian,
 };
 
-type B = Flex;
-
 const DIM: usize = 10;
 const POP_SIZE: usize = 50;
 const SELECTION_RATIO: f32 = 0.5;
@@ -59,7 +56,7 @@ fn run<M, L>(
     seed: u64,
 ) -> f32
 where
-    M: ProbabilityModel<B> + 'static,
+    M: ProbabilityModel + 'static,
     L: Landscape + 'static,
 {
     run_config(
@@ -88,17 +85,17 @@ fn run_config<M, L>(
     seed: u64,
 ) -> f32
 where
-    M: ProbabilityModel<B> + 'static,
+    M: ProbabilityModel + 'static,
     L: Landscape + 'static,
 {
-    let device = Default::default();
+    let device = Device::flex();
     let params = EdaParams {
         pop_size,
         selection_ratio,
         bounds,
         model: model_params,
     };
-    let mut evo_loop = EvolutionaryLoop::<B, EdaStrategy<B, M>, _>::new(
+    let mut evo_loop = EvolutionaryLoop::<EdaStrategy<M>, _>::new(
         EdaStrategy::new(model),
         params,
         FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
