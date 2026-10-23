@@ -512,10 +512,8 @@ fn build_population_snapshot(
 /// reader would have to know which way the flag points. With the check
 /// separate, the driving loop reads as what it does, and it checks *before*
 /// it runs: a budget of zero runs no generation. `is_done` is also the
-/// question an episode loop asks of a
-/// [`Snapshot`](rlevo_core::environment::Snapshot), the result of one
-/// environment step, so an evolutionary run and an episode are stopped by the
-/// same word.
+/// question an episode loop asks of the status an environment step returns,
+/// so an evolutionary run and an episode are stopped by the same word.
 ///
 /// **`step` does not return the metrics either.** Most callers only run to
 /// the budget and read the result once at the end. One who wants each
