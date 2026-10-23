@@ -4,12 +4,11 @@
 //! `rlevo-harness`, which itself doesn't compile to `wasm32-unknown-unknown`
 //! because `rand` pulls in `getrandom`, which needs its `wasm_js` feature
 //! there. Rather than restructure the workspace, the client redeclares the
-//! wire types here. The cross-crate compatibility test in `rlevo-harness`
+//! wire types here. This crate's cross-crate compatibility test
 //! (`tests/wire_format_compat.rs`) round-trips a populated
 //! `EpisodeRecord` between the two representations to guarantee they
-//! stay byte-identical. The test compiles only under the harness's
-//! `record` feature, which is not a default: `cargo xtask test-fast`
-//! enables it, and a plain `cargo test` does not run the test.
+//! stay byte-identical. It reaches the harness through a dev-dependency
+//! with the `record` feature on, so a plain `cargo test` runs it.
 //!
 //! **Sync contract:** these struct/enum definitions MUST stay in
 //! lockstep with `rlevo-harness/src/record/schema.rs`. Field order,
@@ -21,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 // ---- Mirror of rlevo_core::render::styled (kept thin; the cross-crate
-// compat test in rlevo-harness guards every field). -----------------
+// compat test in tests/wire_format_compat.rs guards every field). ---
 
 /// Wire mirror of `rlevo_core::render::StyledFrame` — one complete rendered frame.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -391,8 +390,8 @@ pub struct Classic2DPayload {
 /// | 6 | Added [`EpisodeKind`] to [`EpisodeRecordHeader`]; added run-provenance fields (`algorithm`, `rlevo_version`, `rustc_version`, `burn_version`, `platform`, `git_commit`, `git_dirty`, `device`, `num_seeds`, `success_threshold`) and `checkpoints` ([`CheckpointRef`]) to [`RunManifest`]. Defined by ADR 0014. |
 /// | 7 | Added [`ObjectiveSense`] and the `objective_sense` field to [`RunManifest`]; orients best/worst report transforms. |
 // Mirror of `rlevo-harness::record::FORMAT_VERSION`.  Keep in sync;
-// the const assertions in rlevo-harness/tests/wire_format_compat.rs
-// catch drift at compile time.
+// the const assertions in tests/wire_format_compat.rs catch drift at
+// compile time.
 pub const FORMAT_VERSION: u16 = 7;
 
 /// Oldest on-disk version this client accepts. Equal to

@@ -26,10 +26,11 @@ serde_json = "1"
 bincode = { version = "2", features = ["serde"] }
 base64 = "0.23"
 thiserror = { workspace = true }
-# The client mirrors the rlevo-core::render::styled types in wire.rs
-# rather than depending on rlevo-core directly. rlevo-core pulls in burn
-# (→ rand → getrandom) which doesn't WASM-build without extra feature
-# gating. The cross-crate compat test in rlevo-harness guards drift.
+# The client mirrors the rlevo-core::render::styled types and the harness's
+# record schema in wire.rs rather than depending on either crate: the
+# harness's `record` feature brings native-only dependencies, and the mirror
+# keeps the WASM build to the registry alone. tests/wire_format_compat.rs
+# guards drift.
 
 # Selects getrandom's `wasm_js` backend on wasm32. Nothing else compiles
 # getrandom for wasm32: leptos reaches it only through leptos_macro's uuid,
@@ -56,6 +57,11 @@ features = [
 # The native unit tests in src/inline_data.rs decode the host emitter's
 # `EpisodeMeta` JSON with it.
 serde_json = "1"
+# tests/wire_format_compat.rs: the native side of the wire-format mirror.
+# The edge points from this crate to the harness, never back, so the
+# harness's test build links no Leptos.
+rlevo-core = { path = "../rlevo-core" }
+rlevo-harness = { path = "../rlevo-harness", features = ["record"] }
 
 [lints]
 # The workspace lint set applies unchanged, pedantic clippy included; the

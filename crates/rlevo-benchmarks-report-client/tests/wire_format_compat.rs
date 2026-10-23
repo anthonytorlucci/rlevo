@@ -1,18 +1,23 @@
 //! Cross-crate guard for the report-client wire-format mirror.
 //!
-//! `rlevo-benchmarks-report-client/src/wire.rs` redeclares the bincode
-//! record types so the client can decode `.rec` payloads in the
-//! browser without depending on `rlevo-harness` (which has native-only
-//! transitive deps). This test exercises both sides on the same
-//! populated `EpisodeRecord` and asserts they round-trip identically.
+//! `src/wire.rs` redeclares the bincode record types so the client can
+//! decode `.rec` payloads in the browser without depending on
+//! `rlevo-harness` (which has native-only transitive deps). This test
+//! exercises both sides on the same populated `EpisodeRecord` and asserts
+//! they round-trip identically.
+//!
+//! It lives here, not in the harness, so the dependency points from the
+//! visualization layer to the production crate: this crate dev-depends on
+//! `rlevo-harness` with its `record` feature, and the harness's own test
+//! build links no Leptos. A plain `cargo test -p
+//! rlevo-benchmarks-report-client` runs it.
 //!
 //! If this test fails, the schema and the mirror have drifted. Update
 //! the mirror to match (and bump `FORMAT_VERSION` if the wire format
 //! genuinely changed).
 
-#![cfg(feature = "record")]
-
 use rlevo_benchmarks_report_client::wire as client;
+use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
 use rlevo_core::render::{
     BodyKind, CardTable, Classic2DBody, Classic2DRole, Classic2DSnapshot, Color, GridAgentMarker,
     GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
@@ -20,13 +25,16 @@ use rlevo_core::render::{
     TabularSnapshot,
 };
 use rlevo_harness::record::{
-    Box2dPayload as NativeBox2dPayload, Classic2DPayload as NativeClassic2DPayload,
-    EnvFamily as NativeFamily, EpisodeKind as NativeEpisodeKind, EpisodeRecord as NativeRecord,
+    Box2dPayload as NativeBox2dPayload, CheckpointFormat as NativeCheckpointFormat,
+    CheckpointKind as NativeCheckpointKind, CheckpointRef as NativeCheckpointRef,
+    Classic2DPayload as NativeClassic2DPayload, EnvFamily as NativeFamily,
+    EpisodeKind as NativeEpisodeKind, EpisodeRecord as NativeRecord,
     EpisodeRecordHeader as NativeHeader, FORMAT_VERSION as NATIVE_VERSION,
     FamilyPayload as NativePayload, FrameRecord as NativeFrame, GridPayload as NativeGridPayload,
     Landscape2DPayload as NativeLandscapePayload, Locomotion2DPayload as NativeLocomotionPayload,
     MetricSample as NativeMetric, PopulationSample as NativePopulationSample, RunId as NativeRunId,
-    TabularPayload as NativeTabularPayload, TrialRef as NativeTrialRef, bincode_config,
+    RunManifest as NativeManifest, TabularPayload as NativeTabularPayload,
+    TrialRef as NativeTrialRef, bincode_config,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -356,14 +364,7 @@ fn native_encode_decodes_via_client_wire_types() {
 }
 
 #[test]
-#[cfg(feature = "json")]
 fn manifest_provenance_and_checkpoints_mirror_via_json() {
-    use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
-    use rlevo_harness::record::{
-        CheckpointFormat as NativeCheckpointFormat, CheckpointKind as NativeCheckpointKind,
-        CheckpointRef as NativeCheckpointRef, RunManifest as NativeManifest,
-    };
-
     // The report client reads the manifest as JSON; guard that the v6
     // provenance fields + checkpoint list survive the host→client decode.
     let mut native = NativeManifest::new(NativeRunId("m6".into()), 7, NativeFamily::Classic, 1);

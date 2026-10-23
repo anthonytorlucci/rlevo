@@ -698,6 +698,16 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Changed**
 
+- **The report client owns its wire-format test.**
+  `tests/wire_format_compat.rs` moved from `rlevo-harness` to
+  `rlevo-benchmarks-report-client`, which now dev-depends on the harness
+  (with `record`) and on `rlevo-core`; the harness no longer dev-depends on
+  the client. The edge now points from the visualization layer to the
+  production crate. The harness's test build falls from 270 packages to
+  144, with no Leptos, and the client's rises from 172 to 265, Burn among
+  them, through the harness's `record` feature (`cargo tree -e normal,dev`).
+  A plain `cargo test -p rlevo-benchmarks-report-client` runs the test,
+  which needed the harness's `record` feature turned on by hand before.
 - **The `byoe-1-thermostat` probe adds one crate by hand, where it added
   two.** The harness crate leaves its manifest and its harness file names
   `rlevo::harness` (ADR 0084). Its step 2 now reports `1 additional

@@ -51,14 +51,16 @@ const FAST_CRATES: &[FastCrate] = &[
         name: "rlevo-core",
         features: &["burn"],
     },
-    // `tests/wire_format_compat.rs` (native `EpisodeRecord` vs. browser-client
-    // wire-format mirror parity) is `#![cfg(feature = "record")]`, and `record`
-    // is not among this crate's defaults (`json` only). Without the override
-    // the file compiles to nothing and the test never runs.
+    // The `record` module and its unit tests are behind `record`, which is
+    // not among this crate's defaults (`json` only). Without the override
+    // they compile to nothing and never run.
     FastCrate {
         name: "rlevo-harness",
         features: &["record"],
     },
+    // `tests/wire_format_compat.rs` (native `EpisodeRecord` vs. the client's
+    // wire-format mirror) needs no feature here: the client's dev-dependency
+    // on `rlevo-harness` turns `record` on.
     FastCrate {
         name: "rlevo-benchmarks-report-client",
         features: &[],
