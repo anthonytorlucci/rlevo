@@ -109,7 +109,6 @@ const NUM_ACTIONS: usize = 2;
 /// ```text
 /// pub struct PpoAgent<P, V, O, const OR: usize, const BOR: usize>
 /// where
-///     B: AutodiffBackend,                             --> Be = Autodiff<Flex>
 ///     P: PpoPolicy<BOR>,                           --> CategoricalPolicyHead
 ///     V: PpoValue<BOR>,                            --> ValueMlp
 ///     O: Observation<OR> + TensorConvertible<OR>,  --> CartPoleObservation

@@ -572,7 +572,7 @@ mod tests {
     use super::*;
 
     fn device() -> Device {
-        Default::default()
+        Device::flex()
     }
 
     /// Weights survive a flatten → unflatten → flatten round-trip for both archs.
