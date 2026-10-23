@@ -170,7 +170,6 @@ impl CuckooState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::cuckoo::{CuckooConfig, CuckooSearch};
 ///
 /// let strategy = CuckooSearch::new();

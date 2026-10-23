@@ -208,7 +208,6 @@ impl GwoState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConfig};
 ///
 /// let strategy = GreyWolfOptimizer::new();

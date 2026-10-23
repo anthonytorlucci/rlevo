@@ -74,7 +74,6 @@ use rand::Rng;
 /// # Examples
 ///
 /// ```
-/// use burn::backend::Flex;
 /// use burn::tensor::{Device, Tensor, TensorData};
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_evolution::ProbabilityModel;

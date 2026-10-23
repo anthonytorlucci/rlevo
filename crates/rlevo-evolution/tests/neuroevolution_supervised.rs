@@ -23,9 +23,6 @@ use rlevo_evolution::strategy::EvolutionaryLoop;
 
 /// `1 -> 16 -> 1` MLP with a tanh hidden activation — enough capacity to bend
 /// toward a sine curve.
-///
-/// The backend generic must be named `B`: Burn's `#[derive(Module)]` emits
-/// code that references `Device` by that literal name.
 #[derive(Module, Debug)]
 struct SineMlp {
     l1: Linear,

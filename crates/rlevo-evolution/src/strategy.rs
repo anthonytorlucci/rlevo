@@ -83,7 +83,6 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 /// only through [`Strategy::best`] and the tuple returns of `ask`/`tell`.
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use burn::tensor::{Device, TensorData};
 /// use rlevo_evolution::Strategy;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
@@ -99,10 +98,6 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 /// ```
 ///
 /// [`GeneticAlgorithm`]: crate::algorithms::ga::GeneticAlgorithm
-///
-/// # Type Parameters
-///
-/// - `B`: Burn backend.
 ///
 /// # What the loop that drives it does
 ///
@@ -467,7 +462,6 @@ fn build_population_snapshot(
 ///
 /// ```no_run
 /// use burn::tensor::Device;
-/// use burn::backend::Flex;
 /// use rlevo_core::fitness::Landscape;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use rlevo_evolution::fitness::FromLandscape;

@@ -27,7 +27,7 @@
 //! slices the active prefix of a (padded) flat weight row, unflattens it into
 //! the concrete `Vi`, and scores it. Dispatch is by `arch_id` index. The
 //! concrete variant types never appear in [`ArchNasStrategy`] or
-//! [`ArchNasFitnessFn`] generics — both are generic only over `B`.
+//! [`ArchNasFitnessFn`] generics — neither has a type parameter.
 //!
 //! # The alignment invariant
 //!
@@ -40,8 +40,9 @@
 //!
 //! # Gradient isolation and host RNG
 //!
-//! Every type here is generic over `B: Backend`, never `AutodiffBackend` —
-//! gradient isolation at the type level. All sampling
+//! Everything here runs forward only: candidates are rebuilt with
+//! [`ModuleReshaper::unflatten`](crate::param_reshaper::ModuleReshaper::unflatten),
+//! whose parameters never require gradients. All sampling
 //! (architecture ids, selection, crossover, weight perturbation) goes through
 //! [`seed_stream`] host-side `StdRng` substreams; the
 //! process-wide backend RNG is never touched (see [`crate::rng`]).
@@ -118,8 +119,8 @@ impl NasGenome {
 ///
 /// Built from a concrete `Module` variant `M` and a scorer `Fn(&M) -> f32`, it
 /// captures a [`ModuleReshaper<M>`](crate::param_reshaper::ModuleReshaper)
-/// in a boxed closure and exposes only `B`-generic operations. The concrete
-/// `M` is invisible to callers.
+/// in a boxed closure and exposes only tensor-in, tensor-out operations. The
+/// concrete `M` is invisible to callers.
 pub struct VariantEvaluator {
     num_params: usize,
     score_fn: Box<dyn Fn(Tensor<1>) -> f32 + Send + Sync>,
@@ -182,7 +183,7 @@ impl VariantEvaluator {
     }
 }
 
-/// Static configuration for an [`ArchNasStrategy`] run. No `B` generic.
+/// Static configuration for an [`ArchNasStrategy`] run.
 ///
 /// Produced by [`ArchNasBuilder::build`] so `per_variant_params` and
 /// `max_param_count` are derived from the registered variants and cannot drift
@@ -985,8 +986,7 @@ mod tests {
         let mut builder = ArchNasBuilder::new();
         builder.add_variant(ShallowMlp::new(4, &device), |m: &ShallowMlp| {
             #[allow(clippy::cast_precision_loss)]
-            let n =
-                ModuleReshaper::new(ShallowMlp::new(4, &Default::default())).num_params() as f32;
+            let n = ModuleReshaper::new(ShallowMlp::new(4, &Device::flex())).num_params() as f32;
             // forward to make the module non-dead; result unused beyond shape.
             let _ = &m.l1;
             n
@@ -1066,8 +1066,8 @@ mod tests {
         // monotonicity, not optimisation quality.
         let mut builder = ArchNasBuilder::new();
         let sq = |m: &ShallowMlp| {
-            let r = ModuleReshaper::new(ShallowMlp::new(4, &Default::default()));
-            let flat = r.flatten(m, &Default::default());
+            let r = ModuleReshaper::new(ShallowMlp::new(4, &Device::flex()));
+            let flat = r.flatten(m, &Device::flex());
             flat.clone()
                 .mul(flat)
                 .sum()
@@ -1076,8 +1076,8 @@ mod tests {
                 .expect("output host-read of a tensor this test just built")[0]
         };
         let sq_deep = |m: &DeepMlp| {
-            let r = ModuleReshaper::new(DeepMlp::new(&Default::default()));
-            let flat = r.flatten(m, &Default::default());
+            let r = ModuleReshaper::new(DeepMlp::new(&Device::flex()));
+            let flat = r.flatten(m, &Device::flex());
             flat.clone()
                 .mul(flat)
                 .sum()

@@ -175,7 +175,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use burn::tensor::Tensor;
+    use burn::tensor::{Device, Tensor};
     use rlevo_core::bounds::Bounds;
     use rlevo_core::objective::ObjectiveSense;
     use rlevo_core::rate::NonNegativeRate;
@@ -222,7 +222,7 @@ mod tests {
             params,
             SphereCost,
             42,
-            Default::default(),
+            Device::flex(),
             max_generations,
         )
         .expect("valid params")

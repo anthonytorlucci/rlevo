@@ -140,7 +140,6 @@ pub struct BinaryGaState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::ga_binary::{BinaryGaConfig, BinaryGeneticAlgorithm};
 ///
 /// let strategy = BinaryGeneticAlgorithm::new();

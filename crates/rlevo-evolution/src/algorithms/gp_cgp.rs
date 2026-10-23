@@ -156,7 +156,6 @@ pub struct CgpState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::gp_cgp::{CartesianGeneticProgramming, CgpConfig};
 ///
 /// let strategy = CartesianGeneticProgramming::new();

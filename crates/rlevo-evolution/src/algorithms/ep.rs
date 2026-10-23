@@ -167,7 +167,6 @@ pub struct EpState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 ///
 /// let strategy = EvolutionaryProgramming::new();

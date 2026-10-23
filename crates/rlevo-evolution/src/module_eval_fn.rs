@@ -30,9 +30,10 @@ use rlevo_core::objective::ObjectiveSense;
 ///
 /// # Gradient isolation
 ///
-/// `B: Backend`, not `AutodiffBackend`. The reconstructed modules carry no
-/// gradient tracking — `scorer` performs forward-only work (loss, rollout
-/// return, …).
+/// The reconstructed modules carry no gradient tracking — `scorer` performs
+/// forward-only work (loss, rollout return, …), and
+/// [`ModuleReshaper::unflatten`] builds parameters that never require
+/// gradients.
 ///
 /// # Type Parameters
 ///
@@ -157,7 +158,7 @@ mod tests {
 
         // Scorer: forward a fixed input [1, 1] through the reconstructed net and
         // return the scalar output — deterministic given the genome.
-        let dev = device;
+        let dev = device.clone();
         let mut eval = ModuleEvalFn::new(reshaper, move |m: &TestTiny| {
             let x = Tensor::<2>::from_data(TensorData::new(vec![1.0f32, 1.0], [1, 2]), &dev);
             let y = m.forward(x);

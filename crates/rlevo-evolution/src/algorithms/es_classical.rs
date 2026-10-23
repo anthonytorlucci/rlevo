@@ -283,7 +283,6 @@ impl EsState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 ///
 /// let strategy = EvolutionStrategy::new();

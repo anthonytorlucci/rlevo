@@ -112,7 +112,6 @@ pub struct AcoRState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::aco_r::{AcoRConfig, AntColonyReal};
 ///
 /// let strategy = AntColonyReal::new();
@@ -501,8 +500,8 @@ mod tests {
     /// Builds a 3-row archive whose weights force the roulette in `ask` to always select archive
     /// row 0 (`weights = [1, 0, 0]` `$\Rightarrow$` CDF `[1, 1, 1]` `$\Rightarrow$` `pick(u) == 0`
     /// for every `$u \in [0, 1)$`), so the sampled mean is deterministically `archive[0, :]`.
-    fn state_forcing_row_zero(archive_vals: Vec<f32>, device: Device) -> AcoRState {
-        let archive: Tensor<2> = Tensor::from_data(TensorData::new(archive_vals, [3, 2]), &device);
+    fn state_forcing_row_zero(archive_vals: Vec<f32>, device: &Device) -> AcoRState {
+        let archive: Tensor<2> = Tensor::from_data(TensorData::new(archive_vals, [3, 2]), device);
         AcoRState {
             archive,
             // Non-empty so `ask` takes the sampling path, not the first-call
@@ -526,7 +525,7 @@ mod tests {
         let strategy: AntColonyReal = AntColonyReal::new();
         let params: AcoRConfig = AcoRConfig::default_for(3, 4, 2);
         let state: AcoRState =
-            state_forcing_row_zero(vec![1.0, 2.0, f32::INFINITY, 0.5, -1.0, -2.0], device);
+            state_forcing_row_zero(vec![1.0, 2.0, f32::INFINITY, 0.5, -1.0, -2.0], &device);
 
         let mut rng: StdRng = StdRng::seed_from_u64(21);
         // Must not panic.
@@ -558,7 +557,7 @@ mod tests {
         let strategy: AntColonyReal = AntColonyReal::new();
         let params: AcoRConfig = AcoRConfig::default_for(3, 4, 2);
         let state: AcoRState =
-            state_forcing_row_zero(vec![f32::NAN, 2.0, 1.0, 0.5, -1.0, -2.0], device);
+            state_forcing_row_zero(vec![f32::NAN, 2.0, 1.0, 0.5, -1.0, -2.0], &device);
 
         let mut rng: StdRng = StdRng::seed_from_u64(23);
         // Must not panic despite the NaN in the read path.

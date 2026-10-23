@@ -165,7 +165,6 @@ pub struct GaState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_core::bounds::Bounds;
 /// use rlevo_core::rate::NonNegativeRate;
 /// use rlevo_evolution::algorithms::ga::{

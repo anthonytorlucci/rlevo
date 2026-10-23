@@ -45,7 +45,7 @@ impl<PA, PB> Validate for CompetitiveCoEAParams<PA, PB> {
 
 /// Competitive co-evolutionary algorithm over two adversarial populations.
 ///
-/// Generic over the backend `B`, the two inner strategies `SA`/`SB` (each
+/// Generic over the two inner strategies `SA`/`SB` (each
 /// producing `Tensor<2>` genomes), and the [`CoupledFitness`] `F` that
 /// scores them against each other. Implements
 /// [`CoEvolutionaryAlgorithm`] so it can be driven by

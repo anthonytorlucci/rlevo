@@ -108,21 +108,12 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// `fitness_fn` directly — or seed from a hint — should apply the same
 /// sanitization rather than let a `NaN` reach their best-so-far tracker.
 ///
-/// # Type parameters
-///
-/// - `B`: Burn backend. **Currently unused** by every reference searcher (they
-///   are pure host code) and present only to reserve the seam for future
-///   on-device searchers — e.g. a batched line search that materializes probe
-///   tensors directly. Keeping `B` on the trait now avoids a breaking signature
-///   change when such a searcher lands.
-///
 /// # Example
 ///
 /// A one-line searcher that simply re-evaluates the input (the trivial,
 /// always-valid refinement) illustrates the contract:
 ///
 /// ```
-/// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, Rng, SeedableRng};
 /// use rlevo_evolution::local_search::LocalSearch;
 ///

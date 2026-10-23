@@ -34,11 +34,12 @@
 //!
 //! # Gradient isolation
 //!
-//! This module is generic over `B: Backend`, **not** `AutodiffBackend`.
-//! Tensors produced by [`unflatten`](ModuleReshaper::unflatten) do not require
-//! gradients. Callers holding an autodiff module call `.valid()` before
-//! constructing a [`ModuleReshaper`], so the constraint is enforced at the
-//! type level rather than by convention.
+//! Parameters built by [`unflatten`](ModuleReshaper::unflatten) never require
+//! gradients, whatever the template: each is a slice of the flat row, on the
+//! row's device, so a row on a plain device gives a plain module (measured on
+//! Burn 0.22). Since Burn 0.22 made autodiff device state, no type enforces
+//! this; a caller holding a training module passes its
+//! [`valid`](Module::valid) snapshot as the template.
 
 use burn::module::{Module, ModuleMapper, ModuleVisitor, Param};
 use burn::tensor::{Device, Tensor};
@@ -69,11 +70,12 @@ use burn::tensor::{Device, Tensor};
 ///
 /// See the [`module_eval_fn`](crate::module_eval_fn) tests for a runnable
 /// end-to-end example of `flatten`/`unflatten` in the weight-only pipeline.
+// Cloning is the enabling half of the single-source pattern documented on
+// `ModuleReshaper`.
+#[derive(Clone)]
 pub struct ModuleReshaper<M: Module> {
     template: M,
     num_params: usize,
-    // `fn() -> B` keeps the marker `Send + Sync` for any `B` and encodes that
-    // `B` is produced, never consumed — mirroring the crate's other markers.
 }
 
 impl<M: Module> std::fmt::Debug for ModuleReshaper<M> {
@@ -81,21 +83,6 @@ impl<M: Module> std::fmt::Debug for ModuleReshaper<M> {
         f.debug_struct("ModuleReshaper")
             .field("num_params", &self.num_params)
             .finish_non_exhaustive()
-    }
-}
-
-// Hand-written, not `#[derive(Clone)]`: the derive would emit a spurious
-// `where B: Clone` bound, but `B: Backend` does not imply `B: Clone` and the
-// only `B` this struct stores is `PhantomData<fn() -> B>` (which is `Clone` for
-// any `B`). Bound instead on what is actually cloned — `template`, via `M`'s
-// `Module: Clone` supertrait — and copy the `num_params` scalar. This is the
-// enabling half of the single-source pattern documented on `ModuleReshaper`.
-impl<M: Module> Clone for ModuleReshaper<M> {
-    fn clone(&self) -> Self {
-        Self {
-            template: self.template.clone(),
-            num_params: self.num_params,
-        }
     }
 }
 
@@ -412,8 +399,7 @@ mod tests {
         }
     }
 
-    /// Two-arm enum with heterogeneous `Module` variants. The backend generic
-    /// must be named literally `B` for `#[derive(Module)]` to succeed.
+    /// Two-arm enum with heterogeneous `Module` variants.
     // This is a derive-capability probe, not a runtime data structure — the
     // size disparity between arms is irrelevant here.
     #[allow(clippy::large_enum_variant)]

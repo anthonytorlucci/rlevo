@@ -49,8 +49,8 @@
 //!
 //! # Gradient isolation
 //!
-//! Generic over `B: Backend`, never `AutodiffBackend`. The phenotype is a
-//! forward-only bare-tensor evaluator; no autodiff graph is ever built.
+//! The phenotype is a forward-only bare-tensor evaluator; no autodiff graph is
+//! ever built.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

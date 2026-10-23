@@ -115,8 +115,8 @@ fn wgpu_matches_flex_on_sphere_d10() {
 
     // Run flex first so the host seed state is deterministic; wgpu
     // has its own per-device stream and doesn't disturb it.
-    let flex_ga = run_sphere_ga(SEED, GENS, Default::default());
-    let flex_pso = run_sphere_pso(SEED, GENS, Default::default());
+    let flex_ga = run_sphere_ga(SEED, GENS, Device::flex());
+    let flex_pso = run_sphere_pso(SEED, GENS, Device::flex());
 
     // Initializing a wgpu device aborts (not a catchable error) on hosts
     // without a GPU adapter: cubecl-wgpu panics on a worker thread and the

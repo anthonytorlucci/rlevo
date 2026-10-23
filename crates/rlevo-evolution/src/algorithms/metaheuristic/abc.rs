@@ -224,7 +224,6 @@ impl AbcState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
 ///
 /// let strategy = ArtificialBeeColony::new();

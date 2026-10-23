@@ -242,7 +242,6 @@ impl WoaState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
 ///
 /// let strategy = WhaleOptimization::new();

@@ -183,7 +183,6 @@ pub struct PsoState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 ///
 /// let strategy = ParticleSwarm::new();

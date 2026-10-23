@@ -390,7 +390,6 @@ pub(crate) fn sanitized_sum(values: impl IntoIterator<Item = f32>) -> f64 {
 /// # Examples
 ///
 /// ```
-/// use burn::backend::Flex;
 /// use burn::tensor::{Device, Tensor};
 /// use rlevo_evolution::fitness::sanitize_fitness_tensor;
 ///

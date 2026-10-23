@@ -185,7 +185,7 @@ pub struct CooperativeState<StA, StB> {
 
 /// Cooperative (CCGA-style) co-evolutionary algorithm.
 ///
-/// Generic over the backend `B`, the two inner strategies `SA`/`SB` (each
+/// Generic over the two inner strategies `SA`/`SB` (each
 /// producing `Tensor<2>` sub-genomes), and a stateless row-wise
 /// [`CoupledFitness`] `F` evaluating assembled full-dimensional candidates.
 pub struct CooperativeCoEA<SA, SB, F>

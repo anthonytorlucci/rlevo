@@ -185,7 +185,6 @@ pub struct DeState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 ///
 /// let strategy = DifferentialEvolution::new();

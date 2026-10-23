@@ -51,7 +51,6 @@ use rlevo_core::objective::ObjectiveSense;
 /// (a natural maximise):
 ///
 /// ```
-/// use burn::backend::Flex;
 /// use burn::tensor::{Device, Tensor, TensorData};
 /// use rlevo_core::objective::ObjectiveSense;
 /// use rlevo_evolution::coevolution::CoupledFitness;
@@ -145,16 +144,6 @@ mod tests {
             ObjectiveSense::Maximize
         }
     }
-
-    /// `CoupledFitness` compiles on the CPU (Flex / ndarray-family)
-    /// **and** wgpu backends with a trivial test implementor. This is a
-    /// compile-time monomorphization assertion — it never runs (no wgpu device
-    /// is created), so it is cheap and CI-safe.
-    const _: fn() = || {
-        fn assert_coupled<F: CoupledFitness>() {}
-        assert_coupled::<RowSum>();
-        assert_coupled::<RowSum>();
-    };
 
     #[test]
     fn trivial_implementor_evaluates_and_preserves_row_order() {

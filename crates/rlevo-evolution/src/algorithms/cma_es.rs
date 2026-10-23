@@ -417,7 +417,6 @@ impl CmaEsState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::cma_es::{CmaEsConfig, CmaEs};
 ///
 /// let strategy = CmaEs::new();

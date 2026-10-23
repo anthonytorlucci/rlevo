@@ -287,7 +287,6 @@ impl CmsaEsState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::cmsa_es::{CmsaEsConfig, CmsaEs};
 ///
 /// let strategy = CmsaEs::new();
@@ -788,10 +787,8 @@ mod tests {
 
     #[test]
     fn accessors_round_trip_constructor_values() {
-        let genome = Tensor::<2>::from_data(
-            TensorData::new(vec![1.0f32, 2.0], [1, 2]),
-            &Default::default(),
-        );
+        let genome =
+            Tensor::<2>::from_data(TensorData::new(vec![1.0f32, 2.0], [1, 2]), &Device::flex());
         let state = CmsaEsState::try_new(
             vec![1.0, -2.0],
             vec![2.0, 0.0, 0.0, 3.0],

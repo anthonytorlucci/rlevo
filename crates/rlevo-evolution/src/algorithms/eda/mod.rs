@@ -143,7 +143,6 @@ pub struct EdaState<MS> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::eda::{EdaParams, EdaStrategy, UnivariateGaussian};
 /// use rlevo_evolution::algorithms::eda::univariate_gaussian::UnivariateGaussianParams;
 /// use rlevo_core::bounds::Bounds;

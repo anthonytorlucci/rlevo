@@ -161,7 +161,6 @@ pub struct SalpState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 ///
 /// let strategy = SalpSwarm::new();

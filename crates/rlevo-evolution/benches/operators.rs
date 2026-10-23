@@ -15,7 +15,7 @@ use rand::rngs::StdRng;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::ops::selection::tournament_select;
-use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
+use rlevo_evolution::strategy::EvolutionaryLoop;
 
 struct ZeroFitness;
 impl BatchFitnessFn<Tensor<2>> for ZeroFitness {
@@ -67,7 +67,7 @@ fn bench_de_generation(c: &mut Criterion) {
                         params.clone(),
                         ZeroFitness,
                         11,
-                        device,
+                        device.clone(),
                         1_000,
                     )
                     .expect("valid params");

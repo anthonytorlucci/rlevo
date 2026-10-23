@@ -180,7 +180,6 @@ impl HillClimbingParams {
 /// # Example
 ///
 /// ```
-/// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_core::bounds::Bounds;
 /// use rlevo_evolution::local_search::{HillClimbing, HillClimbingParams, LocalSearch};

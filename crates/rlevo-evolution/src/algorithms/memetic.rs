@@ -5,7 +5,7 @@
 //! genomes between an inner strategy's `ask` and `tell`. [`MemeticWrapper`]
 //! makes that interleaving a *zero-cost-to-adopt* upgrade: wrap any existing
 //! `Strategy<Genome = Tensor<2>>` together with any
-//! [`LocalSearch`](crate::local_search::LocalSearch) and the wrapper itself
+//! [`LocalSearch`] and the wrapper itself
 //! implements `Strategy`, so it drops straight into
 //! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop).
 //!
@@ -235,7 +235,6 @@ impl<St> MemeticState<St> {
 /// of generations by hand:
 ///
 /// ```
-/// use burn::backend::Flex;
 /// use burn::tensor::{Device, Tensor, TensorData};
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_evolution::Strategy;

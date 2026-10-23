@@ -231,7 +231,6 @@ impl BatState {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::bat::{BatAlgorithm, BatConfig};
 ///
 /// let strategy = BatAlgorithm::new();
@@ -678,10 +677,10 @@ mod tests {
     /// Builds a steady-state (generation `$\geq$` 1) bat swarm at the origin with a non-empty
     /// fitness cache and a populated `best_genome`, so `ask` takes the velocity-update path rather
     /// than the bootstrap early return.
-    fn steady_state(pop: usize, d: usize, device: Device) -> BatState {
-        let positions = Tensor::<2>::zeros([pop, d], &device);
-        let velocities = Tensor::<2>::zeros([pop, d], &device);
-        let best = Tensor::<2>::zeros([1, d], &device);
+    fn steady_state(pop: usize, d: usize, device: &Device) -> BatState {
+        let positions = Tensor::<2>::zeros([pop, d], device);
+        let velocities = Tensor::<2>::zeros([pop, d], device);
+        let best = Tensor::<2>::zeros([1, d], device);
         BatState::try_new(
             positions,
             velocities,
@@ -741,7 +740,7 @@ mod tests {
         let strategy = BatAlgorithm::new();
         let params = BatConfig::default_for(10, 4);
         let (lo, hi): (f32, f32) = params.bounds.into();
-        let state = steady_state(10, 4, device);
+        let state = steady_state(10, 4, &device);
         for seed in 0..32 {
             let mut rng = StdRng::seed_from_u64(seed);
             let (cand, _next) = strategy.ask(&params, &state, &mut rng, &device);

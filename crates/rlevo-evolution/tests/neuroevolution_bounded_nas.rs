@@ -8,8 +8,8 @@
 //! three MLP variants of differing depth compete to fit the four XOR points
 //! while their weights are co-evolved.
 //!
-//! Backend is `Flex` and every type is `B: Backend` only — no `AutodiffBackend`
-//! anywhere (gradient isolation at the type level).
+//! Everything runs on a plain `Flex` device, forward only: no module here is
+//! switched to training, so no autodiff graph is built.
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
@@ -93,15 +93,13 @@ impl DeepMlp {
 }
 
 /// The four XOR points as a `[4, 2]` input / `[4, 1]` target pair.
-fn xor_dataset(device: Device) -> (Tensor<2>, Tensor<2>) {
+fn xor_dataset(device: &Device) -> (Tensor<2>, Tensor<2>) {
     let inputs = Tensor::<2>::from_data(
         TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),
-        &device,
+        device,
     );
-    let targets = Tensor::<2>::from_data(
-        TensorData::new(vec![0.0f32, 1.0, 1.0, 0.0], [4, 1]),
-        &device,
-    );
+    let targets =
+        Tensor::<2>::from_data(TensorData::new(vec![0.0f32, 1.0, 1.0, 0.0], [4, 1]), device);
     (inputs, targets)
 }
 
@@ -115,7 +113,7 @@ fn mse(preds: Tensor<2>, targets: &Tensor<2>) -> f32 {
 #[test]
 fn arch_nas_selects_architecture_and_improves_on_xor() {
     let device: Device = Device::flex();
-    let (inputs, targets) = xor_dataset(device);
+    let (inputs, targets) = xor_dataset(&device);
 
     // Per-variant scorers: forward the four XOR points, return `$-\text{MSE}$` — a canonical
     // maximise fitness (higher is better; arch_nas is maximise-native and this test drives the
