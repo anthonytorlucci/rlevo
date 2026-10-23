@@ -51,14 +51,15 @@ pub fn flex_guard() -> FlexGuard {
     FlexGuard(BACKEND_LOCK.lock().expect("backend lock poisoned"))
 }
 
-/// Returns a default device for backend `B` after seeding its global RNG.
+/// Returns the `Flex` device after seeding its global RNG.
 ///
-/// Two calls with the same `seed` produce bit-for-bit identical subsequent
-/// weight initialisation, provided the caller is holding the [`flex_guard`]
-/// lock so no other test reseeds in between.
+/// The device is plain: an agent switches autodiff on itself. Two calls with
+/// the same `seed` produce bit-for-bit identical subsequent weight
+/// initialisation, provided the caller is holding the [`flex_guard`] lock so
+/// no other test reseeds in between.
 #[must_use]
 pub fn seeded_device(seed: u64) -> Device {
-    let device = Device::default();
+    let device = Device::flex();
     device.seed(seed);
     device
 }
