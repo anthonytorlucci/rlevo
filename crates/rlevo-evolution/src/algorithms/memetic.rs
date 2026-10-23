@@ -4,9 +4,9 @@
 //! [`Strategy`] with a per-individual [`LocalSearch`] that polishes promising
 //! genomes between an inner strategy's `ask` and `tell`. [`MemeticWrapper`]
 //! makes that interleaving a *zero-cost-to-adopt* upgrade: wrap any existing
-//! `Strategy<B, Genome = Tensor<B, 2>>` together with any
-//! [`LocalSearch<B>`](crate::local_search::LocalSearch) and the wrapper itself
-//! implements `Strategy<B>`, so it drops straight into
+//! `Strategy<Genome = Tensor<2>>` together with any
+//! [`LocalSearch`] and the wrapper itself
+//! implements `Strategy`, so it drops straight into
 //! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop).
 //!
 //! # Lamarckian / Baldwinian / Partial refinement
@@ -39,21 +39,20 @@
 //! single-loop driving model (one `tell` in flight at a time), so it costs an
 //! uncontended lock/unlock per generation and never blocks. A reader writing
 //! code generic over
-//! `S: Strategy<B>` should be aware that `MemeticWrapper` is *not* a pure,
+//! `S: Strategy` should be aware that `MemeticWrapper` is *not* a pure,
 //! lock-free strategy like the others in this crate.
 //!
 //! # RNG discipline
 //!
 //! All refinement randomness flows through [`seed_stream`]; the wrapper never
 //! touches the process-wide backend RNG. See the
-//! [`tell`](MemeticWrapper#impl-Strategy<B>-for-MemeticWrapper<B,+S,+L,+F>)
+//! [`tell`](MemeticWrapper#impl-Strategy-for-MemeticWrapper<+S,+L,+F>)
 //! flow for the two-stream scheme that makes `Partial(1.0)` bit-identical to
 //! `Lamarckian` and `Partial(0.0)` to `Baldwinian`.
 
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use parking_lot::Mutex;
 use rand::{Rng, RngExt};
 
@@ -212,7 +211,7 @@ impl<St> MemeticState<St> {
 
 /// Wraps an inner [`Strategy`] with per-individual [`LocalSearch`] refinement.
 ///
-/// `MemeticWrapper` is itself a `Strategy<B, Genome = Tensor<B, 2>>`, so it
+/// `MemeticWrapper` is itself a `Strategy<Genome = Tensor<2>>`, so it
 /// composes with any real-valued strategy and drops into
 /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) unchanged.
 ///
@@ -236,8 +235,7 @@ impl<St> MemeticState<St> {
 /// of generations by hand:
 ///
 /// ```
-/// use burn::backend::Flex;
-/// use burn::tensor::{Tensor, TensorData, backend::Backend};
+/// use burn::tensor::{Device, Tensor, TensorData};
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_evolution::Strategy;
 /// use rlevo_evolution::algorithms::de::{DeConfig, DifferentialEvolution};
@@ -251,22 +249,22 @@ impl<St> MemeticState<St> {
 /// // Sphere objective: sum of squares per row (a cost → Minimize).
 /// use rlevo_core::objective::ObjectiveSense;
 /// struct Sphere;
-/// impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for Sphere {
+/// impl BatchFitnessFn<Tensor<2>> for Sphere {
 ///     fn evaluate_batch(
 ///         &mut self,
-///         pop: &Tensor<B, 2>,
-///         device: &B::Device,
-///     ) -> Tensor<B, 1> {
+///         pop: &Tensor<2>,
+///         device: &Device,
+///     ) -> Tensor<1> {
 ///         let squared = pop.clone() * pop.clone();
 ///         squared.sum_dim(1).squeeze_dim::<1>(1)
 ///     }
 ///     fn sense(&self) -> ObjectiveSense { ObjectiveSense::Minimize }
 /// }
 ///
-/// let device = Default::default();
+/// let device = Device::flex();
 /// let bounds = Bounds::new(-5.12, 5.12);
-/// let strategy = MemeticWrapper::<Flex, _, _, _>::new(
-///     DifferentialEvolution::<Flex>::new(),
+/// let strategy = MemeticWrapper::new(
+///     DifferentialEvolution::new(),
 ///     HillClimbing,
 ///     Sphere,
 /// );
@@ -289,25 +287,22 @@ impl<St> MemeticState<St> {
 /// }
 /// assert!(strategy.best(&state).is_some());
 /// ```
-pub struct MemeticWrapper<B, S, L, F>
+pub struct MemeticWrapper<S, L, F>
 where
-    B: Backend,
-    S: Strategy<B, Genome = Tensor<B, 2>>,
-    L: LocalSearch<B>,
-    F: BatchFitnessFn<B, Tensor<B, 2>>,
+    S: Strategy<Genome = Tensor<2>>,
+    L: LocalSearch,
+    F: BatchFitnessFn<Tensor<2>>,
 {
     inner: S,
     local: L,
     fitness: Mutex<F>,
-    _backend: PhantomData<fn() -> B>,
 }
 
-impl<B, S, L, F> MemeticWrapper<B, S, L, F>
+impl<S, L, F> MemeticWrapper<S, L, F>
 where
-    B: Backend,
-    S: Strategy<B, Genome = Tensor<B, 2>>,
-    L: LocalSearch<B>,
-    F: BatchFitnessFn<B, Tensor<B, 2>>,
+    S: Strategy<Genome = Tensor<2>>,
+    L: LocalSearch,
+    F: BatchFitnessFn<Tensor<2>>,
 {
     /// Builds a memetic wrapper from an inner strategy, a local searcher, and a
     /// fitness function used **only** for local-search probes.
@@ -321,7 +316,6 @@ where
             inner,
             local,
             fitness: Mutex::new(fitness),
-            _backend: PhantomData,
         }
     }
 }
@@ -329,12 +323,11 @@ where
 // `F` is not `Debug`; mirror the `EvolutionaryLoop` precedent and use
 // `finish_non_exhaustive()` so the `missing_debug_implementations` lint is
 // satisfied without bounding `F: Debug`.
-impl<B, S, L, F> Debug for MemeticWrapper<B, S, L, F>
+impl<S, L, F> Debug for MemeticWrapper<S, L, F>
 where
-    B: Backend,
-    S: Strategy<B, Genome = Tensor<B, 2>>,
-    L: LocalSearch<B>,
-    F: BatchFitnessFn<B, Tensor<B, 2>>,
+    S: Strategy<Genome = Tensor<2>>,
+    L: LocalSearch,
+    F: BatchFitnessFn<Tensor<2>>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // `S`/`L`/`F` are not bounded `Debug`; mirror `EvolutionaryLoop` and
@@ -355,50 +348,43 @@ where
 /// also canonical, so both ends agree. This is deliberately the slow path —
 /// local search re-uploads one row at a time — and is private plumbing
 /// internal to the wrapper.
-struct RowFitness<'a, B: Backend, F> {
+struct RowFitness<'a, F> {
     inner: &'a mut F,
-    device: &'a B::Device,
+    device: &'a Device,
     sense: ObjectiveSense,
 }
 
-impl<B, F> RowFitness<'_, B, F>
+impl<F> RowFitness<'_, F>
 where
-    B: Backend,
-    F: BatchFitnessFn<B, Tensor<B, 2>>,
+    F: BatchFitnessFn<Tensor<2>>,
 {
     fn eval(&mut self, member: &[f32]) -> f32 {
         let dim: usize = member.len();
         let data: TensorData = TensorData::new(member.to_vec(), [1, dim]);
-        let row: Tensor<B, 2> = Tensor::<B, 2>::from_data(data, self.device);
-        let fitness: Tensor<B, 1> = self.inner.evaluate_batch(&row, self.device);
+        let row: Tensor<2> = Tensor::<2>::from_data(data, self.device);
+        let fitness: Tensor<1> = self.inner.evaluate_batch(&row, self.device);
         let values: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
         let natural = values.first().copied().unwrap_or(f32::NEG_INFINITY);
         self.sense.to_canonical(natural)
     }
 }
 
-impl<B, S, L, F> Strategy<B> for MemeticWrapper<B, S, L, F>
+impl<S, L, F> Strategy for MemeticWrapper<S, L, F>
 where
-    B: Backend,
-    S: Strategy<B, Genome = Tensor<B, 2>>,
-    L: LocalSearch<B>,
-    F: BatchFitnessFn<B, Tensor<B, 2>>,
+    S: Strategy<Genome = Tensor<2>>,
+    L: LocalSearch,
+    F: BatchFitnessFn<Tensor<2>>,
 {
     type Params = MemeticParams<S::Params, L::Params>;
     type State = MemeticState<S::State>;
-    type Genome = Tensor<B, 2>;
+    type Genome = Tensor<2>;
 
     /// Delegates to the inner strategy's `init` and seeds the memetic
     /// generation counter to zero.
-    fn init(
-        &self,
-        params: &Self::Params,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::State {
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &Device) -> Self::State {
         let inner: S::State = self.inner.init(&params.inner, rng, device);
         MemeticState {
             inner,
@@ -413,9 +399,9 @@ where
         params: &Self::Params,
         state: &Self::State,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
     ) -> (Self::Genome, Self::State) {
-        let (population, inner): (Tensor<B, 2>, S::State) =
+        let (population, inner): (Tensor<2>, S::State) =
             self.inner.ask(&params.inner, &state.inner, rng, device);
         (
             population,
@@ -467,7 +453,7 @@ where
         &self,
         params: &Self::Params,
         population: Self::Genome,
-        fitness: Tensor<B, 1>,
+        fitness: Tensor<1>,
         state: Self::State,
         rng: &mut dyn Rng,
     ) -> (Self::State, StrategyMetrics) {
@@ -476,15 +462,15 @@ where
         // (1) Host-pull fitness and one flat read-only host copy of the population.
         let mut refined_fit: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
         let dims: [usize; 2] = population.dims();
         let pop_size: usize = dims[0];
         let dim: usize = dims[1];
-        let device: B::Device = population.device();
+        let device: Device = population.device();
         let flat: Vec<f32> = population
             .to_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population tensor must be readable as f32");
 
         // (2) Coverage indices, processed in ascending index order.
@@ -508,7 +494,7 @@ where
             // Read the sense before the mutable borrow for `inner`; local
             // search runs in canonical space, so `RowFitness` canonicalises.
             let sense = guard.sense();
-            let mut row_fitness: RowFitness<'_, B, F> = RowFitness {
+            let mut row_fitness: RowFitness<'_, F> = RowFitness {
                 inner: &mut *guard,
                 device: &device,
                 sense,
@@ -562,7 +548,7 @@ where
         // this collapses to a single upload + slice_assign rather than
         // `pop_size` of each. The uploaded bytes are identical to a per-row
         // loop, so the module's bit-identity tests still hold.
-        let mut new_pop: Tensor<B, 2> = population;
+        let mut new_pop: Tensor<2> = population;
         let mut run_start: Option<usize> = None;
         let mut run_len: usize = 0;
         let mut run_buf: Vec<f32> = Vec::new();
@@ -575,7 +561,7 @@ where
                 }
                 // Gap: flush the open run, then open a fresh one at `i`.
                 Some(s) => {
-                    let flushed: Tensor<B, 2> = Tensor::<B, 2>::from_data(
+                    let flushed: Tensor<2> = Tensor::<2>::from_data(
                         TensorData::new(core::mem::take(&mut run_buf), [run_len, dim]),
                         &device,
                     );
@@ -594,14 +580,14 @@ where
         }
         // Flush the trailing run (empty only when there were no writebacks).
         if let (Some(s), false) = (run_start, run_buf.is_empty()) {
-            let flushed: Tensor<B, 2> =
-                Tensor::<B, 2>::from_data(TensorData::new(run_buf, [run_len, dim]), &device);
+            let flushed: Tensor<2> =
+                Tensor::<2>::from_data(TensorData::new(run_buf, [run_len, dim]), &device);
             new_pop = new_pop.slice_assign([s..s + run_len, 0..dim], flushed);
         }
 
         // (6) Rebuild fitness and delegate.
-        let new_fit: Tensor<B, 1> =
-            Tensor::<B, 1>::from_data(TensorData::new(refined_fit, [pop_size]), &device);
+        let new_fit: Tensor<1> =
+            Tensor::<1>::from_data(TensorData::new(refined_fit, [pop_size]), &device);
         let (inner, metrics): (S::State, StrategyMetrics) =
             self.inner
                 .tell(&params.inner, new_pop, new_fit, state.inner, rng);
@@ -656,13 +642,9 @@ mod tests {
         HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
     };
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
-    use burn::tensor::backend::BackendTypes;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::bounds::Bounds;
-
-    type TestBackend = Flex;
 
     #[test]
     fn memetic_state_new_round_trips() {
@@ -704,17 +686,12 @@ mod tests {
         generation: usize,
     }
 
-    impl Strategy<TestBackend> for RecordingStrategy {
+    impl Strategy for RecordingStrategy {
         type Params = RecParams;
         type State = RecState;
-        type Genome = Tensor<TestBackend, 2>;
+        type Genome = Tensor<2>;
 
-        fn init(
-            &self,
-            _params: &RecParams,
-            _rng: &mut dyn Rng,
-            _device: &<TestBackend as BackendTypes>::Device,
-        ) -> RecState {
+        fn init(&self, _params: &RecParams, _rng: &mut dyn Rng, _device: &Device) -> RecState {
             RecState {
                 received_pop: None,
                 received_fit: None,
@@ -728,28 +705,28 @@ mod tests {
             params: &RecParams,
             state: &RecState,
             _rng: &mut dyn Rng,
-            device: &<TestBackend as BackendTypes>::Device,
-        ) -> (Tensor<TestBackend, 2>, RecState) {
+            device: &Device,
+        ) -> (Tensor<2>, RecState) {
             let data = TensorData::new(params.rows.clone(), [params.pop, params.dim]);
-            let pop = Tensor::<TestBackend, 2>::from_data(data, device);
+            let pop = Tensor::<2>::from_data(data, device);
             (pop, state.clone())
         }
 
         fn tell(
             &self,
             _params: &RecParams,
-            population: Tensor<TestBackend, 2>,
-            fitness: Tensor<TestBackend, 1>,
+            population: Tensor<2>,
+            fitness: Tensor<1>,
             mut state: RecState,
             _rng: &mut dyn Rng,
         ) -> (RecState, StrategyMetrics) {
             let pop_host = population
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("population host-read of a tensor this test just built");
             let fit_host = fitness
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("fitness host-read of a tensor this test just built");
             state.received_pop = Some(pop_host);
             state.received_fit = Some(fit_host.clone());
@@ -760,7 +737,7 @@ mod tests {
             (state, metrics)
         }
 
-        fn best(&self, _state: &RecState) -> Option<(Tensor<TestBackend, 2>, f32)> {
+        fn best(&self, _state: &RecState) -> Option<(Tensor<2>, f32)> {
             None
         }
     }
@@ -774,18 +751,14 @@ mod tests {
         rows: usize,
     }
 
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for CountingBatchFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for CountingBatchFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let dims = population.dims();
             self.rows += dims[0];
             let flat = population
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("population host-read of a tensor this test just built");
             let (pop, dim) = (dims[0], dims[1]);
             let mut out = Vec::with_capacity(pop);
@@ -794,7 +767,7 @@ mod tests {
                 let f: f32 = -flat[start..start + dim].iter().map(|v| v * v).sum::<f32>();
                 out.push(f);
             }
-            Tensor::<B, 1>::from_data(TensorData::new(out, [pop]), device)
+            Tensor::<1>::from_data(TensorData::new(out, [pop]), device)
         }
 
         fn sense(&self) -> ObjectiveSense {
@@ -900,17 +873,13 @@ mod tests {
     /// this module leaves untested because they are all `Maximize`.
     #[derive(Debug, Default)]
     struct MinSphereBatch;
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for MinSphereBatch {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for MinSphereBatch {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let dims = population.dims();
             let flat = population
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("population host-read of a tensor this test just built");
             let (pop, dim) = (dims[0], dims[1]);
             let mut out: Vec<f32> = Vec::with_capacity(pop);
@@ -918,7 +887,7 @@ mod tests {
                 let start = r * dim;
                 out.push(flat[start..start + dim].iter().map(|v| v * v).sum::<f32>());
             }
-            Tensor::<B, 1>::from_data(TensorData::new(out, [pop]), device)
+            Tensor::<1>::from_data(TensorData::new(out, [pop]), device)
         }
 
         fn sense(&self) -> ObjectiveSense {
@@ -939,15 +908,11 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn minimize_sense_refinement_reduces_cost() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let (pop, dim) = (5usize, 3usize);
         let rows = fixed_population(pop, dim);
 
-        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
-            RecordingStrategy,
-            HillClimbing,
-            MinSphereBatch,
-        );
+        let strategy = MemeticWrapper::new(RecordingStrategy, HillClimbing, MinSphereBatch);
         let params = MemeticParams {
             inner: rec_params(rows, pop, dim),
             local: HillClimbingParams::default_for(BOUNDS),
@@ -961,7 +926,7 @@ mod tests {
         let ask_bytes = ask_pop
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
 
         // Seed fitness in canonical (maximise) space: for a Minimize objective the loop hands
@@ -972,8 +937,7 @@ mod tests {
                 -sphere_cost(&ask_bytes[s..s + dim])
             })
             .collect();
-        let fit =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(canonical.clone(), [pop]), &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(canonical.clone(), [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
         let recv_pop = next.inner.received_pop.clone().unwrap();
@@ -1018,11 +982,11 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn baldwinian_population_bit_identical_to_ask() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let (pop, dim) = (5usize, 3usize);
         let rows = fixed_population(pop, dim);
 
-        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+        let strategy = MemeticWrapper::new(
             RecordingStrategy,
             HillClimbing,
             CountingBatchFitness::default(),
@@ -1040,20 +1004,19 @@ mod tests {
         let ask_bytes = ask_pop
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         // Original fitness for the asked population.
         let mut orig_fit = CountingBatchFitness::default();
-        let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+        let orig = <CountingBatchFitness as BatchFitnessFn<_>>::evaluate_batch(
             &mut orig_fit,
             &ask_pop,
             &device,
         )
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .expect("fitness host-read of a tensor this test just built");
-        let fit =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(orig.clone(), [pop]), &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(orig.clone(), [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
 
@@ -1090,11 +1053,11 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn lamarckian_covered_rows_change_uncovered_identical() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let (pop, dim) = (5usize, 3usize);
         let rows = fixed_population(pop, dim);
 
-        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+        let strategy = MemeticWrapper::new(
             RecordingStrategy,
             HillClimbing,
             CountingBatchFitness::default(),
@@ -1112,16 +1075,16 @@ mod tests {
         let ask_bytes = ask_pop
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         let mut fitfn = CountingBatchFitness::default();
-        let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+        let orig = <CountingBatchFitness as BatchFitnessFn<_>>::evaluate_batch(
             &mut fitfn, &ask_pop, &device,
         )
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .expect("fitness host-read of a tensor this test just built");
-        let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig, [pop]), &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(orig, [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
         let recv_pop = next.inner.received_pop.clone().unwrap();
@@ -1155,7 +1118,7 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn lamarckian_noncontiguous_covered_rows_coalesce_correctly() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let (pop, dim) = (5usize, 3usize);
         // Rows 0, 2, 4 sit near the origin (high canonical negated-sphere
         // fitness); rows 1, 3 are far out. `TopK{3}` therefore selects the
@@ -1168,7 +1131,7 @@ mod tests {
             0.5, 0.5, 0.5, // row 4 — fit
         ];
 
-        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+        let strategy = MemeticWrapper::new(
             RecordingStrategy,
             HillClimbing,
             CountingBatchFitness::default(),
@@ -1186,16 +1149,16 @@ mod tests {
         let ask_bytes = ask_pop
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         let mut fitfn = CountingBatchFitness::default();
-        let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+        let orig = <CountingBatchFitness as BatchFitnessFn<_>>::evaluate_batch(
             &mut fitfn, &ask_pop, &device,
         )
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .expect("fitness host-read of a tensor this test just built");
-        let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig, [pop]), &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(orig, [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
         let recv_pop = next.inner.received_pop.clone().unwrap();
@@ -1236,7 +1199,7 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn lamarckian_multirow_runs_coalesce_correctly() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let (pop, dim) = (8usize, 3usize);
         // Rows 0,1,3,4,5,7 sit near the origin (high canonical negated-sphere
         // fitness); the gap rows 2, 6 are far out. `TopK{6}` therefore selects
@@ -1253,7 +1216,7 @@ mod tests {
             }
         }
 
-        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+        let strategy = MemeticWrapper::new(
             RecordingStrategy,
             HillClimbing,
             CountingBatchFitness::default(),
@@ -1271,16 +1234,16 @@ mod tests {
         let ask_bytes = ask_pop
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         let mut fitfn = CountingBatchFitness::default();
-        let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+        let orig = <CountingBatchFitness as BatchFitnessFn<_>>::evaluate_batch(
             &mut fitfn, &ask_pop, &device,
         )
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .expect("fitness host-read of a tensor this test just built");
-        let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig, [pop]), &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(orig, [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
         let recv_pop = next.inner.received_pop.clone().unwrap();
@@ -1321,10 +1284,10 @@ mod tests {
         seed: u64,
         gens: usize,
     ) -> Vec<(Vec<f32>, Vec<f32>)> {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let (pop, dim) = (4usize, 3usize);
         let rows = fixed_population(pop, dim);
-        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+        let strategy = MemeticWrapper::new(
             RecordingStrategy,
             SimulatedAnnealing,
             CountingBatchFitness::default(),
@@ -1341,7 +1304,7 @@ mod tests {
         for _ in 0..gens {
             let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
             let mut fitfn = CountingBatchFitness::default();
-            let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+            let orig = <CountingBatchFitness as BatchFitnessFn<_>>::evaluate_batch(
                 &mut fitfn, &ask_pop, &device,
             );
             let (next, _m) = strategy.tell(&params, ask_pop, orig, asked, &mut rng);
@@ -1387,12 +1350,12 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn topk_refines_exactly_k_rows_and_k_ge_pop_equals_full() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let (pop, dim) = (6usize, 2usize);
         let rows = fixed_population(pop, dim);
 
         let run = |coverage: CoveragePolicy| -> Vec<bool> {
-            let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+            let strategy = MemeticWrapper::new(
                 RecordingStrategy,
                 HillClimbing,
                 CountingBatchFitness::default(),
@@ -1409,10 +1372,10 @@ mod tests {
             let ask_bytes = ask_pop
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("population host-read of a tensor this test just built");
             let mut fitfn = CountingBatchFitness::default();
-            let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+            let orig = <CountingBatchFitness as BatchFitnessFn<_>>::evaluate_batch(
                 &mut fitfn, &ask_pop, &device,
             );
             let (next, _m) = strategy.tell(&params, ask_pop, orig, asked, &mut rng);
@@ -1449,17 +1412,13 @@ mod tests {
     /// evaluated on-device.
     #[derive(Debug, Default)]
     struct SphereBatch;
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for SphereBatch {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for SphereBatch {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let dims = population.dims();
             let flat = population
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("population host-read of a tensor this test just built");
             let (pop, dim) = (dims[0], dims[1]);
             let mut out: Vec<f32> = Vec::with_capacity(pop);
@@ -1467,7 +1426,7 @@ mod tests {
                 let start = r * dim;
                 out.push(-flat[start..start + dim].iter().map(|v| v * v).sum::<f32>());
             }
-            Tensor::<B, 1>::from_data(TensorData::new(out, [pop]), device)
+            Tensor::<1>::from_data(TensorData::new(out, [pop]), device)
         }
 
         fn sense(&self) -> ObjectiveSense {
@@ -1477,28 +1436,17 @@ mod tests {
 
     #[test]
     fn de_roundtrip_improves_over_generations() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let dim = 4usize;
-        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
-            DifferentialEvolution::<TestBackend>::new(),
-            HillClimbing,
-            SphereBatch,
-        );
+        let strategy = MemeticWrapper::new(DifferentialEvolution::new(), HillClimbing, SphereBatch);
         let params = MemeticParams {
             inner: DeConfig::default_for(20, dim),
             local: HillClimbingParams::default_for(BOUNDS),
             writeback: WritebackPolicy::Lamarckian,
             coverage: CoveragePolicy::TopK { k: 3 },
         };
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            SphereBatch,
-            17,
-            device,
-            20,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, SphereBatch, 17, device, 20)
+            .expect("valid params");
         evo_loop.reset();
         evo_loop.step();
         let first: f32 = evo_loop.latest_metrics().unwrap().best_fitness_ever();
@@ -1520,22 +1468,17 @@ mod tests {
 
     #[test]
     fn ga_roundtrip_smoke() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let dim = 4usize;
-        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
-            GeneticAlgorithm::<TestBackend>::new(),
-            HillClimbing,
-            SphereBatch,
-        );
+        let strategy = MemeticWrapper::new(GeneticAlgorithm::new(), HillClimbing, SphereBatch);
         let params = MemeticParams {
             inner: GaConfig::default_for(16, dim),
             local: HillClimbingParams::default_for(BOUNDS),
             writeback: WritebackPolicy::default(),
             coverage: CoveragePolicy::default(),
         };
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, SphereBatch, 5, device, 5)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, SphereBatch, 5, device, 5)
+            .expect("valid params");
         evo_loop.reset();
         for _ in 0..5 {
             evo_loop.step();
@@ -1556,7 +1499,7 @@ mod tests {
 
     #[test]
     fn one_draw_invariant_across_policies() {
-        let device = <TestBackend as BackendTypes>::Device::default();
+        let device = Device::flex();
         let (pop, dim) = (5usize, 3usize);
         let rows = fixed_population(pop, dim);
 
@@ -1564,7 +1507,7 @@ mod tests {
         // wrapper-side consumption is the single `next_u64()`. After one tell
         // the rng's next value must be equal across every policy/coverage.
         let next_after = |writeback: WritebackPolicy, coverage: CoveragePolicy| -> u64 {
-            let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+            let strategy = MemeticWrapper::new(
                 RecordingStrategy,
                 HillClimbing,
                 CountingBatchFitness::default(),
@@ -1579,7 +1522,7 @@ mod tests {
             let state = strategy.init(&params, &mut rng, &device);
             let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
             let mut fitfn = CountingBatchFitness::default();
-            let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+            let orig = <CountingBatchFitness as BatchFitnessFn<_>>::evaluate_batch(
                 &mut fitfn, &ask_pop, &device,
             );
             let (_next, _m) = strategy.tell(&params, ask_pop, orig, asked, &mut rng);

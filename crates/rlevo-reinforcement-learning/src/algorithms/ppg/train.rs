@@ -16,7 +16,6 @@
 
 use rand::Rng;
 
-use burn::tensor::backend::AutodiffBackend;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::environment::Environment;
@@ -61,10 +60,9 @@ use crate::algorithms::shared::LogWatermark;
 ///
 /// # Type parameters
 ///
-/// - `B` — Burn autodiff backend.
-/// - `P` — Policy network: must implement `PpoPolicy<B, BOR>` and
-///   `PpgAuxValueHead<B, BOR>`.
-/// - `V` — Main value network implementing `PpoValue<B, BOR>`.
+/// - `P` — Policy network: must implement `PpoPolicy<BOR>` and
+///   `PpgAuxValueHead<BOR>`.
+/// - `V` — Main value network implementing `PpoValue<BOR>`.
 /// - `E` — Environment with `ObservationType = O`, `ActionType = A`, and an
 ///   action space of rank `1` (discrete).
 /// - `O` — Observation type convertible to a rank-`OR` tensor.
@@ -76,19 +74,18 @@ use crate::algorithms::shared::LogWatermark;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, const OR: usize, const BOR: usize>(
-    agent: &mut PpgAgent<B, P, V, O, OR, BOR>,
+pub fn train_discrete<P, V, E, O, A, const OR: usize, const BOR: usize>(
+    agent: &mut PpgAgent<P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
     log_every: usize,
 ) -> Result<(), PpgAgentError>
 where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
-    V: PpoValue<B, BOR>,
+    P: PpoPolicy<BOR> + PpgAuxValueHead<BOR>,
+    V: PpoValue<BOR>,
     E: Environment<OR, 1, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     let rollout_len = agent.config().ppo.num_steps;
@@ -230,17 +227,16 @@ where
 /// `aux` is the *most recent* iteration's auxiliary-phase result: `None` means
 /// the auxiliary buffer was not yet full on that iteration, which is the normal
 /// case for `n_iteration - 1` out of every `n_iteration` rollouts.
-fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
-    agent: &PpgAgent<B, P, V, O, OR, BOR>,
+fn emit_progress<P, V, O, const OR: usize, const BOR: usize>(
+    agent: &PpgAgent<P, V, O, OR, BOR>,
     stats: &PpoUpdateStats,
     aux: Option<AuxPhaseStats>,
     global_step: usize,
     total_timesteps: usize,
 ) where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR> + PpgAuxValueHead<B, BOR>,
-    V: PpoValue<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    P: PpoPolicy<BOR> + PpgAuxValueHead<BOR>,
+    V: PpoValue<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
 {
     let avg = agent
         .stats()

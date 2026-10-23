@@ -45,9 +45,7 @@
 //! - Clerc & Kennedy (2002), *The particle swarm — explosion, stability,
 //!   and convergence in a multidimensional complex space*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -161,17 +159,17 @@ impl Validate for PsoConfig {
 
 /// Generation state for [`ParticleSwarm`].
 #[derive(Debug, Clone)]
-pub struct PsoState<B: Backend> {
+pub struct PsoState {
     /// Current particle positions, shape `(pop_size, D)`.
-    pub positions: Tensor<B, 2>,
+    pub positions: Tensor<2>,
     /// Current particle velocities, shape `(pop_size, D)`.
-    pub velocities: Tensor<B, 2>,
+    pub velocities: Tensor<2>,
     /// Personal-best positions, shape `(pop_size, D)`.
-    pub personal_best: Tensor<B, 2>,
+    pub personal_best: Tensor<2>,
     /// Personal-best fitnesses (host-side cache).
     pub personal_best_fitness: Vec<f32>,
     /// Global-best position, shape `(1, D)`.
-    pub global_best: Option<Tensor<B, 2>>,
+    pub global_best: Option<Tensor<2>>,
     /// Global-best fitness.
     pub global_best_fitness: f32,
     /// Best-so-far fitness (mirrors `global_best_fitness` for PSO).
@@ -185,32 +183,23 @@ pub struct PsoState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 ///
-/// let strategy = ParticleSwarm::<Flex>::new();
+/// let strategy = ParticleSwarm::new();
 /// let params = PsoConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct ParticleSwarm<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct ParticleSwarm {}
 
-impl<B: Backend> ParticleSwarm<B> {
+impl ParticleSwarm {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
-    fn sample_positions(
-        params: &PsoConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+    fn sample_positions(params: &PsoConfig, rng: &mut dyn Rng, device: &Device) -> Tensor<2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample from a deterministic `seed_stream` rather than the
         // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
@@ -223,30 +212,22 @@ impl<B: Backend> ParticleSwarm<B> {
         for _ in 0..pop * genome_dim {
             rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
-        Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
+        Tensor::<2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
     }
 }
 
-impl<B: Backend> Strategy<B> for ParticleSwarm<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for ParticleSwarm {
     type Params = PsoConfig;
-    type State = PsoState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = PsoState;
+    type Genome = Tensor<2>;
 
-    fn init(
-        &self,
-        params: &PsoConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> PsoState<B> {
+    fn init(&self, params: &PsoConfig, rng: &mut dyn Rng, device: &Device) -> PsoState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid PsoConfig reached init: {params:?}"
         );
         let positions = Self::sample_positions(params, rng, device);
-        let velocities = Tensor::<B, 2>::zeros([params.pop_size, params.genome_dim], device);
+        let velocities = Tensor::<2>::zeros([params.pop_size, params.genome_dim], device);
         let personal_best = positions.clone();
         PsoState {
             positions,
@@ -263,10 +244,10 @@ where
     fn ask(
         &self,
         params: &PsoConfig,
-        state: &PsoState<B>,
+        state: &PsoState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, PsoState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, PsoState) {
         // First call: evaluate the initial positions so `tell` can
         // populate personal_best_fitness / global_best.
         if state.personal_best_fitness.is_empty() {
@@ -284,7 +265,7 @@ where
             for _ in 0..pop * genome_dim {
                 rows.push(s.random::<f32>());
             }
-            Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
+            Tensor::<2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
         };
         let r2 = {
             let mut s = seed_stream(
@@ -296,7 +277,7 @@ where
             for _ in 0..pop * genome_dim {
                 rows.push(s.random::<f32>());
             }
-            Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
+            Tensor::<2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
         };
 
         let gbest = state
@@ -335,11 +316,11 @@ where
     fn tell(
         &self,
         params: &PsoConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: PsoState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: PsoState,
         _rng: &mut dyn Rng,
-    ) -> (PsoState<B>, StrategyMetrics) {
+    ) -> (PsoState, StrategyMetrics) {
         // Sanitise on the host pull (`rules.md` §3, ADR 0034 decision 3):
         // the loop chokepoint already applies
         // `sanitize_fitness_tensor` before `tell`, but `Strategy` is public, so
@@ -352,7 +333,7 @@ where
         // redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -366,10 +347,8 @@ where
             let best_idx = argmax_host(&fitness_host);
             state.global_best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.global_best = Some(population.clone().select(0, idx));
             state.best_fitness = state.global_best_fitness;
             state.generation += 1;
@@ -395,9 +374,8 @@ where
                 new_pbest_fit[i] = fitness_host[i];
             }
         }
-        let mask_row =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(improved, [pop_size]), &device)
-                .equal_elem(1);
+        let mask_row = Tensor::<1, Int>::from_data(TensorData::new(improved, [pop_size]), &device)
+            .equal_elem(1);
         let mask = mask_row
             .unsqueeze_dim::<2>(1)
             .expand([pop_size, genome_dim]);
@@ -412,10 +390,8 @@ where
         if new_pbest_fit[best_idx] > state.global_best_fitness {
             state.global_best_fitness = new_pbest_fit[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.global_best = Some(state.personal_best.clone().select(0, idx));
         }
 
@@ -430,7 +406,7 @@ where
         (state, m)
     }
 
-    fn best(&self, state: &PsoState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &PsoState) -> Option<(Tensor<2>, f32)> {
         state
             .global_best
             .as_ref()
@@ -443,42 +419,32 @@ mod tests {
     use super::*;
     use crate::fitness::{BatchFitnessFn, FromLandscape};
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
     use rlevo_core::objective::ObjectiveSense;
 
-    type TestBackend = Flex;
-
     /// Distinct finite fitness with the maximum at index 0, for direct
     /// (non-loop) `tell` calls in lifecycle tests. Finite by construction,
     /// so it never trips the ADR 0034 sanitize contract.
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
-    fn finite_fitness(
-        n: usize,
-        device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<TestBackend, 1> {
+    fn finite_fitness(n: usize, device: &Device) -> Tensor<1> {
         #[allow(clippy::cast_precision_loss)]
         let vals: Vec<f32> = (0..n).map(|i| -(i as f32) - 1.0).collect();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), device)
+        Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
     }
 
     /// Objective whose row 0 evaluates to `NaN` (the rest finite). `Maximize`
     /// so natural == canonical and the loop sanitize is the only thing that
     /// can keep the run finite.
     struct NanFitness;
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NanFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for NanFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)]
             let mut vals: Vec<f32> = (0..n).map(|i| i as f32).collect();
             vals[0] = f32::NAN;
-            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
         }
         fn sense(&self) -> ObjectiveSense {
             ObjectiveSense::Maximize
@@ -506,8 +472,8 @@ mod tests {
     }
 
     fn run_pso(variant: PsoVariant, dim: usize, generations: usize, seed: u64) -> f32 {
-        let device = Default::default();
-        let strategy = ParticleSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ParticleSwarm::new();
         let mut params = PsoConfig::default_for(32, dim);
         params.variant = variant;
         if variant == PsoVariant::Constriction {
@@ -516,15 +482,9 @@ mod tests {
             params.c2 = 2.05;
         }
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            fitness_fn,
-            seed,
-            device,
-            generations,
-        )
-        .expect("valid params");
+        let mut evo_loop =
+            EvolutionaryLoop::new(strategy, params, fitness_fn, seed, device, generations)
+                .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -558,8 +518,8 @@ mod tests {
 
     #[test]
     fn best_is_none_until_first_tell() {
-        let device = Default::default();
-        let strategy = ParticleSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ParticleSwarm::new();
         let params = PsoConfig::default_for(4, 3);
         let mut rng = StdRng::seed_from_u64(0);
         let state = strategy.init(&params, &mut rng, &device);
@@ -578,13 +538,12 @@ mod tests {
         // pop_size = 1, genome_dim = 1: the smallest swarm the validator
         // accepts. It must run through the loop without a panic (gbest is
         // the lone particle, so the social term is zero every step).
-        let device = Default::default();
-        let strategy = ParticleSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ParticleSwarm::new();
         let params = PsoConfig::default_for(1, 1);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 5)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 0, device, 5)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -619,12 +578,11 @@ mod tests {
         // Row 0 evaluates to NaN every generation. The loop sanitize
         // chokepoint (ADR 0034) must keep the best-ever finite and flag the
         // broken member rather than poisoning the run.
-        let device = Default::default();
-        let strategy = ParticleSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ParticleSwarm::new();
         let params = PsoConfig::default_for(4, 3);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, NanFitness, 1, device, 3)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, NanFitness, 1, device, 3)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -645,8 +603,8 @@ mod tests {
     /// `x`, and PSO has no reset path for the cache.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device = Default::default();
-        let strategy = ParticleSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ParticleSwarm::new();
         let params = PsoConfig::default_for(4, 3);
         let mut rng = StdRng::seed_from_u64(131);
         let state = strategy.init(&params, &mut rng, &device);
@@ -654,10 +612,8 @@ mod tests {
         // Generation 0: row 0 is NaN, the rest finite. The bootstrap `tell`
         // seeds `personal_best_fitness` straight from this vector.
         let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
-        let f0 = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![f32::NAN, 0.0, 0.0, 0.0], [4]),
-            &device,
-        );
+        let f0 =
+            Tensor::<1>::from_data(TensorData::new(vec![f32::NAN, 0.0, 0.0, 0.0], [4]), &device);
         let (mut state, _m) = strategy.tell(&params, pop, f0, state, &mut rng);
         assert!(
             !state.personal_best_fitness[0].is_nan(),
@@ -682,8 +638,7 @@ mod tests {
         // than staying pinned behind an unbeatable cached entry.
         for value in [1.0_f32, 2.0] {
             let (pop, next) = strategy.ask(&params, &state, &mut rng, &device);
-            let f =
-                Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![value; 4], [4]), &device);
+            let f = Tensor::<1>::from_data(TensorData::new(vec![value; 4], [4]), &device);
             let (next, _m) = strategy.tell(&params, pop, f, next, &mut rng);
             state = next;
             assert!(
@@ -699,8 +654,8 @@ mod tests {
         // Invariant: every position proposed by the velocity-update `ask`
         // (i.e. the second `ask`, after a `tell` primes gbest) stays inside the
         // configured bounds, across a spread of seeds.
-        let device = Default::default();
-        let strategy = ParticleSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ParticleSwarm::new();
         let params = PsoConfig::default_for(6, 4);
         let (lo, hi): (f32, f32) = params.bounds.into();
         for seed in 0..32 {
@@ -710,7 +665,7 @@ mod tests {
             let fitness = finite_fitness(6, &device);
             let (state, _m) = strategy.tell(&params, pop1, fitness, state, &mut rng);
             let (pop2, _state) = strategy.ask(&params, &state, &mut rng, &device);
-            let values = pop2.into_data().into_vec::<f32>().unwrap();
+            let values = pop2.into_data().try_into_vec::<f32>().unwrap();
             for v in values {
                 assert!(
                     v >= lo - 1e-4 && v <= hi + 1e-4,
@@ -726,17 +681,17 @@ mod tests {
         // applies the velocity update, so at least some particle position must
         // change from the initial swarm (the social pull toward gbest is
         // non-zero for every non-best particle).
-        let device = Default::default();
-        let strategy = ParticleSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ParticleSwarm::new();
         let params = PsoConfig::default_for(6, 4);
         let mut rng = StdRng::seed_from_u64(9);
         let state = strategy.init(&params, &mut rng, &device);
         let (pop1, state) = strategy.ask(&params, &state, &mut rng, &device);
-        let initial = pop1.clone().into_data().into_vec::<f32>().unwrap();
+        let initial = pop1.clone().into_data().try_into_vec::<f32>().unwrap();
         let fitness = finite_fitness(6, &device);
         let (state, _m) = strategy.tell(&params, pop1, fitness, state, &mut rng);
         let (pop2, _state) = strategy.ask(&params, &state, &mut rng, &device);
-        let moved = pop2.into_data().into_vec::<f32>().unwrap();
+        let moved = pop2.into_data().try_into_vec::<f32>().unwrap();
         assert!(
             initial
                 .iter()

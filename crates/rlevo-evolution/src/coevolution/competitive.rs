@@ -9,9 +9,8 @@
 //! without any change to this algorithm.
 
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
-use burn::tensor::{Tensor, backend::Backend};
+use burn::tensor::{Device, Tensor};
 use rand::Rng;
 
 use rlevo_core::config::{ConfigError, Validate};
@@ -46,42 +45,38 @@ impl<PA, PB> Validate for CompetitiveCoEAParams<PA, PB> {
 
 /// Competitive co-evolutionary algorithm over two adversarial populations.
 ///
-/// Generic over the backend `B`, the two inner strategies `SA`/`SB` (each
-/// producing `Tensor<B, 2>` genomes), and the [`CoupledFitness`] `F` that
+/// Generic over the two inner strategies `SA`/`SB` (each
+/// producing `Tensor<2>` genomes), and the [`CoupledFitness`] `F` that
 /// scores them against each other. Implements
 /// [`CoEvolutionaryAlgorithm`] so it can be driven by
 /// [`CoEvolutionaryLoop`](super::CoEvolutionaryLoop).
-pub struct CompetitiveCoEA<B, SA, SB, F>
+pub struct CompetitiveCoEA<SA, SB, F>
 where
-    B: Backend,
-    SA: Strategy<B, Genome = Tensor<B, 2>>,
-    SB: Strategy<B, Genome = Tensor<B, 2>>,
-    F: CoupledFitness<B>,
+    SA: Strategy<Genome = Tensor<2>>,
+    SB: Strategy<Genome = Tensor<2>>,
+    F: CoupledFitness,
 {
     strategy_a: SA,
     strategy_b: SB,
     fitness: F,
-    _backend: PhantomData<fn() -> B>,
 }
 
-impl<B, SA, SB, F> Debug for CompetitiveCoEA<B, SA, SB, F>
+impl<SA, SB, F> Debug for CompetitiveCoEA<SA, SB, F>
 where
-    B: Backend,
-    SA: Strategy<B, Genome = Tensor<B, 2>>,
-    SB: Strategy<B, Genome = Tensor<B, 2>>,
-    F: CoupledFitness<B>,
+    SA: Strategy<Genome = Tensor<2>>,
+    SB: Strategy<Genome = Tensor<2>>,
+    F: CoupledFitness,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompetitiveCoEA").finish_non_exhaustive()
     }
 }
 
-impl<B, SA, SB, F> CompetitiveCoEA<B, SA, SB, F>
+impl<SA, SB, F> CompetitiveCoEA<SA, SB, F>
 where
-    B: Backend,
-    SA: Strategy<B, Genome = Tensor<B, 2>>,
-    SB: Strategy<B, Genome = Tensor<B, 2>>,
-    F: CoupledFitness<B>,
+    SA: Strategy<Genome = Tensor<2>>,
+    SB: Strategy<Genome = Tensor<2>>,
+    F: CoupledFitness,
 {
     /// Build a competitive co-evolution from two inner strategies and a
     /// coupled fitness.
@@ -90,7 +85,6 @@ where
             strategy_a,
             strategy_b,
             fitness,
-            _backend: PhantomData,
         }
     }
 
@@ -128,22 +122,16 @@ where
     }
 }
 
-impl<B, SA, SB, F> CoEvolutionaryAlgorithm<B> for CompetitiveCoEA<B, SA, SB, F>
+impl<SA, SB, F> CoEvolutionaryAlgorithm for CompetitiveCoEA<SA, SB, F>
 where
-    B: Backend,
-    SA: Strategy<B, Genome = Tensor<B, 2>>,
-    SB: Strategy<B, Genome = Tensor<B, 2>>,
-    F: CoupledFitness<B>,
+    SA: Strategy<Genome = Tensor<2>>,
+    SB: Strategy<Genome = Tensor<2>>,
+    F: CoupledFitness,
 {
     type Params = CompetitiveCoEAParams<SA::Params, SB::Params>;
     type State = CoEAState<SA::State, SB::State>;
 
-    fn init(
-        &self,
-        params: &Self::Params,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::State {
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &Device) -> Self::State {
         let state_a = self.strategy_a.init(&params.params_a, rng, device);
         let state_b = self.strategy_b.init(&params.params_b, rng, device);
         CoEAState::new(state_a, state_b)
@@ -154,7 +142,7 @@ where
         params: &Self::Params,
         mut state: Self::State,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
     ) -> (Self::State, CoEAMetrics) {
         // Both populations propose simultaneously.
         let (pop_a, asked_a) = self
@@ -183,7 +171,7 @@ where
         // `Minimize`. After this, the per-population `tell`, the `snapshot` best/mean written into
         // `CoEAState`, and any `HallOfFameFitness` downstream all see canonical,
         // finite-or-`$-\infty$` fitness.
-        let canon = |t: Tensor<B, 1>| {
+        let canon = |t: Tensor<1>| {
             let c = match sense {
                 ObjectiveSense::Maximize => t,
                 ObjectiveSense::Minimize => t.neg(),
@@ -221,7 +209,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use burn::tensor::TensorData;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -233,8 +220,6 @@ mod tests {
     use crate::algorithms::ga::{
         GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
     };
-
-    type TB = Flex;
 
     const POP: usize = 4;
     const DIM: usize = 2;
@@ -261,8 +246,8 @@ mod tests {
         poison: f32,
     }
 
-    impl CoupledFitness<TB> for PoisonRow0 {
-        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+    impl CoupledFitness for PoisonRow0 {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| {
@@ -272,7 +257,7 @@ mod tests {
                     let v: Vec<f32> = (0..n)
                         .map(|i| if i == 0 { self.poison } else { i as f32 })
                         .collect();
-                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                    Tensor::<1>::from_data(TensorData::new(v, [n]), &device)
                 })
                 .collect()
         }
@@ -285,14 +270,14 @@ mod tests {
     /// break — must sanitize to `$-\infty$`, never `NaN`.
     struct AllNan;
 
-    impl CoupledFitness<TB> for AllNan {
-        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+    impl CoupledFitness for AllNan {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| {
                     let n = p.dims()[0];
                     let device = p.device();
-                    Tensor::<TB, 1>::from_data(TensorData::new(vec![f32::NAN; n], [n]), &device)
+                    Tensor::<1>::from_data(TensorData::new(vec![f32::NAN; n], [n]), &device)
                 })
                 .collect()
         }
@@ -301,13 +286,9 @@ mod tests {
         }
     }
 
-    fn run_one_step<F: CoupledFitness<TB>>(fitness: F) -> CoEAMetrics {
-        let device = Default::default();
-        let algo = CompetitiveCoEA::new(
-            GeneticAlgorithm::<TB>::new(),
-            GeneticAlgorithm::<TB>::new(),
-            fitness,
-        );
+    fn run_one_step<F: CoupledFitness>(fitness: F) -> CoEAMetrics {
+        let device = Device::flex();
+        let algo = CompetitiveCoEA::new(GeneticAlgorithm::new(), GeneticAlgorithm::new(), fitness);
         let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
             params_a: ga_config(),
             params_b: ga_config(),
@@ -390,8 +371,8 @@ mod tests {
     /// value.
     struct NegCost;
 
-    impl CoupledFitness<TB> for NegCost {
-        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+    impl CoupledFitness for NegCost {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| {
@@ -400,7 +381,7 @@ mod tests {
                     // Natural cost = row index: row 0 is best (cost 0.0).
                     #[allow(clippy::cast_precision_loss)]
                     let v: Vec<f32> = (0..n).map(|i| i as f32).collect();
-                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                    Tensor::<1>::from_data(TensorData::new(v, [n]), &device)
                 })
                 .collect()
         }
@@ -440,8 +421,8 @@ mod tests {
     /// Maximize, so natural == canonical and the reported best is the peak.
     struct DistinctRamps;
 
-    impl CoupledFitness<TB> for DistinctRamps {
-        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+    impl CoupledFitness for DistinctRamps {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             let peaks = [10.0_f32, 20.0_f32];
             populations
                 .iter()
@@ -454,7 +435,7 @@ mod tests {
                     let v: Vec<f32> = (0..n)
                         .map(|i| peak * (i as f32) / ((n - 1).max(1) as f32))
                         .collect();
-                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                    Tensor::<1>::from_data(TensorData::new(v, [n]), &device)
                 })
                 .collect()
         }
@@ -470,10 +451,10 @@ mod tests {
     /// (peak `20.0`). Maximize sense, so natural == canonical.
     #[test]
     fn step_increments_generation_and_splits_fitness_by_population() {
-        let device = Default::default();
+        let device = Device::flex();
         let algo = CompetitiveCoEA::new(
-            GeneticAlgorithm::<TB>::new(),
-            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::new(),
+            GeneticAlgorithm::new(),
             DistinctRamps,
         );
         let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
@@ -512,10 +493,10 @@ mod tests {
     /// a fixed seed.
     #[test]
     fn best_a_tracks_rolling_max_across_generations() {
-        let device = Default::default();
+        let device = Device::flex();
         let algo = CompetitiveCoEA::new(
-            GeneticAlgorithm::<TB>::new(),
-            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::new(),
+            GeneticAlgorithm::new(),
             DistinctRamps,
         );
         let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
@@ -540,14 +521,14 @@ mod tests {
     /// violating the bi-population contract.
     struct WrongLen;
 
-    impl CoupledFitness<TB> for WrongLen {
-        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+    impl CoupledFitness for WrongLen {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             // Return only ONE vector (for population A) — one short of the two
             // the competitive algorithm requires.
             let p = &populations[0];
             let n = p.dims()[0];
             let device = p.device();
-            vec![Tensor::<TB, 1>::from_data(
+            vec![Tensor::<1>::from_data(
                 TensorData::new(vec![0.0_f32; n], [n]),
                 &device,
             )]

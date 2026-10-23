@@ -17,8 +17,7 @@
 //! finite costs of rows drawn from the RNG, so the comparison also covers how
 //! the two loops thread it.
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -27,9 +26,6 @@ use rlevo_core::objective::ObjectiveSense;
 
 use rlevo_evolution::fitness::{BatchFitnessFn, sanitize_fitness, sanitize_fitness_tensor};
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};
-
-type B = Flex;
-type Device = <B as burn::tensor::backend::BackendTypes>::Device;
 
 const POP: usize = 6;
 const DIM: usize = 3;
@@ -60,10 +56,10 @@ struct State {
     received: Vec<Vec<u32>>,
 }
 
-impl Strategy<B> for RandomSearch {
+impl Strategy for RandomSearch {
     type Params = Params;
     type State = State;
-    type Genome = Tensor<B, 2>;
+    type Genome = Tensor<2>;
 
     fn init(&self, _: &Params, _: &mut dyn Rng, _: &Device) -> State {
         State {
@@ -79,7 +75,7 @@ impl Strategy<B> for RandomSearch {
         state: &State,
         rng: &mut dyn Rng,
         device: &Device,
-    ) -> (Tensor<B, 2>, State) {
+    ) -> (Tensor<2>, State) {
         // Sixteen bits of each draw, mapped onto [-1, 1].
         let genes: Vec<f32> = (0..POP * DIM)
             .map(|_| {
@@ -94,14 +90,14 @@ impl Strategy<B> for RandomSearch {
     fn tell(
         &self,
         _: &Params,
-        _: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
+        _: Tensor<2>,
+        fitness: Tensor<1>,
         mut state: State,
         _: &mut dyn Rng,
     ) -> (State, StrategyMetrics) {
         let raw = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("the fitness tensor holds f32");
         state
             .received
@@ -116,7 +112,7 @@ impl Strategy<B> for RandomSearch {
         (state, metrics)
     }
 
-    fn best(&self, _: &State) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, _: &State) -> Option<(Tensor<2>, f32)> {
         None
     }
 }
@@ -125,12 +121,12 @@ impl Strategy<B> for RandomSearch {
 /// diverged returns: `NaN`, `-inf` and `+inf`.
 struct BrokenSphere;
 
-impl BatchFitnessFn<B, Tensor<B, 2>> for BrokenSphere {
-    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &Device) -> Tensor<B, 1> {
+impl BatchFitnessFn<Tensor<2>> for BrokenSphere {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         let genes = population
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("the population tensor holds f32");
         let mut cost: Vec<f32> = genes
             .chunks(DIM)
@@ -149,8 +145,8 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for BrokenSphere {
 
 /// What each `tell` receives when `EvolutionaryLoop` drives the run.
 fn received_under_the_loop() -> Vec<Vec<u32>> {
-    let device = Device::default();
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
+    let device = Device::flex();
+    let mut evo_loop = EvolutionaryLoop::new(
         RandomSearch,
         Params,
         BrokenSphere,
@@ -174,7 +170,7 @@ fn received_under_the_loop() -> Vec<Vec<u32>> {
 
 /// What each `tell` receives from the loop the guide writes out by hand.
 fn received_under_a_hand_written_loop() -> Vec<Vec<u32>> {
-    let device = Device::default();
+    let device = Device::flex();
     let strategy = RandomSearch;
     let params = Params;
     let mut fitness_fn = BrokenSphere;

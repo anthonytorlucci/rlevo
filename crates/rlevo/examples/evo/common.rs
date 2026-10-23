@@ -35,7 +35,7 @@
 //! [`SEED`], the numbers are reproducible and directly comparable across
 //! strategies.
 
-use burn::backend::Flex;
+use burn::tensor::Device;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
 use rlevo_core::objective::ObjectiveSense;
@@ -49,8 +49,6 @@ use rlevo_evolution::algorithms::ga::{
 use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
-type B = Flex;
-
 /// Generation budget every strategy is given.
 pub const GENS: usize = 500;
 /// Fixed seed so runs are comparable across strategies and reproducible.
@@ -59,15 +57,13 @@ pub const SEED: u64 = 42;
 /// Drives one strategy to completion and prints its convergence summary.
 fn run<S, F>(label: &str, strategy: S, params: S::Params, fitness_fn: F)
 where
-    S: Strategy<B>,
+    S: Strategy,
     S::Params: std::fmt::Debug + rlevo_core::config::Validate,
-    F: BatchFitnessFn<B, S::Genome>,
-    B: burn::tensor::backend::Backend,
-    <B as burn::tensor::backend::BackendTypes>::Device: Clone + Default,
+    F: BatchFitnessFn<S::Genome>,
 {
-    let device = Default::default();
+    let device = Device::flex();
     let mut evo_loop =
-        EvolutionaryLoop::<B, S, F>::new(strategy, params, fitness_fn, SEED, device, GENS)
+        EvolutionaryLoop::<S, F>::new(strategy, params, fitness_fn, SEED, device, GENS)
             .expect("valid params");
     evo_loop.reset();
     while !evo_loop.is_done() {
@@ -107,7 +103,7 @@ where
 
     run(
         "GA/real/tournament-blx-elite",
-        GeneticAlgorithm::<B>::new(),
+        GeneticAlgorithm::new(),
         GaConfig {
             pop_size: 64,
             genome_dim: dim,
@@ -133,7 +129,7 @@ where
         let label = format!("ES/{kind:?}");
         run(
             &label,
-            EvolutionStrategy::<B>::new(),
+            EvolutionStrategy::new(),
             params,
             FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
         );
@@ -143,7 +139,7 @@ where
     ep_params.bounds = bounds;
     run(
         "EP/fogel/μ=20/q=10",
-        EvolutionaryProgramming::<B>::new(),
+        EvolutionaryProgramming::new(),
         ep_params,
         FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
     );
@@ -161,7 +157,7 @@ where
         let label = format!("DE/{variant:?}");
         run(
             &label,
-            DifferentialEvolution::<B>::new(),
+            DifferentialEvolution::new(),
             params,
             FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
         );

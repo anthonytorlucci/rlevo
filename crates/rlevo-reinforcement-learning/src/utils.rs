@@ -4,11 +4,9 @@
 //! such as Bellman target computation and Polyak averaging.
 
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
 
 use burn::module::{Module, ModuleMapper, ModuleVisitor, Param, ParamId};
-use burn::tensor::backend::Backend;
-use burn::tensor::{Tensor, TensorPrimitive};
+use burn::tensor::Tensor;
 
 /// Computes Bellman backup target Q-values for a mini-batch.
 ///
@@ -40,12 +38,13 @@ use burn::tensor::{Tensor, TensorPrimitive};
 ///
 /// See [`compute_target_quantiles`] for the rank-2 sibling used by
 /// distributional algorithms that back up a whole quantile vector per sample.
-pub fn compute_target_q_values<B: Backend>(
-    rewards: Tensor<B, 1>,
-    next_q_max: Tensor<B, 1>,
-    terminated: Tensor<B, 1>,
+#[must_use]
+pub fn compute_target_q_values(
+    rewards: Tensor<1>,
+    next_q_max: Tensor<1>,
+    terminated: Tensor<1>,
     gamma: f32,
-) -> Tensor<B, 1> {
+) -> Tensor<1> {
     let is_terminal = terminated.equal_elem(1.0);
     let bootstrap = next_q_max.mul_scalar(gamma).mask_fill(is_terminal, 0.0);
     rewards + bootstrap
@@ -106,12 +105,13 @@ pub fn compute_target_q_values<B: Backend>(
 /// asserted so — never a network output. It therefore has no poison to
 /// propagate, and its result feeds a clamp-and-project step that this signature
 /// does not model. Do not fold that call site into this helper.
-pub fn compute_target_quantiles<B: Backend>(
-    rewards: Tensor<B, 2>,        // (B, 1)
-    next_quantiles: Tensor<B, 2>, // (B, N)
-    terminated: Tensor<B, 2>,     // (B, 1)
+#[must_use]
+pub fn compute_target_quantiles(
+    rewards: Tensor<2>,        // (B, 1)
+    next_quantiles: Tensor<2>, // (B, N)
+    terminated: Tensor<2>,     // (B, 1)
     gamma: f32,
-) -> Tensor<B, 2> {
+) -> Tensor<2> {
     let [_, num_quantiles] = next_quantiles.dims();
     // The `repeat_dim` is deliberate insurance, not a correctness requirement
     // on the backends this repo tests. Burn 0.21's `mask_fill` DOES broadcast a
@@ -165,31 +165,33 @@ pub enum PolyakError {
     MissingTarget(ParamId),
 }
 
-struct ParamCollector<B: Backend> {
-    tensors: HashMap<ParamId, TensorPrimitive<B>>,
-    _marker: PhantomData<B>,
+struct ParamCollector {
+    tensors: HashMap<ParamId, Tensor<1>>,
 }
 
-impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        // Store the rank-erased on-device primitive handle, not a host
+impl ModuleVisitor for ParamCollector {
+    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
+        // Store the value flattened to rank 1, on-device, not a host
         // `TensorData` readback: keeping the value on-device avoids a
         // gratuitous device→host→device round-trip on every soft update.
-        // Both networks live on the same backend/device.
-        self.tensors.insert(param.id, param.val().into_primitive());
+        // Without autodiff, so a training `active` cannot put the blended
+        // target on the graph.
+        self.tensors.insert(
+            param.id,
+            param.val().without_autodiff().flatten::<1>(0, D - 1),
+        );
     }
 }
 
-struct PolyakMapper<B: Backend> {
-    active: HashMap<ParamId, TensorPrimitive<B>>,
+struct PolyakMapper {
+    active: HashMap<ParamId, Tensor<1>>,
     seen: HashSet<ParamId>,
     tau: f32,
     error: Option<PolyakError>,
-    _marker: PhantomData<B>,
 }
 
-impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
-    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+impl ModuleMapper for PolyakMapper {
+    fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
         let id = param.id;
         // `.get().cloned()`, not `.remove()`: a single `ParamId` may back
         // several target fields (tied weights — two module fields holding
@@ -207,11 +209,10 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
         self.seen.insert(id);
         let tau = self.tau;
         param.map(move |target_tensor| {
-            // Rewrap the stored on-device primitive as a rank-`D` tensor; `D`
-            // is inferred from this `map_float<D>` call site and the primitive
-            // carries the real shape. No host upload occurs.
-            let active_tensor = Tensor::<B, D>::from_primitive(active);
-            target_tensor.mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
+            // Reshape the stored rank-1 value to the target's shape; `D` is
+            // inferred from this `map_float<D>` call site. No host upload occurs.
+            let active_tensor: Tensor<D> = active.reshape(target_tensor.dims());
+            target_tensor.without_autodiff().mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
         })
     }
 }
@@ -220,6 +221,10 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
 ///
 /// Used by every off-policy algorithm that maintains a target network (DQN,
 /// C51, QR-DQN, DDPG, TD3, SAC). Pass `tau = 1.0` for a hard copy.
+///
+/// The returned target is plain (no autodiff), whichever devices `active` and
+/// `target` are on, so passing a training network as `active` cannot put the
+/// target on the autodiff graph.
 ///
 /// Parameters are paired by [`ParamId`], not by position or name, so `target`
 /// must carry the *same* `ParamId`s as `active`.
@@ -246,22 +251,16 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
 /// never match even when their architecture and weights are identical. Build
 /// the target network by cloning the active one (`let target = active.clone();`)
 /// and both errors are impossible by construction; every in-tree agent does this.
-pub fn polyak_update<B: Backend, M: Module<B>>(
-    active: &M,
-    target: M,
-    tau: f32,
-) -> Result<M, PolyakError> {
-    let mut collector = ParamCollector::<B> {
+pub fn polyak_update<M: Module>(active: &M, target: M, tau: f32) -> Result<M, PolyakError> {
+    let mut collector = ParamCollector {
         tensors: HashMap::new(),
-        _marker: PhantomData,
     };
     active.visit(&mut collector);
-    let mut mapper = PolyakMapper::<B> {
+    let mut mapper = PolyakMapper {
         active: collector.tensors,
         seen: HashSet::new(),
         tau,
         error: None,
-        _marker: PhantomData,
     };
     let updated = target.map(&mut mapper);
     // A `target` parameter with no counterpart in `active` was recorded during
@@ -288,15 +287,9 @@ pub fn polyak_update<B: Backend, M: Module<B>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::Device;
 
     use approx::assert_abs_diff_eq;
-    use burn::backend::Flex;
-    use burn::tensor::backend::BackendTypes;
-
-    /// CPU backend for these tests. No RNG is involved — every weight below is
-    /// hand-set — so no backend seeding or `rayon` pinning is required.
-    type TestBackend = Flex;
-    type TestDevice = <TestBackend as BackendTypes>::Device;
 
     /// Tolerance for the exact-arithmetic assertions. Every expected value in
     /// this module is representable in binary floating point (the taus are
@@ -308,26 +301,26 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// Builds a rank-1 `f32` tensor on the default test device.
-    fn floats(values: &[f32]) -> Tensor<TestBackend, 1> {
-        Tensor::from_floats(values, &TestDevice::default())
+    fn floats(values: &[f32]) -> Tensor<1> {
+        Tensor::from_floats(values, &Device::flex())
     }
 
     /// Reads a rank-1 tensor back to host floats.
-    fn host(tensor: &Tensor<TestBackend, 1>) -> Vec<f32> {
+    fn host(tensor: &Tensor<1>) -> Vec<f32> {
         tensor
             .to_data()
-            .to_vec::<f32>()
+            .try_to_vec::<f32>()
             .expect("target tensor is f32 by construction")
     }
 
     /// The pre-hardening formula, kept verbatim as the reference oracle for
     /// the "finite inputs are unchanged" test.
     fn scaled_reference(
-        rewards: Tensor<TestBackend, 1>,
-        next_q_max: Tensor<TestBackend, 1>,
-        terminated: Tensor<TestBackend, 1>,
+        rewards: Tensor<1>,
+        next_q_max: Tensor<1>,
+        terminated: Tensor<1>,
         gamma: f32,
-    ) -> Tensor<TestBackend, 1> {
+    ) -> Tensor<1> {
         rewards + gamma * next_q_max * (1.0 - terminated)
     }
 
@@ -425,17 +418,15 @@ mod tests {
     /// Builds a rank-2 `f32` tensor of shape `(ROWS, COLS)` on the default test
     /// device. Rank-1 `floats` cannot express the `(B, N)` quantile batch or the
     /// `(B, 1)` reward / terminal columns these tests need.
-    fn floats_2d<const ROWS: usize, const COLS: usize>(
-        values: [[f32; COLS]; ROWS],
-    ) -> Tensor<TestBackend, 2> {
-        Tensor::from_floats(values, &TestDevice::default())
+    fn floats_2d<const ROWS: usize, const COLS: usize>(values: [[f32; COLS]; ROWS]) -> Tensor<2> {
+        Tensor::from_floats(values, &Device::flex())
     }
 
     /// Reads a rank-2 tensor back to host floats in row-major order.
-    fn host_2d(tensor: &Tensor<TestBackend, 2>) -> Vec<f32> {
+    fn host_2d(tensor: &Tensor<2>) -> Vec<f32> {
         tensor
             .to_data()
-            .to_vec::<f32>()
+            .try_to_vec::<f32>()
             .expect("target tensor is f32 by construction")
     }
 
@@ -444,11 +435,11 @@ mod tests {
     /// `qrdqn_agent` computed inline before the masked-bootstrap fix now
     /// applied by [`compute_target_quantiles`].
     fn scaled_reference_2d(
-        rewards: Tensor<TestBackend, 2>,
-        next_quantiles: Tensor<TestBackend, 2>,
-        terminated: Tensor<TestBackend, 2>,
+        rewards: Tensor<2>,
+        next_quantiles: Tensor<2>,
+        terminated: Tensor<2>,
         gamma: f32,
-    ) -> Tensor<TestBackend, 2> {
+    ) -> Tensor<2> {
         let keep = terminated.neg().add_scalar(1.0); // 1 − terminated  (B, 1)
         rewards + keep * next_quantiles.mul_scalar(gamma)
     }
@@ -611,14 +602,14 @@ mod tests {
     /// Deliberately not a `Linear` — it carries no initialisation logic, so the
     /// only thing a test can observe is what [`polyak_update`] wrote.
     #[derive(Module, Debug)]
-    struct TestNet<B: Backend> {
-        weight: Param<Tensor<B, 2>>,
-        bias: Param<Tensor<B, 1>>,
+    struct TestNet {
+        weight: Param<Tensor<2>>,
+        bias: Param<Tensor<1>>,
     }
 
-    impl<B: Backend> TestNet<B> {
+    impl TestNet {
         /// Builds a net with fresh [`ParamId`]s from the given constants.
-        fn new(device: &B::Device, weight: [[f32; 3]; 2], bias: [f32; 2]) -> Self {
+        fn new(device: &Device, weight: [[f32; 3]; 2], bias: [f32; 2]) -> Self {
             Self {
                 weight: Param::from_data(weight, device),
                 bias: Param::from_data(bias, device),
@@ -646,13 +637,13 @@ mod tests {
                 .weight
                 .val()
                 .to_data()
-                .to_vec::<f32>()
+                .try_to_vec::<f32>()
                 .expect("weight is f32 by construction");
             out.extend(
                 self.bias
                     .val()
                     .to_data()
-                    .to_vec::<f32>()
+                    .try_to_vec::<f32>()
                     .expect("bias is f32 by construction"),
             );
             out
@@ -669,9 +660,9 @@ mod tests {
 
     /// Returns the `(active, target)` fixture pair, sharing `ParamId`s and
     /// differing in every element.
-    fn fixture() -> (TestNet<TestBackend>, TestNet<TestBackend>) {
-        let device = TestDevice::default();
-        let active = TestNet::<TestBackend>::new(&device, ACTIVE_WEIGHT, ACTIVE_BIAS);
+    fn fixture() -> (TestNet, TestNet) {
+        let device = Device::flex();
+        let active = TestNet::new(&device, ACTIVE_WEIGHT, ACTIVE_BIAS);
         let target = active.relabelled(TARGET_WEIGHT, TARGET_BIAS);
         (active, target)
     }
@@ -683,7 +674,7 @@ mod tests {
     /// outright" both pass a tau = 0 / tau = 1 / tau = 0.25 suite built on
     /// equal inputs — the same equal-inputs vacuity that once let a stuck
     /// target-network update schedule pass its own test suite unnoticed.
-    fn assert_nets_differ(active: &TestNet<TestBackend>, target: &TestNet<TestBackend>) {
+    fn assert_nets_differ(active: &TestNet, target: &TestNet) {
         let (a, t) = (active.flat(), target.flat());
         assert_eq!(
             a.len(),
@@ -706,8 +697,7 @@ mod tests {
         let (active, target) = fixture();
         assert_nets_differ(&active, &target);
 
-        let updated =
-            polyak_update::<TestBackend, _>(&active, target, 0.0).expect("ids match by fixture");
+        let updated = polyak_update(&active, target, 0.0).expect("ids match by fixture");
 
         for (i, (got, want)) in updated.flat().iter().zip(TARGET_FLAT.iter()).enumerate() {
             assert_abs_diff_eq!(got, want, epsilon = EPS);
@@ -725,8 +715,7 @@ mod tests {
         let (active, target) = fixture();
         assert_nets_differ(&active, &target);
 
-        let updated =
-            polyak_update::<TestBackend, _>(&active, target, 1.0).expect("ids match by fixture");
+        let updated = polyak_update(&active, target, 1.0).expect("ids match by fixture");
 
         for (i, (got, want)) in updated.flat().iter().zip(ACTIVE_FLAT.iter()).enumerate() {
             assert_abs_diff_eq!(got, want, epsilon = EPS);
@@ -749,8 +738,7 @@ mod tests {
         let (active, target) = fixture();
         assert_nets_differ(&active, &target);
 
-        let updated =
-            polyak_update::<TestBackend, _>(&active, target, 0.25).expect("ids match by fixture");
+        let updated = polyak_update(&active, target, 0.25).expect("ids match by fixture");
 
         for (i, (got, want)) in updated.flat().iter().zip(EXPECTED.iter()).enumerate() {
             assert_abs_diff_eq!(got, want, epsilon = EPS);
@@ -770,8 +758,7 @@ mod tests {
         let before_shapes = target.shapes();
         let before_len = target.flat().len();
 
-        let updated =
-            polyak_update::<TestBackend, _>(&active, target, 0.3).expect("ids match by fixture");
+        let updated = polyak_update(&active, target, 0.3).expect("ids match by fixture");
 
         assert_eq!(
             updated.shapes(),
@@ -800,8 +787,7 @@ mod tests {
 
         let mut prev = target.flat();
         for step in 0..STEPS {
-            target = polyak_update::<TestBackend, _>(&active, target, TAU)
-                .expect("ids match by fixture");
+            target = polyak_update(&active, target, TAU).expect("ids match by fixture");
             let now = target.flat();
 
             for (i, (&before, &after)) in prev.iter().zip(now.iter()).enumerate() {
@@ -844,9 +830,9 @@ mod tests {
     /// Two same-typed [`Param`] fields, so a fixture can make them share one
     /// [`ParamId`] (tied weights) or carry two distinct ids.
     #[derive(Module, Debug)]
-    struct TiedNet<B: Backend> {
-        a: Param<Tensor<B, 1>>,
-        b: Param<Tensor<B, 1>>,
+    struct TiedNet {
+        a: Param<Tensor<1>>,
+        b: Param<Tensor<1>>,
     }
 
     /// Three same-typed [`Param`] fields, so a fixture can leave **two**
@@ -854,18 +840,18 @@ mod tests {
     /// "reports the true `.min()` leftover" from "reports whatever id `HashMap`
     /// iteration happened to surface first".
     #[derive(Module, Debug)]
-    struct TripleNet<B: Backend> {
-        a: Param<Tensor<B, 1>>,
-        b: Param<Tensor<B, 1>>,
-        c: Param<Tensor<B, 1>>,
+    struct TripleNet {
+        a: Param<Tensor<1>>,
+        b: Param<Tensor<1>>,
+        c: Param<Tensor<1>>,
     }
 
     /// Reads a rank-1 param to host floats.
-    fn param_vec<B: Backend>(param: &Param<Tensor<B, 1>>) -> Vec<f32> {
+    fn param_vec(param: &Param<Tensor<1>>) -> Vec<f32> {
         param
             .val()
             .to_data()
-            .to_vec::<f32>()
+            .try_to_vec::<f32>()
             .expect("param is f32 by construction")
     }
 
@@ -881,12 +867,12 @@ mod tests {
         const TARGET: [f32; 3] = [-1.0, -2.0, -3.0];
         const EXPECTED: [f32; 3] = [-0.5, -1.0, -1.5];
 
-        let device = TestDevice::default();
+        let device = Device::flex();
 
         // Active: both fields are clones of one param -> one shared id, one value.
         let active_shared = Param::from_data([1.0_f32, 2.0, 3.0], &device);
         let shared_id = active_shared.id;
-        let active = TiedNet::<TestBackend> {
+        let active = TiedNet {
             a: active_shared.clone(),
             b: active_shared.clone(),
         };
@@ -896,12 +882,12 @@ mod tests {
             shared_id,
             Tensor::from_data([-1.0_f32, -2.0, -3.0], &device),
         );
-        let target = TiedNet::<TestBackend> {
+        let target = TiedNet {
             a: target_shared.clone(),
             b: target_shared.clone(),
         };
 
-        let updated = polyak_update::<TestBackend, _>(&active, target, 0.25)
+        let updated = polyak_update(&active, target, 0.25)
             .expect("tied weights share one active entry; the update must succeed");
 
         for (field, values) in [("a", param_vec(&updated.a)), ("b", param_vec(&updated.b))] {
@@ -922,10 +908,10 @@ mod tests {
         // so neither is present in `active`. The update must fail with
         // `MissingActive` naming the offending id rather than silently doing
         // nothing.
-        let device = TestDevice::default();
+        let device = Device::flex();
 
         let active_shared = Param::from_data([1.0_f32], &device);
-        let active = TiedNet::<TestBackend> {
+        let active = TiedNet {
             a: active_shared.clone(),
             b: active_shared.clone(),
         };
@@ -934,12 +920,12 @@ mod tests {
         // share `foreign.id`, so the first-recorded miss is that id.
         let foreign = Param::from_data([2.0_f32], &device);
         let foreign_id = foreign.id;
-        let target = TiedNet::<TestBackend> {
+        let target = TiedNet {
             a: foreign.clone(),
             b: foreign.clone(),
         };
 
-        let result = polyak_update::<TestBackend, _>(&active, target, 0.5);
+        let result = polyak_update(&active, target, 0.5);
 
         assert_eq!(result.err(), Some(PolyakError::MissingActive(foreign_id)));
     }
@@ -950,24 +936,24 @@ mod tests {
         // id A, so its param set {A} is a strict subset of active's {A, B}. The
         // B entry is never consumed; the old code silently dropped it, the new
         // code must report `MissingTarget(B)`.
-        let device = TestDevice::default();
+        let device = Device::flex();
 
         let param_a = Param::from_data([1.0_f32], &device);
         let param_b = Param::from_data([2.0_f32], &device);
         let missing_id = param_b.id;
-        let active = TiedNet::<TestBackend> {
+        let active = TiedNet {
             a: param_a.clone(),
             b: param_b.clone(),
         };
 
         // Target: both fields share A -> B has no counterpart in target.
         let target_a = Param::initialized(param_a.id, Tensor::from_data([-1.0_f32], &device));
-        let target = TiedNet::<TestBackend> {
+        let target = TiedNet {
             a: target_a.clone(),
             b: target_a.clone(),
         };
 
-        let result = polyak_update::<TestBackend, _>(&active, target, 0.5);
+        let result = polyak_update(&active, target, 0.5);
 
         assert_eq!(result.err(), Some(PolyakError::MissingTarget(missing_id)));
     }
@@ -980,7 +966,7 @@ mod tests {
         // documented to name the smallest leftover id (`.min()`), so a single
         // leftover cannot distinguish "reports the true min" from "reports the
         // first id `HashMap` iteration yielded". Two leftovers can.
-        let device = TestDevice::default();
+        let device = Device::flex();
 
         let param_a = Param::from_data([1.0_f32], &device);
         let param_b = Param::from_data([2.0_f32], &device);
@@ -995,7 +981,7 @@ mod tests {
             "the two leftover ids must differ for the min to be meaningful"
         );
 
-        let active = TripleNet::<TestBackend> {
+        let active = TripleNet {
             a: param_a.clone(),
             b: param_b.clone(),
             c: param_c.clone(),
@@ -1003,13 +989,13 @@ mod tests {
 
         // Target: all three fields share A -> B and C have no counterpart.
         let target_a = Param::initialized(param_a.id, Tensor::from_data([-1.0_f32], &device));
-        let target = TripleNet::<TestBackend> {
+        let target = TripleNet {
             a: target_a.clone(),
             b: target_a.clone(),
             c: target_a.clone(),
         };
 
-        let result = polyak_update::<TestBackend, _>(&active, target, 0.5);
+        let result = polyak_update(&active, target, 0.5);
 
         assert_eq!(
             result.err(),
@@ -1027,19 +1013,19 @@ mod tests {
 
     #[test]
     fn test_polyak_update_feeds_reconstructed_target_back_in() {
-        // Regression for the on-device transport swap: `active` is now carried
-        // between the collector and the mapper as a rank-erased
-        // `TensorPrimitive` handle, and each target parameter is rebuilt with
-        // `Tensor::from_primitive`. This test pins two things at the behaviour
-        // level.
+        // Regression for the on-device transport: `active` is carried between
+        // the collector and the mapper flattened to rank 1, and each target
+        // parameter is rebuilt by reshaping it to the target's dims. This test
+        // pins two things at the behaviour level.
         //
         // First, a single blend over a genuinely multi-rank net (rank-2 weight
         // + rank-1 bias) must still produce the exact `$0.75\,\text{target} + 0.25\,\text{active}$`
-        // combination — the primitive round-trip is numerically a no-op.
+        // combination — the flatten-and-reshape round trip is numerically a
+        // no-op.
         //
         // Second, and the point of this test, the returned target is fed
-        // *straight back* into a second `polyak_update`. A tensor rebuilt from
-        // `from_primitive` must be a fully valid tensor you can read, blend, and
+        // *straight back* into a second `polyak_update`. A tensor rebuilt by
+        // the reshape must be a fully valid tensor you can read, blend, and
         // reconstruct again — not a degenerate handle. The second step must
         // continue converging toward active (every parameter's gap shrinks),
         // which it cannot do if the reconstructed tensor were somehow inert.
@@ -1055,8 +1041,7 @@ mod tests {
         let (active, target) = fixture();
         assert_nets_differ(&active, &target);
 
-        let once =
-            polyak_update::<TestBackend, _>(&active, target, TAU).expect("ids match by fixture");
+        let once = polyak_update(&active, target, TAU).expect("ids match by fixture");
         let after_one = once.flat();
         for (i, (&got, &want)) in after_one.iter().zip(AFTER_ONE.iter()).enumerate() {
             assert_abs_diff_eq!(got, want, epsilon = EPS);
@@ -1068,8 +1053,8 @@ mod tests {
             );
         }
 
-        // Feed the reconstructed-from-primitive target back in unchanged.
-        let twice = polyak_update::<TestBackend, _>(&active, once, TAU)
+        // Feed the reshaped target back in unchanged.
+        let twice = polyak_update(&active, once, TAU)
             .expect("the reconstructed target must remain a valid, updatable module");
         let after_two = twice.flat();
 
@@ -1082,6 +1067,29 @@ mod tests {
                 "second consecutive step must keep converging param {i} toward active \
                  ({goal}); gap went {gap_before} -> {gap_after}"
             );
+        }
+    }
+
+    /// The returned target is plain whatever the caller passes. Autodiff is
+    /// device state in Burn 0.22, so a training `active` (or target) would
+    /// otherwise put the blended target on the autodiff graph.
+    #[test]
+    fn test_polyak_update_returns_a_plain_target_from_training_inputs() {
+        use crate::algorithms::shared::{params_are_plain, params_train};
+
+        let device = Device::flex().autodiff();
+        let active = TestNet::new(&device, ACTIVE_WEIGHT, ACTIVE_BIAS).train();
+        assert!(params_train(&active), "precondition: active trains");
+        for target in [
+            active.relabelled(TARGET_WEIGHT, TARGET_BIAS).valid(),
+            active.relabelled(TARGET_WEIGHT, TARGET_BIAS).train(),
+        ] {
+            let updated = polyak_update(&active, target, 0.25).expect("ids match by fixture");
+            assert!(params_are_plain(&updated), "the blended target is plain");
+            for (i, got) in updated.flat().iter().enumerate() {
+                let want = 0.75 * TARGET_FLAT[i] + 0.25 * ACTIVE_FLAT[i];
+                assert_abs_diff_eq!(*got, want, epsilon = EPS);
+            }
         }
     }
 }

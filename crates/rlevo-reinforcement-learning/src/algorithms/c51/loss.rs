@@ -14,7 +14,6 @@
 //! and unit-tested independently.
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::Backend;
 
 /// Per-sample cross-entropy between `target_probs` and `predicted_log_probs`.
 ///
@@ -25,7 +24,7 @@ use burn::tensor::backend::Backend;
 ///
 /// # Returns
 ///
-/// An **unreduced** `Tensor<B, 1>` of shape `[batch]` — element `n` is
+/// An **unreduced** `Tensor<1>` of shape `[batch]` — element `n` is
 /// `$-\sum_i \text{target\_probs}[n,i] \cdot \text{predicted\_log\_probs}[n,i]$`. This is *not* a
 /// scalar: a caller that wants the usual training loss must apply its own reduction (`.mean()`),
 /// and a caller that omits it will either hit a shape error or silently backpropagate a
@@ -34,10 +33,11 @@ use burn::tensor::backend::Backend;
 /// `predicted_log_probs` must already be log-probabilities along the atom
 /// axis (typically produced via `tensor.log_softmax(atom_axis)`); no
 /// normalisation is done internally.
-pub fn categorical_cross_entropy_per_sample<B: Backend>(
-    target_probs: Tensor<B, 2>,
-    predicted_log_probs: Tensor<B, 2>,
-) -> Tensor<B, 1> {
+#[must_use]
+pub fn categorical_cross_entropy_per_sample(
+    target_probs: Tensor<2>,
+    predicted_log_probs: Tensor<2>,
+) -> Tensor<1> {
     (target_probs * predicted_log_probs)
         .sum_dim(1)
         .squeeze_dim::<1>(1)
@@ -83,10 +83,11 @@ const KL_LOG_FLOOR: f32 = 1e-30;
 ///
 /// The result is the non-negative KL per batch element. `predicted_log_probs`
 /// must already be log-probabilities along the atom axis.
-pub fn categorical_kl_per_sample<B: Backend>(
-    target_probs: Tensor<B, 2>,
-    predicted_log_probs: Tensor<B, 2>,
-) -> Tensor<B, 1> {
+#[must_use]
+pub fn categorical_kl_per_sample(
+    target_probs: Tensor<2>,
+    predicted_log_probs: Tensor<2>,
+) -> Tensor<1> {
     // `$\text{CE} = -\sum t\log p$`.
     let ce = categorical_cross_entropy_per_sample(target_probs.clone(), predicted_log_probs);
     // `$\sum t\log t$` (`$= -H(t) \leq 0$`). The clamp floors log(0) so a zero atom's `$t\log t$`
@@ -101,14 +102,12 @@ pub fn categorical_kl_per_sample<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
+    use burn::tensor::Device;
     use burn::tensor::TensorData;
     use burn::tensor::activation;
 
-    type BE = Flex;
-
-    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<BE, 2> {
-        let device = <BE as burn::tensor::backend::BackendTypes>::Device::default();
+    fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<2> {
+        let device = Device::flex();
         Tensor::from_data(TensorData::new(data, vec![rows, cols]), &device)
     }
 
@@ -121,7 +120,7 @@ mod tests {
         let loss = categorical_cross_entropy_per_sample(target, log_p)
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 loss");
         assert_eq!(
             loss.len(),
@@ -162,7 +161,7 @@ mod tests {
             .clone()
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 loss");
         #[allow(clippy::cast_precision_loss)]
         let manual_mean = values.iter().sum::<f32>() / batch as f32;
@@ -170,7 +169,7 @@ mod tests {
             .mean()
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 loss")[0];
         assert!(
             (manual_mean - reduced).abs() < 1e-6,
@@ -179,16 +178,16 @@ mod tests {
     }
 
     /// Reads a `[batch]` loss tensor to a host `Vec<f32>`.
-    fn to_vec(t: Tensor<BE, 1>) -> Vec<f32> {
+    fn to_vec(t: Tensor<1>) -> Vec<f32> {
         t.into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 loss")
     }
 
     /// Builds `predicted_log_probs` from explicit probabilities by taking their
     /// natural log — the exact log-probs the KL formula expects.
-    fn log_of(probs: Vec<f32>, rows: usize, cols: usize) -> Tensor<BE, 2> {
+    fn log_of(probs: Vec<f32>, rows: usize, cols: usize) -> Tensor<2> {
         tensor_2d(probs, rows, cols).log()
     }
 
@@ -310,7 +309,7 @@ mod tests {
         let losses = categorical_cross_entropy_per_sample(target, log_p)
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 loss");
         assert_eq!(losses.len(), batch, "one loss value per batch element");
         for loss in losses {

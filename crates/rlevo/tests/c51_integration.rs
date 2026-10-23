@@ -9,10 +9,9 @@
 //! acceptance assertions live in the `rlevo-test-support` dev-crate; only the
 //! C51 network and the algorithm-specific tests remain here.
 
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, activation};
+use burn::tensor::{Device, Tensor, activation};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -23,11 +22,10 @@ use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::env::cartpole_seeded;
-use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
@@ -38,15 +36,15 @@ use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test
 const N_ACTIONS: usize = 2;
 
 #[derive(Module, Debug)]
-struct C51Mlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
+struct C51Mlp {
+    l1: Linear,
+    l2: Linear,
+    l3: Linear,
     num_atoms: usize,
 }
 
-impl<B: Backend> C51Mlp<B> {
-    fn new(num_atoms: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+impl C51Mlp {
+    fn new(num_atoms: usize, device: &Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -55,7 +53,7 @@ impl<B: Backend> C51Mlp<B> {
         }
     }
 
-    fn forward_impl(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+    fn forward_impl(&self, observations: Tensor<2>) -> Tensor<3> {
         let [batch_size, _] = observations.dims();
         let x = activation::relu(self.l1.forward(observations));
         let x = activation::relu(self.l2.forward(x));
@@ -64,31 +62,13 @@ impl<B: Backend> C51Mlp<B> {
     }
 }
 
-impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
-    fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+impl C51Model<2> for C51Mlp {
+    fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.forward_impl(observations)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 3> {
-        inner.forward_impl(observations)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, C51Mlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
-type Agent = C51Agent<Be, C51Mlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = C51Agent<C51Mlp, CartPoleObservation, CartPoleAction, 1, 2>;
 
 /// Constructs a deterministic [`C51Agent`] for `CartPole`.
 ///
@@ -108,7 +88,7 @@ type Agent = C51Agent<Be, C51Mlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>
 /// self-gated to a no-op whenever `$\tau > 0$`). Transcribing the `500` as a cadence would be a
 /// `$500\times$` slowdown of the soft update, not a faithful translation.
 fn fresh_agent(seed: u64) -> Agent {
-    let device = seeded_device::<Be>(seed);
+    let device = seeded_device(seed);
     let num_atoms = 51;
     let config = C51TrainingConfig {
         batch_size: 64,
@@ -126,7 +106,7 @@ fn fresh_agent(seed: u64) -> Agent {
         v_max: 500.0,
         ..Default::default()
     };
-    let model: C51Mlp<Be> = C51Mlp::new(num_atoms, &device);
+    let model: C51Mlp = C51Mlp::new(num_atoms, &device);
     C51Agent::new(model, config, device).expect("valid config")
 }
 
@@ -183,15 +163,15 @@ fn c51_cartpole_produces_finite_rewards() {
 #[test]
 fn c51_agent_new_rejects_degenerate_support() {
     let _guard = flex_guard();
-    let device = seeded_device::<Be>(1);
+    let device = seeded_device(1);
     let config = C51TrainingConfig {
         v_min: 5.0,
         v_max: 5.0,
         ..C51TrainingConfig::default()
     };
-    let model: C51Mlp<Be> = C51Mlp::new(config.num_atoms, &device);
+    let model: C51Mlp = C51Mlp::new(config.num_atoms, &device);
     let result =
-        C51Agent::<Be, _, CartPoleObservation, CartPoleAction, 1, 2>::new(model, config, device);
+        C51Agent::<_, CartPoleObservation, CartPoleAction, 1, 2>::new(model, config, device);
     let err = result.unwrap_err();
     assert_eq!(err.field, "v_max");
 }

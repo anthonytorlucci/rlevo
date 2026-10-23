@@ -27,7 +27,7 @@
 //! [`fit`]: crate::ProbabilityModel::fit
 //! [`sample`]: crate::ProbabilityModel::sample
 
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::{Rng, RngExt};
 use rlevo_core::config::{self, ConfigError};
 
@@ -118,7 +118,7 @@ impl UnivariateBernoulliState {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnivariateBernoulli;
 
-impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
+impl ProbabilityModel for UnivariateBernoulli {
     type Params = UnivariateBernoulliParams;
     type State = UnivariateBernoulliState;
 
@@ -134,9 +134,9 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
         &self,
         params: &Self::Params,
         prev: Option<&Self::State>,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        device: &Device,
     ) -> Self::State {
         let _ = device;
         let Some(prev) = prev else {
@@ -159,11 +159,11 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
         }
         let rows = population
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population tensor must be readable as f32");
         let fit_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
 
         // Argmax (best) and argmin (worst), ties → lowest index.
@@ -219,8 +219,8 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
         state: &Self::State,
         n: usize,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+        device: &Device,
+    ) -> Tensor<2> {
         let d = state.prob.len();
         let mut rows = Vec::with_capacity(n * d);
         // Row-major: outer individuals, inner dimensions.
@@ -230,33 +230,30 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
                 rows.push(gene);
             }
         }
-        Tensor::<B, 2>::from_data(TensorData::new(rows, [n, d]), device)
+        Tensor::<2>::from_data(TensorData::new(rows, [n, d]), device)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = Flex;
-
-    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<TestBackend, 2> {
-        let device = Default::default();
-        Tensor::<TestBackend, 2>::from_data(TensorData::new(rows, [n, d]), &device)
+    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<2> {
+        let device = Device::flex();
+        Tensor::<2>::from_data(TensorData::new(rows, [n, d]), &device)
     }
 
-    fn fitness(values: Vec<f32>) -> Tensor<TestBackend, 1> {
-        let device = Default::default();
+    fn fitness(values: Vec<f32>) -> Tensor<1> {
+        let device = Device::flex();
         let n = values.len();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(values, [n]), &device)
+        Tensor::<1>::from_data(TensorData::new(values, [n]), &device)
     }
 
     fn fit_prior(p: &UnivariateBernoulliParams) -> UnivariateBernoulliState {
-        let device = Default::default();
-        <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+        let device = Device::flex();
+        <UnivariateBernoulli as ProbabilityModel>::fit(
             &UnivariateBernoulli,
             p,
             None,
@@ -285,7 +282,7 @@ mod tests {
 
     #[test]
     fn interpolation_not_overwrite() {
-        let device = Default::default();
+        let device = Device::flex();
         let p = UnivariateBernoulliParams {
             genome_dim: 1,
             learning_rate: 0.1,
@@ -294,7 +291,7 @@ mod tests {
         let prior = fit_prior(&p);
         // best = row 0 (gene 1), worst = row 1 (gene 0). neg_lr = 0 so only the
         // positive update fires: p = 0.5*0.9 + 0.1*1 = 0.55, strictly in (0.5, 1).
-        let state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+        let state = <UnivariateBernoulli as ProbabilityModel>::fit(
             &UnivariateBernoulli,
             &p,
             Some(&prior),
@@ -308,7 +305,7 @@ mod tests {
 
     #[test]
     fn neg_lr_applies_only_to_differing_genes() {
-        let device = Default::default();
+        let device = Device::flex();
         let p = UnivariateBernoulliParams {
             genome_dim: 2,
             learning_rate: 0.1,
@@ -318,7 +315,7 @@ mod tests {
         // Canonical maximise: row 0 (fitness 1.0) is best, row 1 (0.0) worst.
         // gene 0: best=1, worst=1 (same) → only positive update.
         // gene 1: best=1, worst=0 (differ) → positive then negative update.
-        let state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+        let state = <UnivariateBernoulli as ProbabilityModel>::fit(
             &UnivariateBernoulli,
             &p,
             Some(&prior),
@@ -334,13 +331,13 @@ mod tests {
 
     #[test]
     fn convergence_direction_toward_zeros() {
-        let device = Default::default();
+        let device = Device::flex();
         let p = UnivariateBernoulliParams::default_for(1);
         let mut state = fit_prior(&p);
         // Best individual (highest fitness) is all-zeros; repeated fits must
         // drive p down.
         for _ in 0..50 {
-            state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+            state = <UnivariateBernoulli as ProbabilityModel>::fit(
                 &UnivariateBernoulli,
                 &p,
                 Some(&state),
@@ -358,12 +355,12 @@ mod tests {
 
     #[test]
     fn samples_are_binary() {
-        let device = Default::default();
+        let device = Device::flex();
         let state = UnivariateBernoulliState {
             prob: vec![0.3, 0.7, 0.5],
         };
         let mut rng = StdRng::seed_from_u64(5);
-        let samples = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::sample(
+        let samples = <UnivariateBernoulli as ProbabilityModel>::sample(
             &UnivariateBernoulli,
             &state,
             500,
@@ -372,7 +369,7 @@ mod tests {
         );
         let data = samples
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         for v in data {
             // Exact float compare is correct here: sample() writes literal 0.0
@@ -391,10 +388,10 @@ mod tests {
         // empty `rows`, panicking out of bounds. `fit`'s `k == 0` guard
         // short-circuits before that indexing and returns the previous
         // probabilities unchanged instead.
-        let device = Default::default();
+        let device = Device::flex();
         let p = UnivariateBernoulliParams::default_for(3);
         let prior = fit_prior(&p);
-        let state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+        let state = <UnivariateBernoulli as ProbabilityModel>::fit(
             &UnivariateBernoulli,
             &p,
             Some(&prior),
@@ -417,10 +414,10 @@ mod tests {
         // (a raw NaN sorts as the largest value under `total_cmp` and would
         // otherwise be picked as best). That seam must therefore pick row 1
         // as best and push prob toward its all-zero genes.
-        let device = Default::default();
+        let device = Device::flex();
         let p = UnivariateBernoulliParams::default_for(2);
         let prior = fit_prior(&p);
-        let state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+        let state = <UnivariateBernoulli as ProbabilityModel>::fit(
             &UnivariateBernoulli,
             &p,
             Some(&prior),
@@ -443,7 +440,7 @@ mod tests {
         // `$\text{prob} \in [\text{min\_prob}, \text{max\_prob}]$`, so every generation keeps each
         // probability inside the bounds. Drive many seeded fit/update generations over random
         // binary populations and assert the invariant holds throughout.
-        let device = Default::default();
+        let device = Device::flex();
         let p = UnivariateBernoulliParams::default_for(6);
         let (min_prob, max_prob) = (0.0_f32, 1.0_f32);
         let (k, d) = (8_usize, 6_usize);
@@ -454,7 +451,7 @@ mod tests {
                 .map(|_| if rng.random::<f32>() < 0.5 { 0.0 } else { 1.0 })
                 .collect();
             let fit_vals: Vec<f32> = (0..k).map(|_| rng.random::<f32>()).collect();
-            state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+            state = <UnivariateBernoulli as ProbabilityModel>::fit(
                 &UnivariateBernoulli,
                 &p,
                 Some(&state),

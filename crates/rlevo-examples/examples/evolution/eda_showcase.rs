@@ -61,9 +61,7 @@
 //! generations of Burn tensor ops, and Demo 3 alone adds ~11 runs at population 2000 `$\times$` 60
 //! generations.
 
-use burn::backend::Flex;
-use burn::tensor::backend::BackendTypes;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -81,8 +79,6 @@ use rlevo_evolution::{
     UnivariateBernoulliParams, UnivariateGaussian, UnivariateGaussianParams,
 };
 
-type B = Flex;
-
 /// Rosenbrock under the EDA minimization convention. The host genome row is
 /// `f32`; widen to `f64` for the landscape, then narrow the scalar back.
 #[allow(clippy::cast_possible_truncation)]
@@ -98,18 +94,14 @@ fn rosenbrock_fitness(landscape: Rosenbrock, row: &[f32]) -> f32 {
 /// the loop; we inline it so the binary `OneMax` demo needs no `Landscape`
 /// impl and both demos read identically.
 #[allow(clippy::trivially_copy_pass_by_ref)] // device is a ZST; &-passing reads clearer
-fn eval_population<F>(
-    pop: &Tensor<B, 2>,
-    device: &<B as BackendTypes>::Device,
-    mut fitness: F,
-) -> Tensor<B, 1>
+fn eval_population<F>(pop: &Tensor<2>, device: &Device, mut fitness: F) -> Tensor<1>
 where
     F: FnMut(&[f32]) -> f32,
 {
     let [n, d] = pop.dims();
-    let flat = pop.clone().into_data().into_vec::<f32>().unwrap();
+    let flat = pop.clone().into_data().try_into_vec::<f32>().unwrap();
     let values: Vec<f32> = flat.chunks(d).map(&mut fitness).collect();
-    Tensor::<B, 1>::from_data(TensorData::new(values, [n]), device)
+    Tensor::<1>::from_data(TensorData::new(values, [n]), device)
 }
 
 /// Drive an EDA model for `gens` generations via the bare `Strategy` loop,
@@ -124,12 +116,12 @@ fn run_eda<M, F, R>(
     mut report: R,
 ) -> f32
 where
-    M: ProbabilityModel<B> + 'static,
+    M: ProbabilityModel + 'static,
     F: FnMut(&[f32]) -> f32,
     R: FnMut(usize, &M::State),
 {
-    let device: <B as BackendTypes>::Device = Default::default();
-    let strategy = EdaStrategy::<B, M>::new(model);
+    let device: Device = Device::flex();
+    let strategy = EdaStrategy::<M>::new(model);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut state = strategy.init(params, &mut rng, &device);
 

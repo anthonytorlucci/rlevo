@@ -56,9 +56,8 @@
 //! ways of driving a loop side by side.
 
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
-use burn::tensor::{Tensor, backend::Backend};
+use burn::tensor::{Device, Tensor};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -80,18 +79,17 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 ///
 /// The example below uses [`GeneticAlgorithm`] as a concrete strategy and
 /// drives one ask/tell cycle by hand. Concrete strategies expose their state
-/// fields directly; generic code over `S: Strategy<B>` must access state
+/// fields directly; generic code over `S: Strategy` must access state
 /// only through [`Strategy::best`] and the tuple returns of `ask`/`tell`.
 ///
 /// ```no_run
-/// use burn::backend::Flex;
-/// use burn::tensor::TensorData;
+/// use burn::tensor::{Device, TensorData};
 /// use rlevo_evolution::Strategy;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use rand::{rngs::StdRng, SeedableRng};
 ///
-/// let device = Default::default();
-/// let strategy = GeneticAlgorithm::<Flex>::new();
+/// let device = Device::flex();
+/// let strategy = GeneticAlgorithm::new();
 /// let params = GaConfig::default_for(64, 10);
 /// let mut rng = StdRng::seed_from_u64(0);
 /// let state = strategy.init(&params, &mut rng, &device);
@@ -100,10 +98,6 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 /// ```
 ///
 /// [`GeneticAlgorithm`]: crate::algorithms::ga::GeneticAlgorithm
-///
-/// # Type Parameters
-///
-/// - `B`: Burn backend.
 ///
 /// # What the loop that drives it does
 ///
@@ -127,9 +121,9 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 ///   best-so-far, RNG-free sub-statistics). Must be clonable so the
 ///   loop can snapshot before a risky step if needed.
 /// - `Genome`: Genome container produced by `ask` and consumed by
-///   `tell`. Typically a `Tensor<B, 2>` for real-valued strategies or a
-///   `Tensor<B, 2, Int>` for binary/integer kinds.
-pub trait Strategy<B: Backend>: Send + Sync {
+///   `tell`. Typically a `Tensor<2>` for real-valued strategies or a
+///   `Tensor<2, Int>` for binary/integer kinds.
+pub trait Strategy: Send + Sync {
     /// Static parameters for a run.
     type Params: Clone + Debug + Send + Sync;
 
@@ -143,12 +137,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
     ///
     /// Samples the initial population, primes adaptive quantities, and
     /// sets the generation counter to zero.
-    fn init(
-        &self,
-        params: &Self::Params,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::State;
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &Device) -> Self::State;
 
     /// Propose the next population.
     ///
@@ -162,7 +151,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
         params: &Self::Params,
         state: &Self::State,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
     ) -> (Self::Genome, Self::State);
 
     /// Consume fitness values and produce the next state.
@@ -203,7 +192,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
         &self,
         params: &Self::Params,
         population: Self::Genome,
-        fitness: Tensor<B, 1>,
+        fitness: Tensor<1>,
         state: Self::State,
         rng: &mut dyn Rng,
     ) -> (Self::State, StrategyMetrics);
@@ -472,7 +461,7 @@ fn build_population_snapshot(
 /// # Driving it
 ///
 /// ```no_run
-/// use burn::backend::Flex;
+/// use burn::tensor::Device;
 /// use rlevo_core::fitness::Landscape;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use rlevo_evolution::fitness::FromLandscape;
@@ -485,9 +474,9 @@ fn build_population_snapshot(
 ///     }
 /// }
 ///
-/// let device = Default::default();
-/// let mut evo_loop = EvolutionaryLoop::<Flex, _, _>::new(
-///     GeneticAlgorithm::<Flex>::new(),
+/// let device = Device::flex();
+/// let mut evo_loop = EvolutionaryLoop::new(
+///     GeneticAlgorithm::new(),
 ///     GaConfig::default_for(32, 5),
 ///     FromLandscape::new(Sphere),
 ///     0, device, 100,
@@ -605,11 +594,10 @@ fn build_population_snapshot(
 /// them. A fitness function that draws from the backend generator
 /// (`Tensor::random`, or a Burn initialiser run per genome) brings back the
 /// dependence on thread schedule that the host-RNG convention removes.
-pub struct EvolutionaryLoop<B, S, F>
+pub struct EvolutionaryLoop<S, F>
 where
-    B: Backend,
-    S: Strategy<B>,
-    F: BatchFitnessFn<B, S::Genome>,
+    S: Strategy,
+    F: BatchFitnessFn<S::Genome>,
 {
     strategy: S,
     params: S::Params,
@@ -617,19 +605,17 @@ where
     state: Option<S::State>,
     rng: StdRng,
     seed: u64,
-    device: B::Device,
+    device: Device,
     generation: usize,
     max_generations: usize,
     latest_metrics: Option<StrategyMetrics>,
     observer: Option<SharedPopulationObserver>,
-    _backend: PhantomData<B>,
 }
 
-impl<B, S, F> Debug for EvolutionaryLoop<B, S, F>
+impl<S, F> Debug for EvolutionaryLoop<S, F>
 where
-    B: Backend,
-    S: Strategy<B>,
-    F: BatchFitnessFn<B, S::Genome>,
+    S: Strategy,
+    F: BatchFitnessFn<S::Genome>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EvolutionaryLoop")
@@ -641,11 +627,10 @@ where
     }
 }
 
-impl<B, S, F> EvolutionaryLoop<B, S, F>
+impl<S, F> EvolutionaryLoop<S, F>
 where
-    B: Backend,
-    S: Strategy<B>,
-    F: BatchFitnessFn<B, S::Genome>,
+    S: Strategy,
+    F: BatchFitnessFn<S::Genome>,
 {
     /// Build a new loop from its parts.
     ///
@@ -674,7 +659,7 @@ where
         params: S::Params,
         fitness_fn: F,
         seed: u64,
-        device: B::Device,
+        device: Device,
         max_generations: usize,
     ) -> Result<Self, ConfigError>
     where
@@ -693,7 +678,6 @@ where
             max_generations,
             latest_metrics: None,
             observer: None,
-            _backend: PhantomData,
         })
     }
 
@@ -775,7 +759,7 @@ where
     ///
     /// Forwards to [`Strategy::best`]. For the tensor-genome strategies the
     /// genome is a one-row tensor, `(1, genome_dim)`; read it to host with
-    /// `into_data().into_vec::<f32>()`.
+    /// `into_data().try_into_vec::<f32>()`.
     ///
     /// The strategy tracks the best genome in **canonical (maximise)** space;
     /// the returned fitness is mapped back to the objective's declared sense so
@@ -849,7 +833,7 @@ where
             fitness_natural
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("fitness tensor must be readable as f32")
         });
         // Canonicalise into the engine's maximise-native space: a `Minimize`
@@ -945,9 +929,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use burn::tensor::TensorData;
-    type TestBackend = Flex;
 
     /// Trivial strategy for unit-testing the loop plumbing: it
     /// ignores `ask`/`tell` semantics and always reports the same best
@@ -975,17 +957,12 @@ mod tests {
         best: f32,
     }
 
-    impl Strategy<TestBackend> for Constant {
+    impl Strategy for Constant {
         type Params = Params;
         type State = State;
-        type Genome = Tensor<TestBackend, 2>;
+        type Genome = Tensor<2>;
 
-        fn init(
-            &self,
-            params: &Params,
-            _: &mut dyn Rng,
-            device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-        ) -> State {
+        fn init(&self, params: &Params, _: &mut dyn Rng, device: &Device) -> State {
             let _ = device;
             let _ = params;
             State {
@@ -999,27 +976,27 @@ mod tests {
             params: &Params,
             state: &State,
             _: &mut dyn Rng,
-            device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-        ) -> (Tensor<TestBackend, 2>, State) {
+            device: &Device,
+        ) -> (Tensor<2>, State) {
             let data = TensorData::new(
                 vec![0.0f32; params.pop_size * params.dim],
                 [params.pop_size, params.dim],
             );
-            let pop = Tensor::<TestBackend, 2>::from_data(data, device);
+            let pop = Tensor::<2>::from_data(data, device);
             (pop, state.clone())
         }
 
         fn tell(
             &self,
             _: &Params,
-            _: Tensor<TestBackend, 2>,
-            fitness: Tensor<TestBackend, 1>,
+            _: Tensor<2>,
+            fitness: Tensor<1>,
             mut state: State,
             _: &mut dyn Rng,
         ) -> (State, StrategyMetrics) {
             let values = fitness
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("fitness host-read of a tensor this test just built");
             state.generation += 1;
             let metrics = StrategyMetrics::from_host_fitness(state.generation, &values, state.best);
@@ -1027,22 +1004,18 @@ mod tests {
             (state, metrics)
         }
 
-        fn best(&self, _state: &State) -> Option<(Tensor<TestBackend, 2>, f32)> {
+        fn best(&self, _state: &State) -> Option<(Tensor<2>, f32)> {
             None
         }
     }
 
     /// Constant fitness = 42 regardless of input.
     struct FortyTwo;
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for FortyTwo {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for FortyTwo {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             let data = TensorData::new(vec![42.0f32; n], [n]);
-            Tensor::<B, 1>::from_data(data, device)
+            Tensor::<1>::from_data(data, device)
         }
 
         fn sense(&self) -> ObjectiveSense {
@@ -1055,15 +1028,14 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn loop_runs_one_generation() {
-        let device = Default::default();
+        let device = Device::flex();
         let strategy = Constant;
         let params = Params {
             pop_size: 4,
             dim: 3,
         };
         let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, FortyTwo, 1, device, 5)
-                .expect("valid params");
+            EvolutionaryLoop::new(strategy, params, FortyTwo, 1, device, 5).expect("valid params");
         evo_loop.reset();
         evo_loop.step();
         assert!(!evo_loop.is_done());
@@ -1078,8 +1050,8 @@ mod tests {
 
     #[test]
     fn loop_reports_done_after_budget() {
-        let device = Default::default();
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
+        let device = Device::flex();
+        let mut evo_loop = EvolutionaryLoop::new(
             Constant,
             Params {
                 pop_size: 2,
@@ -1103,8 +1075,8 @@ mod tests {
     /// `true` straight after `reset`: a driving loop then runs no generation.
     #[test]
     fn zero_budget_is_done_before_any_step() {
-        let device = Default::default();
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
+        let device = Device::flex();
+        let mut evo_loop = EvolutionaryLoop::new(
             Constant,
             Params {
                 pop_size: 2,
@@ -1126,8 +1098,8 @@ mod tests {
     /// driving loop's job, which is why it asks `is_done` first.
     #[test]
     fn step_past_the_budget_runs_another_generation() {
-        let device = Default::default();
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
+        let device = Device::flex();
+        let mut evo_loop = EvolutionaryLoop::new(
             Constant,
             Params {
                 pop_size: 2,
@@ -1227,12 +1199,8 @@ mod tests {
     /// A misbehaving objective: row 0 → `NaN`, row 1 → `$+\infty$`, the rest finite.
     /// `Maximize` so natural == canonical (no `neg()` obscuring the sanitize).
     struct NonFiniteFitness;
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NonFiniteFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for NonFiniteFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)] // tiny test population indices
             let mut vals: Vec<f32> = (0..n).map(|i| i as f32).collect();
@@ -1240,7 +1208,7 @@ mod tests {
             if n > 1 {
                 vals[1] = f32::INFINITY;
             }
-            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
         }
         fn sense(&self) -> ObjectiveSense {
             ObjectiveSense::Maximize
@@ -1262,17 +1230,12 @@ mod tests {
         received: Vec<f32>,
     }
 
-    impl Strategy<TestBackend> for TrustingStrategy {
+    impl Strategy for TrustingStrategy {
         type Params = Params;
         type State = TrustingState;
-        type Genome = Tensor<TestBackend, 2>;
+        type Genome = Tensor<2>;
 
-        fn init(
-            &self,
-            _: &Params,
-            _: &mut dyn Rng,
-            _: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-        ) -> TrustingState {
+        fn init(&self, _: &Params, _: &mut dyn Rng, _: &Device) -> TrustingState {
             TrustingState {
                 generation: 0,
                 best: f32::NEG_INFINITY,
@@ -1285,30 +1248,27 @@ mod tests {
             params: &Params,
             state: &TrustingState,
             _: &mut dyn Rng,
-            device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-        ) -> (Tensor<TestBackend, 2>, TrustingState) {
+            device: &Device,
+        ) -> (Tensor<2>, TrustingState) {
             let data = TensorData::new(
                 vec![0.0f32; params.pop_size * params.dim],
                 [params.pop_size, params.dim],
             );
-            (
-                Tensor::<TestBackend, 2>::from_data(data, device),
-                state.clone(),
-            )
+            (Tensor::<2>::from_data(data, device), state.clone())
         }
 
         fn tell(
             &self,
             _: &Params,
-            _: Tensor<TestBackend, 2>,
-            fitness: Tensor<TestBackend, 1>,
+            _: Tensor<2>,
+            fitness: Tensor<1>,
             mut state: TrustingState,
             _: &mut dyn Rng,
         ) -> (TrustingState, StrategyMetrics) {
             // Deliberately NOT sanitized here — the loop must have done it.
             let values: Vec<f32> = fitness
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("fitness host-read of a tensor this test just built");
             state.received = values.clone();
             state.generation += 1;
@@ -1318,7 +1278,7 @@ mod tests {
             (state, metrics)
         }
 
-        fn best(&self, _: &TrustingState) -> Option<(Tensor<TestBackend, 2>, f32)> {
+        fn best(&self, _: &TrustingState) -> Option<(Tensor<2>, f32)> {
             None
         }
     }
@@ -1332,8 +1292,8 @@ mod tests {
     /// mis-ordering the loop sanitize (relative to `neg()`) fails here.
     #[test]
     fn loop_sanitizes_non_finite_fitness_before_tell() {
-        let device = Default::default();
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
+        let device = Device::flex();
+        let mut evo_loop = EvolutionaryLoop::new(
             TrustingStrategy,
             Params {
                 pop_size: 4,
@@ -1404,17 +1364,13 @@ mod tests {
     /// is always at index `pop_size - 1` — a deterministic shape the
     /// observer test can pin against.
     struct RankedFitness;
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for RankedFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2>> for RankedFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)]
             let values: Vec<f32> = (0..n).map(|i| 1.0 / (i as f32 + 1.0)).collect();
             let data = TensorData::new(values, [n]);
-            Tensor::<B, 1>::from_data(data, device)
+            Tensor::<1>::from_data(data, device)
         }
 
         fn sense(&self) -> ObjectiveSense {
@@ -1440,9 +1396,9 @@ mod tests {
         use std::sync::Arc;
 
         use parking_lot::Mutex;
-        let device = Default::default();
+        let device = Device::flex();
         let observer = Arc::new(Mutex::new(CountingObserver::default()));
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::new(
             Constant,
             Params {
                 pop_size: 5,
@@ -1492,9 +1448,9 @@ mod tests {
         use std::sync::Arc;
 
         use parking_lot::Mutex;
-        let device = Default::default();
+        let device = Device::flex();
         let observer = Arc::new(Mutex::new(PanicObserver));
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
+        let mut evo_loop = EvolutionaryLoop::new(
             Constant,
             Params {
                 pop_size: 4,
@@ -1522,8 +1478,8 @@ mod tests {
         // Smoke: no observer attached → step() still works, no panic,
         // no transfer cost. Observability is verified above; here we
         // just want the no-observer path to remain functional.
-        let device = Default::default();
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
+        let device = Device::flex();
+        let mut evo_loop = EvolutionaryLoop::new(
             Constant,
             Params {
                 pop_size: 3,

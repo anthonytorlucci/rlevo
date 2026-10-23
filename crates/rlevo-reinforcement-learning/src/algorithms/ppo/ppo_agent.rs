@@ -9,10 +9,8 @@
 //! [`PpoAgent::update`] to run the PPO optimization epochs. The full loop is
 //! assembled in [`crate::algorithms::ppo::train`].
 
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams};
-use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::{ElementConversion, Tensor, TensorData};
+use burn::optim::{GradientsParams, ModuleOptimizer};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot};
@@ -275,26 +273,28 @@ impl Default for PpoUpdateStats {
 /// # Network ownership
 ///
 /// The policy and value networks live in [`Slot`]s because Burn's
-/// `Optimizer::step` consumes the module by value. Every fallible operation in
+/// `ModuleOptimizer::step` consumes the module by value. Every fallible operation in
 /// [`update`](Self::update) — the forward pass, the losses, `backward`, and
 /// `GradientsParams::from_grads` — runs on a borrow, so a panic there leaves
 /// both networks intact and the agent usable. Only a panic *inside* the
 /// optimizer step itself poisons a slot; that window is irreducible and
 /// terminal for the agent (see [`Slot`]).
-pub struct PpoAgent<B, P, V, O, const OR: usize, const BOR: usize>
+pub struct PpoAgent<P, V, O, const OR: usize, const BOR: usize>
 where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR>,
-    V: PpoValue<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    P: PpoPolicy<BOR>,
+    V: PpoValue<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
 {
     policy: Slot<P>,
     value: Slot<V>,
-    policy_optim: OptimizerAdaptor<Adam, P, B>,
-    value_optim: OptimizerAdaptor<Adam, V, B>,
-    buffer: RolloutBuffer<B, O>,
+    policy_optim: ModuleOptimizer,
+    value_optim: ModuleOptimizer,
+    buffer: RolloutBuffer<O>,
     config: PpoTrainingConfig,
-    device: B::Device,
+    /// The training device: the caller's device with autodiff on.
+    device: Device,
+    /// `device` without autodiff, where the greedy inference path runs.
+    plain_device: Device,
     iteration: usize,
     total_iterations: usize,
     step: usize,
@@ -310,13 +310,11 @@ where
     value_loss_guard: FiniteLossGuard,
 }
 
-impl<B, P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug
-    for PpoAgent<B, P, V, O, OR, BOR>
+impl<P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug for PpoAgent<P, V, O, OR, BOR>
 where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR>,
-    V: PpoValue<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    P: PpoPolicy<BOR>,
+    V: PpoValue<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpoAgent")
@@ -329,17 +327,16 @@ where
 }
 
 /// Greedy / inference-only methods, separated out because they additionally
-/// require `O` to convert onto the inner (non-autodiff) backend. Construction
+/// require `O` to convert onto the plain (non-autodiff) device. Construction
 /// and training (the main `impl` below) do not need that bound.
-impl<B, P, V, O, const OR: usize, const BOR: usize> PpoAgent<B, P, V, O, OR, BOR>
+impl<P, V, O, const OR: usize, const BOR: usize> PpoAgent<P, V, O, OR, BOR>
 where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR>,
-    V: PpoValue<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    P: PpoPolicy<BOR>,
+    V: PpoValue<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
 {
-    /// Snapshots the policy onto the inner (non-autodiff) backend for repeated
-    /// greedy inference.
+    /// Snapshots the policy without autodiff ([`valid`](burn::module::Module::valid)) for
+    /// repeated greedy inference.
     ///
     /// Returns a frozen inference handle for use with
     /// [`act_greedy_env_row_with`](Self::act_greedy_env_row_with). Snapshot
@@ -351,34 +348,38 @@ where
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
     /// [`Slot`].
-    pub fn inference_net(&self) -> P::InnerModule {
+    pub fn inference_net(&self) -> P {
         self.policy().valid()
     }
 
     /// Deterministic env-space action row for `obs`, evaluated against a
-    /// pre-snapshotted inner network — no sampling, no autodiff graph.
+    /// pre-snapshotted network on the plain device — no sampling, no autodiff
+    /// graph.
     ///
     /// This is the policy to use for evaluation and throughput benchmarking;
     /// [`act`](Self::act) samples from the stochastic policy, which injects
     /// exploration noise into the returned action.
-    pub fn act_greedy_env_row_with(&self, net: &P::InnerModule, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
-        P::deterministic_env_row_inner(net, batched)
+    pub fn act_greedy_env_row_with(&self, net: &P, obs: &O) -> Vec<f32> {
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
+        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        net.deterministic_env_row(batched)
     }
 }
 
-impl<B, P, V, O, const OR: usize, const BOR: usize> PpoAgent<B, P, V, O, OR, BOR>
+impl<P, V, O, const OR: usize, const BOR: usize> PpoAgent<P, V, O, OR, BOR>
 where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR>,
-    V: PpoValue<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    P: PpoPolicy<BOR>,
+    V: PpoValue<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
 {
     /// Construct a new agent from a pre-built policy and value network.
     ///
     /// `total_iterations` is used for linear LR annealing. If it is zero,
     /// annealing is disabled regardless of the `anneal_lr` config flag.
+    ///
+    /// The agent trains on `device` with autodiff on, and switches both
+    /// networks to training ([`Module::train`](burn::module::Module::train)), so
+    /// networks built on a plain device train as well.
     ///
     /// # Errors
     ///
@@ -390,26 +391,26 @@ where
         policy: P,
         value: V,
         config: PpoTrainingConfig,
-        device: B::Device,
+        device: Device,
         total_iterations: usize,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        let device = device.autodiff();
+        let plain_device = device.clone().without_autodiff();
+        let policy = policy.train();
+        let value = value.train();
         let action_dim = policy.action_dim();
         let capacity = config.batch_size();
 
         let adam_policy = config.optimizer.clone();
         let policy_optim = match &config.clip_grad {
-            Some(clip) => adam_policy
-                .with_grad_clipping(Some(clip.clone()))
-                .init::<B, P>(),
-            None => adam_policy.init::<B, P>(),
+            Some(clip) => adam_policy.with_grad_clipping(Some(clip.clone())).init(),
+            None => adam_policy.init(),
         };
         let adam_value = config.optimizer.clone();
         let value_optim = match &config.clip_grad {
-            Some(clip) => adam_value
-                .with_grad_clipping(Some(clip.clone()))
-                .init::<B, V>(),
-            None => adam_value.init::<B, V>(),
+            Some(clip) => adam_value.with_grad_clipping(Some(clip.clone())).init(),
+            None => adam_value.init(),
         };
 
         let buffer = RolloutBuffer::new(capacity, action_dim);
@@ -423,6 +424,7 @@ where
             buffer,
             config,
             device,
+            plain_device,
             iteration: 0,
             total_iterations,
             step: 0,
@@ -590,21 +592,21 @@ where
     /// earlier optimizer step. Such an agent is poisoned and must be rebuilt —
     /// see [`Slot`].
     pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
-        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
 
         // Policy forward (autodiff graph is dropped on tensor drop).
         let sample = self.policy().sample_with_logprob(batched.clone(), rng);
         let raw_row = P::action_row_from_tensor(&sample.action, 0);
         let env_row = self.policy().raw_to_env_row(&raw_row);
 
-        let log_prob = sample.log_prob.into_scalar().elem::<f32>();
-        let entropy = sample.entropy.into_scalar().elem::<f32>();
+        let log_prob = sample.log_prob.into_scalar::<f32>();
+        let entropy = sample.entropy.into_scalar::<f32>();
 
         // Value forward on a fresh copy of the obs tensor.
-        let value_raw: Tensor<B, OR> = obs.to_tensor(&self.device);
-        let value_t: Tensor<B, BOR> = value_raw.unsqueeze::<BOR>();
-        let value = self.value().forward(value_t).into_scalar().elem::<f32>();
+        let value_raw: Tensor<OR> = obs.to_tensor(&self.device);
+        let value_t: Tensor<BOR> = value_raw.unsqueeze::<BOR>();
+        let value = self.value().forward(value_t).into_scalar::<f32>();
 
         ActOutcome {
             raw_row,
@@ -663,9 +665,9 @@ where
 
     /// One value-network forward on a single observation.
     fn value_of(&self, obs: &O) -> f32 {
-        let t: Tensor<B, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, BOR> = t.unsqueeze::<BOR>();
-        self.value().forward(batched).into_scalar().elem::<f32>()
+        let t: Tensor<OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<BOR> = t.unsqueeze::<BOR>();
+        self.value().forward(batched).into_scalar::<f32>()
     }
 
     /// Finalises the current rollout: computes GAE advantages and bootstrap
@@ -758,7 +760,7 @@ where
                 let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
                 batched_shape.push(n);
                 batched_shape.extend_from_slice(&obs_shape);
-                let obs_batch: Tensor<B, BOR> =
+                let obs_batch: Tensor<BOR> =
                     Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
 
                 // Action tensor.
@@ -767,16 +769,16 @@ where
                     P::action_tensor_from_flat(&action_flat, n, &self.device);
 
                 // Old log_probs, old_values, returns, advantages.
-                let old_lp: Tensor<B, 1> =
+                let old_lp: Tensor<1> =
                     self.buffer
                         .gather_f32(self.buffer.log_probs(), chunk, &self.device);
-                let old_v: Tensor<B, 1> =
+                let old_v: Tensor<1> =
                     self.buffer
                         .gather_f32(self.buffer.values(), chunk, &self.device);
-                let returns: Tensor<B, 1> =
+                let returns: Tensor<1> =
                     self.buffer
                         .gather_f32(self.buffer.returns(), chunk, &self.device);
-                let advs_raw: Tensor<B, 1> =
+                let advs_raw: Tensor<1> =
                     self.buffer
                         .gather_f32(self.buffer.advantages(), chunk, &self.device);
                 let advs = if self.config.normalize_advantages {
@@ -798,7 +800,7 @@ where
                 let entropy_mean = eval.entropy.mean();
                 let policy_loss =
                     pg.clone() - entropy_mean.clone().mul_scalar(self.config.entropy_coef);
-                let policy_loss_val = policy_loss.clone().into_scalar().elem::<f32>();
+                let policy_loss_val = policy_loss.clone().into_scalar::<f32>();
 
                 // Diagnostics before backward (fresh copies).
                 let kl = approx_kl(eval.log_prob.clone(), old_lp.clone());
@@ -834,7 +836,7 @@ where
                     unclipped_value_loss(new_v, returns)
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(self.config.value_coef);
-                let v_loss_val = v_loss.into_scalar().elem::<f32>();
+                let v_loss_val = v_loss.into_scalar::<f32>();
                 // ADR 0056: same guard for the value site, counted and
                 // warned separately (ADR 0072 §1) so one site's failure cannot
                 // silence or inflate the other's diagnostic.
@@ -848,7 +850,7 @@ where
                 }
 
                 // Accumulate the ungated per-minibatch diagnostics.
-                entropy_acc += entropy_mean.into_scalar().elem::<f32>();
+                entropy_acc += entropy_mean.into_scalar::<f32>();
                 clip_frac_acc += cf;
                 mb_count += 1;
             }
@@ -914,11 +916,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{Autodiff, Flex};
     use burn::grad_clipping::GradientClippingConfig;
     use burn::module::{Module, ModuleMapper, Param};
     use burn::nn::{Linear, LinearConfig};
-    use burn::tensor::backend::Backend;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::base::HostRow;
@@ -927,33 +927,25 @@ mod tests {
     use crate::algorithms::ppo::policies::CategoricalPolicyHeadConfig;
     use crate::algorithms::ppo::policies::categorical::CategoricalPolicyHead;
 
-    type TestAdBackend = Autodiff<Flex>;
-    type TestAgent = PpoAgent<
-        TestAdBackend,
-        CategoricalPolicyHead<TestAdBackend>,
-        TestValue<TestAdBackend>,
-        TestObs,
-        1,
-        2,
-    >;
+    type TestAgent = PpoAgent<CategoricalPolicyHead, TestValue, TestObs, 1, 2>;
 
     /// Minimal scalar value head: `PpoAgent` requires a `PpoValue`
     /// implementation and the crate ships no built-in one.
     #[derive(Module, Debug)]
-    struct TestValue<B: Backend> {
-        head: Linear<B>,
+    struct TestValue {
+        head: Linear,
     }
 
-    impl<B: Backend> TestValue<B> {
-        fn init(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+    impl TestValue {
+        fn init(device: &Device) -> Self {
             Self {
                 head: LinearConfig::new(2, 1).init(device),
             }
         }
     }
 
-    impl<B: AutodiffBackend> PpoValue<B, 2> for TestValue<B> {
-        fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+    impl PpoValue<2> for TestValue {
+        fn forward(&self, obs: Tensor<2>) -> Tensor<1> {
             self.head.forward(obs).squeeze_dim(1)
         }
     }
@@ -976,15 +968,15 @@ mod tests {
     /// Builds an agent whose `clip_grad` is exactly `clip_grad`, leaving every
     /// other knob at its default.
     fn agent_with_clip_grad(clip_grad: Option<GradientClippingConfig>) -> TestAgent {
-        let device = Default::default();
-        let policy: CategoricalPolicyHead<TestAdBackend> = CategoricalPolicyHeadConfig {
+        let device = Device::flex();
+        let policy: CategoricalPolicyHead = CategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestAdBackend>(&device)
+        .try_init(&device)
         .expect("valid head config");
-        let value = TestValue::<TestAdBackend>::init(&device);
+        let value = TestValue::init(&device);
         let config = PpoTrainingConfig {
             clip_grad,
             ..Default::default()
@@ -1038,8 +1030,8 @@ mod tests {
     /// net's `ParamId`s are preserved.
     struct NanInjector;
 
-    impl<B: Backend> ModuleMapper<B> for NanInjector {
-        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+    impl ModuleMapper for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
             let (id, tensor, mapper) = param.consume();
             Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
         }
@@ -1047,13 +1039,13 @@ mod tests {
 
     /// Reads the value head's weights back to the host, element-wise, so a
     /// change across an update proves the value net actually stepped.
-    fn value_weights<B: Backend>(v: &TestValue<B>) -> Vec<f32> {
+    fn value_weights(v: &TestValue) -> Vec<f32> {
         v.head
             .weight
             .val()
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 weight host read")
     }
 
@@ -1092,15 +1084,15 @@ mod tests {
     /// product. The rollout is always 4 steps (`num_envs = 1`, `num_steps = 4`), so
     /// `num_minibatches` must divide 4 for the chunking to be even.
     fn primed_ppo_agent_with(num_minibatches: usize, update_epochs: usize) -> TestAgent {
-        let device = Default::default();
-        let policy: CategoricalPolicyHead<TestAdBackend> = CategoricalPolicyHeadConfig {
+        let device = Device::flex();
+        let policy: CategoricalPolicyHead = CategoricalPolicyHeadConfig {
             obs_dim: 2,
             hidden: 4,
             num_actions: 2,
         }
-        .try_init::<TestAdBackend>(&device)
+        .try_init(&device)
         .expect("valid head config");
-        let value = TestValue::<TestAdBackend>::init(&device);
+        let value = TestValue::init(&device);
         let config = PpoTrainingConfig {
             num_envs: 1,
             num_steps: 4,

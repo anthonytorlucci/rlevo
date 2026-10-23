@@ -1,6 +1,6 @@
 //! Bridge between a Burn [`Module`] and a flat parameter vector.
 //!
-//! Weight-only neuroevolution evolves a `Tensor<B, 2>` population of shape
+//! Weight-only neuroevolution evolves a `Tensor<2>` population of shape
 //! `(pop_size, num_params)` and must, per population member, splat one flat
 //! parameter row back into a concrete network to score it. The
 //! [`ModuleReshaper`] is that bidirectional bridge:
@@ -34,18 +34,17 @@
 //!
 //! # Gradient isolation
 //!
-//! This module is generic over `B: Backend`, **not** `AutodiffBackend`.
-//! Tensors produced by [`unflatten`](ModuleReshaper::unflatten) do not require
-//! gradients. Callers holding an autodiff module call `.valid()` before
-//! constructing a [`ModuleReshaper`], so the constraint is enforced at the
-//! type level rather than by convention.
-
-use std::marker::PhantomData;
+//! Parameters built by [`unflatten`](ModuleReshaper::unflatten) never require
+//! gradients, whatever the template: each is a slice of the flat row, on the
+//! row's device, so a row on a plain device gives a plain module (measured on
+//! Burn 0.22). Since Burn 0.22 made autodiff device state, no type enforces
+//! this; a caller holding a training module passes its
+//! [`valid`](Module::valid) snapshot as the template.
 
 use burn::module::{Module, ModuleMapper, ModuleVisitor, Param};
-use burn::tensor::{Tensor, backend::Backend};
+use burn::tensor::{Device, Tensor};
 
-/// Bridges a Burn [`Module`] and a flat `Tensor<B, 1>` parameter vector,
+/// Bridges a Burn [`Module`] and a flat `Tensor<1>` parameter vector,
 /// through a cloned template module.
 ///
 /// Construction clones the supplied module once and counts its float leaves.
@@ -71,15 +70,15 @@ use burn::tensor::{Tensor, backend::Backend};
 ///
 /// See the [`module_eval_fn`](crate::module_eval_fn) tests for a runnable
 /// end-to-end example of `flatten`/`unflatten` in the weight-only pipeline.
-pub struct ModuleReshaper<B: Backend, M: Module<B>> {
+// Cloning is the enabling half of the single-source pattern documented on
+// `ModuleReshaper`.
+#[derive(Clone)]
+pub struct ModuleReshaper<M: Module> {
     template: M,
     num_params: usize,
-    // `fn() -> B` keeps the marker `Send + Sync` for any `B` and encodes that
-    // `B` is produced, never consumed — mirroring the crate's other markers.
-    _backend: PhantomData<fn() -> B>,
 }
 
-impl<B: Backend, M: Module<B>> std::fmt::Debug for ModuleReshaper<B, M> {
+impl<M: Module> std::fmt::Debug for ModuleReshaper<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ModuleReshaper")
             .field("num_params", &self.num_params)
@@ -87,23 +86,7 @@ impl<B: Backend, M: Module<B>> std::fmt::Debug for ModuleReshaper<B, M> {
     }
 }
 
-// Hand-written, not `#[derive(Clone)]`: the derive would emit a spurious
-// `where B: Clone` bound, but `B: Backend` does not imply `B: Clone` and the
-// only `B` this struct stores is `PhantomData<fn() -> B>` (which is `Clone` for
-// any `B`). Bound instead on what is actually cloned — `template`, via `M`'s
-// `Module: Clone` supertrait — and copy the `num_params` scalar. This is the
-// enabling half of the single-source pattern documented on `ModuleReshaper`.
-impl<B: Backend, M: Module<B>> Clone for ModuleReshaper<B, M> {
-    fn clone(&self) -> Self {
-        Self {
-            template: self.template.clone(),
-            num_params: self.num_params,
-            _backend: PhantomData,
-        }
-    }
-}
-
-impl<B: Backend, M: Module<B>> ModuleReshaper<B, M> {
+impl<M: Module> ModuleReshaper<M> {
     /// Build a reshaper from a template module.
     ///
     /// The template is cloned and retained; its float-leaf count is computed
@@ -115,7 +98,6 @@ impl<B: Backend, M: Module<B>> ModuleReshaper<B, M> {
         Self {
             template,
             num_params: counter.count,
-            _backend: PhantomData,
         }
     }
 
@@ -142,8 +124,8 @@ impl<B: Backend, M: Module<B>> ModuleReshaper<B, M> {
     /// Panics if `module` has no float leaves (the underlying tensor
     /// concatenation requires at least one part).
     #[must_use]
-    pub fn flatten(&self, module: &M, device: &B::Device) -> Tensor<B, 1> {
-        let mut visitor: FlattenVisitor<B> = FlattenVisitor { parts: Vec::new() };
+    pub fn flatten(&self, module: &M, device: &Device) -> Tensor<1> {
+        let mut visitor: FlattenVisitor = FlattenVisitor { parts: Vec::new() };
         module.visit(&mut visitor);
         assert!(
             !visitor.parts.is_empty(),
@@ -168,14 +150,14 @@ impl<B: Backend, M: Module<B>> ModuleReshaper<B, M> {
     ///
     /// Panics if `flat.dims()[0] != self.num_params()`.
     #[must_use]
-    pub fn unflatten(&self, flat: Tensor<B, 1>) -> M {
+    pub fn unflatten(&self, flat: Tensor<1>) -> M {
         let len = flat.dims()[0];
         assert_eq!(
             len, self.num_params,
             "flat length {len} does not match num_params {}",
             self.num_params
         );
-        let mut mapper: SlicingMapper<B> = SlicingMapper { flat, cursor: 0 };
+        let mut mapper: SlicingMapper = SlicingMapper { flat, cursor: 0 };
         self.template.clone().map(&mut mapper)
     }
 }
@@ -185,20 +167,20 @@ struct CountVisitor {
     count: usize,
 }
 
-impl<B: Backend> ModuleVisitor<B> for CountVisitor {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
+impl ModuleVisitor for CountVisitor {
+    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
         self.count += param.dims().iter().product::<usize>();
     }
 }
 
 /// Collects each float leaf, reshaped to 1-D, in visitation order.
-struct FlattenVisitor<B: Backend> {
-    parts: Vec<Tensor<B, 1>>,
+struct FlattenVisitor {
+    parts: Vec<Tensor<1>>,
 }
 
-impl<B: Backend> ModuleVisitor<B> for FlattenVisitor<B> {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        let value: Tensor<B, D> = param.val();
+impl ModuleVisitor for FlattenVisitor {
+    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
+        let value: Tensor<D> = param.val();
         let n: usize = value.dims().iter().product();
         self.parts.push(value.reshape([n]));
     }
@@ -206,13 +188,13 @@ impl<B: Backend> ModuleVisitor<B> for FlattenVisitor<B> {
 
 /// Replaces each float leaf with the next `n` elements of `flat`, reshaped to
 /// the leaf's original shape, advancing a cursor in visitation order.
-struct SlicingMapper<B: Backend> {
-    flat: Tensor<B, 1>,
+struct SlicingMapper {
+    flat: Tensor<1>,
     cursor: usize,
 }
 
-impl<B: Backend> ModuleMapper<B> for SlicingMapper<B> {
-    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+impl ModuleMapper for SlicingMapper {
+    fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
         let dims: [usize; D] = param.dims();
         let n: usize = dims.iter().product();
         let start = self.cursor;
@@ -232,28 +214,25 @@ impl<B: Backend> ModuleMapper<B> for SlicingMapper<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use burn::nn::{
         BatchNorm, BatchNormConfig, Linear, LinearConfig, Relu,
         conv::{Conv2d, Conv2dConfig},
     };
     use burn::tensor::TensorData;
 
-    type TestBackend = Flex;
-
     /// 2-layer MLP: `Linear(3 -> 4) -> ReLU -> Linear(4 -> 2)`.
     ///
     /// Float-leaf count: `3*4 + 4` (l1 weight + bias) `+ 4*2 + 2`
     /// (l2 weight + bias) = `26`.
     #[derive(Module, Debug)]
-    struct TestMlp<B: Backend> {
-        l1: Linear<B>,
+    struct TestMlp {
+        l1: Linear,
         act: Relu,
-        l2: Linear<B>,
+        l2: Linear,
     }
 
-    impl<B: Backend> TestMlp<B> {
-        fn new(device: &B::Device) -> Self {
+    impl TestMlp {
+        fn new(device: &Device) -> Self {
             Self {
                 l1: LinearConfig::new(3, 4).init(device),
                 act: Relu::new(),
@@ -262,14 +241,14 @@ mod tests {
         }
     }
 
-    fn approx_eq(a: &Tensor<TestBackend, 1>, b: &Tensor<TestBackend, 1>) {
+    fn approx_eq(a: &Tensor<1>, b: &Tensor<1>) {
         let av = a
             .to_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         let bv = b
             .to_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         assert_eq!(av.len(), bv.len(), "length mismatch");
         for (x, y) in av.iter().zip(bv.iter()) {
@@ -279,8 +258,8 @@ mod tests {
 
     #[test]
     fn test_module_reshaper_num_params_matches_expected() {
-        let device = Default::default();
-        let mlp = TestMlp::<TestBackend>::new(&device);
+        let device = Device::flex();
+        let mlp = TestMlp::new(&device);
         let reshaper = ModuleReshaper::new(mlp);
         assert_eq!(reshaper.num_params(), 26);
     }
@@ -291,8 +270,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "module has no float parameters to flatten")]
     fn test_module_reshaper_flatten_panics_on_empty_module() {
-        let device = Default::default();
-        let reshaper = ModuleReshaper::<TestBackend, Relu>::new(Relu::new());
+        let device = Device::flex();
+        let reshaper = ModuleReshaper::<Relu>::new(Relu::new());
         let _ = reshaper.flatten(&Relu::new(), &device);
     }
 
@@ -301,10 +280,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "flat length")]
     fn test_module_reshaper_unflatten_panics_on_length_mismatch() {
-        let device = Default::default();
-        let reshaper = ModuleReshaper::new(TestMlp::<TestBackend>::new(&device));
-        let wrong =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0f32; 10], [10]), &device);
+        let device = Device::flex();
+        let reshaper = ModuleReshaper::new(TestMlp::new(&device));
+        let wrong = Tensor::<1>::from_data(TensorData::new(vec![0f32; 10], [10]), &device);
         let _ = reshaper.unflatten(wrong);
     }
 
@@ -313,8 +291,8 @@ mod tests {
     /// is equivalent to equality of the modules' float leaves.
     #[test]
     fn test_module_reshaper_round_trip_mlp() {
-        let device = Default::default();
-        let mlp = TestMlp::<TestBackend>::new(&device);
+        let device = Device::flex();
+        let mlp = TestMlp::new(&device);
         let reshaper = ModuleReshaper::new(mlp.clone());
 
         let flat = reshaper.flatten(&mlp, &device);
@@ -329,13 +307,13 @@ mod tests {
     /// `unflatten -> flatten` unchanged.
     #[test]
     fn test_module_reshaper_round_trip_arbitrary_flat() {
-        let device = Default::default();
-        let mlp = TestMlp::<TestBackend>::new(&device);
+        let device = Device::flex();
+        let mlp = TestMlp::new(&device);
         let reshaper = ModuleReshaper::new(mlp);
 
         #[allow(clippy::cast_precision_loss)]
         let values: Vec<f32> = (0..26).map(|i| i as f32 * 0.1 - 1.3).collect();
-        let flat = Tensor::<TestBackend, 1>::from_data(TensorData::new(values, [26]), &device);
+        let flat = Tensor::<1>::from_data(TensorData::new(values, [26]), &device);
 
         let module = reshaper.unflatten(flat.clone());
         let flat2 = reshaper.flatten(&module, &device);
@@ -349,9 +327,9 @@ mod tests {
     /// `running_var`.
     #[test]
     fn test_module_reshaper_batchnorm_running_stats_traversed() {
-        let device = Default::default();
+        let device = Device::flex();
         let d = 5;
-        let bn: BatchNorm<TestBackend> = BatchNormConfig::new(d).init(&device);
+        let bn: BatchNorm = BatchNormConfig::new(d).init(&device);
         let reshaper = ModuleReshaper::new(bn.clone());
         // 4 * d if running stats are traversed; 2 * d if only gamma/beta are.
         assert_eq!(
@@ -369,8 +347,8 @@ mod tests {
     /// reshaper is not MLP-specific.
     #[test]
     fn test_module_reshaper_round_trip_conv() {
-        let device = Default::default();
-        let conv: Conv2d<TestBackend> = Conv2dConfig::new([2, 3], [3, 3]).init(&device);
+        let device = Device::flex();
+        let conv: Conv2d = Conv2dConfig::new([2, 3], [3, 3]).init(&device);
         let reshaper = ModuleReshaper::new(conv.clone());
         let flat = reshaper.flatten(&conv, &device);
         let restored = reshaper.unflatten(flat.clone());
@@ -389,13 +367,13 @@ mod tests {
 
     /// Minimal one-hidden-layer MLP variant for the enum-derive probe.
     #[derive(Module, Debug)]
-    struct TestSmallMlp<B: Backend> {
-        l1: Linear<B>,
-        l2: Linear<B>,
+    struct TestSmallMlp {
+        l1: Linear,
+        l2: Linear,
     }
 
-    impl<B: Backend> TestSmallMlp<B> {
-        fn new(device: &B::Device) -> Self {
+    impl TestSmallMlp {
+        fn new(device: &Device) -> Self {
             Self {
                 l1: LinearConfig::new(2, 4).init(device),
                 l2: LinearConfig::new(4, 1).init(device),
@@ -405,14 +383,14 @@ mod tests {
 
     /// Minimal two-hidden-layer MLP variant for the enum-derive probe.
     #[derive(Module, Debug)]
-    struct TestLargeMlp<B: Backend> {
-        l1: Linear<B>,
-        l2: Linear<B>,
-        l3: Linear<B>,
+    struct TestLargeMlp {
+        l1: Linear,
+        l2: Linear,
+        l3: Linear,
     }
 
-    impl<B: Backend> TestLargeMlp<B> {
-        fn new(device: &B::Device) -> Self {
+    impl TestLargeMlp {
+        fn new(device: &Device) -> Self {
             Self {
                 l1: LinearConfig::new(2, 8).init(device),
                 l2: LinearConfig::new(8, 4).init(device),
@@ -421,15 +399,14 @@ mod tests {
         }
     }
 
-    /// Two-arm enum with heterogeneous `Module` variants. The backend generic
-    /// must be named literally `B` for `#[derive(Module)]` to succeed.
+    /// Two-arm enum with heterogeneous `Module` variants.
     // This is a derive-capability probe, not a runtime data structure — the
     // size disparity between arms is irrelevant here.
     #[allow(clippy::large_enum_variant)]
     #[derive(Module, Debug)]
-    enum TestArch<B: Backend> {
-        Shallow(TestSmallMlp<B>),
-        Deep(TestLargeMlp<B>),
+    enum TestArch {
+        Shallow(TestSmallMlp),
+        Deep(TestLargeMlp),
     }
 
     /// Probe: confirm `#[derive(Module)]` on a heterogeneous-arm enum compiles
@@ -437,10 +414,10 @@ mod tests {
     /// derive emits real `visit`/`map` traversals, not just a stub.
     #[test]
     fn test_module_reshaper_enum_derive_compiles() {
-        let device = Default::default();
+        let device = Device::flex();
 
-        let shallow = TestArch::<TestBackend>::Shallow(TestSmallMlp::new(&device));
-        let deep = TestArch::<TestBackend>::Deep(TestLargeMlp::new(&device));
+        let shallow = TestArch::Shallow(TestSmallMlp::new(&device));
+        let deep = TestArch::Deep(TestLargeMlp::new(&device));
 
         // TestSmallMlp: 2*4 + 4 + 4*1 + 1 = 17 ; TestLargeMlp: 2*8+8 + 8*4+4 + 4*1+1 = 65.
         let shallow_reshaper = ModuleReshaper::new(shallow);

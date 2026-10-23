@@ -33,9 +33,7 @@
 //! - Karaboga (2005), *An idea based on honey bee swarm for numerical
 //!   optimization* (Erciyes Univ. Tech. Report TR06).
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -112,9 +110,9 @@ impl Validate for AbcConfig {
 /// colony size from outside this module; construct one with
 /// [`try_new`](AbcState::try_new) and read it through the accessors.
 #[derive(Debug, Clone)]
-pub struct AbcState<B: Backend> {
+pub struct AbcState {
     /// Current colony, shape `(pop_size, D)`.
-    colony: Tensor<B, 2>,
+    colony: Tensor<2>,
     /// Host-side fitness cache.
     fitness: Vec<f32>,
     /// Per-bee trial counter.
@@ -124,14 +122,14 @@ pub struct AbcState<B: Backend> {
     /// populated with `$2 \cdot \text{pop\_size}$` indices from the second `ask` onward.
     target_of_candidate: Vec<usize>,
     /// Best-so-far genome.
-    best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     best_fitness: f32,
     /// Generation counter.
     generation: usize,
 }
 
-impl<B: Backend> AbcState<B> {
+impl AbcState {
     /// Assembles a colony state, checking the per-bee caches match the colony.
     ///
     /// # Errors
@@ -141,11 +139,11 @@ impl<B: Backend> AbcState<B> {
     /// other than `$2 \cdot \text{pop\_size}$`.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
-        colony: Tensor<B, 2>,
+        colony: Tensor<2>,
         fitness: Vec<f32>,
         trial: Vec<usize>,
         target_of_candidate: Vec<usize>,
-        best_genome: Option<Tensor<B, 2>>,
+        best_genome: Option<Tensor<2>>,
         best_fitness: f32,
         generation: usize,
     ) -> Result<Self, ConfigError> {
@@ -173,7 +171,7 @@ impl<B: Backend> AbcState<B> {
 
     /// Current colony, shape `(pop_size, D)`.
     #[must_use]
-    pub fn colony(&self) -> &Tensor<B, 2> {
+    pub fn colony(&self) -> &Tensor<2> {
         &self.colony
     }
 
@@ -198,7 +196,7 @@ impl<B: Backend> AbcState<B> {
 
     /// Best-so-far genome, or `None` before the first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
     }
 
@@ -226,25 +224,20 @@ impl<B: Backend> AbcState<B> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
 ///
-/// let strategy = ArtificialBeeColony::<Flex>::new();
+/// let strategy = ArtificialBeeColony::new();
 /// let params = AbcConfig::default_for(30, 10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct ArtificialBeeColony<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct ArtificialBeeColony {}
 
-impl<B: Backend> ArtificialBeeColony<B> {
+impl ArtificialBeeColony {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -253,25 +246,25 @@ impl<B: Backend> ArtificialBeeColony<B> {
         neighbors: &[usize],
         dims: &[usize],
         phi: &[f32],
-        colony: &Tensor<B, 2>,
+        colony: &Tensor<2>,
         pop_size: usize,
         genome_dim: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+        device: &Device,
+    ) -> Tensor<2> {
         // Base = copy of targets' rows (we only modify one dim each).
         #[allow(clippy::cast_possible_wrap)]
         let target_idx: Vec<i64> = targets.iter().map(|&i| i as i64).collect();
         let _ = pop_size; // number of candidates is inferred below
         let n_cand = targets.len();
         let target_tensor =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(target_idx, [n_cand]), device);
+            Tensor::<1, Int>::from_data(TensorData::new(target_idx, [n_cand]), device);
         let base = colony.clone().select(0, target_tensor);
 
         // Compute the perturbation for the single selected dim per row.
         #[allow(clippy::cast_possible_wrap)]
         let neighbor_idx: Vec<i64> = neighbors.iter().map(|&i| i as i64).collect();
         let neighbor_tensor =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(neighbor_idx, [n_cand]), device);
+            Tensor::<1, Int>::from_data(TensorData::new(neighbor_idx, [n_cand]), device);
         let neighbor_rows = colony.clone().select(0, neighbor_tensor);
 
         // Build a (n_cand, D) mask with `1` at (row, dims[row]).
@@ -280,11 +273,11 @@ impl<B: Backend> ArtificialBeeColony<B> {
             mask[row * genome_dim + j] = 1;
         }
         let mask_bool =
-            Tensor::<B, 2, Int>::from_data(TensorData::new(mask, [n_cand, genome_dim]), device)
+            Tensor::<2, Int>::from_data(TensorData::new(mask, [n_cand, genome_dim]), device)
                 .equal_elem(1);
 
         // `$\varphi$` is per-row; broadcast to (n_cand, D).
-        let phi_row = Tensor::<B, 1>::from_data(TensorData::new(phi.to_vec(), [n_cand]), device)
+        let phi_row = Tensor::<1>::from_data(TensorData::new(phi.to_vec(), [n_cand]), device)
             .unsqueeze_dim::<2>(1)
             .expand([n_cand, genome_dim]);
         let delta = phi_row.mul(base.clone() - neighbor_rows);
@@ -293,20 +286,12 @@ impl<B: Backend> ArtificialBeeColony<B> {
     }
 }
 
-impl<B: Backend> Strategy<B> for ArtificialBeeColony<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for ArtificialBeeColony {
     type Params = AbcConfig;
-    type State = AbcState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = AbcState;
+    type Genome = Tensor<2>;
 
-    fn init(
-        &self,
-        params: &AbcConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> AbcState<B> {
+    fn init(&self, params: &AbcConfig, rng: &mut dyn Rng, device: &Device) -> AbcState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid AbcConfig reached init: {params:?}"
@@ -324,7 +309,7 @@ where
             colony_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
         let colony =
-            Tensor::<B, 2>::from_data(TensorData::new(colony_rows, [pop, genome_dim]), device);
+            Tensor::<2>::from_data(TensorData::new(colony_rows, [pop, genome_dim]), device);
         AbcState {
             colony,
             fitness: Vec::new(),
@@ -339,10 +324,10 @@ where
     fn ask(
         &self,
         params: &AbcConfig,
-        state: &AbcState<B>,
+        state: &AbcState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, AbcState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, AbcState) {
         if state.fitness.is_empty() {
             return (state.colony.clone(), state.clone());
         }
@@ -403,11 +388,11 @@ where
     fn tell(
         &self,
         params: &AbcConfig,
-        candidates: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: AbcState<B>,
+        candidates: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: AbcState,
         rng: &mut dyn Rng,
-    ) -> (AbcState<B>, StrategyMetrics) {
+    ) -> (AbcState, StrategyMetrics) {
         // Sanitise on the host pull, per the maximise convention (`rules.md` §3, ADR 0034):
         // `$\text{NaN} \to -\infty$` (worst), `$+\infty \to \text{f32::MAX}$`. This is the per-site
         // correctness floor for callers that bypass `EvolutionaryLoop::step` — `Strategy` is
@@ -419,7 +404,7 @@ where
         // (which pre-sanitises) this is a provable no-op — do not delete it as redundant.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -434,10 +419,8 @@ where
             let best_idx = argmax_host(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(candidates.clone().select(0, idx));
             state.colony = candidates;
             state.generation += 1;
@@ -489,7 +472,7 @@ where
                 }
             }
         }
-        let idx = Tensor::<B, 1, Int>::from_data(TensorData::new(rs, [pop]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(rs, [pop]), &device);
         state.colony = stacked.select(0, idx);
         state.fitness = new_fitness;
 
@@ -515,7 +498,7 @@ where
             for _ in 0..scouts.len() * genome_dim {
                 fresh_rows.push(lo + (hi - lo) * scout_stream.random::<f32>());
             }
-            let fresh = Tensor::<B, 2>::from_data(
+            let fresh = Tensor::<2>::from_data(
                 TensorData::new(fresh_rows, [scouts.len(), genome_dim]),
                 &device,
             );
@@ -532,7 +515,7 @@ where
                 state.fitness[scout] = f32::NEG_INFINITY;
             }
             let stacked2 = Tensor::cat(vec![state.colony.clone(), fresh], 0);
-            let idx2 = Tensor::<B, 1, Int>::from_data(TensorData::new(rs2, [pop]), &device);
+            let idx2 = Tensor::<1, Int>::from_data(TensorData::new(rs2, [pop]), &device);
             state.colony = stacked2.select(0, idx2);
         }
 
@@ -542,10 +525,8 @@ where
         if state.fitness[best_idx].is_finite() && state.fitness[best_idx] > state.best_fitness {
             state.best_fitness = state.fitness[best_idx];
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(state.colony.clone().select(0, idx));
         }
 
@@ -556,7 +537,7 @@ where
         (state, m)
     }
 
-    fn best(&self, state: &AbcState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &AbcState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -569,17 +550,14 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
 
-    type TestBackend = Flex;
-
     #[test]
     fn try_new_checks_cache_lengths() {
-        let device = Default::default();
-        let colony = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        let device = Device::flex();
+        let colony = Tensor::<2>::zeros([3, 2], &device);
         // Bootstrap (empty caches) and fully-populated caches both accept.
         assert!(
             AbcState::try_new(
@@ -620,7 +598,7 @@ mod tests {
         );
         assert!(AbcState::try_new(colony, vec![], vec![], vec![0; 5], None, 1.0, 1).is_err());
         // Zero-row colony is rejected.
-        let empty = Tensor::<TestBackend, 2>::zeros([0, 2], &device);
+        let empty = Tensor::<2>::zeros([0, 2], &device);
         assert!(AbcState::try_new(empty, vec![], vec![], vec![], None, 1.0, 0).is_err());
     }
 
@@ -648,8 +626,8 @@ mod tests {
     // *fittest* source, not the worst.
     #[test]
     fn onlooker_targets_prefer_best_source() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let mut params = AbcConfig::default_for(16, 4);
         params.tournament_size = 8;
         let mut rng = StdRng::seed_from_u64(11);
@@ -673,14 +651,12 @@ mod tests {
 
     #[test]
     fn abc_converges_on_sphere_d10() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let params = AbcConfig::default_for(30, 10);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 13, device, 400,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 13, device, 400)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -693,17 +669,13 @@ mod tests {
     /// canonical, exercising the ADR-0034 loop sanitize with no `neg()` in
     /// between.
     struct PartialNanFitness;
-    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl crate::fitness::BatchFitnessFn<Tensor<2>> for PartialNanFitness {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
             let n = population.dims()[0];
             #[allow(clippy::cast_precision_loss)]
             let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
             vals[0] = f32::NAN;
-            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
         }
         fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
             rlevo_core::objective::ObjectiveSense::Maximize
@@ -716,8 +688,8 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)] // byte-identical: `ask` clones `state.colony`
     fn ask_on_empty_fitness_returns_colony_unchanged() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let params = AbcConfig::default_for(6, 4);
         let mut rng = StdRng::seed_from_u64(3);
         let state = strategy.init(&params, &mut rng, &device);
@@ -726,11 +698,11 @@ mod tests {
             .colony()
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("colony readable as f32");
         let after = genome
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome readable as f32");
         assert_eq!(before, after);
         assert!(
@@ -745,13 +717,12 @@ mod tests {
     // generations without panicking.
     #[test]
     fn pop_size_two_minimal_colony_runs() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let params = AbcConfig::default_for(2, 3);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 5, device, 8)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 5, device, 8)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -770,13 +741,12 @@ mod tests {
     // path runs end-to-end.
     #[test]
     fn genome_dim_one_degenerate_mask_runs() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let params = AbcConfig::default_for(6, 1);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 8, device, 8)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 8, device, 8)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -797,12 +767,12 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)] // exact: scouts overwrite the all-zero seed colony
     fn scout_reinit_triggers_on_stagnation() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let mut params = AbcConfig::default_for(4, 2);
         params.limit = 1;
         // Colony at the (canonical) optimum: fitness 0, any perturbation worse.
-        let colony = Tensor::<TestBackend, 2>::zeros([4, 2], &device);
+        let colony = Tensor::<2>::zeros([4, 2], &device);
         // Every bee already sits one step from the scout limit.
         let state = AbcState::try_new(
             colony,
@@ -816,9 +786,8 @@ mod tests {
         .expect("valid state");
         // `$2\cdot\text{pop}$` candidates far from origin → canonical fitness `$-18 < 0$`; none
         // improves its target, so no acceptance and every trial increments.
-        let candidates = Tensor::<TestBackend, 2>::full([8, 2], 3.0, &device);
-        let fit =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![-18.0_f32; 8], [8]), &device);
+        let candidates = Tensor::<2>::full([8, 2], 3.0, &device);
+        let fit = Tensor::<1>::from_data(TensorData::new(vec![-18.0_f32; 8], [8]), &device);
         let mut rng = StdRng::seed_from_u64(9);
         let (next, _m) = strategy.tell(&params, candidates, fit, state, &mut rng);
         // trial hit limit + 1 everywhere → all bees scouted, counters reset.
@@ -832,7 +801,7 @@ mod tests {
             .colony()
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("colony readable as f32");
         assert!(
             colony_vals.iter().any(|&v| v != 0.0),
@@ -845,18 +814,11 @@ mod tests {
     // the broken member via `broken_count`.
     #[test]
     fn nan_fitness_survives_loop() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let params = AbcConfig::default_for(6, 3);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy,
-            params,
-            PartialNanFitness,
-            4,
-            device,
-            4,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, PartialNanFitness, 4, device, 4)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -879,8 +841,8 @@ mod tests {
     // passes straight through this bug because of that self-heal.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let mut params = AbcConfig::default_for(4, 2);
         // Push the scout trigger out of reach so the reinit self-heal cannot
         // mask a frozen slot within this test's horizon.
@@ -888,7 +850,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(31);
         let fit = |vals: Vec<f32>| {
             let n = vals.len();
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), &device)
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), &device)
         };
 
         // Generation 0 (bootstrap): bee 0 scores `NaN`, the rest finite.
@@ -942,15 +904,15 @@ mod tests {
     // `sanitize_fitness`, so the `$+\infty$` branch reaches all of them by the same path.
     #[test]
     fn inf_fitness_clamps_finite_without_loop() {
-        let device = Default::default();
-        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = ArtificialBeeColony::new();
         let params = AbcConfig::default_for(4, 2);
         let mut rng = StdRng::seed_from_u64(31);
 
         // Generation 0 (bootstrap): bee 0 scores `$+\infty$`, the rest finite.
         let state = strategy.init(&params, &mut rng, &device);
         let (colony, state) = strategy.ask(&params, &state, &mut rng, &device);
-        let fitness = Tensor::<TestBackend, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![f32::INFINITY, -1.0, -2.0, -3.0], [4]),
             &device,
         );

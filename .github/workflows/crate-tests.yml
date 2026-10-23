@@ -247,13 +247,25 @@ jobs:
             fi
             features=$(cargo tree -p "$crate" $flags -e normal -f '{p} [{f}]' --prefix none \
               | grep '^burn v' | sed -E 's/^burn v[^ ]+ \[(.*)\].*/\1/' | sort -u)
-            if [ "$features" != "std" ]; then
-              echo "::error::$crate resolves burn with features [$features]; a library crate enables only [std] (ADR 0080)"
+            expected="std"
+            # The RL crate trains, and Burn 0.22 puts its optimizers behind
+            # `optim`, which brings `autodiff`. Neither selects a backend
+            # (ADR 0093).
+            if [ "$crate" = "rlevo-reinforcement-learning" ]; then
+              expected="autodiff,burn-optim,optim,std"
+            fi
+            if [ "$features" != "$expected" ]; then
+              echo "::error::$crate resolves burn with features [$features]; expected [$expected] (ADRs 0080, 0093)"
               exit 1
             fi
             cargo check -p "$crate" --lib $flags
             cargo doc -p "$crate" --no-deps $flags
           done <<< "$crates"
+
+      - name: No default device
+        # A test build that compiles wgpu turns `Device::default()` into a
+        # wgpu device, which aborts on this GPU-less runner (ADR 0093).
+        run: tools/no-default-device.sh
 
       - name: rlevo-core depends on no Burn by default
         run: |

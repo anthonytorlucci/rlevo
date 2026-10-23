@@ -27,15 +27,15 @@ optimizer) and adds:
 
 ```rust
 #[derive(Module, Debug)]
-pub struct MyC51<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    head: Linear<B>, // output = num_actions * num_atoms
+pub struct MyC51 {
+    l1: Linear,
+    l2: Linear,
+    head: Linear, // output = num_actions * num_atoms
     num_atoms: usize,
 }
 
-impl<B: AutodiffBackend> C51Model<B, 2> for MyC51<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
+impl C51Model<2> for MyC51 {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<3> {
         let [batch, _] = obs.dims();
         let x = activation::relu(self.l1.forward(obs));
         let x = activation::relu(self.l2.forward(x));
@@ -43,7 +43,6 @@ impl<B: AutodiffBackend> C51Model<B, 2> for MyC51<B> {
             .forward(x)
             .reshape([batch, NUM_ACTIONS, self.num_atoms])
     }
-    // forward_inner / soft_update as for DqnModel.
 }
 ```
 

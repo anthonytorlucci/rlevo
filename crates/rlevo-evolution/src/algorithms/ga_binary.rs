@@ -1,6 +1,6 @@
 //! Binary-coded Genetic Algorithm.
 //!
-//! A canonical GA over `Tensor<B, 2, Int>` populations where every gene is
+//! A canonical GA over `Tensor<2, Int>` populations where every gene is
 //! restricted to `{0, 1}`:
 //!
 //! 1. Evaluate the current population (done externally by the loop).
@@ -36,9 +36,7 @@
 //! - Goldberg (1989), *Genetic Algorithms in Search, Optimization, and
 //!   Machine Learning*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -123,14 +121,14 @@ impl Validate for BinaryGaConfig {
 
 /// State for [`BinaryGeneticAlgorithm`].
 #[derive(Debug, Clone)]
-pub struct BinaryGaState<B: Backend> {
+pub struct BinaryGaState {
     /// Current population, shape `(pop_size, D)`.
-    pub population: Tensor<B, 2, Int>,
+    pub population: Tensor<2, Int>,
     /// Host-side fitness cache for the current population. Empty on
     /// init until the first `tell` call populates it.
     pub fitness: Vec<f32>,
     /// Best-so-far genome.
-    pub best_genome: Option<Tensor<B, 2, Int>>,
+    pub best_genome: Option<Tensor<2, Int>>,
     /// Best-so-far fitness.
     pub best_fitness: f32,
     /// Generation counter.
@@ -142,32 +140,27 @@ pub struct BinaryGaState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::ga_binary::{BinaryGaConfig, BinaryGeneticAlgorithm};
 ///
-/// let strategy = BinaryGeneticAlgorithm::<Flex>::new();
+/// let strategy = BinaryGeneticAlgorithm::new();
 /// let params = BinaryGaConfig::default_for(32, 16);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct BinaryGeneticAlgorithm<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct BinaryGeneticAlgorithm {}
 
-impl<B: Backend> BinaryGeneticAlgorithm<B> {
+impl BinaryGeneticAlgorithm {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     fn sample_initial_population(
         params: &BinaryGaConfig,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2, Int> {
+        device: &Device,
+    ) -> Tensor<2, Int> {
         // Host-sample U[0,1) from a deterministic `seed_stream` rather than
         // the process-wide Flex RNG (`B::seed` + `Tensor::random`), whose
         // draws interleave with sibling tests under the parallel runner and
@@ -179,18 +172,15 @@ impl<B: Backend> BinaryGeneticAlgorithm<B> {
         for _ in 0..pop * genome_dim {
             rows.push(stream.random::<f32>());
         }
-        let u = Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device);
+        let u = Tensor::<2>::from_data(TensorData::new(rows, [pop, genome_dim]), device);
         u.lower_elem(0.5).int()
     }
 }
 
-impl<B: Backend> Strategy<B> for BinaryGeneticAlgorithm<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for BinaryGeneticAlgorithm {
     type Params = BinaryGaConfig;
-    type State = BinaryGaState<B>;
-    type Genome = Tensor<B, 2, Int>;
+    type State = BinaryGaState;
+    type Genome = Tensor<2, Int>;
 
     /// Build the initial state.
     ///
@@ -199,12 +189,7 @@ where
     /// from `rng`. Sets `fitness` to empty and `best_fitness` to
     /// `f32::NEG_INFINITY` (the worst value under the maximise convention);
     /// the first [`tell`](Self::tell) call populates both.
-    fn init(
-        &self,
-        params: &BinaryGaConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> BinaryGaState<B> {
+    fn init(&self, params: &BinaryGaConfig, rng: &mut dyn Rng, device: &Device) -> BinaryGaState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid BinaryGaConfig reached init: {params:?}"
@@ -250,10 +235,10 @@ where
     fn ask(
         &self,
         params: &BinaryGaConfig,
-        state: &BinaryGaState<B>,
+        state: &BinaryGaState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2, Int>, BinaryGaState<B>) {
+        device: &Device,
+    ) -> (Tensor<2, Int>, BinaryGaState) {
         if state.fitness.is_empty() {
             return (state.population.clone(), state.clone());
         }
@@ -288,11 +273,11 @@ where
         );
         let parents_a = state.population.clone().select(
             0,
-            Tensor::<B, 1, Int>::from_data(TensorData::new(idx_a, [params.pop_size]), device),
+            Tensor::<1, Int>::from_data(TensorData::new(idx_a, [params.pop_size]), device),
         );
         let parents_b = state.population.clone().select(
             0,
-            Tensor::<B, 1, Int>::from_data(TensorData::new(idx_b, [params.pop_size]), device),
+            Tensor::<1, Int>::from_data(TensorData::new(idx_b, [params.pop_size]), device),
         );
 
         let offspring = binary_uniform_crossover(
@@ -338,14 +323,14 @@ where
     fn tell(
         &self,
         params: &BinaryGaConfig,
-        offspring: Tensor<B, 2, Int>,
-        fitness: Tensor<B, 1>,
-        mut state: BinaryGaState<B>,
+        offspring: Tensor<2, Int>,
+        fitness: Tensor<1>,
+        mut state: BinaryGaState,
         _rng: &mut dyn Rng,
-    ) -> (BinaryGaState<B>, StrategyMetrics) {
+    ) -> (BinaryGaState, StrategyMetrics) {
         let fitness_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
         let device = offspring.device();
 
@@ -371,13 +356,13 @@ where
         let elite_idx = truncation_indices_host(&state.fitness, k);
         let elites = state.population.clone().select(
             0,
-            Tensor::<B, 1, Int>::from_data(TensorData::new(elite_idx.clone(), [k]), &device),
+            Tensor::<1, Int>::from_data(TensorData::new(elite_idx.clone(), [k]), &device),
         );
         let n_off_keep = pop_size - k;
         let off_keep_idx = truncation_indices_host(&fitness_host, n_off_keep);
         let kept_off = offspring.clone().select(
             0,
-            Tensor::<B, 1, Int>::from_data(
+            Tensor::<1, Int>::from_data(
                 TensorData::new(off_keep_idx.clone(), [n_off_keep]),
                 &device,
             ),
@@ -406,7 +391,7 @@ where
     ///
     /// Returns `None` before the first [`tell`](Self::tell) call.
     /// The fitness value uses the canonical maximise convention (higher is better).
-    fn best(&self, state: &BinaryGaState<B>) -> Option<(Tensor<B, 2, Int>, f32)> {
+    fn best(&self, state: &BinaryGaState) -> Option<(Tensor<2, Int>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -414,7 +399,7 @@ where
     }
 }
 
-fn update_best<B: Backend>(state: &mut BinaryGaState<B>, pop: &Tensor<B, 2, Int>, fitness: &[f32]) {
+fn update_best(state: &mut BinaryGaState, pop: &Tensor<2, Int>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -436,8 +421,7 @@ fn update_best<B: Backend>(state: &mut BinaryGaState<B>, pop: &Tensor<B, 2, Int>
     if best_f.total_cmp(&state.best_fitness) == std::cmp::Ordering::Greater {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -448,8 +432,6 @@ mod tests {
     use super::*;
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
-    type TestBackend = Flex;
 
     #[test]
     fn default_config_validates() {
@@ -469,18 +451,14 @@ mod tests {
         dim: usize,
     }
 
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2, Int>> for OneMax {
-        fn evaluate_batch(
-            &mut self,
-            population: &Tensor<B, 2, Int>,
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-        ) -> Tensor<B, 1> {
+    impl BatchFitnessFn<Tensor<2, Int>> for OneMax {
+        fn evaluate_batch(&mut self, population: &Tensor<2, Int>, device: &Device) -> Tensor<1> {
             let dims = population.dims();
             let pop_size = dims[0];
             let data = population
                 .clone()
                 .into_data()
-                .into_vec::<i32>()
+                .try_into_vec::<i32>()
                 .expect("genome host-read of a tensor this test just built");
             let mut fitness = Vec::with_capacity(pop_size);
             for row in 0..pop_size {
@@ -493,7 +471,7 @@ mod tests {
                 #[allow(clippy::cast_precision_loss)]
                 fitness.push(ones as f32);
             }
-            Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+            Tensor::<1>::from_data(TensorData::new(fitness, [pop_size]), device)
         }
 
         fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
@@ -503,11 +481,11 @@ mod tests {
 
     #[test]
     fn binary_ga_solves_onemax() {
-        let device = Default::default();
+        let device = Device::flex();
         let dim = 16;
         let params = BinaryGaConfig::default_for(32, dim);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            BinaryGeneticAlgorithm::<TestBackend>::new(),
+        let mut evo_loop = EvolutionaryLoop::new(
+            BinaryGeneticAlgorithm::new(),
             params,
             OneMax { dim },
             7,
@@ -535,16 +513,14 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
+        let device = Device::flex();
         let (pop, dim) = (4usize, 8usize);
         let mut params = BinaryGaConfig::default_for(pop, dim);
         params.mutation_rate = Probability::new(rate);
-        let strategy = BinaryGeneticAlgorithm::<TestBackend>::new();
+        let strategy = BinaryGeneticAlgorithm::new();
 
-        let population = Tensor::<TestBackend, 2, Int>::from_data(
-            TensorData::new(vec![bit; pop * dim], [pop, dim]),
-            &device,
-        );
+        let population =
+            Tensor::<2, Int>::from_data(TensorData::new(vec![bit; pop * dim], [pop, dim]), &device);
         // Non-empty `fitness` drives the real selection→crossover→mutation path
         // (an empty cache would short-circuit to returning the seed population).
         let state = BinaryGaState {
@@ -558,7 +534,7 @@ mod tests {
         let (offspring, _) = strategy.ask(&params, &state, &mut rng, &device);
         offspring
             .into_data()
-            .into_vec::<i32>()
+            .try_into_vec::<i32>()
             .expect("offspring host-read of a tensor this test just built")
     }
 
@@ -594,14 +570,14 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
+        let device = Device::flex();
         let (pop, dim) = (4usize, 4usize);
         let mut params = BinaryGaConfig::default_for(pop, dim);
         params.elitism_k = pop - 1; // boundary: one offspring slot.
-        let strategy = BinaryGeneticAlgorithm::<TestBackend>::new();
+        let strategy = BinaryGeneticAlgorithm::new();
 
         // Four distinct parents with strictly increasing fitness.
-        let parent_pop = Tensor::<TestBackend, 2, Int>::from_data(
+        let parent_pop = Tensor::<2, Int>::from_data(
             TensorData::new(vec![0i32; pop * dim], [pop, dim]),
             &device,
         );
@@ -614,11 +590,11 @@ mod tests {
         };
 
         // Offspring: only row 0 beats every parent; the rest are worst.
-        let offspring = Tensor::<TestBackend, 2, Int>::from_data(
+        let offspring = Tensor::<2, Int>::from_data(
             TensorData::new(vec![1i32; pop * dim], [pop, dim]),
             &device,
         );
-        let off_fitness = Tensor::<TestBackend, 1>::from_data(
+        let off_fitness = Tensor::<1>::from_data(
             TensorData::new(vec![10.0f32, 0.0, 0.0, 0.0], [pop]),
             &device,
         );
@@ -646,10 +622,10 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
+        let device = Device::flex();
         let (pop, dim) = (6usize, 3usize);
         let params = BinaryGaConfig::default_for(pop, dim);
-        let strategy = BinaryGeneticAlgorithm::<TestBackend>::new();
+        let strategy = BinaryGeneticAlgorithm::new();
         let mut rng = StdRng::seed_from_u64(0);
 
         // Row `i` is filled with the constant `i`, so the champion row is
@@ -657,10 +633,9 @@ mod tests {
         let rows: Vec<i32> = (0..pop)
             .flat_map(|i| vec![i32::try_from(i).expect("row index fits i32"); dim])
             .collect();
-        let population =
-            Tensor::<TestBackend, 2, Int>::from_data(TensorData::new(rows, [pop, dim]), &device);
+        let population = Tensor::<2, Int>::from_data(TensorData::new(rows, [pop, dim]), &device);
         // Raw (unsanitized) fitness: NaN first, clear finite winner at index 1.
-        let fitness = Tensor::<TestBackend, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![f32::NAN, 1000.0, 1.0, 2.0, 3.0, 4.0], [pop]),
             &device,
         );
@@ -679,7 +654,7 @@ mod tests {
         approx::assert_relative_eq!(best_f, 1000.0, epsilon = 1e-6);
         let row = genome
             .into_data()
-            .into_vec::<i32>()
+            .try_into_vec::<i32>()
             .expect("champion row host-read of a tensor this test just built");
         assert_eq!(
             row,

@@ -1,8 +1,6 @@
 //! The [`GepStrategy`] evolutionary engine and a symbolic-regression fitness.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 use rayon::prelude::*;
 use rlevo_core::config::{self, ConfigError};
@@ -25,22 +23,22 @@ use super::tree::ExpressionTree;
 /// with the population from outside this module; build one with
 /// [`try_new`](GepState::try_new) and read it through the accessors.
 #[derive(Debug, Clone)]
-pub struct GepState<B: Backend> {
+pub struct GepState {
     /// Current population, shape `(pop_size, genome_len)`, `i32` symbol ids.
-    population: Tensor<B, 2, Int>,
+    population: Tensor<2, Int>,
     /// Host-side fitness cache for the current population, in canonical
     /// (maximise) space — *higher is better*. Empty until the first
     /// [`Strategy::tell`].
     fitnesses: Vec<f32>,
     /// Best-so-far genome, shape `(1, genome_len)`.
-    best_genome: Option<Tensor<B, 2, Int>>,
+    best_genome: Option<Tensor<2, Int>>,
     /// Best-so-far fitness.
     best_fitness: f32,
     /// Generation counter.
     generation: usize,
 }
 
-impl<B: Backend> GepState<B> {
+impl GepState {
     /// Assembles a GEP state, checking the fitness cache matches the
     /// population.
     ///
@@ -50,9 +48,9 @@ impl<B: Backend> GepState<B> {
     /// `fitnesses` is non-empty with a length other than `pop_size`. The
     /// bootstrap state (empty `fitnesses`) is accepted.
     pub fn try_new(
-        population: Tensor<B, 2, Int>,
+        population: Tensor<2, Int>,
         fitnesses: Vec<f32>,
-        best_genome: Option<Tensor<B, 2, Int>>,
+        best_genome: Option<Tensor<2, Int>>,
         best_fitness: f32,
         generation: usize,
     ) -> Result<Self, ConfigError> {
@@ -78,7 +76,7 @@ impl<B: Backend> GepState<B> {
 
     /// Current population, shape `(pop_size, genome_len)`.
     #[must_use]
-    pub fn population(&self) -> &Tensor<B, 2, Int> {
+    pub fn population(&self) -> &Tensor<2, Int> {
         &self.population
     }
 
@@ -91,7 +89,7 @@ impl<B: Backend> GepState<B> {
     /// Best-so-far genome (shape `(1, genome_len)`), or `None` before the
     /// first `tell`.
     #[must_use]
-    pub fn best_genome(&self) -> Option<&Tensor<B, 2, Int>> {
+    pub fn best_genome(&self) -> Option<&Tensor<2, Int>> {
         self.best_genome.as_ref()
     }
 
@@ -110,7 +108,7 @@ impl<B: Backend> GepState<B> {
 
 /// Gene Expression Programming as a generational [`Strategy`].
 ///
-/// The genome is a `Tensor<B, 2, Int>` of shape `(pop_size, head_len +
+/// The genome is a `Tensor<2, Int>` of shape `(pop_size, head_len +
 /// tail_len)`. Selection is roulette-wheel (fitness-proportionate) with
 /// elitism, following Ferreira (2001): the best-so-far individual is copied
 /// unchanged into every new generation, while the rest are produced by
@@ -123,19 +121,15 @@ impl<B: Backend> GepState<B> {
 /// live in the [`BatchFitnessFn`] (see [`GepSymRegression`]), keeping the
 /// ask/tell loop free of program interpretation.
 #[derive(Debug, Clone)]
-pub struct GepStrategy<B: Backend, F: FunctionSet> {
+pub struct GepStrategy<F: FunctionSet> {
     alphabet: Alphabet<F>,
-    _backend: PhantomData<fn() -> B>,
 }
 
-impl<B: Backend, F: FunctionSet> GepStrategy<B, F> {
+impl<F: FunctionSet> GepStrategy<F> {
     /// Builds a strategy over the given symbol alphabet.
     #[must_use]
     pub fn new(alphabet: Alphabet<F>) -> Self {
-        Self {
-            alphabet,
-            _backend: PhantomData,
-        }
+        Self { alphabet }
     }
 
     /// The alphabet this strategy samples and decodes against.
@@ -159,11 +153,11 @@ impl<B: Backend, F: FunctionSet> GepStrategy<B, F> {
 }
 
 /// Pulls an integer population tensor to host as per-row symbol chromosomes.
-fn tensor_to_rows<B: Backend>(pop: &Tensor<B, 2, Int>, genome_len: usize) -> Vec<Vec<Symbol>> {
+fn tensor_to_rows(pop: &Tensor<2, Int>, genome_len: usize) -> Vec<Vec<Symbol>> {
     let flat: Vec<i32> = pop
         .clone()
         .into_data()
-        .into_vec::<i32>()
+        .try_into_vec::<i32>()
         // Panics if the population tensor cannot be read as `i32` on the host.
         .expect("genome tensor must be readable as i32");
     flat.chunks(genome_len)
@@ -172,17 +166,13 @@ fn tensor_to_rows<B: Backend>(pop: &Tensor<B, 2, Int>, genome_len: usize) -> Vec
 }
 
 /// Uploads per-row symbol chromosomes as an integer population tensor.
-fn rows_to_tensor<B: Backend>(
-    rows: &[Vec<Symbol>],
-    genome_len: usize,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2, Int> {
+fn rows_to_tensor(rows: &[Vec<Symbol>], genome_len: usize, device: &Device) -> Tensor<2, Int> {
     let pop_size = rows.len();
     let mut flat: Vec<i32> = Vec::with_capacity(pop_size * genome_len);
     for row in rows {
         flat.extend(row.iter().map(|s| s.value()));
     }
-    Tensor::<B, 2, Int>::from_data(TensorData::new(flat, [pop_size, genome_len]), device)
+    Tensor::<2, Int>::from_data(TensorData::new(flat, [pop_size, genome_len]), device)
 }
 
 /// Roulette-wheel selection of `k` parent indices from canonical (maximise)
@@ -238,7 +228,7 @@ fn roulette_select(fitnesses: &[f32], k: usize, rng: &mut dyn Rng) -> Vec<usize>
     out
 }
 
-fn update_best<B: Backend>(state: &mut GepState<B>, pop: &Tensor<B, 2, Int>, fitness: &[f32]) {
+fn update_best(state: &mut GepState, pop: &Tensor<2, Int>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -253,30 +243,21 @@ fn update_best<B: Backend>(state: &mut GepState<B>, pop: &Tensor<B, 2, Int>, fit
     if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-        let idx =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i32], [1]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i32], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
 }
 
-impl<B: Backend, F: FunctionSet> Strategy<B> for GepStrategy<B, F>
-where
-    B::Device: Clone,
-{
+impl<F: FunctionSet> Strategy for GepStrategy<F> {
     type Params = GepConfig;
-    type State = GepState<B>;
-    type Genome = Tensor<B, 2, Int>;
+    type State = GepState;
+    type Genome = Tensor<2, Int>;
 
     /// Samples the initial population: each chromosome's head loci hold any
     /// symbol and its tail loci hold terminals, so every individual is valid by
     /// construction.
-    fn init(
-        &self,
-        params: &GepConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> GepState<B> {
+    fn init(&self, params: &GepConfig, rng: &mut dyn Rng, device: &Device) -> GepState {
         debug_assert_eq!(
             self.alphabet.n_vars, params.n_vars,
             "GepStrategy: alphabet/config variable counts must agree"
@@ -286,7 +267,7 @@ where
         let rows: Vec<Vec<Symbol>> = (0..params.pop_size)
             .map(|_| self.sample_chromosome(params, &mut stream))
             .collect();
-        let population = rows_to_tensor::<B>(&rows, genome_len, device);
+        let population = rows_to_tensor(&rows, genome_len, device);
         GepState {
             population,
             fitnesses: Vec::new(),
@@ -307,10 +288,10 @@ where
     fn ask(
         &self,
         params: &GepConfig,
-        state: &GepState<B>,
+        state: &GepState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2, Int>, GepState<B>) {
+        device: &Device,
+    ) -> (Tensor<2, Int>, GepState) {
         // First call: evaluate the initial population as-is.
         if state.fitnesses.is_empty() {
             return (state.population.clone(), state.clone());
@@ -319,7 +300,7 @@ where
         let genome_len = params.genome_len();
         let head_len = params.head_len;
         let pop_size = params.pop_size;
-        let parents = tensor_to_rows::<B>(&state.population, genome_len);
+        let parents = tensor_to_rows(&state.population, genome_len);
 
         // One base seed; four independent operator streams off it.
         let base = rng.next_u64();
@@ -367,13 +348,13 @@ where
 
         // Elitism: copy the best-so-far genome into row 0 unchanged.
         if let Some(best) = &state.best_genome {
-            let best_rows = tensor_to_rows::<B>(best, genome_len);
+            let best_rows = tensor_to_rows(best, genome_len);
             if let Some(elite) = best_rows.into_iter().next() {
                 offspring[0] = elite;
             }
         }
 
-        let population = rows_to_tensor::<B>(&offspring, genome_len, device);
+        let population = rows_to_tensor(&offspring, genome_len, device);
         (population, state.clone())
     }
 
@@ -383,14 +364,14 @@ where
     fn tell(
         &self,
         _params: &GepConfig,
-        population: Tensor<B, 2, Int>,
-        fitness: Tensor<B, 1>,
-        mut state: GepState<B>,
+        population: Tensor<2, Int>,
+        fitness: Tensor<1>,
+        mut state: GepState,
         _rng: &mut dyn Rng,
-    ) -> (GepState<B>, StrategyMetrics) {
+    ) -> (GepState, StrategyMetrics) {
         let fitness_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
 
         update_best(&mut state, &population, &fitness_host);
@@ -405,7 +386,7 @@ where
         (state, metrics)
     }
 
-    fn best(&self, state: &GepState<B>) -> Option<(Tensor<B, 2, Int>, f32)> {
+    fn best(&self, state: &GepState) -> Option<(Tensor<2, Int>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -474,13 +455,9 @@ impl<F: FunctionSet> GepSymRegression<F> {
     }
 }
 
-impl<B: Backend, F: FunctionSet> BatchFitnessFn<B, Tensor<B, 2, Int>> for GepSymRegression<F> {
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<B, 2, Int>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
-        let rows = tensor_to_rows::<B>(population, self.genome_len);
+impl<F: FunctionSet> BatchFitnessFn<Tensor<2, Int>> for GepSymRegression<F> {
+    fn evaluate_batch(&mut self, population: &Tensor<2, Int>, device: &Device) -> Tensor<1> {
+        let rows = tensor_to_rows(population, self.genome_len);
         let pop_size = rows.len();
         #[allow(clippy::cast_precision_loss)]
         let n_points = self.targets.len() as f32;
@@ -499,7 +476,7 @@ impl<B: Backend, F: FunctionSet> BatchFitnessFn<B, Tensor<B, 2, Int>> for GepSym
             })
             .collect();
 
-        Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+        Tensor::<1>::from_data(TensorData::new(fitness, [pop_size]), device)
     }
 
     fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
@@ -513,9 +490,6 @@ mod tests {
     use super::*;
     use crate::function_set::ArithmeticFunctionSet;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
-
-    type TestBackend = Flex;
 
     /// All-equal fitness gives every individual the same weight: draws are valid
     /// indices and every index is reachable.
@@ -596,8 +570,8 @@ mod tests {
 
     #[test]
     fn try_new_checks_fitness_length() {
-        let device = Default::default();
-        let pop = Tensor::<TestBackend, 2, Int>::zeros([3, 4], &device);
+        let device = Device::flex();
+        let pop = Tensor::<2, Int>::zeros([3, 4], &device);
         assert!(GepState::try_new(pop.clone(), vec![], None, f32::MIN, 0).is_ok());
         assert!(GepState::try_new(pop.clone(), vec![1.0; 3], None, 1.0, 1).is_ok());
         assert!(GepState::try_new(pop, vec![1.0; 2], None, 1.0, 1).is_err());
@@ -615,15 +589,13 @@ mod tests {
         seed: u64,
         max_gens: usize,
     ) -> f32 {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = GepConfig::new(7, 2, n_vars, 100).unwrap();
         let genome_len = cfg.genome_len();
-        let strategy = GepStrategy::<TestBackend, _>::new(alphabet(n_vars));
+        let strategy = GepStrategy::new(alphabet(n_vars));
         let fitness = GepSymRegression::new(alphabet(n_vars), genome_len, inputs, targets);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, cfg, fitness, seed, device, max_gens,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, cfg, fitness, seed, device, max_gens)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -672,7 +644,7 @@ mod tests {
     /// A well-formed tiny dataset yields finite fitness for the zero genome.
     #[test]
     fn test_gep_sym_regression_valid_dataset_is_finite() {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = GepConfig::new(7, 2, 1, 4).unwrap();
         let genome_len = cfg.genome_len();
         let mut fitness = GepSymRegression::new(
@@ -685,14 +657,14 @@ mod tests {
         // to the single-node tree `x`. An all-zeros genome would be all `add`
         // with no terminal tail — a malformed chromosome that trips the separate
         // decode out-of-bounds path (decode.rs §1.1), unrelated to this test.
-        let pop = Tensor::<TestBackend, 2, Int>::from_data(
+        let pop = Tensor::<2, Int>::from_data(
             TensorData::new(vec![8i32; 4 * genome_len], [4, genome_len]),
             &device,
         );
         let scores: Vec<f32> = fitness
             .evaluate_batch(&pop, &device)
             .into_data()
-            .into_vec()
+            .try_into_vec()
             .expect("fitness host-read of a tensor this test just built");
         assert!(
             scores.iter().all(|s| s.is_finite()),

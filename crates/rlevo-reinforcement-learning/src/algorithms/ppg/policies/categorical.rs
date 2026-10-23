@@ -13,8 +13,7 @@
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{log_softmax, tanh};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Int, Tensor, TensorData};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 use rlevo_core::config::{self, ConfigError, Validate};
 
@@ -52,10 +51,7 @@ impl PpgCategoricalPolicyHeadConfig {
     ///
     /// Returns the first [`ConfigError`] reported by
     /// [`validate`](Validate::validate).
-    pub fn try_init<B: Backend>(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Result<PpgCategoricalPolicyHead<B>, ConfigError> {
+    pub fn try_init(&self, device: &Device) -> Result<PpgCategoricalPolicyHead, ConfigError> {
         self.validate()?;
         Ok(PpgCategoricalPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
@@ -80,16 +76,17 @@ impl Validate for PpgCategoricalPolicyHeadConfig {
 /// Two-hidden-layer MLP with a softmax policy head and a scalar auxiliary
 /// value head sharing the trunk.
 #[derive(Module, Debug)]
-pub struct PpgCategoricalPolicyHead<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    logits_head: Linear<B>,
-    aux_value_head: Linear<B>,
+pub struct PpgCategoricalPolicyHead {
+    fc1: Linear,
+    fc2: Linear,
+    logits_head: Linear,
+    aux_value_head: Linear,
     num_actions: usize,
 }
 
-impl<B: Backend> PpgCategoricalPolicyHead<B> {
+impl PpgCategoricalPolicyHead {
     /// Number of discrete actions this head was built for.
+    #[must_use]
     pub fn num_actions(&self) -> usize {
         self.num_actions
     }
@@ -98,26 +95,26 @@ impl<B: Backend> PpgCategoricalPolicyHead<B> {
     ///
     /// Both the logits head and the auxiliary value head branch off this
     /// intermediate representation.
-    fn trunk(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn trunk(&self, obs: Tensor<2>) -> Tensor<2> {
         let h = tanh(self.fc1.forward(obs));
         tanh(self.fc2.forward(h))
     }
 }
 
-impl<B: AutodiffBackend> PpgAuxValueHead<B, 2> for PpgCategoricalPolicyHead<B> {
-    fn aux_value(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+impl PpgAuxValueHead<2> for PpgCategoricalPolicyHead {
+    fn aux_value(&self, obs: Tensor<2>) -> Tensor<1> {
         let h = self.trunk(obs);
         self.aux_value_head.forward(h).squeeze_dim::<1>(1)
     }
 
-    fn logits(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn logits(&self, obs: Tensor<2>) -> Tensor<2> {
         let h = self.trunk(obs);
         self.logits_head.forward(h)
     }
 }
 
-impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
-    type ActionTensor = Tensor<B, 2, Int>;
+impl PpoPolicy<2> for PpgCategoricalPolicyHead {
+    type ActionTensor = Tensor<2, Int>;
 
     /// Always `1`: one discrete action index per step.
     fn action_dim(&self) -> usize {
@@ -144,9 +141,9 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     #[allow(clippy::cast_possible_wrap)]
     fn sample_with_logprob(
         &self,
-        obs: Tensor<B, 2>,
+        obs: Tensor<2>,
         rng: &mut (impl Rng + ?Sized),
-    ) -> PolicyOutput<B, Self::ActionTensor> {
+    ) -> PolicyOutput<Self::ActionTensor> {
         let device = obs.device();
         let [batch, _] = obs.dims();
         let num_actions = self.num_actions;
@@ -176,9 +173,9 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
             sampled.push(best_i as i64);
         }
 
-        let action_1d: Tensor<B, 1, Int> =
+        let action_1d: Tensor<1, Int> =
             Tensor::from_data(TensorData::new(sampled, vec![batch]), &device);
-        let action_2d: Tensor<B, 2, Int> = action_1d.unsqueeze_dim::<2>(1);
+        let action_2d: Tensor<2, Int> = action_1d.unsqueeze_dim::<2>(1);
 
         let gathered = log_probs.clone().gather(1, action_2d.clone());
         let log_prob = gathered.squeeze_dim::<1>(1);
@@ -199,7 +196,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     /// `actions` has shape `(batch, 1)` and contains integer action indices;
     /// the function gathers the corresponding log-prob column from
     /// `log_softmax(logits)`.
-    fn evaluate(&self, obs: Tensor<B, 2>, actions: Self::ActionTensor) -> LogProbEntropy<B> {
+    fn evaluate(&self, obs: Tensor<2>, actions: Self::ActionTensor) -> LogProbEntropy {
         let logits = PpgAuxValueHead::logits(self, obs);
         let log_probs = log_softmax(logits, 1);
         let gathered = log_probs.clone().gather(1, actions);
@@ -239,42 +236,29 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_possible_truncation)]
-    fn action_tensor_from_flat(
-        flat: &[f32],
-        n_rows: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::ActionTensor {
+    fn action_tensor_from_flat(flat: &[f32], n_rows: usize, device: &Device) -> Self::ActionTensor {
         assert_eq!(
             flat.len(),
             n_rows,
             "ppg categorical: action_dim=1, so len must equal n_rows"
         );
         let as_i64: Vec<i64> = flat.iter().map(|&x| x as i64).collect();
-        let t: Tensor<B, 1, Int> = Tensor::from_data(TensorData::new(as_i64, vec![n_rows]), device);
+        let t: Tensor<1, Int> = Tensor::from_data(TensorData::new(as_i64, vec![n_rows]), device);
         t.unsqueeze_dim::<2>(1)
     }
 
-    /// Deterministic action on the inner (non-autodiff) backend — the argmax
-    /// over the policy logits.
-    ///
-    /// Operates on `B::InnerBackend` to avoid building an autodiff graph during
-    /// evaluation. Because [`PpgAuxValueHead::logits`] is only defined over
-    /// `AutodiffBackend`, the trunk and logits head are accessed directly
-    /// through the inner module's fields rather than via the trait method.
+    /// Deterministic action — the argmax over the policy logits. Called on a
+    /// [`valid`](burn::module::Module::valid) snapshot, it builds no autodiff
+    /// graph.
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_precision_loss)]
-    fn deterministic_env_row_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Vec<f32> {
+    fn deterministic_env_row(&self, obs: Tensor<2>) -> Vec<f32> {
         // Deterministic action = argmax over logits (the categorical mode).
-        // `PpgAuxValueHead::logits` is autodiff-only, so recompute logits on the
-        // inner backend from the shared trunk + logits head directly.
-        let logits = inner.logits_head.forward(inner.trunk(obs));
-        let idx: Tensor<B::InnerBackend, 2, Int> = logits.argmax(1);
+        let logits = PpgAuxValueHead::logits(self, obs);
+        let idx: Tensor<2, Int> = logits.argmax(1);
         let data = idx.into_data().convert::<i64>();
         let slice = data.as_slice::<i64>().expect("argmax index is i64");
         vec![slice[0] as f32]
@@ -284,13 +268,9 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{Autodiff, Flex};
-    use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::config::ConstraintKind;
-
-    type TestAdBe = Autodiff<Flex>;
 
     #[test]
     fn test_ppg_policies_categorical_representative_head_config_is_valid() {
@@ -312,7 +292,7 @@ mod tests {
     /// the same trunk.
     #[test]
     fn test_ppg_policies_categorical_try_init_rejects_every_zero_dimension() {
-        let device = Default::default();
+        let device = Device::flex();
         let cases: [(PpgCategoricalPolicyHeadConfig, &str); 3] = [
             (
                 PpgCategoricalPolicyHeadConfig {
@@ -341,7 +321,7 @@ mod tests {
         ];
         for (cfg, field) in cases {
             let err = cfg
-                .try_init::<TestAdBe>(&device)
+                .try_init(&device)
                 .expect_err("an invalid config must not build a head");
             assert_eq!(err.config, "PpgCategoricalPolicyHeadConfig");
             assert_eq!(err.field, field);
@@ -349,14 +329,14 @@ mod tests {
         }
     }
 
-    fn head() -> PpgCategoricalPolicyHead<TestAdBe> {
-        let device = Default::default();
+    fn head() -> PpgCategoricalPolicyHead {
+        let device = Device::flex();
         PpgCategoricalPolicyHeadConfig {
             obs_dim: 4,
             hidden: 8,
             num_actions: 3,
         }
-        .try_init::<TestAdBe>(&device)
+        .try_init(&device)
         .expect("valid head config")
     }
 
@@ -364,10 +344,10 @@ mod tests {
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
-    fn obs(batch: usize) -> Tensor<TestAdBe, 2> {
-        let device = Default::default();
+    fn obs(batch: usize) -> Tensor<2> {
+        let device = Device::flex();
         let data: Vec<f32> = (0..batch * 4).map(|i| 0.01 * (i as f32)).collect();
-        Tensor::<TestAdBe, 2>::from_data(TensorData::new(data, vec![batch, 4]), &device)
+        Tensor::<2>::from_data(TensorData::new(data, vec![batch, 4]), &device)
     }
 
     #[test]
@@ -391,33 +371,26 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(11);
         let out = h.sample_with_logprob(o.clone(), &mut rng);
         let eval = h.evaluate(o, out.action.clone());
-        let a = out.log_prob.into_scalar().elem::<f32>();
-        let b = eval.log_prob.into_scalar().elem::<f32>();
+        let a = out.log_prob.into_scalar::<f32>();
+        let b = eval.log_prob.into_scalar::<f32>();
         assert!((a - b).abs() < 1e-5, "{a} vs {b}");
     }
 
     #[test]
     fn test_ppg_policies_categorical_round_trips_action_rows() {
-        let device: <TestAdBe as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let a1d: Tensor<TestAdBe, 1, Int> =
+        let device: Device = Device::flex().autodiff();
+        let a1d: Tensor<1, Int> =
             Tensor::from_data(TensorData::new(vec![0_i64, 2, 1], vec![3]), &device);
-        let a2d: Tensor<TestAdBe, 2, Int> = a1d.unsqueeze_dim::<2>(1);
-        let row0 =
-            <PpgCategoricalPolicyHead<TestAdBe> as PpoPolicy<TestAdBe, 2>>::action_row_from_tensor(
-                &a2d, 0,
-            );
-        let row2 =
-            <PpgCategoricalPolicyHead<TestAdBe> as PpoPolicy<TestAdBe, 2>>::action_row_from_tensor(
-                &a2d, 2,
-            );
+        let a2d: Tensor<2, Int> = a1d.unsqueeze_dim::<2>(1);
+        let row0 = <PpgCategoricalPolicyHead as PpoPolicy<2>>::action_row_from_tensor(&a2d, 0);
+        let row2 = <PpgCategoricalPolicyHead as PpoPolicy<2>>::action_row_from_tensor(&a2d, 2);
         assert_eq!(row0, vec![0.0]);
         assert_eq!(row2, vec![1.0]);
-        let rebuilt =
-            <PpgCategoricalPolicyHead<TestAdBe> as PpoPolicy<TestAdBe, 2>>::action_tensor_from_flat(
-                &[0.0, 2.0, 1.0],
-                3,
-                &device,
-            );
+        let rebuilt = <PpgCategoricalPolicyHead as PpoPolicy<2>>::action_tensor_from_flat(
+            &[0.0, 2.0, 1.0],
+            3,
+            &device,
+        );
         let data = rebuilt.into_data().convert::<i64>();
         let slice = data.as_slice::<i64>().unwrap();
         assert_eq!(slice, &[0, 2, 1]);

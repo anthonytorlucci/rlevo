@@ -41,7 +41,6 @@
 //! same `max_iters` then buys one extra *probe* evaluation. The seeding eval
 //! consumes no rng, so skipping it never shifts a searcher's random stream.
 
-use burn::tensor::backend::Backend;
 use rand::Rng;
 
 use rlevo_core::bounds::Bounds;
@@ -109,26 +108,17 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// `fitness_fn` directly — or seed from a hint — should apply the same
 /// sanitization rather than let a `NaN` reach their best-so-far tracker.
 ///
-/// # Type parameters
-///
-/// - `B`: Burn backend. **Currently unused** by every reference searcher (they
-///   are pure host code) and present only to reserve the seam for future
-///   on-device searchers — e.g. a batched line search that materializes probe
-///   tensors directly. Keeping `B` on the trait now avoids a breaking signature
-///   change when such a searcher lands.
-///
 /// # Example
 ///
 /// A one-line searcher that simply re-evaluates the input (the trivial,
 /// always-valid refinement) illustrates the contract:
 ///
 /// ```
-/// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, Rng, SeedableRng};
 /// use rlevo_evolution::local_search::LocalSearch;
 ///
 /// struct Identity;
-/// impl<B: burn::tensor::backend::Backend> LocalSearch<B> for Identity {
+/// impl LocalSearch for Identity {
 ///     type Params = ();
 ///     fn refine(
 ///         &self,
@@ -149,7 +139,7 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// let searcher = Identity;
 /// let mut fitness = sphere;
 /// let mut rng = StdRng::seed_from_u64(0);
-/// let (refined, fit) = LocalSearch::<Flex>::refine(
+/// let (refined, fit) = LocalSearch::refine(
 ///     &searcher,
 ///     &(),
 ///     vec![3.0, 4.0],
@@ -159,7 +149,7 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// assert_eq!(refined.len(), 2);
 /// assert_eq!(fit, 25.0);
 /// ```
-pub trait LocalSearch<B: Backend>: Send + Sync {
+pub trait LocalSearch: Send + Sync {
     /// Static configuration for a refinement run (bounds, budget, step
     /// sizes, …). Cloned by a memetic wrapper once per generation.
     type Params: Clone + core::fmt::Debug + Send + Sync;

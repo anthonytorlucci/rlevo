@@ -17,8 +17,7 @@
 //! these tests are single-threaded by construction (one loop per test,
 //! driven serially) — no cross-thread seeding race.
 
-use burn::backend::Flex;
-
+use burn::tensor::Device;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
@@ -33,8 +32,6 @@ use rlevo_evolution::algorithms::ga::{
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
-type B = Flex;
-
 const DIM: usize = 10;
 const MAX_GENS: usize = 120;
 const SEED: u64 = 17;
@@ -43,14 +40,14 @@ const SEED: u64 = 17;
 /// `best_fitness_ever` (the natural cost for a `Minimize` landscape).
 fn run_to_best<S, L>(strategy: S, params: S::Params, landscape: L) -> f32
 where
-    S: Strategy<B>,
+    S: Strategy,
     S::Params: rlevo_core::config::Validate,
     L: rlevo_core::fitness::Landscape + 'static,
-    EvolutionaryLoop<B, S, FromLandscape<L>>: Sized,
-    FromLandscape<L>: rlevo_evolution::fitness::BatchFitnessFn<B, S::Genome>,
+    EvolutionaryLoop<S, FromLandscape<L>>: Sized,
+    FromLandscape<L>: rlevo_evolution::fitness::BatchFitnessFn<S::Genome>,
 {
-    let device = Default::default();
-    let mut evo_loop = EvolutionaryLoop::<B, S, _>::new(
+    let device = Device::flex();
+    let mut evo_loop = EvolutionaryLoop::<S, _>::new(
         strategy,
         params,
         FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
@@ -100,17 +97,17 @@ fn sphere_strategies_reach_near_optimum() {
     // Sphere is convex/unimodal with optimum 0; every real-valued strategy
     // should drive best_fitness_ever well below 1.0 in user space.
     let ga = run_to_best(
-        GeneticAlgorithm::<B>::new(),
+        GeneticAlgorithm::new(),
         ga_config(),
         Sphere::new(DIM).expect("dim >= 1"),
     );
     let es = run_to_best(
-        EvolutionStrategy::<B>::new(),
+        EvolutionStrategy::new(),
         es_config(),
         Sphere::new(DIM).expect("dim >= 1"),
     );
     let de = run_to_best(
-        DifferentialEvolution::<B>::new(),
+        DifferentialEvolution::new(),
         de_config(),
         Sphere::new(DIM).expect("dim >= 1"),
     );
@@ -133,17 +130,17 @@ fn rastrigin_strategies_improve_on_random_search() {
     // finishes well below. Loose ceiling stays stable across RNG versions
     // while catching a strategy that fails to optimize.
     let ga = run_to_best(
-        GeneticAlgorithm::<B>::new(),
+        GeneticAlgorithm::new(),
         ga_config(),
         Rastrigin::new(DIM).expect("dim >= 1"),
     );
     let es = run_to_best(
-        EvolutionStrategy::<B>::new(),
+        EvolutionStrategy::new(),
         es_config(),
         Rastrigin::new(DIM).expect("dim >= 1"),
     );
     let de = run_to_best(
-        DifferentialEvolution::<B>::new(),
+        DifferentialEvolution::new(),
         de_config(),
         Rastrigin::new(DIM).expect("dim >= 1"),
     );
@@ -164,7 +161,7 @@ fn rastrigin_strategies_improve_on_random_search() {
 fn ackley_de_reaches_near_optimum() {
     // Ackley optimum is 0; DE is a reliable converger on it.
     let de = run_to_best(
-        DifferentialEvolution::<B>::new(),
+        DifferentialEvolution::new(),
         de_config(),
         Ackley::new(DIM).expect("dim >= 1"),
     );

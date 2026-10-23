@@ -196,16 +196,16 @@ mod tests {
     /// default `every` must equal the default `policy_frequency`, or the
     /// decoupling silently rescaled every default DDPG run.
     // Bit-exactness *is* the property under test here: `$\tau$` is a source literal stored verbatim
-    // and read back through a widening that is exact for every `f32`, never the result of
-    // arithmetic. A tolerance would let a genuine default drift pass.
+    // and read back unchanged, never the result of arithmetic. A tolerance would let a genuine
+    // default drift pass.
     #[allow(clippy::float_cmp)]
     #[test]
     fn test_ddpg_config_default_target_update_is_bit_identical_to_the_pre_migration_alias() {
         let cfg = DdpgTrainingConfig::default();
         assert_eq!(
             cfg.target_update.tau(),
-            f64::from(0.005_f32),
-            "τ must survive the migration bit-for-bit, including its f32→f64 widening"
+            0.005,
+            "τ must survive the migration bit-for-bit"
         );
         assert_eq!(
             cfg.target_update.every(),

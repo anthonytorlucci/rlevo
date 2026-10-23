@@ -120,8 +120,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use burn::module::{Module, Param};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::tanh;
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand_distr::{Distribution as RandDistribution, StandardNormal};
 use rlevo_core::bounds::Bounds;
@@ -244,13 +243,10 @@ impl TanhGaussianPolicyHeadConfig {
     ///
     /// Returns the first [`ConfigError`] reported by
     /// [`validate`](Validate::validate).
-    pub fn try_init<B: Backend>(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Result<TanhGaussianPolicyHead<B>, ConfigError> {
+    pub fn try_init(&self, device: &Device) -> Result<TanhGaussianPolicyHead, ConfigError> {
         self.validate()?;
         let log_std_vec: Vec<f32> = vec![self.log_std_init; self.action_dim];
-        let log_std: Tensor<B, 1> =
+        let log_std: Tensor<1> =
             Tensor::from_data(TensorData::new(log_std_vec, vec![self.action_dim]), device);
         Ok(TanhGaussianPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
@@ -353,11 +349,11 @@ impl Validate for TanhGaussianPolicyHeadConfig {
 /// already-validated `Bounds`, so `log_std_min <= log_std_max` holds for every
 /// observable head.
 #[derive(Module, Debug)]
-pub struct TanhGaussianPolicyHead<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    mean: Linear<B>,
-    log_std: Param<Tensor<B, 1>>,
+pub struct TanhGaussianPolicyHead {
+    fc1: Linear,
+    fc2: Linear,
+    mean: Linear,
+    log_std: Param<Tensor<1>>,
     action_dim: usize,
     log_std_min: f32,
     log_std_max: f32,
@@ -369,15 +365,14 @@ pub struct TanhGaussianPolicyHead<B: Backend> {
     ///
     /// [`min_log_std`](PpoPolicy::min_log_std) and
     /// [`max_log_std`](PpoPolicy::max_log_std) take `&self`, so the latches
-    /// need interior mutability. Burn's `#[derive(Module)]` classifies a field
-    /// as a sub-module only if its type mentions the backend `B`, is a `Param`,
-    /// or is a `Tensor`; everything else — including this one — is carried as
-    /// plain constant data, cloned by the generated `map`/`valid` code and
-    /// excluded from the record. `Arc<ClampWarnLatch>` satisfies the
-    /// `Clone + Debug + Send + Sync` that entails (the `Arc` supplies `Clone`
-    /// over a struct of `AtomicBool`s, which is not `Clone` itself), whereas a
-    /// bare `AtomicBool` is not `Clone` and `std::sync::Once` is neither
-    /// `Clone` nor `Debug`.
+    /// need interior mutability. Burn's `#[derive(Module)]` treats every field
+    /// as a sub-module except recognised constants, so this one is marked
+    /// `#[module(skip)]`: carried as plain data, cloned by the generated
+    /// `map`/`valid` code and excluded from the record. `Arc<ClampWarnLatch>`
+    /// satisfies the `Clone + Debug + Send` that entails (the `Arc` supplies
+    /// `Clone` over a struct of `AtomicBool`s, which is not `Clone` itself),
+    /// whereas a bare `AtomicBool` is not `Clone` and `std::sync::Once` is
+    /// neither `Clone` nor `Debug`.
     ///
     /// A module-level `static` was rejected: it would latch **process-wide**,
     /// so a second head (a fresh run in the same process, an evolutionary
@@ -387,8 +382,8 @@ pub struct TanhGaussianPolicyHead<B: Backend> {
     /// correct granularity below that.
     ///
     /// Two consequences follow from `Arc` being *shared* on clone, and both are
-    /// wanted: [`valid()`](burn::module::AutodiffModule::valid) snapshots share
-    /// the autodiff head's latches, so the inner module cannot re-warn on
+    /// wanted: [`valid()`](burn::module::Module::valid) snapshots share
+    /// the training head's latches, so the snapshot cannot re-warn on
     /// either bound; and because the field is not persisted, a head restored
     /// from a record starts fully unlatched and will warn once more per bound
     /// that still binds — which is the right behaviour for a fresh process
@@ -396,12 +391,14 @@ pub struct TanhGaussianPolicyHead<B: Backend> {
     ///
     /// [`Ordering::Relaxed`] is sufficient for both flags; see
     /// [`ClampWarnLatch`].
+    #[module(skip)]
     clamp_warned: Arc<ClampWarnLatch>,
 }
 
-impl<B: Backend> TanhGaussianPolicyHead<B> {
+impl TanhGaussianPolicyHead {
     /// Forward pass to the Gaussian mean of shape `(batch, action_dim)`.
-    pub fn mean(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    #[must_use]
+    pub fn mean(&self, obs: Tensor<2>) -> Tensor<2> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
         self.mean.forward(h)
@@ -413,26 +410,31 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
     /// callers can observe drift past the bounds. The values actually used by
     /// [`sample_with_logprob`](PpoPolicy::sample_with_logprob) and
     /// [`evaluate`](PpoPolicy::evaluate) come from `clamped_log_std`.
-    pub fn log_std_vec(&self) -> Tensor<B, 1> {
+    #[must_use]
+    pub fn log_std_vec(&self) -> Tensor<1> {
         self.log_std.val()
     }
 
     /// Action dimension `A`.
+    #[must_use]
     pub fn action_dim(&self) -> usize {
         self.action_dim
     }
 
     /// Tanh scale applied to the pre-squash sample.
+    #[must_use]
     pub fn action_scale(&self) -> f32 {
         self.action_scale
     }
 
     /// Clamp lower bound applied to `$\log \sigma$`.
+    #[must_use]
     pub fn log_std_min(&self) -> f32 {
         self.log_std_min
     }
 
     /// Clamp upper bound applied to `$\log \sigma$`.
+    #[must_use]
     pub fn log_std_max(&self) -> f32 {
         self.log_std_max
     }
@@ -445,8 +447,8 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
     /// clamped and the other did not, the sample's stored log-probability and
     /// its re-evaluation under the same weights would disagree, silently
     /// biasing the PPO importance ratio from the very first minibatch.
-    fn clamped_log_std(&self, batch: usize) -> Tensor<B, 2> {
-        let row: Tensor<B, 2> = self.log_std.val().unsqueeze_dim::<2>(0);
+    fn clamped_log_std(&self, batch: usize) -> Tensor<2> {
+        let row: Tensor<2> = self.log_std.val().unsqueeze_dim::<2>(0);
         row.repeat_dim(0, batch)
             .clamp(self.log_std_min, self.log_std_max)
     }
@@ -580,7 +582,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
 
     /// Computes per-row Gaussian log-prob and entropy of `z` under the
     /// current policy (no tanh Jacobian; it cancels in the PPO ratio).
-    fn log_prob_entropy(&self, obs: Tensor<B, 2>, z: Tensor<B, 2>) -> LogProbEntropy<B> {
+    fn log_prob_entropy(&self, obs: Tensor<2>, z: Tensor<2>) -> LogProbEntropy {
         let [batch, _] = z.dims();
         let mean = self.mean(obs);
         let log_std = self.clamped_log_std(batch);
@@ -591,7 +593,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         let scaled = centered.clone() / std.clone();
         let scaled_sq = scaled.clone() * scaled;
         let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-        let per_dim: Tensor<B, 2> = scaled_sq.mul_scalar(-0.5) - log_std.clone() - log_2pi * 0.5;
+        let per_dim: Tensor<2> = scaled_sq.mul_scalar(-0.5) - log_std.clone() - log_2pi * 0.5;
         // Sum over action dim → (batch,).
         let log_prob = per_dim.sum_dim(1).squeeze_dim::<1>(1);
 
@@ -603,8 +605,8 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
     }
 }
 
-impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
-    type ActionTensor = Tensor<B, 2>;
+impl PpoPolicy<2> for TanhGaussianPolicyHead {
+    type ActionTensor = Tensor<2>;
 
     /// Number of continuous action dimensions `A` this head was built for.
     fn action_dim(&self) -> usize {
@@ -624,9 +626,9 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     #[allow(clippy::cast_possible_truncation)]
     fn sample_with_logprob(
         &self,
-        obs: Tensor<B, 2>,
+        obs: Tensor<2>,
         rng: &mut (impl Rng + ?Sized),
-    ) -> PolicyOutput<B, Self::ActionTensor> {
+    ) -> PolicyOutput<Self::ActionTensor> {
         let device = obs.device();
         let [batch, _] = obs.dims();
         let action_dim = self.action_dim;
@@ -638,7 +640,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
             let x: f64 = normal.sample(rng);
             eps_vec.push(x as f32);
         }
-        let eps: Tensor<B, 2> =
+        let eps: Tensor<2> =
             Tensor::from_data(TensorData::new(eps_vec, vec![batch, action_dim]), &device);
 
         let mean = self.mean(obs.clone());
@@ -658,7 +660,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     /// `actions` (shape `(batch, action_dim)`) under the current Gaussian
     /// policy given `obs`. The tanh Jacobian cancels in the PPO importance
     /// ratio and is not included.
-    fn evaluate(&self, obs: Tensor<B, 2>, actions: Self::ActionTensor) -> LogProbEntropy<B> {
+    fn evaluate(&self, obs: Tensor<2>, actions: Self::ActionTensor) -> LogProbEntropy {
         self.log_prob_entropy(obs, actions)
     }
 
@@ -677,13 +679,9 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
 
     /// Rebuilds a `(n_rows, action_dim)` tensor from row-major pre-squash
     /// `f32` data. `action_dim` is inferred as `flat.len() / n_rows`.
-    fn action_tensor_from_flat(
-        flat: &[f32],
-        n_rows: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::ActionTensor {
+    fn action_tensor_from_flat(flat: &[f32], n_rows: usize, device: &Device) -> Self::ActionTensor {
         let action_dim = flat.len() / n_rows.max(1);
-        Tensor::<B, 2>::from_data(
+        Tensor::<2>::from_data(
             TensorData::new(flat.to_vec(), vec![n_rows, action_dim]),
             device,
         )
@@ -719,16 +717,13 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     }
 
     /// Returns `$\text{scale} \cdot \tanh(\mu(\text{obs}))$` as the deterministic (noise-free)
-    /// action for the first batch row, evaluated on the frozen inner backend.
+    /// action for the first batch row, evaluated on the frozen plain device.
     ///
     /// No `$\sigma\epsilon$` noise is added — appropriate for evaluation and benchmarking.
-    fn deterministic_env_row_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Vec<f32> {
+    fn deterministic_env_row(&self, obs: Tensor<2>) -> Vec<f32> {
         // Deterministic action = squashed policy mean (no `$\sigma\epsilon$` noise).
-        let action_dim = inner.action_dim();
-        let env = tanh(inner.mean(obs)).mul_scalar(inner.action_scale());
+        let action_dim = self.action_dim();
+        let env = tanh(self.mean(obs)).mul_scalar(self.action_scale());
         let data = env.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("gaussian mean is f32");
         slice[0..action_dim].to_vec()
@@ -761,12 +756,8 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use burn::backend::{Autodiff, Flex};
-    use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-
-    type TestAdBackend = Autodiff<Flex>;
 
     #[test]
     fn test_ppo_gaussian_policy_representative_head_config_is_valid() {
@@ -783,7 +774,7 @@ mod tests {
 
     #[test]
     fn test_ppo_gaussian_policy_gaussian_logprob_consistency_between_sample_and_evaluate() {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             obs_dim: 3,
             hidden: 8,
@@ -792,25 +783,23 @@ mod tests {
             log_std: Bounds::new(-20.0, 2.0),
             action_scale: 2.0,
         };
-        let head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
-        let obs: Tensor<TestAdBackend, 2> = Tensor::from_data(
+        let head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
+        let obs: Tensor<2> = Tensor::from_data(
             TensorData::new(vec![0.1_f32, -0.2, 0.3], vec![1, 3]),
             &device,
         );
         let mut rng = StdRng::seed_from_u64(17);
         let out = head.sample_with_logprob(obs.clone(), &mut rng);
         let eval = head.evaluate(obs, out.action.clone());
-        let a = out.log_prob.into_scalar().elem::<f32>();
-        let b = eval.log_prob.into_scalar().elem::<f32>();
+        let a = out.log_prob.into_scalar::<f32>();
+        let b = eval.log_prob.into_scalar::<f32>();
         assert!((a - b).abs() < 1e-5, "sample {a} vs evaluate {b}");
     }
 
     #[test]
     fn test_ppo_gaussian_policy_gaussian_logprob_at_mean_matches_reference() {
         // With `$\mu=0$`, `$\sigma=1$`, `$z=0$`, per-dim `$\log N(0\mid 0,1) = -0.5\log(2\pi)$`.
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             obs_dim: 1,
             hidden: 2,
@@ -819,19 +808,16 @@ mod tests {
             log_std: Bounds::new(-20.0, 2.0),
             action_scale: 1.0,
         };
-        let head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
         // Zero-out the mean MLP by constructing obs that yields a nonzero
         // mean — skip: use z = mean(obs). We simply check sample log_prob
         // equals evaluate on that z.
-        let obs: Tensor<TestAdBackend, 2> =
-            Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
+        let obs: Tensor<2> = Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
         let mean = head.mean(obs.clone());
         let eval = head.evaluate(obs, mean.clone());
         // Expected per dim: `$-0.5\log(2\pi)$`, sum across dim=2 → `$-\log(2\pi) \approx -1.8379$`.
         let expected = -(2.0_f32 * std::f32::consts::PI).ln();
-        let got = eval.log_prob.into_scalar().elem::<f32>();
+        let got = eval.log_prob.into_scalar::<f32>();
         assert!(
             (got - expected).abs() < 1e-4,
             "expected {expected}, got {got}"
@@ -840,10 +826,7 @@ mod tests {
 
     #[test]
     fn test_ppo_gaussian_policy_deterministic_env_row_inner_is_scaled_tanh_mean() {
-        use burn::module::AutodiffModule;
-        use burn::tensor::backend::AutodiffBackend;
-
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             obs_dim: 3,
             hidden: 8,
@@ -852,24 +835,20 @@ mod tests {
             log_std: Bounds::new(-20.0, 2.0),
             action_scale: 2.0,
         };
-        let head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
         let obs_vals = vec![0.1_f32, -0.2, 0.3];
 
         // Reference: scale `$\cdot$` tanh(`$\mu$`) computed on the autodiff head.
-        let obs: Tensor<TestAdBackend, 2> =
+        let obs: Tensor<2> =
             Tensor::from_data(TensorData::new(obs_vals.clone(), vec![1, 3]), &device);
-        let mean = head.mean(obs).into_scalar().elem::<f32>();
+        let mean = head.mean(obs).into_scalar::<f32>();
         let expected = 2.0 * mean.tanh();
 
         // The inner deterministic path must agree (no sampling noise).
         let inner = head.valid();
-        let obs_inner: Tensor<<TestAdBackend as AutodiffBackend>::InnerBackend, 2> =
+        let obs_inner: Tensor<2> =
             Tensor::from_data(TensorData::new(obs_vals, vec![1, 3]), &device);
-        let row = <TanhGaussianPolicyHead<TestAdBackend> as PpoPolicy<TestAdBackend, 2>>::deterministic_env_row_inner(
-            &inner, obs_inner,
-        );
+        let row = inner.deterministic_env_row(obs_inner);
         assert_eq!(row.len(), 1);
         assert!(
             (row[0] - expected).abs() < 1e-5,
@@ -880,7 +859,7 @@ mod tests {
 
     #[test]
     fn test_ppo_gaussian_policy_raw_to_env_row_applies_tanh_scale() {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             obs_dim: 1,
             hidden: 2,
@@ -889,9 +868,7 @@ mod tests {
             log_std: Bounds::new(-20.0, 2.0),
             action_scale: 2.0,
         };
-        let head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
         let env_row = head.raw_to_env_row(&[0.5_f32]);
         let expected = 2.0 * 0.5_f32.tanh();
         assert!((env_row[0] - expected).abs() < 1e-6);
@@ -899,7 +876,7 @@ mod tests {
 
     #[test]
     fn test_ppo_gaussian_policy_gaussian_entropy_matches_gaussian_formula_at_sigma_one() {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             obs_dim: 1,
             hidden: 2,
@@ -908,16 +885,13 @@ mod tests {
             log_std: Bounds::new(-20.0, 2.0),
             action_scale: 1.0,
         };
-        let head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
-        let obs: Tensor<TestAdBackend, 2> =
-            Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
+        let head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
+        let obs: Tensor<2> = Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
         let mean = head.mean(obs.clone());
         let eval = head.evaluate(obs, mean);
         // Per dim entropy at `$\sigma=1$` is `$0 + 0.5\log(2\pi e)$`; two dims summed.
         let expected = 2.0 * 0.5 * ((2.0_f32 * std::f32::consts::PI).ln() + 1.0);
-        let got = eval.entropy.into_scalar().elem::<f32>();
+        let got = eval.entropy.into_scalar::<f32>();
         assert!(
             (got - expected).abs() < 1e-5,
             "expected {expected}, got {got}"
@@ -1094,7 +1068,7 @@ mod tests {
     /// same residual it is finite.
     #[test]
     fn test_ppo_gaussian_policy_log_prob_is_finite_at_the_floor_and_not_below_it() {
-        let device = Default::default();
+        let device = Device::flex();
         let obs_vals = vec![0.1_f32, -0.2, 0.3];
 
         // `max` is passed explicitly rather than derived: the below-floor case
@@ -1113,20 +1087,20 @@ mod tests {
         // bypass `try_init` closed: the point of the test is the numerical fact, not the
         // construction path.
         let eval_at = |min: f32, max: f32, init: f32| -> f32 {
-            let mut head: TanhGaussianPolicyHead<TestAdBackend> = bounded_cfg()
-                .try_init::<TestAdBackend>(&device)
+            let mut head: TanhGaussianPolicyHead = bounded_cfg()
+                .try_init(&device)
                 .expect("the template config is valid");
             head.log_std_min = min;
             head.log_std_max = max;
-            head.log_std = Param::from_tensor(Tensor::<TestAdBackend, 1>::from_data(
+            head.log_std = Param::from_tensor(Tensor::<1>::from_data(
                 TensorData::new(vec![init], vec![1]),
                 &device,
             ));
-            let obs: Tensor<TestAdBackend, 2> =
+            let obs: Tensor<2> =
                 Tensor::from_data(TensorData::new(obs_vals.clone(), vec![1, 3]), &device);
             // A residual of order 1 — far inside the 1.16e4 budget the floor buys.
             let z = head.mean(obs.clone()).add_scalar(1.0);
-            head.evaluate(obs, z).log_prob.into_scalar().elem::<f32>()
+            head.evaluate(obs, z).log_prob.into_scalar::<f32>()
         };
 
         // At the floor the log-prob is finite, and the config validates — the
@@ -1138,7 +1112,7 @@ mod tests {
         );
         assert!(
             floor_cfg(MIN_LOG_STD_FLOOR, 2.0, MIN_LOG_STD_FLOOR)
-                .try_init::<TestAdBackend>(&device)
+                .try_init(&device)
                 .is_ok(),
             "the floor itself must be an accepted configuration"
         );
@@ -1156,7 +1130,7 @@ mod tests {
         // itself refuses, so no caller outside this module can obtain the head
         // whose `log_prob` was just shown to be non-finite.
         let err = floor_cfg(-120.0, -100.0, -110.0)
-            .try_init::<TestAdBackend>(&device)
+            .try_init(&device)
             .expect_err("a config whose log_prob is non-finite must not build a head");
         assert_eq!(err.field, "log_std");
     }
@@ -1187,7 +1161,7 @@ mod tests {
     /// constructor.
     #[test]
     fn test_ppo_gaussian_policy_try_init_rejects_every_invalid_config() {
-        let device = Default::default();
+        let device = Device::flex();
         let cases: [(TanhGaussianPolicyHeadConfig, &str); 7] = [
             (
                 TanhGaussianPolicyHeadConfig {
@@ -1245,7 +1219,7 @@ mod tests {
         ];
         for (cfg, field) in cases {
             let err = cfg
-                .try_init::<TestAdBackend>(&device)
+                .try_init(&device)
                 .expect_err("an invalid config must not build a head");
             assert_eq!(err.config, "TanhGaussianPolicyHeadConfig");
             assert_eq!(err.field, field);
@@ -1255,7 +1229,7 @@ mod tests {
             action_scale: 0.0,
             ..bounded_cfg()
         }
-        .try_init::<TestAdBackend>(&device)
+        .try_init(&device)
         .expect_err("a non-positive action_scale must not build a head");
         assert_eq!(err.field, "action_scale");
     }
@@ -1286,17 +1260,16 @@ mod tests {
     /// around `$2.5 \times 10^{17}$`, comfortably inside range.
     #[test]
     fn test_ppo_gaussian_policy_clamp_keeps_log_prob_finite_when_log_std_collapses() {
-        let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = bounded_cfg()
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let device = Device::flex();
+        let mut head: TanhGaussianPolicyHead =
+            bounded_cfg().try_init(&device).expect("valid head config");
 
         // Force the learned parameter far below the floor.
-        let collapsed: Tensor<TestAdBackend, 1> =
+        let collapsed: Tensor<1> =
             Tensor::from_data(TensorData::new(vec![-60.0_f32], vec![1]), &device);
         head.log_std = Param::from_tensor(collapsed);
 
-        let obs: Tensor<TestAdBackend, 2> = Tensor::from_data(
+        let obs: Tensor<2> = Tensor::from_data(
             TensorData::new(vec![0.1_f32, -0.2, 0.3], vec![1, 3]),
             &device,
         );
@@ -1304,9 +1277,9 @@ mod tests {
         let z = head.mean(obs.clone()).add_scalar(1.0);
         let eval = head.evaluate(obs, z);
 
-        let lp = eval.log_prob.into_scalar().elem::<f32>();
+        let lp = eval.log_prob.into_scalar::<f32>();
         assert!(lp.is_finite(), "log_prob must stay finite, got {lp}");
-        let ent = eval.entropy.into_scalar().elem::<f32>();
+        let ent = eval.entropy.into_scalar::<f32>();
         assert!(ent.is_finite(), "entropy must stay finite, got {ent}");
     }
 
@@ -1323,7 +1296,7 @@ mod tests {
     /// `$|z - \mu|$` to the clamped scale, and checks agreement on top.
     #[test]
     fn test_ppo_gaussian_policy_clamped_sample_draws_at_the_floor_scale_and_agrees_with_evaluate() {
-        let device = Default::default();
+        let device = Device::flex();
         // A floor of `$-10$` (`$\sigma \approx 4.5 \times 10^{-5}$`) rather than the usual `$-20$`:
         // at `$-20$` the increment `$\sigma\epsilon$` is below one f32 ulp of a mean of order 0.1,
         // so `$z - \mu$` would round to exactly zero and the assertion could not distinguish the
@@ -1332,22 +1305,20 @@ mod tests {
             log_std: Bounds::new(-10.0, 2.0),
             ..bounded_cfg()
         };
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
-        let collapsed: Tensor<TestAdBackend, 1> =
+        let mut head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
+        let collapsed: Tensor<1> =
             Tensor::from_data(TensorData::new(vec![-60.0_f32], vec![1]), &device);
         head.log_std = Param::from_tensor(collapsed);
 
-        let obs: Tensor<TestAdBackend, 2> = Tensor::from_data(
+        let obs: Tensor<2> = Tensor::from_data(
             TensorData::new(vec![0.1_f32, -0.2, 0.3], vec![1, 3]),
             &device,
         );
-        let mu = head.mean(obs.clone()).into_scalar().elem::<f32>();
+        let mu = head.mean(obs.clone()).into_scalar::<f32>();
 
         let mut rng = StdRng::seed_from_u64(23);
         let out = head.sample_with_logprob(obs.clone(), &mut rng);
-        let z = out.action.clone().into_scalar().elem::<f32>();
+        let z = out.action.clone().into_scalar::<f32>();
 
         // `$\lvert z - \mu\rvert = \sigma\lvert\epsilon\rvert$` with
         // `$\sigma = \exp(\text{log\_std\_min})$`; a fixed seed keeps |`$\epsilon$`| in a sane
@@ -1361,8 +1332,8 @@ mod tests {
         );
 
         let eval = head.evaluate(obs, out.action.clone());
-        let a = out.log_prob.into_scalar().elem::<f32>();
-        let b = eval.log_prob.into_scalar().elem::<f32>();
+        let a = out.log_prob.into_scalar::<f32>();
+        let b = eval.log_prob.into_scalar::<f32>();
         assert!(a.is_finite(), "sampled log_prob must be finite, got {a}");
         assert!((a - b).abs() < 1e-3, "sample {a} vs evaluate {b}");
     }
@@ -1371,12 +1342,9 @@ mod tests {
     /// plain-data constants, not `Param`s, so the derive must carry them.
     #[test]
     fn test_ppo_gaussian_policy_log_std_bounds_survive_valid_roundtrip() {
-        use burn::module::AutodiffModule;
-
-        let device = Default::default();
-        let head: TanhGaussianPolicyHead<TestAdBackend> = bounded_cfg()
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let device = Device::flex();
+        let head: TanhGaussianPolicyHead =
+            bounded_cfg().try_init(&device).expect("valid head config");
         assert!((head.log_std_min() - (-20.0)).abs() < f32::EPSILON);
         assert!((head.log_std_max() - 2.0).abs() < f32::EPSILON);
 
@@ -1391,10 +1359,9 @@ mod tests {
 
     /// Overwrites `log_std` with a single-dim value, preserving the head's
     /// bounds and its warning latch.
-    fn set_log_std(head: &mut TanhGaussianPolicyHead<TestAdBackend>, value: f32) {
-        let device = Default::default();
-        let t: Tensor<TestAdBackend, 1> =
-            Tensor::from_data(TensorData::new(vec![value], vec![1]), &device);
+    fn set_log_std(head: &mut TanhGaussianPolicyHead, value: f32) {
+        let device = Device::flex();
+        let t: Tensor<1> = Tensor::from_data(TensorData::new(vec![value], vec![1]), &device);
         head.log_std = Param::from_tensor(t);
     }
 
@@ -1542,10 +1509,9 @@ mod tests {
     /// makes this exactly-once, and the latch is the sole gate on `warn!`.
     #[test]
     fn test_ppo_gaussian_policy_clamp_warning_latches_after_first_binding_call() {
-        let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = bounded_cfg()
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let device = Device::flex();
+        let mut head: TanhGaussianPolicyHead =
+            bounded_cfg().try_init(&device).expect("valid head config");
         assert!(
             !head.clamp_warning_below_fired() && !head.clamp_warning_above_fired(),
             "a freshly built head must not have warned on either bound"
@@ -1576,10 +1542,9 @@ mod tests {
     /// ignore it.
     #[test]
     fn test_ppo_gaussian_policy_clamp_warning_does_not_fire_while_log_std_is_in_bounds() {
-        let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = bounded_cfg()
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let device = Device::flex();
+        let mut head: TanhGaussianPolicyHead =
+            bounded_cfg().try_init(&device).expect("valid head config");
 
         // Interior values, plus both bounds exactly: the clamp is inclusive, so
         // sitting *on* a bound is not "outside" it and must not warn.
@@ -1610,10 +1575,9 @@ mod tests {
     /// — on its own latch, not the floor's.
     #[test]
     fn test_ppo_gaussian_policy_clamp_warning_fires_on_the_upper_bound() {
-        let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = bounded_cfg()
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let device = Device::flex();
+        let mut head: TanhGaussianPolicyHead =
+            bounded_cfg().try_init(&device).expect("valid head config");
         set_log_std(&mut head, 9.0);
         assert_eq!(head.min_log_std(), Some(2.0));
         assert!(head.clamp_warning_above_fired());
@@ -1645,17 +1609,15 @@ mod tests {
     /// express at all.
     #[test]
     fn test_ppo_gaussian_policy_both_bounds_crossed_in_one_call_emit_two_distinct_warnings() {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             action_dim: 2,
             ..bounded_cfg()
         };
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let mut head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
 
         // dim 0 collapsed below `$-20$`, dim 1 exploded above `$+2$`, in one parameter.
-        let both: Tensor<TestAdBackend, 1> =
+        let both: Tensor<1> =
             Tensor::from_data(TensorData::new(vec![-60.0_f32, 9.0], vec![2]), &device);
         head.log_std = Param::from_tensor(both);
 
@@ -1734,17 +1696,15 @@ mod tests {
     /// dims fails.
     #[test]
     fn test_ppo_gaussian_policy_warning_payload_names_every_crossing_dim() {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             action_dim: 5,
             ..bounded_cfg()
         };
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let mut head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
 
         // dims 0, 2, 4 below the floor; dim 3 above the ceiling; dim 1 healthy.
-        let mixed: Tensor<TestAdBackend, 1> = Tensor::from_data(
+        let mixed: Tensor<1> = Tensor::from_data(
             TensorData::new(vec![-60.0_f32, 0.0, -25.0, 9.0, -40.0], vec![5]),
             &device,
         );
@@ -1797,10 +1757,9 @@ mod tests {
     #[test]
     fn test_ppo_gaussian_policy_later_ceiling_crossing_warns_once_after_an_earlier_floor_crossing()
     {
-        let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = bounded_cfg()
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let device = Device::flex();
+        let mut head: TanhGaussianPolicyHead =
+            bounded_cfg().try_init(&device).expect("valid head config");
 
         // 1. Floor crossing: exactly one event, naming the floor.
         set_log_std(&mut head, -60.0);
@@ -1850,17 +1809,15 @@ mod tests {
     /// blindness is the reason `max_log_std` exists.
     #[test]
     fn test_ppo_gaussian_policy_max_log_std_sees_the_ceiling_that_min_log_std_cannot() {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             action_dim: 2,
             ..bounded_cfg()
         };
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let mut head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
 
         // dim 0 healthy at `$\sigma$` = 1; dim 1 pinned well above the ceiling.
-        let pinned: Tensor<TestAdBackend, 1> =
+        let pinned: Tensor<1> =
             Tensor::from_data(TensorData::new(vec![0.0_f32, 9.0], vec![2]), &device);
         head.log_std = Param::from_tensor(pinned);
 
@@ -1889,17 +1846,15 @@ mod tests {
     /// `$\sigma$` actually used by every density computation, not the raw parameter.
     #[test]
     fn test_ppo_gaussian_policy_min_log_std_is_the_clamped_minimum_across_action_dims() {
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             action_dim: 3,
             ..bounded_cfg()
         };
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let mut head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
 
         // Mixed dims, all in bounds: the smallest wins.
-        let mixed: Tensor<TestAdBackend, 1> =
+        let mixed: Tensor<1> =
             Tensor::from_data(TensorData::new(vec![1.5_f32, -3.25, 0.0], vec![3]), &device);
         head.log_std = Param::from_tensor(mixed);
         let got = head.min_log_std().expect("gaussian head reports log_std");
@@ -1909,7 +1864,7 @@ mod tests {
         // One dim collapsed below the floor: the metric saturates at the floor rather than
         // reporting the raw value, because the floor is the `$\sigma$` the policy is actually
         // sampling and scoring with.
-        let collapsed: Tensor<TestAdBackend, 1> =
+        let collapsed: Tensor<1> =
             Tensor::from_data(TensorData::new(vec![1.5_f32, -60.0, 0.0], vec![3]), &device);
         head.log_std = Param::from_tensor(collapsed);
         let got = head.min_log_std().expect("gaussian head reports log_std");
@@ -1930,19 +1885,15 @@ mod tests {
     /// the day it was written and fail the second.
     #[test]
     fn test_ppo_gaussian_policy_clamp_warning_latch_is_shared_across_valid_snapshots() {
-        use burn::module::AutodiffModule;
-
-        let device = Default::default();
+        let device = Device::flex();
         let cfg = TanhGaussianPolicyHeadConfig {
             action_dim: 2,
             ..bounded_cfg()
         };
-        let mut head: TanhGaussianPolicyHead<TestAdBackend> = cfg
-            .try_init::<TestAdBackend>(&device)
-            .expect("valid head config");
+        let mut head: TanhGaussianPolicyHead = cfg.try_init(&device).expect("valid head config");
 
         // Fire the floor latch only, then snapshot.
-        let collapsed: Tensor<TestAdBackend, 1> =
+        let collapsed: Tensor<1> =
             Tensor::from_data(TensorData::new(vec![-60.0_f32, 0.0], vec![2]), &device);
         head.log_std = Param::from_tensor(collapsed);
         let _ = head.min_log_std();
@@ -1962,7 +1913,7 @@ mod tests {
 
         // Fire the ceiling latch on the outer head *after* the snapshot: the
         // `Arc` is shared, so the inner snapshot sees it too.
-        let exploded: Tensor<TestAdBackend, 1> =
+        let exploded: Tensor<1> =
             Tensor::from_data(TensorData::new(vec![0.0_f32, 9.0], vec![2]), &device);
         head.log_std = Param::from_tensor(exploded);
         let _ = head.max_log_std();

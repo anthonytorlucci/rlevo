@@ -11,7 +11,7 @@
 
 use std::fmt::Debug;
 
-use burn::tensor::{Tensor, backend::Backend};
+use burn::tensor::{Device, Tensor};
 use rand::Rng;
 
 /// A probabilistic model of a promising region of search space.
@@ -74,32 +74,31 @@ use rand::Rng;
 /// # Examples
 ///
 /// ```
-/// use burn::backend::Flex;
-/// use burn::tensor::{Tensor, TensorData};
+/// use burn::tensor::{Device, Tensor, TensorData};
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_evolution::ProbabilityModel;
 /// use rlevo_evolution::algorithms::eda::{UnivariateGaussian, UnivariateGaussianParams};
 ///
-/// let device = Default::default();
+/// let device = Device::flex();
 /// let model = UnivariateGaussian;
 /// let params = UnivariateGaussianParams::default_for(2);
 ///
 /// // Fit to a tiny two-row, two-column selected population.
-/// let pop = Tensor::<Flex, 2>::from_data(
+/// let pop = Tensor::<2>::from_data(
 ///     TensorData::new(vec![0.0_f32, 0.0, 2.0, 2.0], [2, 2]),
 ///     &device,
 /// );
-/// let fitness = Tensor::<Flex, 1>::from_data(TensorData::new(vec![0.0_f32, 8.0], [2]), &device);
+/// let fitness = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32, 8.0], [2]), &device);
 /// let state =
-///     ProbabilityModel::<Flex>::fit(&model, &params, None, pop.clone(), fitness.clone(), &device);
-/// let next = ProbabilityModel::<Flex>::fit(&model, &params, Some(&state), pop, fitness, &device);
+///     ProbabilityModel::fit(&model, &params, None, pop.clone(), fitness.clone(), &device);
+/// let next = ProbabilityModel::fit(&model, &params, Some(&state), pop, fitness, &device);
 ///
 /// // Sample a fresh population from the fitted model.
 /// let mut rng = StdRng::seed_from_u64(0);
-/// let drawn: Tensor<Flex, 2> = model.sample(&next, 4, &mut rng, &device);
+/// let drawn: Tensor<2> = model.sample(&next, 4, &mut rng, &device);
 /// assert_eq!(drawn.dims(), [4, 2]);
 /// ```
-pub trait ProbabilityModel<B: Backend>: Send + Sync {
+pub trait ProbabilityModel: Send + Sync {
     /// Static, per-run model configuration (learning rates, priors, …).
     type Params: Clone + Debug + Send + Sync;
 
@@ -118,9 +117,9 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
         &self,
         params: &Self::Params,
         prev: Option<&Self::State>,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        device: &Device,
     ) -> Self::State;
 
     /// Draw `n` candidate genomes from the fitted model.
@@ -140,29 +139,26 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
         state: &Self::State,
         n: usize,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2>;
+        device: &Device,
+    ) -> Tensor<2>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::algorithms::eda::{UnivariateGaussian, UnivariateGaussianParams};
-    use burn::backend::Flex;
-
-    type TestBackend = Flex;
 
     #[test]
     fn prior_ignores_empty_population_and_fitness() {
         // Pin the `prev = None` invariant: a `$0 \times 0$` population and 0-length fitness tensor
         // (exactly what `EdaStrategy::init` passes) must be ignored, with the prior built purely
         // from `params`.
-        let device = Default::default();
+        let device = Device::flex();
         let model = UnivariateGaussian;
         let params = UnivariateGaussianParams::default_for(3);
 
-        let empty_pop = Tensor::<TestBackend, 2>::empty([0, 0], &device);
-        let empty_fitness = Tensor::<TestBackend, 1>::empty([0], &device);
+        let empty_pop = Tensor::<2>::empty([0, 0], &device);
+        let empty_fitness = Tensor::<1>::empty([0], &device);
 
         let state = model.fit(&params, None, empty_pop, empty_fitness, &device);
 

@@ -9,8 +9,7 @@
 
 #![allow(clippy::cast_precision_loss)]
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
@@ -23,8 +22,6 @@ use rlevo_evolution::coevolution::{CompetitiveCoEA, CompetitiveCoEAParams, Coupl
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_harness::reporter::logging::LoggingReporter;
 
-type B = Flex;
-
 const DIM: usize = 2;
 const POP: usize = 32;
 const MAX_GENS: usize = 40;
@@ -34,10 +31,10 @@ const MAX_GENS: usize = 40;
 /// closeness (flee). Both are minimization, bounded for the prey.
 struct PredatorPrey;
 
-fn rows(pop: &Tensor<B, 2>) -> Vec<Vec<f32>> {
+fn rows(pop: &Tensor<2>) -> Vec<Vec<f32>> {
     let dims = pop.dims();
     let (n, d) = (dims[0], dims[1]);
-    let flat = pop.clone().into_data().into_vec::<f32>().unwrap();
+    let flat = pop.clone().into_data().try_into_vec::<f32>().unwrap();
     (0..n).map(|i| flat[i * d..i * d + d].to_vec()).collect()
 }
 
@@ -45,8 +42,8 @@ fn sqdist(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
 }
 
-impl CoupledFitness<B> for PredatorPrey {
-    fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+impl CoupledFitness for PredatorPrey {
+    fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
         debug_assert_eq!(populations.len(), 2);
         let device = populations[0].device();
         let a = rows(&populations[0]);
@@ -66,8 +63,8 @@ impl CoupledFitness<B> for PredatorPrey {
             .collect();
 
         vec![
-            Tensor::<B, 1>::from_data(TensorData::new(predator.clone(), [predator.len()]), &device),
-            Tensor::<B, 1>::from_data(TensorData::new(prey.clone(), [prey.len()]), &device),
+            Tensor::<1>::from_data(TensorData::new(predator.clone(), [predator.len()]), &device),
+            Tensor::<1>::from_data(TensorData::new(prey.clone(), [prey.len()]), &device),
         ]
     }
 
@@ -92,13 +89,13 @@ fn ga_config() -> GaConfig {
     }
 }
 
-type Coea = CompetitiveCoEA<B, GeneticAlgorithm<B>, GeneticAlgorithm<B>, PredatorPrey>;
+type Coea = CompetitiveCoEA<GeneticAlgorithm, GeneticAlgorithm, PredatorPrey>;
 
-fn coea_factory(seed: u64) -> CoEvolutionaryLoop<B, Coea> {
-    let device = Default::default();
+fn coea_factory(seed: u64) -> CoEvolutionaryLoop<Coea> {
+    let device = Device::flex();
     let algo = CompetitiveCoEA::new(
-        GeneticAlgorithm::<B>::new(),
-        GeneticAlgorithm::<B>::new(),
+        GeneticAlgorithm::new(),
+        GeneticAlgorithm::new(),
         PredatorPrey,
     );
     let params = CompetitiveCoEAParams {

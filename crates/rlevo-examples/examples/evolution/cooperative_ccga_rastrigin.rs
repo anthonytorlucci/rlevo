@@ -16,8 +16,7 @@
 
 use std::f32::consts::PI;
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -31,8 +30,6 @@ use rlevo_evolution::coevolution::{
     CoEvolutionaryAlgorithm, CooperativeCoEA, CooperativeCoEAParams, CoupledFitness,
     RepresentativePolicy,
 };
-
-type B = Flex;
 
 const TOTAL: usize = 6;
 const HALF: usize = TOTAL / 2;
@@ -59,19 +56,19 @@ fn rastrigin(x: &[f32]) -> f32 {
 /// it through unchanged; the driver negates back to the natural cost for display.
 struct RastriginCoupled;
 
-impl CoupledFitness<B> for RastriginCoupled {
-    fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+impl CoupledFitness for RastriginCoupled {
+    fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
         debug_assert_eq!(populations.len(), 2);
         populations
             .iter()
             .map(|pop| {
                 let dims = pop.dims();
                 let (n, d) = (dims[0], dims[1]);
-                let flat = pop.clone().into_data().into_vec::<f32>().unwrap();
+                let flat = pop.clone().into_data().try_into_vec::<f32>().unwrap();
                 let values: Vec<f32> = (0..n)
                     .map(|i| -rastrigin(&flat[i * d..i * d + d]))
                     .collect();
-                Tensor::<B, 1>::from_data(TensorData::new(values, [n]), &pop.device())
+                Tensor::<1>::from_data(TensorData::new(values, [n]), &pop.device())
             })
             .collect()
     }
@@ -96,10 +93,10 @@ fn ga_config() -> GaConfig {
 }
 
 fn main() {
-    let device = Default::default();
+    let device = Device::flex();
     let algo = CooperativeCoEA::new(
-        GeneticAlgorithm::<B>::new(),
-        GeneticAlgorithm::<B>::new(),
+        GeneticAlgorithm::new(),
+        GeneticAlgorithm::new(),
         RastriginCoupled,
     );
     let params = CooperativeCoEAParams::new(

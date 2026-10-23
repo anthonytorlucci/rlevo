@@ -60,9 +60,8 @@ pub use univariate_gaussian::{
 };
 
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 
 use rlevo_core::bounds::Bounds;
@@ -117,12 +116,12 @@ impl<MP> Validate for EdaParams<MP> {
 /// Callers should treat it as an opaque blob; the public fields are exposed to
 /// enable checkpointing and observability, not mutation.
 #[derive(Debug, Clone)]
-pub struct EdaState<B: Backend, MS> {
+pub struct EdaState<MS> {
     /// Current fitted model state (updated once per [`EdaStrategy::tell`] call).
     pub model_state: MS,
     /// Best genome ever observed, shape `(genome_dim,)`. `None` before the
     /// first [`EdaStrategy::tell`] call.
-    pub best_genome: Option<Tensor<B, 1>>,
+    pub best_genome: Option<Tensor<1>>,
     /// Largest (best) fitness ever observed across all generations
     /// (canonical maximise convention). Starts at `f32::NEG_INFINITY`.
     pub best_fitness_ever: f32,
@@ -137,19 +136,18 @@ pub struct EdaState<B: Backend, MS> {
 /// state lives in the returned [`EdaState`]), so it slots straight into
 /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop).
 ///
-/// Type parameter `M` must implement [`ProbabilityModel<B>`]; in practice
+/// Type parameter `M` must implement [`ProbabilityModel`]; in practice
 /// this is one of [`UnivariateGaussian`], [`UnivariateBernoulli`],
 /// [`CompactGenetic`], [`DependencyChain`], or [`BayesianNetwork`].
 ///
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::eda::{EdaParams, EdaStrategy, UnivariateGaussian};
 /// use rlevo_evolution::algorithms::eda::univariate_gaussian::UnivariateGaussianParams;
 /// use rlevo_core::bounds::Bounds;
 ///
-/// let strategy = EdaStrategy::<Flex, _>::new(UnivariateGaussian);
+/// let strategy = EdaStrategy::new(UnivariateGaussian);
 /// let params = EdaParams {
 ///     pop_size: 32,
 ///     selection_ratio: 0.5,
@@ -158,12 +156,11 @@ pub struct EdaState<B: Backend, MS> {
 /// };
 /// let _ = (strategy, params);
 /// ```
-pub struct EdaStrategy<B: Backend, M> {
+pub struct EdaStrategy<M> {
     model: M,
-    _backend: PhantomData<fn() -> B>,
 }
 
-impl<B: Backend, M: Debug> Debug for EdaStrategy<B, M> {
+impl<M: Debug> Debug for EdaStrategy<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EdaStrategy")
             .field("model", &self.model)
@@ -171,21 +168,18 @@ impl<B: Backend, M: Debug> Debug for EdaStrategy<B, M> {
     }
 }
 
-impl<B: Backend, M> EdaStrategy<B, M> {
+impl<M> EdaStrategy<M> {
     /// Build a new EDA strategy around `model`.
     #[must_use]
     pub fn new(model: M) -> Self {
-        Self {
-            model,
-            _backend: PhantomData,
-        }
+        Self { model }
     }
 }
 
-impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
+impl<M: ProbabilityModel> Strategy for EdaStrategy<M> {
     type Params = EdaParams<M::Params>;
-    type State = EdaState<B, M::State>;
-    type Genome = Tensor<B, 2>;
+    type State = EdaState<M::State>;
+    type Genome = Tensor<2>;
 
     /// Build the initial state.
     ///
@@ -199,12 +193,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
     /// Debug-asserts that `params.selection_ratio` lies strictly in `(0, 1)`.
     /// A ratio of `0.0` would select no parents and a ratio of `1.0` would
     /// defeat truncation selection entirely.
-    fn init(
-        &self,
-        params: &Self::Params,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::State {
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &Device) -> Self::State {
         debug_assert!(
             params.validate().is_ok(),
             "invalid EdaParams reached init: {params:?}"
@@ -236,7 +225,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         params: &Self::Params,
         state: &Self::State,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
     ) -> (Self::Genome, Self::State) {
         let draw = rng.next_u64();
         let mut stream = seed_stream(draw, state.generation as u64, SeedPurpose::EdaSampling);
@@ -272,13 +261,13 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         &self,
         params: &Self::Params,
         population: Self::Genome,
-        fitness: Tensor<B, 1>,
+        fitness: Tensor<1>,
         mut state: Self::State,
         _rng: &mut dyn Rng,
     ) -> (Self::State, StrategyMetrics) {
         let raw = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
         let sanitized: Vec<f32> = raw
             .iter()
@@ -300,10 +289,8 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
             // usize → i64 for the Burn Int index tensor; population indices are
             // far below i64::MAX so the cast never wraps.
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             let row = population.clone().select(0, idx).squeeze_dim::<1>(0);
             state.best_genome = Some(row);
         }
@@ -323,7 +310,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         // usize → i64 index tensor (see best-so-far note above).
         #[allow(clippy::cast_possible_wrap)]
         let idx_vec: Vec<i64> = order.iter().map(|&i| i as i64).collect();
-        let idx = Tensor::<B, 1, Int>::from_data(TensorData::new(idx_vec, [k]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(idx_vec, [k]), &device);
         let selected = population.clone().select(0, idx);
         // Coarse defense-in-depth backstop: sanitize non-finite genome values before forwarding to
         // `fit`. `tell` already sanitizes *fitness*, but a single non-finite *gene* (e.g. from a
@@ -336,7 +323,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
             .clamp(-f32::MAX, f32::MAX);
         let selected_fitness_host: Vec<f32> = order.iter().map(|&i| sanitized[i]).collect();
         let selected_fitness =
-            Tensor::<B, 1>::from_data(TensorData::new(selected_fitness_host, [k]), &device);
+            Tensor::<1>::from_data(TensorData::new(selected_fitness_host, [k]), &device);
 
         let model_state = self.model.fit(
             &params.model,
@@ -360,7 +347,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
     ///
     /// Returns `None` before the first [`tell`](Self::tell) call. The genome is
     /// stored internally as a `(D,)` vector and unsqueezed to `(1, D)` here to
-    /// match the `Genome = Tensor<B, 2>` container.
+    /// match the `Genome = Tensor<2>` container.
     fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)> {
         state
             .best_genome
@@ -372,21 +359,18 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = Flex;
-
-    fn make_pop(rows: &[f32], n: usize, d: usize) -> Tensor<TestBackend, 2> {
-        let device = Default::default();
-        Tensor::<TestBackend, 2>::from_data(TensorData::new(rows.to_vec(), [n, d]), &device)
+    fn make_pop(rows: &[f32], n: usize, d: usize) -> Tensor<2> {
+        let device = Device::flex();
+        Tensor::<2>::from_data(TensorData::new(rows.to_vec(), [n, d]), &device)
     }
 
-    fn make_fitness(values: &[f32]) -> Tensor<TestBackend, 1> {
-        let device = Default::default();
+    fn make_fitness(values: &[f32]) -> Tensor<1> {
+        let device = Device::flex();
         let n = values.len();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(values.to_vec(), [n]), &device)
+        Tensor::<1>::from_data(TensorData::new(values.to_vec(), [n]), &device)
     }
 
     fn params(pop_size: usize, ratio: f32, dim: usize) -> EdaParams<UnivariateGaussianParams> {
@@ -400,8 +384,8 @@ mod tests {
 
     #[test]
     fn best_is_none_before_tell_some_after() {
-        let device = Default::default();
-        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let device = Device::flex();
+        let strategy = EdaStrategy::new(UnivariateGaussian);
         let p = params(4, 0.5, 2);
         let mut rng = StdRng::seed_from_u64(0);
         let state = strategy.init(&p, &mut rng, &device);
@@ -420,8 +404,8 @@ mod tests {
 
     #[test]
     fn k_is_clamped_to_at_least_two_and_at_most_n() {
-        let device = Default::default();
-        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let device = Device::flex();
+        let strategy = EdaStrategy::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(0);
 
         // ratio 0.1 of 5 = ceil(0.5) = 1, clamped up to 2.
@@ -444,8 +428,8 @@ mod tests {
 
     #[test]
     fn tie_breaking_prefers_lowest_index() {
-        let device = Default::default();
-        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let device = Device::flex();
+        let strategy = EdaStrategy::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(0);
         let p = params(4, 0.5, 1);
         let state = strategy.init(&p, &mut rng, &device);
@@ -458,15 +442,15 @@ mod tests {
         let (genome, _f) = strategy.best(&state).unwrap();
         let v = genome
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         approx::assert_relative_eq!(v[0], 10.0, epsilon = 1e-6);
     }
 
     #[test]
     fn nan_fitness_never_becomes_best_and_does_not_break_ordering() {
-        let device = Default::default();
-        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let device = Device::flex();
+        let strategy = EdaStrategy::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(0);
         let p = params(4, 0.5, 1);
         let state = strategy.init(&p, &mut rng, &device);
@@ -478,7 +462,7 @@ mod tests {
         let (genome, f) = strategy.best(&state).unwrap();
         let v = genome
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         approx::assert_relative_eq!(v[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(f, 9.0, epsilon = 1e-6);
@@ -499,8 +483,8 @@ mod tests {
         // the fitted state or leak a non-finite value into the next generation's `ask`-sampled
         // population. The other four models' own finite-guards are covered by tests in their
         // respective files.
-        let device = Default::default();
-        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let device = Device::flex();
+        let strategy = EdaStrategy::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(1);
         let p = params(4, 0.75, 2);
         let state = strategy.init(&p, &mut rng, &device);
@@ -534,7 +518,7 @@ mod tests {
         let (next_pop, _s) = strategy.ask(&p, &state, &mut rng, &device);
         for x in next_pop
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built")
         {
             assert!(x.is_finite(), "sampled genome must be finite, got {x}");
@@ -543,8 +527,8 @@ mod tests {
 
     #[test]
     fn bounds_clamp_is_applied_in_ask() {
-        let device = Default::default();
-        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let device = Device::flex();
+        let strategy = EdaStrategy::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(7);
         // Wide init std so unclamped draws routinely exceed the bounds.
         let p = EdaParams {
@@ -562,7 +546,7 @@ mod tests {
         let (pop, _s) = strategy.ask(&p, &state, &mut rng, &device);
         let values = pop
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         for v in values {
             assert!((-0.5..=0.5).contains(&v), "value {v} escaped the clamp");
@@ -573,8 +557,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "selection_ratio")]
     fn selection_ratio_zero_panics() {
-        let device = Default::default();
-        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let device = Device::flex();
+        let strategy = EdaStrategy::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(0);
         let p = params(4, 0.0, 1);
         let _ = strategy.init(&p, &mut rng, &device);
@@ -584,8 +568,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "selection_ratio")]
     fn selection_ratio_one_panics() {
-        let device = Default::default();
-        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let device = Device::flex();
+        let strategy = EdaStrategy::new(UnivariateGaussian);
         let mut rng = StdRng::seed_from_u64(0);
         let p = params(4, 1.0, 1);
         let _ = strategy.init(&p, &mut rng, &device);

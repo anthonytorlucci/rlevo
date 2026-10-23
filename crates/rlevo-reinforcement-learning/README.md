@@ -6,7 +6,7 @@ Deep reinforcement learning algorithms for the `rlevo` workspace.
 
 This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set into Rust using the [Burn](https://burn.dev) deep learning framework. The design follows CleanRL's *single-file-per-algorithm* pedagogical model: each algorithm lives under `src/algorithms/<algo>/` and its training loop is a linear, readable `train.rs` function. That being said, `rlevo` embraces the DRY (do not repeat yourself) paradigm and abstracts concepts wherever possible.
 
-All algorithms operate over the `rlevo-core` environment and agent abstractions. Neural-network operations go through Burn's `AutodiffBackend` so the same code runs on `flex` (CPU, bit-deterministic) and `wgpu` (GPU, within `1e-5` relative tolerance). This crate selects neither: through the `rlevo` umbrella, the `flex` (default) or `wgpu` feature does, and depending on this crate directly you add `burn` with `autodiff` and a backend feature yourself.
+All algorithms operate over the `rlevo-core` environment and agent abstractions. An agent takes the Burn `Device` you build and trains on its autodiff form, so the same code runs on `flex` (CPU, bit-deterministic) and `wgpu` (GPU, within `1e-5` relative tolerance). This crate selects neither: through the `rlevo` umbrella, the `flex` (default) or `wgpu` feature does, and depending on this crate directly you add `burn` with a backend feature yourself (this crate turns on Burn's `optim`, which brings `autodiff`).
 
 ---
 
@@ -369,7 +369,7 @@ Every agent holds its trainable networks in a `Slot<M>`. Burn's `Optimizer::step
 
 `compute_target_q_values` — one-step Bellman target computation, called by DQN, DDPG, TD3, and SAC. QR-DQN uses its quantile-vector sibling `compute_target_quantiles`; C51 projects a distribution instead (`project_distribution`).
 
-`polyak_update` — soft target-network update ($\theta_{target} \leftarrow \tau\theta + (1-\tau)\theta_{target}$) for model implementors. No agent calls it directly: the agents call their model trait's `soft_update` (`DqnModel`, `C51Model`, `QrDqnModel`, `DeterministicPolicy`, `ContinuousQ`), and an implementation of `soft_update` typically delegates to `polyak_update`.
+`polyak_update` — soft target-network update ($\theta_{target} \leftarrow \tau\theta + (1-\tau)\theta_{target}$). Every off-policy agent calls it on its own target networks, so a model trait (`DqnModel`, `C51Model`, `QrDqnModel`, `DeterministicPolicy`, `ContinuousQ`) asks only for `forward`.
 
 ### Experience Replay (`replay`)
 

@@ -7,48 +7,22 @@
 //! Q-values. Agents convert logits → probabilities via `softmax` along the
 //! atom axis and compute expected Q-values as `$\sum_i z_i \cdot p_i$`.
 
-use burn::module::AutodiffModule;
+use burn::module::Module;
 use burn::tensor::Tensor;
-use burn::tensor::backend::AutodiffBackend;
-
-use crate::utils::PolyakError;
 
 /// Contract implemented by any network usable as a C51 policy or target.
 ///
-/// Implementors provide:
-/// - [`forward`](Self::forward) — autodiff forward pass used when training
-///   the policy network. Produces a `(batch, num_actions, num_atoms)` tensor
-///   of atom logits.
-/// - [`forward_inner`](Self::forward_inner) — the same computation against
-///   the inner non-autodiff module used as the frozen target network.
-/// - [`soft_update`](Self::soft_update) — Polyak averaging of the target
-///   network: `$\text{target} \leftarrow (1 - \tau) \cdot \text{target} + \tau \cdot \text{active}$`.
+/// One method, [`forward`](Self::forward): atom logits for a batch of
+/// observations, a `(batch, num_actions, num_atoms)` tensor. The agent runs it
+/// on the policy network, which trains, and on the target network, a
+/// [`valid`](Module::valid) snapshot of the policy that does not. The target's
+/// update is [`polyak_update`](crate::utils::polyak_update), the same for every
+/// network, so it is not part of this trait.
 ///
 /// The `BS` const generic is the observation tensor rank *including* the
 /// leading batch dimension (e.g. `BS = 2` for vector observations of shape
 /// `[batch_size, features]`).
-pub trait C51Model<B: AutodiffBackend, const BS: usize>: AutodiffModule<B> {
-    /// Autodiff forward pass: logits of shape
-    /// `(batch, num_actions, num_atoms)`.
-    fn forward(&self, observations: Tensor<B, BS>) -> Tensor<B, 3>;
-
-    /// Forward pass against the inner (non-autodiff) target module.
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        observations: Tensor<B::InnerBackend, BS>,
-    ) -> Tensor<B::InnerBackend, 3>;
-
-    /// Polyak-averages `active` into `target` with coefficient `tau` and
-    /// returns the updated target network.
-    ///
-    /// # Errors
-    ///
-    /// Propagates [`PolyakError`] if `active` and `target` have mismatched
-    /// [`ParamId`](burn::module::ParamId) topologies — see
-    /// [`polyak_update`](crate::utils::polyak_update).
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError>;
+pub trait C51Model<const BS: usize>: Module {
+    /// Logits of shape `(batch, num_actions, num_atoms)`.
+    fn forward(&self, observations: Tensor<BS>) -> Tensor<3>;
 }

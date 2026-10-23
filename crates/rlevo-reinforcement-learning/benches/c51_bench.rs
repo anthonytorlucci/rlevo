@@ -4,29 +4,21 @@
 //! a regression that turns the linear scatter-add into a quadratic broadcast
 //! is easy to spot in the output.
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
 use rlevo_reinforcement_learning::algorithms::c51::projection::project_distribution;
-
-type Be = Flex;
 
 // Synthetic fixture/benchmark data: the loop counter and element count are
 // bounded by small constants declared in this file, far below f32's 2^24
 // exact-integer limit. The values are inputs to a throughput measurement, not
 // quantities whose precision is asserted.
 #[allow(clippy::cast_precision_loss)]
-fn make_support(
-    v_min: f32,
-    v_max: f32,
-    n: usize,
-    device: <Be as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<Be, 1> {
+fn make_support(v_min: f32, v_max: f32, n: usize, device: &Device) -> Tensor<1> {
     let delta = (v_max - v_min) / (n as f32 - 1.0);
     let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
-    Tensor::from_data(TensorData::new(data, vec![n]), &device)
+    Tensor::from_data(TensorData::new(data, vec![n]), device)
 }
 
 // Synthetic fixture/benchmark data: the loop counter and element count are
@@ -35,28 +27,28 @@ fn make_support(
 // quantities whose precision is asserted.
 #[allow(clippy::cast_precision_loss)]
 fn bench_projection(c: &mut Criterion) {
-    let device: <Be as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let device: Device = Device::flex();
     let v_min = -10.0_f32;
     let v_max = 10.0_f32;
 
     for &num_atoms in &[21_usize, 51, 101] {
         for &batch in &[32_usize, 128] {
-            let support = make_support(v_min, v_max, num_atoms, device);
+            let support = make_support(v_min, v_max, num_atoms, &device);
 
             // Fill next_probs with a valid distribution per row.
             let row: Vec<f32> = vec![1.0_f32 / num_atoms as f32; num_atoms];
             let data: Vec<f32> = (0..batch).flat_map(|_| row.clone()).collect();
-            let next_probs: Tensor<Be, 2> =
+            let next_probs: Tensor<2> =
                 Tensor::from_data(TensorData::new(data, vec![batch, num_atoms]), &device);
 
             let rewards_data: Vec<f32> = (0..batch).map(|i| (i as f32) * 0.01 - 0.5).collect();
-            let rewards: Tensor<Be, 1> =
+            let rewards: Tensor<1> =
                 Tensor::from_data(TensorData::new(rewards_data, vec![batch]), &device);
 
             let dones_data: Vec<f32> = (0..batch)
                 .map(|i| if i % 5 == 0 { 1.0 } else { 0.0 })
                 .collect();
-            let dones: Tensor<Be, 1> =
+            let dones: Tensor<1> =
                 Tensor::from_data(TensorData::new(dones_data, vec![batch]), &device);
 
             let label = format!("project_distribution/atoms={num_atoms}/batch={batch}");

@@ -48,13 +48,11 @@ use rand::rngs::StdRng;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use burn::backend::{Autodiff, Flex};
 use burn::grad_clipping::GradientClippingConfig;
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Device, Tensor};
 
 use rlevo_harness::record::{
     RecordSink, RecordWriter, RecordingConfig, RecordingLayer, RecordingTap,
@@ -96,35 +94,24 @@ const HIDDEN: usize = 64;
 const OBS_RANK: usize = 4; // todo! this should be dim. rank = 1
 const NUM_ACTIONS: usize = 2;
 
-/// Autodiff backend the cartpole viz examples train on.
-///
-/// `Flex` (a portable CPU backend), not `Wgpu`, is deliberate. A single-environment PPO rollout is
-/// tiny and sequential — every step is a handful of small ops with a host sync to pick an action —
-/// so the GPU's per-dispatch overhead dominates and CPU is ~`$70\times$` faster here. The GPU wins
-/// on the opposite shape (large batched work): see the `backend_sweep_neuroevolution` example for
-/// the measured comparison.
-pub type Be = Autodiff<Flex>;
-
 /// Concrete PPO agent type the examples drive — a categorical policy head
 /// over a two-hidden-layer value MLP.
 ///
 /// ```text
-/// pub struct PpoAgent<B, P, V, O, const OR: usize, const BOR: usize>
+/// pub struct PpoAgent<P, V, O, const OR: usize, const BOR: usize>
 /// where
-///     B: AutodiffBackend,                             --> Be = Autodiff<Flex>
-///     P: PpoPolicy<B, BOR>,                           --> CategoricalPolicyHead<Be>
-///     V: PpoValue<B, BOR>,                            --> ValueMlp<Be>
-///     O: Observation<OR> + TensorConvertible<OR, B>,  --> CartPoleObservation
+///     P: PpoPolicy<BOR>,                           --> CategoricalPolicyHead
+///     V: PpoValue<BOR>,                            --> ValueMlp
+///     O: Observation<OR> + TensorConvertible<OR>,  --> CartPoleObservation
 /// { /* private fields */ }
 /// ```
 ///
-/// todo! further discuss `CategoricalPolicyHead<Be>` and `CartPoleObservation`
+/// todo! further discuss `CategoricalPolicyHead` and `CartPoleObservation`
 ///
 /// links:
 /// - <https://docs.rs/rlevo-reinforcement-learning/latest/rlevo_reinforcement_learning/algorithms/ppo/ppo_agent/struct.PpoAgent.html>
 /// - <https://docs.rs/rlevo-environments/latest/rlevo_environments/classic/cartpole/index.html>
-pub type CartPoleAgent =
-    PpoAgent<Be, CategoricalPolicyHead<Be>, ValueMlp<Be>, CartPoleObservation, 1, 2>;
+pub type CartPoleAgent = PpoAgent<CategoricalPolicyHead, ValueMlp, CartPoleObservation, 1, 2>;
 
 /// The neural network "brain"
 /// This is the critic. It's a multi-layer perceptron (MLP) or
@@ -139,18 +126,14 @@ pub type CartPoleAgent =
 /// `CategoricalPolicyHead`. That's a categorical distribution over the 2
 /// actions, which is what you want for discrete actions like `CartPole`'s.
 #[derive(Module, Debug)]
-pub struct ValueMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+pub struct ValueMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> ValueMlp<B> {
-    fn new(
-        obs_dim: usize,
-        hidden: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl ValueMlp {
+    fn new(obs_dim: usize, hidden: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -162,7 +145,7 @@ impl<B: Backend> ValueMlp<B> {
     /// The 2 is the input tensor rank (batched observations are 2D:
     /// `[batch_size, obs_dim]`), and `squeeze_dims` the trailing singleton
     /// so the output is a flat vector of values, one per observation.
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<1> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
         self.head.forward(h).squeeze_dim::<1>(1)
@@ -170,8 +153,8 @@ impl<B: Backend> ValueMlp<B> {
 }
 
 /// This is the adapter that lets the PPO framework call this network.
-impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+impl PpoValue<2> for ValueMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs)
     }
 }
@@ -235,16 +218,16 @@ pub fn base_env() -> TimeLimit<CartPole> {
 /// Panics if the hard-coded PPO hyperparameters are rejected as invalid.
 #[must_use]
 pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
-    let device = Default::default();
+    let device = Device::flex();
 
-    let policy: CategoricalPolicyHead<Be> = CategoricalPolicyHeadConfig {
+    let policy: CategoricalPolicyHead = CategoricalPolicyHeadConfig {
         obs_dim: OBS_RANK,
         hidden: HIDDEN,
         num_actions: NUM_ACTIONS,
     }
-    .try_init::<Be>(&device)
+    .try_init(&device)
     .expect("valid head config");
-    let value: ValueMlp<Be> = ValueMlp::new(OBS_RANK, HIDDEN, &device);
+    let value: ValueMlp = ValueMlp::new(OBS_RANK, HIDDEN, &device);
 
     let config = PpoTrainingConfig {
         num_envs: 1,
@@ -286,7 +269,7 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 /// all.
 ///
 /// The const generics `<1, 1>` and the turbofish in
-/// `train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>` encode
+/// `train_discrete::<_, _, _, _, CartPoleAction, 1, 2>` encode
 /// type-level facts:
 /// - observation rank `1` and action rank `1`
 /// - `2` at the end, the batched observation rank (`OR + 1`)
@@ -305,13 +288,7 @@ pub fn train<E>(
 where
     E: Environment<1, 1, ObservationType = CartPoleObservation, ActionType = CartPoleAction>,
 {
-    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
-        agent,
-        env,
-        rng,
-        total_timesteps,
-        LOG_EVERY,
-    )
+    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(agent, env, rng, total_timesteps, LOG_EVERY)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

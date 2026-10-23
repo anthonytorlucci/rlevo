@@ -12,8 +12,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
-use burn::tensor::backend::Backend;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::replay::{PrioritizedReplaySettings, UniformReplayConfig};
@@ -193,10 +192,8 @@ impl QrDqnTrainingConfig {
     // configs cap these in the low hundreds, so the value is exact in f32; a
     // non-finite or zero spacing is rejected by assertion before use.
     #[allow(clippy::cast_precision_loss)]
-    pub fn quantile_taus<B: Backend>(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
+    #[must_use]
+    pub fn quantile_taus(&self, device: &Device) -> Tensor<1> {
         let n = self.num_quantiles;
         let data: Vec<f32> = (0..n).map(|i| (i as f32 + 0.5) / n as f32).collect();
         Tensor::from_data(TensorData::new(data, vec![n]), device)
@@ -312,9 +309,6 @@ impl Validate for QrDqnTrainingConfig {
 mod tests {
     use super::*;
     use crate::MAX_BUFFER_CAPACITY;
-    use burn::backend::Flex;
-
-    type TestBackend = Flex;
 
     #[test]
     fn test_qrdqn_config_defaults_are_200_quantiles_with_kappa_1() {
@@ -570,17 +564,16 @@ mod tests {
     #[test]
     fn test_qrdqn_config_taus_midpoints_match_dabney_eq_9_for_n_4() {
         // N = 4 `$\Rightarrow \tau_i = (i + 0.5)/4 \Rightarrow \{0.125, 0.375, 0.625, 0.875\}$`.
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
+        let device: Device = Device::flex();
         let cfg = QrDqnTrainingConfig {
             num_quantiles: 4,
             ..Default::default()
         };
-        let taus: Tensor<TestBackend, 1> = cfg.quantile_taus::<TestBackend>(&device);
+        let taus: Tensor<1> = cfg.quantile_taus(&device);
         let v: Vec<f32> = taus
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("f32 host read of a tensor this test just built");
         let expected = [0.125_f32, 0.375, 0.625, 0.875];
         for (got, want) in v.iter().zip(expected.iter()) {

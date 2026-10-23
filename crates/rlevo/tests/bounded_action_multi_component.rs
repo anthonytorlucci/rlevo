@@ -28,11 +28,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use burn::module::{AutodiffModule, Module, Param};
+use burn::module::{Module, Param};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -49,10 +48,9 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     SampleOutput, SquashedGaussianPolicy,
 };
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::env::LinearObservation;
-use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::flex::{flex_guard, seeded_device};
 
 // ---------------------------------------------------------------------------
 // The fixture: rank 1, three components, asymmetric bounds.
@@ -116,104 +114,59 @@ impl BoundedAction<1> for CarLikeAction {
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
-struct Actor<B: Backend> {
-    head: Linear<B>,
+struct Actor {
+    head: Linear,
 }
 
-impl<B: Backend> Actor<B> {
-    fn new(
-        obs_dim: usize,
-        action_dim: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl Actor {
+    fn new(obs_dim: usize, action_dim: usize, device: &Device) -> Self {
         Self {
             head: LinearConfig::new(obs_dim, action_dim).init(device),
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<2> {
         tanh(self.head.forward(obs))
     }
 }
 
-impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for Actor<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DeterministicPolicy<2, 2> for Actor {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
-        inner.forward_impl(obs)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
 #[derive(Module, Debug)]
-struct Critic<B: Backend> {
-    head: Linear<B>,
+struct Critic {
+    head: Linear,
 }
 
-impl<B: Backend> Critic<B> {
-    fn new(
-        obs_dim: usize,
-        action_dim: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl Critic {
+    fn new(obs_dim: usize, action_dim: usize, device: &Device) -> Self {
         Self {
             head: LinearConfig::new(obs_dim + action_dim, 1).init(device),
         }
     }
-    fn forward_impl(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         let x = Tensor::cat(vec![obs, act], 1);
         relu(self.head.forward(x)).squeeze_dim::<1>(1)
     }
 }
 
-impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
-    fn forward(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+impl ContinuousQ<2, 2> for Critic {
+    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        act: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 1> {
-        inner.forward_impl(obs, act)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, Critic<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
-type CarAgent = DdpgAgent<Be, Actor<Be>, Critic<Be>, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
+type CarAgent = DdpgAgent<Actor, Critic, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
 
 /// Builds a DDPG agent whose action type has 3 components and a warm-up window
 /// long enough that `act(.., training = true)` takes the uniform-sample branch.
 fn build_agent(learning_starts: usize) -> CarAgent {
-    let device = seeded_device::<Be>(0xA53);
-    let actor = Actor::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
-    let critic = Critic::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
+    let device = seeded_device(0xA53);
+    let actor = Actor::new(1, CarLikeAction::COMPONENTS, &device);
+    let critic = Critic::new(1, CarLikeAction::COMPONENTS, &device);
     let config = DdpgTrainingConfig {
         learning_starts,
         batch_size: 4,
@@ -366,21 +319,17 @@ fn noisy_action_stays_within_per_component_bounds() {
 /// only [`SacAgent::act`], which never reads it; `sac_integration.rs` owns the
 /// correctness of the real density.
 #[derive(Module, Debug)]
-struct SquashedActor<B: Backend> {
-    gain: Param<Tensor<B, 2>>,
+struct SquashedActor {
+    gain: Param<Tensor<2>>,
     action_dim: usize,
 }
 
-impl<B: Backend> SquashedActor<B> {
+impl SquashedActor {
     /// `$\sigma$` on the reparameterized sample. Small enough that a `gain`-saturated mean stays
     /// saturated for any plausible `$\epsilon$`.
     const SIGMA: f32 = 0.1;
 
-    fn new(
-        action_dim: usize,
-        gain: f32,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+    fn new(action_dim: usize, gain: f32, device: &Device) -> Self {
         let data = TensorData::new(vec![gain; action_dim], vec![1, action_dim]);
         Self {
             gain: Param::from_tensor(Tensor::from_data(data, device)),
@@ -389,7 +338,7 @@ impl<B: Backend> SquashedActor<B> {
     }
 
     /// `$[\text{batch}, 1] \times [1, \text{action\_dim}]$` broadcasts to `[batch, action_dim]`.
-    fn sample_impl(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 1>) {
+    fn sample_impl(&self, obs: Tensor<2>, eps: Tensor<2>) -> (Tensor<2>, Tensor<1>) {
         let z = obs * self.gain.val() + eps.mul_scalar(Self::SIGMA);
         let log_prob = z
             .clone()
@@ -401,40 +350,30 @@ impl<B: Backend> SquashedActor<B> {
     }
 }
 
-impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for SquashedActor<B> {
+impl SquashedGaussianPolicy<2, 2> for SquashedActor {
     fn action_dim(&self) -> usize {
         self.action_dim
     }
 
-    fn forward_sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
+    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         let (action, log_prob) = self.sample_impl(obs, eps);
         SampleOutput { action, log_prob }
     }
 
-    fn forward_sample_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        eps: Tensor<B::InnerBackend, 2>,
-    ) -> SampleOutput<B::InnerBackend, 2> {
-        let (action, log_prob) = inner.sample_impl(obs, eps);
-        SampleOutput { action, log_prob }
-    }
-
-    fn deterministic_action(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
         tanh(obs * self.gain.val())
     }
 }
 
-type CarSacAgent =
-    SacAgent<Be, SquashedActor<Be>, Critic<Be>, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
+type CarSacAgent = SacAgent<SquashedActor, Critic, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
 
 /// Builds a SAC agent over the 3-component fixture. `gain` sets how hard the
 /// policy saturates; the sign of the observation then picks the direction.
 fn build_sac_agent(learning_starts: usize, gain: f32) -> CarSacAgent {
-    let device = seeded_device::<Be>(0x5AC);
-    let actor = SquashedActor::<Be>::new(CarLikeAction::COMPONENTS, gain, &device);
-    let critic_1 = Critic::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
-    let critic_2 = Critic::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
+    let device = seeded_device(0x5AC);
+    let actor = SquashedActor::new(CarLikeAction::COMPONENTS, gain, &device);
+    let critic_1 = Critic::new(1, CarLikeAction::COMPONENTS, &device);
+    let critic_2 = Critic::new(1, CarLikeAction::COMPONENTS, &device);
     let config = SacTrainingConfig {
         learning_starts,
         batch_size: 4,
@@ -502,82 +441,60 @@ fn sac_policy_action_clamps_each_component_against_its_own_bound() {
 //
 // `clip_to_action_bounds` is unit-tested in `shared.rs`, but in isolation:
 // nothing there exercises DDPG's *wiring* of `low_t`/`high_t` through
-// `action_bound_tensors::<B::InnerBackend, A, DA, DAB>` at construction. A
+// `action_bound_tensors::<A, DA, DAB>` at construction. A
 // swapped pair, or a wrong generic at that call site, would pass every
 // existing test. These two tests observe the tensor the target critic is
 // actually handed.
 // ===========================================================================
 
 /// Actions the **target** critic was evaluated on, one flat `$[\text{batch} \times C]$` row
-/// per `forward_inner` call.
+/// per target-path `forward` call.
 type RecordedActions = Arc<Mutex<Vec<Vec<f32>>>>;
 
 /// Critic that records every action batch reaching its no-autodiff path.
 ///
-/// In DDPG's `learn_step`, `forward_inner` is called exactly once — on the
-/// target critic, with the clipped target action (`ddpg_agent.rs:499-505`).
-/// The live critic's `forward` is a different method and is not recorded, so
-/// the capture is unambiguous.
+/// In DDPG's `learn_step`, the target critic is evaluated exactly once, with
+/// the clipped target action, and it is the only critic call whose inputs are
+/// on a device without autodiff: the agent runs its target path plain. The
+/// live critic's calls (critic loss, actor loss) carry autodiff and are not
+/// recorded, so the capture is unambiguous.
 ///
 /// `recorded` is `#[module(skip)]`, so the derive treats it as a plain cloned
-/// field rather than a submodule; `AutodiffModule::valid()` clones the `Arc`,
-/// which is what lets the target twin write into the same buffer the test
-/// reads.
+/// field rather than a submodule; `Module::valid()` clones the `Arc`, which is
+/// what lets the target twin write into the same buffer the test reads.
 #[derive(Module, Debug)]
-struct RecordingCritic<B: Backend> {
-    head: Linear<B>,
+struct RecordingCritic {
+    head: Linear,
     #[module(skip)]
     recorded: RecordedActions,
 }
 
-impl<B: Backend> RecordingCritic<B> {
-    fn new(
-        obs_dim: usize,
-        action_dim: usize,
-        recorded: RecordedActions,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl RecordingCritic {
+    fn new(obs_dim: usize, action_dim: usize, recorded: RecordedActions, device: &Device) -> Self {
         Self {
             head: LinearConfig::new(obs_dim + action_dim, 1).init(device),
             recorded,
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         let x = Tensor::cat(vec![obs, act], 1);
         relu(self.head.forward(x)).squeeze_dim::<1>(1)
     }
 }
 
-impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for RecordingCritic<B> {
-    fn forward(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+impl ContinuousQ<2, 2> for RecordingCritic {
+    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
+        if !act.device().is_autodiff() {
+            let row = act
+                .clone()
+                .into_data()
+                .convert::<f32>()
+                .try_to_vec::<f32>()
+                .expect("target action host read");
+            self.recorded.lock().expect("recorder mutex").push(row);
+        }
         self.forward_impl(obs, act)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        act: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 1> {
-        let row = act
-            .clone()
-            .into_data()
-            .convert::<f32>()
-            .to_vec::<f32>()
-            .expect("target action host read");
-        inner.recorded.lock().expect("recorder mutex").push(row);
-        inner.forward_impl(obs, act)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, RecordingCritic<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
@@ -588,62 +505,31 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for RecordingCritic<B> {
 /// Polyak-nudged *after* the target computation, so the single `learn_step`
 /// below sees exactly this mapping.
 #[derive(Module, Debug)]
-struct SaturatingActor<B: Backend> {
-    gain: Param<Tensor<B, 2>>,
+struct SaturatingActor {
+    gain: Param<Tensor<2>>,
 }
 
-impl<B: Backend> SaturatingActor<B> {
-    fn new(
-        action_dim: usize,
-        gain: f32,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl SaturatingActor {
+    fn new(action_dim: usize, gain: f32, device: &Device) -> Self {
         let data = TensorData::new(vec![gain; action_dim], vec![1, action_dim]);
         Self {
             gain: Param::from_tensor(Tensor::from_data(data, device)),
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<2> {
         tanh(obs * self.gain.val())
     }
 }
 
-impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for SaturatingActor<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DeterministicPolicy<2, 2> for SaturatingActor {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
-        inner.forward_impl(obs)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, SaturatingActor<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
-type SaturatingAgent = DdpgAgent<
-    Be,
-    SaturatingActor<Be>,
-    RecordingCritic<Be>,
-    LinearObservation,
-    CarLikeAction,
-    1,
-    2,
-    1,
-    2,
->;
+type SaturatingAgent =
+    DdpgAgent<SaturatingActor, RecordingCritic, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
 
 const LEARN_BATCH: usize = 4;
 
@@ -651,11 +537,10 @@ const LEARN_BATCH: usize = 4;
 /// returns the target-action rows the target critic was handed, one `Vec` of
 /// `COMPONENTS` values per batch element.
 fn target_actions_after_one_learn_step(next_obs_x: f32) -> Vec<Vec<f32>> {
-    let device = seeded_device::<Be>(0xD06);
+    let device = seeded_device(0xD06);
     let recorded: RecordedActions = Arc::new(Mutex::new(Vec::new()));
-    let actor = SaturatingActor::<Be>::new(CarLikeAction::COMPONENTS, 10.0, &device);
-    let critic =
-        RecordingCritic::<Be>::new(1, CarLikeAction::COMPONENTS, Arc::clone(&recorded), &device);
+    let actor = SaturatingActor::new(CarLikeAction::COMPONENTS, 10.0, &device);
+    let critic = RecordingCritic::new(1, CarLikeAction::COMPONENTS, Arc::clone(&recorded), &device);
     let config = DdpgTrainingConfig {
         learning_starts: 0,
         batch_size: LEARN_BATCH,
@@ -720,7 +605,7 @@ fn assert_every_target_row(rows: &[Vec<f32>], expected: [f32; 3], why: &str) {
 /// "values of impossible actions" TD3 Eq. 14's clip exists to suppress.
 ///
 /// Unlike the `shared.rs` unit tests, this observes the tensor DDPG actually
-/// builds, so it also covers `action_bound_tensors::<B::InnerBackend, A, DA,
+/// builds, so it also covers `action_bound_tensors::<A, DA,
 /// DAB>` being called with the right generics at the right place.
 #[test]
 fn ddpg_learn_step_clips_the_target_action_per_component() {

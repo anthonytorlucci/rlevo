@@ -15,7 +15,7 @@
 //! `HallOfFameFitness` to a co-evolutionary algorithm enables the mitigation;
 //! passing the raw fitness disables it — no flag inside the algorithm.
 
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use parking_lot::Mutex;
 use rlevo_core::objective::ObjectiveSense;
 
@@ -40,9 +40,9 @@ use crate::fitness::sanitize_fitness;
 ///   of scope.
 /// - `archives()[p].dims()[0] <= capacity` after every `update`.
 #[derive(Debug, Clone)]
-pub struct HallOfFame<B: Backend> {
+pub struct HallOfFame {
     /// Top-k champions retained per population, each `(size_p, genome_dim)`.
-    archives: Vec<Tensor<B, 2>>,
+    archives: Vec<Tensor<2>>,
     /// Host-side fitness of each archived champion (as inserted), parallel to
     /// `archives`. Used to prune the worst member on overflow.
     archive_fitness: Vec<Vec<f32>>,
@@ -50,7 +50,7 @@ pub struct HallOfFame<B: Backend> {
     capacity: usize,
 }
 
-impl<B: Backend> HallOfFame<B> {
+impl HallOfFame {
     /// Build an empty hall of fame for `num_populations` populations.
     ///
     /// Each archive starts as a `(0, genome_dim)` tensor and grows by one row
@@ -60,10 +60,10 @@ impl<B: Backend> HallOfFame<B> {
         num_populations: usize,
         capacity: usize,
         genome_dim: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
     ) -> Self {
         let archives = (0..num_populations)
-            .map(|_| Tensor::<B, 2>::empty([0, genome_dim], device))
+            .map(|_| Tensor::<2>::empty([0, genome_dim], device))
             .collect();
         let archive_fitness = vec![Vec::new(); num_populations];
         Self {
@@ -97,7 +97,7 @@ impl<B: Backend> HallOfFame<B> {
     /// Panics if a population's fitness tensor cannot be read back to host as
     /// `f32` (a device→host transfer failure). A legitimately empty population
     /// is a valid non-error host-read and is skipped, not a panic.
-    pub fn update(&mut self, populations: &[Tensor<B, 2>], fitnesses: &[Tensor<B, 1>]) {
+    pub fn update(&mut self, populations: &[Tensor<2>], fitnesses: &[Tensor<1>]) {
         let n = self
             .archives
             .len()
@@ -107,7 +107,7 @@ impl<B: Backend> HallOfFame<B> {
             let fit_host = fitnesses[p]
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("fitness tensor must be readable as f32");
             if fit_host.is_empty() {
                 continue;
@@ -130,10 +130,8 @@ impl<B: Backend> HallOfFame<B> {
             let device = populations[p].device();
             // usize → i64 index tensor; population indices never approach i64::MAX.
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             let champion = populations[p].clone().select(0, idx);
 
             self.archives[p] = if self.archives[p].dims()[0] == 0 {
@@ -164,7 +162,7 @@ impl<B: Backend> HallOfFame<B> {
                     .collect();
                 let keep_len = keep.len();
                 let keep_idx =
-                    Tensor::<B, 1, Int>::from_data(TensorData::new(keep, [keep_len]), &device);
+                    Tensor::<1, Int>::from_data(TensorData::new(keep, [keep_len]), &device);
                 self.archives[p] = self.archives[p].clone().select(0, keep_idx);
                 self.archive_fitness[p].remove(worst_idx);
             }
@@ -173,7 +171,7 @@ impl<B: Backend> HallOfFame<B> {
 
     /// Borrow the per-population champion archives.
     #[must_use]
-    pub fn archives(&self) -> &[Tensor<B, 2>] {
+    pub fn archives(&self) -> &[Tensor<2>] {
         &self.archives
     }
 
@@ -186,7 +184,7 @@ impl<B: Backend> HallOfFame<B> {
 
 /// A [`CoupledFitness`] wrapper that anchors fitness against a hall of fame.
 ///
-/// Wraps any concrete `F: CoupledFitness<B>` and, each evaluation, blends an
+/// Wraps any concrete `F: CoupledFitness` and, each evaluation, blends an
 /// individual's score against the *current* opponents with its score against
 /// the *archived* champions:
 ///
@@ -209,13 +207,13 @@ impl<B: Backend> HallOfFame<B> {
 ///
 /// - v1 is bi-population: `evaluate_coupled` debug-asserts
 ///   `populations.len() == 2`.
-pub struct HallOfFameFitness<B: Backend, F: CoupledFitness<B>> {
+pub struct HallOfFameFitness<F: CoupledFitness> {
     inner: F,
-    hall: Mutex<HallOfFame<B>>,
+    hall: Mutex<HallOfFame>,
     hof_blend_weight: f32,
 }
 
-impl<B: Backend, F: CoupledFitness<B>> std::fmt::Debug for HallOfFameFitness<B, F> {
+impl<F: CoupledFitness> std::fmt::Debug for HallOfFameFitness<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HallOfFameFitness")
             .field("hof_blend_weight", &self.hof_blend_weight)
@@ -223,7 +221,7 @@ impl<B: Backend, F: CoupledFitness<B>> std::fmt::Debug for HallOfFameFitness<B, 
     }
 }
 
-impl<B: Backend, F: CoupledFitness<B>> HallOfFameFitness<B, F> {
+impl<F: CoupledFitness> HallOfFameFitness<F> {
     /// Default blend weight (`0.3`).
     pub const DEFAULT_BLEND_WEIGHT: f32 = 0.3;
 
@@ -238,9 +236,9 @@ impl<B: Backend, F: CoupledFitness<B>> HallOfFameFitness<B, F> {
         num_populations: usize,
         pop_size: usize,
         genome_dim: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
     ) -> Self {
-        let capacity = HallOfFame::<B>::capacity_for(pop_size);
+        let capacity = HallOfFame::capacity_for(pop_size);
         let hall = HallOfFame::new(num_populations, capacity, genome_dim, device);
         Self {
             inner,
@@ -267,13 +265,13 @@ impl<B: Backend, F: CoupledFitness<B>> HallOfFameFitness<B, F> {
 }
 
 /// `cur * (1 - w) + hof * w`, element-wise.
-fn blend<B: Backend>(cur: &Tensor<B, 1>, hof: &Tensor<B, 1>, w: f32) -> Tensor<B, 1> {
+fn blend(cur: &Tensor<1>, hof: &Tensor<1>, w: f32) -> Tensor<1> {
     cur.clone()
         .mul_scalar(1.0 - w)
         .add(hof.clone().mul_scalar(w))
 }
 
-impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B, F> {
+impl<F: CoupledFitness> CoupledFitness for HallOfFameFitness<F> {
     /// Blend the inner fitness against the hall-of-fame archive, in NATURAL
     /// space.
     ///
@@ -290,7 +288,7 @@ impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B
     /// and the later `update` are two separate lock acquisitions, so a single
     /// instance's generations must not be evaluated concurrently (each loop
     /// owns its own wrapper instance, so this holds by construction).
-    fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+    fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
         debug_assert_eq!(populations.len(), 2, "v1 hall-of-fame is bi-population");
         let sense = self.inner.sense();
         let current = self.inner.evaluate_coupled(populations); // natural
@@ -300,7 +298,7 @@ impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B
         // and eviction (both run in maximise-native space in `HallOfFame::update`).
         // Done UNCONDITIONALLY — even at w=0 the archive is still updated and its
         // champion selection must be canonical.
-        let current_canon: Vec<Tensor<B, 1>> = current
+        let current_canon: Vec<Tensor<1>> = current
             .iter()
             .map(|t| match sense {
                 ObjectiveSense::Maximize => t.clone(),
@@ -364,32 +362,29 @@ impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
 
-    type B = Flex;
-
-    fn pop(rows: &[f32], n: usize, d: usize) -> Tensor<B, 2> {
-        let device = Default::default();
-        Tensor::<B, 2>::from_data(TensorData::new(rows.to_vec(), [n, d]), &device)
+    fn pop(rows: &[f32], n: usize, d: usize) -> Tensor<2> {
+        let device = Device::flex();
+        Tensor::<2>::from_data(TensorData::new(rows.to_vec(), [n, d]), &device)
     }
 
-    fn fit(values: &[f32]) -> Tensor<B, 1> {
-        let device = Default::default();
-        Tensor::<B, 1>::from_data(TensorData::new(values.to_vec(), [values.len()]), &device)
+    fn fit(values: &[f32]) -> Tensor<1> {
+        let device = Device::flex();
+        Tensor::<1>::from_data(TensorData::new(values.to_vec(), [values.len()]), &device)
     }
 
     #[test]
     fn capacity_formula() {
-        assert_eq!(HallOfFame::<B>::capacity_for(10), 10);
-        assert_eq!(HallOfFame::<B>::capacity_for(50), 10);
-        assert_eq!(HallOfFame::<B>::capacity_for(100), 20);
-        assert_eq!(HallOfFame::<B>::capacity_for(0), 10);
+        assert_eq!(HallOfFame::capacity_for(10), 10);
+        assert_eq!(HallOfFame::capacity_for(50), 10);
+        assert_eq!(HallOfFame::capacity_for(100), 20);
+        assert_eq!(HallOfFame::capacity_for(0), 10);
     }
 
     #[test]
     fn archive_grows_to_capacity_then_prunes_worst() {
-        let device = Default::default();
-        let mut hof = HallOfFame::<B>::new(2, 3, 1, &device);
+        let device = Device::flex();
+        let mut hof = HallOfFame::new(2, 3, 1, &device);
         // Each generation's champion (index 0, highest fitness) is 5,4,3,2,1; the index-1 value of
         // `$-100$` is always the worst, so it is never the champion under the maximise convention.
         for g in 0..5_usize {
@@ -413,8 +408,8 @@ mod tests {
 
     /// Inner fitness = row sum; used to exercise the wrapper plumbing.
     struct RowSum;
-    impl CoupledFitness<B> for RowSum {
-        fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+    impl CoupledFitness for RowSum {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| p.clone().sum_dim(1).squeeze_dim::<1>(1))
@@ -427,7 +422,7 @@ mod tests {
 
     #[test]
     fn wrapper_reports_archive_sizes_and_grows() {
-        let device = Default::default();
+        let device = Device::flex();
         let wrapper = HallOfFameFitness::new(RowSum, 2, 50, 2, &device);
         assert_eq!(wrapper.archive_sizes(), vec![0, 0]);
         let a = pop(&[1.0, 1.0, 2.0, 2.0], 2, 2);
@@ -442,8 +437,8 @@ mod tests {
     /// Inner cost fitness: each individual's natural cost is its genome's first
     /// column value (lower is better), declared [`ObjectiveSense::Minimize`].
     struct MinCost;
-    impl CoupledFitness<B> for MinCost {
-        fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+    impl CoupledFitness for MinCost {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| {
@@ -464,7 +459,7 @@ mod tests {
     /// unique minimum; the archive must hold its genome, not row 2 (cost `5.0`).
     #[test]
     fn minimize_archives_lowest_cost_champion() {
-        let device = Default::default();
+        let device = Device::flex();
         let wrapper = HallOfFameFitness::new(MinCost, 2, 50, 1, &device);
         // Rows: costs 3.0, 1.0, 5.0 -> min is row 1.
         let a = pop(&[3.0, 1.0, 5.0], 3, 1);
@@ -476,7 +471,7 @@ mod tests {
             hall.archives()[0]
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("archived champion host-read")
         };
         assert_eq!(
@@ -496,7 +491,7 @@ mod tests {
     /// to the max-cost row and this test fails.
     #[test]
     fn minimize_archives_lowest_cost_champion_even_at_zero_blend() {
-        let device = Default::default();
+        let device = Device::flex();
         let wrapper = HallOfFameFitness::new(MinCost, 2, 50, 1, &device).with_blend_weight(0.0);
         // Rows: costs 3.0, 1.0, 5.0 -> min is row 1.
         let a = pop(&[3.0, 1.0, 5.0], 3, 1);
@@ -508,7 +503,7 @@ mod tests {
             hall.archives()[0]
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("archived champion host-read")
         };
         assert_eq!(
@@ -521,7 +516,7 @@ mod tests {
 
     #[test]
     fn blend_zero_passes_through_current_fitness() {
-        let device = Default::default();
+        let device = Device::flex();
         let wrapper = HallOfFameFitness::new(RowSum, 2, 50, 2, &device).with_blend_weight(0.0);
         let a = pop(&[1.0, 1.0, 2.0, 2.0], 2, 2);
         let b = pop(&[0.0, 0.0, 3.0, 3.0], 2, 2);
@@ -531,7 +526,7 @@ mod tests {
         let va = out[0]
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness host-read of a tensor this test just built");
         // Pure row sums regardless of the (non-empty) archive.
         assert_eq!(va, vec![2.0, 4.0]);

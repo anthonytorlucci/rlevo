@@ -9,7 +9,7 @@
 //! global Flex RNG mutex would otherwise interleave draws with sibling
 //! tests under the parallel runner.
 
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
@@ -38,14 +38,14 @@ fn standard_normal_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 ///
 /// For per-individual step-sizes see [`gaussian_mutation_per_row`].
 #[must_use]
-pub fn gaussian_mutation<B: Backend>(
-    population: Tensor<B, 2>,
+pub fn gaussian_mutation(
+    population: Tensor<2>,
     sigma: NonNegativeRate,
     rng: &mut dyn Rng,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2> {
+    device: &Device,
+) -> Tensor<2> {
     let [n, d] = population.dims();
-    let noise = Tensor::<B, 2>::from_data(
+    let noise = Tensor::<2>::from_data(
         TensorData::new(standard_normal_rows(n, d, rng), [n, d]),
         device,
     );
@@ -70,14 +70,14 @@ pub fn gaussian_mutation<B: Backend>(
 /// Panics if the length of `sigmas` does not equal the population's first dimension `N` (the
 /// internal `reshape([n, 1])` step requires exactly `n` `$\sigma$` values).
 #[must_use]
-pub fn gaussian_mutation_per_row<B: Backend>(
-    population: Tensor<B, 2>,
-    sigmas: Tensor<B, 1>,
+pub fn gaussian_mutation_per_row(
+    population: Tensor<2>,
+    sigmas: Tensor<1>,
     rng: &mut dyn Rng,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2> {
+    device: &Device,
+) -> Tensor<2> {
     let [n, d] = population.dims();
-    let noise = Tensor::<B, 2>::from_data(
+    let noise = Tensor::<2>::from_data(
         TensorData::new(standard_normal_rows(n, d, rng), [n, d]),
         device,
     );
@@ -104,14 +104,14 @@ pub fn gaussian_mutation_per_row<B: Backend>(
 /// The input tensor must have shape `(N, D)`; the returned tensor has the same
 /// shape.
 #[must_use]
-pub fn uniform_reset<B: Backend>(
-    population: Tensor<B, 2>,
+pub fn uniform_reset(
+    population: Tensor<2>,
     lo: f32,
     hi: f32,
     p: Probability,
     rng: &mut dyn Rng,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2> {
+    device: &Device,
+) -> Tensor<2> {
     let [n, d] = population.dims();
     let mut noise_rows = Vec::with_capacity(n * d);
     let mut coin_rows = Vec::with_capacity(n * d);
@@ -119,13 +119,13 @@ pub fn uniform_reset<B: Backend>(
         noise_rows.push(lo + (hi - lo) * rng.random::<f32>());
         coin_rows.push(rng.random::<f32>());
     }
-    let noise = Tensor::<B, 2>::from_data(TensorData::new(noise_rows, [n, d]), device);
-    let coin = Tensor::<B, 2>::from_data(TensorData::new(coin_rows, [n, d]), device);
+    let noise = Tensor::<2>::from_data(TensorData::new(noise_rows, [n, d]), device);
+    let coin = Tensor::<2>::from_data(TensorData::new(coin_rows, [n, d]), device);
     let reset = coin.lower_elem(p.get());
     population.mask_where(reset, noise)
 }
 
-/// Bit-flip mutation on a binary `Tensor<B, 2, Int>` population.
+/// Bit-flip mutation on a binary `Tensor<2, Int>` population.
 ///
 /// Each gene is independently flipped with probability `p`. The flip is computed arithmetically as
 /// `$1 - x$`, so the input tensor must hold values exclusively in `{0, 1}`; any value outside that
@@ -141,22 +141,22 @@ pub fn uniform_reset<B: Backend>(
 /// The input tensor must have shape `(N, D)`; the returned tensor has the same
 /// shape and element type.
 #[must_use]
-pub fn bit_flip_mutation<B: Backend>(
-    population: Tensor<B, 2, Int>,
+pub fn bit_flip_mutation(
+    population: Tensor<2, Int>,
     p: Probability,
     rng: &mut dyn Rng,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2, Int> {
+    device: &Device,
+) -> Tensor<2, Int> {
     let shape = population.shape();
     let [n, d] = population.dims();
     let mut coin_rows = Vec::with_capacity(n * d);
     for _ in 0..n * d {
         coin_rows.push(rng.random::<f32>());
     }
-    let coin = Tensor::<B, 2>::from_data(TensorData::new(coin_rows, [n, d]), device);
+    let coin = Tensor::<2>::from_data(TensorData::new(coin_rows, [n, d]), device);
     let flip = coin.lower_elem(p.get());
     // XOR via arithmetic: new = (1 - old) where flip, else old.
-    let ones = Tensor::<B, 2, Int>::ones(shape, device);
+    let ones = Tensor::<2, Int>::ones(shape, device);
     let flipped = ones - population.clone();
     population.mask_where(flip, flipped)
 }
@@ -164,31 +164,26 @@ pub fn bit_flip_mutation<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
-    use burn::backend::flex::FlexDevice;
     #[allow(unused_imports)]
-    use burn::tensor::backend::Backend as _;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = Flex;
-
     #[test]
     fn gaussian_with_zero_sigma_is_identity() {
-        let device: FlexDevice = Default::default();
+        let device: Device = Device::flex();
         let mut rng = StdRng::seed_from_u64(3);
-        let input = Tensor::<TestBackend, 2>::from_data(
+        let input = Tensor::<2>::from_data(
             TensorData::new(vec![1.0_f32, 2.0, 3.0, 4.0], [2, 2]),
             &device,
         );
         let out = gaussian_mutation(input.clone(), NonNegativeRate::new(0.0), &mut rng, &device);
         let before = input
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         let after = out
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         for (a, b) in before.iter().zip(after.iter()) {
             approx::assert_relative_eq!(a, b, epsilon = 1e-6);
@@ -197,28 +192,23 @@ mod tests {
 
     #[test]
     fn gaussian_preserves_shape() {
-        let device: FlexDevice = Default::default();
+        let device: Device = Device::flex();
         let mut rng = StdRng::seed_from_u64(3);
-        let input = Tensor::<TestBackend, 2>::from_data(
-            TensorData::new(vec![0.0_f32; 12], [3, 4]),
-            &device,
-        );
+        let input = Tensor::<2>::from_data(TensorData::new(vec![0.0_f32; 12], [3, 4]), &device);
         let out = gaussian_mutation(input, NonNegativeRate::new(1.0), &mut rng, &device);
         assert_eq!(out.dims(), [3, 4]);
     }
 
     #[test]
     fn per_row_applies_distinct_sigmas() {
-        let device: FlexDevice = Default::default();
+        let device: Device = Device::flex();
         let mut rng = StdRng::seed_from_u64(4);
-        let input =
-            Tensor::<TestBackend, 2>::from_data(TensorData::new(vec![0.0_f32; 4], [2, 2]), &device);
-        let sigmas =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0.0_f32, 0.0], [2]), &device);
+        let input = Tensor::<2>::from_data(TensorData::new(vec![0.0_f32; 4], [2, 2]), &device);
+        let sigmas = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32, 0.0], [2]), &device);
         let out = gaussian_mutation_per_row(input, sigmas, &mut rng, &device);
         let values = out
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, 0.0, epsilon = 1e-6);
@@ -227,9 +217,9 @@ mod tests {
 
     #[test]
     fn uniform_reset_with_p_zero_is_identity() {
-        let device: FlexDevice = Default::default();
+        let device: Device = Device::flex();
         let mut rng = StdRng::seed_from_u64(9);
-        let input = Tensor::<TestBackend, 2>::from_data(
+        let input = Tensor::<2>::from_data(
             TensorData::new(vec![3.0_f32, 4.0, 5.0, 6.0], [2, 2]),
             &device,
         );
@@ -243,11 +233,11 @@ mod tests {
         );
         let before = input
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         let after = out
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         for (a, b) in before.iter().zip(after.iter()) {
             approx::assert_relative_eq!(a, b, epsilon = 1e-6);

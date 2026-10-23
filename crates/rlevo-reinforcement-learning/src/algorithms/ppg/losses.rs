@@ -9,7 +9,6 @@
 
 use burn::tensor::Tensor;
 use burn::tensor::activation::log_softmax;
-use burn::tensor::backend::Backend;
 
 /// Mean per-batch categorical KL divergence `$KL(\pi_{old} \Vert \pi_{new})$`.
 ///
@@ -19,10 +18,8 @@ use burn::tensor::backend::Backend;
 ///
 /// `$KL = \sum \text{softmax}(\text{old}) \cdot (\text{log\_softmax}(\text{old}) - \text{log\_softmax}(\text{new}))$`, averaged
 /// over the batch axis.
-pub fn policy_kl_categorical<B: Backend>(
-    old_logits: Tensor<B, 2>,
-    new_logits: Tensor<B, 2>,
-) -> Tensor<B, 1> {
+#[must_use]
+pub fn policy_kl_categorical(old_logits: Tensor<2>, new_logits: Tensor<2>) -> Tensor<1> {
     let old_lp = log_softmax(old_logits, 1);
     let new_lp = log_softmax(new_logits, 1);
     let old_probs = old_lp.clone().exp();
@@ -36,26 +33,18 @@ pub fn policy_kl_categorical<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
-    use burn::tensor::{ElementConversion, TensorData};
+    use burn::tensor::Device;
+    use burn::tensor::TensorData;
 
-    type TestBackend = Flex;
-
-    fn t2(data: &[f32], rows: usize, cols: usize) -> Tensor<TestBackend, 2> {
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
-        Tensor::<TestBackend, 2>::from_data(
-            TensorData::new(data.to_vec(), vec![rows, cols]),
-            &device,
-        )
+    fn t2(data: &[f32], rows: usize, cols: usize) -> Tensor<2> {
+        let device: Device = Device::flex();
+        Tensor::<2>::from_data(TensorData::new(data.to_vec(), vec![rows, cols]), &device)
     }
 
     #[test]
     fn test_ppg_losses_policy_kl_zero_when_logits_identical() {
         let l = t2(&[0.1_f32, 0.2, -0.3, 0.5, -0.1, 0.0], 2, 3);
-        let kl = policy_kl_categorical(l.clone(), l)
-            .into_scalar()
-            .elem::<f32>();
+        let kl = policy_kl_categorical(l.clone(), l).into_scalar::<f32>();
         assert!(kl.abs() < 1e-6, "expected 0, got {kl}");
     }
 
@@ -63,7 +52,7 @@ mod tests {
     fn test_ppg_losses_policy_kl_nonnegative_for_shifted_logits() {
         let old = t2(&[0.0_f32, 1.0, -1.0], 1, 3);
         let new = t2(&[0.5_f32, 0.5, 0.5], 1, 3);
-        let kl = policy_kl_categorical(old, new).into_scalar().elem::<f32>();
+        let kl = policy_kl_categorical(old, new).into_scalar::<f32>();
         assert!(kl > 0.0, "expected > 0, got {kl}");
     }
 
@@ -76,7 +65,7 @@ mod tests {
             shifted.push(x + 5.0);
         }
         let new = t2(&shifted, 2, 3);
-        let kl = policy_kl_categorical(old, new).into_scalar().elem::<f32>();
+        let kl = policy_kl_categorical(old, new).into_scalar::<f32>();
         assert!(kl.abs() < 1e-5, "expected ≈0, got {kl}");
     }
 }

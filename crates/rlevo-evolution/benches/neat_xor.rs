@@ -22,8 +22,7 @@
 
 use std::hint::black_box;
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
@@ -34,20 +33,18 @@ use rlevo_evolution::neuroevolution::topology::{
 };
 use rlevo_evolution::{BatchGraphFitness, GraphFitnessFn, NeatParams, NeatStrategy};
 
-type B = Flex;
-
 /// XOR fitness `$4 - \sum(\text{out} - \text{target})^2$` over the four binary input rows.
 struct XorFitness {
-    inputs: Tensor<B, 2>,
+    inputs: Tensor<2>,
     targets: [f32; 4],
 }
 
 impl XorFitness {
-    // `device` is borrowed to mirror the production `&B::Device` convention; the
+    // `device` is borrowed to mirror the production `&Device` convention; the
     // Flex device is zero-sized, hence the targeted allow (cf. arch_nas).
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn new(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
-        let inputs = Tensor::<B, 2>::from_data(
+    fn new(device: &Device) -> Self {
+        let inputs = Tensor::<2>::from_data(
             TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),
             device,
         );
@@ -58,18 +55,14 @@ impl XorFitness {
     }
 }
 
-impl GraphFitnessFn<B> for XorFitness {
-    fn evaluate(
-        &self,
-        population: &[TopologyGenome],
-        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Vec<f32> {
+impl GraphFitnessFn for XorFitness {
+    fn evaluate(&self, population: &[TopologyGenome], _device: &Device) -> Vec<f32> {
         population
             .iter()
             .map(|genome| {
-                let phenotype = InterpretedPhenotype::<B>::new(genome);
+                let phenotype = InterpretedPhenotype::new(genome);
                 let out = phenotype.forward(self.inputs.clone());
-                let values = out.into_data().into_vec::<f32>().unwrap();
+                let values = out.into_data().try_into_vec::<f32>().unwrap();
                 let sse: f32 = values
                     .iter()
                     .zip(self.targets.iter())
@@ -90,14 +83,14 @@ fn xor_params() -> NeatParams {
 }
 
 fn neat_xor_generation(c: &mut Criterion) {
-    let device = Default::default();
+    let device = Device::flex();
     let params = xor_params();
-    let strat = NeatStrategy::<B>::new();
+    let strat = NeatStrategy::new();
     let fitness_fn = XorFitness::new(&device);
     // Same XOR objective, but scored over the dense-batched evaluator's output.
     let batched_fitness = BatchGraphFitness::new(
         DensePaddedEvaluator::default(),
-        Tensor::<B, 2>::from_data(
+        Tensor::<2>::from_data(
             TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),
             &device,
         ),
@@ -212,7 +205,7 @@ fn wide_genome(num_hidden: usize, rng: &mut StdRng) -> TopologyGenome {
 /// Forward-pass-only comparison (the tensorized hotspot): interpreted per-genome
 /// loop vs. one dense-batched pass, at `P = 256` and growing hidden width.
 fn neat_eval_scale(c: &mut Criterion) {
-    let device = Default::default();
+    let device = Device::flex();
     let evaluator = DensePaddedEvaluator::default();
     // A 16-row observation batch gives the device a non-trivial amount of work.
     let obs_rows: Vec<f32> = [0.0f32, 0.5, 0.25]
@@ -221,7 +214,7 @@ fn neat_eval_scale(c: &mut Criterion) {
         .take(32)
         .copied()
         .collect();
-    let obs = Tensor::<B, 2>::from_data(TensorData::new(obs_rows, [16, 2]), &device);
+    let obs = Tensor::<2>::from_data(TensorData::new(obs_rows, [16, 2]), &device);
 
     let mut group = c.benchmark_group("neat_eval_scale");
     group.sample_size(10);
@@ -235,11 +228,11 @@ fn neat_eval_scale(c: &mut Criterion) {
             b.iter(|| {
                 let mut acc = 0.0f32;
                 for genome in &pop {
-                    let net = InterpretedPhenotype::<B>::new(genome);
+                    let net = InterpretedPhenotype::new(genome);
                     let out = net.forward(obs.clone());
                     acc += out
                         .into_data()
-                        .into_vec::<f32>()
+                        .try_into_vec::<f32>()
                         .unwrap()
                         .iter()
                         .sum::<f32>();
@@ -252,7 +245,7 @@ fn neat_eval_scale(c: &mut Criterion) {
                 let out = evaluator.evaluate_population(&pop, obs.clone(), &device);
                 black_box(
                     out.into_data()
-                        .into_vec::<f32>()
+                        .try_into_vec::<f32>()
                         .unwrap()
                         .iter()
                         .sum::<f32>(),

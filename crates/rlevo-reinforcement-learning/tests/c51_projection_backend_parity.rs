@@ -17,16 +17,19 @@
 //!
 //! # What it pins
 //!
-//! `Tensor::clamp`'s `NaN` behaviour is backend-divergent and undocumented:
+//! `Tensor::clamp`'s `NaN` behaviour is undocumented, and it has been
+//! backend-divergent. Under burn 0.21:
 //!
-//! - `burn-flex` lowers it to `f32::clamp`, which **propagates** `NaN`.
-//! - `burn-cubecl`/wgpu lowers it to the WGSL `clamp` builtin, which naga emits
-//!   as Metal's `fmin(fmax(…))` — a composition that **rescues** `NaN` to the
-//!   lower bound.
+//! - `burn-flex` lowered it to `f32::clamp`, which **propagates** `NaN`.
+//! - `burn-cubecl`/wgpu lowered it to the WGSL `clamp` builtin, which naga
+//!   emits as Metal's `fmin(fmax(…))` — a composition that **rescues** `NaN`
+//!   to the lower bound.
 //!
 //! Measured on an Apple M2 Pro (macOS 26.5.2, Metal 4; burn 0.21, cubecl 0.10,
-//! wgpu 29): `clamp(NaN, -10, 10)` is `NaN` on Flex and `-10.0` on Metal.
-//! Before the fix that made `project_distribution` return `[NaN, 0, …]` on Flex
+//! wgpu 29): `clamp(NaN, -10, 10)` was `NaN` on Flex and `-10.0` on Metal.
+//! (Burn 0.22 lowers wgpu's `clamp` to cubecl's NaN-preserving `clamp_nan`,
+//! so the two now agree; this test keeps that true.) Before the fix that
+//! made `project_distribution` return `[NaN, 0, …]` on Flex
 //! — loud, and caught by the caller's `FiniteLossGuard` — but `[1.0, 0, …]` on
 //! Metal, a well-formed probability vector **summing to exactly 1.0** that
 //! claims certainty of the worst return and that no finiteness guard can see.
@@ -50,9 +53,7 @@
 //! process-global device/RNG state, so nothing else in this binary should run
 //! concurrently with the two runs being compared.
 
-use burn::backend::{Flex, Wgpu};
-use burn::tensor::backend::Backend;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_reinforcement_learning::algorithms::c51::projection::{
     atom_spacing, project_distribution,
@@ -73,30 +74,29 @@ const N_ATOMS: usize = 8;
 // Fixture sizes are small compile-time constants, far below f32's 2^24
 // exact-integer limit, so every generated value is represented exactly.
 #[allow(clippy::cast_precision_loss)]
-fn project_rows<B: Backend>(rewards: &[f32], device: &B::Device) -> Vec<f32> {
+fn project_rows(rewards: &[f32], device: &Device) -> Vec<f32> {
     let batch = rewards.len();
     let delta = atom_spacing(V_MIN, V_MAX, N_ATOMS);
     let support_data: Vec<f32> = (0..N_ATOMS).map(|i| V_MIN + (i as f32) * delta).collect();
 
-    let next_probs = Tensor::<B, 2>::from_data(
+    let next_probs = Tensor::<2>::from_data(
         TensorData::new(
             vec![1.0_f32 / (N_ATOMS as f32); batch * N_ATOMS],
             vec![batch, N_ATOMS],
         ),
         device,
     );
-    let rewards_t =
-        Tensor::<B, 1>::from_data(TensorData::new(rewards.to_vec(), vec![batch]), device);
+    let rewards_t = Tensor::<1>::from_data(TensorData::new(rewards.to_vec(), vec![batch]), device);
     let terminated =
-        Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32; batch], vec![batch]), device);
-    let support = Tensor::<B, 1>::from_data(TensorData::new(support_data, vec![N_ATOMS]), device);
+        Tensor::<1>::from_data(TensorData::new(vec![0.0_f32; batch], vec![batch]), device);
+    let support = Tensor::<1>::from_data(TensorData::new(support_data, vec![N_ATOMS]), device);
 
     project_distribution(
         next_probs, rewards_t, terminated, support, 0.99, V_MIN, V_MAX, N_ATOMS,
     )
     .into_data()
     .convert::<f32>()
-    .into_vec::<f32>()
+    .try_into_vec::<f32>()
     .expect("f32 host read of the projected distribution")
 }
 
@@ -116,11 +116,11 @@ fn wgpu_matches_flex_on_non_finite_rewards() {
 
     // Flex first: it has no device init that can abort, so a failure here is
     // unambiguously about the operator rather than the adapter.
-    let flex_device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
-    let flex = project_rows::<Flex>(&rewards, &flex_device);
+    let flex_device = Device::flex();
+    let flex = project_rows(&rewards, &flex_device);
 
-    let wgpu_device: burn::backend::wgpu::WgpuDevice = Default::default();
-    let wgpu = project_rows::<Wgpu>(&rewards, &wgpu_device);
+    let wgpu_device = Device::wgpu(Default::default());
+    let wgpu = project_rows(&rewards, &wgpu_device);
 
     assert_eq!(
         flex.len(),

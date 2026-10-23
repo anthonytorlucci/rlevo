@@ -45,9 +45,7 @@
 //! - Mirjalili, Gandomi, Mirjalili, Saremi, Faris & Mirjalili (2017),
 //!   *Salp Swarm Algorithm*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -134,13 +132,13 @@ impl Validate for SalpConfig {
 
 /// Generation state for [`SalpSwarm`].
 #[derive(Debug, Clone)]
-pub struct SalpState<B: Backend> {
+pub struct SalpState {
     /// Current positions, shape `(pop_size, D)`.
-    pub positions: Tensor<B, 2>,
+    pub positions: Tensor<2>,
     /// Host-side fitness cache.
     pub fitness: Vec<f32>,
     /// Food-source (best) genome.
-    pub best_genome: Option<Tensor<B, 2>>,
+    pub best_genome: Option<Tensor<2>>,
     /// Food-source fitness.
     pub best_fitness: f32,
     /// Generation counter.
@@ -163,48 +161,35 @@ pub struct SalpState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 ///
-/// let strategy = SalpSwarm::<Flex>::new();
+/// let strategy = SalpSwarm::new();
 /// // The decay runs over 300 generations; give the loop the same budget.
 /// let params = SalpConfig::default_for(32, 10, 300);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SalpSwarm<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct SalpSwarm {}
 
-impl<B: Backend> SalpSwarm<B> {
+impl SalpSwarm {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 }
 
-impl<B: Backend> Strategy<B> for SalpSwarm<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for SalpSwarm {
     type Params = SalpConfig;
-    type State = SalpState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = SalpState;
+    type Genome = Tensor<2>;
 
     /// Samples the initial swarm uniformly within [`SalpConfig::bounds`]
     /// using the host-RNG convention and sets the generation counter to zero.
     ///
     /// The `pop_size >= 2` invariant is enforced by [`Validate::validate`] at
     /// the loop chokepoint.
-    fn init(
-        &self,
-        params: &SalpConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> SalpState<B> {
+    fn init(&self, params: &SalpConfig, rng: &mut dyn Rng, device: &Device) -> SalpState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid SalpConfig reached init: {params:?}"
@@ -222,7 +207,7 @@ where
             position_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
         let positions =
-            Tensor::<B, 2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
+            Tensor::<2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
         SalpState {
             positions,
             fitness: Vec::new(),
@@ -248,10 +233,10 @@ where
     fn ask(
         &self,
         params: &SalpConfig,
-        state: &SalpState<B>,
+        state: &SalpState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, SalpState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, SalpState) {
         if state.fitness.is_empty() {
             return (state.positions.clone(), state.clone());
         }
@@ -289,7 +274,7 @@ where
             .expect("best_genome populated after first tell")
             .clone()
             .expand([n_leaders, genome_dim]);
-        let delta = Tensor::<B, 2>::from_data(
+        let delta = Tensor::<2>::from_data(
             TensorData::new(leader_delta, [n_leaders, genome_dim]),
             device,
         );
@@ -310,10 +295,8 @@ where
         let shift_idx: Vec<i64> = (0..(pop_size - n_leaders))
             .map(|k| (n_leaders + k - 1) as i64)
             .collect();
-        let idx = Tensor::<B, 1, Int>::from_data(
-            TensorData::new(shift_idx, [pop_size - n_leaders]),
-            device,
-        );
+        let idx =
+            Tensor::<1, Int>::from_data(TensorData::new(shift_idx, [pop_size - n_leaders]), device);
         let previous = joined.clone().select(0, idx);
         let new_followers = (followers + previous).mul_scalar(0.5).clamp(lo, hi);
 
@@ -331,11 +314,11 @@ where
     fn tell(
         &self,
         _params: &SalpConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: SalpState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: SalpState,
         _rng: &mut dyn Rng,
-    ) -> (SalpState<B>, StrategyMetrics) {
+    ) -> (SalpState, StrategyMetrics) {
         // Sanitize at the pull (NaN → `$-\infty$`, `$+\infty$` → f32::MAX). This is the per-site
         // correctness floor for a caller driving `ask`/`tell` directly instead of
         // `EvolutionaryLoop::step`, which already sanitizes (the ADR 0034 decision-3 bypass
@@ -344,7 +327,7 @@ where
         // load-bearing.
         let fitness_host: Vec<f32> = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32")
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -356,10 +339,8 @@ where
             state.best_fitness = fitness_host[best_idx];
             let device = population.device();
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_idx as i64], [1]),
-                &device,
-            );
+            let idx =
+                Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
             state.best_genome = Some(population.select(0, idx));
         }
         state.generation += 1;
@@ -371,7 +352,7 @@ where
 
     /// Returns the food-source genome and its fitness, or `None` before the
     /// first [`tell`](Strategy::tell) call.
-    fn best(&self, state: &SalpState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &SalpState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -384,12 +365,9 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
-
-    type TestBackend = Flex;
 
     /// A schedule horizon for the tests that drive no loop, or drive one
     /// too briefly for the schedule to matter.
@@ -398,13 +376,10 @@ mod tests {
     /// Distinct finite fitness with the maximum at index 0, for direct
     /// (non-loop) `tell` calls. Finite, so it respects ADR 0034.
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
-    fn finite_fitness(
-        n: usize,
-        device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<TestBackend, 1> {
+    fn finite_fitness(n: usize, device: &Device) -> Tensor<1> {
         #[allow(clippy::cast_precision_loss)]
         let vals: Vec<f32> = (0..n).map(|i| -(i as f32) - 1.0).collect();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), device)
+        Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
     }
 
     #[test]
@@ -432,14 +407,12 @@ mod tests {
         // expected to reach machine precision. A 1e-2 target in 600
         // generations is the strong-reduction guarantee mirroring the
         // DE premature-convergence test pattern.
-        let device = Default::default();
-        let strategy = SalpSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = SalpSwarm::new();
         let params = SalpConfig::default_for(40, 10, 600);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 3, device, 600,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 3, device, 600)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -450,8 +423,8 @@ mod tests {
 
     #[test]
     fn best_is_none_until_first_tell() {
-        let device = Default::default();
-        let strategy = SalpSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = SalpSwarm::new();
         let params = SalpConfig::default_for(4, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(0);
         let state = strategy.init(&params, &mut rng, &device);
@@ -466,8 +439,8 @@ mod tests {
     fn first_ask_returns_initial_positions_unchanged() {
         // Before any `tell`, `state.fitness` is empty, so `ask` short-circuits
         // and hands back the untouched initial swarm.
-        let device = Default::default();
-        let strategy = SalpSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = SalpSwarm::new();
         let params = SalpConfig::default_for(6, 4, HORIZON);
         let mut rng = StdRng::seed_from_u64(3);
         let state = strategy.init(&params, &mut rng, &device);
@@ -475,10 +448,10 @@ mod tests {
             .positions
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .unwrap();
         let (pop, _state) = strategy.ask(&params, &state, &mut rng, &device);
-        let got = pop.into_data().into_vec::<f32>().unwrap();
+        let got = pop.into_data().try_into_vec::<f32>().unwrap();
         assert_eq!(expected, got);
     }
 
@@ -488,14 +461,12 @@ mod tests {
         // the odd split (1 leader, 2 followers). Both must complete without a
         // panic in the follower stencil.
         for pop in [2usize, 3] {
-            let device = Default::default();
-            let strategy = SalpSwarm::<TestBackend>::new();
+            let device = Device::flex();
+            let strategy = SalpSwarm::new();
             let params = SalpConfig::default_for(pop, 3, 5);
             let fitness_fn = FromLandscape::new(Sphere);
-            let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-                strategy, params, fitness_fn, 0, device, 5,
-            )
-            .expect("valid params");
+            let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 0, device, 5)
+                .expect("valid params");
             evo_loop.reset();
             while !evo_loop.is_done() {
                 evo_loop.step();
@@ -515,8 +486,8 @@ mod tests {
     fn ask_keeps_positions_in_bounds() {
         // Every position proposed by the two-phase update (leader step +
         // follower stencil) is clamped to bounds; verify across seeds.
-        let device = Default::default();
-        let strategy = SalpSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = SalpSwarm::new();
         let params = SalpConfig::default_for(6, 4, HORIZON);
         let (lo, hi): (f32, f32) = params.bounds.into();
         for seed in 0..32 {
@@ -526,7 +497,7 @@ mod tests {
             let fitness = finite_fitness(6, &device);
             let (state, _m) = strategy.tell(&params, pop1, fitness, state, &mut rng);
             let (pop2, _state) = strategy.ask(&params, &state, &mut rng, &device);
-            let values = pop2.into_data().into_vec::<f32>().unwrap();
+            let values = pop2.into_data().try_into_vec::<f32>().unwrap();
             for v in values {
                 assert!(
                     v >= lo - 1e-4 && v <= hi + 1e-4,
@@ -542,13 +513,12 @@ mod tests {
         // zero: a well-behaved driver takes no step, so `latest_metrics` stays
         // None after `reset`. The schedule's horizon cannot follow the budget
         // down: a horizon of zero does not validate.
-        let device = Default::default();
-        let strategy = SalpSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = SalpSwarm::new();
         let params = SalpConfig::default_for(4, 3, HORIZON);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 0)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 0, device, 0)
+            .expect("valid params");
         evo_loop.reset();
         assert!(evo_loop.latest_metrics().is_none());
     }
@@ -560,8 +530,8 @@ mod tests {
     /// leave a raw `NaN` in the public fitness cache a caller can read back.
     #[test]
     fn nan_fitness_does_not_latch_without_loop() {
-        let device = Default::default();
-        let strategy = SalpSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = SalpSwarm::new();
         let params = SalpConfig::default_for(6, 3, HORIZON);
         let mut rng = StdRng::seed_from_u64(7);
         let state = strategy.init(&params, &mut rng, &device);
@@ -570,8 +540,7 @@ mod tests {
         #[allow(clippy::cast_precision_loss)]
         let mut vals: Vec<f32> = (0..params.pop_size).map(|i| -(i as f32) - 1.0).collect();
         vals[0] = f32::NAN;
-        let fitness =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [params.pop_size]), &device);
+        let fitness = Tensor::<1>::from_data(TensorData::new(vals, [params.pop_size]), &device);
         let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
         assert!(
             state.fitness.iter().all(|f| !f.is_nan()),
@@ -593,13 +562,12 @@ mod tests {
 
     #[test]
     fn unit_budget_loop_runs_exactly_one_generation() {
-        let device = Default::default();
-        let strategy = SalpSwarm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = SalpSwarm::new();
         let params = SalpConfig::default_for(4, 3, 1);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop =
-            EvolutionaryLoop::<TestBackend, _, _>::new(strategy, params, fitness_fn, 0, device, 1)
-                .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 0, device, 1)
+            .expect("valid params");
         evo_loop.reset();
         evo_loop.step();
         assert!(evo_loop.is_done());

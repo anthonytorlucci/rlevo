@@ -17,23 +17,23 @@ backend the caller selects; this crate selects none.
 
 | Family | Entry point | Genome | Convergence on Sphere-D10 (ndarray) |
 |---|---|---|---|
-| Genetic Algorithm (real) | `algorithms::ga::GeneticAlgorithm` | `Tensor<B, 2>` | ~1e-1 (fixed \[\sigma\]) |
-| Genetic Algorithm (binary) | `algorithms::ga_binary::BinaryGeneticAlgorithm` | `Tensor<B, 2, Int>` | OneMax: exact |
-| Evolution Strategy (classical) | `algorithms::es_classical::EvolutionStrategy` | `Tensor<B, 2>` | < 1e-30 \[(\mu + \lambda)\] |
-| CMA-ES | `algorithms::cma_es::CmaEs` | `Tensor<B, 2>` | full covariance adaptation |
-| CMSA-ES | `algorithms::cmsa_es::CmsaEs` | `Tensor<B, 2>` | covariance matrix self-adaptation |
-| Evolutionary Programming | `algorithms::ep::EvolutionaryProgramming` | `Tensor<B, 2>` | ~3e-17 |
-| Differential Evolution | `algorithms::de::DifferentialEvolution` | `Tensor<B, 2>` | < 1e-22 (rand/1/bin) |
-| Cartesian Genetic Programming | `algorithms::gp_cgp::CartesianGeneticProgramming` | `Tensor<B, 2, Int>` | see symbolic regression test |
+| Genetic Algorithm (real) | `algorithms::ga::GeneticAlgorithm` | `Tensor<2>` | ~1e-1 (fixed \[\sigma\]) |
+| Genetic Algorithm (binary) | `algorithms::ga_binary::BinaryGeneticAlgorithm` | `Tensor<2, Int>` | OneMax: exact |
+| Evolution Strategy (classical) | `algorithms::es_classical::EvolutionStrategy` | `Tensor<2>` | < 1e-30 \[(\mu + \lambda)\] |
+| CMA-ES | `algorithms::cma_es::CmaEs` | `Tensor<2>` | full covariance adaptation |
+| CMSA-ES | `algorithms::cmsa_es::CmsaEs` | `Tensor<2>` | covariance matrix self-adaptation |
+| Evolutionary Programming | `algorithms::ep::EvolutionaryProgramming` | `Tensor<2>` | ~3e-17 |
+| Differential Evolution | `algorithms::de::DifferentialEvolution` | `Tensor<2>` | < 1e-22 (rand/1/bin) |
+| Cartesian Genetic Programming | `algorithms::gp_cgp::CartesianGeneticProgramming` | `Tensor<2, Int>` | see symbolic regression test |
 | Gene Expression Programming | `algorithms::gep::strategy::GepStrategy` | linear chromosome → expression tree | see `GepSymRegression` |
-| Estimation of Distribution (EDA) | `algorithms::eda::EdaStrategy` | `Tensor<B, 2>` | 5 model variants: univariate Gaussian/Bernoulli, compact GA, dependency-chain, Bayesian network |
-| Memetic wrapper | `algorithms::memetic::MemeticWrapper` | wraps any `Strategy<B>` | hybridizes a population strategy with local search |
-| Neuroevolution — weight-only | any flat-genome `Strategy<B>` with `param_reshaper::ModuleReshaper` and `module_eval_fn::ModuleEvalFn` | fixed-topology network weights | evolves weights of a fixed architecture; `rlevo-hybrid`'s `RolloutFitness` scores them by rollout |
+| Estimation of Distribution (EDA) | `algorithms::eda::EdaStrategy` | `Tensor<2>` | 5 model variants: univariate Gaussian/Bernoulli, compact GA, dependency-chain, Bayesian network |
+| Memetic wrapper | `algorithms::memetic::MemeticWrapper` | wraps any `Strategy` | hybridizes a population strategy with local search |
+| Neuroevolution — weight-only | any flat-genome `Strategy` with `param_reshaper::ModuleReshaper` and `module_eval_fn::ModuleEvalFn` | fixed-topology network weights | evolves weights of a fixed architecture; `rlevo-hybrid`'s `RolloutFitness` scores them by rollout |
 
-Every row above implements [`Strategy<B>`](src/strategy.rs) and is run by
+Every row above implements [`Strategy`](src/strategy.rs) and is run by
 `EvolutionaryLoop`.
 
-Also shipping, and not a `Strategy<B>`:
+Also shipping, and not a `Strategy`:
 
 | Module | Entry point | Purpose |
 |---|---|---|
@@ -45,7 +45,7 @@ Also shipping, and not a `Strategy<B>`:
 ## Swarm & metaheuristic suite
 
 A second family of population-based metaheuristics, all implementing the same
-[`Strategy<B>`](src/strategy.rs) trait over real-valued `Tensor<B, 2>`
+[`Strategy`](src/strategy.rs) trait over real-valued `Tensor<2>`
 populations.
 
 | Algorithm | Entry point |
@@ -69,7 +69,7 @@ this crate uses, with the backend feature you want (`flex` for CPU, `wgpu`
 for GPU).
 
 ```rust,no_run
-use burn::backend::Flex;
+use burn::tensor::Device;
 use rlevo_core::fitness::Landscape;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::fitness::FromLandscape;
@@ -84,9 +84,9 @@ impl Landscape for MySphere {
 }
 
 fn main() {
-    let device = Default::default();
-    let mut evo_loop = EvolutionaryLoop::<Flex, _, _>::new(
-        GeneticAlgorithm::<Flex>::new(),
+    let device = Device::flex();
+    let mut evo_loop = EvolutionaryLoop::new(
+        GeneticAlgorithm::new(),
         // population 64, 10 dimensions, each searched in [-5.12, 5.12]
         GaConfig::default_for(64, 10),
         FromLandscape::new(MySphere),
@@ -104,7 +104,7 @@ fn main() {
     println!("best cost = {:.3e}", metrics.best_fitness_ever());
     // The minimiser itself: a `(1, 10)` tensor, with its cost.
     if let Some((genome, cost)) = evo_loop.best() {
-        let x: Vec<f32> = genome.into_data().into_vec().expect("f32 genome");
+        let x: Vec<f32> = genome.into_data().try_into_vec().expect("f32 genome");
         println!("x* = {x:?}, f(x*) = {cost:.3e}");
     }
 }
@@ -133,14 +133,14 @@ cargo run --release -p rlevo-examples --example cooperative_ccga_rastrigin
 
 ## Design
 
-The central abstraction is the pure [`Strategy<B>`](src/strategy.rs)
+The central abstraction is the pure [`Strategy`](src/strategy.rs)
 trait: `init`, `ask` and `tell` take `&self` and an explicit RNG and
 return a new `State` rather than mutating, and `best` reads one. This lets
 many strategy instances run concurrently without interior mutability
 and keeps checkpointing trivial (just `Clone` the state).
 
-Populations are tensors on any Burn backend — `Tensor<B, 2>` for
-real-valued families, `Tensor<B, 2, Int>` for binary / integer / CGP.
+Populations are tensors on any Burn device — `Tensor<2>` for
+real-valued families, `Tensor<2, Int>` for binary / integer / CGP.
 The fitness function is a separate trait
 ([`BatchFitnessFn`](src/fitness.rs)), so users plug in any
 device-resident evaluator; the
@@ -149,7 +149,7 @@ device-resident evaluator; the
 onto a device tensor.
 
 A strategy holds nothing between calls, so
-[`EvolutionaryLoop<B, S, F>`](src/strategy.rs) holds it: the state, the RNG,
+[`EvolutionaryLoop<S, F>`](src/strategy.rs) holds it: the state, the RNG,
 the fitness function and the generation count. It is driven with three calls.
 `reset()` starts a run, `step()` runs one generation and returns nothing, and
 `is_done()` says whether the generation budget is spent:

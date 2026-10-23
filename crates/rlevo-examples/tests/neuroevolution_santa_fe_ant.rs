@@ -11,7 +11,7 @@
 #[path = "../examples/evolution/santa_fe_ant_support.rs"]
 mod support;
 
-use burn::backend::Flex;
+use burn::tensor::Device;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -21,8 +21,6 @@ use rlevo_test_support::baseline::{random_return, uniform_discrete};
 use rlevo_test_support::flex::flex_guard;
 
 use support::{MAX_STEPS, ScoreMode, quick_evolve_gru};
-
-type B = Flex;
 
 /// Mean pellets eaten by a uniform-random action policy over `episodes` episodes.
 fn random_baseline(seed: u64, episodes: usize) -> f32 {
@@ -77,8 +75,7 @@ fn neuroevolution_santa_fe_ant_improves_over_random() {
 
     let random = random_baseline(seed, 30);
     let reflex = reflex_plateau();
-    let summary =
-        quick_evolve_gru::<B>(ScoreMode::Deterministic, seed, 48, 60, &Default::default());
+    let summary = quick_evolve_gru(ScoreMode::Deterministic, seed, 48, 60, &Device::flex());
     let evolved = summary.best_pellets;
 
     eprintln!("random={random:.1}  reflex={reflex:.1}  evolved={evolved:.1}");

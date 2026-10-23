@@ -6,7 +6,7 @@
 //! best fitness stays finite. These are not convergence tests — they only
 //! exercise the full ask → evaluate → tell loop end to end.
 
-use burn::backend::Flex;
+use burn::tensor::Device;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
 
@@ -19,8 +19,6 @@ use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::probability_model::ProbabilityModel;
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
-type B = Flex;
-
 struct Sphere;
 impl Landscape for Sphere {
     fn evaluate(&self, x: &[f64]) -> f64 {
@@ -31,25 +29,18 @@ impl Landscape for Sphere {
 /// Drive an EDA strategy for ten generations and assert the plumbing holds.
 fn smoke<M>(model: M, params: EdaParams<M::Params>)
 where
-    M: ProbabilityModel<B> + 'static,
-    EdaStrategy<B, M>: Strategy<
-            B,
-            Genome = burn::tensor::Tensor<B, 2>,
-            Params = EdaParams<<M as ProbabilityModel<B>>::Params>,
+    M: ProbabilityModel + 'static,
+    EdaStrategy<M>: Strategy<
+            Genome = burn::tensor::Tensor<2>,
+            Params = EdaParams<<M as ProbabilityModel>::Params>,
         >,
-    FromLandscape<Sphere>: BatchFitnessFn<B, <EdaStrategy<B, M> as Strategy<B>>::Genome>,
+    FromLandscape<Sphere>: BatchFitnessFn<<EdaStrategy<M> as Strategy>::Genome>,
 {
-    let device = Default::default();
-    let strategy = EdaStrategy::<B, M>::new(model);
-    let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
-        strategy,
-        params,
-        FromLandscape::new(Sphere),
-        7,
-        device,
-        10,
-    )
-    .expect("valid params");
+    let device = Device::flex();
+    let strategy = EdaStrategy::<M>::new(model);
+    let mut evo_loop =
+        EvolutionaryLoop::new(strategy, params, FromLandscape::new(Sphere), 7, device, 10)
+            .expect("valid params");
     evo_loop.reset();
     while !evo_loop.is_done() {
         evo_loop.step();

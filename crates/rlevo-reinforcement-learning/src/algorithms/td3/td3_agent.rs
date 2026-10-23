@@ -16,10 +16,8 @@
 
 use std::marker::PhantomData;
 
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{ElementConversion, Tensor, TensorData};
+use burn::optim::{GradientsParams, ModuleOptimizer};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -39,7 +37,7 @@ use crate::algorithms::shared::{
 use crate::algorithms::td3::target_smoothing::smoothed_target_action;
 use crate::algorithms::td3::td3_config::Td3TrainingConfig;
 use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
-use crate::utils::{PolyakError, compute_target_q_values};
+use crate::utils::{PolyakError, compute_target_q_values, polyak_update};
 
 /// Error variants returned by [`Td3Agent`] operations.
 ///
@@ -151,13 +149,13 @@ pub struct LearnOutcome {
 ///
 /// Exposed at crate visibility so the unit tests can cover the core TD3
 /// invariant without standing up a full agent.
-pub(crate) fn compute_twin_critic_target<BK: Backend>(
-    rewards: Tensor<BK, 1>,
-    next_q1: Tensor<BK, 1>,
-    next_q2: Tensor<BK, 1>,
-    terminated: Tensor<BK, 1>,
+pub(crate) fn compute_twin_critic_target(
+    rewards: Tensor<1>,
+    next_q1: Tensor<1>,
+    next_q2: Tensor<1>,
+    terminated: Tensor<1>,
     gamma: f32,
-) -> Tensor<BK, 1> {
+) -> Tensor<1> {
     let min_q = next_q1.min_pair(next_q2);
     compute_target_q_values(rewards, min_q, terminated, gamma)
 }
@@ -182,7 +180,7 @@ pub(crate) fn compute_twin_critic_target<BK: Backend>(
 /// # Network ownership
 ///
 /// The actor and both critics live in a [`Slot`], because Burn's
-/// [`Optimizer::step`](burn::optim::Optimizer::step) consumes the module it
+/// [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step) consumes the module it
 /// updates and each network must briefly leave the agent to be trained. Every
 /// *fallible* operation — the forward pass, the loss, `backward`, and gradient
 /// reduction — instead runs on a borrow, so a network is out of the agent only
@@ -192,7 +190,7 @@ pub(crate) fn compute_twin_critic_target<BK: Backend>(
 ///
 /// # Panics
 ///
-/// If `Optimizer::step` itself panics (a shape mismatch, a device error), the
+/// If `ModuleOptimizer::step` itself panics (a shape mismatch, a device error), the
 /// network it was stepping is lost; [`Slot`] documents why that residual window
 /// cannot be closed. The agent is then *poisoned* with respect to that one
 /// network: every later read of it — [`act`](Self::act),
@@ -200,7 +198,6 @@ pub(crate) fn compute_twin_critic_target<BK: Backend>(
 /// panics with a message naming the cause and the remedy, which is to rebuild
 /// the agent from a fresh network.
 pub struct Td3Agent<
-    B,
     Actor,
     Critic,
     O,
@@ -210,31 +207,34 @@ pub struct Td3Agent<
     const AR: usize,
     const BAR: usize,
 > where
-    B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, BOR, BAR>,
-    Critic: ContinuousQ<B, BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    Actor: DeterministicPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: BoundedAction<AR>,
 {
     actor: Slot<Actor>,
-    target_actor: Actor::InnerModule,
+    target_actor: Actor,
     critic_1: Slot<Critic>,
     critic_2: Slot<Critic>,
-    target_critic_1: Critic::InnerModule,
-    target_critic_2: Critic::InnerModule,
-    actor_opt: OptimizerAdaptor<Adam, Actor, B>,
-    critic_1_opt: OptimizerAdaptor<Adam, Critic, B>,
-    critic_2_opt: OptimizerAdaptor<Adam, Critic, B>,
+    target_critic_1: Critic,
+    target_critic_2: Critic,
+    actor_opt: ModuleOptimizer,
+    critic_1_opt: ModuleOptimizer,
+    critic_2_opt: ModuleOptimizer,
     buffer: UniformReplay<ContinuousTransition<O>>,
     exploration: GaussianNoise,
     low: &'static [f32],
     high: &'static [f32],
     /// `[1, ..action_shape]` per-component bounds for the Eq. 14 target clip,
-    /// built once at construction — see [`action_bound_tensors`].
-    low_t: Tensor<B::InnerBackend, BAR>,
-    high_t: Tensor<B::InnerBackend, BAR>,
+    /// built once at construction on the plain device — see
+    /// [`action_bound_tensors`].
+    low_t: Tensor<BAR>,
+    high_t: Tensor<BAR>,
     config: Td3TrainingConfig,
-    device: B::Device,
+    /// The training device: the caller's device with autodiff on.
+    device: Device,
+    /// `device` without autodiff, where the target path runs.
+    plain_device: Device,
     step: usize,
     critic_updates: usize,
     stats: AgentStats<Td3Metrics>,
@@ -282,13 +282,12 @@ pub struct Td3Agent<
     _action: PhantomData<A>,
 }
 
-impl<B, Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    std::fmt::Debug for Td3Agent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    std::fmt::Debug for Td3Agent<Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
-    B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, BOR, BAR>,
-    Critic: ContinuousQ<B, BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    Actor: DeterministicPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: BoundedAction<AR>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -304,13 +303,12 @@ where
     }
 }
 
-impl<B, Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    Td3Agent<B, Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    Td3Agent<Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
-    B: AutodiffBackend,
-    Actor: DeterministicPolicy<B, BOR, BAR>,
-    Critic: ContinuousQ<B, BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    Actor: DeterministicPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: BoundedAction<AR>,
 {
     /// Constructs a new agent from pre-built actor and two independent
@@ -319,6 +317,11 @@ where
     /// The caller is expected to initialise `critic_1` and `critic_2` with
     /// different random seeds — Fujimoto et al. rely on independent initial
     /// errors so the `min` target actually suppresses overestimation.
+    ///
+    /// The agent trains on `device` with autodiff on, and switches all three
+    /// networks to training ([`Module::train`](burn::module::Module::train)), so
+    /// networks built on a plain device train as well. Target networks are
+    /// [`valid`](burn::module::Module::valid) snapshots of the supplied modules.
     ///
     /// # Errors
     ///
@@ -337,35 +340,34 @@ where
         critic_1: Critic,
         critic_2: Critic,
         config: Td3TrainingConfig,
-        device: B::Device,
+        device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
         assert_bounds_match_components::<AR, A>();
+        let device = device.autodiff();
+        let plain_device = device.clone().without_autodiff();
+        let actor = actor.train();
+        let critic_1 = critic_1.train();
+        let critic_2 = critic_2.train();
         let target_actor = actor.valid();
         let target_critic_1 = critic_1.valid();
         let target_critic_2 = critic_2.valid();
         let adam = config.optimizer.clone();
         let (actor_opt, critic_1_opt, critic_2_opt) = match &config.clip_grad {
             Some(clip) => (
-                adam.clone()
-                    .with_grad_clipping(Some(clip.clone()))
-                    .init::<B, Actor>(),
-                adam.clone()
-                    .with_grad_clipping(Some(clip.clone()))
-                    .init::<B, Critic>(),
-                adam.clone()
-                    .with_grad_clipping(Some(clip.clone()))
-                    .init::<B, Critic>(),
+                adam.clone().with_grad_clipping(Some(clip.clone())).init(),
+                adam.clone().with_grad_clipping(Some(clip.clone())).init(),
+                adam.clone().with_grad_clipping(Some(clip.clone())).init(),
             ),
             None => (
-                adam.clone().init::<B, Actor>(),
-                adam.clone().init::<B, Critic>(),
-                adam.clone().init::<B, Critic>(),
+                adam.clone().init(),
+                adam.clone().init(),
+                adam.clone().init(),
             ),
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
         let stats = AgentStats::<Td3Metrics>::new(100);
-        let (low_t, high_t) = action_bound_tensors::<B::InnerBackend, A, AR, BAR>(&device);
+        let (low_t, high_t) = action_bound_tensors::<A, AR, BAR>(&plain_device);
         // The capacity is a runtime config field, not a literal, so it takes
         // the fallible path: an out-of-range value is a `ConfigError` naming
         // `capacity`, never an allocation abort inside `VecDeque`.
@@ -390,6 +392,7 @@ where
             high_t,
             config,
             device,
+            plain_device,
             step: 0,
             critic_updates: 0,
             stats,
@@ -555,21 +558,20 @@ where
     /// `obs`, so no action was selected *from* a poisoned observation there.
     /// The step is still caught at [`remember`](Self::remember).
     ///
-    /// # Why this is the only place the failure is observable
+    /// # Why the check stays
     ///
-    /// The continuous failure mode is **backend-split**, and both halves are
-    /// bad in different ways. Measured on Pendulum/DDPG, whose actor path is
-    /// the same shape as this one:
+    /// Under Burn 0.21 the continuous failure mode was **backend-split**.
+    /// Measured on Pendulum/DDPG, whose actor path is the same shape as this
+    /// one: on wgpu/Metal a non-finite observation yielded `raw_actor = [NaN]`
+    /// and an action whose `is_valid()` was `false`; on Flex `relu` rescued
+    /// `NaN` to `0.0`, so the actor emitted a finite, plausible, in-bounds
+    /// torque (measured `0.08646313`) from a **fully** `NaN` observation, with
+    /// `is_valid() == true`, and nothing downstream could see it.
     ///
-    /// - **wgpu / Metal** — a non-finite observation yields `raw_actor =
-    ///   [NaN]`, and the `NaN` survives the clamp, so the returned action's
-    ///   `is_valid()` is `false`.
-    /// - **flex (CPU)** — `relu` rescues `NaN` to `0.0`, so the actor emits a
-    ///   finite, plausible, in-bounds torque (measured `0.08646313`) from a
-    ///   **fully** `NaN` observation, with `is_valid() == true`. Nothing
-    ///   downstream can see it: the loss is finite, so `FiniteLossGuard`
-    ///   cannot fire, and an action-validity check cannot fire either. CI has
-    ///   no GPU, so CI only ever sees this half.
+    /// Burn 0.22's `relu` propagates `NaN` on every backend measured (Flex and
+    /// wgpu/Metal), so both now return an action with `is_valid() == false`.
+    /// The check names the cause where that action shows only the effect, and
+    /// it remains the one observer on any backend whose `relu` erases `NaN`.
     ///
     /// # The clamp here is host `f32::clamp`, and must stay that way
     ///
@@ -578,12 +580,12 @@ where
     /// `f32::clamp(NaN, lo, hi)` propagates `NaN`, and does so identically on
     /// every backend, so ADR 0066's `clamp_preserving_nan` does **not** apply
     /// here and must not be introduced. Moving this clip into tensor space
-    /// would *import* the C51 defect: wgpu's `Tensor::clamp` rescues `NaN` to
-    /// the lower bound, which would turn the one backend that still reports
-    /// this failure into one that produces a plausible in-domain torque with
-    /// `is_valid()` back to `true`. (TD3's *target-smoothing* clip is a
-    /// separate, tensor-space site on the learn path — this note is about the
-    /// act path only.)
+    /// would make it depend on each backend's `Tensor::clamp` again — the C51
+    /// defect: Burn 0.21's wgpu rescued `NaN` to the lower bound, turning a
+    /// reported failure into a plausible in-domain torque with `is_valid()`
+    /// back to `true`. (TD3's *target-smoothing* clip is a separate,
+    /// tensor-space site on the learn path — this note is about the act path
+    /// only.)
     ///
     /// # The action type validates nothing on this path
     ///
@@ -621,9 +623,9 @@ where
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
-        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
-        let raw: Tensor<B, BAR> = self.actor.get().forward(batched);
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let raw: Tensor<BAR> = self.actor.get().forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
         let mean: Vec<f32> = slice.iter().take(A::COMPONENTS).copied().collect();
@@ -638,7 +640,7 @@ where
         A::from_slice(&out)
     }
 
-    /// Snapshots the actor onto the inner (non-autodiff) backend for repeated
+    /// Snapshots the actor onto the plain (non-autodiff) device for repeated
     /// greedy inference.
     ///
     /// Returns a frozen inference handle for use with
@@ -651,14 +653,14 @@ where
     /// Panics if the actor slot was poisoned by a panic inside an earlier
     /// actor optimizer step (see the type-level docs); the agent must then be
     /// rebuilt.
-    pub fn inference_net(&self) -> Actor::InnerModule {
+    pub fn inference_net(&self) -> Actor {
         self.actor.get().valid()
     }
 
     /// Deterministic action against a pre-snapshotted inner actor.
     ///
     /// Equivalent to `act(obs, false, _)` (the unnoised, bound-clipped policy
-    /// mean) but runs on the non-autodiff backend via
+    /// mean) but runs on the plain device via
     /// [`inference_net`](Self::inference_net), avoiding the per-call autodiff
     /// graph construction that [`act`](Self::act) incurs.
     ///
@@ -667,8 +669,8 @@ where
     /// Identical to [`act`](Self::act), and sharing its counter: the row is
     /// checked, a non-finite row is counted and warned about, and the action is
     /// returned **unchanged**. See [`act`](Self::act) for why nothing is
-    /// substituted, why the backends disagree, and why the clamp below must
-    /// stay a host [`f32::clamp`].
+    /// substituted, why the backends disagreed under Burn 0.21, and why the
+    /// clamp below must stay a host [`f32::clamp`].
     ///
     /// # Panics
     ///
@@ -677,14 +679,14 @@ where
     /// match the action type this agent was built for. Making this path
     /// fallible so the first of those becomes an `Err` instead is deferred
     /// and tracked separately.
-    pub fn act_with(&self, net: &Actor::InnerModule, obs: &O) -> A {
+    pub fn act_with(&self, net: &Actor, obs: &O) -> A {
         // Function-local for the same `&self` / `Sync` reason as `act`.
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
-        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
-        let raw: Tensor<B::InnerBackend, BAR> = Actor::forward_inner(net, batched);
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
+        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let raw: Tensor<BAR> = net.forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
         let out: Vec<f32> = (0..A::COMPONENTS)
@@ -869,9 +871,9 @@ where
     #[cfg(test)]
     pub(crate) fn target_checksums(&self) -> [f64; 3] {
         [
-            param_checksum::<B::InnerBackend, _>(&self.target_actor),
-            param_checksum::<B::InnerBackend, _>(&self.target_critic_1),
-            param_checksum::<B::InnerBackend, _>(&self.target_critic_2),
+            param_checksum(&self.target_actor),
+            param_checksum(&self.target_critic_1),
+            param_checksum(&self.target_critic_2),
         ]
     }
 
@@ -880,9 +882,9 @@ where
     #[cfg(test)]
     pub(crate) fn live_checksums(&self) -> [f64; 3] {
         [
-            param_checksum::<B, _>(self.actor.get()),
-            param_checksum::<B, _>(self.critic_1.get()),
-            param_checksum::<B, _>(self.critic_2.get()),
+            param_checksum(self.actor.get()),
+            param_checksum(self.critic_1.get()),
+            param_checksum(self.critic_2.get()),
         ]
     }
 
@@ -901,7 +903,7 @@ where
     ///
     /// 1. Samples a uniformly random batch of size `batch_size` (with
     ///    replacement) from the replay buffer.
-    /// 2. Builds the twin-critic TD target on the inner (non-autodiff) backend:
+    /// 2. Builds the twin-critic TD target on the plain (non-autodiff) device:
     ///    `$y = r + \gamma(1-d) \cdot \min(Q_1'(s', a'), Q_2'(s', a'))$`
     ///    where `$a' = \text{clip}(\text{target\_actor}(s') + \text{clip}(\mathcal{N}(0, \sigma^2), -c, c), \text{low}, \text{high})$`
     ///    (target-policy smoothing; see [`super::target_smoothing`]).
@@ -933,7 +935,7 @@ where
     ///
     /// Returns [`Td3AgentError::Polyak`] if a target soft-update finds a
     /// parameter-topology mismatch between a live network and its target twin
-    /// (see [`polyak_update`](crate::utils::polyak_update)). Every in-tree
+    /// (see [`polyak_update`]). Every in-tree
     /// target is cloned from its active network, so this cannot occur for
     /// agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,
@@ -951,6 +953,7 @@ where
         }
         let batch_size = self.config.batch_size;
         let device = self.device.clone();
+        let plain = self.plain_device.clone();
 
         // --- Sample batch ---
         // `can_learn()` above already established `buffer.len() >= batch_size`,
@@ -989,19 +992,19 @@ where
         batched_action_shape.push(batch_size);
         batched_action_shape.extend_from_slice(&action_shape);
 
-        let obs_t: Tensor<B, BOR> = Tensor::from_data(
+        let obs_t: Tensor<BOR> = Tensor::from_data(
             TensorData::new(obs_flat, batched_obs_shape.clone()),
             &device,
         );
-        let next_t_inner: Tensor<B::InnerBackend, BOR> =
-            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &device);
-        let action_t: Tensor<B, BAR> =
+        let next_t_inner: Tensor<BOR> =
+            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &plain);
+        let action_t: Tensor<BAR> =
             Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
-        let rewards_inner: Tensor<B::InnerBackend, 1> =
-            Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
-        let terminated_inner: Tensor<B::InnerBackend, 1> =
-            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
+        let rewards_inner: Tensor<1> =
+            Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &plain);
+        let terminated_inner: Tensor<1> =
+            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &plain);
 
         // --- Target computation (no autodiff) ---
         // Eq. 14's outer clip is against the `Box(low, high)` **vectors**, one
@@ -1012,9 +1015,8 @@ where
         // impossible actions" the clip exists to suppress. The inner
         // `noise_clip` stays scalar: it bounds the smoothing noise *magnitude*
         // symmetrically and is scalar in the paper too.
-        let raw_next_action: Tensor<B::InnerBackend, BAR> =
-            Actor::forward_inner(&self.target_actor, next_t_inner.clone());
-        let next_actions = smoothed_target_action::<B::InnerBackend, BAR>(
+        let raw_next_action: Tensor<BAR> = self.target_actor.forward(next_t_inner.clone());
+        let next_actions = smoothed_target_action::<BAR>(
             raw_next_action,
             self.config.policy_noise,
             self.config.noise_clip,
@@ -1023,41 +1025,37 @@ where
             rng,
         );
 
-        let next_q1: Tensor<B::InnerBackend, 1> = Critic::forward_inner(
-            &self.target_critic_1,
-            next_t_inner.clone(),
-            next_actions.clone(),
-        );
-        let next_q2: Tensor<B::InnerBackend, 1> =
-            Critic::forward_inner(&self.target_critic_2, next_t_inner, next_actions);
-        let target_inner: Tensor<B::InnerBackend, 1> = compute_twin_critic_target(
+        let next_q1: Tensor<1> = self
+            .target_critic_1
+            .forward(next_t_inner.clone(), next_actions.clone());
+        let next_q2: Tensor<1> = self.target_critic_2.forward(next_t_inner, next_actions);
+        let target_inner: Tensor<1> = compute_twin_critic_target(
             rewards_inner,
             next_q1,
             next_q2,
             terminated_inner,
             self.config.gamma,
         );
-        let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
+        let target: Tensor<1> = target_inner.to_device(&device);
 
         // --- Critic updates: two independent backward passes ---
         // Both critics stay in their slots for the forward / loss / backward
         // region; each is out of its slot only inside its own `step_with`. The
         // two windows are therefore disjoint — a panic stepping `critic_1`
         // leaves `critic_2` intact.
-        let q1_pred: Tensor<B, 1> = self.critic_1.get().forward(obs_t.clone(), action_t.clone());
-        let q2_pred: Tensor<B, 1> = self.critic_2.get().forward(obs_t.clone(), action_t);
+        let q1_pred: Tensor<1> = self.critic_1.get().forward(obs_t.clone(), action_t.clone());
+        let q2_pred: Tensor<1> = self.critic_2.get().forward(obs_t.clone(), action_t);
 
         let q_mean = q1_pred
             .clone()
             .min_pair(q2_pred.clone())
             .mean()
-            .into_scalar()
-            .elem::<f32>();
+            .into_scalar::<f32>();
 
         let loss_1_tensor = (q1_pred - target.clone()).powi_scalar(2).mean();
         let loss_2_tensor = (q2_pred - target).powi_scalar(2).mean();
-        let loss_1 = loss_1_tensor.clone().into_scalar().elem::<f32>();
-        let loss_2 = loss_2_tensor.clone().into_scalar().elem::<f32>();
+        let loss_1 = loss_1_tensor.clone().into_scalar::<f32>();
+        let loss_2 = loss_2_tensor.clone().into_scalar::<f32>();
 
         // ADR 0056: the two critics run in DISJOINT backward+step windows
         // (independent graphs), so each site gets its own guard — a non-finite
@@ -1101,10 +1099,10 @@ where
             // Same shape as the critic block: the actor stays in its slot for
             // the whole fallible region, and `step_with` is its own isolated
             // window — independent of both critics'.
-            let predicted_actions: Tensor<B, BAR> = self.actor.get().forward(obs_t.clone());
-            let q_actor: Tensor<B, 1> = self.critic_1.get().forward(obs_t, predicted_actions);
+            let predicted_actions: Tensor<BAR> = self.actor.get().forward(obs_t.clone());
+            let q_actor: Tensor<1> = self.critic_1.get().forward(obs_t, predicted_actions);
             let actor_loss_tensor = q_actor.mean().neg();
-            let actor_loss_value = actor_loss_tensor.clone().into_scalar().elem::<f32>();
+            let actor_loss_value = actor_loss_tensor.clone().into_scalar::<f32>();
 
             // ADR 0056: guard the actor site. A non-finite actor loss
             // skips the actor `backward()` + optimizer step and leaves
@@ -1142,18 +1140,24 @@ where
         // networks keep being tracked by their targets. That invariant survives
         // the move unchanged: this block never consults the actor guard, and a
         // skipped actor step still leaves `self.actor` a valid network to blend
-        // from. Clone rather than move out: `soft_update` consumes `target` by
+        // from. Clone rather than move out: `polyak_update` consumes `target` by
         // value, so on `Err` the `?` returns before the reassignment and each
         // target field keeps its prior weights — no silent hard-sync onto its
         // live network (the invariant now holds via early return, and equally
         // for a panic).
         if let Some(tau) = self.config.target_update.fires_at(self.critic_updates) {
             self.target_actor =
-                Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau)?;
-            self.target_critic_1 =
-                Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau)?;
-            self.target_critic_2 =
-                Critic::soft_update(self.critic_2.get(), self.target_critic_2.clone(), tau)?;
+                polyak_update(&self.actor.get().valid(), self.target_actor.clone(), tau)?;
+            self.target_critic_1 = polyak_update(
+                &self.critic_1.get().valid(),
+                self.target_critic_1.clone(),
+                tau,
+            )?;
+            self.target_critic_2 = polyak_update(
+                &self.critic_2.get().valid(),
+                self.target_critic_2.clone(),
+                tau,
+            )?;
         }
 
         Ok(Some(LearnOutcome {
@@ -1182,11 +1186,8 @@ mod tests {
     #![allow(clippy::float_cmp)]
     use super::*;
     use crate::MAX_BUFFER_CAPACITY;
+    use crate::algorithms::shared::{params_are_plain, params_train};
     use rlevo_core::config::ConstraintKind;
-
-    use burn::backend::Flex;
-
-    type TestBackend = Flex;
 
     #[test]
     fn test_td3agent_metrics_performance_record_returns_reward_and_steps() {
@@ -1213,23 +1214,15 @@ mod tests {
         // `[2.0, 0.5, 4.0]`. With `$\gamma$` = 0.9, non-terminal rewards `[0.1, 0.2, 0.3]` and
         // terminated `[0, 0, 1]`, the target is `[0.1 + 0.9*2.0, 0.2 + 0.9*0.5, 0.3 + 0.9*4.0*0]`
         // `= [1.9, 0.65, 0.3]`.
-        let device = Default::default();
-        let rewards = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]),
-            &device,
-        );
-        let next_q1 = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]),
-            &device,
-        );
-        let next_q2 = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]),
-            &device,
-        );
-        let terminated = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]),
-            &device,
-        );
+        let device = Device::flex();
+        let rewards =
+            Tensor::<1>::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]), &device);
+        let next_q1 =
+            Tensor::<1>::from_data(TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]), &device);
+        let next_q2 =
+            Tensor::<1>::from_data(TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]), &device);
+        let terminated =
+            Tensor::<1>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]), &device);
 
         let target = compute_twin_critic_target(rewards, next_q1, next_q2, terminated, 0.9);
         let data = target.into_data().convert::<f32>();
@@ -1244,32 +1237,21 @@ mod tests {
     use crate::algorithms::bootstrap_mask::{
         MaskContinuousAction, MaskObservation, TinyActor, TinyCritic,
     };
-    use burn::backend::Autodiff;
     use burn::module::{Module, ModuleMapper, Param};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::action::ContinuousAction;
 
-    type TestAdBackend = Autodiff<Flex>;
-    type GuardAgent = Td3Agent<
-        TestAdBackend,
-        TinyActor<TestAdBackend>,
-        TinyCritic<TestAdBackend>,
-        MaskObservation,
-        MaskContinuousAction,
-        1,
-        2,
-        1,
-        2,
-    >;
+    type GuardAgent =
+        Td3Agent<TinyActor, TinyCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// critic that has diverged to non-finite weights — the realistic source of
     /// a single non-finite critic loss.
     struct NanInjector;
 
-    impl<B: Backend> ModuleMapper<B> for NanInjector {
-        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+    impl ModuleMapper for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
             let (id, tensor, mapper) = param.consume();
             Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
         }
@@ -1284,22 +1266,15 @@ mod tests {
     /// Evaluates critic-2 on a fixed (obs, action) pair and reads the scalar
     /// back — a change across a learn step proves the weights were updated.
     fn critic_2_probe(agent: &GuardAgent) -> f32 {
-        let device = Default::default();
-        let obs = Tensor::<TestAdBackend, 2>::from_data(
-            TensorData::new(vec![0.3_f32, 0.7], vec![1, 2]),
-            &device,
-        );
-        let act = Tensor::<TestAdBackend, 2>::from_data(
-            TensorData::new(vec![0.0_f32], vec![1, 1]),
-            &device,
-        );
+        let device = Device::flex();
+        let obs = Tensor::<2>::from_data(TensorData::new(vec![0.3_f32, 0.7], vec![1, 2]), &device);
+        let act = Tensor::<2>::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
         agent
             .critic_2
             .get()
             .forward(obs, act)
             .inner()
-            .into_scalar()
-            .elem::<f32>()
+            .into_scalar::<f32>()
     }
 
     /// One diverged critic must not poison the other (ADR 0056). TD3 makes
@@ -1309,7 +1284,7 @@ mod tests {
     /// critic-2 still learns and the agent stays finite.
     #[test]
     fn test_td3agent_one_nonfinite_critic_skips_only_that_critic() {
-        let device = Default::default();
+        let device = Device::flex();
         let config = Td3TrainingConfig {
             batch_size: 2,
             learning_starts: 0,
@@ -1323,9 +1298,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinyActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinyActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -1422,7 +1397,7 @@ mod tests {
     /// for the whole run — which is what makes a repeated-skip count testable
     /// at all.
     fn poisoned_critic_1_agent(policy_frequency: usize, target_update: TargetUpdate) -> GuardAgent {
-        let device = Default::default();
+        let device = Device::flex();
         let config = Td3TrainingConfig {
             batch_size: 2,
             learning_starts: 0,
@@ -1434,9 +1409,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinyActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinyActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -1645,8 +1620,8 @@ mod tests {
     /// so `ParamId`s are preserved and the Polyak pairing stays valid.
     struct AddConstant(f32);
 
-    impl<B: Backend> ModuleMapper<B> for AddConstant {
-        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+    impl ModuleMapper for AddConstant {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
             let (id, tensor, mapper) = param.consume();
             Param::from_mapped_value(id, tensor.add_scalar(self.0), mapper)
         }
@@ -1655,7 +1630,7 @@ mod tests {
     /// A primed agent whose live networks are held a known distance from their
     /// targets, so every cadence assertion below is non-vacuous.
     fn cadence_agent(policy_frequency: usize, target_update: TargetUpdate) -> GuardAgent {
-        let device = Default::default();
+        let device = Device::flex();
         let config = Td3TrainingConfig {
             batch_size: 2,
             learning_starts: 0,
@@ -1668,9 +1643,9 @@ mod tests {
         };
 
         let mut agent = GuardAgent::new(
-            TinyActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinyActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -1691,7 +1666,7 @@ mod tests {
         // would disturb Burn's autodiff registration across consecutive learn
         // steps, and pushing the actor's weights up saturates its `tanh`,
         // zeroing the very actor gradient one of these tests asserts on. The
-        // targets are plain inner-backend modules with no graph attached, and
+        // targets are plain-device modules with no graph attached, and
         // `AddConstant` preserves their `ParamId`s, so the Polyak pairing holds.
         agent.target_actor = agent.target_actor.clone().map(&mut AddConstant(0.5));
         agent.target_critic_1 = agent.target_critic_1.clone().map(&mut AddConstant(0.5));
@@ -1734,7 +1709,7 @@ mod tests {
     #[test]
     fn test_td3agent_default_cadence_fires_every_second_critic_update() {
         let rule = TargetUpdate::polyak(0.005, 2);
-        let tau = rule.tau();
+        let tau = f64::from(rule.tau());
         let mut agent = cadence_agent(2, rule);
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -1765,7 +1740,7 @@ mod tests {
     #[test]
     fn test_td3agent_actor_cadence_and_target_cadence_are_independent() {
         let rule = TargetUpdate::polyak(0.005, 2);
-        let tau = rule.tau();
+        let tau = f64::from(rule.tau());
         let mut agent = cadence_agent(1, rule);
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -1816,12 +1791,12 @@ mod tests {
 
     #[test]
     fn test_td3agent_remember_drops_a_nonfinite_reward() {
-        let device = Default::default();
+        let device = Device::flex();
         let config = Td3TrainingConfig::default();
         let mut agent = GuardAgent::new(
-            TinyActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinyActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -1869,15 +1844,15 @@ mod tests {
 
     /// A fresh agent with capacity to spare, for the observation-guard tests.
     fn obs_guard_agent() -> GuardAgent {
-        let device = Default::default();
+        let device = Device::flex();
         let config = Td3TrainingConfig {
             replay_buffer_capacity: 64,
             ..Default::default()
         };
         GuardAgent::new(
-            TinyActor::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
-            TinyCritic::<TestAdBackend>::new(&device),
+            TinyActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
             config,
             device,
         )
@@ -2089,15 +2064,15 @@ mod tests {
         ];
 
         for (capacity, kind) in cases {
-            let device = Default::default();
+            let device = Device::flex();
             let config = Td3TrainingConfig {
                 replay_buffer_capacity: capacity,
                 ..Td3TrainingConfig::default()
             };
             let Err(err) = GuardAgent::new(
-                TinyActor::<TestAdBackend>::new(&device),
-                TinyCritic::<TestAdBackend>::new(&device),
-                TinyCritic::<TestAdBackend>::new(&device),
+                TinyActor::new(&device),
+                TinyCritic::new(&device),
+                TinyCritic::new(&device),
                 config,
                 device,
             ) else {
@@ -2107,5 +2082,86 @@ mod tests {
             assert_eq!(err.field, "replay_buffer_capacity");
             assert_eq!(err.kind, kind);
         }
+    }
+
+    /// The target path never tracks. Autodiff is device state in Burn 0.22, so
+    /// no type keeps the target networks off the graph: each target must hold plain parameters
+    /// after construction and after a learn step's Polyak update, while
+    /// the actor and both critics train.
+    #[test]
+    fn test_td3_agent_target_path_is_never_tracked() {
+        let device = Device::flex();
+        let config = Td3TrainingConfig {
+            batch_size: 2,
+            learning_starts: 0,
+            replay_buffer_capacity: 64,
+            policy_frequency: 1,
+            target_update: crate::target::TargetUpdate::polyak(0.005, 1),
+            ..Default::default()
+        };
+        let mut agent = GuardAgent::new(
+            TinyActor::new(&device),
+            TinyCritic::new(&device),
+            TinyCritic::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent");
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+        for x in [0.0_f32, 0.1, 0.2, 0.3] {
+            agent.remember(
+                make_obs(x, 1.0 - x),
+                &action,
+                0.5,
+                make_obs(x + 0.1, 0.9 - x),
+                false,
+            );
+        }
+        assert!(
+            params_train(agent.actor.get()),
+            "precondition: the actor trains"
+        );
+        assert!(
+            params_train(agent.critic_1.get()),
+            "precondition: critic 1 trains"
+        );
+        assert!(
+            params_train(agent.critic_2.get()),
+            "precondition: critic 2 trains"
+        );
+        for (net, name) in [
+            (&agent.target_critic_1, "target critic 1"),
+            (&agent.target_critic_2, "target critic 2"),
+        ] {
+            assert!(params_are_plain(net), "{name} starts plain");
+        }
+        assert!(
+            params_are_plain(&agent.target_actor),
+            "the target actor starts plain"
+        );
+        let before = param_checksum(&agent.target_critic_1);
+        let mut rng = StdRng::seed_from_u64(0);
+        agent.learn_step(&mut rng).expect("learn").expect("a step");
+        assert!(
+            (param_checksum(&agent.target_critic_1) - before).abs() > 0.0,
+            "precondition: the Polyak update ran"
+        );
+        for (net, name) in [
+            (&agent.target_critic_1, "target critic 1"),
+            (&agent.target_critic_2, "target critic 2"),
+        ] {
+            assert!(
+                params_are_plain(net),
+                "the Polyak update leaves {name} plain"
+            );
+        }
+        assert!(
+            params_are_plain(&agent.target_actor),
+            "the Polyak update leaves the target actor plain"
+        );
+        assert!(
+            params_are_plain(&agent.inference_net()),
+            "`inference_net` is a plain snapshot"
+        );
     }
 }

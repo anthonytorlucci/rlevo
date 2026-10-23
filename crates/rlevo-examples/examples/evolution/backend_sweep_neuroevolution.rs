@@ -3,12 +3,12 @@
 //! This example exists to make two points that the PPO-on-CartPole examples
 //! cannot:
 //!
-//! 1. **Burn's backend genericity is real leverage.** The entire run below is
-//!    written once over `B: Backend`. Nothing in [`run`], in the fitness
-//!    function, or in `rlevo`'s evolution stack names a concrete backend. Main
-//!    instantiates that one generic function on [`Flex`] (a portable CPU
-//!    backend) and on [`Wgpu`] (Apple-Silicon / Vulkan / DX12 GPU) by changing
-//!    a *type argument* — not a line of logic.
+//! 1. **Burn's backend independence is real leverage.** The entire run below
+//!    is written once. Nothing in [`run`], in the fitness function, or in
+//!    `rlevo`'s evolution stack names a concrete backend. Main calls that one
+//!    function on `Device::flex()` (a portable CPU backend) and on
+//!    `Device::wgpu(..)` (Apple-Silicon / Vulkan / DX12 GPU) by changing a
+//!    *device value* — not a line of logic.
 //!
 //! 2. **GPUs win on the workload they were built for: large batched matmuls.**
 //!    A single-environment PPO rollout is the opposite — tiny, sequential,
@@ -63,10 +63,8 @@
 
 use std::time::{Duration, Instant};
 
-use burn::backend::{Flex, Wgpu};
 use burn::tensor::activation::tanh;
-use burn::tensor::backend::{Backend, BackendTypes};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
@@ -118,29 +116,29 @@ impl SweepConfig {
 /// This is the deliberate contrast with the bundled [`FromLandscape`] adapter,
 /// which pulls every genome row to the host and evaluates on the CPU — correct,
 /// but backend-agnostic *because the compute never touches the device*. Here
-/// the entire evaluation stays on `B`'s device as batched tensor ops, so
-/// switching `B` from `Flex` to `Wgpu` genuinely moves the arithmetic from CPU
-/// to GPU. That is what makes the sweep a fair backend comparison rather than
+/// the entire evaluation stays on the given device as batched tensor ops, so
+/// switching from `Flex` to `Wgpu` genuinely moves the arithmetic from CPU to
+/// GPU. That is what makes the sweep a fair backend comparison rather than
 /// a measurement of host-side glue.
 ///
 /// [`FromLandscape`]: rlevo_evolution::fitness::FromLandscape
 #[derive(Debug)]
-struct MlpRegressionFitness<B: Backend> {
+struct MlpRegressionFitness {
     /// Fixed input batch, shape `(samples, in_dim)`, resident on the device.
-    inputs: Tensor<B, 2>,
+    inputs: Tensor<2>,
     /// Fixed regression target, shape `(1, samples)`, broadcast over the pop.
-    target: Tensor<B, 2>,
+    target: Tensor<2>,
     in_dim: usize,
     hidden: usize,
     samples: usize,
 }
 
-impl<B: Backend> MlpRegressionFitness<B> {
+impl MlpRegressionFitness {
     /// Builds the fixed dataset once, on the device. The pattern is arbitrary
     /// but deterministic — a smooth nonlinear surface the MLP can chase — so the
     /// two backends see byte-identical inputs and the comparison is apples to
     /// apples.
-    fn new(cfg: &SweepConfig, device: &<B as BackendTypes>::Device) -> Self {
+    fn new(cfg: &SweepConfig, device: &Device) -> Self {
         let (n, i) = (cfg.samples, cfg.in_dim);
 
         let mut xs = Vec::with_capacity(n * i);
@@ -156,8 +154,8 @@ impl<B: Backend> MlpRegressionFitness<B> {
             ys.push((sum).sin());
         }
 
-        let inputs = Tensor::<B, 2>::from_data(TensorData::new(xs, [n, i]), device);
-        let target = Tensor::<B, 2>::from_data(TensorData::new(ys, [1, n]), device);
+        let inputs = Tensor::<2>::from_data(TensorData::new(xs, [n, i]), device);
+        let target = Tensor::<2>::from_data(TensorData::new(ys, [1, n]), device);
         Self {
             inputs,
             target,
@@ -168,12 +166,8 @@ impl<B: Backend> MlpRegressionFitness<B> {
     }
 }
 
-impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for MlpRegressionFitness<B> {
-    fn evaluate_batch(
-        &mut self,
-        population: &Tensor<B, 2>,
-        _device: &<B as BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
+impl BatchFitnessFn<Tensor<2>> for MlpRegressionFitness {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, _device: &Device) -> Tensor<1> {
         let [pop, _genome_dim] = population.dims();
         let (in_dim, hidden_dim, samples) = (self.in_dim, self.hidden, self.samples);
 
@@ -221,26 +215,23 @@ impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for MlpRegressionFitness<B> {
     }
 }
 
-/// Runs the full GA for `cfg` on backend `B` and returns
+/// Runs the full GA for `cfg` on `device` and returns
 /// `(best_fitness, wall_clock)`.
 ///
-/// This is the whole point of the example: it is written *once*, generic over
-/// `B: Backend`, and called below on both a CPU and a GPU backend with no other
-/// change. A one-off warm-up evaluation precedes the timed loop so the GPU's
+/// This is the whole point of the example: it is written *once*, and called
+/// below on both a CPU and a GPU device with no other change. A one-off warm-up evaluation precedes the timed loop so the GPU's
 /// one-time shader-compilation / autotune cost is not charged to the measured
 /// generations (the CPU backend has no such warm-up, so this only makes the
 /// comparison *fairer* to the GPU).
-fn run<B: Backend>(cfg: &SweepConfig) -> (f32, Duration) {
-    let device = <B as BackendTypes>::Device::default();
-
-    let mut fitness = MlpRegressionFitness::<B>::new(cfg, &device);
+fn run(cfg: &SweepConfig, device: &Device) -> (f32, Duration) {
+    let mut fitness = MlpRegressionFitness::new(cfg, device);
 
     // Warm up the device: compile kernels / run autotune before the clock
     // starts. `into_data()` forces a host sync so the work truly completes.
-    let warm = Tensor::<B, 2>::zeros([cfg.pop_size, cfg.genome_dim()], &device);
-    let _ = fitness.evaluate_batch(&warm, &device).into_data();
+    let warm = Tensor::<2>::zeros([cfg.pop_size, cfg.genome_dim()], device);
+    let _ = fitness.evaluate_batch(&warm, device).into_data();
 
-    let strategy = GeneticAlgorithm::<B>::new();
+    let strategy = GeneticAlgorithm::new();
     let config = GaConfig {
         pop_size: cfg.pop_size,
         genome_dim: cfg.genome_dim(),
@@ -254,7 +245,7 @@ fn run<B: Backend>(cfg: &SweepConfig) -> (f32, Duration) {
     };
 
     let mut evo_loop =
-        EvolutionaryLoop::<B, _, _>::new(strategy, config, fitness, SEED, device, cfg.gens)
+        EvolutionaryLoop::new(strategy, config, fitness, SEED, device.clone(), cfg.gens)
             .expect("valid GA params");
     evo_loop.reset();
 
@@ -276,7 +267,7 @@ fn run<B: Backend>(cfg: &SweepConfig) -> (f32, Duration) {
 
 fn main() {
     println!(
-        "Backend sweep: identical generic `run::<B>()` on Flex (CPU) vs Wgpu (GPU)\n\
+        "Backend sweep: identical `run()` on Flex (CPU) vs Wgpu (GPU)\n\
          gens = {GENS}, in = {IN}, hidden = {HID}, samples = {N}\n",
         IN = 16,
         HID = 128,
@@ -296,9 +287,9 @@ fn main() {
             hidden: 128,
         };
 
-        // The same generic `run` — CPU and GPU differ only by the type argument.
-        let (cpu_best, cpu_t) = run::<Flex>(&cfg);
-        let (gpu_best, gpu_t) = run::<Wgpu>(&cfg);
+        // The same `run` — CPU and GPU differ only by the device.
+        let (cpu_best, cpu_t) = run(&cfg, &Device::flex());
+        let (gpu_best, gpu_t) = run(&cfg, &Device::wgpu(Default::default()));
         let speedup = cpu_t.as_secs_f64() / gpu_t.as_secs_f64().max(f64::MIN_POSITIVE);
 
         println!(
@@ -330,7 +321,7 @@ mod tests {
             in_dim: 4,
             hidden: 8,
         };
-        let (best, elapsed) = run::<Flex>(&cfg);
+        let (best, elapsed) = run(&cfg, &Device::flex());
         assert!(best.is_finite(), "best fitness must be finite, got {best}");
         assert!(
             elapsed.as_nanos() > 0,

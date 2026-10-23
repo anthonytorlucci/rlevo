@@ -89,7 +89,7 @@ pub trait BenchableAgent<Obs, Act> {
 /// trait on a type of its own.
 ///
 /// `rlevo-evolution`'s `FromLandscape` adapter wraps any `Landscape` into
-/// a `BatchFitnessFn<B, Tensor<B, 2>>`, evaluating each population row on
+/// a `BatchFitnessFn<Tensor<2>>`, evaluating each population row on
 /// the host.
 pub trait Landscape: Send + Sync {
     /// Evaluates the landscape at point `x` and returns its scalar cost in the

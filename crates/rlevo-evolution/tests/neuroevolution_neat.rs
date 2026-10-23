@@ -12,8 +12,7 @@
 //! which also drives the structural divergence that creates species, so the two
 //! criteria are coupled by construction.
 
-use burn::backend::Flex;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -23,21 +22,19 @@ use rlevo_evolution::neuroevolution::topology::{
 };
 use rlevo_evolution::{GraphFitnessFn, NeatParams, NeatStrategy};
 
-type B = Flex;
-
 /// XOR fitness: `$4 - \Sigma(\text{out} - \text{target})^2$` over the four binary input rows
 /// (maximization; the optimum is `4.0`, a perfect solver scores `$\geq 3.9$`).
 struct XorFitness {
-    inputs: Tensor<B, 2>,
+    inputs: Tensor<2>,
     targets: [f32; 4],
 }
 
 impl XorFitness {
-    // `device` is borrowed to mirror the production `&B::Device` convention; the
+    // `device` is borrowed to mirror the production `&Device` convention; the
     // Flex test device is zero-sized, hence the targeted allow (cf. arch_nas).
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn new(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
-        let inputs = Tensor::<B, 2>::from_data(
+    fn new(device: &Device) -> Self {
+        let inputs = Tensor::<2>::from_data(
             TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),
             device,
         );
@@ -48,18 +45,14 @@ impl XorFitness {
     }
 }
 
-impl GraphFitnessFn<B> for XorFitness {
-    fn evaluate(
-        &self,
-        population: &[TopologyGenome],
-        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Vec<f32> {
+impl GraphFitnessFn for XorFitness {
+    fn evaluate(&self, population: &[TopologyGenome], _device: &Device) -> Vec<f32> {
         population
             .iter()
             .map(|genome| {
-                let phenotype = InterpretedPhenotype::<B>::new(genome);
+                let phenotype = InterpretedPhenotype::new(genome);
                 let out = phenotype.forward(self.inputs.clone());
-                let values = out.into_data().into_vec::<f32>().unwrap();
+                let values = out.into_data().try_into_vec::<f32>().unwrap();
                 let sse: f32 = values
                     .iter()
                     .zip(self.targets.iter())
@@ -91,9 +84,9 @@ fn test_neat_solves_xor_with_speciation() {
     const MAX_GENERATIONS: usize = 300;
     const SOLVE_THRESHOLD: f32 = 3.9;
 
-    let device = Default::default();
+    let device = Device::flex();
     let params = xor_params(150);
-    let strat = NeatStrategy::<B>::new();
+    let strat = NeatStrategy::new();
     let fitness_fn = XorFitness::new(&device);
 
     let mut rng = StdRng::seed_from_u64(42);
@@ -146,9 +139,9 @@ fn test_neat_solves_xor_with_speciation() {
 fn test_neat_run_is_reproducible_under_fixed_seed() {
     // End-to-end determinism via the public API: two identical seeded runs reach
     // the same best fitness and the same species count after a fixed budget.
-    let device = Default::default();
+    let device = Device::flex();
     let params = xor_params(64);
-    let strat = NeatStrategy::<B>::new();
+    let strat = NeatStrategy::new();
     let fitness_fn = XorFitness::new(&device);
 
     let run = || {
@@ -369,11 +362,11 @@ fn parity_g4() -> TopologyGenome {
 }
 
 /// The four binary XOR input rows as a `[4, 2]` observation batch.
-// `device` is borrowed to mirror the production `&B::Device` convention; the
+// `device` is borrowed to mirror the production `&Device` convention; the
 // Flex test device is zero-sized, hence the targeted allow (cf. `XorFitness`).
 #[allow(clippy::trivially_copy_pass_by_ref)]
-fn parity_obs(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 2> {
-    Tensor::<B, 2>::from_data(
+fn parity_obs(device: &Device) -> Tensor<2> {
+    Tensor::<2>::from_data(
         TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),
         device,
     )
@@ -382,14 +375,14 @@ fn parity_obs(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Te
 /// Ground truth: run the interpreted phenotype per genome and concatenate the
 /// flattened `[batch, num_outputs]` outputs in population order (matching the
 /// dense evaluator's `[pop, batch, action]` row-major layout).
-fn interpreted_stacked(genomes: &[TopologyGenome], obs: &Tensor<B, 2>) -> Vec<f32> {
+fn interpreted_stacked(genomes: &[TopologyGenome], obs: &Tensor<2>) -> Vec<f32> {
     let mut out: Vec<f32> = Vec::new();
     for genome in genomes {
-        let pheno = InterpretedPhenotype::<B>::new(genome);
+        let pheno = InterpretedPhenotype::new(genome);
         let row = pheno
             .forward(obs.clone())
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .unwrap();
         out.extend(row);
     }
@@ -401,7 +394,7 @@ fn interpreted_stacked(genomes: &[TopologyGenome], obs: &Tensor<B, 2>) -> Vec<f3
 /// two-hidden-layer genome, a disabled edge, and padding.
 #[test]
 fn test_dense_padded_matches_interpreted_population() {
-    let device = Default::default();
+    let device = Device::flex();
     let genomes = parity_population();
     let obs = parity_obs(&device);
 
@@ -409,7 +402,7 @@ fn test_dense_padded_matches_interpreted_population() {
     let got = DensePaddedEvaluator::default()
         .evaluate_population(&genomes, obs, &device)
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .unwrap();
 
     assert_eq!(
@@ -425,7 +418,7 @@ fn test_dense_padded_matches_interpreted_population() {
 /// A single-genome population evaluates identically to the interpreted path.
 #[test]
 fn test_dense_padded_matches_interpreted_single_genome() {
-    let device = Default::default();
+    let device = Device::flex();
     let genomes = vec![parity_population().remove(2)]; // the deep two-hidden genome
     let obs = parity_obs(&device);
 
@@ -433,7 +426,7 @@ fn test_dense_padded_matches_interpreted_single_genome() {
     let got = DensePaddedEvaluator::default()
         .evaluate_population(&genomes, obs, &device)
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .unwrap();
 
     for (g, e) in got.iter().zip(expected.iter()) {
@@ -444,14 +437,14 @@ fn test_dense_padded_matches_interpreted_single_genome() {
 /// The node-budget ceiling binds exactly at the largest genome's node count.
 #[test]
 fn test_dense_padded_cap_boundary_is_inclusive() {
-    let device = Default::default();
+    let device = Device::flex();
     let genomes = parity_population(); // largest genome has 5 nodes
     let obs = parity_obs(&device);
     // cap == max node count must succeed (inclusive bound).
     let got = DensePaddedEvaluator::new(5)
         .evaluate_population(&genomes, obs, &device)
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .unwrap();
     let expected = interpreted_stacked(&genomes, &parity_obs(&device));
     for (g, e) in got.iter().zip(expected.iter()) {
@@ -464,7 +457,7 @@ fn test_dense_padded_cap_boundary_is_inclusive() {
 #[test]
 #[should_panic(expected = "exceeding max_nodes_cap")]
 fn test_dense_padded_panics_over_cap() {
-    let device = Default::default();
+    let device = Device::flex();
     let genomes = parity_population(); // largest genome has 5 nodes
     let obs = parity_obs(&device);
     let _ = DensePaddedEvaluator::new(4).evaluate_population(&genomes, obs, &device);
@@ -477,7 +470,7 @@ fn test_dense_padded_panics_over_cap() {
 fn test_batch_graph_fitness_matches_interpreted_fitness() {
     use rlevo_evolution::BatchGraphFitness;
 
-    let device = Default::default();
+    let device = Device::flex();
     let genomes = parity_population();
     let obs = parity_obs(&device);
     let targets = [0.0f32, 1.0, 1.0, 0.0];

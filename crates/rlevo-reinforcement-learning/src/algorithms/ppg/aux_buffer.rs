@@ -29,10 +29,8 @@
 //! sampling used in `CleanRL`'s `ppg_procgen.py` is a follow-up once
 //! benchmarks demand it.
 
-use burn::tensor::Tensor;
 use burn::tensor::TensorData;
-use burn::tensor::backend::Backend;
-use std::marker::PhantomData;
+use burn::tensor::{Device, Tensor};
 
 use rlevo_core::base::{Observation, TensorConvertible};
 
@@ -47,21 +45,17 @@ pub struct AuxRolloutSlice<O> {
 
 /// Accumulates [`AuxRolloutSlice`]s until the auxiliary phase is ready to run.
 #[derive(Debug)]
-pub struct AuxRolloutBuffer<B: Backend, O> {
+pub struct AuxRolloutBuffer<O> {
     slices: Vec<AuxRolloutSlice<O>>,
-    _marker: PhantomData<B>,
 }
 
-impl<B: Backend, O> Default for AuxRolloutBuffer<B, O> {
+impl<O> Default for AuxRolloutBuffer<O> {
     fn default() -> Self {
-        Self {
-            slices: Vec::new(),
-            _marker: PhantomData,
-        }
+        Self { slices: Vec::new() }
     }
 }
 
-impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
+impl<O: Clone> AuxRolloutBuffer<O> {
     /// Creates an empty buffer.
     #[must_use]
     pub fn new() -> Self {
@@ -132,13 +126,14 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
     /// Materialises a minibatch of `indices` into device tensors.
     ///
     /// Returns `(obs_tensor: [k, ..obs_shape], returns_tensor: [k])`.
+    #[must_use]
     pub fn gather_minibatch<const R: usize, const BR: usize>(
         &self,
         indices: &[usize],
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, BR>, Tensor<B, 1>)
+        device: &Device,
+    ) -> (Tensor<BR>, Tensor<1>)
     where
-        O: Observation<R> + TensorConvertible<R, B>,
+        O: Observation<R> + TensorConvertible<R>,
     {
         let n = indices.len();
         let obs_shape = O::shape();
@@ -157,9 +152,9 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
         let mut batched_shape: Vec<usize> = Vec::with_capacity(BR);
         batched_shape.push(n);
         batched_shape.extend_from_slice(&obs_shape);
-        let obs_tensor: Tensor<B, BR> =
+        let obs_tensor: Tensor<BR> =
             Tensor::from_data(TensorData::new(obs_flat, batched_shape), device);
-        let returns_tensor: Tensor<B, 1> =
+        let returns_tensor: Tensor<1> =
             Tensor::from_data(TensorData::new(returns, vec![n]), device);
         (obs_tensor, returns_tensor)
     }
@@ -187,7 +182,6 @@ mod tests {
     #![allow(clippy::float_cmp)]
     use super::*;
     use rlevo_core::base::HostRow;
-    type TestBackend = burn::backend::Flex;
 
     #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
     struct TestObs([f32; 2]);
@@ -208,7 +202,7 @@ mod tests {
     // constants declared in this test, far below f32's 2^24 exact-integer limit,
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
-    fn push(buf: &mut AuxRolloutBuffer<TestBackend, TestObs>, n: usize) {
+    fn push(buf: &mut AuxRolloutBuffer<TestObs>, n: usize) {
         let obs: Vec<TestObs> = (0..n)
             .map(|i| TestObs([i as f32, i as f32 + 0.5]))
             .collect();
@@ -218,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_ppg_aux_buffer_accumulates_and_drains() {
-        let mut buf: AuxRolloutBuffer<TestBackend, TestObs> = AuxRolloutBuffer::new();
+        let mut buf: AuxRolloutBuffer<TestObs> = AuxRolloutBuffer::new();
         assert!(!buf.is_ready(3));
         push(&mut buf, 4);
         push(&mut buf, 4);
@@ -233,9 +227,8 @@ mod tests {
 
     #[test]
     fn test_ppg_aux_buffer_gather_minibatch_shapes() {
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
-        let mut buf: AuxRolloutBuffer<TestBackend, TestObs> = AuxRolloutBuffer::new();
+        let device: Device = Device::flex();
+        let mut buf: AuxRolloutBuffer<TestObs> = AuxRolloutBuffer::new();
         push(&mut buf, 3);
         push(&mut buf, 3);
         let (o, r) = buf.gather_minibatch::<1, 2>(&[0, 2, 3, 5], &device);
@@ -245,9 +238,8 @@ mod tests {
 
     #[test]
     fn test_ppg_aux_buffer_gather_minibatch_preserves_row_values() {
-        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
-            Default::default();
-        let mut buf: AuxRolloutBuffer<TestBackend, TestObs> = AuxRolloutBuffer::new();
+        let device: Device = Device::flex();
+        let mut buf: AuxRolloutBuffer<TestObs> = AuxRolloutBuffer::new();
         push(&mut buf, 3);
         let (_, r) = buf.gather_minibatch::<1, 2>(&[0, 1, 2], &device);
         let d = r.into_data().convert::<f32>();
@@ -257,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_ppg_aux_buffer_obs_at_spans_slices() {
-        let mut buf: AuxRolloutBuffer<TestBackend, TestObs> = AuxRolloutBuffer::new();
+        let mut buf: AuxRolloutBuffer<TestObs> = AuxRolloutBuffer::new();
         push(&mut buf, 2); // indices 0, 1
         push(&mut buf, 3); // indices 2, 3, 4
         assert_eq!(buf.obs_at(0).0, [0.0, 0.5]);

@@ -6,7 +6,7 @@
 //! depend on these primitives.
 
 #[cfg(feature = "burn")]
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use std::fmt::Debug;
 
 /// The `Observation` trait defines how an agent perceives the world. It
@@ -103,9 +103,9 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
 ///
 /// This is the layout half of tensor conversion: how an observation flattens
 /// into a row-major `f32` row. The row's shape is the observation's own
-/// [`Observation::shape`], so it is stated once. Neither depends on which Burn
-/// backend the row is eventually uploaded to, so this trait carries **no** `B`
-/// parameter and names nothing from Burn.
+/// [`Observation::shape`], so it is stated once. Neither depends on which
+/// device the row is eventually uploaded to, so this trait names nothing from
+/// Burn.
 ///
 /// Only an observation writes a row: no learner converts an action or a state
 /// to a tensor. Actions reach a network through
@@ -146,7 +146,6 @@ pub trait HostRow<const R: usize>: Observation<R> {
     /// - Push **plain `f32`** — do *not* pre-convert to a backend element type.
     ///   Burn's `TensorData::new` performs the element-type conversion at upload
     ///   time.
-    ///   This trait has no backend parameter, so there is nothing to convert to.
     /// - **Append**; never clear or truncate `buf`. Batch staging relies on
     ///   successive rows being concatenated into one contiguous buffer.
     ///
@@ -160,10 +159,11 @@ pub trait HostRow<const R: usize>: Observation<R> {
     /// asks whether the `f32` payload [`write_host_row`] produces is safe to
     /// upload. A caller uses it as an admission predicate at a data-ingestion
     /// boundary (ADR 0067): a replay buffer drops a transition whose
-    /// observation row is non-finite, because a poisoned row cannot be
-    /// detected downstream — on the CPU backend `relu` maps `NaN` to `0.0`, so
-    /// the network yields a finite, in-domain, `is_valid()` action from an
-    /// erased observation and no loss, Q-value, or action check ever fires.
+    /// observation row is non-finite, because downstream checks see a poisoned
+    /// row's effect at best, never its cause: it surfaces as a skipped
+    /// non-finite loss or an invalid action, and on a backend whose `relu` maps
+    /// `NaN` to `0.0` (Burn 0.21's CPU backend did) the network erases it into
+    /// a finite, in-domain, `is_valid()` action that no check sees.
     ///
     /// # Arguments
     ///
@@ -255,9 +255,8 @@ fn row_slice_is_finite(buf: &[f32]) -> bool {
 /// # Type Parameters
 ///
 /// - `R`: Rank of the tensor produced.
-/// - `B`: Burn backend.
 #[cfg(feature = "burn")]
-pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> {
+pub trait TensorConvertible<const R: usize>: HostRow<R> {
     /// Converts `self` into a tensor on `device`.
     ///
     /// Stages one row into a host `Vec<f32>` with [`write_host_row`] and uploads
@@ -267,10 +266,7 @@ pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> {
     ///
     /// [`shape`]: Observation::shape
     /// [`write_host_row`]: HostRow::write_host_row
-    fn to_tensor(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, R> {
+    fn to_tensor(&self, device: &Device) -> Tensor<R> {
         let row: [usize; R] = Self::shape();
         let mut buf: Vec<f32> = Vec::with_capacity(row.iter().product());
         self.write_host_row(&mut buf);
@@ -280,7 +276,7 @@ pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> {
 }
 
 #[cfg(feature = "burn")]
-impl<const R: usize, B: Backend, T: HostRow<R>> TensorConvertible<R, B> for T {}
+impl<const R: usize, T: HostRow<R>> TensorConvertible<R> for T {}
 
 #[cfg(test)]
 mod tests {
@@ -329,10 +325,6 @@ mod tests {
     #[cfg(feature = "burn")]
     mod to_tensor {
         use super::*;
-        use burn::backend::Flex;
-
-        /// Backend used by the tensor-conversion tests.
-        type TcB = Flex;
 
         /// Rank-1 test row: three scalar features, shape `[3]`.
         #[derive(Clone, Debug)]
@@ -370,21 +362,20 @@ mod tests {
         /// `Tensor::from_floats` path for a rank-1 row.
         #[test]
         fn test_derived_to_tensor_rank1_matches_manual() {
-            let device: <TcB as burn::tensor::backend::BackendTypes>::Device = Default::default();
+            let device: Device = Device::flex();
             let item: Vec3 = Vec3(1.5, -2.5, 3.5);
 
-            let derived: Tensor<TcB, 1> =
-                <Vec3 as TensorConvertible<1, TcB>>::to_tensor(&item, &device);
-            let manual: Tensor<TcB, 1> = Tensor::from_floats([1.5_f32, -2.5, 3.5], &device);
+            let derived: Tensor<1> = <Vec3 as TensorConvertible<1>>::to_tensor(&item, &device);
+            let manual: Tensor<1> = Tensor::from_floats([1.5_f32, -2.5, 3.5], &device);
 
             assert_eq!(derived.dims(), manual.dims());
             let derived_v: Vec<f32> = derived
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("f32 host read of a tensor this test just built");
             let manual_v: Vec<f32> = manual
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("f32 host read of a tensor this test just built");
             assert_eq!(derived_v, manual_v);
         }
@@ -393,12 +384,11 @@ mod tests {
         /// `TensorData::new` path for a rank-3 row.
         #[test]
         fn test_derived_to_tensor_rank3_matches_manual() {
-            let device: <TcB as burn::tensor::backend::BackendTypes>::Device = Default::default();
+            let device: Device = Device::flex();
             let item: Img = Img([0.1, 0.2, 0.3, 0.4]);
 
-            let derived: Tensor<TcB, 3> =
-                <Img as TensorConvertible<3, TcB>>::to_tensor(&item, &device);
-            let manual: Tensor<TcB, 3> = Tensor::from_data(
+            let derived: Tensor<3> = <Img as TensorConvertible<3>>::to_tensor(&item, &device);
+            let manual: Tensor<3> = Tensor::from_data(
                 TensorData::new(vec![0.1_f32, 0.2, 0.3, 0.4], [2, 2, 1]),
                 &device,
             );
@@ -406,11 +396,11 @@ mod tests {
             assert_eq!(derived.dims(), manual.dims());
             let derived_v: Vec<f32> = derived
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("f32 host read of a tensor this test just built");
             let manual_v: Vec<f32> = manual
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("f32 host read of a tensor this test just built");
             assert_eq!(derived_v, manual_v);
         }

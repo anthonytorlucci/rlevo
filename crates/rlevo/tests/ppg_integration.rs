@@ -11,9 +11,8 @@
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Device, Tensor};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -33,7 +32,7 @@ use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::baseline::{random_return, uniform_discrete};
 use rlevo_test_support::capture::FieldCapture;
 use rlevo_test_support::env::cartpole_seeded;
-use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
@@ -42,18 +41,14 @@ use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
-struct ValueMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+struct ValueMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> ValueMlp<B> {
-    fn new(
-        obs_dim: usize,
-        hidden: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl ValueMlp {
+    fn new(obs_dim: usize, hidden: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -61,15 +56,15 @@ impl<B: Backend> ValueMlp<B> {
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<1> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
         self.head.forward(h).squeeze_dim::<1>(1)
     }
 }
 
-impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+impl PpoValue<2> for ValueMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs)
     }
 }
@@ -94,15 +89,15 @@ fn make_cart_pole_agent(
     num_steps: usize,
     total_timesteps: usize,
     n_iteration: usize,
-) -> PpgAgent<Be, PpgCategoricalPolicyHead<Be>, ValueMlp<Be>, CartPoleObservation, 1, 2> {
-    let device = seeded_device::<Be>(seed);
+) -> PpgAgent<PpgCategoricalPolicyHead, ValueMlp, CartPoleObservation, 1, 2> {
+    let device = seeded_device(seed);
 
     let policy = PpgCategoricalPolicyHeadConfig {
         obs_dim: 4,
         hidden: 64,
         num_actions: 2,
     }
-    .try_init::<Be>(&device)
+    .try_init(&device)
     .expect("valid head config");
     let value = ValueMlp::new(4, 64, &device);
 
@@ -137,10 +132,8 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, 128, total, 32);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
     let stats = agent.stats();
     TrainOutcome {
         avg_score: stats.avg_score().unwrap_or(0.0),
@@ -162,10 +155,8 @@ fn ppg_without_aux_phase_matches_ppo_baseline() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, 10_000);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
     assert!(
         agent.last_aux_phase().is_none(),
         "aux phase should not have fired with n_iteration=10000"
@@ -214,10 +205,8 @@ fn ppg_aux_phase_actually_runs() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, n_iteration);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
     assert!(
         agent.iteration() >= n_iteration,
         "should have completed at least n_iteration={n_iteration} policy phases, got {}",
@@ -277,10 +266,8 @@ fn ppg_cartpole_produces_finite_rewards() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, 4);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
+    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+        .expect("training");
     let history = agent.stats().recent_history();
     assert_all_finite(
         "reward",
@@ -323,10 +310,8 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
-    train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
-        &mut agent, &mut env, &mut rng, TOTAL, 0,
-    )
-    .expect("training");
+    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, TOTAL, 0)
+        .expect("training");
 
     // The run must actually reach the terminal iteration, or the regression
     // below is checking an interior aux phase that never had the bug.
@@ -470,7 +455,7 @@ fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
         let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
-        train_discrete::<Be, _, _, _, _, CartPoleAction, 1, 2>(
+        train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(
             &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
         )
         .expect("training");

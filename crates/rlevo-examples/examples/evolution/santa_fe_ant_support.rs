@@ -4,7 +4,7 @@
 //! small **recurrent** policy on the artificial-ant POMDP **with no new genome
 //! representation**. The classic ant is a genetic-programming benchmark whose
 //! solution is a program tree; we do not add one. Every phase-1 strategy in
-//! `rlevo-evolution` already evolves a flat `f32` vector (`Tensor<B, 2>`), so we
+//! `rlevo-evolution` already evolves a flat `f32` vector (`Tensor<2>`), so we
 //! keep it: define a recurrent net, flatten its weights into that same vector
 //! ([`ModuleReshaper`]), evolve with any unchanged strategy, and
 //! score by un-flattening back into a net and running it as the ant's policy.
@@ -37,9 +37,8 @@
 use burn::module::Module;
 use burn::nn::gru::{Gru, GruConfig};
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
-use burn::tensor::backend::Backend;
+use burn::tensor::{Device, Tensor};
 
 use rand::RngExt;
 use rand::rngs::StdRng;
@@ -108,16 +107,16 @@ const SOLVED: f32 = TOTAL_PELLETS as f32;
 /// state as a runtime tensor passed in/out (not module-stored), so its weights
 /// flatten/round-trip through [`ModuleReshaper`] exactly like an MLP's.
 #[derive(Module, Debug)]
-pub struct GruAntPolicy<B: Backend> {
-    gru: Gru<B>,
-    head: Linear<B>,
+pub struct GruAntPolicy {
+    gru: Gru,
+    head: Linear,
 }
 
-impl<B: Backend> GruAntPolicy<B> {
+impl GruAntPolicy {
     /// Build a fresh template. Only the *shape* matters — evolution overwrites the
     /// weights at every `unflatten`, so the initializer is irrelevant to search.
     #[must_use]
-    pub fn new(device: &B::Device) -> Self {
+    pub fn new(device: &Device) -> Self {
         Self {
             gru: GruConfig::new(1, GRU_HIDDEN, true).init(device),
             head: LinearConfig::new(GRU_HIDDEN, 3)
@@ -127,12 +126,12 @@ impl<B: Backend> GruAntPolicy<B> {
     }
 }
 
-impl<B: Backend> AntPolicy<B> for GruAntPolicy<B> {
+impl AntPolicy for GruAntPolicy {
     fn hidden_size(&self) -> usize {
         self.gru.d_hidden
     }
 
-    fn step(&self, food_ahead: bool, h: &mut Tensor<B, 2>, device: &B::Device) -> [f32; 3] {
+    fn step(&self, food_ahead: bool, h: &mut Tensor<2>, device: &Device) -> [f32; 3] {
         let x = encode_percept(food_ahead, device).reshape([1, 1, 1]);
         let out = self.gru.forward(x, Some(h.clone())); // [1, 1, H]
         let new_h = out.reshape([1, self.gru.d_hidden]); // [1, H]
@@ -151,19 +150,19 @@ impl<B: Backend> AntPolicy<B> for GruAntPolicy<B> {
 /// [`recurrent`]: ElmanAntPolicy::recurrent
 /// [`output`]: ElmanAntPolicy::output
 #[derive(Module, Debug)]
-pub struct ElmanAntPolicy<B: Backend> {
+pub struct ElmanAntPolicy {
     /// `W_x`: input → hidden.
-    input: Linear<B>,
+    input: Linear,
     /// `W_h`: hidden → hidden (recurrent).
-    recurrent: Linear<B>,
+    recurrent: Linear,
     /// `W_o`: hidden → 3 action logits.
-    output: Linear<B>,
+    output: Linear,
 }
 
-impl<B: Backend> ElmanAntPolicy<B> {
+impl ElmanAntPolicy {
     /// Build a fresh template (shape only; weights are evolved).
     #[must_use]
-    pub fn new(device: &B::Device) -> Self {
+    pub fn new(device: &Device) -> Self {
         Self {
             input: LinearConfig::new(1, ELMAN_HIDDEN)
                 .with_bias(true)
@@ -178,13 +177,13 @@ impl<B: Backend> ElmanAntPolicy<B> {
     }
 }
 
-impl<B: Backend> AntPolicy<B> for ElmanAntPolicy<B> {
+impl AntPolicy for ElmanAntPolicy {
     fn hidden_size(&self) -> usize {
         // `output` weight has shape [H, 3]; its leading dim is the hidden width.
         self.output.weight.val().dims()[0]
     }
 
-    fn step(&self, food_ahead: bool, h: &mut Tensor<B, 2>, device: &B::Device) -> [f32; 3] {
+    fn step(&self, food_ahead: bool, h: &mut Tensor<2>, device: &Device) -> [f32; 3] {
         let x = encode_percept(food_ahead, device).reshape([1, 1]); // [1, 1]
         let pre = self.input.forward(x) + self.recurrent.forward(h.clone()); // [1, H]
         let new_h = tanh(pre);
@@ -196,31 +195,31 @@ impl<B: Backend> AntPolicy<B> for ElmanAntPolicy<B> {
 
 /// A recurrent ant policy: one env step advances internal state and emits three
 /// action logits (`Move`, `TurnLeft`, `TurnRight`).
-pub trait AntPolicy<B: Backend> {
+pub trait AntPolicy {
     /// Hidden-state width `H`.
     fn hidden_size(&self) -> usize;
 
     /// Advance the recurrence by one step (mutating `h` in place) and return the
     /// action logits for the current `food_ahead` percept.
-    fn step(&self, food_ahead: bool, h: &mut Tensor<B, 2>, device: &B::Device) -> [f32; 3];
+    fn step(&self, food_ahead: bool, h: &mut Tensor<2>, device: &Device) -> [f32; 3];
 
     /// Zero-initialised hidden state `[1, H]`.
-    fn init_hidden(&self, device: &B::Device) -> Tensor<B, 2> {
+    fn init_hidden(&self, device: &Device) -> Tensor<2> {
         Tensor::zeros([1, self.hidden_size()], device)
     }
 }
 
 /// Encode the one-bit percept as a length-1 float tensor.
-fn encode_percept<B: Backend>(food_ahead: bool, device: &B::Device) -> Tensor<B, 1> {
+fn encode_percept(food_ahead: bool, device: &Device) -> Tensor<1> {
     let v = if food_ahead { 1.0_f32 } else { 0.0_f32 };
-    Tensor::<B, 1>::from_floats([v], device)
+    Tensor::<1>::from_floats([v], device)
 }
 
 /// Extract three logits from a `[1, 3]` tensor.
-fn to_logits3<B: Backend>(logits: Tensor<B, 2>) -> [f32; 3] {
+fn to_logits3(logits: Tensor<2>) -> [f32; 3] {
     let data = logits.into_data();
     let v = data
-        .to_vec::<f32>()
+        .try_to_vec::<f32>()
         .expect("policy head must yield 3 f32 logits");
     [v[0], v[1], v[2]]
 }
@@ -270,16 +269,15 @@ pub fn softmax_sample(logits: &[f32; 3], rng: &mut StdRng) -> usize {
 /// `select` maps the three action logits to an action index; it receives `rng`
 /// so a stochastic selector can sample. Deterministic callers pass an argmax
 /// selector that ignores `rng`.
-pub fn rollout_pellets<B, P>(
+pub fn rollout_pellets<P>(
     policy: &P,
     select: impl Fn(&[f32; 3], &mut StdRng) -> usize,
     rng: &mut StdRng,
     max_steps: usize,
-    device: &B::Device,
+    device: &Device,
 ) -> f32
 where
-    B: Backend,
-    P: AntPolicy<B>,
+    P: AntPolicy,
 {
     let mut env = SantaFeAnt::with_config(SantaFeAntConfig {
         max_steps,
@@ -315,33 +313,27 @@ pub enum ScoreMode {
 /// every capture is immutable and any RNG is constructed *inside* per call, so the
 /// same genome always scores identically.
 #[allow(clippy::cast_precision_loss)] // seed counts are tiny; exact in f32
-pub fn make_scorer<B, P>(
+pub fn make_scorer<P>(
     mode: ScoreMode,
     base_seed: u64,
     max_steps: usize,
-    device: B::Device,
+    device: Device,
 ) -> impl Fn(&P) -> f32 + Send
 where
-    B: Backend,
-    P: AntPolicy<B>,
+    P: AntPolicy,
 {
     move |policy: &P| -> f32 {
         match mode {
             ScoreMode::Deterministic => {
                 let mut rng = seed_stream(base_seed, 0, SeedPurpose::Trial);
-                rollout_pellets::<B, P>(policy, |l, _r| argmax3(l), &mut rng, max_steps, &device)
+                rollout_pellets::<P>(policy, |l, _r| argmax3(l), &mut rng, max_steps, &device)
             }
             ScoreMode::Stochastic { seeds } => {
                 let mut total = 0.0_f32;
                 for s in 0..seeds {
                     let mut rng = seed_stream(base_seed, s as u64, SeedPurpose::Trial);
-                    total += rollout_pellets::<B, P>(
-                        policy,
-                        softmax_sample,
-                        &mut rng,
-                        max_steps,
-                        &device,
-                    );
+                    total +=
+                        rollout_pellets::<P>(policy, softmax_sample, &mut rng, max_steps, &device);
                 }
                 total / seeds as f32
             }
@@ -368,21 +360,20 @@ pub struct RunSummary {
 
 /// Drive an [`EvolutionaryLoop`] to its generation budget and summarise.
 #[allow(clippy::too_many_arguments)] // a thin example driver; bundling these into a struct adds noise
-pub fn run_strategy<B, S, M, F>(
+pub fn run_strategy<S, M, F>(
     label: &str,
     strategy: S,
     params: S::Params,
-    fitness: ModuleEvalFn<B, M, F>,
+    fitness: ModuleEvalFn<M, F>,
     seed: u64,
-    device: B::Device,
+    device: Device,
     max_gens: usize,
     pop: usize,
 ) -> RunSummary
 where
-    B: Backend,
-    S: Strategy<B, Genome = Tensor<B, 2>>,
+    S: Strategy<Genome = Tensor<2>>,
     S::Params: rlevo_core::config::Validate,
-    M: Module<B>,
+    M: Module,
     F: Fn(&M) -> f32 + Send,
 {
     let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness, seed, device, max_gens)
@@ -413,25 +404,24 @@ where
 /// `template`, scored by `mode`. Returns one [`RunSummary`] per strategy.
 ///
 /// `M` is the recurrent policy module, an [`AntPolicy`] (the scorer).
-pub fn evolve_all<B, M>(
+pub fn evolve_all<M>(
     arch: &str,
     template: &M,
     mode: ScoreMode,
     base_seed: u64,
     pop: usize,
     gens: usize,
-    device: &B::Device,
+    device: &Device,
 ) -> Vec<RunSummary>
 where
-    B: Backend,
-    M: Module<B> + AntPolicy<B>,
+    M: Module + AntPolicy,
 {
     // Single-source width: one reshaper feeds `dim` and every per-seed fitness
     // adapter (via `reshaper.clone()`), so the GaConfig genome width and the
     // evaluator's `num_params` agree by construction.
     let reshaper = ModuleReshaper::new(template.clone());
     let dim = reshaper.num_params();
-    let scorer = |seed: u64| make_scorer::<B, M>(mode, seed, MAX_STEPS, device.clone());
+    let scorer = |seed: u64| make_scorer::<M>(mode, seed, MAX_STEPS, device.clone());
     let fitness = |seed: u64| ModuleEvalFn::new(reshaper.clone(), scorer(seed));
     let mut out = Vec::new();
 
@@ -441,7 +431,7 @@ where
         cfg.bounds = GENOME_BOUNDS;
         out.push(run_strategy(
             &format!("{arch}/GA"),
-            GeneticAlgorithm::<B>::new(),
+            GeneticAlgorithm::new(),
             cfg,
             fitness(base_seed),
             base_seed,
@@ -461,7 +451,7 @@ where
         };
         out.push(run_strategy(
             &format!("{arch}/EDA"),
-            EdaStrategy::<B, _>::new(UnivariateGaussian),
+            EdaStrategy::new(UnivariateGaussian),
             params,
             fitness(base_seed + 1),
             base_seed + 1,
@@ -477,7 +467,7 @@ where
         let cma_pop = cfg.pop_size;
         out.push(run_strategy(
             &format!("{arch}/CMA-ES"),
-            CmaEs::<B>::new(),
+            CmaEs::new(),
             cfg,
             fitness(base_seed + 2),
             base_seed + 2,
@@ -490,8 +480,7 @@ where
     // --- Memetic (GA + hill-climbing local search) ------------------------
     {
         let inner_fitness = fitness(base_seed + 3);
-        let memetic =
-            MemeticWrapper::new(GeneticAlgorithm::<B>::new(), HillClimbing, inner_fitness);
+        let memetic = MemeticWrapper::new(GeneticAlgorithm::new(), HillClimbing, inner_fitness);
         let mut ga = GaConfig::default_for(pop, dim);
         ga.bounds = GENOME_BOUNDS;
         let params = MemeticParams {
@@ -517,17 +506,14 @@ where
 
 /// Run a single short GA on the GRU policy. Used by the cross-crate agent test as
 /// a fast, self-contained "does evolution find a memory policy" probe.
-pub fn quick_evolve_gru<B>(
+pub fn quick_evolve_gru(
     mode: ScoreMode,
     seed: u64,
     pop: usize,
     gens: usize,
-    device: &B::Device,
-) -> RunSummary
-where
-    B: Backend,
-{
-    let template = GruAntPolicy::<B>::new(device);
+    device: &Device,
+) -> RunSummary {
+    let template = GruAntPolicy::new(device);
     // Single-source width: one reshaper feeds both `dim` and the fitness adapter
     // (moved in below), so the GaConfig width and the evaluator's `num_params`
     // agree by construction.
@@ -537,11 +523,11 @@ where
     cfg.bounds = GENOME_BOUNDS;
     let fitness = ModuleEvalFn::new(
         reshaper,
-        make_scorer::<B, GruAntPolicy<B>>(mode, seed, MAX_STEPS, device.clone()),
+        make_scorer::<GruAntPolicy>(mode, seed, MAX_STEPS, device.clone()),
     );
     run_strategy(
         "GRU/GA",
-        GeneticAlgorithm::<B>::new(),
+        GeneticAlgorithm::new(),
         cfg,
         fitness,
         seed,
@@ -584,26 +570,22 @@ pub fn print_results_table(rows: &[RunSummary]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
-    use burn::tensor::backend::BackendTypes;
 
-    type B = Flex;
-
-    fn device() -> <B as BackendTypes>::Device {
-        Default::default()
+    fn device() -> Device {
+        Device::flex()
     }
 
     /// Weights survive a flatten → unflatten → flatten round-trip for both archs.
     #[test]
     fn weights_round_trip_gru() {
         let dev = device();
-        let template = GruAntPolicy::<B>::new(&dev);
+        let template = GruAntPolicy::new(&dev);
         let reshaper = ModuleReshaper::new(template.clone());
         let flat = reshaper.flatten(&template, &dev);
         let rebuilt = reshaper.unflatten(flat.clone());
         let reflat = reshaper.flatten(&rebuilt, &dev);
-        let a = flat.into_data().to_vec::<f32>().unwrap();
-        let b = reflat.into_data().to_vec::<f32>().unwrap();
+        let a = flat.into_data().try_to_vec::<f32>().unwrap();
+        let b = reflat.into_data().try_to_vec::<f32>().unwrap();
         assert_eq!(a.len(), b.len());
         for (x, y) in a.iter().zip(b.iter()) {
             assert!(
@@ -616,13 +598,13 @@ mod tests {
     #[test]
     fn weights_round_trip_elman() {
         let dev = device();
-        let template = ElmanAntPolicy::<B>::new(&dev);
+        let template = ElmanAntPolicy::new(&dev);
         let reshaper = ModuleReshaper::new(template.clone());
         let flat = reshaper.flatten(&template, &dev);
         let rebuilt = reshaper.unflatten(flat.clone());
         let reflat = reshaper.flatten(&rebuilt, &dev);
-        let a = flat.into_data().to_vec::<f32>().unwrap();
-        let b = reflat.into_data().to_vec::<f32>().unwrap();
+        let a = flat.into_data().try_to_vec::<f32>().unwrap();
+        let b = reflat.into_data().try_to_vec::<f32>().unwrap();
         for (x, y) in a.iter().zip(b.iter()) {
             assert!((x - y).abs() < 1e-6);
         }
@@ -632,10 +614,9 @@ mod tests {
     #[test]
     fn rollout_in_range() {
         let dev = device();
-        let policy = GruAntPolicy::<B>::new(&dev);
+        let policy = GruAntPolicy::new(&dev);
         let mut rng = seed_stream(7, 0, SeedPurpose::Trial);
-        let pellets =
-            rollout_pellets::<B, _>(&policy, |l, _r| argmax3(l), &mut rng, MAX_STEPS, &dev);
+        let pellets = rollout_pellets(&policy, |l, _r| argmax3(l), &mut rng, MAX_STEPS, &dev);
         assert!(
             (0.0..=SOLVED).contains(&pellets),
             "pellets out of range: {pellets}"
@@ -647,9 +628,9 @@ mod tests {
     #[test]
     fn recurrence_carries_state_gru() {
         let dev = device();
-        let policy = GruAntPolicy::<B>::new(&dev);
+        let policy = GruAntPolicy::new(&dev);
         let mut h_zero = policy.init_hidden(&dev);
-        let mut h_warm = Tensor::<B, 2>::ones([1, GRU_HIDDEN], &dev) * 0.5;
+        let mut h_warm = Tensor::<2>::ones([1, GRU_HIDDEN], &dev) * 0.5;
         let from_zero = policy.step(false, &mut h_zero, &dev);
         let from_warm = policy.step(false, &mut h_warm, &dev);
         let differs = (0..3).any(|i| (from_zero[i] - from_warm[i]).abs() > 1e-6);
@@ -659,9 +640,9 @@ mod tests {
     #[test]
     fn recurrence_carries_state_elman() {
         let dev = device();
-        let policy = ElmanAntPolicy::<B>::new(&dev);
+        let policy = ElmanAntPolicy::new(&dev);
         let mut h_zero = policy.init_hidden(&dev);
-        let mut h_warm = Tensor::<B, 2>::ones([1, ELMAN_HIDDEN], &dev) * 0.5;
+        let mut h_warm = Tensor::<2>::ones([1, ELMAN_HIDDEN], &dev) * 0.5;
         let from_zero = policy.step(false, &mut h_zero, &dev);
         let from_warm = policy.step(false, &mut h_warm, &dev);
         let differs = (0..3).any(|i| (from_zero[i] - from_warm[i]).abs() > 1e-6);

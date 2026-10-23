@@ -1,6 +1,6 @@
 //! Differential Evolution.
 //!
-//! Classical DE over `Tensor<B, 2>` populations with all common
+//! Classical DE over `Tensor<2>` populations with all common
 //! mutation/crossover variants enumerated in [`DeVariant`].
 //!
 //! # Variants
@@ -27,9 +27,7 @@
 //!   Efficient Heuristic for Global Optimization over Continuous
 //!   Spaces*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 use rlevo_core::bounds::Bounds;
@@ -157,9 +155,9 @@ impl Validate for DeConfig {
 /// `best_genome`/`best_fitness` are initialized. Subsequent
 /// ask/tell cycles produce and evaluate trial vectors.
 #[derive(Debug, Clone)]
-pub struct DeState<B: Backend> {
+pub struct DeState {
     /// Current population, shape `(pop_size, D)`.
-    pub population: Tensor<B, 2>,
+    pub population: Tensor<2>,
     /// Host-side fitness cache for the current population.
     ///
     /// Empty before the first [`Strategy::tell`] call; length `pop_size`
@@ -172,7 +170,7 @@ pub struct DeState<B: Backend> {
     /// Best-so-far genome, shape `(1, D)`.
     ///
     /// `None` before the first [`Strategy::tell`] call.
-    pub best_genome: Option<Tensor<B, 2>>,
+    pub best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness across all completed generations.
     ///
     /// `f32::NEG_INFINITY` before the first [`Strategy::tell`] call (the
@@ -187,33 +185,28 @@ pub struct DeState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 ///
-/// let strategy = DifferentialEvolution::<Flex>::new();
+/// let strategy = DifferentialEvolution::new();
 /// let mut params = DeConfig::default_for(30, 10);
 /// params.variant = DeVariant::Rand1Bin;
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct DifferentialEvolution<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct DifferentialEvolution {}
 
-impl<B: Backend> DifferentialEvolution<B> {
+impl DifferentialEvolution {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     fn sample_initial_population(
         params: &DeConfig,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+        device: &Device,
+    ) -> Tensor<2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
         // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
@@ -226,7 +219,7 @@ impl<B: Backend> DifferentialEvolution<B> {
         for _ in 0..pop * genome_dim {
             rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
-        Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
+        Tensor::<2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
     }
 
     /// Samples `k` indices from `0..pop_size`, all distinct and all
@@ -257,13 +250,10 @@ impl<B: Backend> DifferentialEvolution<B> {
     }
 }
 
-impl<B: Backend> Strategy<B> for DifferentialEvolution<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for DifferentialEvolution {
     type Params = DeConfig;
-    type State = DeState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = DeState;
+    type Genome = Tensor<2>;
 
     /// Samples the initial population uniformly within `params.bounds`
     /// and returns a [`DeState`] with an empty fitness cache, signalling
@@ -273,12 +263,7 @@ where
     /// Initial sampling goes through [`seed_stream`] rather than
     /// `B::seed + Tensor::random` to keep results reproducible across
     /// parallel test threads.
-    fn init(
-        &self,
-        params: &DeConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> DeState<B> {
+    fn init(&self, params: &DeConfig, rng: &mut dyn Rng, device: &Device) -> DeState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid DeConfig reached init: {params:?}"
@@ -318,10 +303,10 @@ where
     fn ask(
         &self,
         params: &DeConfig,
-        state: &DeState<B>,
+        state: &DeState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, DeState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, DeState) {
         // First call: evaluate the initial population.
         if state.fitness.is_empty() {
             return (state.population.clone(), state.clone());
@@ -354,10 +339,10 @@ where
             }
         }
 
-        let gather = |idxs: &[usize]| -> Tensor<B, 2> {
+        let gather = |idxs: &[usize]| -> Tensor<2> {
             #[allow(clippy::cast_possible_wrap)]
             let v: Vec<i64> = idxs.iter().map(|&i| i as i64).collect();
-            let t = Tensor::<B, 1, Int>::from_data(TensorData::new(v, [pop_size]), device);
+            let t = Tensor::<1, Int>::from_data(TensorData::new(v, [pop_size]), device);
             state.population.clone().select(0, t)
         };
 
@@ -435,10 +420,8 @@ where
         }
         #[allow(clippy::cast_possible_wrap)]
         let mask_int: Vec<i64> = cross_mask.iter().map(|&b| i64::from(b)).collect();
-        let mask_tensor = Tensor::<B, 2, Int>::from_data(
-            TensorData::new(mask_int, [pop_size, genome_dim]),
-            device,
-        );
+        let mask_tensor =
+            Tensor::<2, Int>::from_data(TensorData::new(mask_int, [pop_size, genome_dim]), device);
         let mask_bool = mask_tensor.equal_elem(1);
 
         // Where cross_mask == 1, take from v; otherwise from state.population.
@@ -467,14 +450,14 @@ where
     fn tell(
         &self,
         _params: &DeConfig,
-        trial: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: DeState<B>,
+        trial: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: DeState,
         _rng: &mut dyn Rng,
-    ) -> (DeState<B>, StrategyMetrics) {
+    ) -> (DeState, StrategyMetrics) {
         let fitness_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
 
         // First `tell`: stash fitness for the initial population.
@@ -507,7 +490,7 @@ where
         }
 
         let mask_int =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(replace_mask, [pop_size]), &device);
+            Tensor::<1, Int>::from_data(TensorData::new(replace_mask, [pop_size]), &device);
         let mask_bool_row = mask_int.equal_elem(1);
         let genome_dim = state.population.dims()[1];
         let mask_bool = mask_bool_row
@@ -532,7 +515,7 @@ where
     ///
     /// Returns `None` before the first [`Strategy::tell`] call, when
     /// `DeState::best_genome` is still `None`.
-    fn best(&self, state: &DeState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &DeState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -540,7 +523,7 @@ where
     }
 }
 
-fn update_best<B: Backend>(state: &mut DeState<B>, pop: &Tensor<B, 2>, fitness: &[f32]) {
+fn update_best(state: &mut DeState, pop: &Tensor<2>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -549,8 +532,7 @@ fn update_best<B: Backend>(state: &mut DeState<B>, pop: &Tensor<B, 2>, fitness: 
     if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -561,9 +543,7 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rlevo_core::fitness::Landscape;
-    type TestBackend = Flex;
 
     #[test]
     fn default_config_validates() {
@@ -594,10 +574,9 @@ mod tests {
             for k in 1..pop_size.min(6) {
                 for self_idx in 0..pop_size {
                     for _ in 0..25 {
-                        let chosen: Vec<usize> =
-                            DifferentialEvolution::<TestBackend>::sample_distinct_excluding(
-                                self_idx, pop_size, k, &mut rng,
-                            );
+                        let chosen: Vec<usize> = DifferentialEvolution::sample_distinct_excluding(
+                            self_idx, pop_size, k, &mut rng,
+                        );
                         assert_eq!(chosen.len(), k, "must return exactly k indices");
                         for (a, &x) in chosen.iter().enumerate() {
                             assert!(x < pop_size, "index {x} out of range for pop {pop_size}");
@@ -623,7 +602,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(1);
         // k == pop_size: impossible to draw k distinct indices excluding self.
-        let _ = DifferentialEvolution::<TestBackend>::sample_distinct_excluding(0, 3, 3, &mut rng);
+        let _ = DifferentialEvolution::sample_distinct_excluding(0, 3, 3, &mut rng);
     }
 
     /// Every gene of a generated trial vector stays inside `params.bounds`
@@ -636,8 +615,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = DifferentialEvolution::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = DifferentialEvolution::new();
         let mut params = DeConfig::default_for(12, 4);
         params.variant = DeVariant::Rand1Bin;
         let (lo, hi): (f32, f32) = params.bounds.into();
@@ -648,13 +627,12 @@ mod tests {
         // the fitness cache so the next ask produces trial vectors.
         let (pop0, s) = strategy.ask(&params, &state, &mut rng, &device);
         let n = pop0.dims()[0];
-        let fitness =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0.0_f32; n], [n]), &device);
+        let fitness = Tensor::<1>::from_data(TensorData::new(vec![0.0_f32; n], [n]), &device);
         let (s, _) = strategy.tell(&params, pop0, fitness, s, &mut rng);
         let (trial, _) = strategy.ask(&params, &s, &mut rng, &device);
         let genes: Vec<f32> = trial
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("trial host-read of a tensor this test just built");
         for g in genes {
             assert!(
@@ -681,11 +659,11 @@ mod tests {
     /// out-rank a finite individual or block replacement (`de` §7, NaN regression).
     #[test]
     fn nan_fitness_never_becomes_best() {
-        let device = Default::default();
+        let device = Device::flex();
         let params = DeConfig::default_for(30, 4);
         let fitness_fn = FromLandscape::new(NanSphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            DifferentialEvolution::<TestBackend>::new(),
+        let mut evo_loop = EvolutionaryLoop::new(
+            DifferentialEvolution::new(),
             params,
             fitness_fn,
             99,
@@ -712,12 +690,12 @@ mod tests {
     }
 
     fn run_de(variant: DeVariant, dim: usize, gens: usize) -> f32 {
-        let device = Default::default();
+        let device = Device::flex();
         let mut params = DeConfig::default_for(30, dim);
         params.variant = variant;
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            DifferentialEvolution::<TestBackend>::new(),
+        let mut evo_loop = EvolutionaryLoop::new(
+            DifferentialEvolution::new(),
             params,
             fitness_fn,
             11,

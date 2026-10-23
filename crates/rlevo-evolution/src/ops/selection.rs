@@ -17,7 +17,7 @@
 //! entries with the largest fitnesses; [`argmax_host`] reduces a fitness
 //! slice to the index of its single largest entry.
 
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 /// Returns the index of the largest fitness value.
@@ -135,14 +135,14 @@ pub fn tournament_indices_host(
 ///
 /// Panics if `population.dims()[0] != fitness.len()`.
 #[must_use]
-pub fn tournament_select<B: Backend>(
-    population: &Tensor<B, 2>,
+pub fn tournament_select(
+    population: &Tensor<2>,
     fitness: &[f32],
     tournament_size: usize,
     n_winners: usize,
     rng: &mut dyn Rng,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2> {
+    device: &Device,
+) -> Tensor<2> {
     assert_eq!(
         population.dims()[0],
         fitness.len(),
@@ -151,7 +151,7 @@ pub fn tournament_select<B: Backend>(
         fitness.len(),
     );
     let winners = tournament_indices_host(fitness, tournament_size, n_winners, rng);
-    let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [n_winners]), device);
+    let indices = Tensor::<1, Int>::from_data(TensorData::new(winners, [n_winners]), device);
     population.clone().select(0, indices)
 }
 
@@ -220,12 +220,12 @@ pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32> {
 ///
 /// Panics if `population.dims()[0] != fitness.len()`.
 #[must_use]
-pub fn truncation_select<B: Backend>(
-    population: &Tensor<B, 2>,
+pub fn truncation_select(
+    population: &Tensor<2>,
     fitness: &[f32],
     top_k: usize,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2> {
+    device: &Device,
+) -> Tensor<2> {
     assert_eq!(
         population.dims()[0],
         fitness.len(),
@@ -234,18 +234,15 @@ pub fn truncation_select<B: Backend>(
         fitness.len(),
     );
     let winners = truncation_indices_host(fitness, top_k);
-    let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [top_k]), device);
+    let indices = Tensor::<1, Int>::from_data(TensorData::new(winners, [top_k]), device);
     population.clone().select(0, indices)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-
-    type TestBackend = Flex;
 
     // ANCHOR: tournament_expectation_test
     #[test]
@@ -340,9 +337,9 @@ mod tests {
     // ANCHOR: tournament_select_shape_test
     #[test]
     fn tournament_select_returns_shaped_tensor() {
-        let device = Default::default();
+        let device = Device::flex();
         let data = TensorData::new(vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0], [3, 2]);
-        let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
+        let pop = Tensor::<2>::from_data(data, &device);
         let fitness = [0.0_f32, 10.0, 0.0];
         let mut rng = StdRng::seed_from_u64(2);
         let parents = tournament_select(&pop, &fitness, 2, 4, &mut rng, &device);

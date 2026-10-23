@@ -1,6 +1,6 @@
 //! Real-valued Genetic Algorithm.
 //!
-//! A canonical textbook GA over `Tensor<B, 2>` populations:
+//! A canonical textbook GA over `Tensor<2>` populations:
 //!
 //! 1. Evaluate the current population (done externally by the loop).
 //! 2. Select parents via [`crate::ops::selection::tournament_select`].
@@ -21,9 +21,7 @@
 //! - Deb & Agrawal (1995), *Simulated binary crossover for continuous
 //!   search space*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -148,14 +146,14 @@ impl Validate for GaConfig {
 
 /// Generation-to-generation state carried by [`GeneticAlgorithm`].
 #[derive(Debug, Clone)]
-pub struct GaState<B: Backend> {
+pub struct GaState {
     /// Current population, shape `(pop_size, genome_dim)`.
-    pub population: Tensor<B, 2>,
+    pub population: Tensor<2>,
     /// Cached fitness for the current population. Empty on init until
     /// the first `tell` call overwrites it.
     pub fitness: Vec<f32>,
     /// Best-so-far genome, shape `(1, genome_dim)`.
-    pub best_genome: Option<Tensor<B, 2>>,
+    pub best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness.
     pub best_fitness: f32,
     /// Completed-generation counter.
@@ -167,14 +165,13 @@ pub struct GaState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_core::bounds::Bounds;
 /// use rlevo_core::rate::NonNegativeRate;
 /// use rlevo_evolution::algorithms::ga::{
 ///     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 /// };
 ///
-/// let strategy = GeneticAlgorithm::<Flex>::new();
+/// let strategy = GeneticAlgorithm::new();
 /// let params = GaConfig {
 ///     pop_size: 64,
 ///     genome_dim: 10,
@@ -187,24 +184,20 @@ pub struct GaState<B: Backend> {
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct GeneticAlgorithm<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct GeneticAlgorithm {}
 
-impl<B: Backend> GeneticAlgorithm<B> {
+impl GeneticAlgorithm {
     /// Build a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     fn sample_initial_population(
         params: &GaConfig,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+        device: &Device,
+    ) -> Tensor<2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
         // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
@@ -217,17 +210,14 @@ impl<B: Backend> GeneticAlgorithm<B> {
         for _ in 0..pop * genome_dim {
             rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
-        Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
+        Tensor::<2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
     }
 }
 
-impl<B: Backend> Strategy<B> for GeneticAlgorithm<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for GeneticAlgorithm {
     type Params = GaConfig;
-    type State = GaState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = GaState;
+    type Genome = Tensor<2>;
 
     /// Build the initial state.
     ///
@@ -236,12 +226,7 @@ where
     /// `fitness` to empty and `best_fitness` to `f32::NEG_INFINITY` (the
     /// worst value under the maximise convention); the first
     /// [`tell`](Self::tell) call populates both.
-    fn init(
-        &self,
-        params: &GaConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> GaState<B> {
+    fn init(&self, params: &GaConfig, rng: &mut dyn Rng, device: &Device) -> GaState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid GaConfig reached init: {params:?}"
@@ -276,10 +261,10 @@ where
     fn ask(
         &self,
         params: &GaConfig,
-        state: &GaState<B>,
+        state: &GaState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, GaState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, GaState) {
         // On the first call, state.fitness is empty; the loop has not
         // evaluated anyone yet. Return the initial population unchanged.
         if state.fitness.is_empty() {
@@ -370,14 +355,14 @@ where
     fn tell(
         &self,
         params: &GaConfig,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: GaState<B>,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: GaState,
         _rng: &mut dyn Rng,
-    ) -> (GaState<B>, StrategyMetrics) {
+    ) -> (GaState, StrategyMetrics) {
         let fitness_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
 
         // First `tell` after `init`: cache fitness for the seed population.
@@ -396,13 +381,13 @@ where
 
         let device = state.population.device();
         let (next_pop, next_fitness) = match params.replacement {
-            GaReplacement::Generational => generational::<B>(
+            GaReplacement::Generational => generational(
                 state.population.clone(),
                 &state.fitness,
                 population.clone(),
                 fitness_host.clone(),
             ),
-            GaReplacement::Elitist { elitism_k } => elitist::<B>(
+            GaReplacement::Elitist { elitism_k } => elitist(
                 state.population.clone(),
                 &state.fitness,
                 population.clone(),
@@ -426,7 +411,7 @@ where
     ///
     /// Returns `None` before the first [`tell`](Self::tell) call.
     /// The fitness value uses the canonical maximise convention (higher is better).
-    fn best(&self, state: &GaState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &GaState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -434,7 +419,7 @@ where
     }
 }
 
-fn update_best<B: Backend>(state: &mut GaState<B>, pop: &Tensor<B, 2>, fitness: &[f32]) {
+fn update_best(state: &mut GaState, pop: &Tensor<2>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -456,7 +441,7 @@ fn update_best<B: Backend>(state: &mut GaState<B>, pop: &Tensor<B, 2>, fitness: 
     if best_f.total_cmp(&state.best_fitness) == std::cmp::Ordering::Greater {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(
+        let idx = Tensor::<1, burn::tensor::Int>::from_data(
             TensorData::new(vec![best_idx as i64], [1]),
             &device,
         );
@@ -470,10 +455,7 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rlevo_core::fitness::Landscape;
-
-    type TestBackend = Flex;
 
     #[test]
     fn default_config_validates() {
@@ -496,8 +478,8 @@ mod tests {
 
     #[test]
     fn ga_converges_on_sphere_d2() {
-        let device = Default::default();
-        let strategy = GeneticAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = GeneticAlgorithm::new();
         let params = GaConfig {
             pop_size: 64,
             genome_dim: 2,
@@ -511,10 +493,8 @@ mod tests {
         };
         let fitness_fn = FromLandscape::new(Sphere);
 
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 42, device, 200,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 42, device, 200)
+            .expect("valid params");
         evo_loop.reset();
         while !evo_loop.is_done() {
             evo_loop.step();
@@ -537,8 +517,8 @@ mod tests {
     fn best_fitness_ever_is_monotone_nondecreasing() {
         use rlevo_core::objective::ObjectiveSense;
 
-        let device = Default::default();
-        let strategy = GeneticAlgorithm::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = GeneticAlgorithm::new();
         let params = GaConfig {
             pop_size: 32,
             genome_dim: 3,
@@ -555,10 +535,8 @@ mod tests {
         // the reported user-space value equal the canonical rolling best.
         let fitness_fn = FromLandscape::with_sense(Sphere, ObjectiveSense::Maximize);
 
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, 123, device, 40,
-        )
-        .expect("valid params");
+        let mut evo_loop = EvolutionaryLoop::new(strategy, params, fitness_fn, 123, device, 40)
+            .expect("valid params");
         evo_loop.reset();
 
         let mut prev: f32 = f32::NEG_INFINITY;
@@ -586,10 +564,10 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
+        let device = Device::flex();
         let (pop, dim) = (6usize, 3usize);
         let params = GaConfig::default_for(pop, dim);
-        let strategy = GeneticAlgorithm::<TestBackend>::new();
+        let strategy = GeneticAlgorithm::new();
         let mut rng = StdRng::seed_from_u64(0);
 
         // Row `i` is filled with the constant `i`, so the champion row is
@@ -598,10 +576,9 @@ mod tests {
             .iter()
             .flat_map(|&v| vec![v; dim])
             .collect();
-        let population =
-            Tensor::<TestBackend, 2>::from_data(TensorData::new(rows, [pop, dim]), &device);
+        let population = Tensor::<2>::from_data(TensorData::new(rows, [pop, dim]), &device);
         // Raw (unsanitized) fitness: NaN first, clear finite winner at index 1.
-        let fitness = Tensor::<TestBackend, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![f32::NAN, 1000.0, 1.0, 2.0, 3.0, 4.0], [pop]),
             &device,
         );
@@ -620,7 +597,7 @@ mod tests {
         approx::assert_relative_eq!(best_f, 1000.0, epsilon = 1e-6);
         let row = genome
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("champion row host-read of a tensor this test just built");
         assert_eq!(
             row,

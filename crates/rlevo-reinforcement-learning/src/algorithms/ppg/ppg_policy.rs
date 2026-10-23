@@ -21,7 +21,6 @@
 //! [`ppo_policy`](crate::algorithms::ppo::ppo_policy).
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::AutodiffBackend;
 
 /// Auxiliary-phase contract for PPG policy networks.
 ///
@@ -30,14 +29,12 @@ use burn::tensor::backend::AutodiffBackend;
 /// expected to also implement
 /// [`PpoPolicy`](crate::algorithms::ppo::ppo_policy::PpoPolicy) so the policy
 /// phase runs unchanged.
-pub trait PpgAuxValueHead<B: AutodiffBackend, const BOR: usize>:
-    burn::module::AutodiffModule<B>
-{
+pub trait PpgAuxValueHead<const BOR: usize>: burn::module::Module {
     /// Auxiliary value prediction, shape `(batch,)`.
     ///
     /// Trained in the auxiliary phase against the same target returns as the
     /// main value network. Unused during the policy phase.
-    fn aux_value(&self, obs: Tensor<B, BOR>) -> Tensor<B, 1>;
+    fn aux_value(&self, obs: Tensor<BOR>) -> Tensor<1>;
 
     /// Raw policy logits, shape `(batch_size, num_actions)`.
     ///
@@ -46,5 +43,5 @@ pub trait PpgAuxValueHead<B: AutodiffBackend, const BOR: usize>:
     /// for distillation. Returning logits (rather than pre-computed
     /// log-probs) keeps the KL kernel decoupled from how the network
     /// internally parameterises its distribution.
-    fn logits(&self, obs: Tensor<B, BOR>) -> Tensor<B, 2>;
+    fn logits(&self, obs: Tensor<BOR>) -> Tensor<2>;
 }

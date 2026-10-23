@@ -9,10 +9,8 @@
 use std::marker::PhantomData;
 
 use burn::nn::loss::HuberLossConfig;
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams};
-use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
+use burn::optim::{GradientsParams, ModuleOptimizer};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 use crate::metrics::{AgentStats, PerformanceRecord};
@@ -28,7 +26,7 @@ use crate::algorithms::shared::{
     FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
     reduce_weighted_loss,
 };
-use crate::utils::{PolyakError, compute_target_q_values};
+use crate::utils::{PolyakError, compute_target_q_values, polyak_update};
 
 /// Error variants returned by [`DqnAgent`] operations.
 ///
@@ -155,26 +153,29 @@ pub struct LearnOutcome {
 ///   leaves the agent intact. The one exception is a panic *inside* `step`,
 ///   which poisons the slot permanently; that window is irreducible and is
 ///   documented on [`Slot`].
-/// - `target_net` lives on `B::InnerBackend` (the non-autodiff backend) so
-///   that computing bootstrap targets never builds an autodiff graph.
+/// - `target_net` is a [`valid`](burn::module::Module::valid) snapshot of the policy, on the
+///   plain device, so computing bootstrap targets never builds an autodiff
+///   graph.
 /// - `step` counts **environment** steps and drives `learning_starts` /
 ///   `train_frequency`; `gradient_updates` counts **optimizer** steps and
 ///   drives the target-update cadence. The two units are deliberately distinct
 ///   (ADR 0059) — see [`gradient_updates`](Self::gradient_updates).
-pub struct DqnAgent<B, M, O, A, const OR: usize, const BOR: usize>
+pub struct DqnAgent<M, O, A, const OR: usize, const BOR: usize>
 where
-    B: AutodiffBackend,
-    M: DqnModel<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    M: DqnModel<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     policy_net: Slot<M>,
-    target_net: M::InnerModule,
-    optimizer: OptimizerAdaptor<Adam, M, B>,
+    target_net: M,
+    optimizer: ModuleOptimizer,
     buffer: ReplayKind<DiscreteTransition<O>>,
     exploration: EpsilonGreedy,
     config: DqnTrainingConfig,
-    device: B::Device,
+    /// The training device: the caller's device with autodiff on.
+    device: Device,
+    /// `device` without autodiff, where the target path runs.
+    plain_device: Device,
     step: usize,
     /// Gradient (optimizer) updates attempted so far — the unit
     /// `config.target_update`'s cadence counts (ADR 0059). Advanced
@@ -211,12 +212,10 @@ where
     _action: PhantomData<A>,
 }
 
-impl<B, M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug
-    for DqnAgent<B, M, O, A, OR, BOR>
+impl<M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug for DqnAgent<M, O, A, OR, BOR>
 where
-    B: AutodiffBackend,
-    M: DqnModel<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    M: DqnModel<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -230,17 +229,19 @@ where
     }
 }
 
-impl<B, M, O, A, const OR: usize, const BOR: usize> DqnAgent<B, M, O, A, OR, BOR>
+impl<M, O, A, const OR: usize, const BOR: usize> DqnAgent<M, O, A, OR, BOR>
 where
-    B: AutodiffBackend,
-    M: DqnModel<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    M: DqnModel<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     /// Constructs a new agent from a pre-built policy network and training config.
     ///
-    /// The target network is initialized as a frozen copy of `policy_net` via
-    /// [`AutodiffModule::valid`](burn::module::AutodiffModule::valid). Gradient
+    /// The agent trains on `device` with autodiff on, and switches `policy_net`
+    /// to training ([`Module::train`](burn::module::Module::train)), which puts its parameters on the
+    /// autodiff form of their device, so a network built on a plain device
+    /// trains as well as one built on an autodiff device. The target network
+    /// is a [`valid`](burn::module::Module::valid) snapshot of the policy. Gradient
     /// clipping is applied to the Adam optimizer when
     /// [`DqnTrainingConfig::clip_grad`] is `Some`. The replay buffer is
     /// pre-allocated to `config.replay_buffer_capacity` entries, and the
@@ -253,14 +254,17 @@ where
     pub fn new(
         policy_net: M,
         config: DqnTrainingConfig,
-        device: B::Device,
+        device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        let device = device.autodiff();
+        let plain_device = device.clone().without_autodiff();
+        let policy_net = policy_net.train();
         let target_net = policy_net.valid();
         let adam = config.optimizer.clone();
         let optimizer = match &config.clip_grad {
-            Some(clip) => adam.with_grad_clipping(Some(clip.clone())).init::<B, M>(),
-            None => adam.init::<B, M>(),
+            Some(clip) => adam.with_grad_clipping(Some(clip.clone())).init(),
+            None => adam.init(),
         };
         let exploration = EpsilonGreedy::from_config(&config);
         let stats = AgentStats::<DqnMetrics>::new(100);
@@ -278,6 +282,7 @@ where
             exploration,
             config,
             device,
+            plain_device,
             step: 0,
             gradient_updates: 0,
             stats,
@@ -391,12 +396,12 @@ where
     /// such seam existed, so every assertion had to be made through Q-values, which are a lossy
     /// function of the weights.
     ///
-    /// `pub`, and a shared borrow rather than a clone: `M::InnerModule` is the
+    /// `pub`, and a shared borrow rather than a clone: `M` is the
     /// caller's own network type, so this hands back nothing the caller did not
     /// supply, and `&` cannot perturb agent state. Compare
     /// [`inference_net`](Self::inference_net), which already returns an owned
     /// snapshot of the *policy* side.
-    pub fn target_net(&self) -> &M::InnerModule {
+    pub fn target_net(&self) -> &M {
         &self.target_net
     }
 
@@ -450,19 +455,21 @@ where
     /// A `NaN`/`$\pm\infty$` observation is **counted and warned about; the action is returned
     /// unchanged** (ADR 0067 §Decision 4). Do not "improve" this into a substitution or a fallback
     /// action, and do not delete the check as redundant — it is the *only* thing in the system that
-    /// can observe this failure, for two reasons that are both counter-intuitive:
+    /// can observe this failure:
     ///
-    /// 1. On the `flex` (CPU) backend `relu` maps `NaN` to `0.0`. A ReLU-fronted
-    ///    Q network fed a **fully** non-finite observation therefore emits a
-    ///    finite, in-domain, `is_valid() == true` action from a bias-only Q row —
-    ///    measured, the one-NaN and all-NaN Q rows are bit-identical. There is no
-    ///    NaN downstream: `FiniteLossGuard` cannot fire, a Q-value check cannot
-    ///    fire, an action check cannot fire.
-    /// 2. Sharper, and specific to argmax-over-Q agents: on `flex`, `argmax`
-    ///    over a **partly** NaN row returns the index of the *first NaN*, not the
-    ///    finite max (`[1, NaN, 3, 2] -> 1`). The same row returns the correct
-    ///    index on `wgpu`. So the discrete failure is CPU-specific and
-    ///    invisible — and CPU is the backend CI runs.
+    /// 1. The poisoned observation still yields an in-domain action. On Burn
+    ///    0.22 a `NaN` propagates through the network on every backend
+    ///    measured (Flex and wgpu/Metal), and `argmax` over a row holding a
+    ///    `NaN` returns the index of the *first* `NaN` (`[1, NaN, 3, 2] -> 1`;
+    ///    an all-`NaN` row gives `0`). `from_index` accepts it, and nothing
+    ///    reads the Q row, so an action check cannot fire.
+    /// 2. On a backend whose `relu` maps `NaN` to `0.0`, as Burn 0.21's Flex
+    ///    did, a ReLU-fronted network erases a **fully** non-finite observation
+    ///    instead: measured on DQN under 0.21, the one-NaN and all-NaN Q rows
+    ///    were bit-identical and bias-only, with no `NaN` anywhere for
+    ///    `FiniteLossGuard` or a Q-value check to see. (0.21's wgpu returned
+    ///    the finite max's index from a partly-`NaN` row, so the failure was
+    ///    then CPU-only.)
     ///
     /// The `argmax` behaviour itself is deliberately **not** fixed here; this
     /// guard only makes it attributable.
@@ -490,18 +497,18 @@ where
         // (ADR 0067 §Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B, BOR> = obs_t.unsqueeze::<BOR>();
-        let q_values: Tensor<B, 2> = self.policy().forward(batched);
-        let idx = q_values.argmax(1).into_scalar();
-        A::from_index(idx.elem::<i64>() as usize)
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
+        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let q_values: Tensor<2> = self.policy().forward(batched);
+        let idx = q_values.argmax(1).into_scalar::<i64>();
+        A::from_index(idx as usize)
     }
 
-    /// Snapshots the policy network onto the inner (non-autodiff) backend.
+    /// Snapshots the policy network without autodiff ([`valid`](burn::module::Module::valid)).
     ///
     /// Returns a frozen inference handle for use with
     /// [`act_greedy_with`](Self::act_greedy_with). Action selection never needs
-    /// gradients, so running it on the inner backend avoids the per-call
+    /// gradients, so running it on the plain device avoids the per-call
     /// autodiff graph construction that [`act_greedy`](Self::act_greedy)
     /// incurs. Snapshot once after training, then reuse across many steps —
     /// the snapshot goes stale if the policy is updated again.
@@ -511,14 +518,14 @@ where
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
     /// [`Slot`].
-    pub fn inference_net(&self) -> M::InnerModule {
+    pub fn inference_net(&self) -> M {
         self.policy().valid()
     }
 
-    /// Greedy action selection against a pre-snapshotted inner network.
+    /// Greedy action selection against a pre-snapshotted plain-device network.
     ///
     /// Equivalent to [`act_greedy`](Self::act_greedy) but runs on the
-    /// non-autodiff backend via [`inference_net`](Self::inference_net), which
+    /// plain device via [`inference_net`](Self::inference_net), which
     /// is dramatically cheaper for repeated single-observation inference.
     ///
     /// # Non-finite observations
@@ -530,17 +537,17 @@ where
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn act_greedy_with(&self, net: &M::InnerModule, obs: &O) -> A {
+    pub fn act_greedy_with(&self, net: &M, obs: &O) -> A {
         // Function-local scratch for the same `&self` / `Sync` reason as
         // `act_greedy`; same per-call allocation cost, same zero cost for the
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<B::InnerBackend, OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<B::InnerBackend, BOR> = obs_t.unsqueeze::<BOR>();
-        let q_values: Tensor<B::InnerBackend, 2> = M::forward_inner(net, batched);
-        let idx = q_values.argmax(1).into_scalar();
-        A::from_index(idx.elem::<i64>() as usize)
+        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
+        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let q_values: Tensor<2> = net.forward(batched);
+        let idx = q_values.argmax(1).into_scalar::<i64>();
+        A::from_index(idx as usize)
     }
 
     /// Appends a transition to the replay buffer, evicting the oldest entry
@@ -774,7 +781,7 @@ where
     ///
     /// Returns [`DqnAgentError::Polyak`] if the target soft-update finds a
     /// parameter-topology mismatch between the policy and target networks (see
-    /// [`polyak_update`](crate::utils::polyak_update)). Every in-tree target is
+    /// [`polyak_update`]). Every in-tree target is
     /// cloned from its policy, so this cannot occur for agents built normally.
     // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
     // f32. This is the intended narrowing point, and the values are hyperparameters
@@ -832,37 +839,36 @@ where
         batched_shape.extend_from_slice(&obs_shape);
 
         let device = self.device.clone();
-        let obs_tensor: Tensor<B, BOR> =
+        let plain = self.plain_device.clone();
+        let obs_tensor: Tensor<BOR> =
             Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<B::InnerBackend, BOR> =
-            Tensor::from_data(TensorData::new(next_flat, batched_shape), &device);
+        let next_tensor_inner: Tensor<BOR> =
+            Tensor::from_data(TensorData::new(next_flat, batched_shape), &plain);
 
-        let action_tensor_1: Tensor<B, 1, Int> =
+        let action_tensor_1: Tensor<1, Int> =
             Tensor::from_data(TensorData::new(action_idxs, vec![batch_size]), &device);
-        let action_tensor: Tensor<B, 2, Int> = action_tensor_1.unsqueeze_dim::<2>(1);
+        let action_tensor: Tensor<2, Int> = action_tensor_1.unsqueeze_dim::<2>(1);
 
-        let rewards_inner: Tensor<B::InnerBackend, 1> =
-            Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
-        let terminated_inner: Tensor<B::InnerBackend, 1> =
-            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
+        let rewards_inner: Tensor<1> =
+            Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &plain);
+        let terminated_inner: Tensor<1> =
+            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &plain);
 
         // --- Forward ---
         //
         // Everything from here to `step_with` runs against a borrow of the
         // network, so a panic in the forward pass, the target computation, the
         // loss, or `backward` leaves `policy_net` populated and the agent usable.
-        let q_all: Tensor<B, 2> = self.policy().forward(obs_tensor);
-        let q_mean = q_all.clone().mean().into_scalar().elem::<f32>();
-        let q_pred: Tensor<B, 2> = q_all.gather(1, action_tensor);
-        let q_pred_flat: Tensor<B, 1> = q_pred.squeeze_dim::<1>(1);
+        let q_all: Tensor<2> = self.policy().forward(obs_tensor);
+        let q_mean = q_all.clone().mean().into_scalar::<f32>();
+        let q_pred: Tensor<2> = q_all.gather(1, action_tensor);
+        let q_pred_flat: Tensor<1> = q_pred.squeeze_dim::<1>(1);
 
         // --- Target ---
-        let next_q_target_inner: Tensor<B::InnerBackend, 2> =
-            M::forward_inner(&self.target_net, next_tensor_inner.clone());
-        let next_q_max_inner: Tensor<B::InnerBackend, 1> = if self.config.double_q {
-            let next_q_policy_inner: Tensor<B::InnerBackend, 2> =
-                M::forward_inner(&self.policy().valid(), next_tensor_inner);
-            let next_actions: Tensor<B::InnerBackend, 2, Int> = next_q_policy_inner.argmax(1);
+        let next_q_target_inner: Tensor<2> = self.target_net.forward(next_tensor_inner.clone());
+        let next_q_max_inner: Tensor<1> = if self.config.double_q {
+            let next_q_policy_inner: Tensor<2> = self.policy().valid().forward(next_tensor_inner);
+            let next_actions: Tensor<2, Int> = next_q_policy_inner.argmax(1);
             next_q_target_inner
                 .gather(1, next_actions)
                 .squeeze_dim::<1>(1)
@@ -870,13 +876,13 @@ where
             next_q_target_inner.max_dim(1).squeeze_dim::<1>(1)
         };
 
-        let target_inner: Tensor<B::InnerBackend, 1> = compute_target_q_values(
+        let target_inner: Tensor<1> = compute_target_q_values(
             rewards_inner,
             next_q_max_inner,
             terminated_inner,
             self.config.gamma as f32,
         );
-        let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
+        let target: Tensor<1> = target_inner.to_device(&device);
 
         // Per-sample `[batch]` Huber residual, reduced here rather than inside `forward`, so an
         // importance-sampling weight scales each sample before the mean (ADR 0050 §14). At
@@ -887,7 +893,7 @@ where
             .init()
             .forward_no_reduction(q_pred_flat.clone(), target.clone());
         let loss_tensor = reduce_weighted_loss(per_sample_loss, &batch, &device);
-        let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
+        let loss_value = loss_tensor.clone().into_scalar::<f32>();
 
         // An optimizer step is now attempted, so the cadence counter advances —
         // unconditionally, BEFORE the non-finite-loss guard below (ADR 0059 §4,
@@ -920,11 +926,11 @@ where
         // yields the `$\tau$` to apply on this update, or `None`. A hard copy is the degenerate
         // `$\tau$` = 1.0, not a separate path.
         if let Some(tau) = self.config.target_update.fires_at(self.gradient_updates) {
-            // Clone rather than move out: `soft_update` consumes `target` by
+            // Clone rather than move out: `polyak_update` consumes `target` by
             // value, so on `Err` the `?` returns before this reassignment and
             // the field keeps its prior weights — no silent hard-sync (the
             // invariant now holds via early return, and equally for a panic).
-            self.target_net = M::soft_update(self.policy(), self.target_net.clone(), tau)?;
+            self.target_net = polyak_update(&self.policy().valid(), self.target_net.clone(), tau)?;
         }
 
         // PER priority writeback (Schaul Alg. 1 lines 11-12): the DQN priority signal is the
@@ -937,7 +943,7 @@ where
             let td_host: Vec<f32> = td
                 .into_data()
                 .convert::<f32>()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("finite TD errors read to host");
             if let Err(err) = self
                 .buffer
@@ -967,12 +973,11 @@ mod tests {
     #![allow(clippy::float_cmp)]
     use super::*;
     use crate::MAX_BUFFER_CAPACITY;
+    use crate::algorithms::shared::{params_are_plain, params_train};
     use rlevo_core::config::ConstraintKind;
 
-    use burn::backend::{Autodiff, Flex};
-    use burn::module::{AutodiffModule, Module, ModuleMapper, Param};
+    use burn::module::{Module, ModuleMapper, Param};
     use burn::nn::{Linear, LinearConfig};
-    use burn::tensor::backend::Backend;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::base::Action;
@@ -981,29 +986,23 @@ mod tests {
 
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
-    use crate::utils::polyak_update;
 
-    type TestAdBackend = Autodiff<Flex>;
-    type TestInner = <TestAdBackend as AutodiffBackend>::InnerBackend;
-    type TestAgent = DqnAgent<TestAdBackend, TestNet<TestAdBackend>, TestObs, TestAction, 1, 2>;
+    type TestAgent = DqnAgent<TestNet, TestObs, TestAction, 1, 2>;
 
     /// Minimal two-in/two-out linear Q-network used by the target-sync tests.
     ///
     /// Weights are set to a caller-chosen constant so "policy differs from
     /// target" is provable by inspection rather than by luck of the seed.
     #[derive(Module, Debug)]
-    struct TestNet<B: Backend> {
-        linear: Linear<B>,
+    struct TestNet {
+        linear: Linear,
     }
 
-    impl<B: Backend> TestNet<B> {
+    impl TestNet {
         /// Builds a bias-free 2x2 linear layer whose every weight equals `value`.
-        fn constant(
-            device: &<B as burn::tensor::backend::BackendTypes>::Device,
-            value: f32,
-        ) -> Self {
-            let linear: Linear<B> = LinearConfig::new(2, 2).with_bias(false).init(device);
-            let weight: Tensor<B, 2> =
+        fn constant(device: &Device, value: f32) -> Self {
+            let linear: Linear = LinearConfig::new(2, 2).with_bias(false).init(device);
+            let weight: Tensor<2> =
                 Tensor::from_data(TensorData::new(vec![value; 4], vec![2, 2]), device);
             Self {
                 linear: Linear {
@@ -1015,39 +1014,19 @@ mod tests {
     }
 
     /// Reads a network's weight tensor back to the host for exact comparison.
-    fn weights<B: Backend>(net: &TestNet<B>) -> Vec<f32> {
+    fn weights(net: &TestNet) -> Vec<f32> {
         net.linear
             .weight
             .val()
             .into_data()
             .convert::<f32>()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("weight tensor is float data")
     }
 
-    impl<B: AutodiffBackend> DqnModel<B, 2> for TestNet<B> {
-        fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+    impl DqnModel<2> for TestNet {
+        fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
             self.linear.forward(observations)
-        }
-
-        fn forward_inner(
-            inner: &Self::InnerModule,
-            observations: Tensor<B::InnerBackend, 2>,
-        ) -> Tensor<B::InnerBackend, 2> {
-            inner.linear.forward(observations)
-        }
-
-        #[allow(clippy::cast_possible_truncation)]
-        fn soft_update(
-            active: &Self,
-            target: Self::InnerModule,
-            tau: f64,
-        ) -> Result<Self::InnerModule, PolyakError> {
-            polyak_update::<B::InnerBackend, TestNet<B::InnerBackend>>(
-                &active.valid(),
-                target,
-                tau as f32,
-            )
         }
     }
 
@@ -1099,7 +1078,7 @@ mod tests {
     // so every generated value is represented exactly.
     #[allow(clippy::cast_precision_loss)]
     fn primed_prioritized_agent() -> TestAgent {
-        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let config = DqnTrainingConfig {
             batch_size: 2,
             learning_starts: 0,
@@ -1110,7 +1089,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let policy: TestNet<TestAdBackend> = TestNet::constant(&device, 0.5);
+        let policy: TestNet = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
             let x = i as f32;
@@ -1127,7 +1106,7 @@ mod tests {
 
     #[test]
     fn test_dqn_agent_defaults_to_uniform_replay() {
-        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let agent = TestAgent::new(
             TestNet::constant(&device, 0.5),
             DqnTrainingConfig::default(),
@@ -1203,8 +1182,8 @@ mod tests {
     /// `ParamId`s are preserved and the target pairing stays valid.
     struct NanInjector;
 
-    impl<B: Backend> ModuleMapper<B> for NanInjector {
-        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+    impl ModuleMapper for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
             let (id, tensor, mapper) = param.consume();
             Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
         }
@@ -1213,13 +1192,13 @@ mod tests {
     /// Builds a uniform-replay agent primed with four transitions and
     /// `learning_starts = 0`, so each `learn_step` runs immediately. `rule` is
     /// the target-update rule under test; the target network is `policy.valid()`
-    /// (built by `DqnAgent::new`), so its `ParamId`s match and `soft_update`
+    /// (built by `DqnAgent::new`), so its `ParamId`s match and `polyak_update`
     /// can pair them.
     // Test fixture data: the loop counter and element count are bounded by small
     // constants declared in this test, far below f32's 2^24 exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
     fn primed_uniform_agent_with(rule: TargetUpdate) -> TestAgent {
-        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let config = DqnTrainingConfig {
             batch_size: 2,
             learning_starts: 0,
@@ -1227,7 +1206,7 @@ mod tests {
             target_update: rule,
             ..Default::default()
         };
-        let policy: TestNet<TestAdBackend> = TestNet::constant(&device, 0.5);
+        let policy: TestNet = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
             let x = i as f32;
@@ -1379,8 +1358,8 @@ mod tests {
         // mints fresh `ParamId`s, so its weight id has no counterpart in the
         // policy net and `polyak_update` must reject it — a *topology* mismatch,
         // not merely a value divergence.
-        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
-        let foreign_target: TestNet<TestInner> = TestNet::constant(&device, 2.0);
+        let device = Device::flex();
+        let foreign_target: TestNet = TestNet::constant(&device, 2.0);
         agent.target_net = foreign_target;
 
         // Byte-for-byte snapshot of the target field before the failed step.
@@ -1605,7 +1584,7 @@ mod tests {
 
     #[test]
     fn test_dqn_agent_remember_drops_a_nonfinite_reward() {
-        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         let mut agent = TestAgent::new(
             TestNet::constant(&device, 0.5),
             DqnTrainingConfig::default(),
@@ -1666,7 +1645,7 @@ mod tests {
     }
 
     fn obs_guard_agent() -> TestAgent {
-        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let device = Device::flex();
         TestAgent::new(
             TestNet::constant(&device, 0.5),
             DqnTrainingConfig::default(),
@@ -1815,7 +1794,7 @@ mod tests {
         ];
 
         for (capacity, kind) in cases {
-            let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+            let device = Device::flex();
             let config = DqnTrainingConfig {
                 replay_buffer_capacity: capacity,
                 ..DqnTrainingConfig::default()
@@ -1827,5 +1806,40 @@ mod tests {
             assert_eq!(err.field, "replay_buffer_capacity");
             assert_eq!(err.kind, kind);
         }
+    }
+
+    /// The target path never tracks. Autodiff is device state in Burn 0.22, so
+    /// no type keeps the target network off the graph: the target must hold plain parameters
+    /// after construction and after a learn step's Polyak update, while
+    /// the policy trains.
+    #[test]
+    fn test_dqn_agent_target_path_is_never_tracked() {
+        let mut agent = primed_uniform_agent();
+        assert!(
+            params_train(agent.policy()),
+            "precondition: the policy trains"
+        );
+        assert!(
+            params_are_plain(agent.target_net()),
+            "the target starts plain"
+        );
+        // Element-wise: this fixture's equal weights make a summed checksum
+        // cancel (see `weights`).
+        let before = weights(agent.target_net());
+        let mut rng = StdRng::seed_from_u64(0);
+        agent.learn_step(&mut rng).expect("learn").expect("a step");
+        assert_ne!(
+            weights(agent.target_net()),
+            before,
+            "precondition: the Polyak update ran"
+        );
+        assert!(
+            params_are_plain(agent.target_net()),
+            "the Polyak update leaves the target plain"
+        );
+        assert!(
+            params_are_plain(&agent.inference_net()),
+            "`inference_net` is a plain snapshot"
+        );
     }
 }

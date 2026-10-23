@@ -36,14 +36,15 @@
 //!
 //! # Gradient isolation
 //!
-//! `B: Backend`, not `AutodiffBackend` — rollouts are forward-only. `Hidden` is
-//! a plain runtime value, never a tracked leaf.
+//! Rollouts are forward-only: the policy is rebuilt from each row by
+//! [`ModuleReshaper::unflatten`], whose parameters never require gradients.
+//! `Hidden` is a plain runtime value, never a tracked leaf.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use burn::module::Module;
-use burn::tensor::{Tensor, backend::Backend};
+use burn::tensor::{Device, Tensor};
 
 use rlevo_core::environment::Environment;
 use rlevo_evolution::fitness::BatchFitnessFn;
@@ -51,10 +52,6 @@ use rlevo_evolution::module_eval_fn::ModuleEvalFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
 
 use crate::policy::StatefulPolicy;
-
-/// Device type for backend `B` (the `Device` associated type lives on the
-/// `BackendTypes` supertrait in this Burn version).
-type Dev<B> = <B as burn::tensor::backend::BackendTypes>::Device;
 
 /// Constructs a fresh environment per evaluation episode.
 type EnvFactory<E> = Arc<dyn Fn() -> E + Send + Sync>;
@@ -98,27 +95,24 @@ where
 ///
 /// # Type Parameters
 ///
-/// - `B`: Burn backend (non-autodiff).
 /// - `M`: the policy network module; must implement [`StatefulPolicy`] over
 ///   `E`'s observation and action types (a reactive module with
 ///   `Hidden = ()`).
 /// - `E`: a rank-1 [`Environment`].
-pub struct RolloutFitness<B, M, E>
+pub struct RolloutFitness<M, E>
 where
-    B: Backend,
-    M: Module<B> + StatefulPolicy<E::ObservationType, E::ActionType>,
+    M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1>,
 {
-    inner: ModuleEvalFn<B, M, RolloutScorer<M>>,
+    inner: ModuleEvalFn<M, RolloutScorer<M>>,
     episodes_per_eval: usize,
     max_steps_per_episode: usize,
     _env: PhantomData<fn() -> E>,
 }
 
-impl<B, M, E> std::fmt::Debug for RolloutFitness<B, M, E>
+impl<M, E> std::fmt::Debug for RolloutFitness<M, E>
 where
-    B: Backend,
-    M: Module<B> + StatefulPolicy<E::ObservationType, E::ActionType>,
+    M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -129,10 +123,9 @@ where
     }
 }
 
-impl<B, M, E> RolloutFitness<B, M, E>
+impl<M, E> RolloutFitness<M, E>
 where
-    B: Backend,
-    M: Module<B> + StatefulPolicy<E::ObservationType, E::ActionType>,
+    M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1>,
 {
     /// Build a rollout-based fitness function.
@@ -161,7 +154,7 @@ where
     /// zero episodes would divide by zero, and a zero step cap would score
     /// every genome identically at 0.
     pub fn new<FacFn>(
-        reshaper: ModuleReshaper<B, M>,
+        reshaper: ModuleReshaper<M>,
         env_factory: FacFn,
         episodes_per_eval: usize,
         max_steps_per_episode: usize,
@@ -197,13 +190,12 @@ where
     }
 }
 
-impl<B, M, E> BatchFitnessFn<B, Tensor<B, 2>> for RolloutFitness<B, M, E>
+impl<M, E> BatchFitnessFn<Tensor<2>> for RolloutFitness<M, E>
 where
-    B: Backend,
-    M: Module<B> + StatefulPolicy<E::ObservationType, E::ActionType>,
+    M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
     E: Environment<1, 1> + Send,
 {
-    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &Dev<B>) -> Tensor<B, 1> {
+    fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         self.inner.evaluate_batch(population, device)
     }
 

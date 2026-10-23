@@ -11,11 +11,10 @@
 //! `rlevo-test-support` dev-crate; only the DDPG networks and the
 //! algorithm-specific tests remain here.
 
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Device, Tensor};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -32,12 +31,11 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
 };
 use rlevo_reinforcement_learning::algorithms::ddpg::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_improves_over_random;
 use rlevo_test_support::baseline::{random_return, uniform_bounded};
 use rlevo_test_support::env::{LinearAction, LinearEnv, LinearObservation};
-use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::flex::{flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
@@ -46,20 +44,14 @@ use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
-struct Actor<B: Backend> {
-    fc1: Linear<B>,
-    head: Linear<B>,
+struct Actor {
+    fc1: Linear,
+    head: Linear,
     action_scale: f32,
 }
 
-impl<B: Backend> Actor<B> {
-    fn new(
-        obs_dim: usize,
-        hidden: usize,
-        action_dim: usize,
-        scale: f32,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl Actor {
+    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             head: LinearConfig::new(hidden, action_dim).init(device),
@@ -67,89 +59,46 @@ impl<B: Backend> Actor<B> {
         }
     }
 
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, obs: Tensor<2>) -> Tensor<2> {
         let h = relu(self.fc1.forward(obs));
         tanh(self.head.forward(h)).mul_scalar(self.action_scale)
     }
 }
 
-impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for Actor<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DeterministicPolicy<2, 2> for Actor {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
-        inner.forward_impl(obs)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
 #[derive(Module, Debug)]
-struct Critic<B: Backend> {
-    fc1: Linear<B>,
-    head: Linear<B>,
+struct Critic {
+    fc1: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> Critic<B> {
-    fn new(
-        obs_dim: usize,
-        action_dim: usize,
-        hidden: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl Critic {
+    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             head: LinearConfig::new(hidden, 1).init(device),
         }
     }
-    fn forward_impl(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         let x = Tensor::cat(vec![obs, act], 1);
         let h = relu(self.fc1.forward(x));
         self.head.forward(h).squeeze_dim::<1>(1)
     }
 }
 
-impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
-    fn forward(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+impl ContinuousQ<2, 2> for Critic {
+    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        act: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 1> {
-        inner.forward_impl(obs, act)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, Critic<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
 // Concrete DDPG agent over the shared 1-D continuous fixture.
-type LinearAgent =
-    DdpgAgent<Be, Actor<Be>, Critic<Be>, LinearObservation, LinearAction, 1, 2, 1, 2>;
+type LinearAgent = DdpgAgent<Actor, Critic, LinearObservation, LinearAction, 1, 2, 1, 2>;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -159,12 +108,12 @@ type LinearAgent =
 /// returning the standardised outcome consumed by the suite macros. Shared by
 /// the convergence and reproducibility tests below.
 fn run_linear(seed: u64, total: usize) -> TrainOutcome {
-    let device = seeded_device::<Be>(seed);
+    let device = seeded_device(seed);
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
-    let critic: Critic<Be> = Critic::new(1, 1, 32, &device);
+    let actor: Actor = Actor::new(1, 32, 1, 1.0, &device);
+    let critic: Critic = Critic::new(1, 1, 32, &device);
     let config = DdpgTrainingConfig {
         replay_buffer_capacity: 20_000,
         batch_size: 32,
@@ -180,7 +129,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut agent: LinearAgent =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, LinearAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
+    train::<_, _, _, _, LinearAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
         .expect("training");
 
     let stats = agent.stats();
@@ -238,18 +187,18 @@ rl_learning_test! {
     random = random_linear,
 }
 
-/// `act_with` (inner-backend greedy inference) must produce the same action as
+/// `act_with` (plain-device greedy inference) must produce the same action as
 /// `act(obs, false, _)` (the autodiff deterministic mean) for identical
-/// weights — the inner snapshot is just a non-autodiff copy of the actor, so
+/// weights — the snapshot is just a non-autodiff copy of the actor, so
 /// the bench's faster greedy path stays faithful to the eval policy.
 #[test]
 fn ddpg_act_with_matches_deterministic_act() {
     let _guard = flex_guard();
     let seed: u64 = 7;
-    let device = seeded_device::<Be>(seed);
+    let device = seeded_device(seed);
 
-    let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
-    let critic: Critic<Be> = Critic::new(1, 1, 32, &device);
+    let actor: Actor = Actor::new(1, 32, 1, 1.0, &device);
+    let critic: Critic = Critic::new(1, 1, 32, &device);
     let config = DdpgTrainingConfig {
         replay_buffer_capacity: 20_000,
         batch_size: 32,
@@ -294,7 +243,7 @@ rl_reproducibility_test! {
 fn ddpg_pendulum_improves_over_random() {
     let _guard = flex_guard();
     let seed: u64 = 42;
-    let device = seeded_device::<Be>(seed);
+    let device = seeded_device(seed);
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
@@ -303,8 +252,8 @@ fn ddpg_pendulum_improves_over_random() {
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let actor: Actor<Be> = Actor::new(3, 64, 1, 2.0, &device);
-    let critic: Critic<Be> = Critic::new(3, 1, 64, &device);
+    let actor: Actor = Actor::new(3, 64, 1, 2.0, &device);
+    let critic: Critic = Critic::new(3, 1, 64, &device);
     let config = DdpgTrainingConfig {
         replay_buffer_capacity: 20_000,
         batch_size: 64,
@@ -317,19 +266,10 @@ fn ddpg_pendulum_improves_over_random() {
         policy_frequency: 2,
         ..Default::default()
     };
-    let mut agent: DdpgAgent<
-        Be,
-        Actor<Be>,
-        Critic<Be>,
-        PendulumObservation,
-        PendulumAction,
-        1,
-        2,
-        1,
-        2,
-    > = DdpgAgent::new(actor, critic, config, device).expect("valid config");
+    let mut agent: DdpgAgent<Actor, Critic, PendulumObservation, PendulumAction, 1, 2, 1, 2> =
+        DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
-    train::<Be, _, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 50_000, 0)
+    train::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 50_000, 0)
         .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");

@@ -4,14 +4,10 @@
 //! critic update + delayed actor/Polyak step) on a primed replay buffer,
 //! following the pattern established by `ddpg_bench`.
 
-use burn::backend::{Autodiff, Flex};
-use burn::module::{AutodiffModule, Module};
+use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
-use burn::tensor::backend::{AutodiffBackend, Backend};
-
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
+use burn::tensor::{Device, Tensor};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -27,21 +23,15 @@ use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig
 use rlevo_reinforcement_learning::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 
 #[derive(Module, Debug)]
-struct ActorMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+struct ActorMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
     action_scale: f32,
 }
 
-impl<B: Backend> ActorMlp<B> {
-    fn new(
-        obs_dim: usize,
-        hidden: usize,
-        action_dim: usize,
-        scale: f32,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl ActorMlp {
+    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -49,62 +39,35 @@ impl<B: Backend> ActorMlp<B> {
             action_scale: scale,
         }
     }
-    fn forward_impl(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
+    fn forward_impl(&self, x: Tensor<2>) -> Tensor<2> {
         let h = relu(self.fc1.forward(x));
         let h = relu(self.fc2.forward(h));
         tanh(self.head.forward(h)).mul_scalar(self.action_scale)
     }
 }
 
-impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for ActorMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+impl DeterministicPolicy<2, 2> for ActorMlp {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> {
-        inner.forward_impl(obs)
-    }
-    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
-    // f32. This is the intended narrowing point, and the values are hyperparameters
-    // (rates, discounts, epsilons) where f32 has far more precision than the
-    // schedules that produce them.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, ActorMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
 #[derive(Module, Debug)]
-struct CriticMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
+struct CriticMlp {
+    fc1: Linear,
+    fc2: Linear,
+    head: Linear,
 }
 
-impl<B: Backend> CriticMlp<B> {
-    fn new(
-        obs_dim: usize,
-        action_dim: usize,
-        hidden: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
+impl CriticMlp {
+    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
             head: LinearConfig::new(hidden, 1).init(device),
         }
     }
-    fn forward_impl(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+    fn forward_impl(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         let x = Tensor::cat(vec![obs, act], 1);
         let h = relu(self.fc1.forward(x));
         let h = relu(self.fc2.forward(h));
@@ -112,44 +75,19 @@ impl<B: Backend> CriticMlp<B> {
     }
 }
 
-impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+impl ContinuousQ<2, 2> for CriticMlp {
+    fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
-    }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-        act: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 1> {
-        inner.forward_impl(obs, act)
-    }
-    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
-    // f32. This is the intended narrowing point, and the values are hyperparameters
-    // (rates, discounts, epsilons) where f32 has far more precision than the
-    // schedules that produce them.
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        polyak_update::<B::InnerBackend, CriticMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
     }
 }
 
-type Be = Autodiff<Flex>;
-type Agent =
-    Td3Agent<Be, ActorMlp<Be>, CriticMlp<Be>, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type Agent = Td3Agent<ActorMlp, CriticMlp, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
 
 fn build_agent() -> Agent {
-    let device = Default::default();
-    let actor: ActorMlp<Be> = ActorMlp::new(3, 256, 1, 2.0, &device);
-    let critic_1: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
-    let critic_2: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
+    let device = Device::flex();
+    let actor: ActorMlp = ActorMlp::new(3, 256, 1, 2.0, &device);
+    let critic_1: CriticMlp = CriticMlp::new(3, 1, 256, &device);
+    let critic_2: CriticMlp = CriticMlp::new(3, 1, 256, &device);
     let config = Td3TrainingConfig {
         replay_buffer_capacity: 10_000,
         batch_size: 256,

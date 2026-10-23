@@ -11,8 +11,7 @@ surface and example scaffolding introduced here.
 - [`dqn_config`](dqn_config.rs) — `DqnTrainingConfig`, with all
   hyperparameters (batch size, $\gamma$, $\tau$, $\epsilon$ schedule, `learning_starts`,
   `train_frequency`, `double_q`, replay capacity, grad clip).
-- [`dqn_model`](dqn_model.rs) — the `DqnModel` trait: `forward`,
-  `forward_inner`, and `soft_update` for Polyak averaging.
+- [`dqn_model`](dqn_model.rs) — the `DqnModel` trait: `forward`.
 - [`exploration`](exploration.rs) — multiplicative $\epsilon$-greedy schedule.
 - [`train`](train.rs) — end-to-end collect-learn-sync loop.
 
@@ -20,35 +19,25 @@ surface and example scaffolding introduced here.
 
 There are two networks in DQN:
 
-1. **Policy network** — autodiff backend `B`, trained on minibatches.
-2. **Target network** — `M::InnerModule` on `B::InnerBackend`, updated via
-   Polyak averaging or periodic hard copy.
+1. **Policy network** — the agent switches it to training (`train()`) on the
+   autodiff form of the device you pass, and trains it on minibatches.
+2. **Target network** — a `valid()` snapshot of the policy, with no autodiff,
+   updated by `utils::polyak_update` (Polyak averaging, or a periodic hard
+   copy at $\tau = 1$).
+
+Both are the same type `M`, so the trait asks for one method.
 
 ```rust
 #[derive(Module, Debug)]
-pub struct MyDqn<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
+pub struct MyDqn {
+    l1: Linear,
+    l2: Linear,
 }
 
-impl<B: AutodiffBackend> DqnModel<B, 2> for MyDqn<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> { /* ... */ }
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 2> { /* ... */ }
-    fn soft_update(
-        active: &Self,
-        target: Self::InnerModule,
-        tau: f64,
-    ) -> Result<Self::InnerModule, PolyakError> {
-        /* use ModuleVisitor + ModuleMapper; delegate to utils::polyak_update */
-    }
+impl DqnModel<2> for MyDqn {
+    fn forward(&self, obs: Tensor<2>) -> Tensor<2> { /* ... */ }
 }
 ```
-
-See `examples/dqn_cart_pole.rs` for a complete `ModuleVisitor` /
-`ModuleMapper`-based Polyak update.
 
 ## Running the example
 

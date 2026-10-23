@@ -14,14 +14,8 @@
 //! they replace the four-line preamble that every algorithm test used to
 //! duplicate.
 
+use burn::tensor::Device;
 use std::sync::{Mutex, MutexGuard};
-
-use burn::backend::{Autodiff, Flex};
-use burn::tensor::backend::{Backend, BackendTypes};
-
-/// The autodiff-wrapped `Flex` backend used by every algorithm integration
-/// test. Aliased here so test files don't each redeclare `type Be = ...`.
-pub type FlexAutodiff = Autodiff<Flex>;
 
 /// Process-wide lock serialising access to Burn's global `Flex` RNG.
 ///
@@ -57,18 +51,15 @@ pub fn flex_guard() -> FlexGuard {
     FlexGuard(BACKEND_LOCK.lock().expect("backend lock poisoned"))
 }
 
-/// Returns a default device for backend `B` after seeding its global RNG.
+/// Returns the `Flex` device after seeding its global RNG.
 ///
-/// Two calls with the same `seed` produce bit-for-bit identical subsequent
-/// weight initialisation, provided the caller is holding the [`flex_guard`]
-/// lock so no other test reseeds in between.
+/// The device is plain: an agent switches autodiff on itself. Two calls with
+/// the same `seed` produce bit-for-bit identical subsequent weight
+/// initialisation, provided the caller is holding the [`flex_guard`] lock so
+/// no other test reseeds in between.
 #[must_use]
-pub fn seeded_device<B>(seed: u64) -> <B as BackendTypes>::Device
-where
-    B: Backend,
-    <B as BackendTypes>::Device: Default,
-{
-    let device = <B as BackendTypes>::Device::default();
-    <B as Backend>::seed(&device, seed);
+pub fn seeded_device(seed: u64) -> Device {
+    let device = Device::flex();
+    device.seed(seed);
     device
 }

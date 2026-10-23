@@ -6,7 +6,7 @@
 //! vs. test case, sub-solution vs. complementary sub-solution. The
 //! [`CoupledFitness`] trait captures exactly that joint evaluation.
 
-use burn::tensor::{Tensor, backend::Backend};
+use burn::tensor::Tensor;
 use rlevo_core::objective::ObjectiveSense;
 
 /// Joint fitness evaluation across two or more co-evolving populations.
@@ -51,14 +51,13 @@ use rlevo_core::objective::ObjectiveSense;
 /// (a natural maximise):
 ///
 /// ```
-/// use burn::backend::Flex;
-/// use burn::tensor::{Tensor, TensorData, backend::Backend};
+/// use burn::tensor::{Device, Tensor, TensorData};
 /// use rlevo_core::objective::ObjectiveSense;
 /// use rlevo_evolution::coevolution::CoupledFitness;
 ///
 /// struct RowSum;
-/// impl<B: Backend> CoupledFitness<B> for RowSum {
-///     fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+/// impl CoupledFitness for RowSum {
+///     fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
 ///         debug_assert_eq!(populations.len(), 2);
 ///         populations
 ///             .iter()
@@ -70,13 +69,13 @@ use rlevo_core::objective::ObjectiveSense;
 ///     }
 /// }
 ///
-/// let device = Default::default();
-/// let a = Tensor::<Flex, 2>::from_data(TensorData::new(vec![1.0_f32, 2.0, 3.0, 4.0], [2, 2]), &device);
-/// let b = Tensor::<Flex, 2>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0, 1.0], [2, 2]), &device);
+/// let device = Device::flex();
+/// let a = Tensor::<2>::from_data(TensorData::new(vec![1.0_f32, 2.0, 3.0, 4.0], [2, 2]), &device);
+/// let b = Tensor::<2>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0, 1.0], [2, 2]), &device);
 /// let out = RowSum.evaluate_coupled(&[a, b]);
 /// assert_eq!(out.len(), 2);
 /// ```
-pub trait CoupledFitness<B: Backend>: Send + Sync {
+pub trait CoupledFitness: Send + Sync {
     /// Evaluate fitness for each population relative to the others.
     ///
     /// `populations[i]` is a `(pop_size_i, genome_dim_i)` tensor. Returns one
@@ -97,7 +96,7 @@ pub trait CoupledFitness<B: Backend>: Send + Sync {
     /// maximise space — before any per-population `tell`, metric, or hall-of-fame sees the fitness
     /// (ADR 0034). A direct caller that bypasses those algorithms must apply the same
     /// canonicalise-then-sanitize itself.
-    fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>>;
+    fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>>;
 
     /// Objective direction — the **single source of truth** (ADR 0023).
     ///
@@ -127,14 +126,14 @@ pub trait CoupledFitness<B: Backend>: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{Flex, Wgpu};
+    use burn::tensor::Device;
     use burn::tensor::TensorData;
 
     /// Trivial implementor: each individual's fitness is its genome row sum.
     struct RowSum;
 
-    impl<B: Backend> CoupledFitness<B> for RowSum {
-        fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+    impl CoupledFitness for RowSum {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             debug_assert_eq!(populations.len(), 2);
             populations
                 .iter()
@@ -146,24 +145,14 @@ mod tests {
         }
     }
 
-    /// `CoupledFitness<B>` compiles on the CPU (Flex / ndarray-family)
-    /// **and** wgpu backends with a trivial test implementor. This is a
-    /// compile-time monomorphization assertion — it never runs (no wgpu device
-    /// is created), so it is cheap and CI-safe.
-    const _: fn() = || {
-        fn assert_coupled<B: Backend, F: CoupledFitness<B>>() {}
-        assert_coupled::<Flex, RowSum>();
-        assert_coupled::<Wgpu, RowSum>();
-    };
-
     #[test]
     fn trivial_implementor_evaluates_and_preserves_row_order() {
-        let device = Default::default();
-        let a = Tensor::<Flex, 2>::from_data(
+        let device = Device::flex();
+        let a = Tensor::<2>::from_data(
             TensorData::new(vec![1.0_f32, 2.0, 3.0, 4.0], [2, 2]),
             &device,
         );
-        let b = Tensor::<Flex, 2>::from_data(
+        let b = Tensor::<2>::from_data(
             TensorData::new(vec![0.0_f32, 0.0, 1.0, 1.0], [2, 2]),
             &device,
         );
@@ -172,12 +161,12 @@ mod tests {
         let va = out[0]
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness host-read of a tensor this test just built");
         let vb = out[1]
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness host-read of a tensor this test just built");
         assert_eq!(va, vec![3.0, 7.0]);
         assert_eq!(vb, vec![0.0, 2.0]);
@@ -186,9 +175,9 @@ mod tests {
     #[test]
     fn default_archive_sizes_is_empty() {
         assert!(
-            CoupledFitness::<Flex>::archive_sizes(&RowSum).is_empty(),
+            CoupledFitness::archive_sizes(&RowSum).is_empty(),
             "result must be empty, got {:?}",
-            CoupledFitness::<Flex>::archive_sizes(&RowSum)
+            CoupledFitness::archive_sizes(&RowSum)
         );
     }
 }

@@ -14,13 +14,11 @@
 #[path = "santa_fe_ant_support.rs"]
 mod support;
 
-use burn::backend::Flex;
+use burn::tensor::Device;
 use support::{
     DET_GENERATIONS, ElmanAntPolicy, GruAntPolicy, POP, RunSummary, ScoreMode, evolve_all,
     print_results_table,
 };
-
-type B = Flex;
 
 fn main() {
     // Pin rayon to one thread: Burn seeds tensor RNG through process-global state,
@@ -29,14 +27,14 @@ fn main() {
         .num_threads(1)
         .build_global();
 
-    let device = Default::default();
+    let device = Device::flex();
     let seed = 0x5A_u64;
     let mode = ScoreMode::Deterministic;
 
     let mut rows: Vec<RunSummary> = Vec::new();
 
-    let gru = GruAntPolicy::<B>::new(&device);
-    rows.extend(evolve_all::<B, _>(
+    let gru = GruAntPolicy::new(&device);
+    rows.extend(evolve_all(
         "GRU",
         &gru,
         mode,
@@ -46,8 +44,8 @@ fn main() {
         &device,
     ));
 
-    let elman = ElmanAntPolicy::<B>::new(&device);
-    rows.extend(evolve_all::<B, _>(
+    let elman = ElmanAntPolicy::new(&device);
+    rows.extend(evolve_all(
         "Elman",
         &elman,
         mode,

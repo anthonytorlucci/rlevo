@@ -17,7 +17,6 @@ use std::time::Instant;
 
 use rand::Rng;
 
-use burn::tensor::backend::AutodiffBackend;
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::environment::Environment;
@@ -48,19 +47,18 @@ use crate::algorithms::shared::LogWatermark;
 // sign; where an index round-trips through f32 it stays far below the 2^24
 // exact-integer limit. `from_index` bounds-checks on the way back.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn train_discrete<B, P, V, E, O, A, const OR: usize, const BOR: usize>(
-    agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
+pub fn train_discrete<P, V, E, O, A, const OR: usize, const BOR: usize>(
+    agent: &mut PpoAgent<P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
     log_every: usize,
 ) -> Result<(), PpoAgentError>
 where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR>,
-    V: PpoValue<B, BOR>,
+    P: PpoPolicy<BOR>,
+    V: PpoValue<BOR>,
     E: Environment<OR, 1, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     run_loop(agent, env, rng, total_timesteps, log_every, |row| {
@@ -83,19 +81,18 @@ where
 ///
 /// Returns [`PpoAgentError`] if the environment's `reset` or `step` fails, or
 /// if a rollout update cannot be applied.
-pub fn train_continuous<B, P, V, E, O, A, const OR: usize, const AR: usize, const BOR: usize>(
-    agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
+pub fn train_continuous<P, V, E, O, A, const OR: usize, const AR: usize, const BOR: usize>(
+    agent: &mut PpoAgent<P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
     log_every: usize,
 ) -> Result<(), PpoAgentError>
 where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR>,
-    V: PpoValue<B, BOR>,
+    P: PpoPolicy<BOR>,
+    V: PpoValue<BOR>,
     E: Environment<OR, AR, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: ContinuousAction<AR>,
 {
     run_loop(agent, env, rng, total_timesteps, log_every, A::from_slice)
@@ -106,8 +103,8 @@ where
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-fn run_loop<B, P, V, E, O, A, F, const OR: usize, const AR: usize, const BOR: usize>(
-    agent: &mut PpoAgent<B, P, V, O, OR, BOR>,
+fn run_loop<P, V, E, O, A, F, const OR: usize, const AR: usize, const BOR: usize>(
+    agent: &mut PpoAgent<P, V, O, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_timesteps: usize,
@@ -115,11 +112,10 @@ fn run_loop<B, P, V, E, O, A, F, const OR: usize, const AR: usize, const BOR: us
     action_from_row: F,
 ) -> Result<(), PpoAgentError>
 where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR>,
-    V: PpoValue<B, BOR>,
+    P: PpoPolicy<BOR>,
+    V: PpoValue<BOR>,
     E: Environment<OR, AR, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: rlevo_core::base::Action<AR> + Clone,
     F: Fn(&[f32]) -> A,
 {
@@ -254,17 +250,16 @@ where
 // history length, iteration number. All are bounded by configured sizes far
 // below f32's 2^24 (f64's 2^53) exact-integer limit.
 #[allow(clippy::cast_precision_loss)]
-fn emit_progress<B, P, V, O, const OR: usize, const BOR: usize>(
-    agent: &PpoAgent<B, P, V, O, OR, BOR>,
+fn emit_progress<P, V, O, const OR: usize, const BOR: usize>(
+    agent: &PpoAgent<P, V, O, OR, BOR>,
     stats: &PpoUpdateStats,
     global_step: usize,
     total_timesteps: usize,
     loop_start: Instant,
 ) where
-    B: AutodiffBackend,
-    P: PpoPolicy<B, BOR>,
-    V: PpoValue<B, BOR>,
-    O: Observation<OR> + TensorConvertible<OR, B>,
+    P: PpoPolicy<BOR>,
+    V: PpoValue<BOR>,
+    O: Observation<OR> + TensorConvertible<OR>,
 {
     let avg = agent
         .stats()

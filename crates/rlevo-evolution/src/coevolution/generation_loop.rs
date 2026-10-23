@@ -11,10 +11,9 @@
 //! [`advance`](rlevo_core::evaluation::GenerationProbe::advance), is one
 //! simultaneous-update generation.
 
+use burn::tensor::Device;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
-use burn::tensor::backend::Backend;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -99,27 +98,24 @@ pub struct CoEAMetrics {
 /// is measured and pinned for the single-population loop only.
 ///
 /// [`PopulationObserver`]: crate::observer::PopulationObserver
-pub struct CoEvolutionaryLoop<B, C>
+pub struct CoEvolutionaryLoop<C>
 where
-    B: Backend,
-    C: CoEvolutionaryAlgorithm<B>,
+    C: CoEvolutionaryAlgorithm,
 {
     algorithm: C,
     params: C::Params,
     state: Option<C::State>,
     rng: StdRng,
     seed: u64,
-    device: B::Device,
+    device: Device,
     generation: usize,
     max_generations: usize,
     latest_metrics: Option<CoEAMetrics>,
-    _backend: PhantomData<B>,
 }
 
-impl<B, C> Debug for CoEvolutionaryLoop<B, C>
+impl<C> Debug for CoEvolutionaryLoop<C>
 where
-    B: Backend,
-    C: CoEvolutionaryAlgorithm<B>,
+    C: CoEvolutionaryAlgorithm,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CoEvolutionaryLoop")
@@ -131,10 +127,9 @@ where
     }
 }
 
-impl<B, C> CoEvolutionaryLoop<B, C>
+impl<C> CoEvolutionaryLoop<C>
 where
-    B: Backend,
-    C: CoEvolutionaryAlgorithm<B>,
+    C: CoEvolutionaryAlgorithm,
 {
     /// Build a new loop from an algorithm, its params, a seed, a device,
     /// and a generation budget.
@@ -158,7 +153,7 @@ where
         algorithm: C,
         params: C::Params,
         seed: u64,
-        device: B::Device,
+        device: Device,
         max_generations: usize,
     ) -> Result<Self, ConfigError>
     where
@@ -175,7 +170,6 @@ where
             generation: 0,
             max_generations,
             latest_metrics: None,
-            _backend: PhantomData,
         })
     }
 
@@ -275,7 +269,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use burn::tensor::{Tensor, TensorData};
 
     use rlevo_core::bounds::Bounds;
@@ -287,8 +280,6 @@ mod tests {
         GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
     };
     use crate::coevolution::{CompetitiveCoEA, CompetitiveCoEAParams, CoupledFitness};
-
-    type TB = Flex;
 
     const POP: usize = 4;
     const DIM: usize = 2;
@@ -310,8 +301,8 @@ mod tests {
     /// Row 0 is `NaN`, the rest a finite ramp — for both populations.
     struct PoisonRow0Nan;
 
-    impl CoupledFitness<TB> for PoisonRow0Nan {
-        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+    impl CoupledFitness for PoisonRow0Nan {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| {
@@ -321,7 +312,7 @@ mod tests {
                     let v: Vec<f32> = (0..n)
                         .map(|i| if i == 0 { f32::NAN } else { i as f32 })
                         .collect();
-                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                    Tensor::<1>::from_data(TensorData::new(v, [n]), &device)
                 })
                 .collect()
         }
@@ -336,10 +327,10 @@ mod tests {
     /// chokepoint convention.
     #[test]
     fn binding_fitness_is_never_nan_with_nan_fitness() {
-        let device = Default::default();
+        let device = Device::flex();
         let algo = CompetitiveCoEA::new(
-            GeneticAlgorithm::<TB>::new(),
-            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::new(),
+            GeneticAlgorithm::new(),
             PoisonRow0Nan,
         );
         let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
@@ -347,7 +338,7 @@ mod tests {
             params_b: ga_config(),
         };
         let mut evo_loop =
-            CoEvolutionaryLoop::<TB, _>::new(algo, params, 7, device, 3).expect("valid params");
+            CoEvolutionaryLoop::new(algo, params, 7, device, 3).expect("valid params");
         evo_loop.reset();
         evo_loop.step();
 
@@ -372,8 +363,8 @@ mod tests {
     /// canonicalising to `$-1.0$` (the maximum).
     struct RowCostMin;
 
-    impl CoupledFitness<TB> for RowCostMin {
-        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+    impl CoupledFitness for RowCostMin {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| {
@@ -381,7 +372,7 @@ mod tests {
                     let device = p.device();
                     #[allow(clippy::cast_precision_loss)]
                     let v: Vec<f32> = (0..n).map(|i| i as f32 + 1.0).collect();
-                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                    Tensor::<1>::from_data(TensorData::new(v, [n]), &device)
                 })
                 .collect()
         }
@@ -395,18 +386,15 @@ mod tests {
     /// value is `$-1.0$`, while the natural `best_fitness_a` reads `1.0`.
     #[test]
     fn minimize_binding_fitness_is_canonical() {
-        let device = Default::default();
-        let algo = CompetitiveCoEA::new(
-            GeneticAlgorithm::<TB>::new(),
-            GeneticAlgorithm::<TB>::new(),
-            RowCostMin,
-        );
+        let device = Device::flex();
+        let algo =
+            CompetitiveCoEA::new(GeneticAlgorithm::new(), GeneticAlgorithm::new(), RowCostMin);
         let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
             params_a: ga_config(),
             params_b: ga_config(),
         };
         let mut evo_loop =
-            CoEvolutionaryLoop::<TB, _>::new(algo, params, 7, device, 3).expect("valid params");
+            CoEvolutionaryLoop::new(algo, params, 7, device, 3).expect("valid params");
         evo_loop.reset();
         evo_loop.step();
 
@@ -423,18 +411,15 @@ mod tests {
     /// written separately.
     #[test]
     fn zero_budget_is_done_before_any_step() {
-        let device = Default::default();
-        let algo = CompetitiveCoEA::new(
-            GeneticAlgorithm::<TB>::new(),
-            GeneticAlgorithm::<TB>::new(),
-            RowCostMin,
-        );
+        let device = Device::flex();
+        let algo =
+            CompetitiveCoEA::new(GeneticAlgorithm::new(), GeneticAlgorithm::new(), RowCostMin);
         let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
             params_a: ga_config(),
             params_b: ga_config(),
         };
         let mut evo_loop =
-            CoEvolutionaryLoop::<TB, _>::new(algo, params, 7, device, 0).expect("valid params");
+            CoEvolutionaryLoop::new(algo, params, 7, device, 0).expect("valid params");
         evo_loop.reset();
         assert!(evo_loop.is_done());
         assert!(evo_loop.latest_metrics().is_none());
@@ -444,18 +429,15 @@ mod tests {
     /// generation, and `is_done` stays `true`.
     #[test]
     fn step_past_the_budget_runs_another_generation() {
-        let device = Default::default();
-        let algo = CompetitiveCoEA::new(
-            GeneticAlgorithm::<TB>::new(),
-            GeneticAlgorithm::<TB>::new(),
-            RowCostMin,
-        );
+        let device = Device::flex();
+        let algo =
+            CompetitiveCoEA::new(GeneticAlgorithm::new(), GeneticAlgorithm::new(), RowCostMin);
         let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
             params_a: ga_config(),
             params_b: ga_config(),
         };
         let mut evo_loop =
-            CoEvolutionaryLoop::<TB, _>::new(algo, params, 7, device, 1).expect("valid params");
+            CoEvolutionaryLoop::new(algo, params, 7, device, 1).expect("valid params");
         evo_loop.reset();
         assert!(!evo_loop.is_done(), "a fresh run with a budget is not done");
         evo_loop.step();

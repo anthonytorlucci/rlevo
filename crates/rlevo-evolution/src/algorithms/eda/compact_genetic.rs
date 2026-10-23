@@ -24,7 +24,7 @@
 //! [`fit`]: crate::ProbabilityModel::fit
 //! [`sample`]: crate::ProbabilityModel::sample
 
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::{Rng, RngExt};
 use rlevo_core::config::{self, ConfigError};
 
@@ -109,7 +109,7 @@ impl CompactGeneticState {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CompactGenetic;
 
-impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
+impl ProbabilityModel for CompactGenetic {
     type Params = CompactGeneticParams;
     type State = CompactGeneticState;
 
@@ -132,9 +132,9 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
         &self,
         params: &Self::Params,
         prev: Option<&Self::State>,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        device: &Device,
     ) -> Self::State {
         let _ = device;
         let Some(prev) = prev else {
@@ -148,11 +148,11 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
         let [k, d] = population.dims();
         let rows = population
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population tensor must be readable as f32");
         let fit_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
 
         // Winner = argmax (best fitness), loser = argmin (worst); ties →
@@ -217,8 +217,8 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
         state: &Self::State,
         n: usize,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+        device: &Device,
+    ) -> Tensor<2> {
         let d = state.prob.len();
         let mut rows = Vec::with_capacity(n * d);
         // Row-major: outer individuals, inner dimensions.
@@ -228,33 +228,30 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
                 rows.push(gene);
             }
         }
-        Tensor::<B, 2>::from_data(TensorData::new(rows, [n, d]), device)
+        Tensor::<2>::from_data(TensorData::new(rows, [n, d]), device)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = Flex;
-
-    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<TestBackend, 2> {
-        let device = Default::default();
-        Tensor::<TestBackend, 2>::from_data(TensorData::new(rows, [n, d]), &device)
+    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<2> {
+        let device = Device::flex();
+        Tensor::<2>::from_data(TensorData::new(rows, [n, d]), &device)
     }
 
-    fn fitness(values: Vec<f32>) -> Tensor<TestBackend, 1> {
-        let device = Default::default();
+    fn fitness(values: Vec<f32>) -> Tensor<1> {
+        let device = Device::flex();
         let n = values.len();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(values, [n]), &device)
+        Tensor::<1>::from_data(TensorData::new(values, [n]), &device)
     }
 
     fn fit_prior(p: &CompactGeneticParams) -> CompactGeneticState {
-        let device = Default::default();
-        <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+        let device = Device::flex();
+        <CompactGenetic as ProbabilityModel>::fit(
             &CompactGenetic,
             p,
             None,
@@ -282,7 +279,7 @@ mod tests {
 
     #[test]
     fn nudge_is_exactly_one_over_vps() {
-        let device = Default::default();
+        let device = Device::flex();
         let p = CompactGeneticParams {
             genome_dim: 2,
             virtual_pop_size: 10,
@@ -290,7 +287,7 @@ mod tests {
         let prior = fit_prior(&p);
         // winner = row 0 (fitness 0): genes [1, 0]. loser = row 1: genes [0, 1].
         // Both genes differ: gene 0 winner=1 → +0.1; gene 1 winner=0 → -0.1.
-        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+        let state = <CompactGenetic as ProbabilityModel>::fit(
             &CompactGenetic,
             &p,
             Some(&prior),
@@ -304,7 +301,7 @@ mod tests {
 
     #[test]
     fn clamp_at_zero_and_one() {
-        let device = Default::default();
+        let device = Device::flex();
         let p = CompactGeneticParams {
             genome_dim: 2,
             virtual_pop_size: 2,
@@ -315,7 +312,7 @@ mod tests {
         // gene 0: winner=1 → +0.5 → 1.4 clamped to 1.0.
         // gene 1: winner=0 → -0.5 → -0.4 clamped to 0.0.
         for _ in 0..3 {
-            state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+            state = <CompactGenetic as ProbabilityModel>::fit(
                 &CompactGenetic,
                 &p,
                 Some(&state),
@@ -330,7 +327,7 @@ mod tests {
 
     #[test]
     fn genes_where_winner_equals_loser_untouched() {
-        let device = Default::default();
+        let device = Device::flex();
         let p = CompactGeneticParams {
             genome_dim: 2,
             virtual_pop_size: 10,
@@ -338,7 +335,7 @@ mod tests {
         let prior = fit_prior(&p);
         // gene 0: winner=1, loser=1 (same) → untouched at 0.5.
         // gene 1: winner=1, loser=0 (differ) → +0.1 → 0.6.
-        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+        let state = <CompactGenetic as ProbabilityModel>::fit(
             &CompactGenetic,
             &p,
             Some(&prior),
@@ -352,7 +349,7 @@ mod tests {
 
     #[test]
     fn not_the_column_mean() {
-        let device = Default::default();
+        let device = Device::flex();
         let p = CompactGeneticParams {
             genome_dim: 1,
             virtual_pop_size: 10,
@@ -361,7 +358,7 @@ mod tests {
         // Column mean of [1, 0, 0] is 1/3 `$\approx$` 0.333. cGA instead nudges 0.5 by +0.1 to 0.6
         // (winner=row 0 with gene 1, loser=row 2 with gene 0). Canonical maximise: row 0 has the
         // highest fitness (winner), row 2 the lowest (loser).
-        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+        let state = <CompactGenetic as ProbabilityModel>::fit(
             &CompactGenetic,
             &p,
             Some(&prior),
@@ -375,12 +372,12 @@ mod tests {
 
     #[test]
     fn samples_are_binary() {
-        let device = Default::default();
+        let device = Device::flex();
         let state = CompactGeneticState {
             prob: vec![0.2, 0.8],
         };
         let mut rng = StdRng::seed_from_u64(11);
-        let samples = <CompactGenetic as ProbabilityModel<TestBackend>>::sample(
+        let samples = <CompactGenetic as ProbabilityModel>::sample(
             &CompactGenetic,
             &state,
             300,
@@ -389,7 +386,7 @@ mod tests {
         );
         for v in samples
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built")
         {
             // Exact float compare is correct: sample() writes literal 0.0/1.0.
@@ -409,10 +406,10 @@ mod tests {
         // call (NaN -> -inf, see the comment at its call site above) closes
         // that seam: the NaN row can only ever lose, so the finite all-zeros
         // row is picked as the winner and probabilities move toward 0.
-        let device = Default::default();
+        let device = Device::flex();
         let p = CompactGeneticParams::default_for(2);
         let prior = fit_prior(&p);
-        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+        let state = <CompactGenetic as ProbabilityModel>::fit(
             &CompactGenetic,
             &p,
             Some(&prior),
@@ -436,13 +433,13 @@ mod tests {
     fn sample_respects_probabilities() {
         // §7.2: the empirical per-bit frequency of a large sample must match the
         // Bernoulli probabilities used to draw it.
-        let device = Default::default();
+        let device = Device::flex();
         let prob: Vec<f32> = vec![0.1, 0.5, 0.9];
         let d = prob.len();
         let state = CompactGeneticState { prob: prob.clone() };
         let mut rng = StdRng::seed_from_u64(42);
         let n = 20_000_usize;
-        let samples = <CompactGenetic as ProbabilityModel<TestBackend>>::sample(
+        let samples = <CompactGenetic as ProbabilityModel>::sample(
             &CompactGenetic,
             &state,
             n,
@@ -451,7 +448,7 @@ mod tests {
         );
         let data = samples
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         // n = 20_000 is far below f32's 2^24 exact-integer limit; the cast is
         // lossless.
@@ -471,12 +468,12 @@ mod tests {
     fn zero_population_with_prev_returns_prev_unchanged() {
         // §7.1: a `$0 \times 0$` selected population carries no genes to compete; the update loop
         // never runs, so the previous probabilities pass through untouched.
-        let device = Default::default();
+        let device = Device::flex();
         let p = CompactGeneticParams::default_for(3);
         let prev = CompactGeneticState {
             prob: vec![0.25, 0.5, 0.75],
         };
-        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+        let state = <CompactGenetic as ProbabilityModel>::fit(
             &CompactGenetic,
             &p,
             Some(&prev),
@@ -496,7 +493,7 @@ mod tests {
         // column count and `prev.prob` length are authoritative. A mismatched
         // genome_dim does not change the output length (dimension-mismatch
         // contract: population dims win).
-        let device = Default::default();
+        let device = Device::flex();
         let p = CompactGeneticParams {
             genome_dim: 9,
             virtual_pop_size: 10,
@@ -504,7 +501,7 @@ mod tests {
         let prev = CompactGeneticState {
             prob: vec![0.5, 0.5],
         };
-        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+        let state = <CompactGenetic as ProbabilityModel>::fit(
             &CompactGenetic,
             &p,
             Some(&prev),
@@ -522,20 +519,20 @@ mod tests {
     #[test]
     fn sample_is_deterministic_for_seed_and_state() {
         // §7.4: same seed + same state `$\Rightarrow$` byte-identical sample tensor.
-        let device = Default::default();
+        let device = Device::flex();
         let state = CompactGeneticState {
             prob: vec![0.3, 0.6, 0.9],
         };
         let mut rng_a = StdRng::seed_from_u64(77);
         let mut rng_b = StdRng::seed_from_u64(77);
-        let a = <CompactGenetic as ProbabilityModel<TestBackend>>::sample(
+        let a = <CompactGenetic as ProbabilityModel>::sample(
             &CompactGenetic,
             &state,
             256,
             &mut rng_a,
             &device,
         );
-        let b = <CompactGenetic as ProbabilityModel<TestBackend>>::sample(
+        let b = <CompactGenetic as ProbabilityModel>::sample(
             &CompactGenetic,
             &state,
             256,
@@ -544,11 +541,11 @@ mod tests {
         );
         let data_a = a
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         let data_b = b
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         assert_eq!(
             data_a, data_b,
@@ -577,7 +574,7 @@ mod tests {
             iters in 1u32..=50,
             seed in any::<u64>(),
         ) {
-            let device = Default::default();
+            let device = Device::flex();
             let params = CompactGeneticParams {
                 genome_dim,
                 virtual_pop_size,
@@ -593,7 +590,7 @@ mod tests {
                     .collect();
                 let fit_values: Vec<f32> = (0..k).map(|_| rng.random::<f32>()).collect();
 
-                state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+                state = <CompactGenetic as ProbabilityModel>::fit(
                     &CompactGenetic,
                     &params,
                     Some(&state),

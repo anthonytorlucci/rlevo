@@ -27,7 +27,7 @@ three senses apart.
 ### 1. Tensor order (ndim) — the one `rlevo` tracks
 
 The `const R` in `Observation<R>` / `Action<R>` is the **number of axes** a tensor
-has — what NumPy calls `ndim` and Burn writes as the `D` in `Tensor<B, D>`. It is
+has — what NumPy calls `ndim` and Burn writes as the `D` in `Tensor<D>`. It is
 the count of indices you need to address a single element, *not* the size of any
 axis:
 
@@ -55,7 +55,7 @@ $$A = \begin{bmatrix} 1 & 2 \\ 2 & 4 \end{bmatrix}$$
 is order-2 and shape $2 \times 2$, yet has **matrix rank 1** (the second column is
 twice the first). A linear map $y = Ax$ with $\operatorname{rank}(A) = r$ collapses
 its input onto an $r$-dimensional subspace, losing information along the null
-space. The type system cannot see this at all: $A$ is just a `Tensor<B, 2>`
+space. The type system cannot see this at all: $A$ is just a `Tensor<2>`
 whatever its column space looks like.
 
 ### 3. Cardinality / dimensionality — the size of an axis
@@ -71,7 +71,7 @@ environment's state**, whose shape the contract does not declare at all.
 | Sense | Means | A property of… | Where it lives in `rlevo` |
 | --- | --- | --- | --- |
 | **Tensor order (ndim)** | number of axes / indices | the container's shape | the `const OR`/`AR` on `Observation`/`Action` — the **only** "rank" the types track |
-| **Matrix rank** | dimension of a linear map's column space | the *values* of a matrix | nowhere in the types; a numerical fact about a `Tensor<B, 2>` |
+| **Matrix rank** | dimension of a linear map's column space | the *values* of a matrix | nowhere in the types; a numerical fact about a `Tensor<2>` |
 | **Cardinality / dimensionality** | size of an axis (count of values) | the container's shape | `shape()` entries — the observation's own, whatever the state holds |
 
 A clean way to keep them straight: **tensor order** counts the axes,

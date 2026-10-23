@@ -32,8 +32,8 @@
 //!   `HostRow::write_host_row(&mut flat)` (no device touched), then the same
 //!   batched `Tensor::from_data`.
 //!
-//! Both are generic over the row type `T: TensorConvertible<R, B>` and the
-//! backend `B`, so one implementation covers `CartPoleObservation` (`R = 1`,
+//! Both are generic over the row type `T: TensorConvertible<R>` and take the
+//! device as a value, so one implementation covers `CartPoleObservation` (`R = 1`,
 //! 4 floats/row) and `PixelObservation` (`R = 3`, 1200 floats/row) and both
 //! `Flex` and `Wgpu`, so the sweep covers both axes that matter: sync count
 //! is invariant to row size, but bytes moved are not.
@@ -80,9 +80,7 @@ mod bench_backend;
 
 use std::hint::black_box;
 
-use burn::backend::{Flex, Wgpu};
-use burn::tensor::backend::{Backend, BackendTypes};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Device, Tensor, TensorData};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
@@ -94,10 +92,10 @@ use rlevo_core::base::TensorConvertible;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
 
-use bench_backend::BenchBackend;
+use bench_backend::BenchDevice;
 
 /// Device type alias so generic signatures below don't repeat the projection.
-type DeviceOf<B> = <B as BackendTypes>::Device;
+type DeviceOf = Device;
 
 /// Batch sizes swept per (observation, backend) combination — 32/64/256; 64
 /// matches the existing `dqn_bench.rs` `dqn_learn_step_batch64`.
@@ -112,20 +110,16 @@ const BATCH_SIZES: [usize; 3] = [32, 64, 256];
 /// minibatch loop in `57dd565`'s parent `dqn_agent.rs::learn_step`
 /// (`obs_tensor.into_data().convert::<f32>()` +
 /// `extend_from_slice(..as_slice::<f32>()..)`), which no agent runs any more.
-fn stage_roundtrip<const R: usize, const BR: usize, T, B>(
-    items: &[T],
-    device: &DeviceOf<B>,
-) -> Tensor<B, BR>
+fn stage_roundtrip<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf) -> Tensor<BR>
 where
-    T: TensorConvertible<R, B>,
-    B: Backend,
+    T: TensorConvertible<R>,
 {
     debug_assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
     let row_shape = T::shape();
     let row_len: usize = row_shape.iter().product();
     let mut flat: Vec<f32> = Vec::with_capacity(items.len() * row_len);
     for item in items {
-        let row_tensor: Tensor<B, R> = item.to_tensor(device);
+        let row_tensor: Tensor<R> = item.to_tensor(device);
         let row_data = row_tensor.into_data().convert::<f32>();
         flat.extend_from_slice(row_data.as_slice::<f32>().expect("float data"));
     }
@@ -139,13 +133,9 @@ where
 /// batched upload, zero per-row device round trips. Uses the
 /// `HostRow::write_host_row` primitive from `rlevo-core`, which every agent's
 /// minibatch loop calls since `57dd565` (see the module-level note).
-fn stage_host_row<const R: usize, const BR: usize, T, B>(
-    items: &[T],
-    device: &DeviceOf<B>,
-) -> Tensor<B, BR>
+fn stage_host_row<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf) -> Tensor<BR>
 where
-    T: TensorConvertible<R, B>,
-    B: Backend,
+    T: TensorConvertible<R>,
 {
     debug_assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
     let row_shape = T::shape();
@@ -162,15 +152,17 @@ where
 
 /// Runs both strategies on the same batch and asserts the resulting tensors
 /// are bit-identical. Call **once**, outside any timed region.
-fn assert_bit_identical<const R: usize, const BR: usize, T, B>(items: &[T], device: &DeviceOf<B>)
+fn assert_bit_identical<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf)
 where
-    T: TensorConvertible<R, B>,
-    B: Backend,
+    T: TensorConvertible<R>,
 {
-    let rt: Tensor<B, BR> = stage_roundtrip::<R, BR, T, B>(items, device);
-    let hr: Tensor<B, BR> = stage_host_row::<R, BR, T, B>(items, device);
-    let rt_v: Vec<f32> = rt.into_data().into_vec().expect("host read (roundtrip)");
-    let hr_v: Vec<f32> = hr.into_data().into_vec().expect("host read (host_row)");
+    let rt: Tensor<BR> = stage_roundtrip::<R, BR, T>(items, device);
+    let hr: Tensor<BR> = stage_host_row::<R, BR, T>(items, device);
+    let rt_v: Vec<f32> = rt
+        .into_data()
+        .try_into_vec()
+        .expect("host read (roundtrip)");
+    let hr_v: Vec<f32> = hr.into_data().try_into_vec().expect("host read (host_row)");
     assert_eq!(
         rt_v, hr_v,
         "stage_roundtrip and stage_host_row diverged -- staging is not bit-identical; \
@@ -212,20 +204,20 @@ fn pixel_batch(n: usize, rng: &mut StdRng) -> Vec<PixelObservation> {
 /// Runs the `roundtrip` vs. `host_row` A/B for one (observation type,
 /// backend) combination across [`BATCH_SIZES`], inside criterion group
 /// `group_name`.
-fn bench_stage<const R: usize, const BR: usize, T, B>(
+fn bench_stage<const R: usize, const BR: usize, T>(
     c: &mut Criterion,
     group_name: &str,
+    bench: BenchDevice,
     make_batch: impl Fn(usize, &mut StdRng) -> Vec<T>,
 ) where
-    T: TensorConvertible<R, B>,
-    B: BenchBackend,
+    T: TensorConvertible<R>,
 {
-    let device = B::device();
+    let device = bench.device();
     let mut rng = StdRng::seed_from_u64(365);
 
     // Correctness gate: once, outside the timed region (see module doc).
     let check_batch = make_batch(*BATCH_SIZES.last().expect("non-empty"), &mut rng);
-    assert_bit_identical::<R, BR, T, B>(&check_batch, &device);
+    assert_bit_identical::<R, BR, T>(&check_batch, &device);
 
     let mut group = c.benchmark_group(group_name);
     // 20 samples (vs. criterion's default 100): `stage_roundtrip` on wgpu at
@@ -241,7 +233,7 @@ fn bench_stage<const R: usize, const BR: usize, T, B>(
             &items,
             |b, items| {
                 b.iter(|| {
-                    let t = stage_roundtrip::<R, BR, T, B>(black_box(items), &device);
+                    let t = stage_roundtrip::<R, BR, T>(black_box(items), &device);
                     // Force completion inside the timed region -- see module doc.
                     black_box(t.into_data());
                 });
@@ -252,7 +244,7 @@ fn bench_stage<const R: usize, const BR: usize, T, B>(
             &items,
             |b, items| {
                 b.iter(|| {
-                    let t = stage_host_row::<R, BR, T, B>(black_box(items), &device);
+                    let t = stage_host_row::<R, BR, T>(black_box(items), &device);
                     black_box(t.into_data());
                 });
             },
@@ -262,10 +254,20 @@ fn bench_stage<const R: usize, const BR: usize, T, B>(
 }
 
 fn bench_staging(c: &mut Criterion) {
-    bench_stage::<1, 2, CartPoleObservation, Flex>(c, "stage_cartpole_flex", cartpole_batch);
-    bench_stage::<1, 2, CartPoleObservation, Wgpu>(c, "stage_cartpole_wgpu", cartpole_batch);
-    bench_stage::<3, 4, PixelObservation, Flex>(c, "stage_pixel_flex", pixel_batch);
-    bench_stage::<3, 4, PixelObservation, Wgpu>(c, "stage_pixel_wgpu", pixel_batch);
+    bench_stage::<1, 2, CartPoleObservation>(
+        c,
+        "stage_cartpole_flex",
+        BenchDevice::Flex,
+        cartpole_batch,
+    );
+    bench_stage::<1, 2, CartPoleObservation>(
+        c,
+        "stage_cartpole_wgpu",
+        BenchDevice::Wgpu,
+        cartpole_batch,
+    );
+    bench_stage::<3, 4, PixelObservation>(c, "stage_pixel_flex", BenchDevice::Flex, pixel_batch);
+    bench_stage::<3, 4, PixelObservation>(c, "stage_pixel_wgpu", BenchDevice::Wgpu, pixel_batch);
 }
 
 criterion_group!(benches, bench_staging);

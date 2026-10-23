@@ -19,9 +19,9 @@
 //!
 //! - [`mod@env`] — the synthetic [`LinearEnv`](env::LinearEnv) 1-D continuous
 //!   tracking task shared by every continuous-control algorithm test.
-//! - [`flex`] — the [`Autodiff<Flex>`](flex::FlexAutodiff) backend alias plus
-//!   the [`flex_guard`](flex::flex_guard) / [`seeded_device`](flex::seeded_device)
-//!   determinism helpers.
+//! - [`flex`] — the [`flex_guard`](flex::flex_guard) /
+//!   [`seeded_device`](flex::seeded_device) determinism helpers for the `Flex`
+//!   device.
 //! - [`baseline`] — uniform-random-policy rollouts
 //!   ([`random_return`](baseline::random_return)) that measure the random
 //!   baseline a learning test must beat, instead of hard-coding it.

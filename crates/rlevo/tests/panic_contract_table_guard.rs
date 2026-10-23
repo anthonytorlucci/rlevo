@@ -117,7 +117,7 @@
 //! a free function, an inherent method, or a trait-impl method. That is load
 //! bearing rather than lax: the six `local_search::…::{refine,
 //! refine_with_known_fitness, refine_impl}` specs are spelled as module paths but
-//! are *associated items* (`impl<B: Backend> LocalSearch<B> for HillClimbing` at
+//! are *associated items* (`impl LocalSearch for HillClimbing` at
 //! `hill_climbing.rs:355`, its methods at `:361` and `:377`, the inherent
 //! `refine_impl` at `:230`). A free-function-only resolver fails 6 of the 37
 //! specs on day one. The right response is **not** to rewrite those cells as

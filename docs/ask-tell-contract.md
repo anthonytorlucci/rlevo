@@ -26,20 +26,20 @@ and CGP families. Here is the full signature, because this time we are going to
 call it by hand:
 
 ```rust,no_run
-pub trait Strategy<B: Backend>: Send + Sync {
+pub trait Strategy: Send + Sync {
     type Params: Clone + Debug + Send + Sync;  // static run config
     type State:  Clone + Debug + Send;          // generation-to-generation state
     type Genome: Clone + Send;                  // genome container produced by ask
 
     /// Build the initial state (samples the first population).
-    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &B::Device) -> Self::State;
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &Device) -> Self::State;
 
     /// Propose the next population; returns it together with an updated state.
-    fn ask(&self, params: &Self::Params, state: &Self::State, rng: &mut dyn Rng, device: &B::Device)
+    fn ask(&self, params: &Self::Params, state: &Self::State, rng: &mut dyn Rng, device: &Device)
         -> (Self::Genome, Self::State);
 
     /// Consume the population and its fitness; returns the next state and metrics.
-    fn tell(&self, params: &Self::Params, population: Self::Genome, fitness: Tensor<B, 1>,
+    fn tell(&self, params: &Self::Params, population: Self::Genome, fitness: Tensor<1>,
             state: Self::State, rng: &mut dyn Rng) -> (Self::State, StrategyMetrics);
 
     /// Best-so-far accessor — `None` before the first `tell`.
@@ -55,7 +55,7 @@ Two things look different from a textbook ask/tell, and both are deliberate:
   `State`, and each call returns the next one. That is what lets many strategy
   instances run in parallel without locks, and makes `Clone`-based checkpointing
   trivial.
-- **Fitness is a tensor, not a `Vec`.** `tell` takes a `Tensor<B, 1>` of shape
+- **Fitness is a tensor, not a `Vec`.** `tell` takes a `Tensor<1>` of shape
   `(pop_size,)` living on the same device as the population, so the strategy can
   do its selection arithmetic on-device without a host round-trip.
 
@@ -92,12 +92,12 @@ setting changes the contract rather than just the syntax:
 - **One contract spans the whole EA taxonomy, not just ES.** evosax is
   organised around evolution strategies over real vectors. `rlevo`'s `Strategy`
   is generic over its genome type: a real-valued strategy's `type Genome` is a
-  `Tensor<B, 2>`, a binary, integer or CGP one a `Tensor<B, 2, Int>`, so an
+  `Tensor<2>`, a binary, integer or CGP one a `Tensor<2, Int>`, so an
   operator written for one kind of tensor does not accept the other. The
   associated `type Genome` is what varies across the *same* ask/tell trait
   backing the GA, ES, EP, DE, EDA, and CGP families, not the protocol.
 - **Fitness is a backend tensor, with a fixed direction.** `tell` consumes a
-  Burn `Tensor<B, 1>` on whatever backend the run uses, rather than a host
+  Burn `Tensor<1>` on whatever backend the run uses, rather than a host
   array — selection arithmetic stays on-device. And where evosax leaves the
   optimisation direction to the caller, `rlevo` pins a **maximise-native contract**
   end-to-end (higher is better): a fitness function declares `ObjectiveSense`
@@ -152,21 +152,19 @@ loop in the next section, or `EvolutionaryLoop` in the one after.
 Here is a genetic algorithm minimising the Sphere function, written without
 `EvolutionaryLoop`. `Sphere` is a shipped `Landscape`; `FromLandscape` adapts it
 into the `BatchFitnessFn` the strategy expects — a function that takes the
-whole population at once and returns a `Tensor<B, 1>` of per-individual costs:
+whole population at once and returns a `Tensor<1>` of per-individual costs:
 
 ```rust,no_run
-use rlevo::burn::backend::Flex;
+use rlevo::burn::tensor::Device;
 use rand::{SeedableRng, rngs::StdRng};
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::fitness::{BatchFitnessFn, FromLandscape, sanitize_fitness_tensor};
 use rlevo::evo::strategy::Strategy;
 
-type B = Flex;
-
 fn main() {
-    let device = Default::default();
-    let strategy = GeneticAlgorithm::<B>::new();
+    let device = Device::flex();
+    let strategy = GeneticAlgorithm::new();
     // `default_for` searches [-5.12, 5.12] in every dimension.
     let params = GaConfig::default_for(/* pop = */ 64, /* dim = */ 8);
     let mut rng = StdRng::seed_from_u64(42);
@@ -179,7 +177,7 @@ fn main() {
         // 1. Ask: propose the next population and the state that goes with it.
         let (population, next_state) = strategy.ask(&params, &state, &mut rng, &device);
 
-        // 2. Evaluate — this is your code. Returns a Tensor<B, 1> of (pop_size,):
+        // 2. Evaluate — this is your code. Returns a Tensor<1> of (pop_size,):
         //    here, each individual's Sphere cost.
         let cost = fitness_fn.evaluate_batch(&population, &device);
 
@@ -276,17 +274,15 @@ strategy's state, the RNG, the fitness function and the generation count.
 `EvolutionaryLoop` owns all four and reduces the run to three calls:
 
 ```rust,no_run
-use rlevo::burn::backend::Flex;
+use rlevo::burn::tensor::Device;
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::fitness::FromLandscape;
 use rlevo::evo::strategy::EvolutionaryLoop;
 
-type B = Flex;
-
-let device = Default::default();
-let mut evo_loop = EvolutionaryLoop::<B, _, _>::new(
-    GeneticAlgorithm::<B>::new(),
+let device = Device::flex();
+let mut evo_loop = EvolutionaryLoop::new(
+    GeneticAlgorithm::new(),
     GaConfig::default_for(/* pop = */ 64, /* dim = */ 8),
     FromLandscape::new(Sphere::new(8).expect("dim >= 1")),
     /* seed = */ 42,
@@ -377,7 +373,6 @@ seed it is handed; the harness calls the closure once per trial and drives each
 loop to its budget.
 
 ```rust,no_run
-use rlevo::burn::backend::Flex;
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::fitness::FromLandscape;
@@ -385,7 +380,6 @@ use rlevo::evo::strategy::EvolutionaryLoop;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo::harness::reporter::logging::LoggingReporter;
 
-type B = Flex;
 const GENERATIONS: usize = 300;
 
 let config = EvaluatorConfig {
@@ -401,8 +395,8 @@ let report = Evaluator::new(config).run_trials(
     // Called once per trial with the seeds the harness derived for that trial.
     // The first is the one a loop takes: build a new loop from it each time.
     |_key, seed, _agent_seed| GenerationTrial {
-        probe: EvolutionaryLoop::<B, _, _>::new(
-            GeneticAlgorithm::<B>::new(),
+        probe: EvolutionaryLoop::new(
+            GeneticAlgorithm::new(),
             GaConfig::default_for(/* pop = */ 64, /* dim = */ 8),
             FromLandscape::new(Sphere::new(8).expect("dim >= 1")),
             seed,

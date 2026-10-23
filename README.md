@@ -145,9 +145,11 @@ The `flex` and `wgpu` features are on `main` and ship with the next release;
 the published 0.5.0 always compiles both backends and has neither feature.
 
 Burn is re-exported as `rlevo::burn`, so you need no `burn` entry of your
-own: `rlevo::burn::backend::Flex`, `rlevo::burn::backend::Wgpu`. The
-individual `rlevo-*` crates select no backend; if you depend on one of
-them directly, add `burn` with the backend feature you want.
+own. You choose where a run happens by the device you build:
+`rlevo::burn::tensor::Device::flex()`, or `Device::wgpu(Default::default())`
+with the `wgpu` feature. The individual `rlevo-*` crates select no backend;
+if you depend on one of them directly, add `burn` with the backend feature
+you want.
 
 ### Evaluation harness
 
@@ -186,7 +188,7 @@ cargo doc --workspace --no-deps --open
 
 ## Dependencies
 
-- **[Burn](https://burn.dev/) 0.21** — backend-agnostic tensor operations, re-exported as `rlevo::burn`. The library crates enable no backend; `rlevo`'s `flex` feature (default, CPU) or `wgpu` feature (GPU) selects one
+- **[Burn](https://burn.dev/) 0.22** — backend-agnostic tensor operations, re-exported as `rlevo::burn`. The library crates enable no backend; `rlevo`'s `flex` feature (default, CPU) or `wgpu` feature (GPU) selects one
 - **rand 0.10** — randomness and deterministic seeding
 - **rand_distr 0.6** — probability distributions (normal, uniform, etc.)
 - **ringbuffer 0.16** — fixed-capacity circular buffer for replay buffers

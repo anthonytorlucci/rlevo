@@ -8,7 +8,7 @@
 //! `algorithms::swarm::*` modules. ACO-Permutation is excluded because
 //! its module is a `todo!()` stub.
 
-use burn::backend::Flex;
+use burn::tensor::Device;
 use rlevo_core::evaluation::GenerationProbe;
 use rlevo_core::fitness::MetricsProvider;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
@@ -29,7 +29,6 @@ use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConf
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
 
-type B = Flex;
 const DIM: usize = 10;
 const MAX_GENS: usize = 120;
 
@@ -109,141 +108,141 @@ where
 // Rastrigin factories — one per shipping swarm strategy.
 // ---------------------------------------------------------------------
 
-fn pso_ra(seed: u64) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromLandscape<Rastrigin>>
+fn pso_ra(seed: u64) -> EvolutionaryLoop<ParticleSwarm, FromLandscape<Rastrigin>>
 where
-    ParticleSwarm<B>: Strategy<B, Params = PsoConfig>,
+    ParticleSwarm: Strategy<Params = PsoConfig>,
 {
     EvolutionaryLoop::new(
-        ParticleSwarm::<B>::new(),
+        ParticleSwarm::new(),
         PsoConfig::default_for(32, DIM),
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
 }
 
-fn gwo_ra(seed: u64) -> EvolutionaryLoop<B, GreyWolfOptimizer<B>, FromLandscape<Rastrigin>> {
+fn gwo_ra(seed: u64) -> EvolutionaryLoop<GreyWolfOptimizer, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
-        GreyWolfOptimizer::<B>::new(),
+        GreyWolfOptimizer::new(),
         GwoConfig::default_for(32, DIM, MAX_GENS),
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
 }
 
-fn woa_ra(seed: u64) -> EvolutionaryLoop<B, WhaleOptimization<B>, FromLandscape<Rastrigin>> {
+fn woa_ra(seed: u64) -> EvolutionaryLoop<WhaleOptimization, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
-        WhaleOptimization::<B>::new(),
+        WhaleOptimization::new(),
         WoaConfig::default_for(32, DIM, MAX_GENS),
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
 }
 
-fn salp_ra(seed: u64) -> EvolutionaryLoop<B, SalpSwarm<B>, FromLandscape<Rastrigin>> {
+fn salp_ra(seed: u64) -> EvolutionaryLoop<SalpSwarm, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
-        SalpSwarm::<B>::new(),
+        SalpSwarm::new(),
         SalpConfig::default_for(32, DIM, MAX_GENS),
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
 }
 
-fn abc_ra(seed: u64) -> EvolutionaryLoop<B, ArtificialBeeColony<B>, FromLandscape<Rastrigin>> {
+fn abc_ra(seed: u64) -> EvolutionaryLoop<ArtificialBeeColony, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
-        ArtificialBeeColony::<B>::new(),
+        ArtificialBeeColony::new(),
         AbcConfig::default_for(30, DIM),
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
 }
 
-fn bat_ra(seed: u64) -> EvolutionaryLoop<B, BatAlgorithm<B>, FromLandscape<Rastrigin>> {
+fn bat_ra(seed: u64) -> EvolutionaryLoop<BatAlgorithm, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
-        BatAlgorithm::<B>::new(),
+        BatAlgorithm::new(),
         BatConfig::default_for(30, DIM),
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
 }
 
-fn aco_r_ra(seed: u64) -> EvolutionaryLoop<B, AntColonyReal<B>, FromLandscape<Rastrigin>> {
+fn aco_r_ra(seed: u64) -> EvolutionaryLoop<AntColonyReal, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
-        AntColonyReal::<B>::new(),
+        AntColonyReal::new(),
         AcoRConfig::default_for(30, 15, DIM),
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
 }
 
-fn cuckoo_ra(seed: u64) -> EvolutionaryLoop<B, CuckooSearch<B>, FromLandscape<Rastrigin>> {
+fn cuckoo_ra(seed: u64) -> EvolutionaryLoop<CuckooSearch, FromLandscape<Rastrigin>> {
     let mut cfg = CuckooConfig::default_for(30, DIM);
     cfg.alpha = 0.2;
     EvolutionaryLoop::new(
-        CuckooSearch::<B>::new(),
+        CuckooSearch::new(),
         cfg,
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
 }
 
-fn firefly_ra(seed: u64) -> EvolutionaryLoop<B, FireflyAlgorithm<B>, FromLandscape<Rastrigin>> {
+fn firefly_ra(seed: u64) -> EvolutionaryLoop<FireflyAlgorithm, FromLandscape<Rastrigin>> {
     EvolutionaryLoop::new(
-        FireflyAlgorithm::<B>::new(),
+        FireflyAlgorithm::new(),
         FireflyConfig::default_for(24, DIM),
         FromLandscape::with_sense(
             Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -253,16 +252,16 @@ fn firefly_ra(seed: u64) -> EvolutionaryLoop<B, FireflyAlgorithm<B>, FromLandsca
 // Ackley factories — mirror the Rastrigin ones.
 // ---------------------------------------------------------------------
 
-fn pso_ak(seed: u64) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromLandscape<Ackley>> {
+fn pso_ak(seed: u64) -> EvolutionaryLoop<ParticleSwarm, FromLandscape<Ackley>> {
     EvolutionaryLoop::new(
-        ParticleSwarm::<B>::new(),
+        ParticleSwarm::new(),
         PsoConfig::default_for(32, DIM),
         FromLandscape::with_sense(
             Ackley::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -270,23 +269,20 @@ fn pso_ak(seed: u64) -> EvolutionaryLoop<B, ParticleSwarm<B>, FromLandscape<Ackl
 
 fn de_rand1_ak(
     seed: u64,
-) -> EvolutionaryLoop<
-    B,
-    rlevo_evolution::algorithms::de::DifferentialEvolution<B>,
-    FromLandscape<Ackley>,
-> {
+) -> EvolutionaryLoop<rlevo_evolution::algorithms::de::DifferentialEvolution, FromLandscape<Ackley>>
+{
     use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
     let mut params = DeConfig::default_for(40, DIM);
     params.variant = DeVariant::Rand1Bin;
     EvolutionaryLoop::new(
-        DifferentialEvolution::<B>::new(),
+        DifferentialEvolution::new(),
         params,
         FromLandscape::with_sense(
             Ackley::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")

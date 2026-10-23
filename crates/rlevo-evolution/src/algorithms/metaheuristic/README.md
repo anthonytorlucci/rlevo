@@ -1,7 +1,7 @@
 # `rlevo-evolution::algorithms::metaheuristic`
 
 Nine swarm-intelligence and nature-inspired metaheuristics plugged into
-the existing `Strategy<B>` trait.
+the existing `Strategy` trait.
 
 ## Which one should I pick?
 
@@ -38,5 +38,5 @@ Three reasons:
 1. The library is a reference implementation, not an opinion piece.
 2. These algorithms are widely cited in applied literature; users will
    reach for them expecting to find them.
-3. They exercise the `Strategy<B>` trait across a wider design space,
+3. They exercise the `Strategy` trait across a wider design space,
    surfacing abstraction leaks.

@@ -18,9 +18,8 @@
 
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
@@ -170,7 +169,7 @@ impl<PA, PB> Validate for CooperativeCoEAParams<PA, PB> {
 /// per-population representative archives used by
 /// [`RepresentativePolicy::Archive`].
 #[derive(Debug, Clone)]
-pub struct CooperativeState<StA, StB, B: Backend> {
+pub struct CooperativeState<StA, StB> {
     /// Shared best/mean/generation trackers and inner strategy states.
     pub base: CoEAState<StA, StB>,
     /// Complement of `params.dims_a` within `0..total_dims`, ascending; frozen
@@ -179,47 +178,43 @@ pub struct CooperativeState<StA, StB, B: Backend> {
     /// keeps the `Clone + Debug + Send` derives valid.
     dims_b: Vec<usize>,
     /// Bounded archive of population A's past champions (`Archive` policy only).
-    rep_archive_a: Option<Tensor<B, 2>>,
+    rep_archive_a: Option<Tensor<2>>,
     /// Bounded archive of population B's past champions (`Archive` policy only).
-    rep_archive_b: Option<Tensor<B, 2>>,
+    rep_archive_b: Option<Tensor<2>>,
 }
 
 /// Cooperative (CCGA-style) co-evolutionary algorithm.
 ///
-/// Generic over the backend `B`, the two inner strategies `SA`/`SB` (each
-/// producing `Tensor<B, 2>` sub-genomes), and a stateless row-wise
+/// Generic over the two inner strategies `SA`/`SB` (each
+/// producing `Tensor<2>` sub-genomes), and a stateless row-wise
 /// [`CoupledFitness`] `F` evaluating assembled full-dimensional candidates.
-pub struct CooperativeCoEA<B, SA, SB, F>
+pub struct CooperativeCoEA<SA, SB, F>
 where
-    B: Backend,
-    SA: Strategy<B, Genome = Tensor<B, 2>>,
-    SB: Strategy<B, Genome = Tensor<B, 2>>,
-    F: CoupledFitness<B>,
+    SA: Strategy<Genome = Tensor<2>>,
+    SB: Strategy<Genome = Tensor<2>>,
+    F: CoupledFitness,
 {
     strategy_a: SA,
     strategy_b: SB,
     fitness: F,
-    _backend: PhantomData<fn() -> B>,
 }
 
-impl<B, SA, SB, F> Debug for CooperativeCoEA<B, SA, SB, F>
+impl<SA, SB, F> Debug for CooperativeCoEA<SA, SB, F>
 where
-    B: Backend,
-    SA: Strategy<B, Genome = Tensor<B, 2>>,
-    SB: Strategy<B, Genome = Tensor<B, 2>>,
-    F: CoupledFitness<B>,
+    SA: Strategy<Genome = Tensor<2>>,
+    SB: Strategy<Genome = Tensor<2>>,
+    F: CoupledFitness,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CooperativeCoEA").finish_non_exhaustive()
     }
 }
 
-impl<B, SA, SB, F> CooperativeCoEA<B, SA, SB, F>
+impl<SA, SB, F> CooperativeCoEA<SA, SB, F>
 where
-    B: Backend,
-    SA: Strategy<B, Genome = Tensor<B, 2>>,
-    SB: Strategy<B, Genome = Tensor<B, 2>>,
-    F: CoupledFitness<B>,
+    SA: Strategy<Genome = Tensor<2>>,
+    SB: Strategy<Genome = Tensor<2>>,
+    F: CoupledFitness,
 {
     /// Build a cooperative co-evolution from two inner strategies and a
     /// (stateless, row-wise) coupled fitness.
@@ -228,7 +223,6 @@ where
             strategy_a,
             strategy_b,
             fitness,
-            _backend: PhantomData,
         }
     }
 
@@ -243,7 +237,7 @@ where
     /// while `binding_fitness` is kept in canonical space.
     /// Means are averaged over the finite members only, so a broken individual
     /// cannot emit a `NaN` mean.
-    fn snapshot(&self, state: &CooperativeState<SA::State, SB::State, B>) -> CoEAMetrics {
+    fn snapshot(&self, state: &CooperativeState<SA::State, SB::State>) -> CoEAMetrics {
         let sizes = self.fitness.archive_sizes();
         let sense = self.fitness.sense();
         // `binding_fitness` stays in canonical space — compute
@@ -262,22 +256,16 @@ where
     }
 }
 
-impl<B, SA, SB, F> CoEvolutionaryAlgorithm<B> for CooperativeCoEA<B, SA, SB, F>
+impl<SA, SB, F> CoEvolutionaryAlgorithm for CooperativeCoEA<SA, SB, F>
 where
-    B: Backend,
-    SA: Strategy<B, Genome = Tensor<B, 2>>,
-    SB: Strategy<B, Genome = Tensor<B, 2>>,
-    F: CoupledFitness<B>,
+    SA: Strategy<Genome = Tensor<2>>,
+    SB: Strategy<Genome = Tensor<2>>,
+    F: CoupledFitness,
 {
     type Params = CooperativeCoEAParams<SA::Params, SB::Params>;
-    type State = CooperativeState<SA::State, SB::State, B>;
+    type State = CooperativeState<SA::State, SB::State>;
 
-    fn init(
-        &self,
-        params: &Self::Params,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self::State {
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &Device) -> Self::State {
         debug_assert!(
             params.validate().is_ok(),
             "invalid CooperativeCoEAParams reached init: {:?}",
@@ -298,7 +286,7 @@ where
         params: &Self::Params,
         mut state: Self::State,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: &Device,
     ) -> (Self::State, CoEAMetrics) {
         let dims_a = &params.dims_a;
         // Complement cached on the state at `init` — no per-generation alloc.
@@ -357,7 +345,7 @@ where
         // `$+\infty$` = canonical *best* under `Minimize`. After this the per-population `tell`,
         // the `snapshot` best/mean written into `CoEAState`, and any hall-of-fame all see
         // canonical, finite-or-`$-\infty$` fitness.
-        let canon = |t: Tensor<B, 1>| {
+        let canon = |t: Tensor<1>| {
             let c = match sense {
                 ObjectiveSense::Maximize => t,
                 ObjectiveSense::Minimize => t.neg(),
@@ -399,10 +387,10 @@ fn complement(dims_a: &[usize], total_dims: usize) -> Vec<usize> {
 }
 
 /// Extract row `idx` of `pop` as a `(1, genome_dim)` tensor.
-fn row<B: Backend>(pop: &Tensor<B, 2>, idx: usize) -> Tensor<B, 2> {
+fn row(pop: &Tensor<2>, idx: usize) -> Tensor<2> {
     let device = pop.device();
     #[allow(clippy::cast_possible_wrap)]
-    let i = Tensor::<B, 1, Int>::from_data(TensorData::new(vec![idx as i64], [1]), &device);
+    let i = Tensor::<1, Int>::from_data(TensorData::new(vec![idx as i64], [1]), &device);
     pop.clone().select(0, i)
 }
 
@@ -411,15 +399,15 @@ fn row<B: Backend>(pop: &Tensor<B, 2>, idx: usize) -> Tensor<B, 2> {
 /// `prev_best` is the opposing strategy's best-so-far (`None` at generation 0,
 /// before the first `tell`). The `archive` is mutated in place for the
 /// `Archive` policy. Returns a `(1, genome_dim)` representative.
-fn select_representative<B: Backend>(
-    pop: &Tensor<B, 2>,
-    prev_best: Option<&Tensor<B, 2>>,
-    archive: &mut Option<Tensor<B, 2>>,
+fn select_representative(
+    pop: &Tensor<2>,
+    prev_best: Option<&Tensor<2>>,
+    archive: &mut Option<Tensor<2>>,
     policy: RepresentativePolicy,
     rng: &mut StdRng,
     generation: u64,
-    _device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2> {
+    _device: &Device,
+) -> Tensor<2> {
     let n = pop.dims()[0];
     match policy {
         RepresentativePolicy::Best => match prev_best {
@@ -469,14 +457,14 @@ fn select_representative<B: Backend>(
 /// Returns an `(n, total_dims)` tensor. Assembly is host-side, which is also
 /// where the row-wise objective evaluates, so no extra device round-trip is
 /// incurred.
-fn assemble<B: Backend>(
-    sub_pop: &Tensor<B, 2>,
+fn assemble(
+    sub_pop: &Tensor<2>,
     my_dims: &[usize],
-    rep_other: &Tensor<B, 2>,
+    rep_other: &Tensor<2>,
     other_dims: &[usize],
     total_dims: usize,
-    device: &<B as burn::tensor::backend::BackendTypes>::Device,
-) -> Tensor<B, 2> {
+    device: &Device,
+) -> Tensor<2> {
     let dims = sub_pop.dims();
     let n = dims[0];
     let sub_w = dims[1];
@@ -490,12 +478,12 @@ fn assemble<B: Backend>(
     let sub_flat = sub_pop
         .clone()
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .expect("sub-population genome tensor must be readable as f32");
     let rep_flat = rep_other
         .clone()
         .into_data()
-        .into_vec::<f32>()
+        .try_into_vec::<f32>()
         .expect("representative genome tensor must be readable as f32");
     debug_assert_eq!(
         rep_flat.len(),
@@ -513,19 +501,16 @@ fn assemble<B: Backend>(
             full[base + d] = rep_flat[j];
         }
     }
-    Tensor::<B, 2>::from_data(TensorData::new(full, [n, total_dims]), device)
+    Tensor::<2>::from_data(TensorData::new(full, [n, total_dims]), device)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
 
-    type B = Flex;
-
-    fn make(rows: &[f32], n: usize, d: usize) -> Tensor<B, 2> {
-        let device = Default::default();
-        Tensor::<B, 2>::from_data(TensorData::new(rows.to_vec(), [n, d]), &device)
+    fn make(rows: &[f32], n: usize, d: usize) -> Tensor<2> {
+        let device = Device::flex();
+        Tensor::<2>::from_data(TensorData::new(rows.to_vec(), [n, d]), &device)
     }
 
     #[test]
@@ -537,14 +522,14 @@ mod tests {
 
     #[test]
     fn assemble_scatters_into_global_positions() {
-        let device = Default::default();
+        let device = Device::flex();
         // dims_a = [0, 2], dims_b = [1, 3], total = 4.
         let pop_a = make(&[10.0, 20.0, 11.0, 21.0], 2, 2); // rows: (10,20),(11,21)
         let rep_b = make(&[5.0, 7.0], 1, 2); // global dims 1,3 -> 5,7
         let full = assemble(&pop_a, &[0, 2], &rep_b, &[1, 3], 4, &device);
         let v = full
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("genome host-read of a tensor this test just built");
         // row0: dim0=10, dim1=5, dim2=20, dim3=7
         assert_eq!(&v[0..4], &[10.0, 5.0, 20.0, 7.0]);
@@ -554,7 +539,7 @@ mod tests {
 
     #[test]
     fn representative_best_uses_prev_best_else_row_zero() {
-        let device = Default::default();
+        let device = Device::flex();
         let pop = make(&[1.0, 2.0, 3.0, 4.0], 2, 2);
         let mut rng = seed_stream(0, 0, SeedPurpose::Representative);
         let mut archive = None;
@@ -570,7 +555,7 @@ mod tests {
         );
         assert_eq!(
             r0.into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("genome host-read of a tensor this test just built"),
             vec![1.0, 2.0]
         );
@@ -587,7 +572,7 @@ mod tests {
         );
         assert_eq!(
             r1.into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("genome host-read of a tensor this test just built"),
             vec![9.0, 9.0]
         );
@@ -595,7 +580,7 @@ mod tests {
 
     #[test]
     fn archive_policy_bounds_archive_size() {
-        let device = Default::default();
+        let device = Device::flex();
         let pop = make(&[0.0, 0.0], 1, 2);
         let mut rng = seed_stream(0, 0, SeedPurpose::Representative);
         let mut archive = None;
@@ -683,8 +668,8 @@ mod tests {
     /// maximum (`COOP_POP - 1`) is the champion.
     struct PoisonRow0Nan;
 
-    impl CoupledFitness<B> for PoisonRow0Nan {
-        fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+    impl CoupledFitness for PoisonRow0Nan {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| {
@@ -694,7 +679,7 @@ mod tests {
                     let v: Vec<f32> = (0..n)
                         .map(|i| if i == 0 { f32::NAN } else { i as f32 })
                         .collect();
-                    Tensor::<B, 1>::from_data(TensorData::new(v, [n]), &device)
+                    Tensor::<1>::from_data(TensorData::new(v, [n]), &device)
                 })
                 .collect()
         }
@@ -711,11 +696,11 @@ mod tests {
     /// sanitization code of its own.
     #[test]
     fn cooperative_nan_is_sanitized_in_metrics() {
-        let device = Default::default();
+        let device = Device::flex();
         // total_dims = 2, dims_a = [0] → each sub-genome is width 1.
         let algo = CooperativeCoEA::new(
-            GeneticAlgorithm::<B>::new(),
-            GeneticAlgorithm::<B>::new(),
+            GeneticAlgorithm::new(),
+            GeneticAlgorithm::new(),
             PoisonRow0Nan,
         );
         let params = CooperativeCoEAParams::new(
@@ -756,8 +741,8 @@ mod tests {
     /// natural cost.
     struct RowCost;
 
-    impl CoupledFitness<B> for RowCost {
-        fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+    impl CoupledFitness for RowCost {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
             populations
                 .iter()
                 .map(|p| {
@@ -765,7 +750,7 @@ mod tests {
                     let device = p.device();
                     #[allow(clippy::cast_precision_loss)]
                     let v: Vec<f32> = (0..n).map(|i| i as f32).collect();
-                    Tensor::<B, 1>::from_data(TensorData::new(v, [n]), &device)
+                    Tensor::<1>::from_data(TensorData::new(v, [n]), &device)
                 })
                 .collect()
         }
@@ -776,12 +761,8 @@ mod tests {
 
     #[test]
     fn cooperative_minimize_is_maximized_and_reported_natural() {
-        let device = Default::default();
-        let algo = CooperativeCoEA::new(
-            GeneticAlgorithm::<B>::new(),
-            GeneticAlgorithm::<B>::new(),
-            RowCost,
-        );
+        let device = Device::flex();
+        let algo = CooperativeCoEA::new(GeneticAlgorithm::new(), GeneticAlgorithm::new(), RowCost);
         let params = CooperativeCoEAParams::new(
             ga_config_dim(1),
             ga_config_dim(1),

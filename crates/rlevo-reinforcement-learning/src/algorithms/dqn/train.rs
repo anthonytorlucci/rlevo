@@ -10,7 +10,6 @@
 
 use rand::Rng;
 
-use burn::tensor::backend::AutodiffBackend;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::environment::Environment;
@@ -71,18 +70,17 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 // (rates, discounts, epsilons) where f32 has far more precision than the
 // schedules that produce them.
 #[allow(clippy::cast_possible_truncation)]
-pub fn train<B, M, E, O, A, const OR: usize, const BOR: usize>(
-    agent: &mut DqnAgent<B, M, O, A, OR, BOR>,
+pub fn train<M, E, O, A, const OR: usize, const BOR: usize>(
+    agent: &mut DqnAgent<M, O, A, OR, BOR>,
     env: &mut E,
     rng: &mut impl Rng,
     total_steps: usize,
     log_every: usize,
 ) -> Result<(), DqnAgentError>
 where
-    B: AutodiffBackend,
-    M: DqnModel<B, BOR>,
+    M: DqnModel<BOR>,
     E: Environment<OR, 1, ObservationType = O, ActionType = A>,
-    O: Observation<OR> + TensorConvertible<OR, B> + TensorConvertible<OR, B::InnerBackend>,
+    O: Observation<OR> + TensorConvertible<OR>,
     A: DiscreteAction<1>,
 {
     let mut snapshot = env.reset().map_err(io_from_env)?;
@@ -211,8 +209,8 @@ fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> DqnAgentError 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::Device;
 
-    use burn::backend::{Autodiff, Flex};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::environment::EpisodeStatus;
@@ -221,8 +219,6 @@ mod tests {
         ACTIONS, DiscreteMaskEnv, FlatNet, MaskDiscreteAction, MaskObservation,
     };
     use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
-
-    type TestAdBackend = Autodiff<Flex>;
 
     /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
     const PERIOD: usize = 3;
@@ -235,21 +231,16 @@ mod tests {
     /// ever runs — this guard is about *which predicate reaches `remember`*,
     /// not about learning.
     fn recorded_masks(end_status: EpisodeStatus) -> Vec<bool> {
-        let device = Default::default();
+        let device = Device::flex();
         let config = DqnTrainingConfig {
             learning_starts: 1_000_000,
             replay_buffer_capacity: 64,
             ..DqnTrainingConfig::default()
         };
-        let net = FlatNet::<TestAdBackend>::new(ACTIONS, &device);
-        let mut agent = DqnAgent::<
-            TestAdBackend,
-            FlatNet<TestAdBackend>,
-            MaskObservation,
-            MaskDiscreteAction,
-            1,
-            2,
-        >::new(net, config, device)
+        let net = FlatNet::new(ACTIONS, &device);
+        let mut agent = DqnAgent::<FlatNet, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            net, config, device,
+        )
         .expect("default config is valid");
         let mut env = DiscreteMaskEnv::new(PERIOD, end_status);
         let mut rng = StdRng::seed_from_u64(7);
@@ -310,21 +301,16 @@ mod tests {
         /// The one step (1-based, from construction) whose reward is `NaN`.
         const NAN_STEP: usize = 4;
 
-        let device = Default::default();
+        let device = Device::flex();
         let config = DqnTrainingConfig {
             learning_starts: 1_000_000,
             replay_buffer_capacity: 64,
             ..DqnTrainingConfig::default()
         };
-        let net = FlatNet::<TestAdBackend>::new(ACTIONS, &device);
-        let mut agent = DqnAgent::<
-            TestAdBackend,
-            FlatNet<TestAdBackend>,
-            MaskObservation,
-            MaskDiscreteAction,
-            1,
-            2,
-        >::new(net, config, device)
+        let net = FlatNet::new(ACTIONS, &device);
+        let mut agent = DqnAgent::<FlatNet, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            net, config, device,
+        )
         .expect("default config is valid");
         let mut env =
             DiscreteMaskEnv::new(PERIOD, EpisodeStatus::Truncated).with_nan_reward_at(NAN_STEP);

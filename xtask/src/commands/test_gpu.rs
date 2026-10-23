@@ -66,15 +66,16 @@ pub const GPU_TARGETS: &[GpuTarget] = &[
         package: "rlevo-reinforcement-learning",
         test: Some("c51_projection_backend_parity"),
         reason: "a NaN reward must stay loud through the C51 projection on \
-                 Metal, where the WGSL `clamp` builtin rescues NaN to `lo` and \
-                 once produced a well-formed, wrongly-confident probability row",
+                 Metal, where Burn 0.21's `clamp` rescued NaN to `lo` and \
+                 produced a well-formed, wrongly-confident probability row",
     },
     GpuTarget {
         package: "rlevo-reinforcement-learning",
         test: None,
         reason: "`clamp_preserving_nan_matches_flex_on_wgpu` in \
                  `algorithms::shared` — the unit-level half of the same NaN \
-                 divergence: Flex propagates it, Metal rescues it to `lo`",
+                 divergence: on Burn 0.21 Flex propagated it and Metal rescued \
+                 it to `lo`",
     },
 ];
 

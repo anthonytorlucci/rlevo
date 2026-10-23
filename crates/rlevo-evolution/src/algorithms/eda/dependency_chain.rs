@@ -44,7 +44,7 @@
 //! [`fit`]: crate::ProbabilityModel::fit
 //! [`sample`]: crate::ProbabilityModel::sample
 
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand_distr::{Distribution as _, Normal};
 
@@ -120,7 +120,7 @@ pub struct DependencyChainState {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DependencyChain;
 
-impl<B: Backend> ProbabilityModel<B> for DependencyChain {
+impl ProbabilityModel for DependencyChain {
     type Params = DependencyChainParams;
     type State = DependencyChainState;
 
@@ -159,9 +159,9 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
         &self,
         params: &Self::Params,
         prev: Option<&Self::State>,
-        population: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        population: Tensor<2>,
+        fitness: Tensor<1>,
+        device: &Device,
     ) -> Self::State {
         let _ = device;
         // Fitness is accepted but ignored: the fit is unweighted.
@@ -194,7 +194,7 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
         }
         let rows = population
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population tensor must be readable as f32");
         // k is a selected-population count, far below f32's 2^24 exact-integer
         // limit; the cast is lossless in practice.
@@ -357,8 +357,8 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
         state: &Self::State,
         n: usize,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 2> {
+        device: &Device,
+    ) -> Tensor<2> {
         let d = state.mean.len();
         let mut rows = vec![0.0_f32; n * d];
         for i in 0..n {
@@ -397,33 +397,30 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
                     };
             }
         }
-        Tensor::<B, 2>::from_data(TensorData::new(rows, [n, d]), device)
+        Tensor::<2>::from_data(TensorData::new(rows, [n, d]), device)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = Flex;
-
-    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<TestBackend, 2> {
-        let device = Default::default();
-        Tensor::<TestBackend, 2>::from_data(TensorData::new(rows, [n, d]), &device)
+    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<2> {
+        let device = Device::flex();
+        Tensor::<2>::from_data(TensorData::new(rows, [n, d]), &device)
     }
 
-    fn fitness(values: Vec<f32>) -> Tensor<TestBackend, 1> {
-        let device = Default::default();
+    fn fitness(values: Vec<f32>) -> Tensor<1> {
+        let device = Device::flex();
         let n = values.len();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(values, [n]), &device)
+        Tensor::<1>::from_data(TensorData::new(values, [n]), &device)
     }
 
     fn fit_prior(p: &DependencyChainParams) -> DependencyChainState {
-        let device = Default::default();
-        <DependencyChain as ProbabilityModel<TestBackend>>::fit(
+        let device = Device::flex();
+        <DependencyChain as ProbabilityModel>::fit(
             &DependencyChain,
             p,
             None,
@@ -439,12 +436,12 @@ mod tests {
         n: usize,
         d: usize,
     ) -> DependencyChainState {
-        let device = Default::default();
+        let device = Device::flex();
         let prior = fit_prior(p);
         // Test row counts are tiny; the cast is lossless.
         #[allow(clippy::cast_precision_loss)]
         let fit_values: Vec<f32> = (0..n).map(|i| i as f32).collect();
-        <DependencyChain as ProbabilityModel<TestBackend>>::fit(
+        <DependencyChain as ProbabilityModel>::fit(
             &DependencyChain,
             p,
             Some(&prior),
@@ -535,10 +532,10 @@ mod tests {
         let p = DependencyChainParams::default_for(2);
         let rows = vec![-2.0, -2.0, -1.0, -1.0, 0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
         let state = refit(&p, rows, 5, 2);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(99);
         let n = 5_000;
-        let samples = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+        let samples = <DependencyChain as ProbabilityModel>::sample(
             &DependencyChain,
             &state,
             n,
@@ -547,7 +544,7 @@ mod tests {
         );
         let data = samples
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         // Pearson correlation of sampled columns 0 and 1.
         let mut s0 = 0.0_f64;
@@ -612,7 +609,7 @@ mod tests {
         // Gaussian parameters and falls back to the marginal Gaussian of `cur` (`mu_c`, `sigma_c`)
         // — the distribution the link degenerates to at `r = 0` — instead of emitting NaN/inf into
         // the population.
-        let device = Default::default();
+        let device = Device::flex();
         let state = DependencyChainState {
             chain: vec![0, 1],
             mean: vec![0.0, 0.0],
@@ -620,7 +617,7 @@ mod tests {
             link_corr: vec![0.0, 0.9999],
         };
         let mut rng = StdRng::seed_from_u64(7);
-        let samples = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+        let samples = <DependencyChain as ProbabilityModel>::sample(
             &DependencyChain,
             &state,
             16,
@@ -629,7 +626,7 @@ mod tests {
         );
         for v in samples
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built")
         {
             assert!(
@@ -646,9 +643,9 @@ mod tests {
         let p = DependencyChainParams::default_for(1);
         let state = refit(&p, vec![1.0, 2.0, 3.0, 4.0], 4, 1);
         assert_eq!(state.chain, vec![0], "single-dim chain is the root only");
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng = StdRng::seed_from_u64(3);
-        let samples = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+        let samples = <DependencyChain as ProbabilityModel>::sample(
             &DependencyChain,
             &state,
             256,
@@ -657,7 +654,7 @@ mod tests {
         );
         for v in samples
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built")
         {
             assert!(v.is_finite(), "single-dim sample must be finite, got {v}");
@@ -675,17 +672,17 @@ mod tests {
             1.0, -1.0, -1.0, //
         ];
         let state = refit(&p, rows, 4, 3);
-        let device = Default::default();
+        let device = Device::flex();
         let mut rng_a = StdRng::seed_from_u64(555);
         let mut rng_b = StdRng::seed_from_u64(555);
-        let a = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+        let a = <DependencyChain as ProbabilityModel>::sample(
             &DependencyChain,
             &state,
             300,
             &mut rng_a,
             &device,
         );
-        let b = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+        let b = <DependencyChain as ProbabilityModel>::sample(
             &DependencyChain,
             &state,
             300,
@@ -694,11 +691,11 @@ mod tests {
         );
         let data_a = a
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         let data_b = b
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("samples host-read of a tensor this test just built");
         assert_eq!(
             data_a, data_b,

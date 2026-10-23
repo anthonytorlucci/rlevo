@@ -38,11 +38,31 @@
 //! - `wgpu` — GPU, through Burn's wgpu backend (Metal, Vulkan, DX12, WebGPU).
 //!
 //! Each also turns on Burn's `autodiff`, which the RL agents train through.
+//! The backend is a runtime [`Device`](burn::tensor::Device), and the feature
+//! decides which of its constructors exist: `Device::flex()` or
+//! `Device::wgpu(..)`. Build a network on the plain device; an RL agent
+//! switches autodiff on itself.
+//!
+//! A network you write derives Burn's `Module` (and its configuration,
+//! `Config`). Those derives expand to `burn::` paths, so keep
+//! `use rlevo::burn;` in the module that uses them. Without it they fail to
+//! resolve `burn`, and adding `burn` to your own manifest instead risks a
+//! second Burn release in the build.
 //!
 //! ```rust
-//! use rlevo::burn::backend::{Autodiff, Flex};
+//! use rlevo::burn;
+//! use burn::nn::{Linear, LinearConfig};
+//! use burn::prelude::*;
 //!
-//! type TrainingBackend = Autodiff<Flex>;
+//! #[derive(Module, Debug)]
+//! struct Critic {
+//!     head: Linear,
+//! }
+//!
+//! let device = Device::flex();
+//! let critic = Critic { head: LinearConfig::new(4, 1).init(&device) };
+//! let value: Tensor<2> = critic.head.forward(Tensor::zeros([1, 4], &device));
+//! assert_eq!(value.dims(), [1, 1]);
 //! ```
 
 pub use rlevo_core as core;
@@ -60,10 +80,12 @@ pub use rlevo_hybrid as hybrid;
 pub use rlevo_reinforcement_learning as rl;
 
 /// The Burn release this version of `rlevo` is built against, re-exported so
-/// a consumer names tensors and backends without a `burn` entry of its own.
+/// a consumer names Burn's types without a `burn` entry of its own.
 ///
-/// Which backends exist under `burn::backend` is decided by this crate's
-/// `flex` and `wgpu` features.
+/// This crate's `flex` and `wgpu` features decide which
+/// [`Device`](burn::tensor::Device) constructors exist. A module that derives
+/// Burn's `Module` or `Config` keeps `use rlevo::burn;` in scope, because the
+/// derives expand to `burn::` paths (see the [crate docs](crate#backends)).
 pub use burn;
 
 /// The most commonly used traits and types, importable with `use rlevo::prelude::*`.

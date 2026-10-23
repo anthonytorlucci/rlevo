@@ -9,25 +9,25 @@
 //!
 //! # Why a standalone type, not [`Strategy`](crate::strategy::Strategy)
 //!
-//! [`Strategy<B>`](crate::strategy::Strategy)'s `Genome = Tensor<B, 2>` is a
+//! [`Strategy`](crate::strategy::Strategy)'s `Genome = Tensor<2>` is a
 //! homogeneous float contract. An architecture selector is a *categorical
 //! integer*; encoding it as a float is fragile under mutation, and a parallel
 //! `Int` tensor breaks the `Strategy` signature. So [`ArchNasStrategy`] is a
 //! **standalone type** with its own [`NasGenome`] (a `Vec<usize>` of arch ids
-//! beside a zero-padded `Tensor<B, 2>` of weights) and inherent
+//! beside a zero-padded `Tensor<2>` of weights) and inherent
 //! `init`/`ask`/`tell`/`best` methods mirroring the `Strategy` shape — it does
-//! **not** implement `Strategy<B>`.
+//! **not** implement `Strategy`.
 //!
 //! # Architecture dispatch — closure-erased registry
 //!
 //! Because each variant's reshaper is a different type, a `Vec` of
 //! heterogeneous-variant reshapers is impossible. Instead each variant
 //! is type-erased into a [`VariantEvaluator`]: a boxed closure that owns a
-//! concrete [`ModuleReshaper<B, Vi>`](crate::param_reshaper::ModuleReshaper),
+//! concrete [`ModuleReshaper<Vi>`](crate::param_reshaper::ModuleReshaper),
 //! slices the active prefix of a (padded) flat weight row, unflattens it into
 //! the concrete `Vi`, and scores it. Dispatch is by `arch_id` index. The
 //! concrete variant types never appear in [`ArchNasStrategy`] or
-//! [`ArchNasFitnessFn`] generics — both are generic only over `B`.
+//! [`ArchNasFitnessFn`] generics — neither has a type parameter.
 //!
 //! # The alignment invariant
 //!
@@ -40,16 +40,15 @@
 //!
 //! # Gradient isolation and host RNG
 //!
-//! Every type here is generic over `B: Backend`, never `AutodiffBackend` —
-//! gradient isolation at the type level. All sampling
+//! Everything here runs forward only: candidates are rebuilt with
+//! [`ModuleReshaper::unflatten`](crate::param_reshaper::ModuleReshaper::unflatten),
+//! whose parameters never require gradients. All sampling
 //! (architecture ids, selection, crossover, weight perturbation) goes through
 //! [`seed_stream`] host-side `StdRng` substreams; the
 //! process-wide backend RNG is never touched (see [`crate::rng`]).
 
-use std::marker::PhantomData;
-
 use burn::module::Module;
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 
@@ -74,23 +73,23 @@ use crate::rng::{SeedPurpose, seed_stream};
 /// [`Tensor::from_data`]) instead of cloning the struct — consistent with the
 /// phase-1 strategies.
 #[derive(Debug)]
-pub struct NasGenome<B: Backend> {
+pub struct NasGenome {
     /// Architecture index of each individual; length `pop_size`, each value in
     /// `0..num_variants`.
     arch_ids: Vec<usize>,
     /// Per-individual flat weights, shape `[pop_size, max_param_count]`. Columns
     /// beyond a variant's own parameter count are zero-padded.
-    weights: Tensor<B, 2>,
+    weights: Tensor<2>,
 }
 
-impl<B: Backend> NasGenome<B> {
+impl NasGenome {
     /// Assembles a population genome, checking one architecture id per row.
     ///
     /// # Errors
     ///
     /// Returns a [`ConfigError`] if `weights` has zero rows or if `arch_ids`
     /// does not have exactly one entry per weight row (`pop_size`).
-    pub fn try_new(arch_ids: Vec<usize>, weights: Tensor<B, 2>) -> Result<Self, ConfigError> {
+    pub fn try_new(arch_ids: Vec<usize>, weights: Tensor<2>) -> Result<Self, ConfigError> {
         let pop = weights.dims()[0];
         config::nonzero("NasGenome", "pop_size", pop)?;
         if arch_ids.len() != pop {
@@ -111,7 +110,7 @@ impl<B: Backend> NasGenome<B> {
 
     /// Per-individual flat weights, shape `[pop_size, max_param_count]`.
     #[must_use]
-    pub fn weights(&self) -> &Tensor<B, 2> {
+    pub fn weights(&self) -> &Tensor<2> {
         &self.weights
     }
 }
@@ -119,15 +118,15 @@ impl<B: Backend> NasGenome<B> {
 /// A type-erased per-variant evaluator.
 ///
 /// Built from a concrete `Module` variant `M` and a scorer `Fn(&M) -> f32`, it
-/// captures a [`ModuleReshaper<B, M>`](crate::param_reshaper::ModuleReshaper)
-/// in a boxed closure and exposes only `B`-generic operations. The concrete
-/// `M` is invisible to callers.
-pub struct VariantEvaluator<B: Backend> {
+/// captures a [`ModuleReshaper<M>`](crate::param_reshaper::ModuleReshaper)
+/// in a boxed closure and exposes only tensor-in, tensor-out operations. The
+/// concrete `M` is invisible to callers.
+pub struct VariantEvaluator {
     num_params: usize,
-    score_fn: Box<dyn Fn(Tensor<B, 1>) -> f32 + Send + Sync>,
+    score_fn: Box<dyn Fn(Tensor<1>) -> f32 + Send + Sync>,
 }
 
-impl<B: Backend> std::fmt::Debug for VariantEvaluator<B> {
+impl std::fmt::Debug for VariantEvaluator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VariantEvaluator")
             .field("num_params", &self.num_params)
@@ -135,7 +134,7 @@ impl<B: Backend> std::fmt::Debug for VariantEvaluator<B> {
     }
 }
 
-impl<B: Backend> VariantEvaluator<B> {
+impl VariantEvaluator {
     /// Build an evaluator for one architecture variant.
     ///
     /// `template` is an instance of the concrete `Module` variant (its weights
@@ -145,12 +144,12 @@ impl<B: Backend> VariantEvaluator<B> {
     #[must_use]
     pub fn new<M, F>(template: M, scorer: F) -> Self
     where
-        M: Module<B> + Sync + 'static,
+        M: Module + Sync + 'static,
         F: Fn(&M) -> f32 + Send + Sync + 'static,
     {
         let reshaper = ModuleReshaper::new(template);
         let num_params = reshaper.num_params();
-        let score_fn = Box::new(move |active: Tensor<B, 1>| {
+        let score_fn = Box::new(move |active: Tensor<1>| {
             let module = reshaper.unflatten(active);
             scorer(&module)
         });
@@ -177,14 +176,14 @@ impl<B: Backend> VariantEvaluator<B> {
     ///
     /// Panics if `padded_row` has fewer than `num_params` elements.
     #[must_use]
-    pub fn score(&self, padded_row: Tensor<B, 1>) -> f32 {
+    pub fn score(&self, padded_row: Tensor<1>) -> f32 {
         #[allow(clippy::single_range_in_vec_init)]
         let active = padded_row.slice([0..self.num_params]);
         (self.score_fn)(active)
     }
 }
 
-/// Static configuration for an [`ArchNasStrategy`] run. No `B` generic.
+/// Static configuration for an [`ArchNasStrategy`] run.
 ///
 /// Produced by [`ArchNasBuilder::build`] so `per_variant_params` and
 /// `max_param_count` are derived from the registered variants and cannot drift
@@ -302,18 +301,18 @@ impl Validate for NasParams {
 /// (it holds a [`NasGenome`], which is intentionally not `Clone`); the strategy
 /// threads state by explicit reconstruction.
 #[derive(Debug)]
-pub struct NasState<B: Backend> {
-    population: NasGenome<B>,
+pub struct NasState {
+    population: NasGenome,
     /// Resident fitness; empty until the first [`tell`](ArchNasStrategy::tell).
     fitness: Vec<f32>,
     best_arch_id: Option<usize>,
     /// Best-ever padded weight row, length `max_param_count`.
-    best_weights: Option<Tensor<B, 1>>,
+    best_weights: Option<Tensor<1>>,
     best_fitness: f32,
     generation: usize,
 }
 
-impl<B: Backend> NasState<B> {
+impl NasState {
     /// Rebuild this state with freshly cloned tensors so it can be handed from
     /// `ask` to `tell` without sharing the resident buffers.
     fn carry_forward(&self) -> Self {
@@ -343,7 +342,7 @@ impl<B: Backend> NasState<B> {
     /// population. Exposed so callers can inspect architecture coverage and the
     /// padded weight tensor.
     #[must_use]
-    pub fn population(&self) -> &NasGenome<B> {
+    pub fn population(&self) -> &NasGenome {
         &self.population
     }
 
@@ -419,18 +418,18 @@ impl Validate for NasBuilderConfig {
 /// # Example
 ///
 /// ```ignore
-/// let mut builder = ArchNasBuilder::<B>::new();
+/// let mut builder = ArchNasBuilder::new();
 /// builder
 ///     .add_variant(ShallowMlp::new(&device), shallow_scorer)
 ///     .add_variant(DeepMlp::new(&device), deep_scorer);
 /// let (params, fitness) = builder.build(NasBuilderConfig { /* … */ });
 /// ```
 #[derive(Debug, Default)]
-pub struct ArchNasBuilder<B: Backend> {
-    evaluators: Vec<VariantEvaluator<B>>,
+pub struct ArchNasBuilder {
+    evaluators: Vec<VariantEvaluator>,
 }
 
-impl<B: Backend> ArchNasBuilder<B> {
+impl ArchNasBuilder {
     /// Create an empty builder.
     #[must_use]
     pub fn new() -> Self {
@@ -443,7 +442,7 @@ impl<B: Backend> ArchNasBuilder<B> {
     /// `arch_id` assigned to this variant.
     pub fn add_variant<M, F>(&mut self, template: M, scorer: F) -> &mut Self
     where
-        M: Module<B> + Sync + 'static,
+        M: Module + Sync + 'static,
         F: Fn(&M) -> f32 + Send + Sync + 'static,
     {
         self.evaluators
@@ -458,7 +457,7 @@ impl<B: Backend> ArchNasBuilder<B> {
     ///
     /// Panics if no variants were registered.
     #[must_use]
-    pub fn build(self, cfg: NasBuilderConfig) -> (NasParams, ArchNasFitnessFn<B>) {
+    pub fn build(self, cfg: NasBuilderConfig) -> (NasParams, ArchNasFitnessFn) {
         assert!(
             !self.evaluators.is_empty(),
             "ArchNasBuilder requires at least one registered variant"
@@ -498,11 +497,11 @@ impl<B: Backend> ArchNasBuilder<B> {
 /// Burn 0.21 has no batched/`vmap` forward, so evaluation is loop-over-N; a
 /// batched arch-dispatched path is a future addition.
 #[derive(Debug)]
-pub struct ArchNasFitnessFn<B: Backend> {
-    evaluators: Vec<VariantEvaluator<B>>,
+pub struct ArchNasFitnessFn {
+    evaluators: Vec<VariantEvaluator>,
 }
 
-impl<B: Backend> ArchNasFitnessFn<B> {
+impl ArchNasFitnessFn {
     /// Number of registered architecture variants.
     #[must_use]
     pub fn num_variants(&self) -> usize {
@@ -518,7 +517,7 @@ impl<B: Backend> ArchNasFitnessFn<B> {
     /// Panics if any `arch_id` is out of range for the registry, or if the
     /// weight tensor's row count disagrees with `arch_ids.len()`.
     #[must_use]
-    pub fn evaluate(&self, genome: &NasGenome<B>, device: &B::Device) -> Tensor<B, 1> {
+    pub fn evaluate(&self, genome: &NasGenome, device: &Device) -> Tensor<1> {
         let [pop_size, max_param_count] = genome.weights.dims();
         assert_eq!(
             pop_size,
@@ -528,14 +527,14 @@ impl<B: Backend> ArchNasFitnessFn<B> {
         let mut fitness: Vec<f32> = Vec::with_capacity(pop_size);
         for (i, &arch_id) in genome.arch_ids.iter().enumerate() {
             #[allow(clippy::single_range_in_vec_init)]
-            let row: Tensor<B, 1> = genome
+            let row: Tensor<1> = genome
                 .weights
                 .clone()
                 .slice([i..i + 1])
                 .reshape([max_param_count]);
             fitness.push(self.evaluators[arch_id].score(row));
         }
-        Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+        Tensor::<1>::from_data(TensorData::new(fitness, [pop_size]), device)
     }
 }
 
@@ -546,7 +545,7 @@ impl<B: Backend> ArchNasFitnessFn<B> {
 /// it with the same ask/tell loop as a [`Strategy`](crate::strategy::Strategy):
 ///
 /// ```ignore
-/// let strat = ArchNasStrategy::<B>::new();
+/// let strat = ArchNasStrategy::new();
 /// let mut state = strat.init(&params, &mut rng, &device);
 /// for _ in 0..generations {
 ///     let (genome, next) = strat.ask(&params, &state, &mut rng, &device);
@@ -556,17 +555,13 @@ impl<B: Backend> ArchNasFitnessFn<B> {
 /// let (arch_id, weights, fitness) = strat.best(&state).unwrap();
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct ArchNasStrategy<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct ArchNasStrategy {}
 
-impl<B: Backend> ArchNasStrategy<B> {
+impl ArchNasStrategy {
     /// Build a new (stateless) NAS strategy.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 
     /// Build the initial state: uniform random architecture ids and
@@ -579,12 +574,7 @@ impl<B: Backend> ArchNasStrategy<B> {
     ///
     /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`).
     #[must_use]
-    pub fn init(
-        &self,
-        params: &NasParams,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> NasState<B> {
+    pub fn init(&self, params: &NasParams, rng: &mut dyn Rng, device: &Device) -> NasState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid NasParams reached init: {params:?}"
@@ -611,7 +601,7 @@ impl<B: Backend> ArchNasStrategy<B> {
                 *slot = normal.sample(&mut weight_rng);
             }
         }
-        let weights = Tensor::<B, 2>::from_data(TensorData::new(data, [pop, max]), device);
+        let weights = Tensor::<2>::from_data(TensorData::new(data, [pop, max]), device);
 
         NasState {
             population: NasGenome { arch_ids, weights },
@@ -647,10 +637,10 @@ impl<B: Backend> ArchNasStrategy<B> {
     pub fn ask(
         &self,
         params: &NasParams,
-        state: &NasState<B>,
+        state: &NasState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (NasGenome<B>, NasState<B>) {
+        device: &Device,
+    ) -> (NasGenome, NasState) {
         let pop = params.pop_size;
         let max = params.max_param_count;
 
@@ -688,7 +678,7 @@ impl<B: Backend> ArchNasStrategy<B> {
             .weights
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("weights tensor must be readable as f32");
         let resident_arch = &state.population.arch_ids;
 
@@ -757,7 +747,7 @@ impl<B: Backend> ArchNasStrategy<B> {
             }
         }
 
-        let weights = Tensor::<B, 2>::from_data(TensorData::new(child, [pop, max]), device);
+        let weights = Tensor::<2>::from_data(TensorData::new(child, [pop, max]), device);
         let genome = NasGenome {
             arch_ids: child_arch,
             weights,
@@ -790,14 +780,14 @@ impl<B: Backend> ArchNasStrategy<B> {
     pub fn tell(
         &self,
         params: &NasParams,
-        population: NasGenome<B>,
-        fitness: Tensor<B, 1>,
-        mut state: NasState<B>,
+        population: NasGenome,
+        fitness: Tensor<1>,
+        mut state: NasState,
         _rng: &mut dyn Rng,
-    ) -> NasState<B> {
+    ) -> NasState {
         let raw = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
         // Driver chokepoint (ADR 0034): sanitize before update_best/store so a NaN/`$\pm\infty$`
         // can neither become the champion nor pollute the next ask.
@@ -822,7 +812,7 @@ impl<B: Backend> ArchNasStrategy<B> {
     /// The weight tensor has length `max_param_count` (trailing padding
     /// retained). Returns `None` before the first [`tell`](Self::tell).
     #[must_use]
-    pub fn best(&self, state: &NasState<B>) -> Option<(usize, Tensor<B, 1>, f32)> {
+    pub fn best(&self, state: &NasState) -> Option<(usize, Tensor<1>, f32)> {
         match (state.best_arch_id, state.best_weights.as_ref()) {
             (Some(arch_id), Some(weights)) => Some((arch_id, weights.clone(), state.best_fitness)),
             _ => None,
@@ -837,12 +827,7 @@ impl<B: Backend> ArchNasStrategy<B> {
 /// in [`init`](ArchNasStrategy::init)) start from the maximise-space worst
 /// sentinel, so a leading broken member cannot suppress a later valid best.
 /// `fitness` is expected pre-sanitized by [`tell`](ArchNasStrategy::tell).
-fn update_best<B: Backend>(
-    state: &mut NasState<B>,
-    pop: &NasGenome<B>,
-    fitness: &[f32],
-    max_param_count: usize,
-) {
+fn update_best(state: &mut NasState, pop: &NasGenome, fitness: &[f32], max_param_count: usize) {
     if fitness.is_empty() {
         return;
     }
@@ -850,7 +835,7 @@ fn update_best<B: Backend>(
     let best_f = fitness[best_idx];
     if best_f > state.best_fitness {
         #[allow(clippy::single_range_in_vec_init)]
-        let row: Tensor<B, 1> = pop
+        let row: Tensor<1> = pop
             .weights
             .clone()
             .slice([best_idx..best_idx + 1])
@@ -864,21 +849,18 @@ fn update_best<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::Flex;
     use burn::nn::{Linear, LinearConfig};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = Flex;
-
     #[test]
     fn nas_genome_try_new_checks_one_arch_id_per_row() {
-        let device = Default::default();
-        let weights = Tensor::<TestBackend, 2>::zeros([3, 4], &device);
+        let device = Device::flex();
+        let weights = Tensor::<2>::zeros([3, 4], &device);
         assert!(NasGenome::try_new(vec![0, 1, 2], weights).is_ok());
-        let weights = Tensor::<TestBackend, 2>::zeros([3, 4], &device);
+        let weights = Tensor::<2>::zeros([3, 4], &device);
         assert!(NasGenome::try_new(vec![0, 1], weights).is_err());
-        let empty = Tensor::<TestBackend, 2>::zeros([0, 4], &device);
+        let empty = Tensor::<2>::zeros([0, 4], &device);
         assert!(NasGenome::try_new(vec![], empty).is_err());
     }
 
@@ -926,13 +908,13 @@ mod tests {
 
     /// One-hidden-layer MLP variant: `2 -> H -> 1`.
     #[derive(Module, Debug)]
-    struct ShallowMlp<B: Backend> {
-        l1: Linear<B>,
-        l2: Linear<B>,
+    struct ShallowMlp {
+        l1: Linear,
+        l2: Linear,
     }
 
-    impl<B: Backend> ShallowMlp<B> {
-        fn new(hidden: usize, device: &B::Device) -> Self {
+    impl ShallowMlp {
+        fn new(hidden: usize, device: &Device) -> Self {
             Self {
                 l1: LinearConfig::new(2, hidden).init(device),
                 l2: LinearConfig::new(hidden, 1).init(device),
@@ -942,14 +924,14 @@ mod tests {
 
     /// Two-hidden-layer MLP variant: `2 -> H -> H/2 -> 1`.
     #[derive(Module, Debug)]
-    struct DeepMlp<B: Backend> {
-        l1: Linear<B>,
-        l2: Linear<B>,
-        l3: Linear<B>,
+    struct DeepMlp {
+        l1: Linear,
+        l2: Linear,
+        l3: Linear,
     }
 
-    impl<B: Backend> DeepMlp<B> {
-        fn new(device: &B::Device) -> Self {
+    impl DeepMlp {
+        fn new(device: &Device) -> Self {
             Self {
                 l1: LinearConfig::new(2, 8).init(device),
                 l2: LinearConfig::new(8, 4).init(device),
@@ -958,32 +940,30 @@ mod tests {
         }
     }
 
-    // `device` is borrowed to mirror the production `&B::Device` convention;
+    // `device` is borrowed to mirror the production `&Device` convention;
     // the Flex test device is zero-sized, hence the targeted allow.
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn two_variant_builder(
-        device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
-    ) -> ArchNasBuilder<TestBackend> {
+    fn two_variant_builder(device: &Device) -> ArchNasBuilder {
         // Two trivial scorers (constant 0.0) — these tests exercise only the
         // builder/registry plumbing, not fitness dynamics.
-        fn zero_shallow(_m: &ShallowMlp<TestBackend>) -> f32 {
+        fn zero_shallow(_m: &ShallowMlp) -> f32 {
             0.0
         }
-        fn zero_deep(_m: &DeepMlp<TestBackend>) -> f32 {
+        fn zero_deep(_m: &DeepMlp) -> f32 {
             0.0
         }
-        let mut builder = ArchNasBuilder::<TestBackend>::new();
+        let mut builder = ArchNasBuilder::new();
         builder
             // arch 0: shallow (2*4 + 4 + 4*1 + 1 = 17 params)
-            .add_variant(ShallowMlp::<TestBackend>::new(4, device), zero_shallow)
+            .add_variant(ShallowMlp::new(4, device), zero_shallow)
             // arch 1: deep (2*8 + 8 + 8*4 + 4 + 4*1 + 1 = 65 params)
-            .add_variant(DeepMlp::<TestBackend>::new(device), zero_deep);
+            .add_variant(DeepMlp::new(device), zero_deep);
         builder
     }
 
     #[test]
     fn builder_aligns_arch_id_with_param_counts() {
-        let device = Default::default();
+        let device = Device::flex();
         let (params, fitness) = two_variant_builder(&device).build(NasBuilderConfig {
             pop_size: 8,
             arch_mutation_rate: 0.1,
@@ -1000,21 +980,17 @@ mod tests {
 
     #[test]
     fn variant_evaluator_dispatches_and_slices_active_prefix() {
-        let device = Default::default();
+        let device = Device::flex();
         // Scorer reports the number of params it sees, proving the active
         // prefix (not the padded width) reaches the concrete module.
-        let mut builder = ArchNasBuilder::<TestBackend>::new();
-        builder.add_variant(
-            ShallowMlp::<TestBackend>::new(4, &device),
-            |m: &ShallowMlp<TestBackend>| {
-                #[allow(clippy::cast_precision_loss)]
-                let n = ModuleReshaper::new(ShallowMlp::<TestBackend>::new(4, &Default::default()))
-                    .num_params() as f32;
-                // forward to make the module non-dead; result unused beyond shape.
-                let _ = &m.l1;
-                n
-            },
-        );
+        let mut builder = ArchNasBuilder::new();
+        builder.add_variant(ShallowMlp::new(4, &device), |m: &ShallowMlp| {
+            #[allow(clippy::cast_precision_loss)]
+            let n = ModuleReshaper::new(ShallowMlp::new(4, &Device::flex())).num_params() as f32;
+            // forward to make the module non-dead; result unused beyond shape.
+            let _ = &m.l1;
+            n
+        });
         let (params, fitness) = builder.build(NasBuilderConfig {
             pop_size: 1,
             arch_mutation_rate: 0.0,
@@ -1024,7 +1000,7 @@ mod tests {
             elite_count: 0,
         });
         // Build a one-row genome with arch 0 and 17 active params, padded to 17.
-        let weights = Tensor::<TestBackend, 2>::from_data(
+        let weights = Tensor::<2>::from_data(
             TensorData::new(
                 vec![0.0f32; params.max_param_count],
                 [1, params.max_param_count],
@@ -1038,14 +1014,14 @@ mod tests {
         let fit = fitness
             .evaluate(&genome, &device)
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness host-read of a tensor this test just built");
         approx::assert_relative_eq!(fit[0], 17.0, epsilon = 1e-6);
     }
 
     #[test]
     fn init_populates_all_variants_and_zero_pads() {
-        let device = Default::default();
+        let device = Device::flex();
         let (params, _fitness) = two_variant_builder(&device).build(NasBuilderConfig {
             pop_size: 60,
             arch_mutation_rate: 0.1,
@@ -1054,7 +1030,7 @@ mod tests {
             tournament_size: 2,
             elite_count: 1,
         });
-        let strat = ArchNasStrategy::<TestBackend>::new();
+        let strat = ArchNasStrategy::new();
         let mut rng = StdRng::seed_from_u64(7);
         let state = strat.init(&params, &mut rng, &device);
 
@@ -1068,7 +1044,7 @@ mod tests {
             .weights
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         let max = params.max_param_count;
         let shallow_row = state
@@ -1084,34 +1060,34 @@ mod tests {
 
     #[test]
     fn ask_tell_runs_without_panic_and_tracks_best() {
-        let device = Default::default();
+        let device = Device::flex();
         // Scorer: sum of squared active weights — a canonical (maximise)
         // fitness the strategy drives upward; the test only pins best-ever
         // monotonicity, not optimisation quality.
-        let mut builder = ArchNasBuilder::<TestBackend>::new();
-        let sq = |m: &ShallowMlp<TestBackend>| {
-            let r = ModuleReshaper::new(ShallowMlp::<TestBackend>::new(4, &Default::default()));
-            let flat = r.flatten(m, &Default::default());
+        let mut builder = ArchNasBuilder::new();
+        let sq = |m: &ShallowMlp| {
+            let r = ModuleReshaper::new(ShallowMlp::new(4, &Device::flex()));
+            let flat = r.flatten(m, &Device::flex());
             flat.clone()
                 .mul(flat)
                 .sum()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("output host-read of a tensor this test just built")[0]
         };
-        let sq_deep = |m: &DeepMlp<TestBackend>| {
-            let r = ModuleReshaper::new(DeepMlp::<TestBackend>::new(&Default::default()));
-            let flat = r.flatten(m, &Default::default());
+        let sq_deep = |m: &DeepMlp| {
+            let r = ModuleReshaper::new(DeepMlp::new(&Device::flex()));
+            let flat = r.flatten(m, &Device::flex());
             flat.clone()
                 .mul(flat)
                 .sum()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("output host-read of a tensor this test just built")[0]
         };
         builder
-            .add_variant(ShallowMlp::<TestBackend>::new(4, &device), sq)
-            .add_variant(DeepMlp::<TestBackend>::new(&device), sq_deep);
+            .add_variant(ShallowMlp::new(4, &device), sq)
+            .add_variant(DeepMlp::new(&device), sq_deep);
         let (params, fitness) = builder.build(NasBuilderConfig {
             pop_size: 30,
             arch_mutation_rate: 0.1,
@@ -1121,7 +1097,7 @@ mod tests {
             elite_count: 2,
         });
 
-        let strat = ArchNasStrategy::<TestBackend>::new();
+        let strat = ArchNasStrategy::new();
         let mut rng = StdRng::seed_from_u64(123);
         let mut state = strat.init(&params, &mut rng, &device);
 
@@ -1153,7 +1129,7 @@ mod tests {
     /// (`f32::MAX`).
     #[test]
     fn tell_sanitizes_nan_and_inf_so_nan_never_champions() {
-        let device = Default::default();
+        let device = Device::flex();
         let (params, _fitness) = two_variant_builder(&device).build(NasBuilderConfig {
             pop_size: 4,
             arch_mutation_rate: 0.0,
@@ -1162,7 +1138,7 @@ mod tests {
             tournament_size: 2,
             elite_count: 1,
         });
-        let strat = ArchNasStrategy::<TestBackend>::new();
+        let strat = ArchNasStrategy::new();
         let mut rng = StdRng::seed_from_u64(9);
         let state = strat.init(&params, &mut rng, &device);
 
@@ -1170,7 +1146,7 @@ mod tests {
         // but finite), two plain values. Row 1 (`$+\infty$`) is the champion.
         let (genome, next) = strat.ask(&params, &state, &mut rng, &device);
         let champion_arch = genome.arch_ids[1];
-        let fitness = Tensor::<TestBackend, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![f32::NAN, f32::INFINITY, 1.0_f32, 2.0], [4]),
             &device,
         );

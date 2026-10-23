@@ -20,9 +20,7 @@
 //! - Fogel (1994), *An introduction to simulated evolutionary
 //!   optimization*.
 
-use std::marker::PhantomData;
-
-use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
@@ -139,12 +137,12 @@ impl Validate for EpConfig {
 /// combined pool without re-deriving `$\sigma$` values. After `tell` completes, `sigmas` is back to
 /// length `$\mu$`.
 #[derive(Debug, Clone)]
-pub struct EpState<B: Backend> {
+pub struct EpState {
     /// Current parents, shape `$(\mu, D)$`.
-    pub parents: Tensor<B, 2>,
+    pub parents: Tensor<2>,
     /// Per-individual step-size `$\sigma$`, shape `$(\mu,)$` between generations and `$(2\mu,)$`
     /// transiently inside an ask/tell cycle (parent `$\sigma$` `$\Vert$` offspring `$\sigma$`).
-    pub sigmas: Tensor<B, 1>,
+    pub sigmas: Tensor<1>,
     /// Host-side fitness cache for the current parents.
     ///
     /// Empty before the first [`Strategy::tell`] call; length `$\mu$`
@@ -154,7 +152,7 @@ pub struct EpState<B: Backend> {
     /// Best-so-far genome, shape `(1, D)`.
     ///
     /// `None` before the first [`Strategy::tell`] call.
-    pub best_genome: Option<Tensor<B, 2>>,
+    pub best_genome: Option<Tensor<2>>,
     /// Best-so-far fitness across all completed generations.
     ///
     /// `f32::NEG_INFINITY` before the first [`Strategy::tell`] call
@@ -169,35 +167,27 @@ pub struct EpState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 ///
-/// let strategy = EvolutionaryProgramming::<Flex>::new();
+/// let strategy = EvolutionaryProgramming::new();
 /// let params = EpConfig::default_for(30, 10);
 /// let _ = (strategy, params);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct EvolutionaryProgramming<B: Backend> {
-    _backend: PhantomData<fn() -> B>,
-}
+pub struct EvolutionaryProgramming {}
 
-impl<B: Backend> EvolutionaryProgramming<B> {
+impl EvolutionaryProgramming {
     /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            _backend: PhantomData,
-        }
+        Self {}
     }
 }
 
-impl<B: Backend> Strategy<B> for EvolutionaryProgramming<B>
-where
-    B::Device: Clone,
-{
+impl Strategy for EvolutionaryProgramming {
     type Params = EpConfig;
-    type State = EpState<B>;
-    type Genome = Tensor<B, 2>;
+    type State = EpState;
+    type Genome = Tensor<2>;
 
     /// Samples the initial parent population uniformly within `params.bounds`, initializes
     /// per-parent `$\sigma$` to `params.initial_sigma`, and returns an [`EpState`] with an empty
@@ -206,12 +196,7 @@ where
     /// Initial sampling goes through [`seed_stream`] rather than
     /// `B::seed + Tensor::random` to keep results reproducible across
     /// parallel test threads.
-    fn init(
-        &self,
-        params: &EpConfig,
-        rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> EpState<B> {
+    fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &Device) -> EpState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid EpConfig reached init: {params:?}"
@@ -229,8 +214,8 @@ where
             parent_rows.push(lo + (hi - lo) * stream.random::<f32>());
         }
         let parents =
-            Tensor::<B, 2>::from_data(TensorData::new(parent_rows, [mu, genome_dim]), device);
-        let sigmas = Tensor::<B, 1>::from_data(
+            Tensor::<2>::from_data(TensorData::new(parent_rows, [mu, genome_dim]), device);
+        let sigmas = Tensor::<1>::from_data(
             TensorData::new(vec![params.initial_sigma; params.mu], [params.mu]),
             device,
         );
@@ -266,10 +251,10 @@ where
     fn ask(
         &self,
         params: &EpConfig,
-        state: &EpState<B>,
+        state: &EpState,
         rng: &mut dyn Rng,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> (Tensor<B, 2>, EpState<B>) {
+        device: &Device,
+    ) -> (Tensor<2>, EpState) {
         // First call: evaluate the initial parents.
         if state.parent_fitness.is_empty() {
             return (state.parents.clone(), state.clone());
@@ -290,7 +275,7 @@ where
         for _ in 0..mu {
             noise_rows.push(crate::sampling::standard_normal(&mut sigma_rng));
         }
-        let noise = Tensor::<B, 1>::from_data(TensorData::new(noise_rows, [mu]), device);
+        let noise = Tensor::<1>::from_data(TensorData::new(noise_rows, [mu]), device);
         // Clamp the log-normal random walk to `[sigma_min, sigma_max]` so `$\sigma$` can neither
         // underflow to 0 (search freezes) nor overflow to `$+\infty$` (genes saturate). Both bounds
         // are construction-validated on `EpConfig`.
@@ -339,14 +324,14 @@ where
     fn tell(
         &self,
         params: &EpConfig,
-        offspring: Tensor<B, 2>,
-        fitness: Tensor<B, 1>,
-        mut state: EpState<B>,
+        offspring: Tensor<2>,
+        fitness: Tensor<1>,
+        mut state: EpState,
         rng: &mut dyn Rng,
-    ) -> (EpState<B>, StrategyMetrics) {
+    ) -> (EpState, StrategyMetrics) {
         let fitness_host = fitness
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
         let device = offspring.device();
 
@@ -362,7 +347,7 @@ where
             );
             state.best_fitness = m.best_fitness_ever();
             state.parents = offspring;
-            state.sigmas = Tensor::<B, 1>::from_data(
+            state.sigmas = Tensor::<1>::from_data(
                 TensorData::new(vec![params.initial_sigma; params.mu], [params.mu]),
                 &device,
             );
@@ -415,7 +400,7 @@ where
         let survivor_idx: Vec<i64> = indexed.iter().map(|&i| i as i64).collect();
 
         let idx_tensor =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(survivor_idx.clone(), [mu]), &device);
+            Tensor::<1, Int>::from_data(TensorData::new(survivor_idx.clone(), [mu]), &device);
         let next_parents = combined_pop.select(0, idx_tensor.clone());
         let next_sigmas = combined_sigmas.select(0, idx_tensor);
         let next_fitness: Vec<f32> = survivor_idx
@@ -441,7 +426,7 @@ where
     ///
     /// Returns `None` before the first [`Strategy::tell`] call, when
     /// `EpState::best_genome` is still `None`.
-    fn best(&self, state: &EpState<B>) -> Option<(Tensor<B, 2>, f32)> {
+    fn best(&self, state: &EpState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
             .as_ref()
@@ -449,7 +434,7 @@ where
     }
 }
 
-fn update_best<B: Backend>(state: &mut EpState<B>, pop: &Tensor<B, 2>, fitness: &[f32]) {
+fn update_best(state: &mut EpState, pop: &Tensor<2>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -471,8 +456,7 @@ fn update_best<B: Backend>(state: &mut EpState<B>, pop: &Tensor<B, 2>, fitness: 
     if best_f.total_cmp(&state.best_fitness) == std::cmp::Ordering::Greater {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
+        let idx = Tensor::<1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -483,9 +467,7 @@ mod tests {
     use super::*;
     use crate::fitness::FromLandscape;
     use crate::strategy::EvolutionaryLoop;
-    use burn::backend::Flex;
     use rlevo_core::fitness::Landscape;
-    type TestBackend = Flex;
 
     #[test]
     fn default_config_validates() {
@@ -516,8 +498,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = EvolutionaryProgramming::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = EvolutionaryProgramming::new();
         let mut params = EpConfig::default_for(1, 3);
         // q-tournament needs `$q \leq 2\mu$`; with `$\mu$` = 1 the ceiling is 2.
         params.tournament_q = 2;
@@ -540,19 +522,19 @@ mod tests {
 
     /// Canonical (maximise) fitness `$-\sum x_i^2$` read straight off a genome tensor,
     /// so tests can drive a strategy directly without the loop.
-    fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
+    fn neg_sphere(pop: &Tensor<2>) -> Tensor<1> {
         let device = pop.device();
         let [n, d] = pop.dims();
         let rows: Vec<f32> = pop
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         #[allow(clippy::needless_range_loop)]
         let fit: Vec<f32> = (0..n)
             .map(|i| -(0..d).map(|j| rows[i * d + j].powi(2)).sum::<f32>())
             .collect();
-        Tensor::<TestBackend, 1>::from_data(TensorData::new(fit, [n]), &device)
+        Tensor::<1>::from_data(TensorData::new(fit, [n]), &device)
     }
 
     /// Drives EP for `gens` generations from a fixed seed, returning the
@@ -561,8 +543,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = EvolutionaryProgramming::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = EvolutionaryProgramming::new();
         let params = EpConfig::default_for(8, 3);
         let mut rng = StdRng::seed_from_u64(seed);
         let mut state = strategy.init(&params, &mut rng, &device);
@@ -597,8 +579,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = EvolutionaryProgramming::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = EvolutionaryProgramming::new();
         let params = EpConfig::default_for(6, 3);
         let mut rng = StdRng::seed_from_u64(5);
         let state = strategy.init(&params, &mut rng, &device);
@@ -613,19 +595,19 @@ mod tests {
         let parent_rows: Vec<f32> = parents0
             .clone()
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("parent host-read of a tensor this test just built");
         let expected_genome: Vec<f32> =
             parent_rows[expected_idx * d..(expected_idx + 1) * d].to_vec();
 
-        let fitness = Tensor::<TestBackend, 1>::from_data(TensorData::new(fit_vec, [n]), &device);
+        let fitness = Tensor::<1>::from_data(TensorData::new(fit_vec, [n]), &device);
         let (s, _) = strategy.tell(&params, parents0, fitness, s, &mut rng);
 
         let (genome, best_fit) = strategy.best(&s).expect("best after first tell");
         approx::assert_relative_eq!(best_fit, expected_fit);
         let got: Vec<f32> = genome
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("best-genome host-read of a tensor this test just built");
         for (g, e) in got.iter().zip(expected_genome.iter()) {
             approx::assert_relative_eq!(*g, *e);
@@ -648,11 +630,11 @@ mod tests {
     /// (`ep` §7, NaN regression).
     #[test]
     fn nan_fitness_never_becomes_best() {
-        let device = Default::default();
+        let device = Device::flex();
         let params = EpConfig::default_for(20, 4);
         let fitness_fn = FromLandscape::new(NanSphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            EvolutionaryProgramming::<TestBackend>::new(),
+        let mut evo_loop = EvolutionaryLoop::new(
+            EvolutionaryProgramming::new(),
             params,
             fitness_fn,
             77,
@@ -685,10 +667,10 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
+        let device = Device::flex();
         let (mu, dim) = (6usize, 3usize);
         let params = EpConfig::default_for(mu, dim);
-        let strategy = EvolutionaryProgramming::<TestBackend>::new();
+        let strategy = EvolutionaryProgramming::new();
         let mut rng = StdRng::seed_from_u64(0);
 
         // Row `i` is filled with the constant `i`, so the champion row is
@@ -697,16 +679,15 @@ mod tests {
             .iter()
             .flat_map(|&v| vec![v; dim])
             .collect();
-        let population =
-            Tensor::<TestBackend, 2>::from_data(TensorData::new(rows, [mu, dim]), &device);
+        let population = Tensor::<2>::from_data(TensorData::new(rows, [mu, dim]), &device);
         // Raw (unsanitized) fitness: NaN first, clear finite winner at index 1.
-        let fitness = Tensor::<TestBackend, 1>::from_data(
+        let fitness = Tensor::<1>::from_data(
             TensorData::new(vec![f32::NAN, 1000.0, 1.0, 2.0, 3.0, 4.0], [mu]),
             &device,
         );
         let state = EpState {
             parents: population.clone(),
-            sigmas: Tensor::<TestBackend, 1>::from_data(
+            sigmas: Tensor::<1>::from_data(
                 TensorData::new(vec![params.initial_sigma; mu], [mu]),
                 &device,
             ),
@@ -723,7 +704,7 @@ mod tests {
         approx::assert_relative_eq!(best_f, 1000.0, epsilon = 1e-6);
         let row = genome
             .into_data()
-            .into_vec::<f32>()
+            .try_into_vec::<f32>()
             .expect("champion row host-read of a tensor this test just built");
         assert_eq!(
             row,
@@ -773,8 +754,8 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let device = Default::default();
-        let strategy = EvolutionaryProgramming::<TestBackend>::new();
+        let device = Device::flex();
+        let strategy = EvolutionaryProgramming::new();
         let mut params = EpConfig::default_for(6, 3);
         // Aggressive `$\tau$` plus a tight window: without the clamp `$\sigma$` would leave
         // `[sigma_min, sigma_max]` within a handful of generations.
@@ -791,7 +772,7 @@ mod tests {
                 .sigmas
                 .clone()
                 .into_data()
-                .into_vec::<f32>()
+                .try_into_vec::<f32>()
                 .expect("sigma host-read of a tensor this test just built");
             for &s in &sigmas {
                 assert!(
@@ -802,10 +783,7 @@ mod tests {
                 );
             }
             let n = offspring.dims()[0];
-            let fitness = Tensor::<TestBackend, 1>::from_data(
-                TensorData::new(vec![1.0_f32; n], [n]),
-                &device,
-            );
+            let fitness = Tensor::<1>::from_data(TensorData::new(vec![1.0_f32; n], [n]), &device);
             let (advanced, _) = strategy.tell(&params, offspring, fitness, next, &mut rng);
             state = advanced;
         }
@@ -820,11 +798,11 @@ mod tests {
 
     #[test]
     fn ep_converges_on_sphere_d2() {
-        let device = Default::default();
+        let device = Device::flex();
         let params = EpConfig::default_for(10, 2);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            EvolutionaryProgramming::<TestBackend>::new(),
+        let mut evo_loop = EvolutionaryLoop::new(
+            EvolutionaryProgramming::new(),
             params,
             fitness_fn,
             3,
@@ -842,11 +820,11 @@ mod tests {
 
     #[test]
     fn ep_converges_on_sphere_d10() {
-        let device = Default::default();
+        let device = Device::flex();
         let params = EpConfig::default_for(20, 10);
         let fitness_fn = FromLandscape::new(Sphere);
-        let mut evo_loop = EvolutionaryLoop::<TestBackend, _, _>::new(
-            EvolutionaryProgramming::<TestBackend>::new(),
+        let mut evo_loop = EvolutionaryLoop::new(
+            EvolutionaryProgramming::new(),
             params,
             fitness_fn,
             5,

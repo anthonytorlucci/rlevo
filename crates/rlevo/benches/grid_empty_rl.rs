@@ -25,9 +25,8 @@
 #[path = "support/value_nets.rs"]
 mod support;
 
+use burn::tensor::Device;
 use std::hint::black_box;
-
-use burn::backend::{Autodiff, Flex};
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 
@@ -59,8 +58,7 @@ const TRAIN_TIMESTEPS: usize = 30_000;
 /// Episodes used to estimate each policy's reward statistics.
 const EVAL_EPISODES: usize = 200;
 
-type Backend_ = Autodiff<Flex>;
-type GridAgent = DqnAgent<Backend_, GridMlpDqn<Backend_>, GridObservation, GridAction, 3, 4>;
+type GridAgent = DqnAgent<GridMlpDqn, GridObservation, GridAction, 3, 4>;
 
 /// Small, fast-to-solve `EmptyEnv` so DQN converges within `TRAIN_TIMESTEPS`.
 fn grid_config() -> EmptyConfig {
@@ -72,7 +70,7 @@ fn grid_config() -> EmptyConfig {
 /// `epsilon_end` is driven near zero so the agent is effectively greedy by
 /// the time it is handed to the evaluation and throughput stages.
 fn train_dqn() -> GridAgent {
-    let device = Default::default();
+    let device = Device::flex();
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = EmptyEnv::with_config(grid_config(), false).expect("valid config");
 
@@ -91,7 +89,7 @@ fn train_dqn() -> GridAgent {
         ..Default::default()
     };
 
-    let model: GridMlpDqn<Backend_> = GridMlpDqn::new(OBS_FEATURES, 128, ACTIONS, &device);
+    let model: GridMlpDqn = GridMlpDqn::new(OBS_FEATURES, 128, ACTIONS, &device);
     let mut agent: GridAgent = DqnAgent::new(model, config, device).expect("valid config");
 
     train(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training loop");
