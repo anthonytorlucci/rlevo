@@ -357,12 +357,12 @@ fn print_quality_comparison(ppo: &PpoAgent_, ddpg: &DdpgAgent_, td3: &Td3Agent_,
     let rand_ret = evaluate(|_| random_action(&mut rng));
 
     // Learned policies are evaluated with their deterministic (greedy) policy
-    // against a once-snapshotted inner (non-autodiff) network. `PpoAgent::act`
+    // against a once-snapshotted plain-device (non-autodiff) network. `PpoAgent::act`
     // samples from the stochastic policy — that injects exploration noise into
     // the score; the deterministic mean is the policy we actually want to
     // measure. The value-based actors run far cheaper on the plain device,
     // skipping the per-step autodiff graph. SAC's `act(_, false, _)` already
-    // runs deterministically on its own inner snapshot, so it stays as-is.
+    // runs deterministically on its own plain-device snapshot, so it stays as-is.
     let ppo_infer = ppo.inference_net();
     let ppo_ret = evaluate(|obs| {
         let row = ppo.act_greedy_env_row_with(&ppo_infer, obs);

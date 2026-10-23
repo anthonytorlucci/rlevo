@@ -48,7 +48,6 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     SampleOutput, SquashedGaussianPolicy,
 };
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::env::LinearObservation;
 use rlevo_test_support::flex::{flex_guard, seeded_device};
@@ -135,13 +134,6 @@ impl DeterministicPolicy<2, 2> for Actor {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<Actor>(&active.valid(), target, tau as f32)
-    }
 }
 
 #[derive(Module, Debug)]
@@ -164,13 +156,6 @@ impl Critic {
 impl ContinuousQ<2, 2> for Critic {
     fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        inner.forward_impl(obs, act)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<Critic>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -375,11 +360,6 @@ impl SquashedGaussianPolicy<2, 2> for SquashedActor {
         SampleOutput { action, log_prob }
     }
 
-    fn forward_sample_inner(inner: &Self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
-        let (action, log_prob) = inner.sample_impl(obs, eps);
-        SampleOutput { action, log_prob }
-    }
-
     fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
         tanh(obs * self.gain.val())
     }
@@ -468,20 +448,20 @@ fn sac_policy_action_clamps_each_component_against_its_own_bound() {
 // ===========================================================================
 
 /// Actions the **target** critic was evaluated on, one flat `$[\text{batch} \times C]$` row
-/// per `forward_inner` call.
+/// per target-path `forward` call.
 type RecordedActions = Arc<Mutex<Vec<Vec<f32>>>>;
 
 /// Critic that records every action batch reaching its no-autodiff path.
 ///
-/// In DDPG's `learn_step`, `forward_inner` is called exactly once — on the
-/// target critic, with the clipped target action (`ddpg_agent.rs:499-505`).
-/// The live critic's `forward` is a different method and is not recorded, so
-/// the capture is unambiguous.
+/// In DDPG's `learn_step`, the target critic is evaluated exactly once, with
+/// the clipped target action, and it is the only critic call whose inputs are
+/// on a device without autodiff: the agent runs its target path plain. The
+/// live critic's calls (critic loss, actor loss) carry autodiff and are not
+/// recorded, so the capture is unambiguous.
 ///
 /// `recorded` is `#[module(skip)]`, so the derive treats it as a plain cloned
-/// field rather than a submodule; `AutodiffModule::valid()` clones the `Arc`,
-/// which is what lets the target twin write into the same buffer the test
-/// reads.
+/// field rather than a submodule; `Module::valid()` clones the `Arc`, which is
+/// what lets the target twin write into the same buffer the test reads.
 #[derive(Module, Debug)]
 struct RecordingCritic {
     head: Linear,
@@ -505,21 +485,16 @@ impl RecordingCritic {
 
 impl ContinuousQ<2, 2> for RecordingCritic {
     fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
+        if !act.device().is_autodiff() {
+            let row = act
+                .clone()
+                .into_data()
+                .convert::<f32>()
+                .try_to_vec::<f32>()
+                .expect("target action host read");
+            self.recorded.lock().expect("recorder mutex").push(row);
+        }
         self.forward_impl(obs, act)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        let row = act
-            .clone()
-            .into_data()
-            .convert::<f32>()
-            .try_to_vec::<f32>()
-            .expect("target action host read");
-        inner.recorded.lock().expect("recorder mutex").push(row);
-        inner.forward_impl(obs, act)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<RecordingCritic>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -550,13 +525,6 @@ impl SaturatingActor {
 impl DeterministicPolicy<2, 2> for SaturatingActor {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<SaturatingActor>(&active.valid(), target, tau as f32)
     }
 }
 

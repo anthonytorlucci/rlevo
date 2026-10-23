@@ -54,7 +54,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use burn::backend::Flex;
 use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo::core::fitness::Landscape;

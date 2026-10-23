@@ -48,7 +48,6 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
-use rlevo_reinforcement_learning::utils::PolyakError;
 
 use rlevo_harness::record::schema::FamilyPayload;
 use rlevo_harness::record::{EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap};
@@ -118,8 +117,8 @@ impl Environment<1, 1> for FixedLenEnv {
 
 // ---------------------------------------------------------------------------
 // Minimal Q-network. Learning is irrelevant here — the config keeps the agent
-// in its pre-learning window for the whole run — so `soft_update` is an
-// identity and never actually fires.
+// in its pre-learning window for the whole run — so the network never trains
+// and the target is never updated.
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
@@ -145,18 +144,6 @@ impl DqnMlp {
 impl DqnModel<2> for DqnMlp {
     fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
         self.forward_impl(observations)
-    }
-
-    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(observations)
-    }
-
-    fn soft_update(_active: &Self, target: Self, _tau: f64) -> Result<Self, PolyakError> {
-        // Never reached. The target update lives inside `learn_step` (ADR
-        // 0059), past the `can_learn()` gate, and `learning_starts` exceeds the
-        // whole step budget — so `learn_step` returns before any gradient
-        // update is attempted. `run_recording` asserts that below.
-        Ok(target)
     }
 }
 
@@ -212,9 +199,9 @@ fn run_recording(total_steps: usize) -> RecordedRun {
     train(&mut agent, &mut env, &mut rng, total_steps, 0).expect("training loop");
     // The premise of the fixture, now asserted rather than assumed: the run
     // stayed in the pre-learning window, so no gradient update was attempted
-    // and the `soft_update` stub above was never called. Without this, a future
-    // change to `learning_starts` could silently start exercising the target
-    // path through a stub that returns its argument unchanged.
+    // and the target path never ran. Without this, a future change to
+    // `learning_starts` could silently start training in a test that only
+    // means to count recorded episodes.
     assert_eq!(
         agent.gradient_updates(),
         0,

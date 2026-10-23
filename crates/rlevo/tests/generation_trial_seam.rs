@@ -54,7 +54,7 @@ fn evo_loop(seed: u64) -> EvolutionaryLoop<GeneticAlgorithm, SphereCost> {
         params,
         SphereCost,
         seed,
-        Default::default(),
+        Device::flex(),
         GENS,
     )
     .expect("valid params")

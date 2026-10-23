@@ -60,8 +60,6 @@ where
     S: Strategy,
     S::Params: std::fmt::Debug + rlevo_core::config::Validate,
     F: BatchFitnessFn<S::Genome>,
-    B: burn::tensor::backend::Backend,
-    Device: Clone + Default,
 {
     let device = Device::flex();
     let mut evo_loop =

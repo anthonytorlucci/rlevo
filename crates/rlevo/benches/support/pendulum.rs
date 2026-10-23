@@ -27,8 +27,6 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     SampleOutput, SquashedGaussianPolicy,
 };
 
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
-
 // --------------------------------------------------------------------------- ActorMlp —
 // deterministic tanh-scaled actor for DDPG and TD3 (batch, 3) → (batch, 1) `$\in$` [-2, 2]
 // ---------------------------------------------------------------------------
@@ -78,15 +76,6 @@ impl DeterministicPolicy<2, 2> for ActorMlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<ActorMlp>(&active.valid(), target, tau as f32)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,15 +124,6 @@ impl CriticMlp {
 impl ContinuousQ<2, 2> for CriticMlp {
     fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
-    }
-
-    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        inner.forward_impl(obs, act)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<CriticMlp>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -257,11 +237,6 @@ impl SquashedGaussianPolicy<2, 2> for StochasticActor {
 
     fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
         let (action, log_prob) = self.squashed_sample(obs, eps);
-        SampleOutput { action, log_prob }
-    }
-
-    fn forward_sample_inner(inner: &Self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
-        let (action, log_prob) = inner.squashed_sample(obs, eps);
         SampleOutput { action, log_prob }
     }
 

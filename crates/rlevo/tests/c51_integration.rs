@@ -22,7 +22,6 @@ use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::env::cartpole_seeded;
@@ -66,13 +65,6 @@ impl C51Mlp {
 impl C51Model<2> for C51Mlp {
     fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.forward_impl(observations)
-    }
-    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
-        inner.forward_impl(observations)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<C51Mlp>(&active.valid(), target, tau as f32)
     }
 }
 

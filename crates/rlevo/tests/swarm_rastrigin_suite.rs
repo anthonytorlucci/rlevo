@@ -8,6 +8,7 @@
 //! `algorithms::swarm::*` modules. ACO-Permutation is excluded because
 //! its module is a `todo!()` stub.
 
+use burn::tensor::Device;
 use rlevo_core::evaluation::GenerationProbe;
 use rlevo_core::fitness::MetricsProvider;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
@@ -119,7 +120,7 @@ where
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -134,7 +135,7 @@ fn gwo_ra(seed: u64) -> EvolutionaryLoop<GreyWolfOptimizer, FromLandscape<Rastri
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -149,7 +150,7 @@ fn woa_ra(seed: u64) -> EvolutionaryLoop<WhaleOptimization, FromLandscape<Rastri
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -164,7 +165,7 @@ fn salp_ra(seed: u64) -> EvolutionaryLoop<SalpSwarm, FromLandscape<Rastrigin>> {
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -179,7 +180,7 @@ fn abc_ra(seed: u64) -> EvolutionaryLoop<ArtificialBeeColony, FromLandscape<Rast
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -194,7 +195,7 @@ fn bat_ra(seed: u64) -> EvolutionaryLoop<BatAlgorithm, FromLandscape<Rastrigin>>
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -209,7 +210,7 @@ fn aco_r_ra(seed: u64) -> EvolutionaryLoop<AntColonyReal, FromLandscape<Rastrigi
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -226,7 +227,7 @@ fn cuckoo_ra(seed: u64) -> EvolutionaryLoop<CuckooSearch, FromLandscape<Rastrigi
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -241,7 +242,7 @@ fn firefly_ra(seed: u64) -> EvolutionaryLoop<FireflyAlgorithm, FromLandscape<Ras
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -260,7 +261,7 @@ fn pso_ak(seed: u64) -> EvolutionaryLoop<ParticleSwarm, FromLandscape<Ackley>> {
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")
@@ -281,7 +282,7 @@ fn de_rand1_ak(
             ObjectiveSense::Minimize,
         ),
         seed,
-        Default::default(),
+        Device::flex(),
         MAX_GENS,
     )
     .expect("valid params")

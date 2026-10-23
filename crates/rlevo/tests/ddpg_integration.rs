@@ -31,7 +31,6 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
 };
 use rlevo_reinforcement_learning::algorithms::ddpg::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_improves_over_random;
 use rlevo_test_support::baseline::{random_return, uniform_bounded};
@@ -70,13 +69,6 @@ impl DeterministicPolicy<2, 2> for Actor {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<Actor>(&active.valid(), target, tau as f32)
-    }
 }
 
 #[derive(Module, Debug)]
@@ -102,13 +94,6 @@ impl Critic {
 impl ContinuousQ<2, 2> for Critic {
     fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
-    }
-    fn forward_inner(inner: &Self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
-        inner.forward_impl(obs, act)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<Critic>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -202,9 +187,9 @@ rl_learning_test! {
     random = random_linear,
 }
 
-/// `act_with` (inner-backend greedy inference) must produce the same action as
+/// `act_with` (plain-device greedy inference) must produce the same action as
 /// `act(obs, false, _)` (the autodiff deterministic mean) for identical
-/// weights — the inner snapshot is just a non-autodiff copy of the actor, so
+/// weights — the snapshot is just a non-autodiff copy of the actor, so
 /// the bench's faster greedy path stays faithful to the eval policy.
 #[test]
 fn ddpg_act_with_matches_deterministic_act() {

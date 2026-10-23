@@ -30,8 +30,6 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::tanh;
 use burn::tensor::{Device, Tensor, activation};
 
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
-
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
@@ -71,15 +69,6 @@ impl DqnModel<2> for VecMlpDqn {
     fn forward(&self, observations: Tensor<2>) -> Tensor<2> {
         self.forward_impl(observations)
     }
-
-    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<2> {
-        inner.forward_impl(observations)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<VecMlpDqn>(&active.valid(), target, tau as f32)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -118,15 +107,6 @@ impl GridMlpDqn {
 impl DqnModel<4> for GridMlpDqn {
     fn forward(&self, observations: Tensor<4>) -> Tensor<2> {
         self.forward_impl(observations)
-    }
-
-    fn forward_inner(inner: &Self, observations: Tensor<4>) -> Tensor<2> {
-        inner.forward_impl(observations)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<GridMlpDqn>(&active.valid(), target, tau as f32)
     }
 }
 
@@ -181,15 +161,6 @@ impl C51Model<2> for C51Mlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<3> {
         self.forward_impl(obs)
     }
-
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<3> {
-        inner.forward_impl(obs)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<C51Mlp>(&active.valid(), target, tau as f32)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -242,15 +213,6 @@ impl QrDqnMlp {
 impl QrDqnModel<2> for QrDqnMlp {
     fn forward(&self, obs: Tensor<2>) -> Tensor<3> {
         self.forward_impl(obs)
-    }
-
-    fn forward_inner(inner: &Self, obs: Tensor<2>) -> Tensor<3> {
-        inner.forward_impl(obs)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<QrDqnMlp>(&active.valid(), target, tau as f32)
     }
 }
 

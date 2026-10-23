@@ -23,7 +23,6 @@ use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTraining
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 use rlevo_reinforcement_learning::algorithms::qrdqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::env::cartpole_seeded;
@@ -67,13 +66,6 @@ impl QrDqnMlp {
 impl QrDqnModel<2> for QrDqnMlp {
     fn forward(&self, observations: Tensor<2>) -> Tensor<3> {
         self.forward_impl(observations)
-    }
-    fn forward_inner(inner: &Self, observations: Tensor<2>) -> Tensor<3> {
-        inner.forward_impl(observations)
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<QrDqnMlp>(&active.valid(), target, tau as f32)
     }
 }
 

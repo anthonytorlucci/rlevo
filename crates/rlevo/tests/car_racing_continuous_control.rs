@@ -42,7 +42,6 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
 };
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
-use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::flex::{flex_guard, seeded_device};
 
@@ -83,15 +82,6 @@ impl DeterministicPolicy<4, 2> for Actor {
     fn forward(&self, obs: Tensor<4>) -> Tensor<2> {
         self.forward_impl(obs)
     }
-
-    fn forward_inner(inner: &Self, obs: Tensor<4>) -> Tensor<2> {
-        inner.forward_impl(obs)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<Actor>(&active.valid(), target, tau as f32)
-    }
 }
 
 #[derive(Module, Debug)]
@@ -117,15 +107,6 @@ impl Critic {
 impl ContinuousQ<4, 2> for Critic {
     fn forward(&self, obs: Tensor<4>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
-    }
-
-    fn forward_inner(inner: &Self, obs: Tensor<4>, act: Tensor<2>) -> Tensor<1> {
-        inner.forward_impl(obs, act)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self, tau: f64) -> Result<Self, PolyakError> {
-        polyak_update::<Critic>(&active.valid(), target, tau as f32)
     }
 }
 
