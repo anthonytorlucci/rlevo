@@ -460,6 +460,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **Default networks for the value-side model traits** (ADR 0094). Until
+  now every DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3 and SAC user wrote a
+  network by hand; the crate shipped heads for the policy traits only.
+  `MlpQNetwork` (`DqnModel`), `MlpDistributionalQ` (`DqnModel` at output
+  rank 3, for C51 and QR-DQN), `MlpValue` (`PpoValue`), `MlpActor`
+  (`DeterministicPolicy`) and `MlpCritic` (`ContinuousQ`) are built like the
+  heads, from a config with public fields through `try_init(&device)`,
+  which validates it first. Each takes `hidden: Vec<usize>`, the hidden
+  layers' widths (empty is a linear model), and works at any observation
+  rank: it flattens the observation to `(batch, obs_dim)` before its first
+  layer. `MlpActor` emits `tanh(..) * action_scale`, a range symmetric about
+  zero. The hidden layers use `ReLU`, and `tanh` in `MlpValue`, as
+  `CleanRL` does.
 - **`Slot<M>` is public, re-exported as `algorithms::Slot`** (resolves
   #1122). Every agent holds its trainable networks in a `Slot`, and seven
   public agent types pointed readers at it to explain why a panic inside an

@@ -23,7 +23,7 @@ Key components:
 | File | Purpose |
 |------|---------|
 | `dqn_config.rs` | `DqnTrainingConfig` |
-| `dqn_model.rs` | `DqnModel` Burn `Module` trait, shared with C51 and QR-DQN at output rank 3 |
+| `dqn_model.rs` | `DqnModel` Burn `Module` trait, shared with C51 and QR-DQN at output rank 3; the default networks `MlpQNetwork` and `MlpDistributionalQ` |
 | `dqn_agent.rs` | `DqnAgent` — `act` / `remember` / `learn_step` |
 | `exploration.rs` | `EpsilonGreedy` schedule (shared with C51, QR-DQN) |
 | `train.rs` | End-to-end training loop |
@@ -134,7 +134,7 @@ Key components:
 |------|---------|
 | `ppo_config.rs` | `PpoTrainingConfig` + `annealed_learning_rate` |
 | `ppo_policy.rs` | `PpoPolicy` trait with associated `ActionTensor` type |
-| `ppo_value.rs` | `PpoValue` trait |
+| `ppo_value.rs` | `PpoValue` trait; the default network `MlpValue` |
 | `policies/categorical.rs` | `CategoricalPolicyHead` (discrete) |
 | `policies/gaussian.rs` | `TanhGaussianPolicyHead` (continuous) |
 | `rollout.rs` | `RolloutBuffer` + free `compute_gae` |
@@ -234,7 +234,7 @@ Key components:
 | File | Purpose |
 |------|---------|
 | `ddpg_config.rs` | `DdpgTrainingConfig` |
-| `ddpg_model.rs` | `DeterministicPolicy` actor trait + `ContinuousQ` critic trait |
+| `ddpg_model.rs` | `DeterministicPolicy` actor trait + `ContinuousQ` critic trait; the default networks `MlpActor` and `MlpCritic` |
 | `exploration.rs` | `GaussianNoise` (shared with TD3) |
 | `ddpg_agent.rs` | `DdpgAgent` — `act` / `remember` / `learn_step` |
 | `train.rs` | End-to-end collect-learn loop with warm-up |

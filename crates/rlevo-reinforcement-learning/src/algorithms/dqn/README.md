@@ -29,6 +29,20 @@ There are two networks in DQN:
 
 Both are the same type `M`, so the trait asks for one method.
 
+`MlpQNetwork` is the default: an MLP with `ReLU` hidden layers of the widths
+you give, at any observation rank (it flattens the observation first).
+
+```rust
+let net = MlpQNetworkConfig {
+    obs_dim: 4,
+    hidden: vec![64, 64],
+    num_actions: 2,
+}
+.try_init(&device)?;
+```
+
+A network of your own implements the trait:
+
 ```rust
 #[derive(Module, Debug)]
 pub struct MyDqn {

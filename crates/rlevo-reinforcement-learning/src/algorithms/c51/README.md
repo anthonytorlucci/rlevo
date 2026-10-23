@@ -26,7 +26,19 @@ optimizer) and adds:
 C51's network is a [`DqnModel`](../dqn/dqn_model.rs) at output rank 3: it
 returns atom logits `(batch, num_actions, num_atoms)`, and the agent takes
 the softmax over atoms. QR-DQN uses the same trait and reads the same shape
-as quantile values.
+as quantile values. `MlpDistributionalQ` is the default for both:
+
+```rust
+let net = MlpDistributionalQConfig {
+    obs_dim: 4,
+    hidden: vec![64, 64],
+    num_actions: 2,
+    num_atoms: 51,
+}
+.try_init(&device)?;
+```
+
+A network of your own implements the trait:
 
 ```rust
 #[derive(Module, Debug)]
