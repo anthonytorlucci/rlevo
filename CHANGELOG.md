@@ -670,6 +670,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Flex`). It also used `gen` as a variable name, which is reserved in the
   2024 edition. The example now negates the cost and says why, and
   descends to 0.11.
+- **The ask/tell guide still spoke Burn 0.21 in three places.** It said
+  any `Backend` works because `init`, `ask` and `tell` are generic over
+  `B`, it named `Backend::seed` as the generator a strategy must not use,
+  and its harness example passed `Default::default()` as the device, which
+  is wgpu in a build with the `wgpu` feature on. No type names a backend
+  now: the guide says a strategy builds its population on the `Device` it
+  is given, names `Device::seed`, and passes `Device::flex()`.
+  `docs/rules.md`'s host-sampling rule named `B::seed(..)` too, and now
+  names `Device::seed(..)`.
 
 ### `rlevo-hybrid`
 
