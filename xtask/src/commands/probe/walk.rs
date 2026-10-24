@@ -15,6 +15,9 @@
 //! ([`Walk::levels`]). The whole probe is built first. Only if that fails are
 //! the levels built in order: the first that fails names the step, and the
 //! binary from the last level that built still runs the steps below it.
+//! Every step a later level would have built or reported fails with it, so a
+//! walk whose levels are not in step order still stops at the step whose
+//! code broke.
 //!
 //! Every walk opens with the same two steps, `scaffold` and `add-deps`,
 //! which `xtask` checks itself.
@@ -327,30 +330,9 @@ pub fn run(
         }
     }
 
-    let top = walk.levels.last().and_then(|level| level.feature);
-    let mut expected: Vec<&'static str> = Vec::new();
-    if build(probe_dir, target_dir, top)?.is_ok() {
-        for level in walk.levels {
-            record_built(&mut outcomes, level);
-            expected.extend(level.reports);
-        }
-    } else {
-        for level in walk.levels {
-            match build(probe_dir, target_dir, level.feature)? {
-                Ok(()) => {
-                    record_built(&mut outcomes, level);
-                    expected.extend(level.reports);
-                }
-                Err(error) => {
-                    outcomes.insert(
-                        level.step,
-                        Outcome::Fail(format!("does not compile: {error}")),
-                    );
-                    break;
-                }
-            }
-        }
-    }
+    let expected = build_levels(walk, &mut outcomes, |feature| {
+        build(probe_dir, target_dir, feature)
+    })?;
 
     if !expected.is_empty() {
         let executable = target_dir
@@ -384,6 +366,66 @@ pub fn run(
         }
     }
     Ok(outcomes)
+}
+
+/// Build the probe's levels with `build`, record what the builds show, and
+/// return the steps the binary must then report.
+///
+/// The whole probe is built first. Only if that fails are the levels built
+/// in order, and the first that fails names its step. The levels after it
+/// compiled nothing, so every step they would have built or reported fails
+/// as well, naming the step whose code did not compile. That matters for a
+/// walk whose levels are not in step order: one that builds step 5's code
+/// before step 4's must stop at step 5 when that code breaks, not leave step
+/// 4 unreached.
+fn build_levels(
+    walk: &Walk,
+    outcomes: &mut Outcomes,
+    mut build: impl FnMut(Option<&'static str>) -> Result<std::result::Result<(), String>>,
+) -> Result<Vec<&'static str>> {
+    let mut expected = Vec::new();
+    let top = walk.levels.last().and_then(|level| level.feature);
+    if build(top)?.is_ok() {
+        for level in walk.levels {
+            record_built(outcomes, level);
+            expected.extend(level.reports);
+        }
+        return Ok(expected);
+    }
+    for (index, level) in walk.levels.iter().enumerate() {
+        match build(level.feature)? {
+            Ok(()) => {
+                record_built(outcomes, level);
+                expected.extend(level.reports);
+            }
+            Err(error) => {
+                outcomes.insert(
+                    level.step,
+                    Outcome::Fail(format!("does not compile: {error}")),
+                );
+                let failed = step_number(walk, level.step);
+                for later in &walk.levels[index + 1..] {
+                    for label in std::iter::once(later.step).chain(later.reports.iter().copied()) {
+                        outcomes.entry(label).or_insert_with(|| {
+                            Outcome::Fail(format!(
+                                "not built: the code of step {failed} does not compile"
+                            ))
+                        });
+                    }
+                }
+                break;
+            }
+        }
+    }
+    Ok(expected)
+}
+
+/// A step's number: its position in the walk, from 1.
+fn step_number(walk: &Walk, label: &str) -> usize {
+    walk.steps
+        .iter()
+        .position(|step| step.label == label)
+        .map_or(0, |index| index + 1)
 }
 
 fn record_built(outcomes: &mut Outcomes, level: &Level) {
@@ -742,6 +784,129 @@ mod tests {
     #[test]
     fn test_no_compiler_error_is_none() {
         assert_eq!(first_error("not json\n"), None);
+    }
+
+    /// A walk whose second level is for a later step than its third:
+    /// `dependency` is step 5 and is built before `finding`, step 4.
+    const OUT_OF_ORDER: Walk = Walk {
+        prefix: "TEST-STEP",
+        steps: &[
+            SCAFFOLD,
+            ADD_DEPS,
+            Step {
+                label: "base",
+                fatal: true,
+            },
+            Step {
+                label: "finding",
+                fatal: false,
+            },
+            Step {
+                label: "dependency",
+                fatal: true,
+            },
+            Step {
+                label: "last",
+                fatal: true,
+            },
+        ],
+        levels: &[
+            Level {
+                feature: None,
+                step: "base",
+                built: Some("built"),
+                reports: &[],
+            },
+            Level {
+                feature: Some("dependency"),
+                step: "dependency",
+                built: Some("built"),
+                reports: &[],
+            },
+            Level {
+                feature: Some("finding"),
+                step: "finding",
+                built: None,
+                reports: &["finding"],
+            },
+            Level {
+                feature: Some("last"),
+                step: "last",
+                built: None,
+                reports: &["last"],
+            },
+        ],
+    };
+
+    /// A build of [`OUT_OF_ORDER`] in which `failing` and every level after
+    /// it do not compile, the whole probe included.
+    fn build_failing_from(
+        failing: &'static str,
+    ) -> impl FnMut(Option<&'static str>) -> Result<std::result::Result<(), String>> {
+        let broken = OUT_OF_ORDER
+            .levels
+            .iter()
+            .skip_while(|level| level.feature != Some(failing))
+            .filter_map(|level| level.feature)
+            .collect::<Vec<_>>();
+        move |feature| {
+            Ok(match feature {
+                Some(feature) if broken.contains(&feature) => {
+                    Err(format!("E0432 unresolved import in {feature}"))
+                }
+                _ => Ok(()),
+            })
+        }
+    }
+
+    /// The outcomes of a walk over [`OUT_OF_ORDER`] whose binary reports
+    /// nothing: `xtask`'s two steps pass, the builds decide the rest.
+    fn walk_out_of_order(failing: &'static str) -> Outcomes {
+        let mut outcomes = Outcomes::new();
+        outcomes.insert("scaffold", Outcome::Pass("created".to_string()));
+        outcomes.insert("add-deps", Outcome::Pass("rlevo alone".to_string()));
+        let expected = build_levels(&OUT_OF_ORDER, &mut outcomes, build_failing_from(failing))
+            .expect("the fake build does not error");
+        assert!(expected.is_empty(), "no level that reports a step built");
+        outcomes
+    }
+
+    #[test]
+    fn test_a_level_built_before_an_earlier_step_stops_the_walk_at_its_own_step() {
+        let outcomes = walk_out_of_order("dependency");
+        let (lines, verdict) = super::super::walk_report(&OUT_OF_ORDER, &outcomes);
+        assert_eq!(verdict, super::super::Verdict::FailsAt { step: 5, of: 6 });
+        assert_eq!(
+            lines[3],
+            "TEST-STEP 4 FAIL finding :: not built: the code of step 5 does not compile"
+        );
+        assert_eq!(
+            lines[4],
+            "TEST-STEP 5 FAIL dependency :: does not compile: E0432 unresolved import in dependency"
+        );
+    }
+
+    #[test]
+    fn test_the_levels_after_a_failed_one_are_not_built() {
+        let outcomes = walk_out_of_order("finding");
+        assert_eq!(outcomes["dependency"], Outcome::Pass("built".to_string()));
+        assert_eq!(
+            outcomes["last"],
+            Outcome::Fail("not built: the code of step 4 does not compile".to_string())
+        );
+        let (_, verdict) = super::super::walk_report(&OUT_OF_ORDER, &outcomes);
+        assert_eq!(verdict, super::super::Verdict::FailsAt { step: 6, of: 6 });
+    }
+
+    #[test]
+    fn test_a_whole_build_records_every_level_and_expects_its_reports() {
+        let mut outcomes = Outcomes::new();
+        let expected = build_levels(&OUT_OF_ORDER, &mut outcomes, |_| Ok(Ok(())))
+            .expect("the fake build does not error");
+        assert_eq!(expected, ["finding", "last"]);
+        assert_eq!(outcomes["base"], Outcome::Pass("built".to_string()));
+        assert_eq!(outcomes["dependency"], Outcome::Pass("built".to_string()));
+        assert!(!outcomes.contains_key("finding"));
     }
 
     fn resolved(direct: &[&str]) -> Resolved {
