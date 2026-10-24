@@ -71,8 +71,8 @@
 //! 2. **Throughput** — a Criterion group timing per-step rollout cost of the
 //!    random policy vs. DQN-greedy inference.
 //!
-//! The flatten + MLP model over the `$7 \times 7 \times 3$` observation is shared with the other
-//! `*_dqn` benches via [`support`].
+//! The model is the RL crate's `MlpQNetwork`, which flattens the `$7 \times 7 \times 3$`
+//! observation.
 //!
 //! # Run with
 //!

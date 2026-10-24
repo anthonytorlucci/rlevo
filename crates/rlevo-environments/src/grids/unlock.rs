@@ -77,7 +77,7 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -372,12 +372,12 @@ impl UnlockEnv {
         &self,
         observation: GridObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(observation, reward, done)
+        build_snapshot(observation, reward, status)
     }
 
     fn door_is_open(&self) -> bool {
@@ -437,7 +437,7 @@ impl Environment<3, 1> for UnlockEnv {
         self.door_pos = door_pos;
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.emit(observation, 0.0, false))
+        Ok(self.emit(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Applies `action`, then ends the episode if the door is now open or the
@@ -462,17 +462,20 @@ impl Environment<3, 1> for UnlockEnv {
 
         self.steps += 1;
         let _ = apply_action(&mut self.state.grid, &mut self.state.agent, action);
-        let (reward, done) = if self.door_is_open() {
-            (success_reward(self.steps, self.config.max_steps), true)
+        let (reward, status) = if self.door_is_open() {
+            (
+                success_reward(self.steps, self.config.max_steps),
+                EpisodeStatus::Terminated,
+            )
         } else if self.steps >= self.config.max_steps {
-            (0.0, true)
+            (0.0, EpisodeStatus::Truncated)
         } else {
-            (0.0, false)
+            (0.0, EpisodeStatus::Running)
         };
         let observation = self.observe();
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status rather than a re-derived literal.
-        let snapshot = self.emit(observation, reward, done);
+        let snapshot = self.emit(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }
@@ -656,18 +659,16 @@ mod tests {
     }
 
     #[test]
-    fn timeout_returns_zero_reward() {
+    fn timeout_truncates_with_zero_reward() {
         let cfg = UnlockConfig::new(5, 3, 0);
         let mut env = UnlockEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
-        for _ in 0..3 {
-            env.step(GridAction::TurnLeft).unwrap();
-        }
-        // After exhausting the budget the env must still be terminal.
-        let snap = env.step(GridAction::TurnLeft);
-        // If the budget terminated on the 3rd step the 4th call shouldn't panic.
-        // We don't assert reward on the 4th step because the episode already ended.
-        let _ = snap;
+        env.step(GridAction::TurnLeft).unwrap();
+        env.step(GridAction::TurnLeft).unwrap();
+        let snap = env.step(GridAction::TurnLeft).unwrap();
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
+        let reward: f32 = (snap.reward).into();
+        assert_eq!(reward, 0.0);
     }
 
     #[test]
@@ -956,14 +957,8 @@ mod tests {
     /// through real `step()` calls, ending by **unlocking and opening the door**
     /// rather than by exhausting `max_steps`.
     ///
-    /// The step-limit ending is deliberately avoided: `step()` OR-s the
-    /// genuine terminal condition (door open) with the `steps >= max_steps`
-    /// cutoff into one collapsed `done: bool`, and `build_snapshot` maps that
-    /// bool straight to `Terminated`/`running` with no `Truncated` arm — so a
-    /// timeout reaches the same terminal status as a real win, biasing the
-    /// value target for any bootstrapping agent. A timeout-driven conformance
-    /// test would bake in that wrong status. Opening the door is a genuine
-    /// termination.
+    /// The step-limit ending has its own test,
+    /// `timeout_truncates_with_zero_reward`.
     fn drive_to_open_door(env: &mut UnlockEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         let script = [

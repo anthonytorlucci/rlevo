@@ -77,7 +77,7 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -464,12 +464,12 @@ impl MultiRoomEnv {
         &self,
         observation: GridObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(observation, reward, done)
+        build_snapshot(observation, reward, status)
     }
 }
 
@@ -520,7 +520,7 @@ impl Environment<3, 1> for MultiRoomEnv {
         self.state = Self::build(&self.config);
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.emit(observation, 0.0, false))
+        Ok(self.emit(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Applies one grid action and returns the resulting snapshot.
@@ -542,18 +542,19 @@ impl Environment<3, 1> for MultiRoomEnv {
 
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
-        let (reward, done) = match outcome {
-            StepOutcome::ReachedGoal => (success_reward(self.steps, self.config.max_steps), true),
-            StepOutcome::HitLava => (0.0, true),
-            _ => {
-                let done = self.steps >= self.config.max_steps;
-                (0.0, done)
-            }
+        let (reward, status) = match outcome {
+            StepOutcome::ReachedGoal => (
+                success_reward(self.steps, self.config.max_steps),
+                EpisodeStatus::Terminated,
+            ),
+            StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
+            _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
         // Single exit: the guard is fed the emitted snapshot's own status, so it
         // cannot disagree with what the caller received.
-        let snapshot = self.emit(observation, reward, done);
+        let snapshot = self.emit(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }
@@ -580,7 +581,6 @@ mod tests {
     use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::EpisodeStatus;
 
     fn default_env() -> MultiRoomEnv {
         MultiRoomEnv::with_config(MultiRoomConfig::default(), false).expect("valid config")
@@ -609,15 +609,8 @@ mod tests {
     /// Drives `env` to termination **by reaching the goal**, through real
     /// `step()` calls only, and returns the terminal snapshot.
     ///
-    /// Deliberately not the step-limit ending: `step` folds a `max_steps`
-    /// cutoff into the same `done` bool as a genuine terminal
-    /// (`ReachedGoal`/`HitLava`) before handing it to `build_snapshot`, which
-    /// maps every `done` to `Terminated` — there is no `Truncated` status to
-    /// tell a timeout apart from a real terminal, even though the distinction
-    /// matters for value-function bootstrapping (a truncated episode still has
-    /// future value; a terminated one does not). A timeout-driven test here
-    /// would bake that collapsed signal into an assertion instead of exercising
-    /// the intended termination path.
+    /// Deliberately not the step-limit ending, whose `Truncated` ending has
+    /// its own test, `timeout_truncates_with_zero_reward`.
     fn drive_to_goal(env: &mut MultiRoomEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         let mut last = None;
@@ -808,14 +801,14 @@ mod tests {
     }
 
     #[test]
-    fn timeout_terminates_with_zero_reward() {
+    fn timeout_truncates_with_zero_reward() {
         let cfg = MultiRoomConfig::new(3, 5, 5, 3, 0);
         let mut env = MultiRoomEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
         let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }

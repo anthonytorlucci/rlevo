@@ -2,8 +2,8 @@
 //!
 //! Ports Farama Minigrid's [`EmptyEnv`]. The grid is an `$N \times N$` room with a wall perimeter,
 //! a single [`Goal`] tile at `(size - 2, size - 2)`, and the agent starting at `(1, 1)` facing
-//! East. Stepping onto the goal terminates the episode and pays [`success_reward`]; exceeding
-//! `max_steps` terminates with reward `0.0`.
+//! East. Stepping onto the goal terminates the episode and pays [`success_reward`]; reaching
+//! `max_steps` first truncates it with reward `0.0`.
 //!
 //! This is the simplest grid environment — no obstacles, no items, no doors.
 //! It serves as a baseline for testing navigation policies and as a reference
@@ -48,6 +48,7 @@ use super::core::{
     Visibility,
     action::GridAction,
     agent::AgentState,
+    build_snapshot,
     direction::Direction,
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
@@ -58,9 +59,8 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -332,18 +332,14 @@ impl EmptyEnv {
         &self,
         observation: GridObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GridObservation> {
         if self.render {
             // Render is a debug side effect; return the string so callers can
             // capture it if they wish, or drop it when invoked internally.
             let _ = super::core::render::render_ascii(&self.state.grid, &self.state.agent);
         }
-        if done {
-            Snapshot::terminated(observation, ScalarReward::new(reward))
-        } else {
-            Snapshot::running(observation, ScalarReward::new(reward))
-        }
+        build_snapshot(observation, reward, status)
     }
 }
 
@@ -396,7 +392,7 @@ impl Environment<3, 1> for EmptyEnv {
         self.state = GridState::new(grid, agent);
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.snapshot(observation, 0.0, false))
+        Ok(self.snapshot(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Applies `action`, then maps the resulting [`StepOutcome`] to reward and
@@ -419,19 +415,20 @@ impl Environment<3, 1> for EmptyEnv {
 
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
-        let (reward, done) = match outcome {
-            StepOutcome::ReachedGoal => (success_reward(self.steps, self.config.max_steps), true),
-            StepOutcome::HitLava => (0.0, true),
-            _ => {
-                let done = self.steps >= self.config.max_steps;
-                (0.0, done)
-            }
+        let (reward, status) = match outcome {
+            StepOutcome::ReachedGoal => (
+                success_reward(self.steps, self.config.max_steps),
+                EpisodeStatus::Terminated,
+            ),
+            StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
+            _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
 
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot drift apart.
-        let snapshot = self.snapshot(observation, reward, done);
+        let snapshot = self.snapshot(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }
@@ -456,7 +453,6 @@ mod tests {
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::EpisodeStatus;
 
     #[test]
     fn default_config_validates() {
@@ -609,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn timeout_terminates_with_zero_reward() {
+    fn timeout_truncates_with_zero_reward() {
         let cfg = EmptyConfig::new(5, 3, 0);
         let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
@@ -617,7 +613,7 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
         let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
@@ -654,15 +650,8 @@ mod tests {
 
     /// Drives a fresh `$5 \times 5$` episode to the goal with real `step()` calls.
     ///
-    /// The termination is a **goal arrival**, deliberately not a step-limit
-    /// cutoff: `step()` OR-s the genuine terminal condition (goal reached)
-    /// with the `steps >= max_steps` cutoff into one collapsed `done: bool`,
-    /// and `grids::core::build_snapshot` maps that bool straight to
-    /// `Terminated`/`running` with no `Truncated` arm — so a timeout reaches
-    /// the same terminal status as a real win, biasing the value target for
-    /// any bootstrapping agent. A timeout-driven test here would bake that
-    /// wrong status into the assertion instead of exercising the intended
-    /// termination path.
+    /// The termination is a **goal arrival**. The step cap's `Truncated`
+    /// ending is checked in `tests/grids_solvable.rs`.
     fn drive_to_goal(env: &mut EmptyEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         // Agent at (1,1) facing East, goal at (3,3).

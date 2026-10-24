@@ -28,11 +28,11 @@
 //!
 //! ## Termination conditions
 //!
-//! | Condition | Reward | Done |
+//! | Condition | Reward | Status |
 //! |---|---|---|
-//! | Agent reaches goal | `success_reward(steps, max_steps)` | `true` |
-//! | Ball moves onto agent | `$-1.0$` | `true` |
-//! | Step budget exceeded | `0.0` | `true` |
+//! | Agent reaches goal | `success_reward(steps, max_steps)` | `Terminated` |
+//! | Ball moves onto agent | `$-1.0$` | `Terminated` |
+//! | Step budget reached first | `0.0` | `Truncated` |
 //!
 //! ## Observation and action spaces
 //!
@@ -75,7 +75,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -444,12 +444,12 @@ impl DynamicObstaclesEnv {
         &self,
         observation: GridObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(observation, reward, done)
+        build_snapshot(observation, reward, status)
     }
 
     /// Perform one random-walk step for each obstacle and return `true`
@@ -610,7 +610,7 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
         self.obstacles = obstacles;
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.emit(observation, 0.0, false))
+        Ok(self.emit(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Applies the agent's action, then random-walks every obstacle.
@@ -634,13 +634,20 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
 
         // A terminal outcome from the agent's own step takes priority over
         // obstacle motion: on those routes the obstacles do not move at all.
-        let (reward, done) = match outcome {
-            StepOutcome::ReachedGoal => (success_reward(self.steps, self.config.max_steps), true),
-            StepOutcome::HitLava => (0.0, true),
+        let (reward, status) = match outcome {
+            StepOutcome::ReachedGoal => (
+                success_reward(self.steps, self.config.max_steps),
+                EpisodeStatus::Terminated,
+            ),
+            StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
             _ => {
-                let collided = self.move_obstacles();
-                let reward = if collided { COLLISION_REWARD } else { 0.0 };
-                (reward, collided || self.steps >= self.config.max_steps)
+                if self.move_obstacles() {
+                    (COLLISION_REWARD, EpisodeStatus::Terminated)
+                } else if self.steps >= self.config.max_steps {
+                    (0.0, EpisodeStatus::Truncated)
+                } else {
+                    (0.0, EpisodeStatus::Running)
+                }
             }
         };
 
@@ -649,7 +656,7 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
         // record — and the guard cannot disagree with what the caller was
         // handed.
         let observation = self.observe();
-        let snapshot = self.emit(observation, reward, done);
+        let snapshot = self.emit(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }
@@ -797,8 +804,8 @@ mod tests {
     }
 
     #[test]
-    fn episode_terminates_within_budget_with_obstacles() {
-        // Even with a small budget, the episode must cleanly terminate.
+    fn episode_ends_within_budget_with_obstacles() {
+        // Even with a small budget, the episode must cleanly end.
         let cfg = DynamicObstaclesConfig::new(6, 2, 50, 7);
         let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
@@ -810,7 +817,7 @@ mod tests {
                 break;
             }
         }
-        assert!(done, "episode must terminate within budget");
+        assert!(done, "episode must end within budget");
     }
 
     #[test]
@@ -1036,14 +1043,8 @@ mod tests {
     /// whose very next (illegal) step used to duplicate an obstacle.
     ///
     /// Pinned deliberately: collision endings are the interesting terminal
-    /// route here, and step-limit endings are avoided as a fixture because
-    /// `step()` currently OR-s the step-limit cutoff into the same `done`
-    /// bool as a genuine collision, and `build_snapshot` has no `Truncated`
-    /// arm — it maps every `done` straight to `Terminated`. A step-limit
-    /// ending would therefore be reported as terminal (no future value)
-    /// rather than truncated (future value cut off by the time limit),
-    /// biasing value-function bootstrapping; distinguishing the two is out
-    /// of scope for this test.
+    /// route here. The step budget's `Truncated` ending is checked in
+    /// `tests/grids_solvable.rs`.
     const COLLISION_CFG: DynamicObstaclesConfig = DynamicObstaclesConfig::new(5, 4, 200, 37);
 
     /// Drives a fresh episode to its **collision**-terminal snapshot through
@@ -1066,6 +1067,25 @@ mod tests {
             }
         }
         panic!("the episode never ended within max_steps");
+    }
+
+    /// A collision on the cap step is still `Terminated`: the task ending wins
+    /// over the cap. Finds the step `COLLISION_CFG`'s rollout collides on, then
+    /// replays the same episode with that step as the cap.
+    #[test]
+    fn collision_on_the_cap_step_terminates() {
+        let mut env = DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
+        drive_to_collision(&mut env);
+        let collision_step = env.steps();
+
+        let cfg = DynamicObstaclesConfig {
+            max_steps: collision_step,
+            ..COLLISION_CFG
+        };
+        let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
+        let snapshot = drive_to_collision(&mut env);
+        assert_eq!(env.steps(), collision_step);
+        assert_eq!(snapshot.status, EpisodeStatus::Terminated);
     }
 
     #[test]

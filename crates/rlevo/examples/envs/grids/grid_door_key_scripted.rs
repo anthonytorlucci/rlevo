@@ -86,8 +86,9 @@ fn main() {
         if snap.status.is_done() {
             let reward = f32::from(snap.reward);
             // Reaching the goal pays a positive, step-count-discounted reward;
-            // walking into lava or running out of budget also terminates, but
-            // pays 0.0. A tutorial that cannot tell those apart teaches nothing.
+            // walking into lava also ends the episode, and so does running out
+            // of budget (as `Truncated`), each paying 0.0. A tutorial that
+            // cannot tell those apart teaches nothing.
             assert!(
                 reward > 0.0,
                 "step {} ended the episode with reward {reward}: the script \

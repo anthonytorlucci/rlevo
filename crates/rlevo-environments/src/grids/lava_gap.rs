@@ -95,7 +95,7 @@ use super::core::{
 // `R: Rng + ?Sized` per `rules.md` §8.
 use rand::{Rng, RngExt as _, SeedableRng, rngs::StdRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -499,12 +499,12 @@ impl LavaGapEnv {
         &self,
         observation: GridObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(observation, reward, done)
+        build_snapshot(observation, reward, status)
     }
 }
 
@@ -558,7 +558,7 @@ impl Environment<3, 1> for LavaGapEnv {
         self.gap_row = gap_row;
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.emit(observation, 0.0, false))
+        Ok(self.emit(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Applies `action`, then maps the outcome to reward and termination.
@@ -580,18 +580,19 @@ impl Environment<3, 1> for LavaGapEnv {
 
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
-        let (reward, done) = match outcome {
-            StepOutcome::ReachedGoal => (success_reward(self.steps, self.config.max_steps), true),
-            StepOutcome::HitLava => (0.0, true),
-            _ => {
-                let done = self.steps >= self.config.max_steps;
-                (0.0, done)
-            }
+        let (reward, status) = match outcome {
+            StepOutcome::ReachedGoal => (
+                success_reward(self.steps, self.config.max_steps),
+                EpisodeStatus::Terminated,
+            ),
+            StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
+            _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
         // Single exit: the guard is fed the emitted snapshot's own status, so
         // the two cannot drift apart.
-        let snapshot = self.emit(observation, reward, done);
+        let snapshot = self.emit(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }
@@ -1168,7 +1169,7 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
         let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
@@ -1240,17 +1241,8 @@ mod tests {
     /// Reset to a known board and walk the derived route to the **goal**,
     /// returning the terminal snapshot.
     ///
-    /// Terminating on the goal rather than on the step budget is deliberate.
-    /// `step` above ORs the step-limit cutoff (`self.steps >=
-    /// self.config.max_steps`) into the same `done` bool as a genuine
-    /// terminal (goal / lava), and `grids/core::build_snapshot` maps every
-    /// `done == true` to `Terminated` — there is no `Truncated` arm. A
-    /// step-limit cutoff therefore reads as "no future value" instead of
-    /// "future value cut off by a time limit" (`docs/rules.md` §10), which
-    /// would bias value-function bootstrapping if a caller trusted it.
-    /// Fixing that is out of scope here; a budget-driven ending would just
-    /// bake the mislabeling into these assertions, so the tests below drive
-    /// to a real terminal instead.
+    /// The step budget's `Truncated` ending has its own test,
+    /// `timeout_ends_with_zero_reward`.
     fn drive_to_goal(env: &mut LavaGapEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(0).expect("reset");
         let script = route_to_goal(env);

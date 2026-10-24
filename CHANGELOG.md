@@ -393,6 +393,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   QrDqnModel<2> for MyNet`; the method body does not change. The modules
   `algorithms::c51::c51_model` and `algorithms::qrdqn::qrdqn_model` are
   removed; import `algorithms::dqn::dqn_model::DqnModel`.
+- **`grids::core::build_snapshot` takes the step's `EpisodeStatus`**, where
+  it took `done: bool`: `build_snapshot(observation, reward, status)`. It is
+  generic over the observation, so `GoToDoorEnv` uses it too. A grid
+  environment's step cap now reports `Truncated`; see `rlevo-environments`,
+  Fixed.
 
 ### `rlevo`
 
@@ -517,6 +522,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   its evaluation, in its own file, and the file of forwarding impls is
   gone. The `bench` feature itself is removed, with the preset `Suite`
   factories it gated; see Breaking changes.
+
+**Fixed**
+
+- **The twelve grid environments report their step cap as `Truncated`.**
+  They reported `Terminated`: each folded `steps >= max_steps` into the same
+  `done` flag as reaching the goal, and `build_snapshot` mapped every `done`
+  to `Terminated`, although five of their configs documented `max_steps` as
+  the step at which an episode is truncated. The off-policy agents mask the
+  bootstrap on `is_terminated()`, and PPO and PPG bootstrap a truncated
+  step's value (ADR 0048), so every capped grid episode trained toward a
+  target with its future value dropped. A task that ends on the cap step
+  (the goal, lava, a collision, `Done`) still reports `Terminated`. If you
+  read `status` from a grid, a timeout is now `is_truncated()`;
+  `is_done()` is unchanged.
+
+- **The four bandits report their step cap as `Truncated`.**
+  `KArmedBandit`, `ContextualBandit`, `NonStationaryBandit` and
+  `AdversarialBandit` reported `Terminated` at `max_steps`, as their docs
+  said. A bandit has no terminal state, so by `EpisodeStatus`'s own
+  definition the cap is a truncation, and every environment with a step
+  cap of its own now reports it the same way.
 
 ### `rlevo-evolution`
 
