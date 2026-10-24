@@ -872,12 +872,11 @@ where
             broken_count: metrics_canon.broken_count,
         };
         // Structured per-generation event. Picked up by the
-        // canonical-metric registry in
-        // `rlevo-harness::tui::log_layer::CANONICAL_METRICS` so the
-        // live TUI's fitness sparkline lights up without coupling this
-        // crate to the dashboard. Field names match the registry
-        // verbatim; renaming any of them requires a paired update on
-        // the benchmarks side.
+        // canonical-metric registry (`rlevo-metrics-registry`'s
+        // `CANONICAL_METRICS`) so the recording layer stores the fitness
+        // curve without coupling this crate to the harness. Field names
+        // match the registry verbatim; renaming any of them requires a
+        // paired update on the registry side.
         tracing::info!(
             generation = metrics.generation,
             population_size = metrics.population_size,

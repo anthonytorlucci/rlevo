@@ -1893,8 +1893,8 @@ mod tests {
 
     /// One `warn!` per affected trial — not one per affected step, and not
     /// zero (ADR 0078, Decision 3). The line must carry the environment name
-    /// and the trial total, since it is the TUI's only channel for this
-    /// failure.
+    /// and the trial total, since a run read through its log has no other
+    /// channel for this failure.
     #[test]
     fn non_finite_reward_warns_once_per_trial_with_env_and_total() {
         let cfg = single_thread_cfg(2, 10);

@@ -382,9 +382,9 @@ rl_learning_test! {
 // Progress logging
 // ---------------------------------------------------------------------------
 //
-// The TUI example's panels read the agent's per-update `tracing` event. This
-// pins that the event is reached once per update, at each rollout boundary,
-// and that a rollout the budget leaves unfinished logs nothing.
+// A run's log and the recording layer read the agent's per-update `tracing`
+// event. This pins that the event is reached once per update, at each rollout
+// boundary, and that a rollout the budget leaves unfinished logs nothing.
 
 #[test]
 fn ppg_logs_one_progress_line_per_update() {

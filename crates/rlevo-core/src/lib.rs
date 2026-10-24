@@ -22,7 +22,7 @@
 //! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
 //! | [`probability`] | [`Probability`] — a `[0, 1]` rate valid by construction (rejects `NaN`, `Inf`, out-of-range) |
 //! | [`rate`] | [`NonNegativeRate`] — a finite non-negative magnitude valid by construction (BLX-`$\alpha$`, `$\sigma$`) |
-//! | [`render`] | [`AsciiRenderable`], styled/palette/payload sub-modules — optional debug and TUI visualization layer |
+//! | [`render`] | [`AsciiRenderable`], styled/palette/payload sub-modules — optional debug and report visualization layer |
 //! | [`agent`] | [`Agent`], [`Transition`] — the seam a driver steps a policy or a learner through |
 //! | [`util`] | Shared utility helpers |
 //!
@@ -226,7 +226,7 @@ pub mod probability;
 /// [`Probability`]: crate::probability::Probability
 pub mod rate;
 
-/// Optional rendering layer for debug output and TUI visualization.
+/// Optional rendering layer for debug output and report visualization.
 ///
 /// Contains [`AsciiRenderable`] (via the [`ascii`] sub-module),
 /// styled color primitives ([`styled`] / [`palette`]), and environment

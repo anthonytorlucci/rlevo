@@ -209,7 +209,7 @@ pub fn render_box2d_ascii(
 ///
 /// Produces the same layout and content as [`render_box2d_ascii`] but
 /// wraps each run of identically styled characters in a [`StyledSpan`]
-/// so the caller (e.g., a `ratatui` widget) can apply terminal colours
+/// so the caller (e.g., the report's `<pre>` frames) can apply colours
 /// and modifiers without reparsing plain text. The header label is
 /// styled with [`AGENT_FG`] + [`AGENT_MODIFIER`]; the position/angle
 /// suffix is unstyled.

@@ -13,10 +13,12 @@ implementation details follow
 
 ## Quick start
 
-Discrete env (CartPole), with a terminal dashboard:
+Discrete env (CartPole), recorded and written out as a static-HTML report
+with its loss and return curves (the example's module docs give the one-time
+report-client build):
 
 ```bash
-cargo run -p rlevo-examples --release --features viz-tui --example tui_ppo_cartpole
+cargo run -p rlevo-examples --release --features viz-report --example report_ppo_cartpole_with_client
 ```
 
 Continuous env (Pendulum), against a random baseline, beside DDPG, TD3 and

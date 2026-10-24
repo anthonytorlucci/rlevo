@@ -102,14 +102,13 @@ pub enum EnvFamily {
 /// Opt-in association between a concrete environment type and its
 /// [`EnvFamily`].
 ///
-/// Recording and visualisation drivers otherwise restate the family as a
-/// literal at every call site — once for [`RecordingConfig`] and again for
-/// the TUI config — with nothing tying either back to the environment being
+/// Recording drivers otherwise restate the family as a literal in each
+/// [`RecordingConfig`], with nothing tying it back to the environment being
 /// run. The two can silently disagree (recording a locomotion env as
 /// [`EnvFamily::Classic`] compiles fine and just produces the wrong
 /// report-tier adapter). Implementing this trait lets a driver derive the
-/// family from the env type *once* via [`RecordingConfig::for_env`] /
-/// [`Self::FAMILY`], collapsing the two literals to a single source of truth.
+/// family from the env type via [`RecordingConfig::for_env`] /
+/// [`Self::FAMILY`], a single source of truth.
 ///
 /// This is deliberately **not** a supertrait of
 /// [`Environment`](rlevo_core::environment::Environment): family/render

@@ -1,10 +1,9 @@
 //! Optional plain-text rendering surface for environments.
 //!
 //! [`AsciiRenderable`] is an **optional debug helper**, not a library
-//! invariant (ADR-0013). The two visualisation products do not depend on it:
-//! the live TUI is metrics-only and renders no env, and the post-run report
-//! renders env playback from the structured `FamilyPayload` carried in each
-//! `EpisodeRecord` frame. An env implements this trait only when a quick
+//! invariant (ADR-0013). The visualisation product does not depend on it:
+//! the post-run report renders env playback from the structured
+//! `FamilyPayload` carried in each `EpisodeRecord` frame. An env implements this trait only when a quick
 //! grep-friendly text dump is useful — for logs, snapshot tests, or a
 //! user-built env that wants the report's legacy `<pre>` fallback without
 //! writing a structured payload adapter.

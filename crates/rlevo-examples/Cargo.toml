@@ -26,23 +26,17 @@ tracing-subscriber = { workspace = true }
 default = []
 box2d = ["rlevo-environments/box2d"]
 locomotion = ["rlevo-environments/locomotion"]
-# Live metrics TUI product (ADR-0013).
-viz-tui = ["rlevo-harness/tui"]
 # Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
 # `record` transitively in rlevo-harness; `rlevo-environments/record` adds
 # the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
-# umbrella forwards only the two products (ADR-0013, Decision 5).
+# umbrella forwards products, not their parts (ADR-0013, Decision 5), and
+# this is the one product since the live TUI was deleted (ADR 0096).
 viz-report = ["rlevo-harness/report", "rlevo-environments/record"]
 
 [lints]
 workspace = true
 
 # Examples — RL (PPO on CartPole)
-[[example]]
-name = "tui_ppo_cartpole"
-path = "examples/classic/tui_ppo_cartpole.rs"
-required-features = ["viz-tui"]
-
 [[example]]
 name = "report_ppo_cartpole_with_client"
 path = "examples/classic/report_ppo_cartpole_with_client.rs"

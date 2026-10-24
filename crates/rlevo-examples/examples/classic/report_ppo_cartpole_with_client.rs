@@ -231,8 +231,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rng = StdRng::seed_from_u64(SEED);
 
-    // CartPole → TimeLimit → RecordingTap. No TUI tap here — the metric
-    // stream is captured headlessly and replayed by the report client.
+    // CartPole → TimeLimit → RecordingTap. The metric stream is captured
+    // headlessly and replayed by the report client.
     // Structured-only (ADR-0013): record `FamilyPayload::Classic2D` line-art.
     let mut env: RecordingTap<_, 1, 1> =
         RecordingTap::with_classic2d_payload(base_env(), sink.clone());

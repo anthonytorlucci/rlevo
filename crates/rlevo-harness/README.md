@@ -31,7 +31,7 @@ Suite<E>
         │                     + probe MetricsProvider::emit         (generation)
         │
         ├── checkpoint::save  (atomic JSON write)
-        └── Reporter events  (LoggingReporter / JsonReporter / TuiReporter)
+        └── Reporter events  (LoggingReporter / JsonReporter / RecordingReporter)
 ```
 
 ---
@@ -102,7 +102,7 @@ Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram
 
 ### `metrics_registry` — Canonical Metric Names
 
-Always-on re-export of the `rlevo-metrics-registry` leaf crate (ADR 0015). Supplies the single source of truth for canonical metric field names — `CANONICAL_METRICS`, `is_canonical_metric`, `MetricDescriptor`/`MetricKind`, `Cadence`, `descriptor`, `is_per_generation`, `title_for` — so the recorder (`RecordingLayer`) and live TUI (`tui::log_layer`) agree on which `tracing` fields are promoted to metrics.
+Always-on re-export of the `rlevo-metrics-registry` leaf crate (ADR 0015). Supplies the single source of truth for canonical metric field names — `CANONICAL_METRICS`, `is_canonical_metric`, `MetricDescriptor`/`MetricKind`, `Cadence`, `descriptor`, `is_per_generation`, `title_for` — so the recorder (`RecordingLayer`) and the report client agree on which `tracing` fields are promoted to metrics.
 
 ### `report` — Result Types
 
@@ -114,13 +114,12 @@ Always-on re-export of the `rlevo-metrics-registry` leaf crate (ADR 0015). Suppl
 
 ### `reporter` — Event Sink
 
-The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_start`, `on_episode_end`, `on_trial_end`, `on_suite_end`) with no metric-computation responsibility. Five built-in implementations are provided:
+The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_start`, `on_episode_end`, `on_trial_end`, `on_suite_end`) with no metric-computation responsibility. Four built-in implementations are provided:
 
 | Reporter | Feature gate | Behaviour |
 |----------|-------------|-----------|
 | `LoggingReporter` | always | Emits structured `tracing::info!` events under the target `rlevo_harness` |
 | `JsonReporter` | `json` | Buffers events; writes a single JSON document atomically at suite end |
-| `TuiReporter` | `tui` | Sends `TuiEvent` values over an mpsc channel for terminal-UI consumption |
 | `RecordingReporter` | `record` | Drives the on-disk `EpisodeRecord` writer; pairs with `RecordingTap` + `RecordingLayer` |
 | `MultiReporter` | always | Fans the event stream out to a `Vec<Box<dyn Reporter>>` in insertion order |
 
@@ -143,7 +142,7 @@ Four producers share one `Arc<Mutex<dyn RecordSink>>`:
 | `RecordingTap<E>` | Wraps `Environment`; emits per-step `FrameRecord` (subject to `frame_stride`) + closes the episode when the snapshot's status is done |
 | `RecordingReporter` | Drives the suite lifecycle; finalises `run.toml` at `on_suite_end`. Two modes: with or without per-episode signals |
 | `PopulationReporter` | `PopulationObserver` attached with `EvolutionaryLoop::with_observer`; writes one `PopulationSample` (fitnesses, diversity, best) per generation |
-| `RecordingLayer` | `tracing_subscriber::Layer` that captures canonical metric fields (matches the `tui::log_layer` registry) |
+| `RecordingLayer` | `tracing_subscriber::Layer` that captures canonical metric fields (the `metrics_registry` table) |
 
 Encoding: bincode 2.x with `bincode::config::standard()`. `FORMAT_VERSION` is stamped into every `EpisodeRecordHeader`; loaders refuse mismatched versions.
 
@@ -195,10 +194,6 @@ emit_static_html(
 
 The emitter replaces the placeholder body with a `<div id="rlevo-app">` mount point and inlines the WASM blob + JS shim + bundled CSS. When `client_assets` is `None`, the placeholder body ships unchanged.
 
-### `env_wrappers` — Live-TUI Env Taps (feature `tui`)
-
-Composable `Environment` wrappers that feed the metrics-only live TUI (ADR 0013). `TuiEnvTap` wraps an env and emits per-episode returns into the TUI's metric stream without the dashboard ever owning an environment panel. Gated behind the `tui` feature.
-
 ### `checkpoint` — Resume Support
 
 When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` saves an atomic checkpoint after each trial and skips already-completed `TrialKey`s on resume. Without the `json` feature the checkpoint functions are zero-cost stubs.
@@ -210,7 +205,6 @@ When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` save
 | Feature | Default | Enables |
 |---------|---------|---------|
 | `json` | yes | `JsonReporter`, checkpoint load/save (`serde` + `serde_json`) |
-| `tui` | no | `TuiReporter`, `TuiEvent` (`ratatui` + `crossterm`), `tracing_subscriber` integration |
 | `record` | no | `record` module: per-episode files + `RunManifest` (`bincode` + `toml` + `time`) |
 | `report` | no | Random-access loader + static-HTML emitter in the `report` module (`base64` + `serde_json`). Implies `record`. |
 
@@ -232,7 +226,7 @@ rlevo-harness = { path = "../rlevo-harness" }
 
 ### Moving from `rlevo-benchmarks`
 
-Through 0.5.0 this crate was published as `rlevo-benchmarks` (ADR 0088). A project that depends on it directly changes three things: the dependency line, every feature that names the crate (`rlevo-benchmarks/tui`, `rlevo-benchmarks/record`, `dep:rlevo-benchmarks`), and the first segment of its paths, from `rlevo_benchmarks::` to `rlevo_harness::`. Cargo's `package` key keeps the old local name, so the paths and feature entries go on working until they are changed, except the paths through `agent` and `seed`: those two modules were aliases for traits and a type that moved to `rlevo-core` under ADR 0004, and the rename removed them (ADR 0088). Import `Landscape` from `rlevo_core::fitness` (an evaluator written against `FitnessEvaluable` implements `Landscape` instead; ADR 0091), and `SeedStream` from `rlevo_core::util::seed`. `BenchableAgent` is gone, with no alias: implement `rlevo_core::agent::Agent`, whose `act` has the same signature (ADR 0095).
+Through 0.5.0 this crate was published as `rlevo-benchmarks` (ADR 0088). A project that depends on it directly changes three things: the dependency line, every feature that names the crate (`rlevo-benchmarks/record`, `dep:rlevo-benchmarks`), and the first segment of its paths, from `rlevo_benchmarks::` to `rlevo_harness::`. Cargo's `package` key keeps the old local name, so the paths and feature entries go on working until they are changed, except the paths through `agent` and `seed`: those two modules were aliases for traits and a type that moved to `rlevo-core` under ADR 0004, and the rename removed them (ADR 0088). Import `Landscape` from `rlevo_core::fitness` (an evaluator written against `FitnessEvaluable` implements `Landscape` instead; ADR 0091), and `SeedStream` from `rlevo_core::util::seed`. `BenchableAgent` is gone, with no alias: implement `rlevo_core::agent::Agent`, whose `act` has the same signature (ADR 0095). The `tui` feature is gone too, with the live dashboard it built (ADR 0096): drop `rlevo-benchmarks/tui` rather than renaming it.
 
 ```toml
 [dependencies]

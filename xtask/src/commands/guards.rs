@@ -15,6 +15,7 @@
 //! | `harness-edge-is-record-only` | no published crate depends on `rlevo-harness` but the umbrella, and `rlevo-environments` under `record` (`docs/rules.md` section 10, ADR 0084) | `cargo metadata` |
 //! | `umbrella-defaults-carry-no-viz` | `rlevo`'s default features turn on no viz, recording or `rerun` feature (ADR 0084) | `cargo metadata` |
 //! | `published-graphs-reach-no-viz` | no published crate reaches a viz package at its default features, in its build or its test build (`docs/rules.md` section 10) | `cargo tree` |
+//! | `no-manifest-names-a-terminal-ui` | no workspace member names `ratatui` or `crossterm`, in any dependency section or behind any feature (ADR 0096) | `cargo metadata` |
 //! | `katex-headers-identical` | the `katex-header.html` copies stay byte-identical (`CLAUDE.md`) | the files |
 //!
 //! One line per guard goes to stderr, and the last line is the verdict:
@@ -22,7 +23,7 @@
 //! ```text
 //! GUARD PASS evolution-names-no-environment :: 81 source files, none names the environment contract
 //! GUARD FAIL katex-headers-identical :: crates/rlevo-hybrid/katex-header.html differs from crates/rlevo-core/katex-header.html
-//! 1 of 5 guards failed.
+//! 1 of 6 guards failed.
 //! ```
 //!
 //! A failed guard exits non-zero. Fix the code, or change the rule, its
@@ -45,8 +46,8 @@ use serde_json::Value;
 use tracel_xtask::prelude::*;
 
 /// Packages that are viz or viewer stacks. No published crate reaches one at
-/// its default features: the harness's are behind `tui`, `report` and
-/// `record`, and `rerun` belongs to an adapter crate that is never a default.
+/// its default features: the harness's are behind `report` and `record`, and
+/// `rerun` belongs to an adapter crate that is never a default.
 const VIZ_PACKAGES: &[&str] = &[
     "ratatui",
     "crossterm",
@@ -55,6 +56,12 @@ const VIZ_PACKAGES: &[&str] = &[
     "wasm-bindgen",
     "rerun",
 ];
+
+/// The terminal-UI stack. Stricter than [`VIZ_PACKAGES`]: no workspace
+/// manifest names one at all, so the live TUI deleted by ADR 0096 cannot
+/// return behind a feature flag. The other viz packages keep their members
+/// (the report client names `leptos` and `wasm-bindgen`).
+const TERMINAL_UI_PACKAGES: &[&str] = &["ratatui", "crossterm"];
 
 /// The crate whose sources must not name the environment contract.
 const EVOLUTION: &str = "rlevo-evolution";
@@ -98,6 +105,7 @@ pub fn handle_command(_args: &GuardsCmdArgs, _env: Environment, _ctx: Context) -
         harness_edge_is_record_only(&metadata),
         umbrella_defaults_carry_no_viz(&metadata)?,
         published_graphs_reach_no_viz(&metadata)?,
+        no_manifest_names_a_terminal_ui(&metadata),
         katex_headers_identical(&root)?,
     ];
 
@@ -335,11 +343,7 @@ fn is_viz_gate(entry: &str) -> bool {
             .iter()
             .any(|dep| entry == format!("{dep}/{feature}") || entry == format!("{dep}?/{feature}"))
     };
-    entry.starts_with("viz-")
-        || entry.contains("rerun")
-        || gated("tui")
-        || gated("report")
-        || gated(RECORD)
+    entry.starts_with("viz-") || entry.contains("rerun") || gated("report") || gated(RECORD)
 }
 
 fn umbrella_defaults_carry_no_viz(metadata: &Value) -> Result<Verdict> {
@@ -410,6 +414,40 @@ fn published_graphs_reach_no_viz(metadata: &Value) -> Result<Verdict> {
             VIZ_PACKAGES.join(", ")
         ),
     })
+}
+
+// ---- no-manifest-names-a-terminal-ui ---------------------------------------
+
+/// `cargo metadata` lists every dependency a manifest declares, optional or
+/// not, in every section and for every target, so one pass sees them all.
+fn no_manifest_names_a_terminal_ui(metadata: &Value) -> Verdict {
+    let name = "no-manifest-names-a-terminal-ui";
+    let mut violations = Vec::new();
+    let mut manifests = 0;
+    for pkg in packages(metadata) {
+        manifests += 1;
+        let pkg_name = pkg["name"].as_str().unwrap_or_default();
+        for dep in pkg["dependencies"].as_array().into_iter().flatten() {
+            let dep_name = dep["name"].as_str().unwrap_or_default();
+            if TERMINAL_UI_PACKAGES.contains(&dep_name) {
+                let kind = dep["kind"].as_str().unwrap_or("normal");
+                violations.push(format!(
+                    "{pkg_name}'s manifest names {dep_name} as a {kind} dependency"
+                ));
+            }
+        }
+    }
+    if manifests == 0 {
+        violations.push("no workspace member found; this guard checks nothing".to_string());
+    }
+    Verdict {
+        name,
+        violations,
+        checked: format!(
+            "{manifests} manifests, none names {}",
+            TERMINAL_UI_PACKAGES.join(" or ")
+        ),
+    }
 }
 
 // ---- katex-headers-identical -----------------------------------------------
@@ -592,7 +630,7 @@ mod tests {
         let clean = workspace(&[package_with(
             "rlevo",
             &json!([]),
-            &json!({ "default": ["flex"], "flex": ["burn/flex"], "viz-tui": ["rlevo-harness/tui"] }),
+            &json!({ "default": ["flex"], "flex": ["burn/flex"], "viz-report": ["rlevo-harness/report"] }),
         )]);
         assert_eq!(
             umbrella_defaults_carry_no_viz(&clean).unwrap().violations,
@@ -600,7 +638,7 @@ mod tests {
         );
 
         for default in [
-            json!(["viz-tui"]),
+            json!(["viz-report"]),
             json!(["rlevo-harness/report"]),
             json!(["rlevo-environments/record"]),
             json!(["rerun"]),
@@ -608,7 +646,7 @@ mod tests {
             let dirty = workspace(&[package_with(
                 "rlevo",
                 &json!([]),
-                &json!({ "default": default, "viz-tui": ["rlevo-harness/tui"], "rerun": [] }),
+                &json!({ "default": default, "viz-report": ["rlevo-harness/report"], "rerun": [] }),
             )]);
             assert!(
                 !umbrella_defaults_carry_no_viz(&dirty)
@@ -618,5 +656,53 @@ mod tests {
                 "{default}"
             );
         }
+    }
+
+    #[test]
+    fn a_terminal_ui_dependency_fails_in_any_section_and_any_member() {
+        let tracing = json!({ "name": "tracing", "kind": null, "optional": false });
+        let clean = workspace(&[package_with("rlevo-harness", &json!([tracing]), &json!({}))]);
+        assert_eq!(
+            no_manifest_names_a_terminal_ui(&clean).violations,
+            Vec::<String>::new()
+        );
+
+        for dep in [
+            json!({ "name": "ratatui", "kind": null, "optional": true }),
+            json!({ "name": "crossterm", "kind": "dev", "optional": false }),
+            json!({ "name": "ratatui", "kind": "build", "optional": false }),
+        ] {
+            let dirty = workspace(&[package_with(
+                "rlevo-harness",
+                &json!([tracing, dep]),
+                &json!({}),
+            )]);
+            assert_eq!(
+                no_manifest_names_a_terminal_ui(&dirty).violations.len(),
+                1,
+                "{dep}"
+            );
+        }
+
+        let mut unpublished = package_with(
+            "rlevo-examples",
+            &json!([{ "name": "ratatui", "kind": null, "optional": false }]),
+            &json!({}),
+        );
+        unpublished["publish"] = json!([]);
+        assert_eq!(
+            no_manifest_names_a_terminal_ui(&workspace(&[unpublished]))
+                .violations
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_terminal_ui_guard_over_no_members_fails() {
+        assert_eq!(
+            no_manifest_names_a_terminal_ui(&workspace(&[])).violations,
+            ["no workspace member found; this guard checks nothing"]
+        );
     }
 }

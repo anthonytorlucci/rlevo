@@ -40,7 +40,7 @@ Paste the full compiler error, panic message, or incorrect output verbatim:
 - `rustc --version`: 
 - `cargo --version`: 
 - Burn backend in use: [e.g. `wgpu`, `ndarray`, `tch`]
-- Workspace features enabled: [e.g. `--features tui,metrics`]
+- Workspace features enabled: [e.g. `--features wgpu,viz-report`]
 
 **Additional context**
 Add any other context about the problem here.

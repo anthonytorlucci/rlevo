@@ -2,9 +2,9 @@
 
 ![Alt Text](https://raw.githubusercontent.com/anthonytorlucci/rlevo/main/rlevo-logo.png)
 
-Runnable, application-tier examples for the [`rlevo`](../rlevo/) library: a
-live training dashboard, post-run HTML reports with interactive environment
-playback, and the heavier evolution showcases.
+Runnable, application-tier examples for the [`rlevo`](../rlevo/) library:
+post-run HTML reports with interactive environment playback, and the heavier
+evolution showcases.
 
 This is a **leaf crate** — nothing in the `rlevo` library depends on it. It
 exists so heavyweight examples that pull in the visualisation stack live in
@@ -14,7 +14,7 @@ one place, isolated from the lean library crates (ADR 0012).
 
 | Example uses…                                                                 | Lives in                  |
 | ----------------------------------------------------------------------------- | ------------------------- |
-| the harness's `tui`, `record` or `report` features (the live dashboard, recording, the HTML report) | **`rlevo-examples`** (here) |
+| the harness's `record` or `report` features (recording, the HTML report) | **`rlevo-examples`** (here) |
 | the library crates and the harness at its default features, all reached through `rlevo` | [`rlevo/examples/`](../rlevo/examples/) |
 
 The harness itself is part of the umbrella since ADR 0084, re-exported as
@@ -33,7 +33,7 @@ cargo run -p rlevo-examples --example <name> [--features <flags>] [--release]
 ```
 
 Each example's source file opens with a doc comment explaining what it builds
-and which report/TUI panels it lights up — read it alongside the entry below.
+and which report panels it lights up — read it alongside the entry below.
 
 ## Example catalog
 
@@ -60,16 +60,6 @@ above, and a CPU-vs-GPU backend sweep.
 | `santa_fe_ant_deterministic`  | Weight-only neuroevolution of a recurrent (GRU and Elman) policy on the deterministic Santa Fe Trail. | `cargo run -p rlevo-examples --example santa_fe_ant_deterministic`  |
 | `santa_fe_ant_stochastic`     | The same recurrent-policy neuroevolution with stochastic action selection (a seeded softmax sample, fitness averaged over a fixed seed set); the Santa Fe Trail itself stays deterministic. | `cargo run -p rlevo-examples --example santa_fe_ant_stochastic`     |
 | `backend_sweep_neuroevolution` | The same generic GA neuroevolution run, timed on `Flex` (CPU) and `Wgpu` (GPU) across population sizes; needs a wgpu adapter. Use `--release`. | `cargo run -p rlevo-examples --example backend_sweep_neuroevolution --release` |
-
-### Live TUI — `--features viz-tui`
-
-The live product (ADR 0013): a metrics-only `ratatui` dashboard that answers
-*"is it learning?"* from streaming sparklines. No environment is rendered —
-env playback is the report tier's job.
-
-| Example            | What it demonstrates                                                                                                       | Run                                                                                  |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `tui_ppo_cartpole` | A live dashboard wrapping a PPO-on-`CartPole` training loop; reward + loss sparklines climb as PPO learns. Use `--release`. | `cargo run -p rlevo-examples --example tui_ppo_cartpole --features viz-tui --release` |
 
 ### Post-run reports — `--features viz-report`
 
@@ -126,7 +116,7 @@ cargo run -p rlevo-examples --example report_lunar_lander_with_client \
 
 ```
 examples/
-  classic/      PPO on CartPole                 (tui_ppo_cartpole, report_ppo_cartpole_with_client)
+  classic/      PPO on CartPole                 (report_ppo_cartpole_with_client)
   evolution/    landscape report + standalone algorithm demos + backend sweep
                 (report_sphere_landscape_with_client, eda_showcase,
                  competitive_predator_prey, cooperative_ccga_rastrigin,
@@ -146,7 +136,6 @@ runner) pulled in via `#[path = …] mod` by `santa_fe_ant_deterministic` and
 
 | Feature      | Enables                                                                                                              |
 | ------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `viz-tui`    | Live metrics TUI dashboard (`rlevo-harness/tui`).                                                                    |
 | `viz-report` | Post-run recording + static-HTML report (`rlevo-harness/report`, which pulls `record` transitively, plus `rlevo-environments/record` for the per-family `RecordedEnvFamily` impls). |
 | `locomotion` | Rapier3D locomotion environments (`rlevo-environments/locomotion`).                                                  |
 | `box2d`      | Rapier2D Box2D-style environments (`rlevo-environments/box2d`).                                                      |

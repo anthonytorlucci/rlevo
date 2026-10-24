@@ -9,16 +9,15 @@ the `rlevo` workspace (ADR-0015).
 
 **Stable.** A tiny, `#![no_std]`, dependency-free leaf crate. Its only job is to
 define — once — the set of metric field names the rest of the workspace agrees
-on, together with each metric's paradigm, sampling cadence, display title,
-optional unit, and how to read its curve (a `Trend` and a one-line hint).
+on, together with each metric's paradigm, sampling cadence, display title and
+optional unit.
 
 ## Why this crate exists
 
 Two consumers need the *same* metric vocabulary:
 
-- **`rlevo-harness`** — the live-TUI capture layer and the on-disk recording
-  layer classify `tracing` field names against the table to decide what to
-  sparkline and what to persist.
+- **`rlevo-harness`** — the on-disk recording layer classifies `tracing`
+  field names against the table to decide what to persist.
 - **`rlevo-benchmarks-report-client`** — the WASM report client groups panels
   (RL vs EO), decides per-metric smoothing, and renders human-readable titles.
 
@@ -37,16 +36,13 @@ consumers share a single definition instead of mirroring it.
 
 | Item | Purpose |
 |---|---|
-| `MetricDescriptor` | Typed row: `name`, `kind`, `cadence`, `title`, `unit`, `trend`, `hint` |
+| `MetricDescriptor` | Typed row: `name`, `kind`, `cadence`, `title`, `unit` |
 | `MetricKind` | `Rl` / `Eo` / `Shared` — drives report panel grouping |
-| `Trend` | `HigherIsBetter` / `LowerIsBetter` / `Diagnostic` — how to read a live curve; `glyph()` gives its one-character marker |
 | `Cadence` | `PerUpdate` / `PerGeneration` / `PerEpisode` — drives report smoothing |
 | `CANONICAL_METRICS` | The ordered descriptor table (RL → shared → EO) |
 | `descriptor(name)` | Look up a descriptor by field name, `None` if non-canonical |
 | `is_canonical_metric(name)` | `true` if the name is recognised |
 | `title_for(name)` | Human-readable title, falling back to the raw name |
-| `trend_for(name)` | The metric's `Trend`, falling back to `Diagnostic` |
-| `hint_for(name)` | One-line interpretation hint for the live TUI, `""` when there is none |
 | `is_per_generation(name)` | `true` for per-generation metrics (plotted raw, no rolling mean) |
 
 `MetricDescriptor::name` is the exact `tracing` field name the recorder matches
@@ -80,14 +76,11 @@ so the v6 metric set stays complete.
 ## Extending the registry
 
 1. Add one [`MetricDescriptor`] row to `CANONICAL_METRICS` (use the `d` / `du`
-   const constructors for the unit-less / unit-carrying cases), and chain
-   `.reads(trend, hint)` to give it a reading direction and a live-TUI hint; a
-   row without it reads as `Trend::Diagnostic` with no hint.
+   const constructors for the unit-less / unit-carrying cases).
 2. Emit a matching `tracing::info!` field from the algorithm.
 
-That single edit makes the field visible in the live-TUI sparklines, the on-disk
-recording stream, and the report's RL/EO panel grouping — no client-side change
-required.
+That single edit makes the field visible in the on-disk recording stream and
+the report's RL/EO panel grouping — no client-side change required.
 
 ## Testing
 

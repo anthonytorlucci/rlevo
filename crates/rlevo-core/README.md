@@ -115,7 +115,7 @@ Every random draw an agent makes comes from the `rng` the driver passes, so a se
 
 ### `render` — Rendering Abstractions
 
-The rendering surface feeds the two visualisation products (ADR 0013): a live metrics-only `ratatui` TUI and a post-run static-HTML report that replays env state from structured payloads. `rlevo-core` ships zero terminal-side dependencies — the conversion into `ratatui` styles lives downstream in `rlevo-harness`, and the rendering of frames and payloads into HTML in `rlevo-benchmarks-report-client`.
+The rendering surface feeds the post-run visualisation product (ADRs 0013, 0096): a static-HTML report that replays env state from structured payloads. `rlevo-core` ships zero terminal-side dependencies — the rendering of frames and payloads into HTML lives downstream in `rlevo-benchmarks-report-client`.
 
 **`ascii` — optional text rendering**
 
@@ -123,11 +123,11 @@ The rendering surface feeds the two visualisation products (ADR 0013): a live me
 |---|---|
 | `AsciiRenderable` | Optional debug helper (not a library invariant, per ADR 0013): a grep-friendly text dump for logs, snapshot tests, and the report's legacy `<pre>` fallback |
 
-**`styled` — colour-aware projection** (the report tier renders `StyledFrame`s; the live TUI uses only the `SpanStyle` / `Color` / `Modifier` styles)
+**`styled` — colour-aware projection** (the report tier renders `StyledFrame`s)
 
 | Item | Description |
 |---|---|
-| `StyledFrame` / `StyledLine` / `StyledSpan` | A small, ratatui-shaped vocabulary for styled text output |
+| `StyledFrame` / `StyledLine` / `StyledSpan` | A small, terminal-shaped vocabulary for styled text output |
 | `SpanStyle` | Foreground/background `Color` plus a `Modifier` set |
 | `Color` | ANSI colour enum: the 16-colour palette plus `Indexed(u8)` 256-colour entries |
 | `Modifier` | Bitset of `BOLD` / `REVERSED` / `UNDERLINED` / … hints |
