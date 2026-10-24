@@ -138,6 +138,10 @@ const BYOE1_NOTE: &str = "BYOE-1 does not end at the harness run: recording the 
 const BYOE2_NOTE: &str = "BYOE-2 does not end at the harness run: recording the population \
                           and drawing the landscape are not walked yet";
 
+/// What a green BYOA-1b walk does not yet show.
+const BYOA1B_NOTE: &str = "BYOA-1b does not end at the determinism check: recording the run \
+                           and showing that two submissions faced one task are not walked yet";
+
 /// The probes. Keep in step with `xtask/probes/`:
 /// `assert_probes_are_registered` enforces it.
 const PROBES: &[Probe] = &[
@@ -173,6 +177,17 @@ const PROBES: &[Probe] = &[
             contract: Some("src/well_siting.rs"),
         },
         note: Some(BYOE2_NOTE),
+    },
+    // An optimiser author: a strategy of their own, and a control that never
+    // moves, on a shipped landscape.
+    Probe {
+        name: "byoa-1b",
+        title: "BYOA-1b",
+        kind: Kind::Walk {
+            walk: &walk::BYOA1B,
+            contract: None,
+        },
+        note: Some(BYOA1B_NOTE),
     },
     // An environment author with no learner. An empty crate depending on
     // `rlevo-core` would compile whatever the contract asks of an

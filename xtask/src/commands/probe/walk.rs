@@ -165,6 +165,56 @@ pub const BYOE2: Walk = Walk {
     ],
 };
 
+/// BYOA-1b: an optimiser author's walk, from an empty directory to a harness
+/// run of their own `Strategy`, compared with a strategy that never moves.
+pub const BYOA1B: Walk = Walk {
+    prefix: "BYOA-STEP",
+    steps: &[
+        SCAFFOLD,
+        ADD_DEPS,
+        Step {
+            label: "implement-strategy",
+            fatal: true,
+        },
+        Step {
+            label: "null-strategy",
+            fatal: true,
+        },
+        Step {
+            label: "run-trials",
+            fatal: true,
+        },
+        Step {
+            label: "ordering",
+            fatal: true,
+        },
+        Step {
+            label: "determinism",
+            fatal: true,
+        },
+    ],
+    levels: &[
+        Level {
+            feature: None,
+            step: "implement-strategy",
+            built: Some("the hill-climber implements Strategy against public API only"),
+            reports: &[],
+        },
+        Level {
+            feature: Some("null"),
+            step: "null-strategy",
+            built: Some("the null strategy implements Strategy"),
+            reports: &[],
+        },
+        Level {
+            feature: Some("harness"),
+            step: "run-trials",
+            built: None,
+            reports: &["run-trials", "ordering", "determinism"],
+        },
+    ],
+};
+
 /// A build level of the probe crate.
 #[derive(Debug)]
 pub struct Level {

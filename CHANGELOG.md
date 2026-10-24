@@ -785,6 +785,18 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Added**
 
+- **An optimiser author's walk, `byoa-1b`.** A `(1+1)` hill-climber and a
+  control whose `ask` returns its starting point, both written against the
+  `Strategy` seam from outside the workspace, run on the shipped `Sphere`
+  through `EvolutionaryLoop` and `Evaluator::run_trials`, in seven steps.
+  Step 6 requires each trial's `ea/best_fitness_ever` to stay where it
+  started for the control, to start at the same value for both, and to end
+  strictly lower for the hill-climber; a metric that did not follow the
+  search would let the control score as well. Step 7 runs both again and
+  requires every scalar but the wall clock to repeat bit for bit. Its step
+  2 records one crate added by hand, `rand`, because `Strategy::init`, `ask`
+  and `tell` take `&mut dyn rand::Rng`. `crate-tests.yml` runs it on every
+  pull request as `probe (byoa-1b)`.
 - **A landscape author's walk, `byoe-2`.** The first probe of the
   evolutionary path. An invented cost surface, written against `rlevo::core`
   alone, is wrapped with `FromLandscape`, searched by the shipped `(μ+λ)`
