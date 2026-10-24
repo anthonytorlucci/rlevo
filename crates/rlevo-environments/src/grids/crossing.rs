@@ -778,7 +778,7 @@ impl Environment<3, 1> for CrossingEnv {
                 EpisodeStatus::Terminated,
             ),
             StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
-            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
             _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
@@ -1425,21 +1425,8 @@ mod tests {
     // goal, which is a real correctness gap, not just step-count hygiene.
     // Both drivers below reach the terminal through real `step()` calls, and
     // both end the episode on a *task* terminal — the goal, or lava — never
-    // by spending the step budget. That's deliberate: this env's `step()`
-    // (above) OR-s the step-limit cutoff into the same bare `done: bool` as
-    // the goal/lava terminal, and `grids/core/mod.rs::build_snapshot` maps
-    // every `done` straight to `EpisodeStatus::Terminated` — there is no
-    // `Truncated` arm, so hitting `max_steps` is currently reported as a
-    // true terminal instead of a truncation. Per `docs/rules.md` §10 that
-    // distinction is not cosmetic: `Terminated` says no future value exists
-    // past this state, `Truncated` says value still exists but was cut off
-    // by the clock, and collapsing the two biases bootstrapping of a value
-    // function on step-limited episodes. Driving through the budget here
-    // would bake that mislabeling into these terminal-snapshot assertions
-    // and force the eventual fix — threading through *why* the episode
-    // ended instead of collapsing it into one bool — to rewrite them; out
-    // of scope for this guard test, which only needs a real terminal to
-    // drive into, not a correctly labeled one.
+    // by spending the step budget, whose `Truncated` ending is checked in
+    // `tests/grids_solvable.rs`.
     // -----------------------------------------------------------------------
 
     /// Reset, then walk the planned safe path to the goal with real `step()`s.

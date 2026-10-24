@@ -923,7 +923,7 @@ impl Environment<3, 1> for MemoryEnv {
                 (0.0, EpisodeStatus::Terminated)
             }
         } else if self.steps >= self.config.max_steps {
-            (0.0, EpisodeStatus::Terminated)
+            (0.0, EpisodeStatus::Truncated)
         } else {
             (0.0, EpisodeStatus::Running)
         };
@@ -1955,15 +1955,8 @@ mod tests {
     /// terminal snapshot, no poking at `env.state`. With `correct = true` the
     /// agent turns toward the matching object (success terminal); with `false`
     /// it turns toward the distractor (failure terminal). Both are genuine
-    /// `Done` terminations, reached well inside the step budget, so neither
-    /// exercises `step()`'s other exit path: a `max_steps` cutoff (see the
-    /// `done` computation in [`MemoryEnv::step`]) currently folds into the
-    /// same bare `bool` as a real terminal, and `build_snapshot`
-    /// (`grids/core/mod.rs`) has no `Truncated` arm to route it to — so a
-    /// timed-out episode is reported as `Terminated`, not `Truncated`. That
-    /// mislabels the value-function bootstrap target: a truncated episode
-    /// still has future value, a true terminal has none (`docs/rules.md`
-    /// §10, `EpisodeStatus`).
+    /// `Done` terminations, reached well inside the step budget. The cap's
+    /// `Truncated` ending is checked in `tests/grids_solvable.rs`.
     fn drive_to_commit(env: &mut MemoryEnv, correct: bool) -> Snapshot<GridObservation> {
         env.reset().expect("reset");
         drive_to_junction(env);

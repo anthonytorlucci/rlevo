@@ -79,6 +79,15 @@
 //!    would otherwise leave these tests green while proving no more than a
 //!    single `reset()` did.
 //!
+//! ## Ending on the step cap
+//!
+//! Every oracle also hands its route to [`assert_cap_endings`], which checks
+//! both ways an episode can end on its last allowed step. Run under a budget
+//! of exactly its own length, the route still ends `Terminated`: a task
+//! ending wins over the cap. Turning in place under the same budget ends
+//! nothing, so the cap ends the episode `Truncated`. Each environment decides
+//! its own status in its own `step`, so each one is checked.
+//!
 //! ## Terminating on the *first* terminal snapshot
 //!
 //! [`run_script`] stops at the first `is_done()` and asserts on that snapshot,
@@ -92,7 +101,7 @@ mod common;
 
 use std::collections::HashSet;
 
-use rlevo_core::environment::Environment;
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus};
 use rlevo_environments::grids::core::GridAction;
 use rlevo_environments::grids::{
     CrossingConfig, CrossingEnv, CrossingKind, DistShiftConfig, DistShiftEnv, DistShiftVariant,
@@ -192,7 +201,9 @@ macro_rules! assert_solvable {
 /// - if some action terminates the episode with actions still left to run —
 ///   trailing actions past termination are themselves a bug in the script or the
 ///   planner, so they are surfaced rather than tolerated;
-/// - if the script runs to exhaustion without terminating the episode.
+/// - if the script runs to exhaustion without terminating the episode;
+/// - if the episode ended with any status but `Terminated`: a script ends the
+///   task, so the step cap must not be what ended it.
 fn run_script<E>(env: &mut E, script: &[GridAction]) -> f32
 where
     E: Environment<3, 1, ActionType = GridAction>,
@@ -217,6 +228,13 @@ where
              would let a later snapshot mask this outcome",
             script.len()
         );
+        assert_eq!(
+            snap.status,
+            EpisodeStatus::Terminated,
+            "action {i} ({action:?}) of {} ended the episode with reward {reward}; \
+             a script ends the task, so the status must be `Terminated`",
+            script.len()
+        );
         return reward;
     }
     panic!(
@@ -225,8 +243,60 @@ where
     );
 }
 
+/// Assert both ways an episode can end on its step cap.
+///
+/// `make(budget)` returns an env, already reset, on a board `route` solves,
+/// with `budget` as its `max_steps`. Under a budget of exactly `route.len()`
+/// the route's task ending falls on the cap step, and [`run_script`] asserts
+/// it is still `Terminated`. Under the same budget, turning in place never
+/// ends the task: every step before the cap is `Running`, the cap step is
+/// `Truncated` and pays nothing, and one more step is refused with that
+/// status.
+fn assert_cap_endings<E>(route: &[GridAction], mut make: impl FnMut(usize) -> E)
+where
+    E: Environment<3, 1, ActionType = GridAction>,
+{
+    let budget = route.len();
+    let reward = run_script(&mut make(budget), route);
+    assert!(
+        reward > 0.0,
+        "the route ended the task on the cap step (step {budget}) but paid {reward}"
+    );
+
+    let mut env = make(budget);
+    for step in 1..=budget {
+        let snap = env.step(GridAction::TurnLeft).expect("step");
+        let expected = if step < budget {
+            EpisodeStatus::Running
+        } else {
+            EpisodeStatus::Truncated
+        };
+        assert_eq!(
+            snap.status, expected,
+            "turning in place, step {step} of a {budget}-step cap"
+        );
+        assert_eq!(
+            f32::from(snap.reward),
+            0.0,
+            "turning in place, step {step} of a {budget}-step cap paid a reward"
+        );
+    }
+    let after = env.step(GridAction::TurnLeft);
+    assert!(
+        matches!(
+            after,
+            Err(EnvironmentError::StepAfterEpisodeEnd {
+                status: EpisodeStatus::Truncated
+            })
+        ),
+        "a step after a {budget}-step cap returned {:?}",
+        after.map(|snap| snap.status)
+    );
+}
+
 /// Plan a route across the board `$env` is **currently** holding, execute it
-/// through the public `step` API, and assert the episode terminated for reward.
+/// through the public `step` API, assert the episode terminated for reward,
+/// and return the route.
 ///
 /// The env must already be reset by `reset_with_seed($seed)`; `$seed` is carried
 /// only so the failure messages name the episode that broke, which is the one
@@ -255,7 +325,7 @@ macro_rules! assert_planner_solves {
             "{label} seed {seed}: the planned {}-action route paid {reward}, expected > 0.0",
             plan.len()
         );
-        reward
+        plan
     }};
 }
 
@@ -290,6 +360,12 @@ fn empty_is_solvable() {
     ];
     let reward = assert_solvable!(env, script);
     assert!(reward > 0.9);
+    assert_cap_endings(&script, |budget| {
+        let mut env =
+            EmptyEnv::with_config(EmptyConfig::new(5, budget, 0), false).expect("valid config");
+        env.reset().expect("reset");
+        env
+    });
 }
 
 /// Planned oracle: whatever split column, door row, and key/goal placement the
@@ -303,7 +379,13 @@ fn door_key_is_solvable() {
         for seed in 0..PLANNED_SEEDS {
             env.reset_with_seed(seed).expect("reset");
             boards.insert(env.ascii());
-            assert_planner_solves!(env, common::on_goal, seed);
+            let route = assert_planner_solves!(env, common::on_goal, seed);
+            assert_cap_endings(&route, |budget| {
+                let mut twin = DoorKeyEnv::with_config(DoorKeyConfig::new(size, budget, 0), false)
+                    .expect("valid config");
+                twin.reset_with_seed(seed).expect("reset");
+                twin
+            });
         }
         assert_boards_varied(&env.to_string(), &boards);
     }
@@ -321,7 +403,13 @@ fn lava_gap_is_solvable() {
         for seed in 0..PLANNED_SEEDS {
             env.reset_with_seed(seed).expect("reset");
             boards.insert(env.ascii());
-            assert_planner_solves!(env, common::on_goal, seed);
+            let route = assert_planner_solves!(env, common::on_goal, seed);
+            assert_cap_endings(&route, |budget| {
+                let mut twin = LavaGapEnv::with_config(LavaGapConfig::new(size, budget, 0), false)
+                    .expect("valid config");
+                twin.reset_with_seed(seed).expect("reset");
+                twin
+            });
         }
         assert_boards_varied(&env.to_string(), &boards);
     }
@@ -338,6 +426,12 @@ fn unlock_is_solvable() {
         GridAction::Toggle,
     ];
     assert_solvable!(env, script);
+    assert_cap_endings(&script, |budget| {
+        let mut env =
+            UnlockEnv::with_config(UnlockConfig::new(5, budget, 0), false).expect("valid config");
+        env.reset().expect("reset");
+        env
+    });
 }
 
 /// Planned oracle: the target box is retrievable. The success predicate is
@@ -361,7 +455,14 @@ fn unlock_pickup_is_solvable() {
             boards.insert(env.ascii());
             // The target is re-read every episode: it is sampled with the board.
             let target = env.target();
-            assert_planner_solves!(env, common::carrying(target), seed);
+            let route = assert_planner_solves!(env, common::carrying(target), seed);
+            assert_cap_endings(&route, |budget| {
+                let mut twin =
+                    UnlockPickupEnv::with_config(UnlockPickupConfig::new(size, budget, 0), false)
+                        .expect("valid config");
+                twin.reset_with_seed(seed).expect("reset");
+                twin
+            });
         }
         assert_boards_varied(&env.to_string(), &boards);
     }
@@ -378,7 +479,16 @@ fn crossing_lava_is_solvable() {
         for seed in 0..PLANNED_SEEDS {
             env.reset_with_seed(seed).expect("reset");
             boards.insert(env.ascii());
-            assert_planner_solves!(env, common::on_goal, seed);
+            let route = assert_planner_solves!(env, common::on_goal, seed);
+            assert_cap_endings(&route, |budget| {
+                let mut twin = CrossingEnv::with_config(
+                    CrossingConfig::new(size, budget, 0, CrossingKind::Lava),
+                    false,
+                )
+                .expect("valid config");
+                twin.reset_with_seed(seed).expect("reset");
+                twin
+            });
         }
         assert_boards_varied(&env.to_string(), &boards);
     }
@@ -396,7 +506,16 @@ fn crossing_wall_is_solvable() {
         for seed in 0..PLANNED_SEEDS {
             env.reset_with_seed(seed).expect("reset");
             boards.insert(env.ascii());
-            assert_planner_solves!(env, common::on_goal, seed);
+            let route = assert_planner_solves!(env, common::on_goal, seed);
+            assert_cap_endings(&route, |budget| {
+                let mut twin = CrossingEnv::with_config(
+                    CrossingConfig::new(size, budget, 0, CrossingKind::Wall),
+                    false,
+                )
+                .expect("valid config");
+                twin.reset_with_seed(seed).expect("reset");
+                twin
+            });
         }
         assert_boards_varied(&env.to_string(), &boards);
     }
@@ -409,6 +528,12 @@ fn dist_shift_variant_one_is_solvable() {
             .expect("valid config");
     let script = [GridAction::Forward; 6];
     assert_solvable!(env, script);
+    assert_cap_endings(&script, |budget| {
+        let cfg = DistShiftConfig::new(DistShiftVariant::One, budget, 0);
+        let mut env = DistShiftEnv::with_config(cfg, false).expect("valid config");
+        env.reset().expect("reset");
+        env
+    });
 }
 
 #[test]
@@ -418,6 +543,12 @@ fn dist_shift_variant_two_is_solvable() {
             .expect("valid config");
     let script = [GridAction::Forward; 6];
     assert_solvable!(env, script);
+    assert_cap_endings(&script, |budget| {
+        let cfg = DistShiftConfig::new(DistShiftVariant::Two, budget, 0);
+        let mut env = DistShiftEnv::with_config(cfg, false).expect("valid config");
+        env.reset().expect("reset");
+        env
+    });
 }
 
 /// Wall indices in [`GoToDoorEnv::doors`] order.
@@ -487,6 +618,12 @@ fn go_to_door_is_solvable_for_every_seed() {
              but the scripted walk paid {reward}",
             env.mission().target_color
         );
+        assert_cap_endings(go_to_door_script(wall), |budget| {
+            let mut twin = GoToDoorEnv::with_config(GoToDoorConfig::new(6, budget, 0), false)
+                .expect("valid config");
+            twin.reset_with_seed(seed).expect("reset");
+            twin
+        });
     }
 
     // Guard against a degenerate pass: if every seed happened to target the same
@@ -511,7 +648,14 @@ fn four_rooms_is_solvable() {
         for seed in 0..PLANNED_SEEDS {
             env.reset_with_seed(seed).expect("reset");
             boards.insert(env.ascii());
-            assert_planner_solves!(env, common::on_goal, seed);
+            let route = assert_planner_solves!(env, common::on_goal, seed);
+            assert_cap_endings(&route, |budget| {
+                let mut twin =
+                    FourRoomsEnv::with_config(FourRoomsConfig::new(size, budget, 0), false)
+                        .expect("valid config");
+                twin.reset_with_seed(seed).expect("reset");
+                twin
+            });
         }
         assert_boards_varied(&env.to_string(), &boards);
     }
@@ -539,6 +683,15 @@ fn multi_room_is_solvable() {
         GridAction::Forward,
     ];
     assert_solvable!(env, script);
+    assert_cap_endings(&script, |budget| {
+        let cfg = MultiRoomConfig {
+            max_steps: budget,
+            ..MultiRoomConfig::default()
+        };
+        let mut env = MultiRoomEnv::with_config(cfg, false).expect("valid config");
+        env.reset().expect("reset");
+        env
+    });
 }
 
 /// The cue-reading oracle's script for the current episode.
@@ -593,6 +746,15 @@ fn memory_is_solvable_for_every_seed() {
             env.cue(),
             env.match_pos()
         );
+        assert_cap_endings(&script, |budget| {
+            let cfg = MemoryConfig {
+                max_steps: budget,
+                ..MemoryConfig::default()
+            };
+            let mut twin = MemoryEnv::with_config(cfg, false).expect("valid config");
+            twin.reset_with_seed(seed).expect("reset");
+            twin
+        });
     }
 
     // Guard against a degenerate pass: if every episode put the match on the same
@@ -617,4 +779,10 @@ fn dynamic_obstacles_with_zero_obstacles_is_solvable() {
         GridAction::Forward,
     ];
     assert_solvable!(env, script);
+    assert_cap_endings(&script, |budget| {
+        let cfg = DynamicObstaclesConfig::new(5, 0, budget, 0);
+        let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
+        env.reset().expect("reset");
+        env
+    });
 }

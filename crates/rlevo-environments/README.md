@@ -250,7 +250,7 @@ To replay one specific episode bit-for-bit, call the inherent `reset_with_seed(s
 
 - `Running` — episode continues
 - `Terminated` — natural episode end (goal reached, fell over, game over)
-- `Truncated` — wall-clock time limit exceeded (`TimeLimit` wrapper)
+- `Truncated` — a step cap reached before the task ended: an environment's own `max_steps`, or the `TimeLimit` wrapper's
 
 A `step` after `Terminated` or `Truncated` returns `EnvironmentError::StepAfterEpisodeEnd` and changes nothing; call `reset` first. Every environment here, and `TimeLimit`, holds a `rlevo_core::episode::EpisodeGuard` for this.
 

@@ -859,7 +859,7 @@ impl Environment<3, 1> for GoToDoorEnv {
                 (0.0, EpisodeStatus::Terminated)
             }
         } else if self.steps >= self.config.max_steps {
-            (0.0, EpisodeStatus::Terminated)
+            (0.0, EpisodeStatus::Truncated)
         } else {
             (0.0, EpisodeStatus::Running)
         };
@@ -1504,7 +1504,7 @@ mod tests {
     }
 
     #[test]
-    fn test_timeout_terminates_with_zero_reward() {
+    fn test_timeout_truncates_with_zero_reward() {
         let max_steps = 12;
         let mut env = GoToDoorEnv::with_config(GoToDoorConfig::new(6, max_steps, 6), false)
             .expect("valid config");
@@ -1514,9 +1514,10 @@ mod tests {
             last = Some(env.step(GridAction::TurnLeft).expect("step must succeed"));
         }
         let snap = last.expect("max_steps > 0");
-        assert!(
-            snap.status.is_done(),
-            "the episode must end at the step budget"
+        assert_eq!(
+            snap.status,
+            EpisodeStatus::Truncated,
+            "the step budget must truncate the episode, not terminate it"
         );
         let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0, "a timeout must pay nothing");
@@ -1539,14 +1540,8 @@ mod tests {
     /// walk to that door and issue `Done` — returning the terminal snapshot.
     ///
     /// Drives to termination through real `step()` calls only: no hand-written
-    /// snapshot, no poking at `env.state`. Mission completion is deliberately
-    /// preferred over exhausting `max_steps`, because a step-limit ending is
-    /// currently mislabelled `Terminated` rather than `Truncated` — `step`
-    /// ORs the step-limit cutoff into the same `done: bool` as the genuine
-    /// mission-complete condition before building the snapshot, so a timeout
-    /// is reported identically to a win (out of scope here) — the
-    /// conformance check must not be written against a status the env is
-    /// known to be reporting wrongly.
+    /// snapshot, no poking at `env.state`. The step cap's `Truncated` ending
+    /// has its own test, `test_timeout_truncates_with_zero_reward`.
     fn drive_to_mission_done(env: &mut GoToDoorEnv) -> Snapshot<GoToDoorObservation> {
         let snap = env.reset().expect("reset must succeed");
         let wall = target_wall(env, &snap.observation);

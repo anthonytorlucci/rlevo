@@ -548,7 +548,7 @@ impl Environment<3, 1> for MultiRoomEnv {
                 EpisodeStatus::Terminated,
             ),
             StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
-            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
             _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
@@ -609,15 +609,8 @@ mod tests {
     /// Drives `env` to termination **by reaching the goal**, through real
     /// `step()` calls only, and returns the terminal snapshot.
     ///
-    /// Deliberately not the step-limit ending: `step` folds a `max_steps`
-    /// cutoff into the same `done` bool as a genuine terminal
-    /// (`ReachedGoal`/`HitLava`) before handing it to `build_snapshot`, which
-    /// maps every `done` to `Terminated` — there is no `Truncated` status to
-    /// tell a timeout apart from a real terminal, even though the distinction
-    /// matters for value-function bootstrapping (a truncated episode still has
-    /// future value; a terminated one does not). A timeout-driven test here
-    /// would bake that collapsed signal into an assertion instead of exercising
-    /// the intended termination path.
+    /// Deliberately not the step-limit ending, whose `Truncated` ending has
+    /// its own test, `timeout_truncates_with_zero_reward`.
     fn drive_to_goal(env: &mut MultiRoomEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         let mut last = None;
@@ -808,14 +801,14 @@ mod tests {
     }
 
     #[test]
-    fn timeout_terminates_with_zero_reward() {
+    fn timeout_truncates_with_zero_reward() {
         let cfg = MultiRoomConfig::new(3, 5, 5, 3, 0);
         let mut env = MultiRoomEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
         let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }

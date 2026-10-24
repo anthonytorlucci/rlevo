@@ -674,7 +674,7 @@ impl Environment<3, 1> for FourRoomsEnv {
                 EpisodeStatus::Terminated,
             ),
             StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
-            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
             _ => (0.0, EpisodeStatus::Running),
         };
         // Single exit: exactly one snapshot is built, and the guard is fed that
@@ -1350,7 +1350,7 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
         let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
@@ -1379,13 +1379,8 @@ mod tests {
     /// Drives `env` to a **goal** termination through real `step()` calls.
     ///
     /// Ends the episode by reaching the goal rather than by exhausting
-    /// `max_steps`: `build_snapshot` (`grids/core/mod.rs`) takes a bare
-    /// `done: bool`, and every grid env ORs its genuine terminal condition
-    /// with the step-limit cutoff into that same collapsed bool before
-    /// calling it, so hitting `max_steps` is currently reported as
-    /// `Terminated` rather than `Truncated`. A guard test must not assert on
-    /// that status, since the status itself is the defect a future fix is
-    /// expected to change. The route is derived from the board the env
+    /// `max_steps`, whose `Truncated` ending has its own test,
+    /// `timeout_ends_with_zero_reward`. The route is derived from the board the env
     /// actually drew, so this does not encode one seed's geometry.
     fn drive_to_goal(env: &mut FourRoomsEnv) -> Snapshot<GridObservation> {
         env.reset_with_seed(3).expect("reset must succeed");

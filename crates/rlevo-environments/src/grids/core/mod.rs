@@ -200,7 +200,10 @@ pub(super) fn mask_view(
 /// that adds the mission channel (ADR 0043).
 ///
 /// Every grid env routes its `reset()` and `step()` through here, and decides
-/// the status itself.
+/// the status itself: `Terminated` when the task ended, solved or failed, even
+/// on the cap step; `Truncated` when the step cap alone ended the episode; and
+/// `Running` otherwise. A truncated step keeps its future value, which an agent
+/// bootstrapping its value target reads from the status.
 #[must_use]
 pub fn build_snapshot<O>(observation: O, reward: f32, status: EpisodeStatus) -> Snapshot<O> {
     Snapshot {

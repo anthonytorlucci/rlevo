@@ -644,7 +644,7 @@ impl Environment<3, 1> for DoorKeyEnv {
                 EpisodeStatus::Terminated,
             ),
             StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
-            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
             _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
@@ -1189,13 +1189,13 @@ mod tests {
     }
 
     #[test]
-    fn timeout_terminates_without_reward() {
+    fn timeout_truncates_without_reward() {
         let cfg = DoorKeyConfig::new(5, 2, 0);
         let mut env = DoorKeyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
         let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
@@ -1489,16 +1489,9 @@ mod tests {
     /// Solves the seed-3 board through **real `step()` calls** and returns the
     /// terminal snapshot.
     ///
-    /// Termination is by *reaching the goal*, not by exhausting `max_steps`:
-    /// [`step`](Environment::step) collapses the step-limit cutoff into the
-    /// same `done: bool` as a genuine terminal outcome before it ever reaches
-    /// `grids/core/mod.rs`'s `build_snapshot`, and `build_snapshot` maps that
-    /// bare bool straight to `Terminated`/running — it has no `Truncated` arm.
-    /// So today a step-limit ending is reported as `Terminated` (no future
-    /// value) rather than `Truncated` (future value cut off by the time
-    /// limit), which would bias value-function bootstrapping downstream; it
-    /// would also pin the wrong status through this guard, since the guard
-    /// only checks *that* the episode ended, not *why*.
+    /// Termination is by *reaching the goal*, not by exhausting `max_steps`,
+    /// whose `Truncated` ending has its own test,
+    /// `timeout_truncates_without_reward`.
     ///
     /// The board (see the module docs) is agent `(1, 1)` facing North, key
     /// `(1, 2)`, locked door `(2, 1)`, goal `(3, 3)`.

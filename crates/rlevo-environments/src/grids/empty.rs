@@ -2,8 +2,8 @@
 //!
 //! Ports Farama Minigrid's [`EmptyEnv`]. The grid is an `$N \times N$` room with a wall perimeter,
 //! a single [`Goal`] tile at `(size - 2, size - 2)`, and the agent starting at `(1, 1)` facing
-//! East. Stepping onto the goal terminates the episode and pays [`success_reward`]; exceeding
-//! `max_steps` terminates with reward `0.0`.
+//! East. Stepping onto the goal terminates the episode and pays [`success_reward`]; reaching
+//! `max_steps` first truncates it with reward `0.0`.
 //!
 //! This is the simplest grid environment — no obstacles, no items, no doors.
 //! It serves as a baseline for testing navigation policies and as a reference
@@ -421,7 +421,7 @@ impl Environment<3, 1> for EmptyEnv {
                 EpisodeStatus::Terminated,
             ),
             StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
-            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
             _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
@@ -605,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn timeout_terminates_with_zero_reward() {
+    fn timeout_truncates_with_zero_reward() {
         let cfg = EmptyConfig::new(5, 3, 0);
         let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
@@ -613,7 +613,7 @@ mod tests {
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
-        assert!(snap.status.is_done());
+        assert_eq!(snap.status, EpisodeStatus::Truncated);
         let reward: f32 = (snap.reward).into();
         assert_eq!(reward, 0.0);
     }
@@ -650,15 +650,8 @@ mod tests {
 
     /// Drives a fresh `$5 \times 5$` episode to the goal with real `step()` calls.
     ///
-    /// The termination is a **goal arrival**, deliberately not a step-limit
-    /// cutoff: `step()` OR-s the genuine terminal condition (goal reached)
-    /// with the `steps >= max_steps` cutoff into one collapsed `done: bool`,
-    /// and `grids::core::build_snapshot` maps that bool straight to
-    /// `Terminated`/`running` with no `Truncated` arm — so a timeout reaches
-    /// the same terminal status as a real win, biasing the value target for
-    /// any bootstrapping agent. A timeout-driven test here would bake that
-    /// wrong status into the assertion instead of exercising the intended
-    /// termination path.
+    /// The termination is a **goal arrival**. The step cap's `Truncated`
+    /// ending is checked in `tests/grids_solvable.rs`.
     fn drive_to_goal(env: &mut EmptyEnv) -> Snapshot<GridObservation> {
         env.reset().expect("reset must succeed");
         // Agent at (1,1) facing East, goal at (3,3).

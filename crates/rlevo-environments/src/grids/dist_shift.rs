@@ -455,7 +455,7 @@ impl Environment<3, 1> for DistShiftEnv {
                 EpisodeStatus::Terminated,
             ),
             StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
-            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Truncated),
             _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
@@ -624,17 +624,8 @@ mod tests {
     // ── post-terminal step guard (ADR 0044) ───────────────────────────────────
     //
     // Both drivers end the episode on a *task* outcome — the goal or the lava —
-    // never on the step limit. `step` above ORs the step-limit cutoff
-    // (`self.steps >= self.config.max_steps`) into the same `done` bool as a
-    // genuine terminal (`ReachedGoal` / `HitLava`), and
-    // `grids/core::build_snapshot` maps every `done == true` to `Terminated` —
-    // there is no `Truncated` arm. A step-limit cutoff on this env therefore
-    // currently reads as "no future value" instead of "future value cut off by
-    // a time limit" (`docs/rules.md` §10), which would bias value-function
-    // bootstrapping if a caller trusted it. Fixing that is out of scope here;
-    // driving these tests to the step budget instead of a real terminal would
-    // just bake the mislabeling into the assertions, so both drivers below
-    // reach the terminal through actual goal/lava outcomes.
+    // never on the step limit, whose `Truncated` ending is checked in
+    // `tests/grids_solvable.rs`.
     //
     // The guard is a real correctness fix, not step-count hygiene: in
     // `dynamic_obstacles.rs`, stepping past a terminal collision without
