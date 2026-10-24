@@ -91,11 +91,12 @@
 //! ## Terminating on the *first* terminal snapshot
 //!
 //! [`run_script`] stops at the first `is_done()` and asserts on that snapshot,
-//! and treats trailing actions past termination as a failure. This is
-//! load-bearing rather than tidiness: no env in this family rejects a
-//! post-terminal `step` (ADR 0044), so a helper that ran the whole list and read
-//! only the *last* snapshot would accept an episode the agent died in. See the
-//! note on [`run_script`] for the measured case.
+//! and treats trailing actions past termination as a failure. A helper that
+//! ran the whole list and read only the *last* snapshot once accepted an
+//! episode the agent died in; see the note on [`run_script`] for the measured
+//! case. Every env in this family now refuses a step after the end (ADR 0044),
+//! so such a script fails either way; the check makes the failure name the
+//! action that ended the episode and what it paid.
 
 mod common;
 
@@ -186,14 +187,15 @@ macro_rules! assert_solvable {
 /// # Stopping at the first terminal snapshot
 ///
 /// This function stops at the first `is_done()` and reports *that* snapshot's
-/// reward. The earlier version ran the whole list and read only the last
-/// snapshot, which was vacuous: no grid env in this family rejects a
-/// post-terminal `step` (ADR 0044 records ~44 non-conformant envs), so an
-/// episode could end *badly* mid-script, keep stepping on a corpse, and then
-/// report a healthy final snapshot. That was observed, not hypothesised — a
-/// `DistShift` script that walked into lava at action 5 (`done`, reward `0.0`)
-/// and strolled to the goal afterwards passed the old helper with reward
-/// `0.874`.
+/// reward. An earlier version ran the whole list and read only the last
+/// snapshot, which was vacuous while the grid envs still accepted a step after
+/// the end: an episode could end *badly* mid-script, keep stepping on a corpse,
+/// and then report a healthy final snapshot. That was observed, not
+/// hypothesised — a `DistShift` script that walked into lava at action 5
+/// (`done`, reward `0.0`) and strolled to the goal afterwards passed the old
+/// helper with reward `0.874`. Every grid env now refuses that step with
+/// `StepAfterEpisodeEnd` (ADR 0044); the trailing-actions check below reports
+/// the action that ended the episode rather than the refused step after it.
 ///
 /// # Panics
 ///
@@ -223,9 +225,8 @@ where
             trailing,
             0,
             "action {i} ({action:?}) ended the episode with reward {reward}, \
-             but {trailing} of the script's {} actions come after it; \
-             a grid env does not reject a post-terminal `step`, so running them \
-             would let a later snapshot mask this outcome",
+             but {trailing} of the script's {} actions come after it, \
+             and a grid env refuses a step after the end",
             script.len()
         );
         assert_eq!(
