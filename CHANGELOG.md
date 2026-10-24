@@ -770,6 +770,9 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
   `byoe-1-thermostat` probe did, with each line tried as an outside author
   would write it. The example now reads `run_suite(&suite, |_seed| MyAgent,
   &mut reporter)`.
+- **A link in `TuiEnvTap`'s docs broke with `tui` on and `record` off.** It
+  pointed at `RecordingTap`, which exists only under `record`, so
+  documenting the harness with `tui` alone failed. It is now plain text.
 
 ### Infrastructure
 
@@ -818,6 +821,12 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Added**
 
+- **CI documents each crate at partial feature sets.** The `docs` job
+  documented the workspace at its default features and at all features,
+  and neither run documents a crate with one feature on and another off.
+  It now also documents each publishable crate that has features alone,
+  at no features and at each feature by itself: 21 runs, read from the
+  manifests. The first run found the `TuiEnvTap` link above.
 - **An optimiser author's walk, `byoa-1b`.** A `(1+1)` hill-climber and a
   control whose `ask` returns its starting point, both written against the
   `Strategy` seam from outside the workspace, run on the shipped `Sphere`
