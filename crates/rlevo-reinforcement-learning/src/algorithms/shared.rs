@@ -11,7 +11,8 @@
 //! (ADR 0065); [`FiniteObsGuard`], its observation-side counterpart, which
 //! drops and counts at `remember` and detects and reports at `act` (ADR 0067);
 //! and the three pieces every default network is built from
-//! ([`hidden_layers`], [`run_hidden`], [`flatten_batch`]).
+//! ([`hidden_layers`], [`run_hidden`], [`flatten_batch`]). [`rl_counter`]
+//! names each counter an agent reports through `Agent::emit_metrics`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -22,6 +23,7 @@ use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::action::BoundedAction;
 use rlevo_core::config::{self, ConfigError};
+use rlevo_core::fitness::Metric;
 
 use crate::replay::{ImportanceExponent, SampledBatch};
 
@@ -153,6 +155,21 @@ pub struct Slot<M>(Option<M>);
 /// [`ImportanceExponent`]: crate::replay::ImportanceExponent
 /// [`ImportanceExponent::ONE`]: crate::replay::ImportanceExponent::ONE
 pub(crate) const UNIFORM_REPLAY_BETA: ImportanceExponent = ImportanceExponent::ONE;
+
+/// One counter an agent reports through
+/// [`Agent::emit_metrics`](rlevo_core::agent::Agent::emit_metrics), named
+/// `rl/` and `name`.
+///
+/// `rl/` is the reinforcement-learning agents' namespace, as `ea/` is the
+/// evolutionary loops': one prefix for all eight agents, so a counter that
+/// means the same thing in two agents has the same name in both reports. It
+/// is not `agent/`, which the harness keeps for the names it re-homes.
+pub(crate) fn rl_counter(name: &str, count: u64) -> Metric {
+    Metric::Counter {
+        name: format!("rl/{name}"),
+        count,
+    }
+}
 
 /// Asserts that `A`'s action bounds satisfy the whole [`BoundedAction`]
 /// contract: `low().len() == high().len() == COMPONENTS`, and

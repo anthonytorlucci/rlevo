@@ -29,8 +29,9 @@ use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::agent::{Agent, Transition};
+use rlevo_core::fitness::Metric;
 
-use crate::algorithms::shared::{FiniteLossGuard, Slot};
+use crate::algorithms::shared::{FiniteLossGuard, Slot, rl_counter};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
@@ -453,6 +454,15 @@ where
             .saturating_add(self.value_loss_guard.skipped())
             .saturating_add(self.aux_main_value_guard.skipped())
             .saturating_add(self.aux_total_guard.skipped())
+    }
+
+    /// What every head's [`Agent::emit_metrics`] reports.
+    fn rl_counters(&self) -> Vec<Metric> {
+        vec![
+            rl_counter("env_steps", self.step() as u64),
+            rl_counter("iterations", self.iteration() as u64),
+            rl_counter("skipped_updates", self.skipped_updates()),
+        ]
     }
 
     /// The active configuration.
@@ -1130,6 +1140,12 @@ where
 /// from its own next observation, so the advantages never run across the
 /// driver's reset into the next episode.
 ///
+/// [`emit_metrics`](Agent::emit_metrics) reports three [`Metric::Counter`]s,
+/// each a total since the agent was built, under `rl/`: `rl/env_steps`
+/// ([`step`](PpgAgent::step)), `rl/iterations`
+/// ([`iteration`](PpgAgent::iteration)) and `rl/skipped_updates`
+/// ([`skipped_updates`](PpgAgent::skipped_updates)).
+///
 /// # Panics
 ///
 /// `on_transition` panics, while training, when no [`act`](Agent::act)
@@ -1185,6 +1201,10 @@ where
     fn set_training(&mut self, training: bool) {
         self.close_open_step();
         self.training = training;
+    }
+
+    fn emit_metrics(&self) -> Vec<Metric> {
+        self.rl_counters()
     }
 }
 
@@ -2025,6 +2045,41 @@ mod tests {
         assert!(
             agent.buffer.last_step_ended(),
             "leaving training after a Running step must end the step"
+        );
+    }
+
+    /// [`Agent::emit_metrics`] reports every counter under its own name,
+    /// with the count its accessor returns. Nine steps of a four-step
+    /// rollout make two iterations, so no two counts are equal.
+    #[test]
+    fn test_ppg_emit_metrics_reports_each_counter_under_its_name() {
+        use crate::algorithms::bootstrap_mask::{MaskDiscreteAction as Act, assert_rl_counters};
+
+        // A four-step rollout with nothing collected yet; `shaped_ppg_agent`
+        // arrives with its rollout full.
+        let mut agent = annealing_ppg_agent(10);
+        let mut rng = StdRng::seed_from_u64(0);
+        let (obs, next) = (TestObs([0.1, -0.2]), TestObs([0.3, 0.4]));
+        for _ in 0..9 {
+            let action: Act = agent.act(&obs, &mut rng);
+            agent.on_transition(
+                Transition {
+                    obs: &obs,
+                    action: &action,
+                    reward: 1.0,
+                    next_obs: &next,
+                    status: EpisodeStatus::Running,
+                },
+                &mut rng,
+            );
+        }
+        assert_rl_counters(
+            &Agent::<TestObs, Act>::emit_metrics(&agent),
+            &[
+                ("env_steps", agent.step() as u64),
+                ("iterations", agent.iteration() as u64),
+                ("skipped_updates", agent.skipped_updates()),
+            ],
         );
     }
 }
