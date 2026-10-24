@@ -14,6 +14,7 @@
 //!
 //! Drive the full loop with [`super::train::train`].
 
+use rlevo_core::agent::{Agent, Transition};
 use std::marker::PhantomData;
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
@@ -286,6 +287,10 @@ pub struct SacAgent<
     /// cannot, and pays a per-call `Vec` instead — see [`act`](Self::act).
     obs_scratch: Vec<f32>,
     _action: PhantomData<A>,
+    /// Whether the [`Agent`] impl explores and learns (`true`, the state a
+    /// new agent starts in) or acts greedily and learns nothing; see
+    /// [`Agent::set_training`].
+    training: bool,
 }
 
 impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
@@ -390,6 +395,7 @@ where
             capacity: config.replay_buffer_capacity,
         })?;
         Ok(Self {
+            training: true,
             actor: Slot::new(actor),
             actor_snapshot,
             critic_1: Slot::new(critic_1),
@@ -1219,6 +1225,46 @@ fn sample_noise<const BAR: usize>(
         data.push(x as f32);
     }
     Tensor::<BAR>::from_data(TensorData::new(data, vec![rows, cols]), device)
+}
+
+/// Driven through [`Agent`], the agent acts with exploration and learns
+/// while training, and acts on the mean of its policy otherwise.
+///
+/// Each step [`on_transition`](Agent::on_transition) stores the transition,
+/// advances the step counter and takes a learning step, which does nothing
+/// until the buffer holds `learning_starts` transitions. While evaluating it
+/// does nothing.
+impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    Agent<O, A> for SacAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+where
+    Actor: SquashedGaussianPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: BoundedAction<AR>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        Self::act(self, obs, self.training, rng)
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        self.remember(
+            t.obs.clone(),
+            t.action,
+            t.reward,
+            t.next_obs.clone(),
+            t.status,
+        );
+        self.on_env_step();
+        self.learn_step(rng)
+            .expect("a target network cloned from its online network shares its parameter ids");
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.training = training;
+    }
 }
 
 #[cfg(test)]

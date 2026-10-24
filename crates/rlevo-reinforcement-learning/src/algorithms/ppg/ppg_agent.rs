@@ -25,6 +25,8 @@
 use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
+use rlevo_core::action::DiscreteAction;
+use rlevo_core::agent::{Agent, Transition};
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot};
 use crate::metrics::{AgentStats, PerformanceRecord};
@@ -263,6 +265,13 @@ where
     /// (`$\text{aux\_v\_loss} + \beta \cdot KL$`); its input is host-*derived* from the two summands
     /// already read, adding no sync (ADR 0056, Decision 5).
     aux_total_guard: FiniteLossGuard,
+    /// Whether the [`Agent`] impl explores and learns (`true`, the state a
+    /// new agent starts in) or acts greedily and learns nothing; see
+    /// [`Agent::set_training`].
+    training: bool,
+    /// The sample [`Agent::act`] drew while training, which
+    /// [`Agent::on_transition`] then records with the step it produced.
+    pending: Option<ActOutcome>,
 }
 
 impl<P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug for PpgAgent<P, V, O, OR, BOR>
@@ -382,6 +391,9 @@ where
         let policy_phase_lr = config.ppo.learning_rate;
 
         Ok(Self {
+            training: true,
+
+            pending: None,
             policy: Slot::new(policy),
             value: Slot::new(value),
             policy_optim,
@@ -666,6 +678,33 @@ where
             entropy,
             value,
         }
+    }
+
+    /// Logs one policy phase, and the auxiliary phase when it ran, at `info`
+    /// under the metric registry's names. The two `log_std` extrema read
+    /// `None` for every PPG run, PPG being discrete-only, and are logged so a
+    /// Gaussian head is observable the day one lands (ADR 0049).
+    fn log_update(&self, stats: &PpoUpdateStats, aux: Option<AuxPhaseStats>) {
+        tracing::info!(
+            step = self.step,
+            env_steps_sampled = self.step,
+            iteration = self.iteration,
+            policy_loss = stats.policy_loss,
+            value_loss = stats.value_loss,
+            entropy = stats.entropy,
+            approx_kl = stats.approx_kl,
+            clip_frac = stats.clip_frac,
+            min_log_std = ?stats.min_log_std,
+            max_log_std = ?stats.max_log_std,
+            // Cumulative over all four PPG loss sites (ADR 0072), two of which
+            // are in the auxiliary phase.
+            skipped_updates = self.skipped_updates(),
+            learning_rate = self.current_learning_rate(),
+            aux_ran = aux.is_some(),
+            aux_value_loss = aux.map_or(0.0, |a| a.aux_value_loss),
+            aux_policy_kl = aux.map_or(0.0, |a| a.policy_kl),
+            "ppg training progress"
+        );
     }
 
     /// Greedy (deterministic) action for one observation — the categorical mode.
@@ -1200,6 +1239,60 @@ where
     }
 }
 
+/// Driven through [`Agent`], the agent samples from its policy while
+/// training and acts on the most probable action otherwise.
+///
+/// Each training step [`on_transition`](Agent::on_transition) records the
+/// step with the sample [`act`](Agent::act) drew. When the rollout holds
+/// `num_steps` steps it finishes the rollout on the step's `next_obs`, keeps
+/// it for the auxiliary phase, runs the policy phase, and runs the auxiliary
+/// phase when its cadence is due. A rollout the driver leaves unfinished is
+/// not used. While evaluating it does nothing.
+///
+/// # Panics
+///
+/// `on_transition` panics, while training, when no [`act`](Agent::act)
+/// preceded it: there is no sample to record.
+impl<V, O, A, const OR: usize> Agent<O, A> for PpgAgent<crate::algorithms::ppg::policies::PpgCategoricalPolicyHead, V, O, OR, 2>
+where
+    V: PpoValue<2>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: DiscreteAction<1>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        if self.training {
+            let sample = Self::act(self, obs, rng);
+            let action = crate::algorithms::ppo::policies::categorical::discrete_action_from_row::<1, A>(&sample.env_row);
+            self.pending = Some(sample);
+            action
+        } else {
+            crate::algorithms::ppo::policies::categorical::discrete_action_from_row::<1, A>(&self.act_greedy(obs))
+        }
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        let sample = self
+            .pending
+            .take()
+            .expect("a training step's act precedes its on_transition");
+        self.record_step(t.obs.clone(), &sample, t.reward, t.next_obs, t.status);
+        if self.buffer.len() == self.config.ppo.num_steps {
+            self.finalize_rollout(t.next_obs);
+            self.snapshot_into_aux_buffer();
+            let stats = self.policy_phase_update(rng);
+            let aux = self.maybe_aux_phase(rng);
+            self.log_update(&stats, aux);
+        }
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.training = training;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1437,7 +1530,7 @@ mod tests {
             let x = i as f32 * 0.1;
             let obs = TestObs([x, 1.0 - x]);
             let next = TestObs([x + 0.1, 0.9 - x]);
-            let outcome = agent.act(&obs, rng);
+            let outcome = TestAgent::act(agent, &obs, rng);
             agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
             last = next;
         }

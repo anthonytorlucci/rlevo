@@ -12,6 +12,8 @@
 use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
+use rlevo_core::action::{ContinuousAction, DiscreteAction};
+use rlevo_core::agent::{Agent, Transition};
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot};
 use crate::metrics::{AgentStats, PerformanceRecord};
@@ -19,6 +21,7 @@ use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
+use crate::algorithms::ppo::policies;
 use crate::algorithms::ppo::losses::{
     approx_kl, clip_fraction, clipped_surrogate, clipped_value_loss, explained_variance,
     normalize_advantages, old_approx_kl, unclipped_value_loss,
@@ -308,6 +311,13 @@ where
     /// and escalating independently of [`Self::policy_loss_guard`]. See
     /// [`Self::skipped_value_updates`].
     value_loss_guard: FiniteLossGuard,
+    /// Whether the [`Agent`] impl explores and learns (`true`, the state a
+    /// new agent starts in) or acts greedily and learns nothing; see
+    /// [`Agent::set_training`].
+    training: bool,
+    /// The sample [`Agent::act`] drew while training, which
+    /// [`Agent::on_transition`] then records with the step it produced.
+    pending: Option<ActOutcome>,
 }
 
 impl<P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug for PpoAgent<P, V, O, OR, BOR>
@@ -417,6 +427,9 @@ where
         let stats = AgentStats::<PpoMetrics>::new(100);
 
         Ok(Self {
+            training: true,
+
+            pending: None,
             policy: Slot::new(policy),
             value: Slot::new(value),
             policy_optim,
@@ -615,6 +628,39 @@ where
             entropy,
             value,
         }
+    }
+
+    /// The policy's deterministic env row for `obs`: the action an evaluation
+    /// takes. Runs on the training device, so it needs no inference snapshot.
+    fn greedy_env_row(&self, obs: &O) -> Vec<f32> {
+        let batched: Tensor<BOR> = obs.to_tensor(&self.device).unsqueeze::<BOR>();
+        self.policy().deterministic_env_row(batched)
+    }
+
+    /// Logs one update at `info`, its statistics under the metric registry's
+    /// names. The two `log_std` extrema are `Option`s, logged with `?`: a
+    /// categorical policy has no `$\sigma$`, and `None` says so where a
+    /// `0.0` would claim `$\sigma = 1$` (ADR 0049).
+    fn log_update(&self, stats: &PpoUpdateStats) {
+        tracing::info!(
+            step = self.step,
+            env_steps_sampled = self.step,
+            iteration = self.iteration,
+            policy_loss = stats.policy_loss,
+            value_loss = stats.value_loss,
+            entropy = stats.entropy,
+            approx_kl = stats.approx_kl,
+            old_approx_kl = stats.old_approx_kl,
+            clip_frac = stats.clip_frac,
+            explained_variance = stats.explained_variance,
+            min_log_std = ?stats.min_log_std,
+            max_log_std = ?stats.max_log_std,
+            // Cumulative over both loss sites and counted per minibatch (ADR
+            // 0072); see `skipped_updates`.
+            skipped_updates = self.skipped_updates(),
+            learning_rate = self.current_learning_rate(),
+            "ppo training progress"
+        );
     }
 
     /// Pushes one step into the rollout buffer. Callers typically pair this
@@ -913,6 +959,110 @@ where
     }
 }
 
+/// Driven through [`Agent`], the agent samples from its policy while
+/// training and acts on the policy's mean otherwise, decoding the head's row
+/// into the environment's action.
+///
+/// Each training step [`on_transition`](Agent::on_transition) records the
+/// step with the sample [`act`](Agent::act) drew. When the rollout holds
+/// `num_steps` steps it finishes the rollout on the step's `next_obs` and
+/// updates the policy and value networks. A rollout the driver leaves
+/// unfinished is not used. While evaluating it does nothing.
+///
+/// # Panics
+///
+/// `on_transition` panics, while training, when no [`act`](Agent::act)
+/// preceded it: there is no sample to record.
+impl<V, O, A, const OR: usize> Agent<O, A> for PpoAgent<policies::CategoricalPolicyHead, V, O, OR, 2>
+where
+    V: PpoValue<2>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: DiscreteAction<1>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        if self.training {
+            let sample = Self::act(self, obs, rng);
+            let action = policies::categorical::discrete_action_from_row::<1, A>(&sample.env_row);
+            self.pending = Some(sample);
+            action
+        } else {
+            policies::categorical::discrete_action_from_row::<1, A>(&self.greedy_env_row(obs))
+        }
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        let sample = self
+            .pending
+            .take()
+            .expect("a training step's act precedes its on_transition");
+        self.record_step(t.obs.clone(), &sample, t.reward, t.next_obs, t.status);
+        if self.buffer.len() == self.config.num_steps {
+            self.finalize_rollout(t.next_obs);
+            let stats = self.update(rng);
+            self.log_update(&stats);
+        }
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.training = training;
+    }
+}
+
+/// Driven through [`Agent`], the agent samples from its policy while
+/// training and acts on the policy's mean otherwise, decoding the head's row
+/// into the environment's action.
+///
+/// Each training step [`on_transition`](Agent::on_transition) records the
+/// step with the sample [`act`](Agent::act) drew. When the rollout holds
+/// `num_steps` steps it finishes the rollout on the step's `next_obs` and
+/// updates the policy and value networks. A rollout the driver leaves
+/// unfinished is not used. While evaluating it does nothing.
+///
+/// # Panics
+///
+/// `on_transition` panics, while training, when no [`act`](Agent::act)
+/// preceded it: there is no sample to record.
+impl<V, O, A, const OR: usize> Agent<O, A> for PpoAgent<policies::TanhGaussianPolicyHead, V, O, OR, 2>
+where
+    V: PpoValue<2>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: ContinuousAction<1>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        if self.training {
+            let sample = Self::act(self, obs, rng);
+            let action = policies::gaussian::continuous_action_from_row::<1, A>(&sample.env_row);
+            self.pending = Some(sample);
+            action
+        } else {
+            policies::gaussian::continuous_action_from_row::<1, A>(&self.greedy_env_row(obs))
+        }
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        let sample = self
+            .pending
+            .take()
+            .expect("a training step's act precedes its on_transition");
+        self.record_step(t.obs.clone(), &sample, t.reward, t.next_obs, t.status);
+        if self.buffer.len() == self.config.num_steps {
+            self.finalize_rollout(t.next_obs);
+            let stats = self.update(rng);
+            self.log_update(&stats);
+        }
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.training = training;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1067,7 +1217,7 @@ mod tests {
             let x = i as f32 * 0.1;
             let obs = TestObs([x, 1.0 - x]);
             let next = TestObs([x + 0.1, 0.9 - x]);
-            let outcome = agent.act(&obs, rng);
+            let outcome = TestAgent::act(agent, &obs, rng);
             agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
             last = next;
         }

@@ -7,6 +7,7 @@
 //! one-step Bellman backup on the bootstrap action's quantile vector — no categorical projection —
 //! and minimises the quantile Huber loss (see [`crate::algorithms::qrdqn::quantile_loss`]).
 
+use rlevo_core::agent::{Agent, Transition};
 use std::marker::PhantomData;
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
@@ -202,6 +203,10 @@ where
     /// it; see the comment in [`act_greedy`](Self::act_greedy).
     obs_scratch: Vec<f32>,
     _action: PhantomData<A>,
+    /// Whether the [`Agent`] impl explores and learns (`true`, the state a
+    /// new agent starts in) or acts greedily and learns nothing; see
+    /// [`Agent::set_training`].
+    training: bool,
 }
 
 impl<M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug for QrDqnAgent<M, O, A, OR, BOR>
@@ -267,6 +272,7 @@ where
             Some(per) => ReplayKind::prioritized(per.buffer_config(config.replay_buffer_capacity))?,
         };
         Ok(Self {
+            training: true,
             policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
@@ -959,6 +965,51 @@ where
             q_mean,
             quantile_spread: spread_value,
         }))
+    }
+}
+
+/// Driven through [`Agent`], the agent explores `$\epsilon$`-greedily and
+/// learns while training, and acts greedily otherwise.
+///
+/// Each step [`on_transition`](Agent::on_transition) stores the transition,
+/// advances the step counter, takes a learning step when
+/// [`should_train`](Self::should_train) says so, and decays `$\epsilon$`. While
+/// evaluating it does nothing.
+impl<M, O, A, const OR: usize, const BOR: usize> Agent<O, A> for QrDqnAgent<M, O, A, OR, BOR>
+where
+    M: DqnModel<BOR, 3>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: DiscreteAction<1>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        if self.training {
+            Self::act(self, obs, rng)
+        } else {
+            self.act_greedy(obs)
+        }
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        self.remember(
+            t.obs.clone(),
+            t.action,
+            t.reward,
+            t.next_obs.clone(),
+            t.status,
+        );
+        self.on_env_step();
+        if self.should_train() {
+            self.learn_step(rng)
+                .expect("a target network cloned from its policy shares its parameter ids");
+        }
+        self.decay_exploration();
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.training = training;
     }
 }
 
