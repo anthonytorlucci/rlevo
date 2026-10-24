@@ -200,10 +200,12 @@ fn main() {
 }
 ```
 
-> **Why `Flex`?** `Flex` is the Burn backend `rlevo`'s own examples, tests, and
-> benches run on, so this page uses it too. Any `Backend` works —
-> `init`/`ask`/`tell` are generic over `B` — but matching the codebase means the
-> snippets above line up with the examples in the repository.
+> **Why `Device::flex()`?** Flex is the CPU backend `rlevo`'s own examples,
+> tests and benches run on, and the one `rlevo`'s default `flex` feature turns
+> on, so this page uses it too. No type here names a backend: `init`, `ask` and
+> `tell` take the `Device` they are given and build the population on it. With
+> the `wgpu` feature on, pass `Device::wgpu(Default::default())` instead, and
+> nothing else in the loop changes.
 
 A few things worth pointing out:
 
@@ -252,19 +254,19 @@ This means:
 > artifact of a specific random draw.
 
 The host-RNG convention (all randomness through `seed_stream`, never via
-`Backend::seed` or `Tensor::random`) is enforced by convention throughout
+`Device::seed` or `Tensor::random`) is enforced by convention throughout
 `rlevo::evo`. `docs/rules.md` gives the reason, under "Host-RNG seeding
 convention".
 
 > **Determinism when trials run in parallel.** Because every draw comes from the
 > host `seed_stream` and none from Burn's process-global generator, a loop's
-> trajectory cannot be reached from another thread. On the `Flex` backend, seeded
+> trajectory cannot be reached from another thread. On Flex, seeded
 > trials give the same scalars, bit for bit, whether the harness runs them on one
 > thread or on a pool; a test in the repository pins it
 > (`parallel_trials_match_serial_trials`). You do not need to pin the thread
 > count to reproduce an evolution run. Two things can still break it: a fitness
-> function of your own that draws from the backend generator (`Tensor::random`),
-> and the `Wgpu` backend, where a run follows the `Flex` trajectory only to within
+> function of your own that draws from Burn's generator (`Tensor::random`),
+> and a wgpu device, where a run follows the Flex trajectory only to within
 > the GPU's floating-point differences.
 
 ## The same run with `EvolutionaryLoop`
@@ -373,6 +375,7 @@ seed it is handed; the harness calls the closure once per trial and drives each
 loop to its budget.
 
 ```rust,no_run
+use rlevo::burn::tensor::Device;
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::fitness::FromLandscape;
@@ -400,7 +403,7 @@ let report = Evaluator::new(config).run_trials(
             GaConfig::default_for(/* pop = */ 64, /* dim = */ 8),
             FromLandscape::new(Sphere::new(8).expect("dim >= 1")),
             seed,
-            Default::default(),
+            Device::flex(),
             GENERATIONS,
         )
         .expect("valid config"),
@@ -439,7 +442,7 @@ Three things decide whether such a run is the one you meant:
   `tracing` subscriber sees neither, and has only the `generations` scalar to
   go by.
 - **Threads.** Trials run concurrently on a thread pool
-  (`EvaluatorConfig::num_threads`). On `Flex` the results do not depend on the
+  (`EvaluatorConfig::num_threads`). On Flex the results do not depend on the
   thread count; see the determinism note above for the two exceptions.
 
 The harness drives each loop through a trait, `GenerationProbe`, whose two

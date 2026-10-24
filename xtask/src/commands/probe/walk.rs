@@ -1,7 +1,8 @@
-//! BYOE-1: an environment author's walk, from an empty directory to a harness
-//! run of their own environment.
+//! A walk: the numbered path one persona takes, from an empty directory to a
+//! run of their own code through `rlevo`. [`BYOE1`] is an environment
+//! author's.
 //!
-//! The walk is one step table and two processes. `xtask` owns the steps a
+//! A walk is one step table and two processes. `xtask` owns the steps a
 //! `cargo` invocation can observe (the scaffold, the dependency list, a
 //! build). The probe binary owns the steps that need its code to run, and
 //! reports them by label, never by number, so renumbering touches this file
@@ -10,9 +11,12 @@
 //! A build failure is reported at the step whose code failed. The probe is
 //! one crate, so one build cannot say which step broke; each step's code
 //! therefore sits behind a cargo feature that includes the one before it
-//! ([`LEVELS`]). The whole probe is built first. Only if that fails are the
-//! levels built in order: the first that fails names the step, and the binary
-//! from the last level that built still runs the steps below it.
+//! ([`Walk::levels`]). The whole probe is built first. Only if that fails are
+//! the levels built in order: the first that fails names the step, and the
+//! binary from the last level that built still runs the steps below it.
+//!
+//! Every walk opens with the same two steps, `scaffold` and `add-deps`,
+//! which `xtask` checks itself.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -37,71 +41,193 @@ pub struct Step {
     pub fatal: bool,
 }
 
-/// The steps, in order. A step's number is its position here.
-pub const STEPS: &[Step] = &[
-    Step {
-        label: "scaffold",
-        fatal: true,
-    },
-    Step {
-        label: "add-deps",
-        fatal: false,
-    },
-    Step {
-        label: "implement-environment",
-        fatal: true,
-    },
-    Step {
-        label: "post-terminal",
-        fatal: true,
-    },
-    Step {
-        label: "implement-agent",
-        fatal: true,
-    },
-    Step {
-        label: "run-suite",
-        fatal: true,
-    },
-];
+/// A walk: its steps, and the build levels that report into them.
+#[derive(Debug)]
+pub struct Walk {
+    /// What each of its step lines starts with.
+    pub prefix: &'static str,
+    /// The steps, in order. A step's number is its position here.
+    pub steps: &'static [Step],
+    /// The build levels, each including the one before it. The first is the
+    /// base build, with no feature.
+    pub levels: &'static [Level],
+}
+
+/// The two steps every walk opens with, which `xtask` checks itself.
+const SCAFFOLD: Step = Step {
+    label: "scaffold",
+    fatal: true,
+};
+const ADD_DEPS: Step = Step {
+    label: "add-deps",
+    fatal: false,
+};
+
+/// BYOE-1: an environment author's walk, from an empty directory to a harness
+/// run of their own environment.
+pub const BYOE1: Walk = Walk {
+    prefix: "BYOE-STEP",
+    steps: &[
+        SCAFFOLD,
+        ADD_DEPS,
+        Step {
+            label: "implement-environment",
+            fatal: true,
+        },
+        Step {
+            label: "post-terminal",
+            fatal: true,
+        },
+        Step {
+            label: "implement-agent",
+            fatal: true,
+        },
+        Step {
+            label: "run-suite",
+            fatal: true,
+        },
+    ],
+    levels: &[
+        Level {
+            feature: None,
+            step: "implement-environment",
+            built: Some(
+                "Environment implemented against public API only; the file names nothing outside rlevo::core",
+            ),
+            reports: &["post-terminal"],
+        },
+        Level {
+            feature: Some("agent"),
+            step: "implement-agent",
+            built: Some("the policy implements BenchableAgent with act alone"),
+            reports: &[],
+        },
+        Level {
+            feature: Some("harness"),
+            step: "run-suite",
+            built: None,
+            reports: &["run-suite"],
+        },
+    ],
+};
+
+/// BYOE-2: a landscape author's walk, from an empty directory to a harness
+/// run of a shipped optimiser on their own cost surface.
+pub const BYOE2: Walk = Walk {
+    prefix: "BYOE-STEP",
+    steps: &[
+        SCAFFOLD,
+        ADD_DEPS,
+        Step {
+            label: "implement-landscape",
+            fatal: true,
+        },
+        Step {
+            label: "wrap-landscape",
+            fatal: true,
+        },
+        Step {
+            label: "build-loop",
+            fatal: true,
+        },
+        Step {
+            label: "run-trials",
+            fatal: true,
+        },
+    ],
+    levels: &[
+        Level {
+            feature: None,
+            step: "implement-landscape",
+            built: Some(
+                "Landscape implemented against public API only; the file names nothing outside rlevo::core",
+            ),
+            reports: &[],
+        },
+        Level {
+            feature: Some("engine"),
+            step: "wrap-landscape",
+            built: None,
+            reports: &["wrap-landscape"],
+        },
+        Level {
+            feature: Some("strategy"),
+            step: "build-loop",
+            built: None,
+            reports: &["build-loop"],
+        },
+        Level {
+            feature: Some("harness"),
+            step: "run-trials",
+            built: None,
+            reports: &["run-trials"],
+        },
+    ],
+};
+
+/// BYOA-1b: an optimiser author's walk, from an empty directory to a harness
+/// run of their own `Strategy`, compared with a strategy that never moves.
+pub const BYOA1B: Walk = Walk {
+    prefix: "BYOA-STEP",
+    steps: &[
+        SCAFFOLD,
+        ADD_DEPS,
+        Step {
+            label: "implement-strategy",
+            fatal: true,
+        },
+        Step {
+            label: "null-strategy",
+            fatal: true,
+        },
+        Step {
+            label: "run-trials",
+            fatal: true,
+        },
+        Step {
+            label: "ordering",
+            fatal: true,
+        },
+        Step {
+            label: "determinism",
+            fatal: true,
+        },
+    ],
+    levels: &[
+        Level {
+            feature: None,
+            step: "implement-strategy",
+            built: Some("the hill-climber implements Strategy against public API only"),
+            reports: &[],
+        },
+        Level {
+            feature: Some("null"),
+            step: "null-strategy",
+            built: Some("the null strategy implements Strategy"),
+            reports: &[],
+        },
+        Level {
+            feature: Some("harness"),
+            step: "run-trials",
+            built: None,
+            reports: &["run-trials", "ordering", "determinism"],
+        },
+    ],
+};
 
 /// A build level of the probe crate.
 #[derive(Debug)]
-struct Level {
+pub struct Level {
     /// The cargo feature that turns the level on; `None` is the base build.
-    feature: Option<&'static str>,
+    pub feature: Option<&'static str>,
     /// The step a build failure at this level is reported at.
-    step: &'static str,
+    pub step: &'static str,
     /// What the step line says when the level builds and the step has no
     /// code to run. `None` when the binary reports the step itself.
-    built: Option<&'static str>,
+    pub built: Option<&'static str>,
     /// Steps the binary reports once this level is built.
-    reports: &'static [&'static str],
+    pub reports: &'static [&'static str],
 }
-
-/// The levels, each including the one before it.
-const LEVELS: &[Level] = &[
-    Level {
-        feature: None,
-        step: "implement-environment",
-        built: Some(
-            "Environment implemented against public API only; the file names nothing outside rlevo::core",
-        ),
-        reports: &["post-terminal"],
-    },
-    Level {
-        feature: Some("agent"),
-        step: "implement-agent",
-        built: Some("the policy implements BenchableAgent with act alone"),
-        reports: &[],
-    },
-    Level {
-        feature: Some("harness"),
-        step: "run-suite",
-        built: None,
-        reports: &["run-suite"],
-    },
-];
 
 /// The one crate an author asks for. Every other direct dependency of the
 /// probe is one they had to add by hand.
@@ -123,21 +249,24 @@ pub enum Outcome {
 /// The walk's result: what each step found, by label.
 pub type Outcomes = BTreeMap<&'static str, Outcome>;
 
-/// Walk the probe at `probe_dir`, whose graph has already resolved from the
-/// stage.
+/// Take `walk` with the probe at `probe_dir`, whose graph has already
+/// resolved from the stage.
 ///
-/// `environment_file` is the base level's source, relative to the probe.
+/// `contract`, when given, is the base level's source file, relative to the
+/// probe, which must name nothing outside `rlevo::core`. A breach is
+/// reported at the base level's step.
 ///
 /// # Errors
 ///
 /// Returns an error if a build or the binary cannot be started, or if the
-/// binary reports a step this file does not know.
-pub fn walk(
+/// binary reports a step the walk does not have.
+pub fn run(
+    walk: &Walk,
     probe_dir: &Path,
     target_dir: &Path,
     binary: &str,
     resolved: &Resolved,
-    environment_file: &str,
+    contract: Option<&str>,
 ) -> Result<Outcomes> {
     let mut outcomes = Outcomes::new();
     outcomes.insert(
@@ -149,29 +278,31 @@ pub fn walk(
     );
     outcomes.insert("add-deps", hand_added(resolved));
 
-    let source = fs::read_to_string(probe_dir.join(environment_file))
-        .with_context(|| format!("the template has no {environment_file}"))?;
-    let outside = outside_contract(&source);
-    if !outside.is_empty() {
-        outcomes.insert(
-            "implement-environment",
-            Outcome::Fail(format!(
-                "the environment needs more than the contract crate: {environment_file} names {}",
-                outside.join(", ")
-            )),
-        );
-        return Ok(outcomes);
+    if let Some(file) = contract {
+        let source = fs::read_to_string(probe_dir.join(file))
+            .with_context(|| format!("the template has no {file}"))?;
+        let outside = outside_contract(&source);
+        if !outside.is_empty() {
+            outcomes.insert(
+                walk.levels[0].step,
+                Outcome::Fail(format!(
+                    "the file needs more than the contract crate: {file} names {}",
+                    outside.join(", ")
+                )),
+            );
+            return Ok(outcomes);
+        }
     }
 
-    let top = LEVELS.last().and_then(|level| level.feature);
+    let top = walk.levels.last().and_then(|level| level.feature);
     let mut expected: Vec<&'static str> = Vec::new();
     if build(probe_dir, target_dir, top)?.is_ok() {
-        for level in LEVELS {
+        for level in walk.levels {
             record_built(&mut outcomes, level);
             expected.extend(level.reports);
         }
     } else {
-        for level in LEVELS {
+        for level in walk.levels {
             match build(probe_dir, target_dir, level.feature)? {
                 Ok(()) => {
                     record_built(&mut outcomes, level);
@@ -194,7 +325,7 @@ pub fn walk(
             .join(format!("{binary}{}", std::env::consts::EXE_SUFFIX));
         let (status, reported) = run_binary(&executable, probe_dir)?;
         for (label, outcome) in reported {
-            let Some(step) = STEPS.iter().find(|step| step.label == label) else {
+            let Some(step) = walk.steps.iter().find(|step| step.label == label) else {
                 bail!("the probe reported a step this walk does not have: `{label}`");
             };
             outcomes.entry(step.label).or_insert(outcome);
@@ -523,15 +654,5 @@ mod tests {
             hand_added(&resolved(&["rlevo-core"])),
             Outcome::Fail("the probe does not depend on rlevo".to_string())
         );
-    }
-
-    #[test]
-    fn test_every_level_reports_at_a_step_of_the_walk() {
-        for level in LEVELS {
-            assert!(STEPS.iter().any(|step| step.label == level.step));
-            for label in level.reports {
-                assert!(STEPS.iter().any(|step| step.label == *label));
-            }
-        }
     }
 }

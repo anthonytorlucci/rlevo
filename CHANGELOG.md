@@ -670,6 +670,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Flex`). It also used `gen` as a variable name, which is reserved in the
   2024 edition. The example now negates the cost and says why, and
   descends to 0.11.
+- **The ask/tell guide still spoke Burn 0.21 in three places.** It said
+  any `Backend` works because `init`, `ask` and `tell` are generic over
+  `B`, it named `Backend::seed` as the generator a strategy must not use,
+  and its harness example passed `Default::default()` as the device, which
+  is wgpu in a build with the `wgpu` feature on. No type names a backend
+  now: the guide says a strategy builds its population on the `Device` it
+  is given, names `Device::seed`, and passes `Device::flex()`.
+  `docs/rules.md`'s host-sampling rule named `B::seed(..)` too, and now
+  names `Device::seed(..)`.
 
 ### `rlevo-hybrid`
 
@@ -785,6 +794,27 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Added**
 
+- **An optimiser author's walk, `byoa-1b`.** A `(1+1)` hill-climber and a
+  control whose `ask` returns its starting point, both written against the
+  `Strategy` seam from outside the workspace, run on the shipped `Sphere`
+  through `EvolutionaryLoop` and `Evaluator::run_trials`, in seven steps.
+  Step 6 requires each trial's `ea/best_fitness_ever` to stay where it
+  started for the control, to start at the same value for both, and to end
+  strictly lower for the hill-climber; a metric that did not follow the
+  search would let the control score as well. Step 7 runs both again and
+  requires every scalar but the wall clock to repeat bit for bit. Its step
+  2 records one crate added by hand, `rand`, because `Strategy::init`, `ask`
+  and `tell` take `&mut dyn rand::Rng`. `crate-tests.yml` runs it on every
+  pull request as `probe (byoa-1b)`.
+- **A landscape author's walk, `byoe-2`.** The first probe of the
+  evolutionary path. An invented cost surface, written against `rlevo::core`
+  alone, is wrapped with `FromLandscape`, searched by the shipped `(μ+λ)`
+  evolution strategy in an `EvolutionaryLoop`, and run through
+  `Evaluator::run_trials` as a `GenerationTrial`, in six steps. The last
+  runs the suite twice from one seed, for one generation and for thirty,
+  and requires each trial's `ea/best_fitness_ever` to fall, and never below
+  the surface's known minimum. It needs no crate beside `rlevo`.
+  `crate-tests.yml` runs it on every pull request as `probe (byoe-2)`.
 - **`cargo xtask guards`: the layering rules, checked.** Five rules no
   compiler checks, each read where it can be broken: `rlevo-evolution`
   names no path into the environment contract (ADR 0002); no published

@@ -187,6 +187,6 @@ matter most here:
 - Seed everything from a constant.
 - Keep each step's code behind its level's feature.
 
-A step is a row of `STEPS` in `xtask/src/commands/probe/walk.rs`, and a build
-level is a row of `LEVELS`. The binary reports a step by its label, so step
-numbers live in that one file.
+The walk is `BYOE1` in `xtask/src/commands/probe/walk.rs`: a step is a row of
+its `steps`, and a build level a row of its `levels`. The binary reports a
+step by its label, so step numbers live in that one file.

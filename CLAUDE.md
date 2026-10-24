@@ -100,6 +100,8 @@ author stops or starts writing.
 |-------|------------|
 | `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy, run it through `Evaluator::run_suite` |
 | `byoe-1-tank-farm` | the same walk over a rank-2 observation, a bounded continuous action that can be invalid, and an episode that an overflow terminates or `TimeLimit` truncates; the harness runs it through the wrapper |
+| `byoe-2` | a landscape author's walk: implement `Landscape` for an invented cost surface, wrap it with `FromLandscape`, search it with a shipped strategy in an `EvolutionaryLoop`, and run that through `Evaluator::run_trials`; the best fitness must fall |
+| `byoa-1b` | an optimiser author's walk: implement `Strategy` for a hill-climber and for a control that never moves, and run both on a shipped landscape through `Evaluator::run_trials`; only the hill-climber may improve, and a second run must repeat the first bit for bit |
 | `consumer-core` | that author's environment file built against `rlevo-core` alone, with its package count, its Burn package count and a cold build time |
 | `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning`; `consumer-umbrella` also builds a network derived through `rlevo::burn` beside a default one, which no doctest can check |
 
@@ -182,6 +184,7 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 - `crates/rlevo-environments/src/pixel_grid.rs`: modality-changing env, a rank-1 latent observed as a rank-3 image through `PixelGridState::project` (ADR 0020)
 - `xtask/probes/byoe-1-thermostat/src/thermostat.rs`: Environment/Action/Observation implementation patterns, as an outside author writes them; its probe builds it on every pull request
 - `xtask/probes/byoe-1-tank-farm/src/tank_farm.rs`: the same for a `ContinuousAction` + `BoundedAction` command, a rank-2 observation and an environment with no horizon of its own
+- `xtask/probes/byoa-1b/src/hill_climber.rs`: a `Strategy` implemented from outside the workspace: parameters with `Validate`, state threaded through `init` / `ask` / `tell`, draws from the loop's RNG, fitness sanitised where it reaches the host
 - `crates/rlevo-core/src/environment.rs`: MockEnvironment in test module demonstrates trait usage
 
 ## Testing Philosophy

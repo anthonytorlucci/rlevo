@@ -111,9 +111,12 @@ struct Probe {
 }
 
 enum Kind {
-    /// The environment author's walk. `environment` is the base level's
-    /// source file, which must name nothing outside the contract crate.
-    Byoe1 { environment: &'static str },
+    /// A walk. `contract`, when given, is the base level's source file,
+    /// which must name nothing outside the contract crate.
+    Walk {
+        walk: &'static walk::Walk,
+        contract: Option<&'static str>,
+    },
     /// Cone, Burn count and a cold build. `contract` makes the probe's one
     /// source file a copy of another probe's contract file, built against
     /// `rlevo-core` alone.
@@ -131,14 +134,23 @@ struct ContractFile {
 const BYOE1_NOTE: &str = "BYOE-1 does not end at the harness run: recording the run and \
                           rendering a report are not walked yet";
 
+/// What a green BYOE-2 walk does not yet show.
+const BYOE2_NOTE: &str = "BYOE-2 does not end at the harness run: recording the population \
+                          and drawing the landscape are not walked yet";
+
+/// What a green BYOA-1b walk does not yet show.
+const BYOA1B_NOTE: &str = "BYOA-1b does not end at the determinism check: recording the run \
+                           and showing that two submissions faced one task are not walked yet";
+
 /// The probes. Keep in step with `xtask/probes/`:
 /// `assert_probes_are_registered` enforces it.
 const PROBES: &[Probe] = &[
     Probe {
         name: "byoe-1-thermostat",
         title: "BYOE-1/thermostat",
-        kind: Kind::Byoe1 {
-            environment: "src/thermostat.rs",
+        kind: Kind::Walk {
+            walk: &walk::BYOE1,
+            contract: Some("src/thermostat.rs"),
         },
         note: Some(BYOE1_NOTE),
     },
@@ -148,10 +160,34 @@ const PROBES: &[Probe] = &[
     Probe {
         name: "byoe-1-tank-farm",
         title: "BYOE-1/tank-farm",
-        kind: Kind::Byoe1 {
-            environment: "src/tank_farm.rs",
+        kind: Kind::Walk {
+            walk: &walk::BYOE1,
+            contract: Some("src/tank_farm.rs"),
         },
         note: Some(BYOE1_NOTE),
+    },
+    // A landscape author: a cost surface of their own, run through a shipped
+    // strategy. Like an environment, the landscape needs the contract crate
+    // alone.
+    Probe {
+        name: "byoe-2",
+        title: "BYOE-2",
+        kind: Kind::Walk {
+            walk: &walk::BYOE2,
+            contract: Some("src/well_siting.rs"),
+        },
+        note: Some(BYOE2_NOTE),
+    },
+    // An optimiser author: a strategy of their own, and a control that never
+    // moves, on a shipped landscape.
+    Probe {
+        name: "byoa-1b",
+        title: "BYOA-1b",
+        kind: Kind::Walk {
+            walk: &walk::BYOA1B,
+            contract: None,
+        },
+        note: Some(BYOA1B_NOTE),
     },
     // An environment author with no learner. An empty crate depending on
     // `rlevo-core` would compile whatever the contract asks of an
@@ -203,8 +239,8 @@ enum Verdict {
     Measured,
     /// The path works; a step that is not fatal recorded a finding.
     Discoverability(usize),
-    /// A fatal step failed.
-    FailsAt(usize),
+    /// A fatal step failed: the step, and how many steps the walk has.
+    FailsAt { step: usize, of: usize },
     /// The run did not reach a verdict of its own.
     Aborted(String),
 }
@@ -224,9 +260,7 @@ impl Verdict {
             Self::Discoverability(step) => {
                 format!("{title} passes; discoverability fails at step {step}.")
             }
-            Self::FailsAt(step) => {
-                format!("{title} fails at step {step} of {}.", walk::STEPS.len())
-            }
+            Self::FailsAt { step, of } => format!("{title} fails at step {step} of {of}."),
             Self::Aborted(why) => format!("{title} aborted: {why}"),
         }
     }
@@ -430,9 +464,16 @@ fn attempt(
             facts,
             verdict: Verdict::Measured,
         }),
-        Kind::Byoe1 { environment } => {
-            let outcomes = walk::walk(&probe_dir, &target_dir, probe.name, &resolved, environment)?;
-            let (lines, verdict) = walk_report(&outcomes);
+        Kind::Walk { walk, contract } => {
+            let outcomes = walk::run(
+                walk,
+                &probe_dir,
+                &target_dir,
+                probe.name,
+                &resolved,
+                *contract,
+            )?;
+            let (lines, verdict) = walk_report(walk, &outcomes);
             Ok(Report {
                 lines,
                 facts,
@@ -463,32 +504,31 @@ fn contract_source(templates: &Path, contract: &ContractFile) -> Result<String> 
 ///
 /// The lines stop at the first fatal failure: later steps were not reached,
 /// or their result says nothing while an earlier one is broken.
-fn walk_report(outcomes: &walk::Outcomes) -> (Vec<String>, Verdict) {
+fn walk_report(walk: &walk::Walk, outcomes: &walk::Outcomes) -> (Vec<String>, Verdict) {
+    let prefix = walk.prefix;
+    let fails_at = |step| Verdict::FailsAt {
+        step,
+        of: walk.steps.len(),
+    };
     let mut lines = Vec::new();
     let mut finding = None;
-    for (index, step) in walk::STEPS.iter().enumerate() {
+    for (index, step) in walk.steps.iter().enumerate() {
         let number = index + 1;
         let Some(outcome) = outcomes.get(step.label) else {
             lines.push(format!(
-                "BYOE-STEP {number} FAIL {} :: the walk did not reach this step",
+                "{prefix} {number} FAIL {} :: the walk did not reach this step",
                 step.label
             ));
-            return (lines, Verdict::FailsAt(number));
+            return (lines, fails_at(number));
         };
         match outcome {
             Outcome::Pass(detail) => {
-                lines.push(format!(
-                    "BYOE-STEP {number} PASS {} :: {detail}",
-                    step.label
-                ));
+                lines.push(format!("{prefix} {number} PASS {} :: {detail}", step.label));
             }
             Outcome::Fail(detail) => {
-                lines.push(format!(
-                    "BYOE-STEP {number} FAIL {} :: {detail}",
-                    step.label
-                ));
+                lines.push(format!("{prefix} {number} FAIL {} :: {detail}", step.label));
                 if step.fatal {
-                    return (lines, Verdict::FailsAt(number));
+                    return (lines, fails_at(number));
                 }
                 finding.get_or_insert(number);
             }
@@ -576,7 +616,8 @@ mod tests {
     }
 
     fn all_pass() -> Vec<(&'static str, Outcome)> {
-        walk::STEPS
+        walk::BYOE1
+            .steps
             .iter()
             .map(|step| (step.label, pass()))
             .collect()
@@ -584,9 +625,9 @@ mod tests {
 
     #[test]
     fn test_every_step_passing_is_a_pass() {
-        let (lines, verdict) = walk_report(&outcomes(&all_pass()));
+        let (lines, verdict) = walk_report(&walk::BYOE1, &outcomes(&all_pass()));
         assert_eq!(verdict, Verdict::Passes);
-        assert_eq!(lines.len(), walk::STEPS.len());
+        assert_eq!(lines.len(), walk::BYOE1.steps.len());
         assert_eq!(lines[0], "BYOE-STEP 1 PASS scaffold :: ok");
     }
 
@@ -594,9 +635,9 @@ mod tests {
     fn test_a_finding_does_not_stop_the_walk() {
         let mut steps = all_pass();
         steps[1].1 = fail();
-        let (lines, verdict) = walk_report(&outcomes(&steps));
+        let (lines, verdict) = walk_report(&walk::BYOE1, &outcomes(&steps));
         assert_eq!(verdict, Verdict::Discoverability(2));
-        assert_eq!(lines.len(), walk::STEPS.len());
+        assert_eq!(lines.len(), walk::BYOE1.steps.len());
         assert!(verdict.is_green());
     }
 
@@ -605,8 +646,8 @@ mod tests {
         let mut steps = all_pass();
         steps[1].1 = fail();
         steps[3].1 = fail();
-        let (lines, verdict) = walk_report(&outcomes(&steps));
-        assert_eq!(verdict, Verdict::FailsAt(4));
+        let (lines, verdict) = walk_report(&walk::BYOE1, &outcomes(&steps));
+        assert_eq!(verdict, Verdict::FailsAt { step: 4, of: 6 });
         assert_eq!(lines.len(), 4);
         assert!(!verdict.is_green());
     }
@@ -615,8 +656,8 @@ mod tests {
     fn test_a_step_with_no_outcome_fails_where_the_walk_stopped() {
         let mut steps = all_pass();
         steps.truncate(4);
-        let (lines, verdict) = walk_report(&outcomes(&steps));
-        assert_eq!(verdict, Verdict::FailsAt(5));
+        let (lines, verdict) = walk_report(&walk::BYOE1, &outcomes(&steps));
+        assert_eq!(verdict, Verdict::FailsAt { step: 5, of: 6 });
         assert_eq!(
             lines.last().map(String::as_str),
             Some("BYOE-STEP 5 FAIL implement-agent :: the walk did not reach this step")
@@ -629,8 +670,28 @@ mod tests {
         assert!(Verdict::Measured.is_green());
         assert!(!Verdict::Aborted("staging failed".to_string()).is_green());
         assert_eq!(
-            Verdict::FailsAt(3).sentence("BYOE-1/thermostat"),
+            Verdict::FailsAt { step: 3, of: 6 }.sentence("BYOE-1/thermostat"),
             "BYOE-1/thermostat fails at step 3 of 6."
         );
+    }
+
+    /// Every walk a probe takes opens with `xtask`'s two steps, builds its
+    /// base level with no feature, and reports only at its own steps.
+    #[test]
+    fn test_every_walk_is_well_formed() {
+        for probe in PROBES {
+            let Kind::Walk { walk, .. } = &probe.kind else {
+                continue;
+            };
+            let labels: Vec<&str> = walk.steps.iter().map(|step| step.label).collect();
+            assert_eq!(labels[..2], ["scaffold", "add-deps"], "{}", probe.name);
+            assert_eq!(walk.levels[0].feature, None, "{}", probe.name);
+            for level in walk.levels {
+                assert!(labels.contains(&level.step), "{}", probe.name);
+                for label in level.reports {
+                    assert!(labels.contains(label), "{}", probe.name);
+                }
+            }
+        }
     }
 }

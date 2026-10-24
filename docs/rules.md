@@ -438,7 +438,7 @@ generation-to-generation) diversity the caller relies on.
 - **Host sampling (evolution / RL).** Draw randomness on the host via
   `rlevo_evolution::rng::seed_stream(base, generation, SeedPurpose::_)` (or an
   `rlevo_core::util::seed::SeedStream`), fill a `Vec`, then build the tensor with
-  `Tensor::from_data`. **Never** `B::seed(..)` + `Tensor::random(..)` in a
+  `Tensor::from_data`. **Never** `Device::seed(..)` + `Tensor::random(..)` in a
   production path: Burn's process-wide RNG mutex makes results depend on thread
   schedule (→ core count) rather than the seed, which races the parallel test
   runner. `rlevo-evolution` is the reference implementation. (ADR 0029)
