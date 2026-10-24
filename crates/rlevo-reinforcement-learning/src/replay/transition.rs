@@ -18,7 +18,7 @@
 //! need `usize` / `Vec<f32>` anyway and would immediately erase a typed
 //! action again (ADR 0050).
 
-pub use rlevo_core::agent::Transition;
+pub(crate) use rlevo_core::agent::Transition;
 
 /// A transition whose action is an index into a discrete action space.
 ///

@@ -256,7 +256,10 @@ impl PpoPolicy<2> for CategoricalPolicyHead {
 // sign; where an index round-trips through f32 it stays far below the 2^24
 // exact-integer limit. `from_index` bounds-checks on the way back.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn discrete_action_from_row<const AR: usize, A: rlevo_core::action::DiscreteAction<AR>>(
+pub(crate) fn discrete_action_from_row<
+    const AR: usize,
+    A: rlevo_core::action::DiscreteAction<AR>,
+>(
     row: &[f32],
 ) -> A {
     assert_eq!(

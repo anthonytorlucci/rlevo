@@ -34,7 +34,7 @@ use crate::algorithms::shared::{flatten_batch, hidden_layers, nonzero_widths, ru
 /// The agent runs `forward` on the policy network, which trains, and on the
 /// target network, a [`valid`](Module::valid) snapshot of the policy that
 /// does not. The target's update is
-/// [`polyak_update`](crate::utils::polyak_update), the same for every
+/// `polyak_update`, the same for every
 /// network, so it is not part of this trait.
 ///
 /// The `BOR` const generic is the observation tensor rank *including* the

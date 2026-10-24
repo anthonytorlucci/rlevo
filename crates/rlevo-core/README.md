@@ -204,10 +204,9 @@ impl Environment<1, 1> for MyEnv {
 ### Replay Buffer
 
 Replay lives in `rlevo-reinforcement-learning`, not `rlevo-core` (per ADR 0003 —
-replay and metrics moved to where they are consumed). The replay-strategy
-seam is `rlevo_reinforcement_learning::replay` (ADR 0050): `ReplayStrategy`, the
-default `UniformReplay`, and the opt-in `PrioritizedReplay`. See that crate's
-README for the API and the config-level PER opt-in.
+replay moved to where it is consumed). The buffers are that crate's own
+(ADR 0095); an agent's config opts into prioritized replay with
+`PrioritizedReplaySettings`. See that crate's README.
 
 ## Academic References
 

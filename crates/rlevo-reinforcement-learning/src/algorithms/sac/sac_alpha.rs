@@ -188,6 +188,7 @@ impl LogAlpha {
         }
     }
 
+    #[cfg(test)]
     /// Current `$\log \alpha$`.
     #[must_use]
     pub fn log_alpha(&self) -> f32 {

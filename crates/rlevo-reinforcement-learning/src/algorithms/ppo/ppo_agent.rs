@@ -2,7 +2,7 @@
 //!
 //! The agent owns the policy network, value network, a pair of Adam
 //! optimizers (one per network), a CPU-resident
-//! [`RolloutBuffer`], and the
+//! `RolloutBuffer`, and the
 //! configuration. It implements [`Agent`] for its two shipped heads, through
 //! which a driver steps it: each training step records the sample `act` drew,
 //! and a full rollout is finished and used to update both networks.
@@ -26,7 +26,7 @@ use crate::algorithms::ppo::policies;
 use crate::algorithms::ppo::ppo_config::{PpoTrainingConfig, annealed_learning_rate};
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
-use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
+use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd, gather_f32};
 
 /// Single-step output used by the rollout loop to step the env and push into
 /// the buffer.
@@ -109,13 +109,13 @@ pub(crate) struct PpoUpdateStats {
 ///
 /// # Network ownership
 ///
-/// The policy and value networks live in [`Slot`]s because Burn's
+/// The policy and value networks live in `Slot`s because Burn's
 /// `ModuleOptimizer::step` consumes the module by value. Every fallible operation in
 /// `update` — the forward pass, the losses, `backward`, and
 /// `GradientsParams::from_grads` — runs on a borrow, so a panic there leaves
 /// both networks intact and the agent usable. Only a panic *inside* the
 /// optimizer step itself poisons a slot; that window is irreducible and
-/// terminal for the agent (see [`Slot`]).
+/// terminal for the agent (see `Slot`).
 pub struct PpoAgent<P, V, O, const OR: usize, const BOR: usize>
 where
     P: PpoPolicy<BOR>,
@@ -194,7 +194,7 @@ where
     ///
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
-    /// [`Slot`].
+    /// `Slot`.
     pub fn inference_net(&self) -> P {
         self.policy().valid()
     }
@@ -640,18 +640,10 @@ where
                     P::action_tensor_from_flat(&action_flat, n, &self.device);
 
                 // Old log_probs, old_values, returns, advantages.
-                let old_lp: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.log_probs(), chunk, &self.device);
-                let old_v: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.values(), chunk, &self.device);
-                let returns: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.returns(), chunk, &self.device);
-                let advs_raw: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.advantages(), chunk, &self.device);
+                let old_lp: Tensor<1> = gather_f32(self.buffer.log_probs(), chunk, &self.device);
+                let old_v: Tensor<1> = gather_f32(self.buffer.values(), chunk, &self.device);
+                let returns: Tensor<1> = gather_f32(self.buffer.returns(), chunk, &self.device);
+                let advs_raw: Tensor<1> = gather_f32(self.buffer.advantages(), chunk, &self.device);
                 let advs = if self.config.normalize_advantages {
                     normalize_advantages(advs_raw)
                 } else {

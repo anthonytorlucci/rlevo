@@ -3,7 +3,7 @@
 //!
 //! [`DdpgAgent`] owns a deterministic actor, a Q-critic, their Polyak-averaged
 //! target twins, two independent Adam optimizers, a uniform FIFO replay
-//! buffer, and a [`GaussianNoise`] exploration module. It implements
+//! buffer, and a `GaussianNoise` exploration module. It implements
 //! [`Agent`], through which a driver steps it. [`DdpgAgent::remember`] and
 //! [`DdpgAgent::learn_step`] are the externally paced path: push transitions
 //! and run gradient updates on a cadence of the caller's own.
@@ -48,7 +48,7 @@ pub struct LearnOutcome {
 ///
 /// Owns a deterministic actor, a continuous Q-critic, their Polyak-averaged
 /// target twins, two independent Adam optimizers, a uniform FIFO replay
-/// buffer, and a [`GaussianNoise`] exploration module.
+/// buffer, and a `GaussianNoise` exploration module.
 ///
 /// The typical call sequence per environment step is:
 ///
@@ -63,14 +63,14 @@ pub struct LearnOutcome {
 ///
 /// # Network ownership
 ///
-/// The actor and critic live in a [`Slot`], which holds each network across the
+/// The actor and critic live in a `Slot`, which holds each network across the
 /// Burn optimizer step that consumes it by value. Every fallible operation —
 /// the forward pass, the loss, `backward`, and `GradientsParams::from_grads` —
 /// runs on a borrow, so a panic there leaves the agent intact and usable. The
 /// networks are out of their slots only for the duration of the
 /// [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step) call itself; a panic in
 /// that one window is terminal for this agent and requires rebuilding it. See
-/// [`Slot`] for why that residual window is irreducible.
+/// `Slot` for why that residual window is irreducible.
 ///
 /// # Const generics
 ///
@@ -485,7 +485,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the actor slot is poisoned — see [`Slot::get`].
+    /// Panics if the actor slot is poisoned — see `Slot::get`.
     pub fn inference_net(&self) -> Actor {
         self.actor.get().valid()
     }
@@ -762,13 +762,13 @@ where
     /// network. Every other operation here — sampling, the forward passes, the
     /// losses, `backward`, and gradient reduction — runs on a borrow, so a
     /// panic in any of them leaves the agent fully usable; only a panic inside
-    /// the optimizer step itself is terminal. See [`Slot`].
+    /// the optimizer step itself is terminal. See `Slot`.
     ///
     /// # Errors
     ///
     /// Returns a [`PolyakError`] if a target soft-update finds a
     /// parameter-topology mismatch between a live network and its target twin
-    /// (see [`polyak_update`]). Every in-tree
+    /// (see `polyak_update`). Every in-tree
     /// target is cloned from its active network, so this cannot occur for
     /// agents built normally.
     pub fn learn_step(

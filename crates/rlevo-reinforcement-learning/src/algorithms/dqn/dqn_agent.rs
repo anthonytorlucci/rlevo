@@ -56,14 +56,14 @@ pub struct LearnOutcome {
 ///
 /// # Field notes
 ///
-/// - `policy_net` is held in a [`Slot`], the newtype that owns a network across
+/// - `policy_net` is held in a `Slot`, the newtype that owns a network across
 ///   Burn's by-value [`Optimizer::step`](burn::optim::Optimizer::step). Every
 ///   read goes through `Slot::get`, and the module leaves the field only for the
 ///   duration of the `step` call itself inside `Slot::step_with` — the forward
 ///   pass, loss, and `backward` all run on a borrow, so a panic in any of them
 ///   leaves the agent intact. The one exception is a panic *inside* `step`,
 ///   which poisons the slot permanently; that window is irreducible and is
-///   documented on [`Slot`].
+///   documented on `Slot`.
 /// - `target_net` is a [`valid`](burn::module::Module::valid) snapshot of the policy, on the
 ///   plain device, so computing bootstrap targets never builds an autodiff
 ///   graph.
@@ -420,7 +420,7 @@ where
     ///
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
-    /// [`Slot`].
+    /// `Slot`.
     pub fn inference_net(&self) -> M {
         self.policy().valid()
     }
@@ -679,8 +679,8 @@ where
     ///
     /// Panics if the agent was poisoned by a panic *inside* a previous
     /// optimizer step — the one window in which the network is out of its
-    /// [`Slot`]. Such an agent cannot be recovered and must be rebuilt; see
-    /// [`Slot`] for why. The forward pass, the loss, and `backward` all run
+    /// `Slot`. Such an agent cannot be recovered and must be rebuilt; see
+    /// `Slot` for why. The forward pass, the loss, and `backward` all run
     /// against a borrow of the network, so a panic in any of them leaves the
     /// agent fully usable.
     ///
@@ -693,7 +693,7 @@ where
     ///
     /// Returns a [`PolyakError`] if the target soft-update finds a
     /// parameter-topology mismatch between the policy and target networks (see
-    /// [`polyak_update`]). Every in-tree target is
+    /// `polyak_update`). Every in-tree target is
     /// cloned from its policy, so this cannot occur for agents built normally.
     // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
     // f32. This is the intended narrowing point, and the values are hyperparameters

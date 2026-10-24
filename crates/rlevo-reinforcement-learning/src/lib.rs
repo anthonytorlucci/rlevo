@@ -28,18 +28,19 @@
 //! - [`algorithms::sac`] — Soft Actor-Critic (off-policy, continuous actions):
 //!   stochastic squashed-Gaussian actor + twin critics with entropy-augmented
 //!   Bellman backup and auto-tuned temperature `$\alpha$` per Haarnoja et al. 2018.
-//! - [`algorithms::Slot`] — The network-ownership newtype every agent above
-//!   holds its trainable networks in, across Burn's by-value
-//!   `Optimizer::step`. Its docs state what a panic inside that step does to
-//!   an agent (it must be rebuilt) and why that cannot be avoided.
-//! - [`replay`] — The replay-strategy seam (ADR 0050): [`replay::Transition`],
-//!   the [`replay::ReplayStrategy`] trait, and [`replay::UniformReplay`], the
-//!   FIFO uniform buffer every off-policy agent above draws its batches from.
+//! - [`replay`] — [`replay::PrioritizedReplaySettings`], the config opt-in
+//!   for prioritized replay on the value-based agents. The buffers it selects
+//!   between are crate-private.
 //! - [`target`] — The target-network update rule: [`target::TargetUpdate`]
-//!   (a cadence plus a [`target::PolyakTau`] coefficient) expresses one
-//!   mechanism, in which a hard weight copy is the degenerate case `$\tau = 1.0$`
-//!   rather than a separate variant.
-//! - [`utils`] — Shared helpers: Bellman target computation, Polyak averaging.
+//!   expresses one mechanism, a cadence plus a Polyak coefficient, in which a
+//!   hard weight copy is the degenerate case `$\tau = 1.0$` rather than a
+//!   separate variant; and [`target::PolyakError`], what `learn_step` returns
+//!   when a target is not a copy of its network.
+//!
+//! Every agent implements `rlevo_core::agent::Agent`, through which a driver
+//! steps it. The parts the agents are built from (the network slot, the
+//! replay buffers, the loss kernels, the exploration schedules, PPO's rollout
+//! buffer) are crate-private (ADR 0095).
 
 /// The upper bound on any replay-buffer capacity in this crate: `2^32`.
 ///
@@ -84,17 +85,15 @@
 ///
 /// A tighter bound would be arbitrary; a looser one would have to argue about
 /// the wrap. This one has to argue about neither.
-pub const MAX_BUFFER_CAPACITY: usize = 1 << 32;
+pub(crate) const MAX_BUFFER_CAPACITY: usize = 1 << 32;
 
 pub mod algorithms {
     //! Reinforcement learning algorithm implementations.
     //!
-    //! Every agent here holds its trainable networks in a [`Slot`], which
+    //! Every agent here holds its trainable networks in a `Slot`, which
     //! also documents what a panic inside an optimizer step does to an agent.
 
     pub(crate) mod shared;
-
-    pub use shared::Slot;
 
     /// Shared test scaffolding for the truncation-vs-termination bootstrap
     /// guard in the six off-policy agents.
@@ -107,7 +106,7 @@ pub mod algorithms {
         pub mod dqn_agent;
         pub mod dqn_config;
         pub mod dqn_model;
-        pub mod exploration;
+        pub(crate) mod exploration;
     }
 
     pub mod c51 {
@@ -115,8 +114,8 @@ pub mod algorithms {
 
         pub mod c51_agent;
         pub mod c51_config;
-        pub mod loss;
-        pub mod projection;
+        pub(crate) mod loss;
+        pub(crate) mod projection;
     }
 
     pub mod qrdqn {
@@ -124,19 +123,19 @@ pub mod algorithms {
 
         pub mod qrdqn_agent;
         pub mod qrdqn_config;
-        pub mod quantile_loss;
+        pub(crate) mod quantile_loss;
     }
 
     pub mod ppo {
         //! Proximal Policy Optimization (PPO) on-policy algorithm.
 
-        pub mod losses;
+        pub(crate) mod losses;
         pub mod policies;
         pub mod ppo_agent;
         pub mod ppo_config;
         pub mod ppo_policy;
         pub mod ppo_value;
-        pub mod rollout;
+        pub(crate) mod rollout;
     }
 
     pub mod ddpg {
@@ -146,14 +145,14 @@ pub mod algorithms {
         //! Pairs a [`ddpg_model::DeterministicPolicy`] actor with a
         //! [`ddpg_model::ContinuousQ`] critic, each with a Polyak-averaged
         //! target copy. Explores via Gaussian noise on the actor output
-        //! ([`exploration::GaussianNoise`]) and learns off a uniform replay
+        //! (`exploration::GaussianNoise`) and learns off a uniform replay
         //! buffer. `CleanRL`'s `ddpg_continuous_action.py` is the reference
         //! implementation.
 
         pub mod ddpg_agent;
         pub mod ddpg_config;
         pub mod ddpg_model;
-        pub mod exploration;
+        pub(crate) mod exploration;
     }
 
     pub mod td3 {
@@ -164,13 +163,13 @@ pub mod algorithms {
         //! a `min`-of-twin-critics bootstrap target, Gaussian target-policy
         //! smoothing, and delayed actor/Polyak updates every
         //! `policy_frequency`-th critic step. Reuses
-        //! [`super::ddpg::exploration::GaussianNoise`] at action-selection
+        //! `super::ddpg::exploration::GaussianNoise` at action-selection
         //! time and the [`super::ddpg::ddpg_model::DeterministicPolicy`] /
         //! [`super::ddpg::ddpg_model::ContinuousQ`] traits unchanged.
         //! `CleanRL`'s `td3_continuous_action.py` is the reference
         //! implementation.
 
-        pub mod target_smoothing;
+        pub(crate) mod target_smoothing;
         pub mod td3_agent;
         pub mod td3_config;
         pub mod td3_model;
@@ -182,14 +181,14 @@ pub mod algorithms {
         //!
         //! Pairs a squashed-Gaussian [`sac_policy::SquashedGaussianPolicyHead`] actor with two
         //! [`sac_model::ContinuousQ`] critics (each with a Polyak-averaged target), a scalar
-        //! [`sac_alpha::LogAlpha`] learnable temperature, and a uniform replay buffer. The Bellman
+        //! `sac_alpha::LogAlpha` learnable temperature, and a uniform replay buffer. The Bellman
         //! target includes the entropy term `$-\alpha \cdot \log \pi(a'|s')$`; the actor is trained
         //! via reparameterization, and `$\alpha$` is auto-tuned toward the heuristic target entropy
         //! `-|A|` by default. `CleanRL`'s `sac_continuous_action.py` is the reference
         //! implementation.
 
         pub mod sac_agent;
-        pub mod sac_alpha;
+        pub(crate) mod sac_alpha;
         pub mod sac_config;
         pub mod sac_model;
         pub mod sac_policy;
@@ -200,13 +199,13 @@ pub mod algorithms {
         //! auxiliary phase with distillation.
         //!
         //! v1 ships a discrete-only [`policies::PpgCategoricalPolicyHead`]
-        //! and reuses PPO's [`super::ppo::rollout::RolloutBuffer`],
-        //! [`super::ppo::losses`], and [`super::ppo::ppo_value::PpoValue`].
+        //! and reuses PPO's `super::ppo::rollout::RolloutBuffer`,
+        //! `super::ppo::losses`, and [`super::ppo::ppo_value::PpoValue`].
         //! `CartPole` parity with PPO is the v1 target; Procgen-scale gains
         //! require vectorised envs + CNN encoders (deferred).
 
-        pub mod aux_buffer;
-        pub mod losses;
+        pub(crate) mod aux_buffer;
+        pub(crate) mod losses;
         pub mod policies;
         pub mod ppg_agent;
         pub mod ppg_config;
@@ -216,4 +215,4 @@ pub mod algorithms {
 
 pub mod replay;
 pub mod target;
-pub mod utils;
+pub(crate) mod utils;

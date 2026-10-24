@@ -1,5 +1,6 @@
-//! Target-network update rule: the [`PolyakTau`] newtype, the [`TargetUpdate`]
-//! config type, and [`TargetUpdateError`].
+//! Target-network update rule: the [`TargetUpdate`] config type, its
+//! [`TargetUpdateError`], and the [`PolyakError`] an agent's `learn_step`
+//! returns when the target it would update is not a copy of its network.
 //!
 //! Every off-policy algorithm in this crate (DQN, C51, QR-DQN, DDPG, TD3, SAC) keeps a lagged copy
 //! of one or more networks and periodically moves it toward the live network. Historically each
@@ -36,7 +37,7 @@
 //!
 //! [`Probability`]'s invariant is the *closed* unit interval `$0 \leq p \leq 1$`, so it admits
 //! `0.0`. A `$\tau$` of `0.0` is a permanently frozen target — the update fires on schedule and
-//! moves nothing, a silent no-op that looks like a configured update. [`PolyakTau`] excludes zero:
+//! moves nothing, a silent no-op that looks like a configured update. `PolyakTau` excludes zero:
 //! its invariant is the half-open interval `$0 < \tau \leq 1$`. A caller who genuinely wants no
 //! target tracking omits the target network, rather than configuring one that never moves.
 //!
@@ -44,8 +45,8 @@
 //!
 //! Target networks are a gradient-based-RL construct with exactly one consuming
 //! crate, and the function that applies the blend
-//! ([`polyak_update`](crate::utils::polyak_update)) already lives in
-//! [`crate::utils`]. ADR 0031 placed [`Bounds`](rlevo_core::bounds::Bounds) in
+//! (`polyak_update`) already lives in
+//! `crate::utils`. ADR 0031 placed [`Bounds`](rlevo_core::bounds::Bounds) in
 //! `rlevo-core` because two crates consumed it; that rationale does not apply
 //! here, so this type stays next to its only consumer.
 //!
@@ -79,6 +80,7 @@
 //!
 //! [`Probability`]: rlevo_core::probability::Probability
 
+pub use crate::utils::PolyakError;
 use std::num::NonZeroUsize;
 
 /// A Polyak (soft-update) coefficient `$\tau$` in the half-open interval `$(0, 1]$`, valid by
@@ -102,22 +104,8 @@ use std::num::NonZeroUsize;
 /// Construct with [`new`](Self::new) for literals (panics on an invalid value)
 /// or [`try_new`](Self::try_new) for runtime data (returns
 /// [`TargetUpdateError`]).
-///
-/// # Examples
-///
-/// ```
-/// use rlevo_reinforcement_learning::target::PolyakTau;
-///
-/// let tau = PolyakTau::new(0.005);
-/// assert_eq!(tau.get(), 0.005);
-///
-/// assert!(PolyakTau::try_new(1.0).is_ok()); // the hard-copy endpoint
-/// assert!(PolyakTau::try_new(0.0).is_err()); // a frozen target
-/// assert!(PolyakTau::try_new(1.5).is_err()); // overshoots
-/// assert!(PolyakTau::try_new(f32::NAN).is_err());
-/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PolyakTau(f32);
+pub(crate) struct PolyakTau(f32);
 
 impl PolyakTau {
     /// Builds a `$\tau$` from a compile-time-known value, panicking on an invalid one.
@@ -148,17 +136,6 @@ impl PolyakTau {
     /// zero, negative, above one, `NaN`, or infinite. Finiteness needs no
     /// separate check: `NaN` fails both comparisons, `$+\infty$` fails `<= 1.0`, and
     /// `$-\infty$` fails `> 0.0`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rlevo_reinforcement_learning::target::{PolyakTau, TargetUpdateError};
-    ///
-    /// assert_eq!(
-    ///     PolyakTau::try_new(0.0),
-    ///     Err(TargetUpdateError::Tau { got: 0.0 })
-    /// );
-    /// ```
     pub fn try_new(tau: f32) -> Result<Self, TargetUpdateError> {
         if tau > 0.0 && tau <= 1.0 {
             Ok(Self(tau))
@@ -319,7 +296,7 @@ impl TargetUpdate {
     }
 
     /// The Polyak coefficient, as the `f32` that
-    /// [`polyak_update`](crate::utils::polyak_update) takes.
+    /// `polyak_update` takes.
     #[must_use]
     pub const fn tau(self) -> f32 {
         self.tau.get()
@@ -390,10 +367,10 @@ impl TargetUpdate {
     }
 }
 
-/// The ways constructing a [`PolyakTau`] or a [`TargetUpdate`] can fail.
+/// The ways constructing a `PolyakTau` or a [`TargetUpdate`] can fail.
 ///
 /// Allocation-free and `Copy`, carrying the offending value where there is one.
-/// Returned by [`PolyakTau::try_new`] and [`TargetUpdate::try_polyak`]. A
+/// Returned by `PolyakTau::try_new` and [`TargetUpdate::try_polyak`]. A
 /// dedicated error rather than
 /// [`ConfigError`](rlevo_core::config::ConfigError) because construction has no
 /// config/field name to report — a config that builds a [`TargetUpdate`] from

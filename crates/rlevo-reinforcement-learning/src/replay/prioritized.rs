@@ -103,36 +103,6 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// (ADR 0029), so a seeded run is reproducible end to end. The retired type
 /// called `rand::rng()` internally and was therefore untestable.
 ///
-/// # Examples
-///
-/// ```
-/// use rand::SeedableRng;
-/// use rand::rngs::StdRng;
-/// use rlevo_reinforcement_learning::replay::{
-///     ImportanceExponent, PrioritizedReplay, PrioritizedReplayConfig, ReplayStrategy,
-/// };
-///
-/// let config = PrioritizedReplayConfig { capacity: 8, ..Default::default() };
-/// let mut buffer: PrioritizedReplay<&str> = PrioritizedReplay::new(config)?;
-///
-/// for label in ["a", "b", "c", "d"] {
-///     buffer.push(label); // enters at the running max priority
-/// }
-///
-/// let mut rng = StdRng::seed_from_u64(7);
-/// let batch = buffer.sample(2, ImportanceExponent::new(0.4), &mut rng)?;
-/// assert_eq!(batch.len(), 2);
-///
-/// // The largest importance weight in a batch is always exactly 1.0.
-/// let weights = batch.weights().expect("prioritized replay emits weights");
-/// assert!(weights.iter().any(|&w| w == 1.0));
-///
-/// // Feed the TD errors back: this is the edge that makes it PER.
-/// let ids = batch.ids().to_vec();
-/// buffer.update_priorities_from_td_errors(&ids, &[0.5, -2.0])?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-///
 /// [`DEFAULT_PRIORITY_EPSILON`]: super::DEFAULT_PRIORITY_EPSILON
 #[derive(Debug, Clone)]
 pub struct PrioritizedReplay<T> {
@@ -199,24 +169,21 @@ impl<T> PrioritizedReplay<T> {
         })
     }
 
+    #[cfg(test)]
     /// The maximum number of transitions held before eviction begins.
     #[must_use]
     pub const fn capacity(&self) -> usize {
         self.capacity
     }
 
-    /// Schaul Eq. 1's `$\alpha$`.
-    #[must_use]
-    pub const fn priority_exponent(&self) -> f32 {
-        self.priority_exponent
-    }
-
+    #[cfg(test)]
     /// Schaul §3.3's `$\epsilon$`.
     #[must_use]
     pub const fn priority_epsilon(&self) -> f32 {
         self.priority_epsilon
     }
 
+    #[cfg(test)]
     /// Schaul Algorithm 1 line 6's `max_{i<t} p_i` — the priority the next
     /// [`push`](ReplayStrategy::push) will assign.
     ///
@@ -231,6 +198,7 @@ impl<T> PrioritizedReplay<T> {
         self.max_priority
     }
 
+    #[cfg(test)]
     /// Total inserts over the buffer's lifetime. The next pushed transition
     /// receives `TransitionId::new(pushes())`.
     #[must_use]
@@ -254,18 +222,21 @@ impl<T> PrioritizedReplay<T> {
         Priority::from_td_error(td_error, self.priority_epsilon)
     }
 
+    #[cfg(test)]
     /// The stored priority `p_i` for `id`, or `None` if it has been evicted.
     #[must_use]
     pub fn priority_of(&self, id: TransitionId) -> Option<Priority> {
         self.slot_of(id).map(|slot| self.priorities[slot])
     }
 
+    #[cfg(test)]
     /// Schaul Eq. 1's denominator `$\sum_k p_k^\alpha$` — the sum-tree root, `p_total`.
     #[must_use]
     pub fn total_priority(&self) -> f64 {
         self.index.total()
     }
 
+    #[cfg(test)]
     /// Schaul Eq. 1's `$P(i) = p_i^\alpha / \sum_k p_k^\alpha$`, or `None` if `id` has been
     /// evicted.
     ///
@@ -453,31 +424,8 @@ impl<T> ReplayStrategy<T> for PrioritizedReplay<T> {
         self.items.len()
     }
 
-    fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
     fn get(&self, id: TransitionId) -> Option<&T> {
         self.slot_of(id).map(|slot| &self.items[slot])
-    }
-
-    fn get_mut(&mut self, id: TransitionId) -> Option<&mut T> {
-        let slot = self.slot_of(id)?;
-        Some(&mut self.items[slot])
-    }
-
-    fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T>
-    where
-        T: 'a,
-    {
-        // FIFO over the live window, oldest first — which is *not* slot order
-        // once the ring has wrapped.
-        let first = self.first_id();
-        let cap = self.capacity_u64();
-        (0..self.live_len()).map(move |offset| {
-            let slot = usize::try_from((first + offset) % cap).unwrap_or(0);
-            &self.items[slot]
-        })
     }
 
     /// Draws `batch_size` ids by Schaul's **stratified** scheme (Appendix
@@ -557,6 +505,24 @@ impl<T> ReplayStrategy<T> for PrioritizedReplay<T> {
 }
 
 #[cfg(test)]
+impl<T> PrioritizedReplay<T> {
+    /// Iterates the stored transitions, oldest first.
+    pub(crate) fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T>
+    where
+        T: 'a,
+    {
+        // FIFO over the live window, oldest first — which is *not* slot order
+        // once the ring has wrapped.
+        let first = self.first_id();
+        let cap = self.capacity_u64();
+        (0..self.live_len()).map(move |offset| {
+            let slot = usize::try_from((first + offset) % cap).unwrap_or(0);
+            &self.items[slot]
+        })
+    }
+}
+
+#[cfg(test)]
 mod tests {
     // Exact comparison is intentional throughout this test module: the values are
     // config literals read back unchanged, or a computed result whose bit-exactness
@@ -613,7 +579,7 @@ mod tests {
     #[test]
     fn test_prioritized_replay_starts_empty() {
         let b = buffer(4, 0.6);
-        assert!(b.is_empty(), "a fresh buffer holds nothing");
+        assert_eq!(b.len(), 0, "a fresh buffer holds nothing");
         assert_eq!(b.len(), 0, "len must agree with is_empty");
         assert_eq!(b.pushes(), 0, "no inserts have happened");
         assert_eq!(b.capacity(), 4, "capacity is taken from the config");
@@ -734,15 +700,6 @@ mod tests {
             1.0,
             "a dropped writeback must not advance the running max either"
         );
-    }
-
-    #[test]
-    fn test_get_mut_reaches_the_stored_item() {
-        let mut b = buffer(4, 0.6);
-        b.push(10);
-        let id = TransitionId::new(0);
-        *b.get_mut(id).expect("id 0 is live") = 99;
-        assert_eq!(b.get(id).copied(), Some(99), "get_mut must alias storage");
     }
 
     #[test]

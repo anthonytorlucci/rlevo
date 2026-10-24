@@ -4,7 +4,7 @@
 //! network, an Adam optimizer, a uniform replay buffer, and the `$\epsilon$`-greedy exploration
 //! schedule shared with DQN. Action selection uses the expected Q-value
 //! `$\sum_i z_i \cdot \text{softmax}(\text{logits}_i)$`; the learning step projects the bootstrap
-//! distribution onto the fixed atom support (see [`crate::algorithms::c51::projection`]) and
+//! distribution onto the fixed atom support (see `crate::algorithms::c51::projection`) and
 //! minimises the categorical cross-entropy against the policy's log-probabilities.
 
 use rlevo_core::agent::{Agent, Transition};
@@ -55,14 +55,14 @@ pub struct LearnOutcome {
 ///
 /// # Field notes
 ///
-/// - `policy_net` is held in a [`Slot`], the newtype that owns a network across
+/// - `policy_net` is held in a `Slot`, the newtype that owns a network across
 ///   Burn's by-value [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step). Every
 ///   read goes through `Slot::get`, and the module leaves the field only for the
 ///   duration of the `step` call itself inside `Slot::step_with` — the forward
 ///   pass, loss, and `backward` all run on a borrow, so a panic in any of them
 ///   leaves the agent intact. The one exception is a panic *inside* `step`,
 ///   which poisons the slot permanently; that window is irreducible and is
-///   documented on [`Slot`].
+///   documented on `Slot`.
 /// - `target_net` is a [`valid`](burn::module::Module::valid) snapshot of the policy, on the
 ///   plain device, so computing bootstrap distributions never builds an
 ///   autodiff graph.
@@ -428,7 +428,7 @@ where
     ///
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
-    /// [`Slot`].
+    /// `Slot`.
     pub fn inference_net(&self) -> M {
         self.policy().valid()
     }
@@ -674,7 +674,7 @@ where
     ///    `argmax E[Z]` (the double-DQN selection step).
     /// 3. Project the bootstrap distribution through the Bellman operator
     ///    onto the fixed support via
-    ///    [`project_distribution`].
+    ///    `project_distribution`.
     /// 4. Run the policy network on current-observations (autodiff device).
     /// 5. Compute categorical cross-entropy between the projected target and
     ///    the policy's log-softmax probabilities at the taken action.
@@ -703,8 +703,8 @@ where
     ///
     /// Panics if the agent was poisoned by a panic *inside* a previous
     /// optimizer step — the one window in which the network is out of its
-    /// [`Slot`]. Such an agent cannot be recovered and must be rebuilt; see
-    /// [`Slot`] for why. Steps 1–6 above all run against a borrow of the
+    /// `Slot`. Such an agent cannot be recovered and must be rebuilt; see
+    /// `Slot` for why. Steps 1–6 above all run against a borrow of the
     /// network, so a panic in any of them (a shape mismatch, a device error, a
     /// failed host read) leaves the agent fully usable.
     ///
@@ -712,7 +712,7 @@ where
     ///
     /// Returns a [`PolyakError`] if the target soft-update finds a
     /// parameter-topology mismatch between the policy and target networks (see
-    /// [`polyak_update`]). Every in-tree target is
+    /// `polyak_update`). Every in-tree target is
     /// cloned from its policy, so this cannot occur for agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure

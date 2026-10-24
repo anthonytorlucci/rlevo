@@ -2,10 +2,12 @@
 //!
 //! Owns the policy network (categorical logits head + auxiliary value head),
 //! a separate main value network, two Adam optimizers, the PPO
-//! [`RolloutBuffer`], an [`AuxRolloutBuffer`] accumulating the last
-//! `n_iteration` rollouts, and the configuration. One iteration consists of:
+//! `RolloutBuffer`, an `AuxRolloutBuffer` accumulating the last
+//! `n_iteration` rollouts, and the configuration. It implements [`Agent`],
+//! through which a driver steps it; while training, its hooks run one
+//! iteration per rollout:
 //!
-//! 1. [`PpgAgent::act`] / `PpgAgent::record_step` — collect a rollout.
+//! 1. `act` / `PpgAgent::record_step` — collect a rollout.
 //! 2. `PpgAgent::finalize_rollout` — compute GAE (shared with PPO).
 //! 3. `PpgAgent::snapshot_into_aux_buffer` — snapshot observations and
 //!    target returns into the auxiliary buffer.
@@ -45,7 +47,7 @@ use crate::algorithms::ppo::ppo_agent::{ActOutcome, PpoUpdateStats};
 use crate::algorithms::ppo::ppo_config::annealed_learning_rate;
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
-use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
+use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd, gather_f32};
 
 /// Summary of one auxiliary phase (across `e_aux` epochs and its minibatches).
 #[derive(Debug, Clone, Copy)]
@@ -77,7 +79,7 @@ pub struct AuxPhaseStats {
 /// Owns the policy network (`P`, which must implement both
 /// [`PpoPolicy`] and
 /// [`PpgAuxValueHead`]), a separate main value network (`V`), two Adam
-/// optimizers, a PPO [`RolloutBuffer`], an [`AuxRolloutBuffer`], and the
+/// optimizers, a PPO `RolloutBuffer`, an `AuxRolloutBuffer`, and the
 /// [`PpgConfig`].
 ///
 /// # Type parameters
@@ -96,14 +98,14 @@ pub struct AuxPhaseStats {
 ///
 /// # Network ownership
 ///
-/// The policy and value networks live in [`Slot`]s because Burn's
+/// The policy and value networks live in `Slot`s because Burn's
 /// `ModuleOptimizer::step` consumes the module by value. In both the policy phase
 /// (`policy_phase_update`) and the auxiliary phase
 /// (`maybe_aux_phase`), every fallible operation — the
 /// forward pass, the losses, `backward`, and `GradientsParams::from_grads` —
 /// runs on a borrow, so a panic there leaves both networks intact and the agent
 /// usable. Only a panic *inside* the optimizer step itself poisons a slot; that
-/// window is irreducible and terminal for the agent (see [`Slot`]).
+/// window is irreducible and terminal for the agent (see `Slot`).
 pub struct PpgAgent<P, V, O, const OR: usize, const BOR: usize>
 where
     P: PpoPolicy<BOR> + PpgAuxValueHead<BOR>,
@@ -196,7 +198,7 @@ where
     ///
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
-    /// [`Slot`].
+    /// `Slot`.
     pub fn inference_net(&self) -> P {
         self.policy().valid()
     }
@@ -777,18 +779,10 @@ where
                 let actions: P::ActionTensor =
                     P::action_tensor_from_flat(&action_flat, n, &self.device);
 
-                let old_lp: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.log_probs(), chunk, &self.device);
-                let old_v: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.values(), chunk, &self.device);
-                let returns: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.returns(), chunk, &self.device);
-                let advs_raw: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.advantages(), chunk, &self.device);
+                let old_lp: Tensor<1> = gather_f32(self.buffer.log_probs(), chunk, &self.device);
+                let old_v: Tensor<1> = gather_f32(self.buffer.values(), chunk, &self.device);
+                let returns: Tensor<1> = gather_f32(self.buffer.returns(), chunk, &self.device);
+                let advs_raw: Tensor<1> = gather_f32(self.buffer.advantages(), chunk, &self.device);
                 let advs = if cfg.normalize_advantages {
                     normalize_advantages(advs_raw)
                 } else {

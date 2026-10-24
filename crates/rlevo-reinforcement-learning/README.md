@@ -8,7 +8,6 @@ This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set
 
 All algorithms operate over the `rlevo-core` environment and agent abstractions. An agent takes the Burn `Device` you build and trains on its autodiff form, so the same code runs on `flex` (CPU, bit-deterministic) and `wgpu` (GPU, within `1e-5` relative tolerance). This crate selects neither: through the `rlevo` umbrella, the `flex` (default) or `wgpu` feature does, and depending on this crate directly you add `burn` with a backend feature yourself (this crate turns on Burn's `optim`, which brings `autodiff`).
 
-
 ### Training an agent
 
 A driver steps an agent through `Agent`: `act` for each step, `on_transition` to show it what happened, `on_episode_end` when an episode ends, and `set_training` to switch exploration and learning on or off. The harness has two drivers. `rlevo::harness::evaluator::train(&mut env, &mut agent, steps, max_steps, &mut rng)` trains an agent you keep, and returns the episodes it completed. `Evaluator::run_suite` with `EvaluatorConfig::train_steps` set trains a fresh agent per trial, then evaluates it. The six off-policy agents also keep `remember` and `learn_step` public, for a caller that paces learning itself.
@@ -141,7 +140,7 @@ Key components:
 | `policies/gaussian.rs` | `TanhGaussianPolicyHead` (continuous) |
 | `rollout.rs` | `RolloutBuffer` + free `compute_gae` |
 | `losses.rs` | `clipped_surrogate`, `clipped_value_loss`, `approx_kl`, `clip_fraction` |
-| `ppo_agent.rs` | `PpoAgent` — `act`, `record_step`, `finalize_rollout`, `update` |
+| `ppo_agent.rs` | `PpoAgent` and its `Agent` impls, one per shipped head: it collects a rollout from `on_transition` and updates when the rollout is full |
 
 Default hyperparameters follow CleanRL's `ppo.py`:
 
@@ -352,31 +351,19 @@ The following algorithms are planned but not implemented; this crate has no code
 
 ## Shared Infrastructure
 
-### Network ownership (`algorithms::Slot`)
+The agents share their parts: a network-ownership slot, the exploration schedules, the Bellman-target and Polyak helpers, the replay buffers, PPO's rollout buffer and the loss kernels. All of them are crate-private (ADR 0095). An algorithm author builds on an agent, its config and the network traits; a part can be made public later, when an author needs it, without breaking anyone.
 
-Every agent holds its trainable networks in a `Slot<M>`. Burn's `Optimizer::step` consumes the module by value, so a network has to leave the agent to be updated. `Slot` keeps it out for the `step` call and nothing else: the forward pass, the loss, `backward` and `GradientsParams::from_grads` all run on a borrow from `get`, and only `step_with` moves the module. A panic in any of the borrowed work leaves the agent usable. A panic inside `Optimizer::step` itself loses the network, and the agent is then *poisoned*: its methods panic, and it must be rebuilt from a fresh network. `Slot` is public, so an agent written outside this crate can hold its networks the same way, and code that holds a `Slot` can check `is_poisoned` without unwinding. The built-in agents keep their slots private.
+### Network ownership
 
-### Exploration (`algorithms::dqn::exploration`)
+Every agent holds its trainable networks in a slot. Burn's `Optimizer::step` consumes the module by value, so a network has to leave the agent to be updated. The slot keeps it out for the `step` call and nothing else: the forward pass, the loss, `backward` and `GradientsParams::from_grads` all run on a borrow, and only the step moves the module. A panic in any of the borrowed work leaves the agent usable. A panic inside `Optimizer::step` itself loses the network, and the agent is then *poisoned*: its methods panic, and it must be rebuilt from a fresh network.
 
-`EpsilonGreedy` is shared across all discrete value-based algorithms (DQN, C51, QR-DQN). The schedule decays $\epsilon$ multiplicatively from `epsilon_start` to `epsilon_end` at rate `epsilon_decay`.
+### Target networks (`target`)
 
-### Utilities (`utils`)
-
-`compute_target_q_values` — one-step Bellman target computation, called by DQN, DDPG, TD3, and SAC. QR-DQN uses its quantile-vector sibling `compute_target_quantiles`; C51 projects a distribution instead (`project_distribution`).
-
-`polyak_update` — soft target-network update ($\theta_{target} \leftarrow \tau\theta + (1-\tau)\theta_{target}$). Every off-policy agent calls it on its own target networks, so a model trait (`DqnModel`, `DeterministicPolicy`, `ContinuousQ`) asks only for `forward`.
+`TargetUpdate` is the one target-network rule every off-policy agent's config carries: a cadence in gradient updates and a Polyak coefficient, a hard copy being $\tau = 1$ (ADRs 0058, 0059). A target is always cloned from its network, so the `PolyakError` an agent's `learn_step` can return names a parameter only a hand-built target could lack (ADR 0057).
 
 ### Experience Replay (`replay`)
 
-The replay-strategy seam (ADR 0050): off-policy transition storage shared across the value-based and actor-critic algorithms. The `replay` module lives here rather than in `rlevo-core` per ADR 0003 (replay/experience/metrics live where they are consumed). The seam decides *which stored transitions come back*; it never touches a `Tensor`, `Backend`, or device — staging into tensors stays in each agent.
-
-| Item | Description |
-|------|-------------|
-| `ReplayStrategy<T>` | The seam trait: `push` / `sample` / `get` over a stored item `T`. Pure host-side bookkeeping, testable without a Burn backend. |
-| `UniformReplay<T>` | FIFO, i.i.d.-with-replacement buffer. The **default** every agent uses. Emits no importance weights. |
-| `PrioritizedReplay<T>` | Schaul et al. (2016) proportional PER over a sum-tree: $P(i) \propto p_i^\alpha$, stratified draw, max-normalized importance weights, and a `update_priorities` writeback. **Opt-in**, value-based agents only. |
-| `ReplayKind<T>` | Enum dispatch over the two strategies; `ReplayKind::uniform(cap)` / `ReplayKind::prioritized(config)`. What DQN/C51/QR-DQN actually store. |
-| `PrioritizedReplaySettings` | Agent-config opt-in (`Option<…>`): Schaul's $\alpha$/$\epsilon$ plus the $\beta$ importance-sampling schedule. `Some` selects `PrioritizedReplay`; `None` selects `UniformReplay`. |
+The off-policy agents store transitions in a uniform FIFO buffer by default. The value-based three (DQN, C51, QR-DQN) can instead use Schaul et al.'s proportional prioritized replay, chosen by `PrioritizedReplaySettings` on their config: Schaul's $\alpha$/$\epsilon$ plus the $\beta$ importance-sampling schedule. The buffers themselves are crate-private.
 
 PER is enabled through the agent config, not by hand-constructing a buffer:
 
@@ -421,7 +408,7 @@ let cfg = DqnTrainingConfig {
 The agent's constructor validates the config and returns
 `Result<_, ConfigError>`; call `cfg.validate()` to check it earlier.
 
-All config structs are `Clone + Debug`. The replay configs (`UniformReplayConfig`, `PrioritizedReplayConfig`) and `PrioritizedReplaySettings` also derive `Serialize` / `Deserialize`; the training configs and the policy-head configs do not.
+All config structs are `Clone + Debug`. `PrioritizedReplaySettings` also derives `Serialize` / `Deserialize`; the training configs and the policy-head configs do not.
 
 ---
 

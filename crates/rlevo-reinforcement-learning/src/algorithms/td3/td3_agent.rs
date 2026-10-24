@@ -7,7 +7,7 @@
 //! relative to [`crate::algorithms::ddpg::ddpg_agent::DdpgAgent`] are
 //! (1) twin critics with a `min`-of-targets Bellman backup,
 //! (2) Gaussian target-policy smoothing via
-//! [`super::target_smoothing::smoothed_target_action`], and
+//! `super::target_smoothing::smoothed_target_action`, and
 //! (3) a delayed actor update every `policy_frequency`-th critic step,
 //! alongside a target Polyak update on its own, independently configured
 //! cadence (ADR 0058).
@@ -85,7 +85,7 @@ pub(crate) fn compute_twin_critic_target(
 ///
 /// # Network ownership
 ///
-/// The actor and both critics live in a [`Slot`], because Burn's
+/// The actor and both critics live in a `Slot`, because Burn's
 /// [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step) consumes the module it
 /// updates and each network must briefly leave the agent to be trained. Every
 /// *fallible* operation — the forward pass, the loss, `backward`, and gradient
@@ -97,7 +97,7 @@ pub(crate) fn compute_twin_critic_target(
 /// # Panics
 ///
 /// If `ModuleOptimizer::step` itself panics (a shape mismatch, a device error), the
-/// network it was stepping is lost; [`Slot`] documents why that residual window
+/// network it was stepping is lost; `Slot` documents why that residual window
 /// cannot be closed. The agent is then *poisoned* with respect to that one
 /// network: every later read of it — [`act`](Self::act),
 /// [`inference_net`](Self::inference_net), [`learn_step`](Self::learn_step) —
@@ -812,7 +812,7 @@ where
     /// 2. Builds the twin-critic TD target on the plain (non-autodiff) device:
     ///    `$y = r + \gamma(1-d) \cdot \min(Q_1'(s', a'), Q_2'(s', a'))$`
     ///    where `$a' = \text{clip}(\text{target\_actor}(s') + \text{clip}(\mathcal{N}(0, \sigma^2), -c, c), \text{low}, \text{high})$`
-    ///    (target-policy smoothing; see [`super::target_smoothing`]).
+    ///    (target-policy smoothing; see `super::target_smoothing`).
     /// 3. Runs an independent backward pass and Adam step for each critic.
     /// 4. Every `policy_frequency`-th critic step, updates the actor with
     ///    deterministic policy gradient against `critic_1`.
@@ -841,7 +841,7 @@ where
     ///
     /// Returns a [`PolyakError`] if a target soft-update finds a
     /// parameter-topology mismatch between a live network and its target twin
-    /// (see [`polyak_update`]). Every in-tree
+    /// (see `polyak_update`). Every in-tree
     /// target is cloned from its active network, so this cannot occur for
     /// agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,

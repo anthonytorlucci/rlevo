@@ -66,27 +66,6 @@ pub const DEFAULT_PRIORITY_EXPONENT: f32 = 0.6;
 /// [`sample`](super::ReplayStrategy::sample) (ADR 0050 §11). The buffer has no step counter, and
 /// giving it one would duplicate the agent's — a second source of truth of exactly the shape
 /// `rules.md` §10 forbids — and would be wrong outright the moment two learners share one buffer.
-///
-/// # Examples
-///
-/// ```
-/// use rlevo_core::config::Validate;
-/// use rlevo_reinforcement_learning::replay::PrioritizedReplayConfig;
-///
-/// let config = PrioritizedReplayConfig {
-///     capacity: 100_000,
-///     ..PrioritizedReplayConfig::default()
-/// };
-/// assert!(config.validate().is_ok());
-///
-/// // alpha = 0 recovers Schaul Eq. 1's uniform case and is a valid setting.
-/// let uniform = PrioritizedReplayConfig { priority_exponent: 0.0, ..config };
-/// assert!(uniform.validate().is_ok());
-///
-/// // A zero-capacity buffer is rejected, not silently tolerated.
-/// let empty = PrioritizedReplayConfig { capacity: 0, ..config };
-/// assert_eq!(empty.validate().unwrap_err().field, "capacity");
-/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PrioritizedReplayConfig {
     /// The maximum number of transitions held; the oldest is evicted past this.
@@ -164,23 +143,6 @@ impl Validate for PrioritizedReplayConfig {
 /// construction time. This default therefore serves standalone use and
 /// [`Deserialize`] of a manifest that omits the field; it is not a claim about
 /// what any algorithm should want.
-///
-/// # Examples
-///
-/// ```
-/// use rlevo_core::config::Validate;
-/// use rlevo_reinforcement_learning::replay::UniformReplayConfig;
-///
-/// let config = UniformReplayConfig { capacity: 10_000 };
-/// assert!(config.validate().is_ok());
-///
-/// // The library default is itself valid, as every default must be.
-/// assert!(UniformReplayConfig::default().validate().is_ok());
-///
-/// // A zero-capacity buffer is rejected, not silently tolerated.
-/// let empty = UniformReplayConfig { capacity: 0 };
-/// assert_eq!(empty.validate().unwrap_err().field, "capacity");
-/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct UniformReplayConfig {
     /// The maximum number of transitions held; the oldest is evicted past this.

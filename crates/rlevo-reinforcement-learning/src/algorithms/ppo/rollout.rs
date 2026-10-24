@@ -59,7 +59,6 @@ pub enum StepEnd {
 /// step `i`. Advantages and returns are only populated after [`RolloutBuffer::finish`].
 #[derive(Debug)]
 pub struct RolloutBuffer<O> {
-    capacity: usize,
     action_dim: usize,
     obs: Vec<O>,
     action_flat: Vec<f32>,
@@ -117,7 +116,6 @@ impl<O: Clone> RolloutBuffer<O> {
              element count of the flattened action buffer"
         );
         Self {
-            capacity,
             action_dim,
             obs: Vec::with_capacity(capacity),
             action_flat: Vec::with_capacity(flat_len),
@@ -233,18 +231,6 @@ impl<O: Clone> RolloutBuffer<O> {
         self.obs.is_empty()
     }
 
-    /// Capacity, i.e. `$\text{num\_envs} \cdot \text{num\_steps}$`.
-    #[must_use]
-    pub fn capacity(&self) -> usize {
-        self.capacity
-    }
-
-    /// Action components per step.
-    #[must_use]
-    pub fn action_dim(&self) -> usize {
-        self.action_dim
-    }
-
     /// Shuffled step indices for one epoch. Uses the provided RNG.
     pub fn indices_shuffled<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Vec<usize> {
         use rand::seq::SliceRandom;
@@ -259,6 +245,7 @@ impl<O: Clone> RolloutBuffer<O> {
         &self.obs
     }
 
+    #[cfg(test)]
     /// Raw action components, shape `(num_steps, action_dim)` in row-major order.
     #[must_use]
     pub fn action_flat(&self) -> &[f32] {
@@ -288,14 +275,6 @@ impl<O: Clone> RolloutBuffer<O> {
     #[must_use]
     pub fn returns(&self) -> &[f32] {
         &self.returns
-    }
-
-    /// Builds a 1-D float tensor indexed by `indices`, on `device`.
-    #[must_use]
-    pub fn gather_f32(&self, data: &[f32], indices: &[usize], device: &Device) -> Tensor<1> {
-        let gathered: Vec<f32> = indices.iter().map(|&i| data[i]).collect();
-        let n = gathered.len();
-        Tensor::<1>::from_data(TensorData::new(gathered, vec![n]), device)
     }
 
     /// Extracts the action rows for `indices` as a flat `Vec<f32>` of length
@@ -398,6 +377,14 @@ pub fn compute_gae(
         returns[t] = advantages[t] + values[t];
     }
     (advantages, returns)
+}
+
+/// Builds a 1-D float tensor of `data` at `indices`, on `device`.
+#[must_use]
+pub(crate) fn gather_f32(data: &[f32], indices: &[usize], device: &Device) -> Tensor<1> {
+    let gathered: Vec<f32> = indices.iter().map(|&i| data[i]).collect();
+    let n = gathered.len();
+    Tensor::<1>::from_data(TensorData::new(gathered, vec![n]), device)
 }
 
 #[cfg(test)]

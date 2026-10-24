@@ -64,18 +64,13 @@ pub const GPU_TARGETS: &[GpuTarget] = &[
     },
     GpuTarget {
         package: "rlevo-reinforcement-learning",
-        test: Some("c51_projection_backend_parity"),
-        reason: "a NaN reward must stay loud through the C51 projection on \
-                 Metal, where Burn 0.21's `clamp` rescued NaN to `lo` and \
-                 produced a well-formed, wrongly-confident probability row",
-    },
-    GpuTarget {
-        package: "rlevo-reinforcement-learning",
         test: None,
-        reason: "`clamp_preserving_nan_matches_flex_on_wgpu` in \
-                 `algorithms::shared` — the unit-level half of the same NaN \
-                 divergence: on Burn 0.21 Flex propagated it and Metal rescued \
-                 it to `lo`",
+        reason: "one NaN divergence, two halves: \
+                 `clamp_preserving_nan_matches_flex_on_wgpu` in \
+                 `algorithms::shared`, where on Burn 0.21 Flex propagated a NaN \
+                 and Metal rescued it to `lo`; and `wgpu_matches_flex_on_non_finite_rewards` \
+                 in `algorithms::c51::projection`, where that rescue made a NaN \
+                 reward a well-formed, wrongly-confident probability row",
     },
 ];
 
@@ -182,6 +177,10 @@ fn run_gpu_test(entry: &GpuTarget, args: &TestGpuCmdArgs) -> Result<()> {
         "--ignored".to_string(),
         "--color=always".to_string(),
     ]);
+    // Each GPU test holds process-global device state that another GPU test
+    // in the same binary would share, so a binary's ignored tests run one at
+    // a time.
+    cmd_args.push("--test-threads=1".to_string());
 
     run_process_for_package(
         "cargo",

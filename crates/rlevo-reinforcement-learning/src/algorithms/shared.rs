@@ -106,34 +106,6 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 /// `step` itself is terminal for the agent that owns the slot. A poisoned slot
 /// cannot be repaired; the owning agent must be rebuilt from a fresh network.
 ///
-/// # Examples
-///
-/// Every fallible operation runs on a borrow from [`get`](Self::get) — the
-/// forward pass, the loss, `backward`, and [`GradientsParams::from_grads`]
-/// (which takes `&M` and carries no lifetime, so NLL ends the borrow at its
-/// last use). Only then does [`step_with`](Self::step_with) move the module
-/// out for the optimizer step:
-///
-/// ```
-/// use burn::nn::{Linear, LinearConfig};
-/// use burn::optim::{AdamConfig, GradientsParams};
-/// use burn::tensor::{Device, Tensor};
-/// use rlevo_reinforcement_learning::algorithms::Slot;
-///
-/// let device = Device::flex().autodiff();
-/// let mut net = Slot::new(LinearConfig::new(2, 1).init(&device));
-/// let mut optimizer = AdamConfig::new().init();
-///
-/// // A panic anywhere in these three lines leaves `net` populated.
-/// let input = Tensor::<2>::from_floats([[0.5_f32, -0.25]], &device);
-/// let loss = net.get().forward(input).sum();
-/// let grads = GradientsParams::from_grads(loss.backward(), net.get());
-///
-/// // Only a panic inside this call can poison the slot.
-/// net.step_with(&mut optimizer, 1e-2, grads);
-/// assert!(!net.is_poisoned());
-/// ```
-///
 /// Post-step reads, such as refreshing a target network with
 /// `net.get().valid()`, go through [`get`](Self::get) too.
 ///
@@ -854,7 +826,6 @@ impl FiniteLossGuard {
 ///
 /// One guard instance owns one ingestion site, mirroring the one-guard-per-loss
 /// site rule above.
-///
 pub(crate) struct FiniteRewardGuard {
     /// Running count of transitions discarded for a non-finite reward.
     dropped: u64,

@@ -91,17 +91,17 @@ pub(crate) fn compute_sac_target(
 ///
 /// # Network ownership
 ///
-/// The actor and both critics live in a [`Slot`], which owns each network
+/// The actor and both critics live in a `Slot`, which owns each network
 /// across Burn's by-value [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step).
 /// Every read — the forward pass, [`GradientsParams::from_grads`], the
-/// `.valid()` snapshots — goes through [`Slot::get`], so a network is out of
+/// `.valid()` snapshots — goes through `Slot::get`, so a network is out of
 /// its field only for the duration of the `step` call inside
-/// [`Slot::step_with`].
+/// `Slot::step_with`.
 ///
 /// The three slots are stepped independently and in sequence, so their windows
 /// are disjoint: a panic inside `critic_1`'s optimizer step poisons `critic_1`
 /// alone and leaves `critic_2` and the actor intact. A panic inside a `step`
-/// is nonetheless terminal for the network it was stepping — see [`Slot`] for
+/// is nonetheless terminal for the network it was stepping — see `Slot` for
 /// why that residual window cannot be closed.
 pub struct SacAgent<
     Actor,
@@ -410,7 +410,7 @@ where
     /// # Does NOT include `$\alpha$`-update skips
     ///
     /// The temperature (`$\alpha$`) update carries its own, separate non-finite guard on
-    /// [`LogAlpha`] (ADR 0056, Decision 5), which was deliberately kept distinct from the shared
+    /// `LogAlpha` (ADR 0056, Decision 5), which was deliberately kept distinct from the shared
     /// `FiniteLossGuard` — it guards a closed-form Adam step driven by the batch-mean log-prob, not
     /// a `backward()` over a loss tensor. Its skips are **not** summed here. This accessor is
     /// therefore "all non-finite *gradient* skips", not "all non-finite events in the agent"; do
@@ -442,7 +442,6 @@ where
     /// still in the buffer and will be sampled again. Neither counter bounds the
     /// other, and a run can show one without the other.
     ///
-    /// [`LogAlpha`]: super::sac_alpha::LogAlpha
     #[must_use]
     pub const fn skipped_updates(&self) -> u64 {
         self.skipped_critic_1_updates()
@@ -815,7 +814,7 @@ where
     ///
     /// Returns `None` if the agent is still in warm-up.
     ///
-    /// Every network stays in its [`Slot`] for the whole forward / loss /
+    /// Every network stays in its `Slot` for the whole forward / loss /
     /// `backward` region and is moved out only for its own optimizer step, so a
     /// panic anywhere in that region leaves all three networks intact and the
     /// agent usable.
@@ -831,7 +830,7 @@ where
     ///
     /// Returns a [`PolyakError`] if a target soft-update finds a
     /// parameter-topology mismatch between a live critic and its target twin
-    /// (see [`polyak_update`]). Every in-tree
+    /// (see `polyak_update`). Every in-tree
     /// target is cloned from its active critic, so this cannot occur for
     /// agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,

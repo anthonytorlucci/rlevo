@@ -209,7 +209,11 @@ impl Validate for PpoTrainingConfig {
 // history length, iteration number. All are bounded by configured sizes far
 // below f32's 2^24 (f64's 2^53) exact-integer limit.
 #[allow(clippy::cast_precision_loss)]
-pub fn annealed_learning_rate(base_lr: f64, iteration: usize, total_iterations: usize) -> f64 {
+pub(crate) fn annealed_learning_rate(
+    base_lr: f64,
+    iteration: usize,
+    total_iterations: usize,
+) -> f64 {
     if total_iterations == 0 {
         return base_lr;
     }

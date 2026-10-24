@@ -58,74 +58,48 @@ pub const DEFAULT_BETA_ANNEAL_STEPS: usize = 100_000;
 /// [`beta_anneal_steps`](Self::beta_anneal_steps) is `nonzero`-validated. A zero there makes the
 /// evaluated progress fraction `0/0 = NaN`, and a `NaN` `$\beta$` poisons the importance weights,
 /// then the loss, then every gradient the optimizer touches next — the release-build defect ADR
-/// 0051 §3 exists to close. Validation kills the `0/0` at its source; [`beta`](Self::beta) clamps
-/// so an in-range value is produced by construction; and [`ImportanceExponent`] is the loud-panic
+/// 0051 §3 exists to close. Validation kills the `0/0` at its source; `beta` clamps
+/// so an in-range value is produced by construction; and `ImportanceExponent` is the loud-panic
 /// backstop for any residual bug.
 ///
 /// # Examples
 ///
-/// The opt-in prioritized-replay path, end to end: these settings build a
-/// [`PrioritizedReplay`](super::PrioritizedReplay), which then draws a
-/// stratified minibatch carrying one importance-sampling weight per id.
+/// Opting a value-based agent into prioritized replay:
 ///
 /// ```
-/// use rand::SeedableRng;
-/// use rand::rngs::StdRng;
-/// use rlevo_core::environment::EpisodeStatus;
-/// use rlevo_reinforcement_learning::replay::{
-///     DiscreteTransition, PrioritizedReplay, PrioritizedReplaySettings, ReplayStrategy,
-/// };
+/// use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
+/// use rlevo_reinforcement_learning::replay::PrioritizedReplaySettings;
 ///
 /// // Schaul's proportional defaults: alpha = 0.6, beta annealing 0.4 -> 1.0.
-/// let settings = PrioritizedReplaySettings::default();
-///
-/// // Thread the agent's capacity into the buffer-side config, then construct.
-/// let mut buffer: PrioritizedReplay<DiscreteTransition<f32>> =
-///     PrioritizedReplay::new(settings.buffer_config(64)).expect("valid config");
-///
-/// for step in 0..16 {
-///     buffer.push(DiscreteTransition {
-///         obs: step as f32,
-///         action: step % 2,
-///         reward: 1.0,
-///         next_obs: step as f32 + 1.0,
-///         status: EpisodeStatus::Running,
-///     });
-/// }
-///
-/// // beta(0) is the schedule's start; sample with the caller's RNG (ADR 0029).
-/// let mut rng = StdRng::seed_from_u64(7);
-/// let batch = buffer
-///     .sample(8, settings.beta(0), &mut rng)
-///     .expect("sixteen transitions stored");
-///
-/// let weights = batch.weights().expect("prioritized replay emits IS weights");
-/// assert_eq!(weights.len(), 8, "one importance weight per drawn id");
-/// assert!(weights.iter().all(|w| w.is_finite() && *w > 0.0 && *w <= 1.0));
+/// let config = DqnTrainingConfig {
+///     prioritized_replay: Some(PrioritizedReplaySettings::default()),
+///     ..DqnTrainingConfig::default()
+/// };
+/// assert!(config.prioritized_replay.is_some());
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PrioritizedReplaySettings {
     /// Schaul Eq. 1's `$\alpha$`. Must lie in `[0, 1]`; `0.0` is the uniform case. Defaults to
-    /// [`DEFAULT_PRIORITY_EXPONENT`] (Table 3, proportional row).
+    /// `DEFAULT_PRIORITY_EXPONENT` (Table 3, proportional row).
     pub priority_exponent: f32,
 
     /// Schaul §3.3's `$\epsilon$` in `$p_i = |\delta_i| + \epsilon$`. Must be finite and strictly
-    /// positive. Defaults to [`DEFAULT_PRIORITY_EPSILON`].
+    /// positive. Defaults to `DEFAULT_PRIORITY_EPSILON`.
     pub priority_epsilon: f32,
 
-    /// Schaul §3.4's `$\beta$` at step 0. Must lie in `[0, 1]`. Defaults to [`DEFAULT_BETA_START`]
+    /// Schaul §3.4's `$\beta$` at step 0. Must lie in `[0, 1]`. Defaults to `DEFAULT_BETA_START`
     /// (`0.4`).
     pub beta_start: f32,
 
     /// Schaul §3.4's annealed `$\beta$` endpoint. Must lie in `[0, 1]`. Defaults to
-    /// [`DEFAULT_BETA_END`] (`1.0`) — the paper's "unbiased near convergence".
+    /// `DEFAULT_BETA_END` (`1.0`) — the paper's "unbiased near convergence".
     pub beta_end: f32,
 
     /// Number of env steps over which `$\beta$` interpolates linearly from `beta_start` to
     /// `beta_end`.
     ///
     /// Must be non-zero: a zero makes the schedule's progress fraction `0/0`
-    /// (ADR 0051 §3). Defaults to [`DEFAULT_BETA_ANNEAL_STEPS`].
+    /// (ADR 0051 §3). Defaults to `DEFAULT_BETA_ANNEAL_STEPS`.
     pub beta_anneal_steps: usize,
 }
 
@@ -142,13 +116,13 @@ impl Default for PrioritizedReplaySettings {
 }
 
 impl PrioritizedReplaySettings {
-    /// Builds the buffer-side [`PrioritizedReplayConfig`] for a replay of `capacity` transitions,
+    /// Builds the buffer-side `PrioritizedReplayConfig` for a replay of `capacity` transitions,
     /// applying this settings' `$\alpha$` and `$\epsilon$`.
     ///
     /// Capacity is threaded from the agent config's `replay_buffer_capacity`
     /// rather than duplicated here, so there is exactly one capacity knob.
     #[must_use]
-    pub fn buffer_config(&self, capacity: usize) -> PrioritizedReplayConfig {
+    pub(crate) fn buffer_config(&self, capacity: usize) -> PrioritizedReplayConfig {
         PrioritizedReplayConfig {
             capacity,
             priority_exponent: self.priority_exponent,
@@ -160,7 +134,7 @@ impl PrioritizedReplaySettings {
     /// `beta_start` to `beta_end` over `beta_anneal_steps`.
     ///
     /// The progress fraction is clamped to `[0, 1]`, and the interpolated value is clamped to
-    /// `[beta_start, 1.0]` **before** constructing the [`ImportanceExponent`], so an in-range
+    /// `[beta_start, 1.0]` **before** constructing the `ImportanceExponent`, so an in-range
     /// `$\beta$` is produced by construction rather than by luck of a limiter's IEEE-754 behaviour
     /// (ADR 0051 §3). With `beta_anneal_steps` non-zero (enforced by [`validate`](Self::validate))
     /// there is no `0/0`, so this is total on any validated settings.
@@ -169,11 +143,11 @@ impl PrioritizedReplaySettings {
     ///
     /// Panics only if the clamped value is non-finite — reachable solely by
     /// bypassing [`validate`](Self::validate) with a `NaN` endpoint (e.g. a
-    /// struct literal), in which case [`ImportanceExponent::new`] panics at this
+    /// struct literal), in which case `ImportanceExponent::new` panics at this
     /// named site rather than letting a `NaN` reach `powf` twenty steps later.
     #[must_use]
     #[allow(clippy::cast_precision_loss)] // step / anneal_steps: exact for the sizes agents reach
-    pub fn beta(&self, step: usize) -> ImportanceExponent {
+    pub(crate) fn beta(&self, step: usize) -> ImportanceExponent {
         let frac = (step as f32 / self.beta_anneal_steps as f32).clamp(0.0, 1.0);
         let raw = self.beta_start + (self.beta_end - self.beta_start) * frac;
         ImportanceExponent::new(raw.clamp(self.beta_start, 1.0))

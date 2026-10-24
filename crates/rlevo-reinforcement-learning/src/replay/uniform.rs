@@ -13,6 +13,7 @@ use rlevo_core::config::{ConfigError, Validate};
 
 use super::config::UniformReplayConfig;
 use super::{ImportanceExponent, ReplayBufferError, ReplayStrategy, SampledBatch, TransitionId};
+#[cfg(test)]
 use crate::MAX_BUFFER_CAPACITY;
 
 /// A fixed-capacity FIFO replay buffer sampled uniformly with replacement.
@@ -34,29 +35,6 @@ use crate::MAX_BUFFER_CAPACITY;
 /// those baselines, so the contract is enforced by
 /// `test_uniform_replay_draw_order_matches_pinned_contract` below rather than
 /// left as a comment.
-///
-/// # Examples
-///
-/// ```
-/// use rand::SeedableRng;
-/// use rand::rngs::StdRng;
-/// use rlevo_reinforcement_learning::replay::{
-///     ImportanceExponent, ReplayStrategy, UniformReplay,
-/// };
-///
-/// let mut buffer: UniformReplay<u32> = UniformReplay::new(3);
-/// for value in 0..5 {
-///     buffer.push(value);
-/// }
-/// // Capacity 3: values 0 and 1 were evicted.
-/// assert_eq!(buffer.iter().copied().collect::<Vec<_>>(), vec![2, 3, 4]);
-///
-/// let mut rng = StdRng::seed_from_u64(1);
-/// let batch = buffer
-///     .sample(2, ImportanceExponent::ONE, &mut rng)
-///     .expect("enough data");
-/// assert_eq!(batch.len(), 2);
-/// ```
 #[derive(Debug, Clone)]
 pub struct UniformReplay<T> {
     /// Live transitions, oldest at the front.
@@ -72,6 +50,7 @@ pub struct UniformReplay<T> {
 }
 
 impl<T> UniformReplay<T> {
+    #[cfg(test)]
     /// Creates an empty buffer that holds at most `capacity` transitions.
     ///
     /// The backing storage is pre-allocated to `capacity`, matching the
@@ -144,20 +123,6 @@ impl<T> UniformReplay<T> {
     /// Returns the first [`ConfigError`] from
     /// [`UniformReplayConfig::validate`] — a zero `capacity`, or one above
     /// [`MAX_BUFFER_CAPACITY`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rlevo_reinforcement_learning::replay::{UniformReplay, UniformReplayConfig};
-    ///
-    /// let buffer: UniformReplay<u32> =
-    ///     UniformReplay::from_config(UniformReplayConfig { capacity: 32 })?;
-    /// assert_eq!(buffer.capacity(), 32);
-    ///
-    /// // A capacity that would panic in `new` is an `Err` here.
-    /// assert!(UniformReplay::<u32>::from_config(UniformReplayConfig { capacity: 0 }).is_err());
-    /// # Ok::<(), rlevo_core::config::ConfigError>(())
-    /// ```
     pub fn from_config(config: UniformReplayConfig) -> Result<Self, ConfigError> {
         config.validate()?;
         Ok(Self {
@@ -167,6 +132,7 @@ impl<T> UniformReplay<T> {
         })
     }
 
+    #[cfg(test)]
     /// Maximum number of transitions this buffer will hold.
     #[must_use]
     pub fn capacity(&self) -> usize {
@@ -207,18 +173,6 @@ impl<T> ReplayStrategy<T> for UniformReplay<T> {
         self.buffer.get(self.slot_of(id)?)
     }
 
-    fn get_mut(&mut self, id: TransitionId) -> Option<&mut T> {
-        let slot = self.slot_of(id)?;
-        self.buffer.get_mut(slot)
-    }
-
-    fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T>
-    where
-        T: 'a,
-    {
-        self.buffer.iter()
-    }
-
     /// Draws `batch_size` ids uniformly at random, with replacement.
     ///
     /// `beta` is ignored — uniform replay emits no importance-sampling
@@ -256,6 +210,17 @@ impl<T> ReplayStrategy<T> for UniformReplay<T> {
 }
 
 #[cfg(test)]
+impl<T> UniformReplay<T> {
+    /// Iterates the stored transitions, oldest first.
+    pub(crate) fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T>
+    where
+        T: 'a,
+    {
+        self.buffer.iter()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -289,7 +254,7 @@ mod tests {
         let buffer: UniformReplay<u32> = UniformReplay::new(8);
         assert_eq!(buffer.capacity(), 8, "capacity is what new() was given");
         assert_eq!(buffer.len(), 0, "a fresh buffer holds nothing");
-        assert!(buffer.is_empty(), "a fresh buffer reports empty");
+        assert_eq!(buffer.len(), 0, "a fresh buffer reports empty");
     }
 
     #[test]
@@ -420,22 +385,6 @@ mod tests {
         assert!(
             buffer.get(TransitionId::new(5)).is_none(),
             "an id that was never issued must resolve to None"
-        );
-    }
-
-    #[test]
-    fn test_uniform_replay_get_mut_writes_through_to_storage() {
-        let mut buffer = filled(3, 5);
-        let id = TransitionId::new(3);
-        *buffer.get_mut(id).expect("id 3 is live") = 99;
-        assert_eq!(
-            buffer.get(id).copied(),
-            Some(99),
-            "get_mut must alias the same storage get() reads"
-        );
-        assert!(
-            buffer.get_mut(TransitionId::new(0)).is_none(),
-            "get_mut on an evicted id must return None"
         );
     }
 
