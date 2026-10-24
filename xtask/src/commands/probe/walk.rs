@@ -219,6 +219,62 @@ pub const BYOA1B: Walk = Walk {
     ],
 };
 
+/// BYOA-1a: an algorithm author's walk, from an empty directory to a learner
+/// of their own, trained and measured on a shipped environment against a
+/// random baseline.
+///
+/// Its levels are not in step order: the environment (step 5) is built
+/// before the training run (step 4), which needs it.
+pub const BYOA1A: Walk = Walk {
+    prefix: "BYOA-STEP",
+    steps: &[
+        SCAFFOLD,
+        ADD_DEPS,
+        Step {
+            label: "implement-algorithm",
+            fatal: true,
+        },
+        Step {
+            label: "learning-seam",
+            fatal: false,
+        },
+        Step {
+            label: "first-party-env",
+            fatal: true,
+        },
+        Step {
+            label: "baseline",
+            fatal: true,
+        },
+    ],
+    levels: &[
+        Level {
+            feature: None,
+            step: "implement-algorithm",
+            built: Some("the learner implements Agent against public API only"),
+            reports: &[],
+        },
+        Level {
+            feature: Some("env"),
+            step: "first-party-env",
+            built: Some("FrozenLake and TimeLimit reached through rlevo::envs"),
+            reports: &[],
+        },
+        Level {
+            feature: Some("learn"),
+            step: "learning-seam",
+            built: None,
+            reports: &["learning-seam"],
+        },
+        Level {
+            feature: Some("harness"),
+            step: "baseline",
+            built: None,
+            reports: &["baseline"],
+        },
+    ],
+};
+
 /// Learner-1: a learner's walk, from an empty directory to a run of a
 /// listing in the documentation, copied as written.
 pub const LEARNER1: Walk = Walk {

@@ -1,0 +1,22 @@
+[package]
+name = "byoa-1a"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Step 2 of the walk reads this table. `rlevo` is the one crate an author
+# asks for. Every other line is a crate they had to add by hand, with the
+# reason, and is a finding: it leaves this file in the change that makes it
+# unnecessary.
+[dependencies]
+rlevo = "{{rlevo_version}}"
+
+# One feature per level of the walk, each including the one before it. They
+# gate this crate's own modules and never a dependency's feature.
+[features]
+env = []
+learn = ["env"]
+harness = ["learn"]
+
+# Keeps cargo from adopting the probe into a workspace above the scratch root.
+[workspace]
