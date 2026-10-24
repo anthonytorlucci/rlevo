@@ -80,8 +80,7 @@ pub use rlevo_evolution as evo;
 /// [`Evaluator::run_suite`](harness::evaluator::Evaluator::run_suite).
 ///
 /// Always present. It is the harness at its default features, which link no
-/// terminal or report dependency; this crate's `viz-tui` and `viz-report`
-/// features turn those on.
+/// report dependency; this crate's `viz-report` feature turns it on.
 pub use rlevo_harness as harness;
 pub use rlevo_hybrid as hybrid;
 pub use rlevo_reinforcement_learning as rl;

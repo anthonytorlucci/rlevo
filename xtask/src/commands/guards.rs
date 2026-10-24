@@ -45,8 +45,8 @@ use serde_json::Value;
 use tracel_xtask::prelude::*;
 
 /// Packages that are viz or viewer stacks. No published crate reaches one at
-/// its default features: the harness's are behind `tui`, `report` and
-/// `record`, and `rerun` belongs to an adapter crate that is never a default.
+/// its default features: the harness's are behind `report` and `record`, and
+/// `rerun` belongs to an adapter crate that is never a default.
 const VIZ_PACKAGES: &[&str] = &[
     "ratatui",
     "crossterm",
@@ -335,11 +335,7 @@ fn is_viz_gate(entry: &str) -> bool {
             .iter()
             .any(|dep| entry == format!("{dep}/{feature}") || entry == format!("{dep}?/{feature}"))
     };
-    entry.starts_with("viz-")
-        || entry.contains("rerun")
-        || gated("tui")
-        || gated("report")
-        || gated(RECORD)
+    entry.starts_with("viz-") || entry.contains("rerun") || gated("report") || gated(RECORD)
 }
 
 fn umbrella_defaults_carry_no_viz(metadata: &Value) -> Result<Verdict> {
@@ -592,7 +588,7 @@ mod tests {
         let clean = workspace(&[package_with(
             "rlevo",
             &json!([]),
-            &json!({ "default": ["flex"], "flex": ["burn/flex"], "viz-tui": ["rlevo-harness/tui"] }),
+            &json!({ "default": ["flex"], "flex": ["burn/flex"], "viz-report": ["rlevo-harness/report"] }),
         )]);
         assert_eq!(
             umbrella_defaults_carry_no_viz(&clean).unwrap().violations,
@@ -600,7 +596,7 @@ mod tests {
         );
 
         for default in [
-            json!(["viz-tui"]),
+            json!(["viz-report"]),
             json!(["rlevo-harness/report"]),
             json!(["rlevo-environments/record"]),
             json!(["rerun"]),
@@ -608,7 +604,7 @@ mod tests {
             let dirty = workspace(&[package_with(
                 "rlevo",
                 &json!([]),
-                &json!({ "default": default, "viz-tui": ["rlevo-harness/tui"], "rerun": [] }),
+                &json!({ "default": default, "viz-report": ["rlevo-harness/report"], "rerun": [] }),
             )]);
             assert!(
                 !umbrella_defaults_carry_no_viz(&dirty)

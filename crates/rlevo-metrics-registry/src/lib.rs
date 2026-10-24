@@ -1,8 +1,7 @@
 //! Single source of truth for the canonical training-metric registry.
 //!
-//! Both the live-TUI capture layer and the on-disk recording layer in
-//! `rlevo-harness`, *and* the WASM report client
-//! (`rlevo-benchmarks-report-client`), classify metric field names against the
+//! The on-disk recording layer in `rlevo-harness` and the WASM report client
+//! (`rlevo-benchmarks-report-client`) classify metric field names against the
 //! same table. Before ADR-0015 this list was a flat `&[&str]` that was
 //! hand-copied into the report client with no compile-time or test-time guard,
 //! and the client re-derived metric *semantics* (RL-vs-EO grouping, per-update
@@ -22,8 +21,8 @@
 //!
 //! Add one [`MetricDescriptor`] row to [`CANONICAL_METRICS`] and emit a
 //! matching `tracing::info!` field from the algorithm. The single edit makes
-//! the field visible in the live TUI sparklines, the on-disk recording stream,
-//! and the report's RL/EO panel grouping — no client-side change required.
+//! the field visible in the on-disk recording stream and the report's RL/EO
+//! panel grouping — no client-side change required.
 
 #![no_std]
 
@@ -121,7 +120,7 @@ pub struct MetricDescriptor {
     /// How to read the live curve — see [`Trend`]. Defaults to
     /// [`Trend::Diagnostic`] for rows that do not opt into a direction.
     pub trend: Trend,
-    /// One-line interpretation shown beside the title in the live TUI
+    /// One-line interpretation a viewer can show beside the title
     /// (e.g. `"rising = agent learning"`). Empty when the raw title says
     /// enough on its own.
     pub hint: &'static str,

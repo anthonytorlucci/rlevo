@@ -25,8 +25,6 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 serde_json = { version = "1", optional = true }
-ratatui = { version = "0.30", optional = true }
-crossterm = { version = "0.29", optional = true }
 tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["registry", "std"] }
 bincode = { version = "2", optional = true, features = ["serde"] }
 parking_lot = { workspace = true, optional = true }
@@ -44,13 +42,12 @@ tempfile = "3"
 # `rlevo-environments`, which this crate's test module deliberately avoids, and
 # it collects one integer field so it cannot assert the `env` name.
 # Same narrowed feature set as the optional `[dependencies]` entry above, so a
-# test build adds no crate the `tui`/`record` builds do not already link.
+# test build adds no crate the `record` build does not already link.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
 
 [features]
 default = ["json"]
 json = ["dep:serde", "dep:serde_json"]
-tui = ["dep:ratatui", "dep:crossterm", "dep:tracing-subscriber"]
 record = ["dep:bincode", "dep:parking_lot", "dep:toml", "dep:time", "dep:serde", "dep:tracing-subscriber", "dep:rlevo-evolution"]
 # Static-HTML report emitter: random-access loader + single-file inliner.
 # Builds on `record`; adds `base64` for payload inlining and `serde_json`

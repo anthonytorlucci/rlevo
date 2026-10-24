@@ -1,19 +1,14 @@
-//! Styled-output primitives for the report tier's text frames and the live
-//! TUI's styles.
+//! Styled-output primitives for the report tier's text frames.
 //!
 //! These types form the second projection of [`super::AsciiRenderable`]: the
 //! plain method returns a `String` for logs, snapshot tests, and
 //! `FrameRecord.ascii`, while the styled method returns a [`StyledFrame`]
 //! carrying foreground/background colour and modifier hints.
-//! The type set is intentionally a small subset of the ratatui vocabulary so
-//! that `rlevo-core` ships zero terminal-side dependencies. The live TUI
-//! draws no env frames: `rlevo-harness::tui::convert` (behind the `tui`
-//! feature) maps [`Color`], [`Modifier`] and [`SpanStyle`] onto ratatui
-//! styles for its metric panels and theme. [`StyledFrame`] goes to the
-//! report instead: `rlevo-harness`'s `RecordingTap` (behind the `record`
-//! feature) stores it in each `FrameRecord`, and
-//! `rlevo-benchmarks-report-client` renders it as `<pre>` text for frames
-//! without a structured family payload.
+//! The type set is intentionally small and terminal-shaped, so that
+//! `rlevo-core` ships zero terminal-side dependencies. `rlevo-harness`'s
+//! `RecordingTap` (behind the `record` feature) stores a [`StyledFrame`] in
+//! each `FrameRecord`, and `rlevo-benchmarks-report-client` renders it as
+//! `<pre>` text for frames without a structured family payload.
 //!
 //! No truecolor: stick to the 16-colour ANSI palette plus indexed 256-colour.
 //! See [`super::palette`] for the project-wide semantic constants every
@@ -225,8 +220,8 @@ impl SpanStyle {
 /// 16-colour ANSI palette plus indexed 256-colour escape.
 ///
 /// Truecolor (24-bit RGB) is intentionally absent — the library tier keeps
-/// to the portable ANSI subset so that any compliant terminal renders the
-/// live TUI identically.
+/// to the portable ANSI subset, which any compliant terminal renders alike
+/// and the report's stylesheet maps onto CSS classes.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Color {
@@ -346,8 +341,8 @@ impl Modifier {
     }
 
     /// Raw bit value. Intended for renderer-side bit translation (e.g.,
-    /// mapping into `ratatui::style::Modifier`) — not part of the public
-    /// styling contract.
+    /// mapping onto a renderer's own modifier flags) — not part of the
+    /// public styling contract.
     #[must_use]
     pub const fn bits(self) -> u8 {
         self.0

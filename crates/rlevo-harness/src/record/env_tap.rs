@@ -2,20 +2,9 @@
 //! wrapper that drives the
 //! [`RecordSink`] surface from a raw env trajectory.
 //!
-//! Sibling of `env_wrappers::TuiEnvTap` (feature `tui`). The two differ
-//! in the sink they feed:
-//!
-//! - `TuiEnvTap` pushes through a `TuiHandle` channel for the live
-//!   TUI panels (best-effort, lossy on a slow render thread).
-//! - [`RecordingTap`] pushes through an
-//!   [`Arc<Mutex<dyn RecordSink>>`](RecordSink), which the
-//!   [`RecordWriter`] drains to disk. The
-//!   wrapper still owns episode-return + length bookkeeping since no
-//!   harness is involved.
-//!
-//! The two taps compose: `RecordingTap::new(TuiEnvTap::new(env, ...))`
-//! drives the live TUI and the on-disk record from one env without
-//! double-stepping the inner.
+//! It pushes through an [`Arc<Mutex<dyn RecordSink>>`](RecordSink), which
+//! the [`RecordWriter`] drains to disk. The wrapper owns episode-return +
+//! length bookkeeping, since no harness is involved.
 
 use std::sync::Arc;
 
@@ -387,9 +376,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    //! Tests use an in-file stub `Environment + AsciiRenderable` matching
-    //! the `tui_env_tap` pattern: a stub gives the same coverage as a
-    //! real env without pulling the env crate's full test surface.
+    //! Tests use an in-file stub `Environment + AsciiRenderable`: a stub
+    //! gives the same coverage as a real env without pulling the env
+    //! crate's full test surface.
 
     use std::sync::Arc;
 

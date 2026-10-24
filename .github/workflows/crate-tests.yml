@@ -130,11 +130,12 @@ jobs:
   # paper and ran on nothing.
   #
   # Three configurations are checked. Default features miss every
-  # `rlevo-harness` doc behind `tui` / `report` / `record` — 13 broken links
-  # were hiding there — and `--all-features` alone would stop covering any doc
-  # that a feature turns *off*. Neither documents a crate at a partial feature
-  # set, where a link to an item behind another feature breaks: a `tui` doc
-  # linked `RecordingTap`, which exists only under `record`. So each
+  # `rlevo-harness` doc behind `report` / `record` — 13 broken links were
+  # hiding there and behind the since-deleted `tui` — and `--all-features`
+  # alone would stop covering any doc that a feature turns *off*. Neither
+  # documents a crate at a partial feature set, where a link to an item
+  # behind another feature breaks: a `tui` doc linked `RecordingTap`, which
+  # exists only under `record`. So each
   # publishable crate that has features is also documented alone, at no
   # features and at each of its features by itself, `default` among them. The
   # list is read from the manifests, so a new feature is covered when it lands.

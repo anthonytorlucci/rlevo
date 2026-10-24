@@ -2,10 +2,9 @@
 //!
 //! [`AsciiRenderable`] / `StyledFrame` are an env's text projection: logs
 //! and snapshot tests read it, and the recording layer stores it in each
-//! `FrameRecord` for the report's `<pre>` fallback. The live TUI draws no
-//! env frames and consumes neither. When an env opts in, the recording
-//! layer also captures a richer per-family payload, which the report
-//! renders in place of the text. This module defines:
+//! `FrameRecord` for the report's `<pre>` fallback. When an env opts in,
+//! the recording layer also captures a richer per-family payload, which the
+//! report renders in place of the text. This module defines:
 //!
 //! 1. Shared geometry primitives ([`Point2`]).
 //! 2. Three per-family **snapshot** types — pure data, owned by the

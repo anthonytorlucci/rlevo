@@ -2,8 +2,8 @@
 //!
 //! Most assertions in this workspace are about values an algorithm returns.
 //! A few are about what it **emits**: an agent's per-update progress line is
-//! part of its contract, read by the live dashboard, and an agent can satisfy
-//! every numeric assertion while silently logging nothing at all. That is not
+//! part of its contract, read by whoever watches the run, and an agent can
+//! satisfy every numeric assertion while silently logging nothing at all. That is not
 //! hypothetical: PPO and PPG once gated their progress line on a divisibility
 //! test that a short run never passed, and nothing panicked, no metric moved,
 //! and every existing test passed.

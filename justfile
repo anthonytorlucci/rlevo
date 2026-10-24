@@ -33,10 +33,6 @@ coevo-cooperative:
 eda-showcase:
     cargo run --release -p rlevo-examples --example eda_showcase
 
-# TUI example requires feature viz-tui
-tui-ppo-cartpole:
-    cargo run -p rlevo-examples --features viz-tui --example tui_ppo_cartpole
-
 # `trunk build` stamps the wire FORMAT_VERSION into dist/wire-version.txt
 # (Trunk.toml post_build hook); the report emitter refuses a dist/ that lags
 # the source. Every `report-*` recipe depends on this so the bundle is never
@@ -64,11 +60,11 @@ report-sphere: client-build
 
 build-vis-examples:
     cargo build -p rlevo-examples --examples \
-        --features viz-tui,viz-report,box2d,locomotion
+        --features viz-report,box2d,locomotion
 
 clippy-vis-examples:
     cargo clippy -p rlevo-examples --examples \
-        --features viz-tui,viz-report,box2d,locomotion \
+        --features viz-report,box2d,locomotion \
         -- -D warnings
 
 # ── Common checks ────────────────────────────────────────────────────────────

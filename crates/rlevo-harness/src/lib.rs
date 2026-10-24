@@ -14,17 +14,12 @@
 //!   RL metric name constants.
 //! - [`metrics_registry`] — shared registry for metric name constants used
 //!   across evaluator and reporter.
-//! - [`reporter`] — event-sink trait plus `logging`, `json`, and `tui` sinks.
+//! - [`reporter`] — event-sink trait plus `logging` and `json` sinks.
 //! - [`report`] — in-memory report types written by the evaluator.
 //! - [`checkpoint`] — atomic partial-report persistence for crash recovery.
 //! - `record` *(feature `record`)* — per-episode binary recording surface.
-//! - `tui` *(feature `tui`)* — live `ratatui` terminal dashboard.
-//! - `env_wrappers` *(feature `tui`)* — composable env wrappers that emit
-//!   per-episode returns to the metrics-only live TUI (ADR-0013).
 
 pub mod checkpoint;
-#[cfg(feature = "tui")]
-pub mod env_wrappers;
 pub mod evaluator;
 pub mod metrics;
 pub mod metrics_registry;
@@ -35,8 +30,6 @@ pub mod reporter;
 #[doc(hidden)]
 pub mod storage;
 pub mod suite;
-#[cfg(feature = "tui")]
-pub mod tui;
 
 /// Flat crate-root re-export of the drive seam for self-paced work.
 ///

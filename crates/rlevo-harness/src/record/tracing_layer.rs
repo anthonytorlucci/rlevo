@@ -1,11 +1,10 @@
 //! [`RecordingLayer`] — a `tracing` Layer that pushes
 //! [`MetricSample`]s into a [`RecordSink`].
 //!
-//! Counterpart to `tui::log_layer::TuiCaptureLayer` (feature `tui`)
-//! but writes to the record-side sink instead of the TUI channel.
-//! Both layers share the [`crate::metrics_registry::CANONICAL_METRICS`]
-//! registry so a single algorithm `tracing::info!(...)` call lights up
-//! both the live sparklines and the on-disk metrics stream.
+//! It classifies fields against the
+//! [`crate::metrics_registry::CANONICAL_METRICS`] registry, the table the
+//! report client reads, so an algorithm's `tracing::info!(...)` call
+//! reaches the on-disk metrics stream under the name the report charts.
 //!
 //! Step coordinate: an `AtomicU64` increments on every captured event.
 //! When the emitting algorithm includes a numeric `step` field on the

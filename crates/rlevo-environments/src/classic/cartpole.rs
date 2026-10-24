@@ -631,7 +631,7 @@ impl crate::render::AsciiRenderable for CartPole {
 }
 
 impl CartPole {
-    /// Build the styled scene drawn by the live TUI and report tiers.
+    /// Build the styled scene the report tier draws.
     ///
     /// The frame is, top to bottom: [`RENDER_POLE_H`] rows tracing the pole
     /// from tip down to the pivot, one track row carrying the cart glyph,

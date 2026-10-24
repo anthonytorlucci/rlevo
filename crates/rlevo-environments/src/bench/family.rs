@@ -3,7 +3,7 @@
 //! These tie each concrete env type to the [`EnvFamily`] its recordings
 //! belong to, so a driver can derive the family once from the env type
 //! (`RecordingConfig::for_env::<E>` / `E::FAMILY`) instead of restating the
-//! literal at every recording / TUI call site.
+//! literal at every recording call site.
 //!
 //! Gated by the `record` feature — it is the env-side half of the harness's
 //! `record` tier and, like the rest of [`crate::bench`], an opt-in coupling

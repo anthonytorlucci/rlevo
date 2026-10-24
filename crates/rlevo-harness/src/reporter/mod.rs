@@ -9,7 +9,6 @@
 //!
 //! - `logging` — a simple tracing-backed sink (always available)
 //! - `json` — serialises reports to JSON files (requires the `json` feature)
-//! - `tui` — live terminal UI (requires the `tui` feature)
 //!
 //! When a run must drive several sinks simultaneously, wrap them in a
 //! [`MultiReporter`].
@@ -18,9 +17,6 @@ pub mod logging;
 
 #[cfg(feature = "json")]
 pub mod json;
-
-#[cfg(feature = "tui")]
-pub mod tui;
 
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::suite::{SuiteInfo, TrialInfo};
@@ -51,8 +47,8 @@ pub trait Reporter: Send {
 }
 
 /// Fans a single stream of reporter events out to multiple sinks in
-/// insertion order. Used when an execution must drive both a live
-/// reporter (e.g. `TuiReporter`) and a recording reporter
+/// insertion order. Used when an execution must drive both a progress
+/// reporter (e.g. `LoggingReporter`) and a recording reporter
 /// (e.g. `RecordingReporter`) from the same suite run.
 pub struct MultiReporter {
     reporters: Vec<Box<dyn Reporter>>,
